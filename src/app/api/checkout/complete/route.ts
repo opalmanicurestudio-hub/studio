@@ -173,7 +173,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       if (!acct.open) return json({ ok: false, error: 'That student isn’t enrolled yet — their down payment is taken on their application link.' }, 400);
       price = Math.round(num(it.price) * 100) / 100; if (!(price > 0)) return json({ ok: false, error: 'Enter the tuition amount they’re paying.' }, 400);
       if (Math.round(price * 100) > acct.balanceCents) return json({ ok: false, error: `That’s more than they owe ($${(acct.balanceCents / 100).toFixed(2)}).` }, 400);
-      name = `Tuition — ${acct.name} · ${acct.program}`; (it as any).__tacct = acct; }
+      name = `Tuition — ${acct.name} · ${acct.program}`; (it as any).__tacct = { ...acct, __apply: (it as any).tuitionApply === 'paydown' ? 'paydown' : 'ahead' }; }
     else if (type === 'rent') { const acct: any = await renterAccount(db, T, String(it.renterId || '')); if (!acct) return json({ ok: false, error: 'That renter wasn’t found.' }, 400);
       price = Math.round(num(it.price) * 100) / 100; if (!(price > 0) || price > 20000) return json({ ok: false, error: 'Enter the rent amount they’re paying.' }, 400);
       name = `Rent — ${acct.name}${acct.booth?.name ? ` · ${acct.booth.name}` : ''}`; (it as any).__acct = acct; }
@@ -429,7 +429,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // Tuition: the Academy's audited, add-only ledger (it writes on its own, so it follows the saved sale).
   const tuitionPayments: any[] = [];
   for (const it of items.filter((x: any) => x.type === 'tuition' && x.__tacct)) {
-    try { tuitionPayments.push(await applyTuitionPayment(db, tenantId, it.__tacct, { amountCents: Math.round(it.price * it.quantity * 100), method: String(method), receiptId: receiptRef.id, by: auth.actor.name || 'Front desk' })); }
+    try { tuitionPayments.push(await applyTuitionPayment(db, tenantId, it.__tacct, { amountCents: Math.round(it.price * it.quantity * 100), method: String(method), receiptId: receiptRef.id, by: auth.actor.name || 'Front desk', apply: it.__tacct.__apply })); }
     catch (e: any) { console.error('[checkout] tuition ledger', e); warnings.push(`The payment was taken, but ${it.__tacct.name}’s tuition ledger didn’t update — record it on their Academy account.`); }
   }
   if (tuitionPayments.length) await receiptRef.set({ reversal: { tuitionPayments } }, { merge: true }).catch(() => {});
@@ -460,7 +460,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     if (it.type === 'rent' && it.__acct) { const r: any = rentPayments[rentIdx++] || {}; const paid = Math.round(num(it.price) * 100); const acct = it.__acct;
       const owedBefore = acct.usesInvoices ? num(acct.invoiceOwedCents) : num(acct.owedCents);
       outcomes.push({ kind: 'rent', renterId: acct.renter?.id || null, name: acct.name, paidCents: paid, owedAfterCents: Math.max(0, owedBefore - paid), creditCents: num(r.creditCents) }); }
-    else if (it.type === 'tuition' && it.__tacct) outcomes.push({ kind: 'tuition', name: it.__tacct.name, program: it.__tacct.program || null, paidCents: Math.round(num(it.price) * 100), remainingCents: Math.max(0, num(it.__tacct.balanceCents) - Math.round(num(it.price) * 100)) });
+    else if (it.type === 'tuition' && it.__tacct) outcomes.push({ kind: 'tuition', planId: it.__tacct.plan?.id || null, apply: it.__tacct.__apply, name: it.__tacct.name, program: it.__tacct.program || null, paidCents: Math.round(num(it.price) * 100), remainingCents: Math.max(0, num(it.__tacct.balanceCents) - Math.round(num(it.price) * 100)) });
     else if (it.type === 'membership' || it.type === 'package') outcomes.push({ kind: it.type, name: it.name });
     else if (it.type === 'rental' && it.reservationId) outcomes.push({ kind: 'booth', name: it.name, reservationId: it.reservationId });
     else if (it.type === 'product') { if (!outcomes.some((o) => o.kind === 'retail')) outcomes.push({ kind: 'retail' }); }
