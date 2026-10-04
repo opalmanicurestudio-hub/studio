@@ -84,6 +84,11 @@ export async function POST(req: NextRequest) {
       if (e.type === 'payment' && e.status !== 'refunded' && Date.parse(e.createdAt || e.paidAt || '') >= dayAgo && !out.recent.some((x: any) => x.receiptId && x.receiptId === e.receiptId))
         out.recent.push({ what: `Rent (${String(e.method || '').replace(/_/g, ' ') || 'payment'})`, cents: Math.abs(num(e.amountCents)), at: e.createdAt || e.paidAt });
     out.recent.sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
+    // For collecting when they're not here: their saved card, and the business's rule for charging it.
+    out.cards = [];
+    for (const clientId of ids('clientIds')) { const c: any = (await db.doc(`${T}/clients/${clientId}`).get()).data() || {}; const k = c.cardOnFile || {};
+      if (k.customerId && k.paymentMethodId) out.cards.push({ clientId, brand: k.brand || 'Card', last4: k.last4 || null }); }
+    const { cardChargeRule } = await import('@/lib/fee-pay'); out.chargeRule = cardChargeRule(tenant); out.isManager = !!(auth.actor.isManager || auth.actor.isTenantOwner);
     return NextResponse.json({ ok: true, ...out });
   }
   if (b.action === 'itemise-balance') {
