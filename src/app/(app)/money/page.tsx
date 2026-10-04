@@ -1,5 +1,6 @@
 'use client';
 
+import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -2681,6 +2682,8 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
             ))}
           </div>
         </div>
+
+        {tenantId && <RestockingFundCard tenantId={tenantId} />}
 
         {/* ── KPI grid ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
