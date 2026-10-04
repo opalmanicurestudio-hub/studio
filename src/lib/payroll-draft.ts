@@ -64,6 +64,11 @@ export async function buildPayrollDraft(
   ]);
 
   const tenant = (tenantSnap.data() as any) || {};
+  // Tip sharing (tip-outs / pool): payroll pays each person's APPROVED share for the periods inside this pay period.
+  const sharing = String(tenant.tipSharing?.mode || 'direct'); const approvedTips = new Map<string, number>();
+  if (sharing !== 'direct') { const runs = await db.collection(`tenants/${tenantId}/tipShareRuns`).where('status', '==', 'approved').get();
+    for (const d of runs.docs) { const r: any = d.data() || {}; if (String(r.start || '') < periodStart.toISOString() || String(r.end || '') > periodEnd.toISOString()) continue;
+      for (const x of r.rows || []) approvedTips.set(x.staffId, (approvedTips.get(x.staffId) || 0) + (Number(x.shareCents) || 0) / 100); } }
   // ── A BOOTH RENTER IS NOT ON YOUR PAYROLL ──────────────────────────────
   // Renters share the staff collection because the booking engine needs one
   // provider record per person. That is a storage decision; it must never
@@ -91,7 +96,7 @@ export async function buildPayrollDraft(
     const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income');
     const serviceRevenue = mine.filter((t: any) => t.category === 'Service Revenue').reduce((s: number, t: any) => s + t.amount, 0);
     const retailSales = mine.filter((t: any) => t.category === 'Retail').reduce((s: number, t: any) => s + t.amount, 0);
-    const tips = mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
+    const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
 
     let commission = 0, regularHours = 0;
     if (member.payStructure === 'commission') {
