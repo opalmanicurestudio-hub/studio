@@ -13,6 +13,7 @@
  *    Nothing is hidden behind a step wizard.
  */
 
+import { costGap } from '@/lib/product-cost';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -678,6 +679,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             <section className="space-y-3">
               <SectionLabel>Products it uses</SectionLabel>
+              {(() => { const gaps = selectedProducts.map((p: any) => ({ p, it: (inventory || []).find((x: any) => x.id === p.id || x.id === p.productId) })).map(({ p, it }: any) => ({ name: it?.name || p.name || 'Product', gap: costGap(it) })).filter((x: any) => x.gap);
+                return gaps.length ? <p className="mb-3 rounded-2xl px-4 py-3 text-[13px]" style={{ background: 'rgba(180,83,9,.1)', color: '#8a3f06' }}>{gaps.length === 1 ? `${gaps[0].name} has ${gaps[0].gap} — the margin above and the restocking fund can’t count it yet.` : `${gaps.length} products can’t be counted yet (${gaps.map((g: any) => `${g.name}: ${g.gap}`).join('; ')}).`} Fix them in Inventory.</p> : null; })()}
               <InlineSearchPanel
                 label="Products"
                 icon={Package}
