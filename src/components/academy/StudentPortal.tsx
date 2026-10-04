@@ -32,7 +32,7 @@ const S = {
   hello: 'Hello', language: 'Language', clockedIn: 'Clocked in since', notClockedIn: 'Not clocked in', scanToClock: 'Scan the code at the front desk to clock in or out.',
   duty: 'Your duty today', noDuty: 'No duty assigned today', week: 'This week', clinicToday: 'Your clinic clients today', noClinic: 'No clinic clients booked today',
   signedOff: 'signed off', continueLearning: 'Continue learning', lessonsDone: 'lessons done', open: 'Open',
-  paymentFailed: 'Your last tuition payment didn’t go through', updateCard: 'Update card', payNow: 'Pay now', nextPayment: 'Next payment', onAutopay: 'on autopay',
+  paymentFailed: 'Your last tuition payment didn’t go through', updateCard: 'Update card', payNow: 'Pay now', nextPayment: 'Next payment', paidAhead: 'already paid ahead', onAutopay: 'on autopay',
   redo: 'Please upload again', announcements: 'Announcements', gotIt: 'Got it', addToCalendar: 'Add to calendar', messages: 'Messages', newMessages: 'new messages',
   courses: 'Your courses', start: 'Start', cont: 'Continue', program: 'Your program', servicesDone: 'Services signed off',
   total: 'Total', online: 'Online', live: 'Live classes', inPerson: 'In person', of: 'of', attendance: 'Attendance history', progressChecks: 'Progress checks', onlineByWeek: 'Online learning by week', minutes: 'min',
@@ -174,7 +174,7 @@ function Today({ p, w, lang, tenantId, color, go, reload }: any) {
         <Card title={w.continueLearning}><p className="text-lg font-semibold">{p.next.title}</p><p className="text-sm text-stone-500">{p.next.done} {w.of} {p.next.total} {w.lessonsDone}</p>
           <Link href={p.next.lessonId ? `/learn/${tenantId}/${p.next.slug}/${p.next.lessonId}` : `/learn/${tenantId}/${p.next.slug}`} className="mt-2 inline-block rounded-full px-5 py-2.5 text-sm font-medium text-white" style={{ background: color }}>{w.cont} →</Link></Card>
       )}
-      {next && <Card title={w.nextPayment}><p className="text-[15px]"><b>{usd(Math.min(next.installmentCents, next.balanceCents))}</b> · {fmt(next.nextDueAt, lang, { weekday: 'short', month: 'short', day: 'numeric' })}{next.autopay ? ` · ${w.onAutopay}` : ''}</p></Card>}
+      {next && <Card title={w.nextPayment}><p className="text-[15px]"><b>{usd(Math.max(0, Math.min(next.installmentCents, next.balanceCents) - (next.prepaidCents || 0)))}</b>{(next.prepaidCents || 0) > 0 ? ` (${usd(next.prepaidCents)} ${w.paidAhead})` : ''} · {fmt(next.nextDueAt, lang, { weekday: 'short', month: 'short', day: 'numeric' })}{next.autopay ? ` · ${w.onAutopay}` : ''}</p></Card>}
       {p.unread > 0 && <button type="button" onClick={() => go('inbox')} className="glass w-full rounded-[1.5rem] border border-white/70 p-4 text-left"><b>💬 {p.unread}</b> {w.newMessages}</button>}
       {p.announcements.length > 0 && (
         <Card title={w.announcements}>{p.announcements.map((a: any, i: number) => <AnnouncementItem key={a.id || i} a={a} title={tr ? tr[i * 2] : a.title} body={tr ? tr[i * 2 + 1] : a.body} dateText={fmt(a.at, lang)} translated={!!tr} school={p.brand?.name || ''} color={color} words={w} onAck={async (id) => { await api({ action: 'announcement-ack', tenantId, token: getToken(tenantId), id }); await reload?.(); }} />)}</Card>
