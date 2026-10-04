@@ -1306,103 +1306,19 @@ export default function RentRollPage() {
     setRunning(false);
   };
 
+  // One rent record: the cycle runs on the server — an invoice for every due date that doesn't have one, and the old
+  // ledger charges folded into invoices. It never creates a second invoice for the same due date.
   const runRentCycle = async () => {
-    if (!firestore) return;
-    setRunning(true);
-    setCycleResult(null);
+    if (!tenantId) return;
+    setRunning(true); setCycleResult(null);
     try {
-      const batch = writeBatch(firestore);
-      const ledgerCollection = collection(
-        firestore,
-        BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)
-      );
-      const now = new Date().toISOString();
-      let chargesCreated = 0;
-      let lateFeesCreated = 0;
-
-      for (const lease of activeLeases) {
-        const entries = (ledger ?? []).filter((e) => e.leaseId === lease.id);
-        const existingChargeDates = new Set(
-          entries
-            .filter((e) => e.type === 'rent_charge')
-            .map((e) => e.dueDate ?? '')
-        );
-
-        const dueDates = enumerateDueDates(lease, todayIso);
-        for (const dueDate of dueDates) {
-          if (existingChargeDates.has(dueDate)) continue;
-          const newRef = doc(ledgerCollection);
-          batch.set(newRef, {
-            leaseId: lease.id,
-            renterId: lease.renterId,
-            boothId: lease.boothId,
-            type: 'rent_charge',
-            status: 'pending',
-            amountCents: lease.rentAmountCents,
-            description: `Rent — due ${dueDate}`,
-            dueDate,
-            paidAt: null,
-            method: null,
-            stripePaymentIntentId: null,
-            appliesToEntryIds: [],
-            createdBy: 'system',
-            createdAt: now,
-            updatedAt: now,
-          });
-          chargesCreated += 1;
-        }
-
-        const grace = lease.lateFeePolicy?.graceDays ?? 0;
-        const pastDueCharges = getPastDueEntries(
-          entries.filter((e) => e.type === 'rent_charge'),
-          grace,
-          todayIso
-        );
-        const existingFeeTargets = new Set(
-          entries
-            .filter((e) => e.type === 'late_fee')
-            .flatMap((e) => e.appliesToEntryIds ?? [])
-        );
-        for (const charge of pastDueCharges) {
-          if (existingFeeTargets.has(charge.id)) continue;
-          const feeCents = computeLateFeeCents(
-            lease.lateFeePolicy,
-            charge.amountCents
-          );
-          if (feeCents <= 0) continue;
-          const feeRef = doc(ledgerCollection);
-          batch.set(feeRef, {
-            leaseId: lease.id,
-            renterId: lease.renterId,
-            boothId: lease.boothId,
-            type: 'late_fee',
-            status: 'pending',
-            amountCents: feeCents,
-            description: `Late fee — rent due ${charge.dueDate}`,
-            dueDate: todayIso,
-            paidAt: null,
-            method: null,
-            stripePaymentIntentId: null,
-            appliesToEntryIds: [charge.id],
-            createdBy: 'system',
-            createdAt: now,
-            updatedAt: now,
-          });
-          lateFeesCreated += 1;
-        }
-      }
-
-      if (chargesCreated > 0 || lateFeesCreated > 0) {
-        await batch.commit();
-        setCycleResult(
-          `Created ${chargesCreated} rent charge${chargesCreated === 1 ? '' : 's'} and ${lateFeesCreated} late fee${lateFeesCreated === 1 ? '' : 's'}.`
-        );
-      } else {
-        setCycleResult('Everything is up to date — no new charges due.');
-      }
-    } finally {
-      setRunning(false);
-    }
+      const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+      const r: any = await fetch('/api/rent/cycle', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }).then((x) => x.json()).catch(() => null);
+      if (!r?.ok) { setCycleResult(r?.error || 'That didn’t run — try again.'); return; }
+      const bits: string[] = []; if (r.created) bits.push(`${r.created} invoice${r.created === 1 ? '' : 's'} created${r.late ? ` (${r.late} already late)` : ''}`);
+      if (r.migrated?.charges || r.migrated?.fees) bits.push(`${r.migrated.charges} older charge${r.migrated.charges === 1 ? '' : 's'} and ${r.migrated.fees} late fee${r.migrated.fees === 1 ? '' : 's'} moved onto invoices`);
+      setCycleResult(bits.length ? `${bits.join('; ')}.` : 'Everything is up to date — nothing new due.');
+    } finally { setRunning(false); }
   };
 
   const openPaymentDialog = (renter: Renter) => {
