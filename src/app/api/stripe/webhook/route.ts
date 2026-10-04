@@ -193,6 +193,8 @@ export async function POST(req: NextRequest) {
                   savedAt:         new Date().toISOString(),
                 },
               }, { merge: true });
+              // The card-on-file wording this client accepted (the booking page states it; the charge records point here).
+              try { const { recordConsent, cardOnFileWording } = await import('@/lib/consent'); await recordConsent(db, tenant.id, { clientId, kind: 'card_on_file', text: cardOnFileWording(String((tenant as any)?.name || (tenant as any)?.ref?.name || 'the business')), via: 'booking deposit', ref: appointmentId || null }); } catch { /* fine */ }
             } catch (e) {
               console.error('[connect-webhook] Could not vault card for deposit', e);
             }
