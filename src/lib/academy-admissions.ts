@@ -219,9 +219,9 @@ export async function chargeDueInstallments() {
 /** What's coming: the remaining instalments with dates and amounts. */
 export function upcomingPayments(p: any, balanceCents: number) {
   const out: { n: number; dueAt: string; amountCents: number }[] = [];
-  let left = balanceCents; let due = p.nextDueAt;
+  let left = balanceCents; let due = p.nextDueAt; let ahead = Math.max(0, Number(p.prepaidCents) || 0);   // paid ahead comes off the next one
   for (let n = p.installmentsPaid + 1; n <= p.installmentsTotal && left > 0 && due; n++) {
-    const amt = n === p.installmentsTotal ? left : Math.min(left, p.installmentCents);
+    const amt = n === p.installmentsTotal ? left : Math.min(left, Math.max(0, p.installmentCents - ahead)); ahead = 0;
     out.push({ n, dueAt: due, amountCents: amt }); left -= amt; due = addInterval(due, p.interval);
   }
   return out;
