@@ -64,17 +64,24 @@ export function HelpDesk() {
   const [err, setErr] = useState('');
   const [mine, setMine] = useState<any[] | null>(null);
   const [reply, setReply] = useState<Record<string, string>>({});
-  const [issuePrompt, setIssuePrompt] = useState(false);   // "Something didn't load properly" — offered at most every 10 min
+  const [issuePrompt, setIssuePrompt] = useState<null | 'data' | 'update' | 'error'>(null);   // what actually went wrong, when it matters
+  // Noise that never affects what the person sees — recorded for diagnostics, never a banner.
+  const harmless = (m: string) => /ResizeObserver loop|AbortError|The operation was aborted|Script error\.?$|Load failed|NetworkError when attempting to fetch|Failed to fetch|Network request failed|cancelled|canceled|signal is aborted|play\(\) request was interrupted|Non-Error promise rejection captured|ServiceWorker|Hydration|hydrat|Minified React error #4(18|23|25)/i.test(m);
+  const isUpdate = (m: string) => /ChunkLoadError|Loading chunk|Loading CSS chunk|dynamically imported module|Importing a module script failed/i.test(m);
 
   // The recorder: last 10 errors, with the page they happened on.
   useEffect(() => {
     const push = (message: string) => {
       const list: Err[] = W.__cfErrors || (W.__cfErrors = []);
-      list.push({ at: new Date().toISOString(), message: String(message || 'Unknown error').slice(0, 300), page: window.location.pathname });
+      const msg = String(message || 'Unknown error').slice(0, 300);
+      list.push({ at: new Date().toISOString(), message: msg, page: window.location.pathname });
       if (list.length > 10) list.shift();
-      // Offer an account check — politely, at most once every 10 minutes, never on the check itself.
+      if (harmless(msg)) return;   // recorded, never shown
+      const kind: 'data' | 'update' | 'error' = isUpdate(msg) ? 'update' : /^Couldn.t load:/.test(msg) ? 'data' : 'error';
+      // An app update that this tab hasn't picked up yet (a stale chunk) is fixed by reloading — say so straight away.
+      // Anything else: at most once every 10 minutes, never on the check itself.
       try { const last = Number(localStorage.getItem('cf_issue_prompt_at') || 0);
-        if (window.location.pathname !== '/diagnostics' && Date.now() - last > 10 * 60000) { localStorage.setItem('cf_issue_prompt_at', String(Date.now())); setIssuePrompt(true); } } catch { /* ignore */ }
+        if (kind === 'update' || (window.location.pathname !== '/diagnostics' && Date.now() - last > 10 * 60000)) { localStorage.setItem('cf_issue_prompt_at', String(Date.now())); setIssuePrompt(kind); } } catch { /* ignore */ }
     };
     // Database refusals arrive on the app's own channel, not as browser errors — record them too.
     const onDenied = (e: any) => push(`Couldn’t load: ${String(e?.request?.path || e?.message || 'data').slice(0, 200)}`);
@@ -119,11 +126,13 @@ export function HelpDesk() {
 
   if (!open) return issuePrompt ? (
     <div role="status" className="fixed inset-x-3 bottom-24 z-[70] mx-auto max-w-md rounded-3xl border border-stone-200 bg-white/95 p-4 shadow-xl backdrop-blur md:bottom-6">
-      <p className="text-[15px] font-semibold">Something didn’t load properly</p>
-      <p className="mt-0.5 text-[13px] text-stone-600">A quick account check can often fix it — and if not, send it to us with one tap.</p>
+      <p className="text-[15px] font-semibold">{issuePrompt === 'update' ? 'The app has been updated' : issuePrompt === 'data' ? 'Some information couldn’t be loaded' : 'Something went wrong on this page'}</p>
+      <p className="mt-0.5 text-[13px] text-stone-600">{issuePrompt === 'update' ? 'Reload to get the latest version — nothing is lost.' : issuePrompt === 'data' ? 'Your account may not have access to part of this page yet, or the database rules need publishing. A quick check will say which.' : 'If something looks missing, a quick check can often fix it — and you can send it to us with one tap.'}</p>
       <div className="mt-3 flex gap-2">
-        <a href="/diagnostics" onClick={() => setIssuePrompt(false)} className="flex h-10 items-center rounded-full bg-stone-900 px-4 text-[13px] font-semibold text-white">Check &amp; send to support</a>
-        <button type="button" onClick={() => setIssuePrompt(false)} className="h-10 rounded-full px-4 text-[13px] text-stone-600">Dismiss</button>
+        {issuePrompt === 'update'
+          ? <button type="button" onClick={() => window.location.reload()} className="flex h-10 items-center rounded-full bg-stone-900 px-4 text-[13px] font-semibold text-white">Reload</button>
+          : <a href="/diagnostics" onClick={() => setIssuePrompt(null)} className="flex h-10 items-center rounded-full bg-stone-900 px-4 text-[13px] font-semibold text-white">Check &amp; send to support</a>}
+        <button type="button" onClick={() => setIssuePrompt(null)} className="h-10 rounded-full px-4 text-[13px] text-stone-600">Dismiss</button>
       </div>
     </div>) : null;
   const errors = recorded();
