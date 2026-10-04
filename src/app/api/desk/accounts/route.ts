@@ -1,0 +1,68 @@
+// src/app/api/desk/accounts/route.ts — "TAKE A PAYMENT": everything one person owes, in one place (staff).
+//   { action: 'directory' }  → renters and enrolled students to search alongside the till's clients
+//   { action: 'person', clientIds, renterIds, planIds } → their accounts: rent (owed now, credit, next), tuition (next
+//       instalment after anything paid ahead, balance), unpaid client fees, deposits owed for upcoming bookings, and
+//       money the studio owes THEM (front-desk collections) — shown so nobody asks them to pay it.
+// Amounts here are for choosing; the checkout re-checks every one on the server when the sale is saved.
+import { NextRequest, NextResponse } from 'next/server';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { verifyStaffActor } from '@/lib/staff-auth';
+import { renterAccount } from '@/lib/rent-desk';
+import { tuitionAccount, TUITION_OPEN } from '@/lib/tuition-desk';
+import { rentOutlook } from '@/lib/rent-outlook';
+import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+export const dynamic = 'force-dynamic';
+
+const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+const digits = (p: any) => String(p || '').replace(/\D/g, '').slice(-10);
+
+export async function POST(req: NextRequest) {
+  const b: any = await req.json().catch(() => ({})); const tenantId = String(b.tenantId || '').slice(0, 80);
+  const auth: any = tenantId ? await verifyStaffActor(req, tenantId) : null;
+  if (!auth?.ok) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });
+  const db = getAdminDb(); const T = `tenants/${tenantId}`; const tenant: any = (await db.doc(T).get()).data() || {};
+  // Who can see other people's balances (Settings → team permissions). Default: everyone who works the desk.
+  const allowed: string[] = Array.isArray(tenant.accountPaymentRoles) && tenant.accountPaymentRoles.length ? tenant.accountPaymentRoles : ['owner', 'admin', 'manager', 'staff', 'front_desk', 'reception'];
+  if (!auth.actor.isTenantOwner && !allowed.includes(String(auth.actor.role || '').toLowerCase())) return NextResponse.json({ ok: false, error: 'Taking account payments isn’t part of your role here.' }, { status: 403 });
+
+  if (b.action === 'directory') {
+    const mods = tenant.modules || {};
+    const renters = mods.booth_rental === false ? [] : (await db.collection(`${T}/renters`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+      .filter((r: any) => !['former', 'archived', 'removed'].includes(String(r.status || '')))
+      .map((r: any) => ({ renterId: r.id, clientId: r.clientId || null, name: [r.firstName, r.lastName].filter(Boolean).join(' ') || r.name || 'Renter', email: String(r.email || '').toLowerCase() || null, phone4: digits(r.phone).slice(-4) || null, phoneKey: digits(r.phone) || null }));
+    const students = mods.academy === false ? [] : (await db.collection(`${T}/tuitionPlans`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+      .filter((p: any) => TUITION_OPEN.includes(String(p.status || '')))
+      .map((p: any) => ({ planId: p.id, clientId: p.studentId || null, name: p.name || 'Student', email: String(p.email || '').toLowerCase() || null, phone4: digits(p.phone).slice(-4) || null, phoneKey: digits(p.phone) || null }));
+    return NextResponse.json({ ok: true, renters, students });
+  }
+
+  if (b.action === 'person') {
+    const ids = (k: string) => (Array.isArray(b[k]) ? b[k].map(String).slice(0, 5) : []);
+    const today = todayIn(tenantTimeZone(tenant)); const out: any = { rent: [], tuition: [], fees: [], deposits: [], owedToThem: [] };
+    for (const renterId of ids('renterIds')) {
+      const acct: any = await renterAccount(db, T, renterId); if (!acct) continue;
+      const invoices = (await db.collection(`${T}/rentInvoices`).where('renterId', '==', renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+      const ledger = (await db.collection(`${T}/rentLedger`).where('renterId', '==', renterId).get()).docs.map((d: any) => d.data() || {});
+      const o = rentOutlook({ lease: acct.lease, renter: acct.renter, invoices, ledger, todayIso: today });
+      const owedNow = acct.usesInvoices ? o.owedNowCents : num(acct.owedCents);
+      const late = invoices.filter((i: any) => i.status === 'late').reduce((n: number, i: any) => n + num(i.lateFeeCents), 0);
+      out.rent.push({ renterId, name: acct.name, booth: acct.booth?.name || null, owedNowCents: owedNow, lateFeeCents: late, creditCents: o.creditCents, nextDue: o.nextDue, nextRentCents: o.nextRentCents, nextAfterCreditsCents: o.nextAfterCreditsCents, autopayOn: o.autopayOn });
+      const owedToThem = ledger.filter((e: any) => e.type === 'desk_collected' && e.status === 'owed').reduce((n: number, e: any) => n + num(e.amountCents), 0);
+      if (owedToThem > 0) out.owedToThem.push({ renterId, name: acct.name, cents: owedToThem });
+    }
+    for (const planId of ids('planIds')) {
+      const acct: any = await tuitionAccount(db, tenantId, planId); if (!acct || !acct.open || acct.balanceCents <= 0) continue;
+      const p = acct.plan; const inst = num(p.installmentCents); const nextCents = Math.max(0, Math.min(acct.balanceCents, inst || acct.balanceCents) - num(p.prepaidCents));
+      out.tuition.push({ planId, name: acct.name, program: acct.program, balanceCents: acct.balanceCents, installmentCents: inst, nextCents, nextDue: p.nextDueAt || null, pastDue: p.status === 'past_due', prepaidCents: num(p.prepaidCents), autopayOn: p.autopay === true && !!p.paymentMethodId });
+    }
+    for (const clientId of ids('clientIds')) {
+      const c: any = (await db.doc(`${T}/clients/${clientId}`).get()).data(); if (!c) continue;
+      for (const f of (Array.isArray(c.unpaidFees) ? c.unpaidFees : [])) if (num(f.feeAmount) > 0) out.fees.push({ clientId, feeId: f.feeId, cents: Math.round(num(f.feeAmount) * 100), reason: String(f.reason || 'Fee').replace(/\s*[—–-]\s*(auto-charge failed|card declined|no card on file|payments not connected).*$/i, ''), date: f.appointmentDate || null });
+      const appts = (await db.collection(`${T}/appointments`).where('clientId', '==', clientId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+      for (const a of appts) if (a.status === 'pending_payment' && Date.parse(a.startTime || '') > Date.now() && num(a.depositAmountCents || a.depositCents) > 0)
+        out.deposits.push({ clientId, appointmentId: a.id, cents: num(a.depositAmountCents || a.depositCents), service: a.serviceName || 'Booking', startTime: a.startTime, holdUntil: a.paymentDueAt || a.depositDueAt || null });
+    }
+    return NextResponse.json({ ok: true, ...out });
+  }
+  return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+}
