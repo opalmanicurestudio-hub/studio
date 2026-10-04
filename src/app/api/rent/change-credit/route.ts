@@ -42,5 +42,9 @@ export async function POST(req: NextRequest) {
   await rRef.set({ changeKept: { cents, toward: label, transactionId: tx.id, at: now, by } }, { merge: true });
   // The cash stays in the till, so the till expects it.
   if (receipt.tillId) await db.doc(`${T}/tillSessions/${receipt.tillId}`).set({ expectedCash: FieldValue.increment(cents / 100), totalCashSales: FieldValue.increment(cents / 100) }, { merge: true });
+  try { const { sendAccountReceipt } = await import('@/lib/account-receipts'); const tenant: any = (await db.doc(T).get()).data() || {};
+    if (label === 'tuition') { const acct: any = await tuitionAccount(db, tenantId, String(b.planId || '')); await sendAccountReceipt(db, tenantId, tenant, { kind: 'tuition', id: String(b.planId), amountCents: cents, remainingCents: acct?.balanceCents || 0 }); }
+    else { const acct: any = await renterAccount(db, T, String(b.renterId || '')); await sendAccountReceipt(db, tenantId, tenant, { kind: 'rent', id: String(b.renterId), amountCents: cents, owedAfterCents: acct?.usesInvoices ? acct.invoiceOwedCents : acct?.owedCents || 0 }); }
+  } catch { /* the credit stands either way */ }
   return NextResponse.json({ ok: true, cents, toward: label });
 }
