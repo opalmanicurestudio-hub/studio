@@ -1495,6 +1495,8 @@ export type Resource = {
   isOutOfService?: boolean;
   amenities?: string[];
   maintenanceNotes?: string;
+  /** Rent it out by the hour / day with no provider — mirrored into the rental engine as one space per unit of capacity. */
+  rental?: { enabled: boolean; hourlyCents?: number; dailyCents?: number; graceMinutes?: number; blockMinutes?: number; minMinutes?: number };
 };
 
 export type Bill = BillDefinition;
