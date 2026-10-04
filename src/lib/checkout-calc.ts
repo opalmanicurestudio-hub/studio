@@ -37,7 +37,10 @@ export function computeCheckout(i: CalcInput) {
     // A renter's visit is theirs: priced at THEIR price (the studio's service price can differ).
     const renterStaff = a.isRenterBooking === true ? staffById(a.renterProviderId || mainStaffId) : staffById(mainStaffId)?.isRenter === true ? staffById(mainStaffId) : null;
     const renter = !!renterStaff || a.isRenterBooking === true;
-    const mainPrice = mainRedeemed ? 0 : renter && a.renterServicePrice != null ? num(a.renterServicePrice) : num(getServicePrice(v.service, staffById(mainStaffId)));
+    // A member price, when the client has an active membership and the service has one (never for a renter's service).
+    const isMember = !!(i.client?.activeMembershipId || i.client?.subscription?.membershipId);
+    const listPrice = num(getServicePrice(v.service, staffById(mainStaffId)));
+    const mainPrice = mainRedeemed ? 0 : renter && a.renterServicePrice != null ? num(a.renterServicePrice) : isMember && num(v.service?.memberPrice) > 0 ? Math.min(listPrice, num(v.service.memberPrice)) : listPrice;
     const addOns = (v.addOnServices || []).map((ad: any) => { const sid = overrides[ad.id] || a.staffId; const redeemed = i.redeemedOffer?.itemId === ad.id; return { addon: ad, staffId: sid, redeemed, price: redeemed ? 0 : num(getServicePrice(ad, staffById(sid))) }; });
     const waived = (i.waivedIds || []).includes(a.id);
     const adj = cs.adjustments;
@@ -48,7 +51,10 @@ export function computeCheckout(i: CalcInput) {
     const addOnSum = addOns.reduce((s: number, x: any) => s + x.price, 0);
     servicesSub += mainPrice + addOnSum + rescheduleFee + timeOverage + materialOverage + additionalCharge + refreshSum;
     if (renter) renterSub += mainPrice + addOnSum;   // their sale: no studio tax, no studio discounts
-    taxableServices += (renter ? 0 : mainPrice + addOnSum) + timeOverage + materialOverage + additionalCharge + refreshSum;   // not the reschedule fee
+    // Tax: a service (or add-on) marked "not taxed" stays out of the taxable total; extra time / product follow the main service.
+    const taxedMain = renter || v.service?.taxExempt === true ? 0 : mainPrice;
+    const taxedAddOns = renter ? 0 : addOns.reduce((s: number, x: any) => s + (x.addon?.taxExempt === true ? 0 : x.price), 0);
+    taxableServices += taxedMain + taxedAddOns + (v.service?.taxExempt === true ? 0 : timeOverage + materialOverage) + additionalCharge + refreshSum;   // not the reschedule fee
     visits.push({ appointmentId: a.id, mainStaffId, mainPrice, mainRedeemed, addOns, rescheduleFee, timeOverage, materialOverage, additionalCharge, refreshments, waived, renter, renterStaffId: renter ? (renterStaff?.id || a.renterProviderId || mainStaffId) : null });
   }
   const retailSub = (i.items || []).reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
