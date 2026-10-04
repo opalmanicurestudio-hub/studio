@@ -1463,6 +1463,13 @@ export async function GET(req: NextRequest) {
   } catch (e) { console.error('[nightly] series deposits', e); }
   results.seriesDeposits = { taken: seriesDepositsTaken, failed: seriesDepositsFailed };
 
+  // ── One rent record: fold any old ledger charges into invoices (once), and catch up missing invoices ────────
+  let rentCycle = { migratedCharges: 0, created: 0 };
+  try { const { runRentCycle, migrateLedger } = await import('@/lib/rent-cycle'); const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time');
+    for (const tDoc of (await db.collection('tenants').get()).docs) { try { const t: any = tDoc.data() || {}; if (t.modules?.booth_rental === false) continue; const today = todayIn(tenantTimeZone(t));
+      if (!t.rentLedgerMigratedAt) { const m = await migrateLedger(db, tDoc.id, today); rentCycle.migratedCharges += m.charges; await db.doc(`tenants/${tDoc.id}`).set({ rentLedgerMigratedAt: new Date().toISOString() }, { merge: true }); }
+      const r = await runRentCycle(db, tDoc.id, today); rentCycle.created += r.created; } catch (e: any) { console.error('[nightly] rent cycle', tDoc.id, e?.message); } }
+  } catch { /* never stops the rest of the night */ }
   // ── Typical times per provider and service (last 120 days, honest visits only) ───────────────────────────
   let timingGroups = 0;
   try { const { buildTimingStats } = await import('@/lib/timing-stats');
