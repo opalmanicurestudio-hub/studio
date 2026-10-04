@@ -269,7 +269,7 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
         if (d === null || d < 0 || d > remindLead) continue; // due within the configured lead window
         const lease: any = v.leaseId ? leaseById.get(v.leaseId) : null;
         const who = lease?.renterId ? renterName(renterById.get(lease.renterId)) : (v.renterName || 'A renter');
-        const total = (Number(v.amountCents) || 0) + (Number(v.lateFeeCents) || 0);
+        const total = Math.max(0, (Number(v.amountCents) || 0) + (Number(v.lateFeeCents) || 0) - (Number(v.paidCents) || 0));   // part-payments count
         await pushNotification(db, tenantId, {
           type: 'balance_due', link: '/rent',
           message: `${who}'s rent of ${money(total)} is due ${relDay(d, v.dueDate)}.`,
