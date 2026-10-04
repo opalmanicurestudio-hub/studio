@@ -660,6 +660,19 @@ function SettingsPageImpl() {
                     <span className="block text-[13.5px] cf-muted">Switched in Automations, with the other things the app does on its own.</span></span>
                   <span className="shrink-0 text-[14px] font-medium">Change →</span></a>
                 <Row label="Store credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
+                <Row label="Charging a saved card when the client isn’t here" help="From Take a payment at the desk, for fees they owe. They’re always sent a receipt. A payment link is always available instead.">
+                  {(() => { const r: any = (tenantData as any).cardOnFileCharge || {}; const mode = ['off', 'manager', 'limit'].includes(r.mode) ? r.mode : 'manager';
+                    const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, cardOnFileCharge: { mode, limitCents: Number(r.limitCents) || 0, ...patch } }));
+                    return (<div className="flex flex-wrap items-center gap-2">
+                      <select value={mode} onChange={(e) => set({ mode: e.target.value })} aria-label="Who can charge a saved card" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+                        <option value="off">Off — send a pay link instead</option>
+                        <option value="manager">A manager approves every charge</option>
+                        <option value="limit">Staff can charge up to an amount</option>
+                      </select>
+                      {mode === 'limit' && <span className="inline-flex items-center gap-1 text-[15px]">$<input type="number" inputMode="decimal" min={0} value={((Number(r.limitCents) || 0) / 100) || ''} onChange={(e) => set({ limitCents: Math.max(0, Math.round((parseFloat(e.target.value) || 0) * 100)) })}
+                        aria-label="Staff can charge up to" className="h-11 w-24 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /><span className="text-[14px] cf-muted">— a manager approves above it</span></span>}
+                    </div>); })()}
+                </Row>
               </Section>
               <More help="Making things right when a visit goes wrong, and rules for specific services.">
                 <Section title="Making things right" help="When a visit goes wrong — a late start, a fix that’s needed.">
