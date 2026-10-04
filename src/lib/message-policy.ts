@@ -315,6 +315,16 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    id: 'pay_link', group: 'Money', label: 'Payment link',
+    when: 'The front desk sends someone a link to pay what they owe.',
+    channels: ['email', 'sms'], canDisable: false,
+    tokens: ['{{first}}', '{{amount}}', '{{what}}', '{{link}}', '{{studio}}'],
+    requiredTokens: ['{{link}}'],
+    defaultSubject: 'Your secure payment link — {{studio}}',
+    defaultBody: '{{first}}, here’s a secure link to pay {{amount}} for {{what}}: {{link}}',
+    timing: 'immediate',
+  },
+  {
     id: 'autopay_invite', group: 'Money', label: 'Set up autopay',
     when: 'The front desk sends someone the link to turn on autopay.',
     channels: ['email', 'sms'], canDisable: false,
