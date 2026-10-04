@@ -193,6 +193,7 @@ export async function POST(req: NextRequest) {
   })();
     const { tenantId, serviceId, startTime } = body || {};
     const source = String(body.source || 'api').slice(0, 40);
+    const channel = String(body.channel || '').slice(0, 24) || null;   // where the client came from (a shared link's src)
     const trust = await callerTrust(req, String(tenantId || ''), body);
     if (!tenantId || !serviceId || !startTime) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
@@ -764,7 +765,7 @@ export async function POST(req: NextRequest) {
         requiredResourceIds: Array.isArray(svc.requiredResourceIds) && svc.requiredResourceIds.length > 0
           ? svc.requiredResourceIds : null,
         status: plan.status,
-        source,
+        source, ...(channel ? { channel } : {}),
         checkInToken: token, shortCode,
         checkInStatus: body.checkInStatus === 'arrived' ? 'arrived' : 'pending',
         depositAmountCents: plan.depositCents,
