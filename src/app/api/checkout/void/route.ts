@@ -138,5 +138,15 @@ export async function POST(req: NextRequest) {
   await logAuditAdmin(db, tenantId, { action: 'checkout.voided', targetType: 'client', targetId: rc.clientId || '', amount: num(rc.total),
     summary: `Sale voided — ${rc.clientName || 'client'} · ${money(rc.total)} (${R.method}) — ${reason} · approved by ${approvedBy}${refunded ? ' · card refunded' : ''}${cashBack ? ` · ${money(cashBack)} cash handed back` : ''}`,
     actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
+  // Rent / tuition taken on this sale no longer counts — tell the person whose account it was.
+  try {
+    const { sendReversalNotice } = await import('@/lib/account-receipts');
+    for (const x of (Array.isArray(R.rentPayments) ? R.rentPayments : [])) {
+      const e: any = x.entryId ? (await db.doc(`${T}/rentLedger/${x.entryId}`).get()).data() || {} : {};
+      const cents = Math.abs(Number(e.amountCents) || 0); if (x.renterId && cents) await sendReversalNotice(db, tenantId, tenant, { kind: 'rent', id: x.renterId, amountCents: cents, paidOn: String(rc.date || e.paidAt || now), details: 'Your rent balance is back to what it was before it.' });
+    }
+    for (const x of (Array.isArray(R.tuitionPayments) ? R.tuitionPayments : [])) if (x.planId && x.amountCents)
+      await sendReversalNotice(db, tenantId, tenant, { kind: 'tuition', id: x.planId, amountCents: Number(x.amountCents), paidOn: String(rc.date || now), details: 'Your tuition balance and schedule are back to what they were before it.' });
+  } catch { /* the void stands either way */ }
   return NextResponse.json({ ok: true, refunded, cashToReturn: cashBack, tillNote, reopened: (R.visits || []).length, warnings, approvedBy });
 }
