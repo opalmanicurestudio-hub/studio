@@ -65,6 +65,7 @@ export async function collectFees(db: any, stripe: any, tenantId: string, tenant
       } catch (e: any) { err = e; }
       const nowIso = new Date(now).toISOString();
       if (intent && intent.status === 'succeeded') {
+        try { const { recordCharge } = await import('@/lib/charge-records'); await recordCharge(db, tenantId, { kind: 'fees_card_on_file', clientId: cDoc.id, cents, reason: `Collected automatically — ${reason}`, appointmentId: locked.appointmentId || null, paymentIntentId: intent.id, needs: ['booking_policies', 'card_on_file'] }); } catch { /* fine */ }
         await db.runTransaction(async (tx: any) => {
           const c: any = (await tx.get(cDoc.ref)).data() || {}; const list = (Array.isArray(c.unpaidFees) ? c.unpaidFees : []).filter((f: any) => f.feeId !== locked.feeId);
           tx.update(cDoc.ref, { unpaidFees: list, outstandingBalance: Math.max(0, Math.round((Number(c.outstandingBalance || 0) - Number(locked.feeAmount)) * 100) / 100) });
