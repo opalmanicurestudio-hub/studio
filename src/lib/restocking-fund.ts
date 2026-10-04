@@ -2,7 +2,7 @@
 // completed studio service sets aside its product cost × (1 + restocking markup) into this fund (an envelope in Money),
 // using what was actually used when "Products used" was recorded, else the recipe. Spending on stock is then measured
 // against it. Never for renters' services (their product is their own); student clinics count.
-import { containerSize } from '@/lib/usage';
+import { containerSize, costGap } from '@/lib/product-cost';
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export function restockingPolicy(tenant: any) { const p = tenant?.restocking || {}; return { enabled: p.enabled === true, markupPct: Math.max(0, n(p.markupPct) || 40) }; }
@@ -44,8 +44,7 @@ export async function fundItems(db: any, tenantId: string) {
   const items = (await db.collection(`${T}/inventory`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
   const covered = items.filter((it: any) => it.type === 'professional' || inRecipes.has(it.id));
   // Items a recipe uses that can't be counted yet: no cost, or a per-container cost with no size / uses to spread it over.
-  const missingCost = items.filter((it: any) => inRecipes.has(it.id) && (!(n(it.costPerUnit) > 0) || (it.costingMethod === 'size' && !(n(it.size) > 0)) || (it.costingMethod === 'uses' && !(n(it.estimatedUses) > 0)) || (!it.costingMethod && /ml|g|oz/i.test(String(it.useUnit || '')))))
-    .map((it: any) => ({ id: it.id, name: it.name || 'Product', why: !(n(it.costPerUnit) > 0) ? 'no cost' : 'no container size or uses' }));
+  const missingCost = items.filter((it: any) => inRecipes.has(it.id) && costGap(it)).map((it: any) => ({ id: it.id, name: it.name || 'Product', why: costGap(it) as string }));
   return { covered, coveredIds: new Set<string>(covered.map((x: any) => x.id)), missingCost };
 }
 /** The fund's picture: set aside this month, what was spent on stock (deliveries of covered items, from the stock
@@ -64,5 +63,13 @@ export async function restockingSummary(db: any, tenantId: string, tenant: any, 
     const tx = (await db.collection(`${T}/transactions`).where('type', '==', 'expense').get()).docs.map((d: any) => d.data()).filter(isStock);
     spentMonth = Math.round(tx.filter((t: any) => String(t.date || '').slice(0, 7) === month).reduce((s: number, t: any) => s + n(t.amount), 0) * 100);
     spentAll = Math.round(tx.reduce((s: number, t: any) => s + n(t.amount), 0) * 100); }
-  return { enabled: pol.enabled, markupPct: pol.markupPct, month, setAsideMonthCents: setAsideMonth, spentMonthCents: spentMonth, visitsMonth: monthEntries.length, setAsideAllCents: n(f.setAsideCents), spentAllCents: spentAll, balanceCents: n(f.setAsideCents) - spentAll, spendBasis, coveredCount: covered.length, missingCost };
+  // Product used with no sale behind it (testers, redos, classes, a free touch-up): stock spent, nothing set aside.
+  // Stock-ledger "used" movements this month whose visit has no fund entry — at the item's cost per use.
+  let usedWithoutSaleMonth = 0;
+  try { const used = (await db.collection(`${T}/stockCorrections`).where('type', '==', 'used').get()).docs.map((d: any) => d.data()).filter((m: any) => String(m.date || '').slice(0, 7) === month && coveredIds.has(String(m.productId)));
+    const entryIds = new Set<string>((await db.collection(`${T}/funds/restocking/entries`).where('month', '==', month).get()).docs.map((d: any) => String(d.data().appointmentId)));
+    const perUnit = new Map<string, number>(covered.map((it: any) => [it.id, n(it.costPerUnit) / (containerSize(it) || 1)]));
+    for (const m of used) { const ap = m.ref?.kind === 'appointment' ? String(m.ref.id) : null; if (ap && entryIds.has(ap)) continue; usedWithoutSaleMonth += Math.round(Math.abs(n(m.change)) * (perUnit.get(String(m.productId)) || 0) * 100); }
+  } catch { /* fine */ }
+  return { enabled: pol.enabled, markupPct: pol.markupPct, month, setAsideMonthCents: setAsideMonth, spentMonthCents: spentMonth, visitsMonth: monthEntries.length, setAsideAllCents: n(f.setAsideCents), spentAllCents: spentAll, balanceCents: n(f.setAsideCents) - spentAll, spendBasis, coveredCount: covered.length, missingCost, usedWithoutSaleMonthCents: usedWithoutSaleMonth };
 }
