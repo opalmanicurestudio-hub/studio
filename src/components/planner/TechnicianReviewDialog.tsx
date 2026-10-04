@@ -248,9 +248,12 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
         
         let durationToSet = checkoutState?.actualDuration;
-        if (!durationToSet && appointment.actualStartTime) {
-            const startTime = safeDate(appointment.actualStartTime);
-            const endTime = new Date(); 
+        // The real start and finish, whichever screen recorded them (finish = when it was marked done, not now).
+        const startRaw = (appointment as any).serviceStartedAt || appointment.actualStartTime;
+        const endRaw = (appointment as any).serviceEndedAt || (appointment as any).actualEndTime;
+        if (!durationToSet && startRaw) {
+            const startTime = safeDate(startRaw);
+            const endTime = endRaw ? safeDate(endRaw) : new Date(); 
             durationToSet = Math.max(1, differenceInMinutes(endTime, startTime));
         } else if (!durationToSet) {
             durationToSet = service.duration;
@@ -352,7 +355,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     
     const rescheduleFee = safeNumber(appointment?.checkoutState?.additionalCharge);
     
-    const targetDuration = service.duration || 60;
+    // Booked time = the service plus its add-ons (an add-on that took its own time isn't "over").
+    const addOnMinutes = ((appointment as any)?.addOnIds || []).reduce((n: number, id: string) => n + (Number((allServices || []).find((x: any) => x.id === id)?.duration) || 0), 0);
+    const targetDuration = (service.duration || 60) + addOnMinutes;
     const timeOverageMinutes = Math.max(0, actualDuration - targetDuration);
     const timeOverage = (timeOverageMinutes / 60) * tmhr;
     
@@ -373,7 +378,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         materialOverage,
         total: rescheduleFee + timeOverage + materialOverage
     };
-  }, [actualDuration, service, tmhr, editableFormula, inventory, appointment]);
+  }, [actualDuration, service, tmhr, editableFormula, inventory, appointment, allServices]);
 
   const handleApplyClientFormula = (formulaNameToApply: string) => {
       if (!client || !service) return;
