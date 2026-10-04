@@ -1,5 +1,6 @@
 'use client';
 
+import { bookingLink } from '@/lib/share-links';
 import { ServiceMenuBoard } from '@/components/services/ServiceMenuBoard';
 import { QuickAddService } from '@/components/services/QuickAddService';
 import { SettingsStyle } from '@/components/settings/settings-style';
@@ -482,7 +483,8 @@ export default function ServicesPage() {
                     onReorder={(_cat, ids) => { if (firestore && tenantId) ids.forEach((id, n) => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { menuOrder: n })); }}
                     onShowOnline={(svc, shown) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { isPrivate: !shown }); }}
                     onArchive={(svc) => { if (firestore && tenantId) { updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { status: 'archived' }); toast({ title: `${svc.name} archived` }); } }}
-                    onFixLength={(svc, m) => withTiming(svc).__setDuration?.(m)} />)
+                    onFixLength={(svc, m) => withTiming(svc).__setDuration?.(m)}
+                    linkFor={(x, src) => bookingLink((selectedTenant as any)?.publicOrigin || window.location.origin, tenantId || '', { ...x, src })} />)
                 : (<>
                 <Tabs defaultValue="services" className="w-full">
                   <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8">
