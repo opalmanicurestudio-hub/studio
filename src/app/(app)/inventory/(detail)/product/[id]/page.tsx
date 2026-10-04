@@ -1,5 +1,6 @@
 'use client';
 
+import { costGap } from '@/lib/product-cost';
 import { verifyPin } from '@/lib/pin-client';
 import React, { useMemo, useState } from 'react';
 import { useParams, notFound } from 'next/navigation';
@@ -380,6 +381,11 @@ export default function ProductDetailPage() {
                     </CardContent>
                 </Card>
 
+                {product.type !== 'equipment' && product.type !== 'overhead' && (() => { const gap = costGap(product); return (
+                  <p className="rounded-2xl px-4 py-3 text-[14px]" style={gap ? { background: 'rgba(180,83,9,.1)', color: '#8a3f06' } : { background: 'rgba(21,128,61,.08)', color: '#166534' }}>
+                    {gap ? `Services using this can’t count its cost yet — ${gap}. Add it below so the restocking fund and service margins include it.`
+                      : `Counts toward the restocking fund and service margins${product.costingMethod === 'size' && product.size ? ` at $${((product.costPerUnit || 0) / product.size).toFixed(2)} per ${product.useUnit || 'unit'}` : product.costingMethod === 'uses' && product.estimatedUses ? ` at $${((product.costPerUnit || 0) / product.estimatedUses).toFixed(2)} per use` : ` at $${(product.costPerUnit || 0).toFixed(2)} each`}.`}
+                  </p>); })()}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
                     <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
                         <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Package className="w-3 h-3"/>Full Stock</CardTitle></CardHeader>
