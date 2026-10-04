@@ -396,7 +396,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       note: d.kind === 'tip' ? 'Tip collected at the front desk' : `Collected at the front desk — ${d.serviceName || 'service'} for ${d.clientName || 'a client'}`, date: now, createdAt: now, collectedBy: auth.actor.name || null })); }
   // The receipt.
   const tendered = num(pay.amountTendered);
-  batch.set(receiptRef, clean({ id: receiptRef.id, tillId: b.tillId ? String(b.tillId) : null, viewKey: `${rid()}${rid()}`, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
+  const viewKey = `${rid()}${rid()}`;
+  batch.set(receiptRef, clean({ id: receiptRef.id, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
     // Everything a void needs to undo this sale exactly.
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
@@ -465,5 +466,26 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     else if (it.type === 'rental' && it.reservationId) outcomes.push({ kind: 'booth', name: it.name, reservationId: it.reservationId });
     else if (it.type === 'product') { if (!outcomes.some((o) => o.kind === 'retail')) outcomes.push({ kind: 'retail' }); }
   }
+  // Rent / tuition: a receipt to the person whose account it is (what's left, when's next), and their autopay status.
+  try {
+    const { sendAccountReceipt, autopayLink } = await import('@/lib/account-receipts');
+    const { linkOrigin } = await import('@/lib/app-origin'); const { nextChargeDate } = await import('@/lib/rent-schedule');
+    const receiptLink = `${linkOrigin(tenant)}/r/${tenantId}/${receiptRef.id}?k=${viewKey}`;
+    for (const o of outcomes) {
+      if (o.kind === 'rent' && o.renterId) {
+        const it: any = (items as any[]).find((x) => x.type === 'rent' && x.__acct?.renter?.id === o.renterId);
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+        const nextDue = it?.__acct?.lease ? nextChargeDate(it.__acct.lease, tomorrow) : null;
+        Object.assign(o, await sendAccountReceipt(db, tenantId, tenant, { kind: 'rent', id: o.renterId, amountCents: o.paidCents, owedAfterCents: o.owedAfterCents, creditCents: o.creditCents, nextDue, receiptLink }));
+        o.autopayQr = await autopayLink(db, tenantId, tenant, 'rent', o.renterId, false);
+      }
+      if (o.kind === 'tuition' && o.planId) {
+        const p: any = (await db.doc(`${T}/tuitionPlans/${o.planId}`).get()).data() || {};
+        const nextAmountCents = p.nextDueAt ? Math.max(0, Math.min(o.remainingCents, Number(p.installmentCents) || o.remainingCents) - (Number(p.prepaidCents) || 0)) : null;
+        Object.assign(o, await sendAccountReceipt(db, tenantId, tenant, { kind: 'tuition', id: o.planId, amountCents: o.paidCents, remainingCents: o.remainingCents, nextDue: p.nextDueAt || null, nextAmountCents, receiptLink }));
+        o.autopayQr = await autopayLink(db, tenantId, tenant, 'tuition', o.planId, false);
+      }
+    }
+  } catch (e: any) { warnings.push('The receipt couldn’t be sent automatically — use Text or Email below.'); }
   return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings, outcomes });
 }
