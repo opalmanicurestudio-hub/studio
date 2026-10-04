@@ -631,7 +631,7 @@ Keep this link private — you can use it any time to check your status.
         const programs = []; for (const e of progEnr) { const pr = await programProgress(tenantId, e.id); if (pr) programs.push({ id: e.id, name: pr.program.name, status: pr.enrollment.status, hours: pr.hours, totalHours: pr.program.totalHours, requirements: pr.requirements, sap: (e.sap || []).slice(-1)[0] || null, risk: null }); }
         return NextResponse.json({ ok: true, brand, lang, languages: LANGUAGES, student: { name: student.name, email: student.email },
           clock: open.empty ? null : { since: (open.docs[0].data() as any).clockInAt }, duty, week, clinic, next, needs, programs,
-          tuition: plans.map((x: any) => ({ id: x.id, status: x.p.status, balanceCents: x.bal.balanceCents, nextDueAt: x.p.nextDueAt || null, installmentCents: x.p.installmentCents, autopay: !!x.p.autopay, lastError: x.p.status === 'past_due' ? (x.p.lastError || 'Payment failed') : null })),
+          tuition: plans.map((x: any) => ({ id: x.id, status: x.p.status, balanceCents: x.bal.balanceCents, nextDueAt: x.p.nextDueAt || null, installmentCents: x.p.installmentCents, prepaidCents: Number(x.p.prepaidCents) || 0, autopay: !!x.p.autopay, lastError: x.p.status === 'past_due' ? (x.p.lastError || 'Payment failed') : null })),
           announcements: (await withAcks(tenantId, student.id, anns.docs.map((d: any) => d.data() as any).filter((a: any) => (!a.programId || progIds.has(a.programId)) && (!a.cohortId || cohortIds.has(a.cohortId))))).filter((a: any) => !a.acked).slice(0, 3),
           unread: ((thread.data() as any) || {}).unreadStudent || 0, isSchool: progEnr.length > 0, game: gameView(t, sDoc) });
       }
@@ -653,7 +653,7 @@ Keep this link private — you can use it any time to check your status.
 
       if (b.action === 'tuition') {
         return NextResponse.json({ ok: true, plans: plans.map((x: any) => ({ id: x.id, name: x.p.name, status: x.p.status, totalCents: x.p.totalCents, paidCents: x.bal.paidCents, balanceCents: x.bal.balanceCents,
-          installmentsPaid: x.p.installmentsPaid || 0, installmentsTotal: x.p.installmentsTotal || 0, installmentCents: x.p.installmentCents, nextDueAt: x.p.nextDueAt || null, autopay: !!x.p.autopay, hasCard: !!x.p.paymentMethodId, lastError: x.p.status === 'past_due' ? (x.p.lastError || 'Payment failed') : null,
+          installmentsPaid: x.p.installmentsPaid || 0, installmentsTotal: x.p.installmentsTotal || 0, installmentCents: x.p.installmentCents, prepaidCents: Number(x.p.prepaidCents) || 0, nextDueAt: x.p.nextDueAt || null, autopay: !!x.p.autopay, hasCard: !!x.p.paymentMethodId, lastError: x.p.status === 'past_due' ? (x.p.lastError || 'Payment failed') : null,
           upcoming: upcomingPayments(x.p, x.bal.balanceCents), history: x.bal.entries.slice().reverse().map((e: any) => ({ at: e.at, type: e.type, amountCents: e.amountCents, desc: e.desc })) })) });
       }
       const mine = (id: string) => plans.find((x: any) => x.id === id);
