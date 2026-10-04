@@ -102,6 +102,14 @@ export async function POST(req: NextRequest) {
         // Academy: course purchases enrol the student; tuition down payments
         // complete admission (the return page does the same — whichever comes
         // first; both are safe to run twice).
+        // A pay link the front desk sent for fees → settle exactly those fees (once, however often this arrives).
+        if (sessionType === 'fee_payment') {
+          try { const { settleFeesPaid } = await import('@/lib/fee-pay');
+            const md: any = session.metadata || {};
+            await settleFeesPaid(getAdminDb(), tenant.id, { clientId: String(md.clientId || ''), feeIds: String(md.feeIds || '').split(',').filter(Boolean), how: 'link', paymentIntentId: String(session.payment_intent || session.id), by: 'Payment link' });
+          } catch (e: any) { console.error('[connect-webhook] fee link settle failed', e?.message); }
+          break;
+        }
         if (sessionType === 'academy_course') {
           try { await enrollFromCheckout(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] academy enrol failed', e?.message); }
           break;
