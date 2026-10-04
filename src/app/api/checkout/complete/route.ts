@@ -396,8 +396,31 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       note: d.kind === 'tip' ? 'Tip collected at the front desk' : `Collected at the front desk — ${d.serviceName || 'service'} for ${d.clientName || 'a client'}`, date: now, createdAt: now, collectedBy: auth.actor.name || null })); }
   // The receipt.
   const tendered = num(pay.amountTendered);
+  // THE FULL RECEIPT — every line with who did it, each fee by reason, every adjustment in plain words, deposit and
+  // credit applied, the card fee, each payment, and each provider's share of the tip. (Card used and what's left on a
+  // rent / tuition account are added just after the sale is saved.)
+  const nameOf = (id: any) => (id ? staff.find((s: any) => s.id === id)?.name || null : null);
+  const plainReason = (r: any) => String(r || 'Fee').replace(/\s*[—–-]\s*(auto-charge failed|card declined|no card on file|payments not connected).*$/i, '');
+  const detail: any = { number: receiptRef.id.slice(-6).toUpperCase(), lines: [] as any[], fees: [] as any[], tipShares: [] as any[], payments: [] as any[] };
+  visits.forEach((v: any, idx: number) => {
+    const vc: any = calc.visits[idx]; const a = v.appointment; const who = whoHad(v); const forWho = who.id !== clientId ? (who.name || null) : null;
+    const collectedFor = vc.renter ? nameOf(vc.renterStaffId) : null;
+    detail.lines.push({ kind: 'service', label: vc.renter && a.renterServiceName ? a.renterServiceName : v.service?.name || 'Service', amount: vc.mainPrice, staff: nameOf(vc.mainStaffId),
+      bookedWith: a.staffId && vc.mainStaffId !== a.staffId ? nameOf(a.staffId) : null, for: forWho, collectedFor, redeemed: vc.mainRedeemed || null });
+    for (const x of vc.addOns) detail.lines.push({ kind: 'addon', label: x.addon?.name || 'Add-on', amount: x.price, staff: nameOf(x.staffId), for: forWho, collectedFor, redeemed: x.redeemed || null });
+    const adj: [number, string][] = [[vc.rescheduleFee, 'Reschedule fee'], [vc.timeOverage, 'Extra time'], [vc.materialOverage, 'Extra product'], [vc.additionalCharge, 'Additional charge']];
+    for (const [amt, label] of adj) if (num(amt) > 0) detail.lines.push({ kind: 'adjustment', label, amount: num(amt), for: forWho });
+    if (vc.waived) detail.lines.push({ kind: 'note', label: 'Fees on this visit were waived', amount: 0, for: forWho });
+    for (const r of vc.refreshments || []) detail.lines.push({ kind: 'refreshment', label: r.name, qty: r.qty, unit: r.price, amount: r.price * r.qty, for: forWho });
+  });
+  for (const it of items as any[]) detail.lines.push({ kind: it.type || 'product', label: it.name, qty: num(it.quantity), unit: num(it.price), amount: num(it.price) * num(it.quantity), soldBy: it.type === 'product' ? nameOf(soldBy) : null });
+  for (const f of fees as any[]) detail.fees.push({ label: plainReason(f.reason), amount: num(f.feeAmount), date: f.appointmentDate || null, for: f.__owner && f.__owner !== clientId ? (people[f.__owner]?.name || null) : null });
+  for (const [sid, amt] of Object.entries(alloc)) if (num(amt) > 0) detail.tipShares.push({ name: sid === '__school' ? 'The school' : nameOf(sid) || 'The team', amount: num(amt) });
+  detail.payments = split ? split.map((x: any) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payer: x.payerName || null, label: x.label || null, pi: x.stripePaymentIntentId || null }))
+    : [{ method, amount: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), pi: pay.stripePaymentIntentId || null }];
+  detail.depositUsed = depositUsed; detail.storeCredit = num((calc as any).storeCredit ?? b.storeCredit); detail.cardSurcharge = cardSurcharge;
   const viewKey = `${rid()}${rid()}`;
-  batch.set(receiptRef, clean({ id: receiptRef.id, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
+  batch.set(receiptRef, clean({ id: receiptRef.id, detail, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
     // Everything a void needs to undo this sale exactly.
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
@@ -473,6 +496,17 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     else if (it.type === 'rental' && it.reservationId) outcomes.push({ kind: 'booth', name: it.name, reservationId: it.reservationId });
     else if (it.type === 'product') { if (!outcomes.some((o) => o.kind === 'retail')) outcomes.push({ kind: 'retail' }); }
   }
+  // Finish the receipt: the card used for each card payment, and what's left on any rent / tuition account.
+  try {
+    const cardPays = detail.payments.filter((x: any) => x.pi);
+    if (cardPays.length && tenant.stripeAccountId) {
+      const StripeLib = (await import('stripe')).default; const sc = new StripeLib(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any });
+      for (const x of cardPays) { try { const pi: any = await sc.paymentIntents.retrieve(x.pi, { expand: ['latest_charge'] }, { stripeAccount: tenant.stripeAccountId });
+        const pm: any = pi?.latest_charge?.payment_method_details || {}; const card = pm.card || pm.card_present || pm.interac_present || null;
+        if (card) { x.brand = card.brand || null; x.last4 = card.last4 || null; x.wallet = card.wallet?.type || null; } } catch { /* the receipt stands without it */ } }
+    }
+    detail.payments = detail.payments.map(({ pi, ...rest }: any) => rest);   // the payment id stays on the sale, not the client's receipt
+  } catch { /* best effort */ }
   // Rent / tuition: a receipt to the person whose account it is (what's left, when's next), and their autopay status.
   try {
     const { sendAccountReceipt, autopayLink } = await import('@/lib/account-receipts');
@@ -494,5 +528,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       }
     }
   } catch (e: any) { warnings.push('The receipt couldn’t be sent automatically — use Text or Email below.'); }
+  try { await receiptRef.set({ detail: { ...detail, accounts: outcomes.filter((o: any) => o.kind === 'rent' || o.kind === 'tuition').map((o: any) => ({ kind: o.kind, name: o.name, program: o.program || null, paidCents: o.paidCents,
+    owedAfterCents: o.owedAfterCents ?? null, creditCents: o.creditCents ?? null, remainingCents: o.remainingCents ?? null })) } }, { merge: true }); } catch { /* best effort */ }
   return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings, outcomes });
 }
