@@ -208,12 +208,19 @@ export default function ReportsPage() {
         { id: 'manual', label: 'Manual / Phone', icon: Phone, color: 'text-indigo-600' },
         { id: 'walk-in', label: 'Walk-in Kiosk', icon: Users, color: 'text-teal-600' },
     ].map(channel => {
-        const matchingApts = periodAppointments.filter(a => (a.source === channel.id || (channel.id === 'walk-in' && a.isWalkIn)));
+        // Online bookings are saved as "booking-page" (and campaigns as "campaign") — count them all as online.
+        const isOnline = (a: any) => ['online', 'booking-page', 'campaign', 'client-portal'].includes(String(a.source || ''));
+        const matchingApts = periodAppointments.filter(a => (channel.id === 'online' ? isOnline(a) : a.source === channel.id) || (channel.id === 'walk-in' && a.isWalkIn));
         const count = matchingApts.length;
         const revenue = matchingApts.reduce((acc, a) => { const svc = services.find(s => s.id === a.serviceId); return acc + (a.revenue || svc?.price || 0); }, 0);
         return { ...channel, count, revenue, percentage: periodAppointments.length > 0 ? (count / periodAppointments.length) * 100 : 0 };
     });
 
+    // Where online bookings came from: the link's channel (website, Instagram, Google, QR, email) or the booking page itself.
+    const onlineByChannel = (() => { const m = new Map<string, number>(); for (const a of periodAppointments as any[]) { if (!['online', 'booking-page', 'campaign', 'client-portal'].includes(String(a.source || ''))) continue;
+      const k = String(a.channel || (a.source === 'campaign' ? 'campaign' : 'booking-page')); m.set(k, (m.get(k) || 0) + 1); }
+      const names: Record<string, string> = { website: 'Your website', instagram: 'Instagram', google: 'Google', qr: 'QR code', email: 'Email', sms: 'Text', campaign: 'Campaign', link: 'Shared link', 'booking-page': 'Booking page direct' };
+      return [...m.entries()].map(([k, n]) => ({ id: k, label: names[k] || k, count: n })).sort((a, b) => b.count - a.count); })();
     const activeBusinessProfile = (businessProfiles || []).find((p: any) => p.isActive);
     const reconciliationCategories = [
         { label: 'Facility & Rent', icon: Building, color: 'text-blue-600', match: ['rent', 'facility', 'lease', 'mortgage', 'housing'] },
@@ -262,7 +269,7 @@ export default function ReportsPage() {
     const totalRecoveryLoss = recoveryLedger.reduce((sum, r) => sum + r.amount, 0);
 
     return {
-        performance, channelStats, reconciliation, absorbedLedger, recoveryLedger,
+        performance, channelStats, onlineByChannel, reconciliation, absorbedLedger, recoveryLedger,
         overall: { totalRevenue: totalGrossRevenue, totalCOGS: totalMaterials, totalLaborLoad, totalReconciledOpEx, totalRecoveryLoss, netIncome: totalGrossRevenue - totalMaterials - totalReconciledOpEx - totalLaborLoad - totalRecoveryLoss, utilization: performance.length > 0 ? performance.reduce((acc, d) => acc + d.stats.utilizationRate, 0) / performance.length : 0 }
     };
   }, [staff, appointments, services, transactions, activityLogs, inventory, clients, businessProfiles, effectiveFrom, effectiveTo, selectedTenant]);
@@ -363,6 +370,10 @@ export default function ReportsPage() {
                     <p className="text-[8px] font-black uppercase text-primary tracking-widest text-right">Yield</p>
                     <p className="text-lg font-black font-mono tracking-tighter text-primary text-right">${channel.revenue.toFixed(0)}</p>
                   </div>
+                  {channel.id === 'online' && (analyticsData.onlineByChannel || []).length > 0 && <div className="col-span-2 space-y-1 border-t pt-3 text-[13px]">
+                    <p className="font-semibold">Where they came from</p>
+                    {(analyticsData.onlineByChannel || []).map((c: any) => <div key={c.id} className="flex justify-between"><span>{c.label}</span><span className="font-mono">{c.count}</span></div>)}
+                  </div>}
                 </CardContent>
               </Card>
             ))}
