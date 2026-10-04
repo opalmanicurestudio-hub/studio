@@ -548,13 +548,22 @@ export default function RenterPortalPage() {
                       ? <Chip tone="red">Late</Chip>
                       : openInvoices.length > 0 ? <Chip tone="amber">Due</Chip> : <Chip tone="green">Current</Chip>}
                   </div>
+                  {(() => { const o: any = data.rentOutlook; if (!o || (o.creditCents <= 0 && !o.nextDue)) return null; const first = o.nextDue ? fmtDate(o.nextDue) : null; return (
+                    <div className="space-y-1 rounded-xl bg-emerald-50 p-3 text-emerald-900">
+                      {o.creditCents > 0 && <p className="text-[12px] font-bold">{fmtMoney(o.creditCents)} credit on your account{o.credits?.length > 1 ? ` (${o.credits.map((c: any) => `${c.label} ${fmtMoney(c.cents)}`).join(' · ')})` : o.credits?.[0] ? ` — ${o.credits[0].label.toLowerCase()}` : ''}</p>}
+                      {o.nextDue && <p className="text-[12px]">{o.nextAfterCreditsCents <= 0 ? `Your ${first} rent is covered${o.creditLeftAfterCents > 0 ? ` — ${fmtMoney(o.creditLeftAfterCents)} credit left after it` : ''}.`
+                        : `Your ${first} rent will be ${fmtMoney(o.nextAfterCreditsCents)}${o.nextAfterCreditsCents < o.nextRentCents ? ` (${fmtMoney(o.nextRentCents)} less ${fmtMoney(o.nextRentCents - o.nextAfterCreditsCents)} credit)` : ''}.`}
+                        {o.autopayOn ? (o.nextAfterCreditsCents > 0 ? ` Autopay will take it on ${first}.` : ' Autopay has nothing to take.') : ''}</p>}
+                      {o.owedNowCents > 0 && o.creditCents > 0 && <p className="text-[11px] opacity-80">Credit comes off your next rent, not what’s owed now.</p>}
+                    </div>); })()}
                   {openInvoices.map((i: any) => (
                     <div key={i.id} className={cn('flex items-center justify-between p-3 rounded-xl',
                       i.status === 'late' ? 'bg-red-50' : 'bg-amber-50')}>
                       <div>
                         <p className={cn('text-[11px] font-black', i.status === 'late' ? 'text-red-700' : 'text-amber-700')}>
-                          {fmtMoney(i.amountCents + i.lateFeeCents)}
+                          {fmtMoney(Math.max(0, i.amountCents + i.lateFeeCents - (i.paidCents || 0)))}
                           {i.lateFeeCents > 0 && <span className="font-bold opacity-70"> (incl. {fmtMoney(i.lateFeeCents)} late fee)</span>}
+                          {(i.paidCents || 0) > 0 && <span className="font-bold opacity-70"> ({fmtMoney(i.paidCents)} already paid)</span>}
                           {i.creditAppliedCents > 0 && <span className="block text-[10px] font-black uppercase tracking-widest text-emerald-700">{fmtMoney(i.creditAppliedCents)} credit applied{i.grossCents ? ` · was ${fmtMoney(i.grossCents)}` : ''}{i.creditNote ? ` · ${i.creditNote}` : ''}</span>}
                         </p>
                         <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Due {fmtDate(i.dueDate)}</p>
