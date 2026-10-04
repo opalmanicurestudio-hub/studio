@@ -11,6 +11,7 @@
 //   Pay    only when a deposit is due — the secure card form
 //   Done   the server's own words · who/when/where · calendar · directions
 
+import { bookingPolicyLines } from '@/lib/policy-copy';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, FormProvider } from 'react-hook-form';
 import { addDays, addMonths, endOfMonth, format, isBefore, isSameDay, isSameMonth, isToday, startOfDay, startOfMonth } from 'date-fns';
@@ -236,6 +237,11 @@ export function StudioFlow({ c }: { c: any }) {
         {currentStep === 'dateTime' && whenStep}
         {currentStep === 'details' && c.placeChooser && <section className="mb-4 rounded-3xl bg-white p-5 shadow-sm">{c.placeChooser}</section>}
         {currentStep === 'details' && youStep}
+        {currentStep === 'details' && (() => { const lines = bookingPolicyLines(tenant, service); return lines.length ? (
+          <section className="mb-4 rounded-3xl bg-white p-5 shadow-sm" aria-label="Our policies">
+            <p className="text-[14px] font-semibold">By confirming, you agree to these policies</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] text-stone-600">{lines.map((l: string, i: number) => <li key={i}>{l}</li>)}</ul>
+          </section>) : null; })()}
         {currentStep === 'checkout' && payStep}
         {currentStep === 'confirmation' && doneStep}
       </main>
