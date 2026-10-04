@@ -64,6 +64,7 @@ const schema = z.object({
   isAddon: z.boolean().optional(),
   category: z.string().min(1, 'Category is required'),
   duration: z.coerce.number().min(1, 'Duration required'),
+  timedBy: z.enum(['provider', 'booking', 'none']).optional(),   // how this service is timed (see the field below)
   padBefore: z.coerce.number().optional(),
   padAfter: z.coerce.number().optional(),
   description: z.string().optional(),
@@ -329,7 +330,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         id: service.id, name: service.name, type: service.type,
         where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '', phoneWho: ((service as any).phoneWho || 'we_call') as any, clientChoosesPlace: (service as any).clientChoosesPlace === true, placeAlternatives: Array.isArray((service as any).placeAlternatives) ? (service as any).placeAlternatives : [],
         isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0, returnServiceId: (service as any).returnServiceId || '', returnMinWeeks: Number((service as any).returnMinWeeks) || 0, returnMaxWeeks: Number((service as any).returnMaxWeeks) || 0, lateServiceId: (service as any).lateServiceId || '',
-        category: service.category, duration: service.duration,
+        category: service.category, duration: service.duration, timedBy: ((service as any).timedBy || 'provider') as any,
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
         description: service.description || '', imageUrl: service.imageUrl || '',
         price: service.price, serviceTiers: service.serviceTiers || [],
@@ -604,7 +605,19 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                       className="h-12 rounded-xl border-2 font-black text-center text-lg"
                     />
                   </div>
+
                 ))}
+              </div>
+              {/* How it's timed — decides whether provider times, "why did it run over?" and overtime apply, or
+                  overstay rules (rentals), or nothing (classes, events). */}
+              <div className="space-y-1.5">
+                <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">How is this timed?</Label>
+                <select {...register('timedBy' as any)} className="h-12 w-full rounded-xl border-2 bg-background px-3 text-[15px] font-semibold">
+                  <option value="provider">By the provider — work someone does (nails, hair, massage)</option>
+                  <option value="booking">By the booking — time someone uses (sauna, room, court, equipment)</option>
+                  <option value="none">Not timed — classes, events, pickups</option>
+                </select>
+                <p className="text-[11px] text-muted-foreground">By the provider: each provider’s typical times and “why did it run over?” apply. By the booking: overstay rules apply instead, never provider questions.</p>
               </div>
               {errors.duration && <p className="text-[10px] font-black text-destructive text-center">{errors.duration.message}</p>}
 
