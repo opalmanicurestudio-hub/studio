@@ -531,4 +531,3 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     </DeskFrame>
   );
 }
-
