@@ -1,6 +1,7 @@
 'use client';
 
 import { doc, updateDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { visitTiming, overtimePrice } from '@/lib/timing';
 import { automationOn } from '@/lib/automation-switches';
 import { splitTip } from '@/lib/tip-split';
@@ -1248,6 +1249,8 @@ export const CheckoutHub = ({
        )}
         </div>
         <div className="co-right min-w-0 space-y-3">
+          {/* EXTRA PRODUCT — suggested, never automatic: the provider recorded more than the recipe on "Products used". */}
+          {automationOn(selectedTenant, 'extra-product-suggest') && (appointmentsData || []).map((d: any) => <ExtraProductSuggestion key={`xp-${d.appointment?.id}`} tenantId={tenantId} appt={d.appointment} serviceName={d.service?.name} firestore={firestore} />)}
           {/* EXTRA TIME — suggested, never automatic: the visit ran past booked + grace, and the provider said the client asked for it. */}
           {automationOn(selectedTenant, 'overtime-suggest') && (appointmentsData || []).map((d: any) => {
             const a = d.appointment || {}; const tm = visitTiming(a, services || [], selectedTenant); const adj = a.checkoutState?.adjustments || {};
@@ -1576,3 +1579,24 @@ export const CheckoutHub = ({
   );
 
 };
+
+
+/** "Extra product" at checkout — asks the server what was used beyond the recipe and offers Add / Waive. */
+function ExtraProductSuggestion({ tenantId, appt, serviceName, firestore }: { tenantId: string; appt: any; serviceName?: string; firestore: any }) {
+  const [x, setX] = useState<any>(null);
+  const adj = appt?.checkoutState?.adjustments || {}; const done = Number(adj.materialOverage) > 0 || appt?.checkoutState?.extraProductWaived;
+  useEffect(() => { if (!appt?.id || done) return; let on = true;
+    (async () => { const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || ''; const r = await fetch('/api/usage', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'extra', visitId: appt.id }) }).then((q) => q.json()).catch(() => null);
+      if (on) setX(r?.ok ? r : null); })(); return () => { on = false; }; }, [tenantId, appt?.id, done]);
+  if (done || !x || !(x.total > 0)) return null;
+  const write = async (patch: any) => { if (!firestore) return; await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', appt.id), patch).catch(() => {}); };
+  const words = x.items.map((i: any) => `${i.name} +${i.extra} ${i.unit}`).join(', ');
+  return (<section className="space-y-2 rounded-3xl p-4" style={{ background: 'color-mix(in srgb, var(--warn) 8%, var(--card))', border: '1px solid var(--line)' }} aria-label="Extra product">
+    <p className="text-[15px] font-semibold">Extra product used — {words}</p>
+    <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{serviceName || 'Service'} · at {x.rule === 'cost' ? 'cost' : 'retail'} · <b>${Number(x.total).toFixed(2)} suggested</b></p>
+    <div className="grid grid-cols-2 gap-2 pt-1">
+      <button type="button" onClick={() => void write({ 'checkoutState.adjustments.materialOverage': x.total, 'checkoutState.extraProductNote': words })} className="h-11 rounded-full text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Add ${Number(x.total).toFixed(2)}</button>
+      <button type="button" onClick={() => void write({ 'checkoutState.extraProductWaived': true })} className="h-11 rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Waive</button>
+    </div>
+  </section>);
+}
