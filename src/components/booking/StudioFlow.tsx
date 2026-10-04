@@ -69,6 +69,12 @@ export function StudioFlow({ c }: { c: any }) {
   // ── When ───────────────────────────────────────────────────────────────
   const whenStep = (
     <div className="space-y-5">
+      {(c.addOns || []).length > 0 && <section className="rounded-3xl bg-white p-5 shadow-sm" aria-label="Add to your visit">
+        <p className="mb-3 text-[15px] font-semibold">Add to your visit <span className="font-normal text-stone-500">(optional)</span></p>
+        <div className="flex flex-wrap gap-2">{c.addOns.map((a: any) => { const on = (c.addOnIds || []).includes(a.id); return (
+          <button key={a.id} type="button" aria-pressed={on} onClick={() => c.toggleAddOn(a.id)} className="rounded-full border px-4 py-2 text-[14px] font-semibold transition" style={on ? { background: accent, borderColor: accent, color: '#fff' } : { borderColor: '#e7e2dc', color: '#1c1917' }}>
+            {a.name} · +${(Number(a.price) || 0).toFixed(0)}{a.duration ? ` · +${a.duration} min` : ''}</button>); })}</div>
+      </section>}
       {c.rescheduleOf && <div className="rounded-3xl p-4 text-[14px] text-white shadow" style={{ background: accent }} role="status">
         <p className="font-semibold">Moving your {c.rescheduleOf.serviceName || 'appointment'}</p>
         {c.rescheduleOf.startTime && <p className="opacity-90">Currently {format(new Date(c.rescheduleOf.startTime), 'EEEE, MMMM d')} at {format(new Date(c.rescheduleOf.startTime), 'h:mm a')}. Your current time is kept until the new one is booked.</p>}
