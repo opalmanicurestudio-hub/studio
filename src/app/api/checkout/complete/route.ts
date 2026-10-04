@@ -508,6 +508,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     else if (it.type === 'rental' && it.reservationId) outcomes.push({ kind: 'booth', name: it.name, reservationId: it.reservationId });
     else if (it.type === 'product') { if (!outcomes.some((o) => o.kind === 'retail')) outcomes.push({ kind: 'retail' }); }
   }
+  // Restocking fund: each studio visit sets aside its product cost + markup (never a renter's service).
+  try { const { setAsideForSale } = await import('@/lib/restocking-fund');
+    await setAsideForSale(db, tenantId, tenant, receiptRef.id, visits.map((v: any, idx: number) => ({ appointmentId: v.appointment.id, service: v.service, serviceName: v.service?.name || 'Service', renter: !!calc.visits[idx]?.renter }))); } catch { /* the sale stands */ }
   // Finish the receipt: the card used for each card payment, and what's left on any rent / tuition account.
   try {
     const cardPays = detail.payments.filter((x: any) => x.pi);
