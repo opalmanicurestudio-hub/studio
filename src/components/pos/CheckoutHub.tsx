@@ -1,5 +1,8 @@
 'use client';
 
+import { doc, updateDoc } from 'firebase/firestore';
+import { visitTiming, overtimePrice } from '@/lib/timing';
+import { automationOn } from '@/lib/automation-switches';
 import { splitTip } from '@/lib/tip-split';
 import { SplitBill } from '@/components/pos/SplitBill';
 import { saleProfileOf } from '@/lib/sale-profile';
@@ -1245,6 +1248,21 @@ export const CheckoutHub = ({
        )}
         </div>
         <div className="co-right min-w-0 space-y-3">
+          {/* EXTRA TIME — suggested, never automatic: the visit ran past booked + grace, and the provider said the client asked for it. */}
+          {automationOn(selectedTenant, 'overtime-suggest') && (appointmentsData || []).map((d: any) => {
+            const a = d.appointment || {}; const tm = visitTiming(a, services || [], selectedTenant); const adj = a.checkoutState?.adjustments || {};
+            if (tm.timedBy !== 'provider' || tm.quality !== 'ok' || tm.overPastGrace <= 0 || !tm.overReason?.clientCaused || Number(adj.timeOverage) > 0 || a.checkoutState?.overtimeWaived) return null;
+            const price = overtimePrice(selectedTenant, tm.overPastGrace, Number(d.service?.price) || 0, tm.bookedMinutes); if (!(price > 0)) return null;
+            const write = async (patch: any) => { if (!firestore) return; await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', a.id), patch).catch(() => {}); };
+            return (<section key={`ot-${a.id}`} className={card} style={{ ...cardStyle, background: 'color-mix(in srgb, var(--warn) 8%, var(--card))' }} aria-label="Extra time">
+              <p className="text-[15px] font-semibold">Ran {tm.overMinutes} min over{tm.grace ? ` (${tm.grace} min grace)` : ''} — {tm.overReason.label.toLowerCase()}</p>
+              <p className="text-[14px]" style={muted}>{firstOf(a.clientName) || 'The client'} · {d.service?.name || 'Service'} · {tm.overPastGrace} min to charge · <b>{coMoney(price)} suggested</b></p>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button type="button" onClick={() => void write({ 'checkoutState.adjustments.timeOverage': price, 'checkoutState.extraTimeMinutes': tm.overPastGrace, 'checkoutState.extraTimeReason': tm.overReason.label })} className="h-11 rounded-full text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Add {coMoney(price)}</button>
+                <button type="button" onClick={() => void write({ 'checkoutState.overtimeWaived': true })} className="h-11 rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Waive</button>
+              </div>
+            </section>);
+          })}
           {!isCartEmpty && !studentsNoTips && !accountOnly && !(paymentTab === 'card' && cardMode !== 'select') && <section className={card} style={cardStyle} aria-label="Tip">
             <p className={h}>Tip</p>
             <div className="flex flex-wrap gap-1.5">{[0, 15, 18, 20, 25].map((pct) => { const amt = Number((safeNumber(subtotal) * pct / 100).toFixed(2)); const on = pct === 0 ? tipAmount === 0 : Math.abs(tipAmount - amt) < 0.01;
