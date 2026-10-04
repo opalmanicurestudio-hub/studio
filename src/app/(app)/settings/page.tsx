@@ -660,6 +660,20 @@ function SettingsPageImpl() {
                     <span className="block text-[13.5px] cf-muted">Switched in Automations, with the other things the app does on its own.</span></span>
                   <span className="shrink-0 text-[14px] font-medium">Change →</span></a>
                 <Row label="Store credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
+                <Row label="Running over" help="For services timed by the provider. A charge is only ever suggested when the provider said the client asked for the extra time — the desk adds or waives it. The suggestion itself is switched on in Automations.">
+                  {(() => { const tp: any = (tenantData as any).timingPolicy || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, timingPolicy: { ...((prev as any).timingPolicy || {}), ...patch } }));
+                    const pricing = tp.pricing === 'per_block' ? 'per_block' : 'service_rate';
+                    return (<div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2 text-[15px]"><span>Free grace of</span><input type="number" min={0} value={tp.graceMinutes ?? 15} onChange={(e) => set({ graceMinutes: Math.max(0, parseInt(e.target.value) || 0) })} aria-label="Grace minutes" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /><span>minutes past the booked time</span></div>
+                      <div className="flex flex-wrap items-center gap-2 text-[15px]"><span>Then charge</span>
+                        <select value={pricing} onChange={(e) => set({ pricing: e.target.value })} aria-label="How extra time is priced" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+                          <option value="service_rate">at the service’s own price per minute</option><option value="per_block">a set price per block of time</option></select>
+                        {pricing === 'per_block' && <span className="inline-flex items-center gap-1">$<input type="number" min={0} value={tp.blockPrice ?? ''} onChange={(e) => set({ blockPrice: Math.max(0, parseFloat(e.target.value) || 0) })} aria-label="Price per block" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /> per <input type="number" min={5} value={tp.blockMinutes ?? 15} onChange={(e) => set({ blockMinutes: Math.max(5, parseInt(e.target.value) || 15) })} aria-label="Block minutes" className="h-11 w-16 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /> min (started blocks)</span>}</div>
+                      <div className="flex flex-wrap items-center gap-2 text-[15px]"><span>Extra product used</span>
+                        <select value={['retail', 'cost', 'off'].includes(tp.extraProduct) ? tp.extraProduct : 'retail'} onChange={(e) => set({ extraProduct: e.target.value })} aria-label="How extra product is priced" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+                          <option value="retail">suggested at retail price</option><option value="cost">suggested at cost</option><option value="off">never charged</option></select></div>
+                    </div>); })()}
+                </Row>
                 <Row label="Charging a saved card when the client isn’t here" help="From Take a payment at the desk, for fees they owe. They’re always sent a receipt. A payment link is always available instead.">
                   {(() => { const r: any = (tenantData as any).cardOnFileCharge || {}; const mode = ['off', 'manager', 'limit'].includes(r.mode) ? r.mode : 'manager';
                     const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, cardOnFileCharge: { mode, limitCents: Number(r.limitCents) || 0, ...patch } }));
