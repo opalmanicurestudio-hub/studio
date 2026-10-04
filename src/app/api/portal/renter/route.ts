@@ -1022,7 +1022,7 @@ export async function POST(req: NextRequest) {
             .where('leaseId', '==', lease.id).get();
           invoices = inv.docs
             .map((d: any) => { const v = d.data() as any; return {
-              id: d.id, amountCents: v.amountCents || 0, lateFeeCents: v.lateFeeCents || 0,
+              id: d.id, amountCents: v.amountCents || 0, lateFeeCents: v.lateFeeCents || 0, paidCents: v.paidCents || 0,   // part-payments (e.g. at the front desk)
               dueDate: String(v.dueDate || '').slice(0, 10), status: v.status || 'due',
               grossCents: v.grossCents || null, creditAppliedCents: v.creditAppliedCents || 0, creditNote: v.creditNote || null, paidVia: v.paidVia || null,
             }; })
@@ -1354,8 +1354,20 @@ export async function POST(req: NextRequest) {
         }
       } catch { /* the checklist is additive — never fail the whole call */ }
 
+      // RENT OUTLOOK — what's owed now, credits waiting, and the next rent after credits. Same rules as the nightly rent
+      // job (each credit's remaining = amount − applied; credits come off the next invoice when it's made), so the
+      // portal never promises a figure the bill won't match.
+      let rentOutlook: any = null;
+      if (lease && session.renterId) {
+        try {
+          const led = await db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', session.renterId).get();
+          const { rentOutlook: outlook } = await import('@/lib/rent-outlook'); const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time');
+          rentOutlook = outlook({ lease, renter, invoices, ledger: led.docs.map((d: any) => d.data()), todayIso: todayIn(tenantTimeZone(tenant)) });
+        } catch { rentOutlook = null; }
+      }
       return NextResponse.json({
         ok: true,
+        rentOutlook,
         name: session.name,
         studioName: tenant.name || 'Studio',
         rebookUrl: tenant.boothListingUrl || tenant.publicBookingUrl || null,
@@ -3948,7 +3960,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'This invoice belongs to a different renter.' }, { status: 403 });
       }
       const renterName = `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter';
-      const totalCents = (inv.amountCents || 0) + (inv.lateFeeCents || 0);
+      // What's still owed — a part-payment (e.g. at the front desk) is never charged again.
+      const totalCents = Math.max(0, (inv.amountCents || 0) + (inv.lateFeeCents || 0) - (inv.paidCents || 0));
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
       if (action === 'pay-invoice') {
