@@ -354,9 +354,19 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   }
   batch.update(db.doc(`${T}/clients/${clientId}`), clientUpd);
   // Tips, by who they're for (unallocated → the main provider, else the cashier).
-  const alloc: Record<string, number> = { ...tipAllocations };
-  if (tip > 0 && !Object.keys(alloc).length) alloc[visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned')] = tip;
-  else if (split && splitTips > 0) { const k = visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned'); alloc[k] = num(alloc[k]) + splitTips; }   // tips added on split shares
+  // Tips, by who they're for — checked here: only people who worked on the visit (or the school) get a share, it adds
+  // up to the tip exactly, and anything unassigned goes to the main provider. A student whose program keeps tips is
+  // paid to the school whatever the screen sent. Tips added on split-bill shares follow the same split.
+  const { checkTipSplit, splitTip, SCHOOL } = await import('@/lib/tip-split');
+  const mainTip = visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned');
+  const tipKey = (sid: string) => { const st: any = staff.find((x: any) => x.id === sid); return st?.isStudent && ['school', 'none'].includes(String(st.tipPolicy || 'school')) ? SCHOOL : sid; };
+  const allowedTip = [...new Set<string>([...calc.visits.flatMap((v: any) => [v.mainStaffId, ...v.addOns.map((x: any) => x.staffId)]), ...visits.map((v: any) => v.appointment.staffId)].filter(Boolean) as string[])];
+  const asked = Object.fromEntries(Object.entries(tipAllocations || {}).map(([k, v]) => [k === SCHOOL ? k : tipKey(k), v]));
+  const alloc: Record<string, number> = tip > 0 ? checkTipSplit(tip, asked, allowedTip.map(tipKey), tipKey(mainTip)) : {};
+  if (split && splitTips > 0) {
+    const extra = Object.keys(alloc).length ? splitTip(splitTips, Object.entries(alloc).map(([id, a]) => ({ id, name: id, weight: Number(a) })), 'value') : { [tipKey(mainTip)]: splitTips };
+    for (const [k, v] of Object.entries(extra)) alloc[k] = Math.round((num(alloc[k]) + num(v)) * 100) / 100;
+  }
   for (const [sid, amount] of Object.entries(alloc)) { const amt = num(amount); if (amt <= 0) continue;
     const rt = renterOf(sid); if (rt) deskCollected.push({ renterId: String(rt.renterId || ''), staffId: sid, cents: Math.round(amt * 100), kind: 'tip', appointmentId: apptIds[0] || null });
     txn({ description: sid === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', type: 'income', context: 'Business', category: rt ? 'Tips collected for renter' : 'Tips', taxBucket: rt ? 'pass_through' : 'gratuity', ...(rt ? { renterId: rt.renterId || null, renterStaffId: sid } : {}), amount: amt, paymentMethod: method, staffId: sid, hasReceipt: true });
@@ -379,7 +389,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // discounts ignored, so the till's expected cash drifted.) Split into sales and tips.
   if (split) {   // tips added on CASH shares are cash tips in the till (credited to the main provider)
     const cashTip = split.filter((x) => x.method === 'cash').reduce((t, x) => t + num(x.tip), 0);
-    if (cashTip > 0) { const k = visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned'); cashTipsTotal += cashTip; cashTipsByStaff[k] = FieldValue.increment(cashTip); cashTipsPlain[k] = (cashTipsPlain[k] || 0) + cashTip; }
+    if (cashTip > 0) { cashTipsTotal += cashTip;   // the till pays cash tips out by the same split
+      const shares = Object.keys(alloc).length ? splitTip(cashTip, Object.entries(alloc).map(([id, a]) => ({ id, name: id, weight: Number(a) })), 'value') : { [tipKey(mainTip)]: cashTip };
+      for (const [k, v] of Object.entries(shares)) { cashTipsByStaff[k] = FieldValue.increment(num(v)); cashTipsPlain[k] = (cashTipsPlain[k] || 0) + num(v); } }
   }
   const depositUsed = depositCredit && depositCreditDollars > 0 ? Math.min(depositCreditDollars, calc.total) : 0;
   const cashIn = method === 'cash' ? Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100) : split ? Math.round(splitCash * 100) / 100 : 0;
