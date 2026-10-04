@@ -420,7 +420,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     detail.lines.push({ kind: 'service', label: vc.renter && a.renterServiceName ? a.renterServiceName : v.service?.name || 'Service', amount: vc.mainPrice, staff: nameOf(vc.mainStaffId),
       bookedWith: a.staffId && vc.mainStaffId !== a.staffId ? nameOf(a.staffId) : null, for: forWho, collectedFor, redeemed: vc.mainRedeemed || null });
     for (const x of vc.addOns) detail.lines.push({ kind: 'addon', label: x.addon?.name || 'Add-on', amount: x.price, staff: nameOf(x.staffId), for: forWho, collectedFor, redeemed: x.redeemed || null });
-    const adj: [number, string][] = [[vc.rescheduleFee, 'Reschedule fee'], [vc.timeOverage, 'Extra time'], [vc.materialOverage, 'Extra product'], [vc.additionalCharge, 'Additional charge']];
+    const adj: [number, string][] = [[vc.rescheduleFee, 'Reschedule fee'], [vc.timeOverage, a.checkoutState?.extraTimeMinutes ? `Extra time — ${a.checkoutState.extraTimeMinutes} min` : 'Extra time'], [vc.materialOverage, 'Extra product'], [vc.additionalCharge, 'Additional charge']];
     for (const [amt, label] of adj) if (num(amt) > 0) detail.lines.push({ kind: 'adjustment', label, amount: num(amt), for: forWho });
     if (vc.waived) detail.lines.push({ kind: 'note', label: 'Fees on this visit were waived', amount: 0, for: forWho });
     for (const r of vc.refreshments || []) detail.lines.push({ kind: 'refreshment', label: r.name, qty: r.qty, unit: r.price, amount: r.price * r.qty, for: forWho });
