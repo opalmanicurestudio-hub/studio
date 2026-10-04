@@ -66,6 +66,25 @@ export function TakePayment({ e, onDone, preselect }: { e: any; onDone: () => vo
   const reload = async () => { if (who) { const keep = pick; await open(who); setPick((m) => ({ ...m, ...Object.fromEntries(Object.entries(keep).filter(([k]) => k in m)) })); } };
   const itemise = async (clientId: string) => { setBusy(true); const r = await post('/api/desk/accounts', { tenantId, action: 'itemise-balance', clientId }); setBusy(false); if (!r.ok) setErr(r.error); else await reload(); };
   const decide = async (eventId: string) => { setBusy(true); const r = await post('/api/cancellations/review', { tenantId, eventId, action: 'balance' }); setBusy(false); if (!r.ok) setErr(r.error); else await reload(); };
+  // NOT HERE? Charge the card on file (by the business's rule) or text them a link to pay.
+  const [away, setAway] = React.useState<string | null>(null); const [pin, setPin] = React.useState(''); const [needPin, setNeedPin] = React.useState(false);
+  const chosenFees = () => (acc?.fees || []).filter((f: any) => pick[`fee:${f.feeId}`]?.on);
+  const chargeCard = async (approvalToken?: string) => {
+    const fees = chosenFees(); if (!fees.length) { setAway('Tick the fees to charge first.'); return; }
+    setBusy(true); setAway(null);
+    const r = await post('/api/desk/collect', { tenantId, action: 'charge-card', clientId: fees[0].clientId, feeIds: fees.map((f: any) => f.feeId), ...(approvalToken ? { approvalToken } : {}) });
+    setBusy(false);
+    if (r.needsApproval) { setNeedPin(true); setAway(r.error); return; }
+    setNeedPin(false); setPin('');
+    if (r.ok) { setAway(`Charged ${money(r.paidCents)} to ${r.card}${r.approvedBy ? ` — approved by ${r.approvedBy}` : ''}. They’ve been sent a receipt.`); await reload(); } else setAway(r.error || 'The charge didn’t go through.');
+  };
+  const approveAndCharge = async () => {
+    const fees = chosenFees(); const cents = fees.reduce((n: number, f: any) => n + f.cents, 0); setBusy(true);
+    const { approveWithPin } = await import('@/lib/approve-client');
+    const a: any = await approveWithPin(tenantId, pin, { kind: 'card_charge', amount: cents / 100, ref: fees[0]?.clientId || null }).catch(() => ({ ok: false }));
+    setBusy(false); if (!a?.ok || !a.token) { setAway(a?.error || 'That PIN didn’t work.'); return; } await chargeCard(a.token);
+  };
+  const sendLink = async (body: any) => { setBusy(true); setAway(null); const r = await post('/api/desk/collect', { tenantId, action: 'pay-link', ...body }); setBusy(false); setAway(r.ok ? `Payment link sent to ${r.sentTo}.` : r.error || 'It didn’t send.'); };
   const open = async (p: Person) => {
     setWho(p); setAcc(null); setErr(null);
     const r = await post('/api/desk/accounts', { tenantId, action: 'person', clientIds: p.clientIds, renterIds: p.renterIds, planIds: p.planIds });
@@ -158,6 +177,20 @@ export function TakePayment({ e, onDone, preselect }: { e: any; onDone: () => vo
           {x.canDecide ? <button type="button" disabled={busy} onClick={() => void decide(x.eventId)} className="h-9 rounded-full px-4 text-[13px] font-semibold disabled:opacity-40" style={soft}>Add to their balance</button> : null}</div>)}
         {acc.owedToThem.map((x: any) => <p key={x.renterId} className="rounded-2xl p-3 text-[13px]" style={{ background: 'color-mix(in srgb, var(--ok) 10%, transparent)' }}>The studio owes {x.name.split(' ')[0]} {money(x.cents)} from front-desk collections — settled from the Rent page, not here.</p>)}
         {!acc.rent.length && !acc.tuition.length && !acc.fees.length && !acc.deposits.length && !(acc.otherBalance || []).length && !(acc.reviews || []).length && <p className="text-[15px]">Nothing owed — {who.name.split(' ')[0]} is all paid up.</p>}
+        {(acc.fees.length > 0 || acc.rent.length > 0 || acc.tuition.length > 0) && (() => { const card = (acc.cards || [])[0]; const rule = acc.chargeRule || { mode: 'manager', limitCents: 0 }; const fees = chosenFees(); const feeCents = fees.reduce((n: number, f: any) => n + f.cents, 0);
+          return (<details className="rounded-2xl p-3" style={box}>
+            <summary className="cursor-pointer text-[15px] font-semibold">Not here? Charge their card or send a link</summary>
+            <div className="space-y-2 pt-2">
+              {acc.fees.length > 0 && card && rule.mode !== 'off' && <button type="button" disabled={busy || !fees.length} onClick={() => void chargeCard()} className="h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-40" style={soft}>
+                Charge {money(feeCents)} to {card.brand} {card.last4 ? `••${card.last4}` : 'on file'}{!acc.isManager && (rule.mode === 'manager' || feeCents > rule.limitCents) ? ' (manager approves)' : ''}</button>}
+              {acc.fees.length > 0 && !card && <p className="text-[13px]" style={muted}>No card on file — send a link instead.</p>}
+              {acc.fees.length > 0 && <button type="button" disabled={busy || !fees.length} onClick={() => void sendLink({ kind: 'fees', clientId: fees[0]?.clientId, feeIds: fees.map((f: any) => f.feeId) })} className="h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-40" style={soft}>Text a link to pay {money(feeCents)} in fees</button>}
+              {acc.rent.map((x: any) => <button key={`rl${x.renterId}`} type="button" disabled={busy} onClick={() => void sendLink({ kind: 'rent', renterId: x.renterId, cents: x.owedNowCents })} className="h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-40" style={soft}>Text a link to pay rent{x.owedNowCents > 0 ? ` (${money(x.owedNowCents)})` : ''}</button>)}
+              {acc.tuition.map((x: any) => <button key={`tl${x.planId}`} type="button" disabled={busy} onClick={() => void sendLink({ kind: 'tuition', planId: x.planId, cents: x.nextCents })} className="h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-40" style={soft}>Text a link to pay tuition</button>)}
+              {needPin && <div className="flex gap-2"><input type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={(ev) => setPin(ev.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Manager PIN" aria-label="Manager PIN" className="h-11 min-w-0 flex-1 rounded-xl border px-3 text-[16px]" style={{ borderColor: 'var(--line)' }} />
+                <button type="button" disabled={busy || pin.length < 4} onClick={() => void approveAndCharge()} className="h-11 rounded-full px-5 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Approve</button></div>}
+              {away && <p className="text-[13px] font-semibold" role="status">{away}</p>}
+            </div></details>); })()}
         {(acc.rent.length > 0 || acc.tuition.length > 0 || acc.fees.length > 0 || acc.deposits.length > 0) && (
           <button type="button" disabled={busy || total <= 0 || acc.tuition.some((x: any) => pick[`tuition:${x.planId}`]?.on && pick[`tuition:${x.planId}`].cents > x.balanceCents)} onClick={() => void addToBill()}
             className="h-12 w-full rounded-full text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{busy ? 'One moment…' : `Add ${money(total)} to the bill`}</button>)}
