@@ -660,6 +660,13 @@ function SettingsPageImpl() {
                     <span className="block text-[13.5px] cf-muted">Switched in Automations, with the other things the app does on its own.</span></span>
                   <span className="shrink-0 text-[14px] font-medium">Change →</span></a>
                 <Row label="Store credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
+                <Row label="Restocking fund" help="Every finished service sets aside its product cost plus this markup into a fund in Money, so buying stock never eats into profit. Uses what was actually used when “Products used” was recorded, else the recipe. Renters’ services are never included.">
+                  {(() => { const r: any = (tenantData as any).restocking || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, restocking: { ...((prev as any).restocking || {}), ...patch } }));
+                    return (<div className="flex flex-wrap items-center gap-3 text-[15px]">
+                      <label className="inline-flex items-center gap-2"><input type="checkbox" checked={r.enabled === true} onChange={(e) => set({ enabled: e.target.checked })} className="h-5 w-5" />Set aside automatically</label>
+                      <span className="inline-flex items-center gap-2">with a markup of <input type="number" min={0} value={r.markupPct ?? 40} onChange={(e) => set({ markupPct: Math.max(0, parseInt(e.target.value) || 0) })} aria-label="Restocking markup percent" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} />% on product cost</span>
+                    </div>); })()}
+                </Row>
                 <Row label="Running over" help="For services timed by the provider. A charge is only ever suggested when the provider said the client asked for the extra time — the desk adds or waives it. The suggestion itself is switched on in Automations.">
                   {(() => { const tp: any = (tenantData as any).timingPolicy || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, timingPolicy: { ...((prev as any).timingPolicy || {}), ...patch } }));
                     const pricing = tp.pricing === 'per_block' ? 'per_block' : 'service_rate';
