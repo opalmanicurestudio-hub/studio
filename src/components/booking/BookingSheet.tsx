@@ -255,6 +255,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [selectedTierId,       setSelectedTierId]        = useState<string>('any');
   const [date,                 setDate]                  = useState(new Date());
   const [selectedTime,         setSelectedTime]          = useState<string | null>(null);
+  // ADD-ONS the client can add to this visit (the service's "offered with it" list) — chosen on the When step; they
+  // lengthen the visit (availability accounts for them) and add to the price.
+  const [addOnIds, setAddOnIds] = useState<string[]>([]);
+  const addOns = useMemo(() => ((service as any)?.compatibleAddOnIds || []).map((id: string) => (services || []).find((x: any) => x.id === id)).filter((x: any) => x && x.status !== 'archived'), [service, services]);
+  const toggleAddOn = (id: string) => setAddOnIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  useEffect(() => { setAddOnIds([]); }, [service?.id]);
+  const addOnTotal = addOns.filter((a: any) => addOnIds.includes(a.id)).reduce((n: number, a: any) => n + (Number(a.price) || 0), 0);
   const [formAnswers,          setFormAnswers]           = useState<Record<string, Record<string, any>>>({});
   const [bookedStaffId,        setBookedStaffId]         = useState<string | null>(null);
   const [inspirationPhotoUrl,  setInspirationPhotoUrl]   = useState<string>('');
@@ -370,6 +377,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     staffId: selectedStaffId,
     tierId: selectedStaffId === 'any' && selectedTierId !== 'any' ? selectedTierId : undefined,
     providerId: (service as any)?.renterProviderId || null,
+    addOnIds,
   });
   // "Any available": ask the server who takes the chosen time, as soon as it's tapped.
   const [anyPick, setAnyPick] = useState<{ key: string; staffId?: string; error?: string } | null>(null);
@@ -411,22 +419,22 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   }, [service, consentForms]);
 
   const { price, priceRange } = useMemo(() => {
-    if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: service.price, priceRange: null };
+    if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: (Number(service.price) || 0) + addOnTotal, priceRange: null };
     if (selectedStaffId && selectedStaffId !== 'any') {
       const staffMember = staff.find(s => s.id === selectedStaffId);
       const tierPricing = service.serviceTiers.find(t => t.tierId === staffMember?.pricingTierId);
-      if (tierPricing) return { price: tierPricing.price, priceRange: null };
+      if (tierPricing) return { price: tierPricing.price + addOnTotal, priceRange: null };
     }
     if (selectedStaffId === 'any' && selectedTierId !== 'any') {
       const tierPricing = service.serviceTiers.find(t => t.tierId === selectedTierId);
-      if (tierPricing) return { price: tierPricing.price, priceRange: null };
+      if (tierPricing) return { price: tierPricing.price + addOnTotal, priceRange: null };
     }
     const prices   = service.serviceTiers.map(t => t.price);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
-    if (minPrice === maxPrice) return { price: minPrice, priceRange: null };
-    return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
-  }, [service, selectedStaffId, selectedTierId, staff]);
+    if (minPrice === maxPrice) return { price: minPrice + addOnTotal, priceRange: null };
+    return { price: minPrice + addOnTotal, priceRange: { min: minPrice + addOnTotal, max: maxPrice + addOnTotal } };
+  }, [service, selectedStaffId, selectedTierId, staff, addOnTotal]);
 
   const depositAmount = useMemo(() => {
     const poorHistory = isPoorHistory(matchedClient, tenant);
@@ -590,7 +598,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       clientData,
       signedForms,
       appointmentDetails: {
-        serviceId: service.id, staffId: finalStaffId,
+        serviceId: service.id, staffId: finalStaffId, addOnIds,
         ...(placeOpts.length > 1 ? { place: placeChoice } : {}),
         startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
         status: 'confirmed', isWalkIn: false, source: 'online',
@@ -912,7 +920,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       placeChooser,
       service, tenant, tenantId: tenantIdProp || (tenant as any)?.id, steps, currentStep, currentStepIndex, setCurrentStepIndex, handleNextStep, handlePrevStep, onOpenChange,
       qualifiedStaff, lockedStaffId, selectedStaffId, handleStaffSelect, selectedStaff, bookedStaff, availableTiersForService, selectedTierId, setSelectedTierId,
-      date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability,
+      date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn,
       methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance,
       requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, accentHex: 'var(--accent, #7c3aed)',
       price, previewLines, bookingPreview, confirming, depositAmount, depositClientSecret, depositLoading, depositError, embeddedMountRef, initiateCheckout, bookingOutcome,
@@ -1178,6 +1186,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                   {/* ── Step: Date & Time ────────────────────────────────── */}
                   {currentStep === 'dateTime' && (
                     <div className="space-y-6 text-left">
+                      {addOns.length > 0 && <div className="space-y-2 rounded-2xl border p-4" aria-label="Add to your visit">
+                        <p className="text-[14px] font-semibold">Add to your visit <span className="font-normal text-muted-foreground">(optional)</span></p>
+                        <div className="flex flex-wrap gap-2">{addOns.map((a: any) => { const on = addOnIds.includes(a.id); return (
+                          <button key={a.id} type="button" aria-pressed={on} onClick={() => toggleAddOn(a.id)} className={`rounded-full border px-3 py-1.5 text-[13px] font-semibold ${on ? 'bg-primary text-primary-foreground border-primary' : ''}`}>{a.name} · +${(Number(a.price) || 0).toFixed(0)}{a.duration ? ` · +${a.duration} min` : ''}</button>); })}</div>
+                      </div>}
                       <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
                         <Calendar className="w-4 h-4 text-primary" />Timing
                       </h3>
