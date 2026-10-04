@@ -56,6 +56,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
 }) => {
   const { toast } = useToast();
   const { staff, inventory } = useInventory();
+  const timing = (service as any).__timing as { typical: number; booked: number; suggest: number; count: number; low: number; high: number } | undefined;   // the team's typical time (nightly)
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   const totalDuration = (service.duration || 0) + totalPadding;
 
@@ -140,6 +141,10 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
               <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-primary/60">
                 <Clock className="w-3 h-3" />{service.duration}m
               </div>
+              {timing && timing.suggest !== service.duration && (service as any).timedBy !== 'booking' && (service as any).timedBy !== 'none' && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); (service as any).__setDuration?.(timing.suggest); }} title={`Typically ${timing.typical} min (usually ${timing.low}–${timing.high}) over ${timing.count} visits`}
+                  className="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest" style={{ background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' }}>
+                  Typically {timing.typical}m — book at {timing.suggest}m?</button>)}
               {totalPadding > 0 && (
                 <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase text-muted-foreground opacity-40">
                   +{totalPadding}m Pad
@@ -270,6 +275,13 @@ export default function ServicesPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
+  // The team's typical time per service (nightly) → "Typically 68m — book at 70m?" on each card.
+  const [timingRows, setTimingRows] = useState<any[]>([]);
+  useEffect(() => { if (!tenantId) return; let on = true;
+    (async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+      const r = await fetch('/api/timing', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'services' }) }).then((x) => x.json());
+      if (on && r?.ok) setTimingRows(r.rows.filter((x: any) => x.plain)); } catch { /* no numbers yet */ } })(); return () => { on = false; }; }, [tenantId]);
+  const withTiming = (svc: any) => { const t = timingRows.find((x) => x.serviceId === svc.id); return t ? { ...svc, __timing: t, __setDuration: (m: number) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { duration: m }); } } : svc; };
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   const { services, appointments, resources, isLoading, transactions, pricingTiers } = useInventory();
 
@@ -425,7 +437,7 @@ export default function ServicesPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {mainServices.map(service => (
                           <ServiceCard
-                            key={service.id} service={service} onEditServiceOpen={handleOpenEditService}
+                            key={service.id} service={withTiming(service)} onEditServiceOpen={handleOpenEditService}
                             tmhr={tmhr} taxBurden={taxBurden} appointments={appointments}
                             transactions={transactions} onPriceUpdate={() => {}}
                             isSelected={selectedItems.has(service.id)}
