@@ -44,7 +44,7 @@ export default function AccountCheckPage() {
   else if (owned) findings.push({ key: 'business', level: 'ok', title: `Signed in to ${t?.selectedTenant?.name || 'your business'}${t?.role ? ` as ${t.role === 'owner' ? 'the owner' : t.role}` : ''}` });
   if (reads) {
     const blocked = AREAS.filter(([c]) => reads[c] && !reads[c].ok).map(([, n]) => n);
-    if (blocked.length) findings.push({ key: 'access', level: 'warn', title: `Some of your information can’t load: ${blocked.join(', ')}`, detail: 'This is on our side — send this check to support and we’ll fix it.', fix: 'support' });
+    if (blocked.length) findings.push({ key: 'access', level: 'warn', title: `Some of your information can’t load: ${blocked.join(', ')}`, detail: t?.role && /owner|admin/i.test(String(t.role)) ? 'As the owner you should be able to read everything — this usually means the database rules in the Firebase console are older than the app. Publish the latest rules (firestore.rules in the repo), then run this check again.' : 'Your role may not include these areas yet — ask the owner to check your role under Staff. If it should, send this check to support.', fix: 'support' });
     else findings.push({ key: 'access', level: 'ok', title: 'All your information loads normally' });
   }
   const names = (l?.locations || []).map((x: any) => String(x.name || '').trim().toLowerCase());
