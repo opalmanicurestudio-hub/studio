@@ -66,6 +66,9 @@ const schema = z.object({
   category: z.string().min(1, 'Category is required'),
   duration: z.coerce.number().min(1, 'Duration required'),
   timedBy: z.enum(['provider', 'booking', 'none']).optional(),   // how this service is timed (see the field below)
+  taxExempt: z.boolean().optional(),                             // "not taxed" — some services are exempt where the business is
+  priceIsFrom: z.boolean().optional(),                             // shown as "from $X" — the final price is agreed at the visit
+  memberPrice: z.coerce.number().min(0).optional().nullable(),   // what members pay (blank = the normal price)
   padBefore: z.coerce.number().optional(),
   padAfter: z.coerce.number().optional(),
   description: z.string().optional(),
@@ -333,7 +336,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         id: service.id, name: service.name, type: service.type,
         where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '', phoneWho: ((service as any).phoneWho || 'we_call') as any, clientChoosesPlace: (service as any).clientChoosesPlace === true, placeAlternatives: Array.isArray((service as any).placeAlternatives) ? (service as any).placeAlternatives : [],
         isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0, returnServiceId: (service as any).returnServiceId || '', returnMinWeeks: Number((service as any).returnMinWeeks) || 0, returnMaxWeeks: Number((service as any).returnMaxWeeks) || 0, lateServiceId: (service as any).lateServiceId || '',
-        category: service.category, duration: service.duration, timedBy: ((service as any).timedBy || 'provider') as any,
+        category: service.category, duration: service.duration, timedBy: ((service as any).timedBy || 'provider') as any, taxExempt: !!(service as any).taxExempt, priceIsFrom: !!(service as any).priceIsFrom, memberPrice: (service as any).memberPrice ?? null,
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
         description: service.description || '', imageUrl: service.imageUrl || '',
         price: service.price, serviceTiers: service.serviceTiers || [],
@@ -787,6 +790,13 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   />
                 </div>
                 {errors.price && <p className="text-[10px] font-black text-destructive">{errors.price.message}</p>}
+              </div>
+              {/* How the price behaves: shown as "from", tax, and what members pay. */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label className="flex items-center gap-3 rounded-2xl border-2 p-3 text-[14px]"><input type="checkbox" {...register('priceIsFrom' as any)} className="h-5 w-5" /><span>Show as <b>“from”</b> — the final price is agreed at the visit</span></label>
+                <label className="flex items-center gap-3 rounded-2xl border-2 p-3 text-[14px]"><input type="checkbox" {...register('taxExempt' as any)} className="h-5 w-5" /><span><b>Not taxed</b> — leave this out of sales tax</span></label>
+                <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Member price ($)</Label>
+                  <Input type="number" step="0.01" placeholder="Same as price" {...register('memberPrice' as any)} className="h-12 rounded-xl border-2" /><p className="text-[11px] text-muted-foreground">For clients with an active membership. Blank = the normal price.</p></div>
               </div>
 
               <RecoveryMatrix
