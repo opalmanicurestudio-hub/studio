@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ ok: true,
     business: { name: t.name || t.businessName || 'Receipt', address: typeof addr === 'string' ? addr : [addr?.street, addr?.city, addr?.state, addr?.zip].filter(Boolean).join(', ') || null, phone: t.phone || t.businessPhone || null, email: t.email || t.contactEmail || null, timezone: t.timezone || null },
     receipt: { id, date: r.date, clientName: r.clientName || null, paidBy: r.paidBy || null, cashierName: r.cashierName || null, paymentMethod: r.paymentMethod, lineItems: r.lineItems || [],
-      subtotal: r.subtotal, tax: r.tax, taxLabel: r.taxLabel || 'Tax', tip: r.tip, discount: r.discount, total: r.total, amountTendered: r.amountTendered, change: r.change,
+      subtotal: r.subtotal, tax: r.tax, taxLabel: r.taxLabel || 'Tax', tip: r.tip, discount: r.discount, discounts: Array.isArray(r.discounts) ? r.discounts.map((d: any) => ({ label: String(d.label || 'Discount'), amount: Number(d.amount) || 0 })) : null, refunds: Array.isArray(r.refunds) ? r.refunds.map((x: any) => ({ cents: Number(x.cents) || 0, reason: x.reason || null })) : null, total: r.total, amountTendered: r.amountTendered, change: r.change,
       voided: !!r.voided, voidedAt: r.voidedAt || null, voidReason: r.voidReason || null, voidedBy: r.voidedBy || null, requestedBy: r.requestedBy || null, cashReturned: r.cashReturned || null, refunded: !!r.voidRefunded } });
 }
 
