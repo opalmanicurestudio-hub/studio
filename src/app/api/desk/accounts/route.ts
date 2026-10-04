@@ -84,6 +84,11 @@ export async function POST(req: NextRequest) {
       if (e.type === 'payment' && e.status !== 'refunded' && Date.parse(e.createdAt || e.paidAt || '') >= dayAgo && !out.recent.some((x: any) => x.receiptId && x.receiptId === e.receiptId))
         out.recent.push({ what: `Rent (${String(e.method || '').replace(/_/g, ' ') || 'payment'})`, cents: Math.abs(num(e.amountCents)), at: e.createdAt || e.paidAt });
     out.recent.sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
+    // Charges on record for this client (what, why, how much, and the consent each rests on), newest first.
+    out.charges = [];
+    for (const clientId of ids('clientIds')) for (const d of (await db.collection(`${T}/chargeRecords`).where('clientId', '==', clientId).get()).docs) { const c: any = d.data() || {};
+      out.charges.push({ id: d.id, kind: c.kind, cents: c.cents, reason: c.reason, at: c.at, by: c.by, approvedBy: c.approvedBy || null, receiptId: c.receiptId || null, basis: (c.consents || []).map((x: any) => `${String(x.kind).replace(/_/g, ' ')} ${x.version} (${String(x.at).slice(0, 10)}, ${x.via})`), missing: c.missingConsent || [] }); }
+    out.charges.sort((a: any, b: any) => String(b.at).localeCompare(String(a.at))); out.charges = out.charges.slice(0, 12);
     // For collecting when they're not here: their saved card, and the business's rule for charging it.
     out.cards = [];
     for (const clientId of ids('clientIds')) { const c: any = (await db.doc(`${T}/clients/${clientId}`).get()).data() || {}; const k = c.cardOnFile || {};
