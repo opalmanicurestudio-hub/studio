@@ -35,16 +35,34 @@ export async function takeBackForSale(db: any, tenantId: string, receiptId: stri
   if (cents) { const f: any = (await db.doc(`${T}/funds/restocking`).get()).data() || {}; await db.doc(`${T}/funds/restocking`).set({ setAsideCents: Math.max(0, n(f.setAsideCents) - cents), updatedAt: new Date().toISOString() }, { merge: true }); }
   return cents;
 }
-/** The fund's picture: set aside and spent on stock this month, and the running balance. Stock spend = expenses in the
- *  supplies / inventory categories (what Money already records when stock is bought). */
+/** Which items the fund covers: professional (back-bar) stock, plus anything that appears in a service recipe. Retail
+ *  stock sold at the counter recovers its own cost through the retail margin, so it stays out unless a recipe uses it. */
+export async function fundItems(db: any, tenantId: string) {
+  const T = `tenants/${tenantId}`;
+  const services = (await db.collection(`${T}/services`).get()).docs.map((d: any) => d.data() || {}).filter((x: any) => x.status !== 'archived');
+  const inRecipes = new Set<string>(services.flatMap((x: any) => (x.products || []).map((p: any) => String(p.productId))));
+  const items = (await db.collection(`${T}/inventory`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  const covered = items.filter((it: any) => it.type === 'professional' || inRecipes.has(it.id));
+  // Items a recipe uses that can't be counted yet: no cost, or a per-container cost with no size / uses to spread it over.
+  const missingCost = items.filter((it: any) => inRecipes.has(it.id) && (!(n(it.costPerUnit) > 0) || (it.costingMethod === 'size' && !(n(it.size) > 0)) || (it.costingMethod === 'uses' && !(n(it.estimatedUses) > 0)) || (!it.costingMethod && /ml|g|oz/i.test(String(it.useUnit || '')))))
+    .map((it: any) => ({ id: it.id, name: it.name || 'Product', why: !(n(it.costPerUnit) > 0) ? 'no cost' : 'no container size or uses' }));
+  return { covered, coveredIds: new Set<string>(covered.map((x: any) => x.id)), missingCost };
+}
+/** The fund's picture: set aside this month, what was spent on stock (deliveries of covered items, from the stock
+ *  ledger; expenses in supplies / inventory categories only when deliveries aren't recorded), and the running balance. */
 export async function restockingSummary(db: any, tenantId: string, tenant: any, monthIso?: string) {
   const T = `tenants/${tenantId}`; const month = monthIso || new Date().toISOString().slice(0, 7); const pol = restockingPolicy(tenant);
   const f: any = (await db.doc(`${T}/funds/restocking`).get()).data() || {};
   const monthEntries = (await db.collection(`${T}/funds/restocking/entries`).where('month', '==', month).get()).docs.map((d: any) => d.data());
   const setAsideMonth = monthEntries.reduce((s: number, e: any) => s + n(e.cents), 0);
-  const isStock = (t: any) => t.type === 'expense' && /supplies|inventory|product|stock|cost of goods|cogs|materials/i.test(String(t.category || '')) && !/software|rent|utilit/i.test(String(t.category || ''));
-  const tx = (await db.collection(`${T}/transactions`).where('type', '==', 'expense').get()).docs.map((d: any) => d.data()).filter(isStock);
-  const spentMonth = Math.round(tx.filter((t: any) => String(t.date || '').slice(0, 7) === month).reduce((s: number, t: any) => s + n(t.amount), 0) * 100);
-  const spentAll = Math.round(tx.reduce((s: number, t: any) => s + n(t.amount), 0) * 100);
-  return { enabled: pol.enabled, markupPct: pol.markupPct, month, setAsideMonthCents: setAsideMonth, spentMonthCents: spentMonth, visitsMonth: monthEntries.length, setAsideAllCents: n(f.setAsideCents), spentAllCents: spentAll, balanceCents: n(f.setAsideCents) - spentAll };
+  const { covered, coveredIds, missingCost } = await fundItems(db, tenantId); const costOf = new Map<string, number>(covered.map((it: any) => [it.id, n(it.costPerUnit)]));
+  const received = (await db.collection(`${T}/stockCorrections`).where('type', '==', 'received').get()).docs.map((d: any) => d.data()).filter((m: any) => coveredIds.has(String(m.productId)) && n(m.change) > 0);
+  let spentMonth = 0, spentAll = 0, spendBasis: 'deliveries' | 'expenses' = 'deliveries';
+  if (received.length) { for (const m of received) { const c = Math.round(n(m.change) * (costOf.get(String(m.productId)) || 0) * 100); spentAll += c; if (String(m.date || '').slice(0, 7) === month) spentMonth += c; } }
+  else { spendBasis = 'expenses';
+    const isStock = (t: any) => t.type === 'expense' && /supplies|inventory|product|stock|cost of goods|cogs|materials/i.test(String(t.category || '')) && !/software|rent|utilit/i.test(String(t.category || ''));
+    const tx = (await db.collection(`${T}/transactions`).where('type', '==', 'expense').get()).docs.map((d: any) => d.data()).filter(isStock);
+    spentMonth = Math.round(tx.filter((t: any) => String(t.date || '').slice(0, 7) === month).reduce((s: number, t: any) => s + n(t.amount), 0) * 100);
+    spentAll = Math.round(tx.reduce((s: number, t: any) => s + n(t.amount), 0) * 100); }
+  return { enabled: pol.enabled, markupPct: pol.markupPct, month, setAsideMonthCents: setAsideMonth, spentMonthCents: spentMonth, visitsMonth: monthEntries.length, setAsideAllCents: n(f.setAsideCents), spentAllCents: spentAll, balanceCents: n(f.setAsideCents) - spentAll, spendBasis, coveredCount: covered.length, missingCost };
 }
