@@ -18,6 +18,18 @@ export async function POST(req: NextRequest) {
   const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
   const auth: any = await verifyStaffActor(req, tenantId); if (!auth.ok) return bad(auth.error || 'Sign in to do that.', auth.status || 401);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
+  if (action === 'my-overruns') {   // the provider's own visits today that ran over and still need a "why"
+    const { staffIdForLogin } = await import('@/lib/owner-staff'); const { visitTiming } = await import('@/lib/timing');
+    const sid = await staffIdForLogin(db, tenantId, auth.actor.uid).catch(() => null); if (!sid) return NextResponse.json({ ok: true, visits: [] });
+    const t: any = (await db.doc(T).get()).data() || {}; const since = Date.now() - 36 * 3600000;
+    const appts = (await db.collection(`${T}/appointments`).where('staffId', '==', sid).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+      .filter((a: any) => Date.parse(a.startTime || '') >= since && !a.overReason);
+    const ids = [...new Set(appts.flatMap((a: any) => [a.serviceId, ...(a.addOnIds || [])]).filter(Boolean).map(String))];
+    const svcs = (await Promise.all(ids.map((x) => db.doc(`${T}/services/${x}`).get()))).filter((d: any) => d.exists).map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+    const visits = appts.map((a: any) => ({ a, tm: visitTiming(a, svcs, t) })).filter((x: any) => x.tm.needsReason)
+      .map(({ a, tm }: any) => ({ id: a.id, client: String(a.clientName || 'Client').split(' ')[0], service: a.serviceName || svcs.find((x: any) => x.id === a.serviceId)?.name || 'Service', overPastGrace: tm.overPastGrace, actualMinutes: tm.actualMinutes, bookedMinutes: tm.bookedMinutes }));
+    return NextResponse.json({ ok: true, visits });
+  }
   const id = String(b.appointmentId || ''); const ref = db.doc(`${T}/appointments/${id}`); const a: any = (await ref.get()).data();
   if (!a) return bad('That visit wasn’t found.', 404);
   const t: any = ((await db.doc(T).get()).data() as any) || {};
@@ -46,6 +58,13 @@ export async function POST(req: NextRequest) {
     await ref.set(upd, { merge: true }); await syncVisitCopies(db, tenantId, { ...a, ...upd }, t);
     return NextResponse.json({ ok: true, entry });
   }
+  if (action === 'over-reason') {   // "Why did it run over?" — answered by the provider (or the desk) after the visit
+    const { OVER_REASONS } = await import('@/lib/timing'); const r = OVER_REASONS.find((x) => x.code === String(b.code || ''));
+    if (!r) return bad('Pick a reason.', 400);
+    const overReason = { code: r.code, label: r.label, clientCaused: r.clientCaused, note: String(b.note || '').trim().slice(0, 200) || null, by, at: now };
+    await ref.set({ overReason, timeline: [...timeline, { at: now, kind: 'note', text: `Ran over — ${r.label.toLowerCase()}${overReason.note ? `: ${overReason.note}` : ''}`, by, via: String(b.via || 'desk').slice(0, 30) }].slice(-MAX_TIMELINE), updatedAt: now }, { merge: true });
+    return NextResponse.json({ ok: true, overReason });
+  }
   if (action === 'note') {
     const text = String(b.text || '').trim().slice(0, 300); if (!text) return bad('Write the note first.');
     const entry = { at: now, kind: 'note', text, by, forClient: b.forClient === true };
@@ -67,7 +86,12 @@ export async function POST(req: NextRequest) {
     const cl: any = a.clientId ? (((await db.doc(`${T}/clients/${a.clientId}`).get()).data() as any) || {}) : {};
     const st: any = a.staffId ? (((await db.doc(`${T}/staff/${a.staffId}`).get()).data() as any) || {}) : {};
     const svcName = a.serviceName || (a.serviceId ? (((await db.doc(`${T}/services/${a.serviceId}`).get()).data() as any)?.name || null) : null);
-    return NextResponse.json({ ok: true, visit: { id, clientId: a.clientId || null, clientName: a.clientName || cl.name || null, clientPhone: cl.phone || null, staffName: a.staffName || st.name || null, addOnNames: [], isWalkIn: !!a.isWalkIn, partySize: a.partySize || null, notes: a.notes || null,
+    // How long it really took vs booked, and whether "why did it run over?" still needs an answer.
+    let timing: any = null;
+    try { const { visitTiming } = await import('@/lib/timing'); const ids = [a.serviceId, ...(Array.isArray(a.addOnIds) ? a.addOnIds : [])].filter(Boolean).map(String);
+      const svcs = (await Promise.all(ids.map((sid: string) => db.doc(`${T}/services/${sid}`).get()))).filter((d: any) => d.exists).map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+      timing = visitTiming(a, svcs, t); } catch { timing = null; }
+    return NextResponse.json({ ok: true, timing, visit: { id, clientId: a.clientId || null, clientName: a.clientName || cl.name || null, clientPhone: cl.phone || null, staffName: a.staffName || st.name || null, addOnNames: [], isWalkIn: !!a.isWalkIn, partySize: a.partySize || null, notes: a.notes || null,
       status: a.status || null, checkInStatus: a.checkInStatus || null, addOnIds: a.addOnIds || [], depositAmountCents: a.depositAmountCents || null, depositStatus: a.depositStatus || null,
       studio: { name: t.name || t.businessName || '', phone: t.phone || null, address: t.address || null, logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null }, serviceId: a.serviceId || null, serviceName: svcName, staffId: a.staffId || null,
       startTime: a.startTime || null, endTime: a.endTime || null, shortCode: a.shortCode || null, checkInToken: a.checkInToken || null,
