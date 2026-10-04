@@ -1,6 +1,7 @@
 'use client';
 
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
+import { TipShareCard } from '@/components/money/TipShareCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -2684,6 +2685,7 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
         </div>
 
         {tenantId && <RestockingFundCard tenantId={tenantId} />}
+        {tenantId && <TipShareCard tenantId={tenantId} mode={String((selectedTenant as any)?.tipSharing?.mode || 'direct')} period={(selectedTenant as any)?.tipSharing?.period === 'week' ? 'week' : 'day'} />}
 
         {/* ── KPI grid ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
