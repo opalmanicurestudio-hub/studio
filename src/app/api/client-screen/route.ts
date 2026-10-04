@@ -102,7 +102,10 @@ export async function POST(req: NextRequest) {
       if (tip > Math.max(100, num(q.tipBase))) return NextResponse.json({ ok: false, error: 'That tip looks too large — please check it.' }, { status: 400 });   // up to the bill itself, or $100 — catches an extra zero
       const total = Math.round((num(q.amountBase) + tip) * 100) / 100;
       await stripe.paymentIntents.update(q.paymentIntentId, { amount: Math.round(total * 100) } as any, { stripeAccount: acct } as any);
-      await ref.update({ 'request.tip': tip, 'request.amount': total, 'request.tipChosen': true });
+      // Who the client wants the tip to go to (only the people offered); checked again at checkout.
+      const offered = new Set<string>(((q.providers || []) as any[]).map((p: any) => String(p.id)));
+      const split = b.tipAllocations && typeof b.tipAllocations === 'object' ? Object.fromEntries(Object.entries(b.tipAllocations).filter(([k, v]) => offered.has(k) && num(v) >= 0).slice(0, 10).map(([k, v]) => [k, Math.round(num(v) * 100) / 100])) : null;
+      await ref.update({ 'request.tip': tip, 'request.amount': total, 'request.tipChosen': true, 'request.tipAllocations': split });
       return NextResponse.json({ ok: true, amount: total });
     }
     if (action === 'pay_save') {   // the client's own "save my card for next time" — applied before they pay
@@ -121,7 +124,7 @@ export async function POST(req: NextRequest) {
         await db.doc(`${T}/clients/${q.clientId}`).set({ cardOnFile: { customerId: typeof pi.customer === 'string' ? pi.customer : q.customerId || null, paymentMethodId: pm.id, brand: pm.card?.brand || null, last4: pm.card?.last4 || null,
           expMonth: pm.card?.exp_month || null, expYear: pm.card?.exp_year || null, savedAt: now(), savedVia: 'client_screen', consent: 'Client ticked “Save my card for next time”' } }, { merge: true }); saved = true; } catch (e) { console.error('[client-screen] save card', e); }
     }
-    await ref.update({ request: { ...q, answeredAt: now() }, response: { requestId: q.id, kind: 'pay', paid: true, paymentIntentId: pi.id, amount: num(q.amount), tip: num(q.tip), saved, at: now() }, lastSeen: now() });
+    await ref.update({ request: { ...q, answeredAt: now() }, response: { requestId: q.id, kind: 'pay', paid: true, paymentIntentId: pi.id, amount: num(q.amount), tip: num(q.tip), tipAllocations: q.tipAllocations || null, saved, at: now() }, lastSeen: now() });
     if (q.splitPendingId) {   // one share of a split bill → recorded on the started ticket right here (safe even if the desk is interrupted)
       const pRef = db.doc(`${T}/pendingCheckouts/${q.splitPendingId}`); const pc: any = ((await pRef.get()).data() as any) || {}; const tenders: any[] = Array.isArray(pc.tenders) ? pc.tenders : [];
       if (!tenders.some((x) => x.stripePaymentIntentId === pi.id)) { const next = [...tenders, { id: crypto.randomBytes(6).toString('hex'), method: 'card', amount: Math.round((num(q.amount) - num(q.tip)) * 100) / 100, tip: num(q.tip), stripePaymentIntentId: pi.id, via: 'client_screen', payerName: q.shareLabel || null, label: q.shareLabel || null, at: now(), by: 'Client screen' }];
@@ -178,6 +181,9 @@ export async function POST(req: NextRequest) {
       const tip = Math.max(0, Math.round(num(b.tip) * 100) / 100);
       if (tip > Math.max(100, num(q.base))) return NextResponse.json({ ok: false, error: 'That tip looks too large — please check it.' }, { status: 400 });
       answer.tip = tip; answer.tipLabel = String(b.tipLabel || '').slice(0, 40) || null;
+      // Who the client wants it to go to — only the people offered; the checkout and the server check it adds up.
+      const offered = new Set<string>(((q.providers || []) as any[]).map((p: any) => String(p.id)));
+      if (b.tipAllocations && typeof b.tipAllocations === 'object') answer.tipAllocations = Object.fromEntries(Object.entries(b.tipAllocations).filter(([k, v]) => offered.has(k) && num(v) >= 0).slice(0, 10).map(([k, v]) => [k, Math.round(num(v) * 100) / 100]));
     } else if (q.kind === 'approve') {
       answer.approved = b.approved === true;
       if (answer.approved && q.signature) {
@@ -247,13 +253,14 @@ export async function POST(req: NextRequest) {
     }
     const closed = await closeOpenPayment(db, s, kind === 'idle' ? 'cancelled' : 'moved on');
     const q: any = { id: rid(), kind, at: now(), requestedBy: auth.actor.name || 'Staff' };
-    if (kind === 'tip') { q.base = Math.max(0, num(b.base)); q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.tipOn = settings.tipOn; }
+    if (kind === 'tip') { q.providers = Array.isArray(b.providers) ? b.providers.slice(0, 8).map((p: any) => ({ id: String(p.id), name: String(p.name || 'Team member').slice(0, 40) })) : []; q.base = Math.max(0, num(b.base)); q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.tipOn = settings.tipOn; }
     if (kind === 'approve') { q.amount = num(b.amount); q.cardLabel = String(b.cardLabel || '').slice(0, 40) || 'your card on file'; q.clientId = b.clientId || null; q.clientName = b.clientName || null;
       q.signature = settings.signCardOnFile && (!settings.signOver || q.amount >= settings.signOver);
       q.text = `I authorise ${brand.name || 'the business'} to charge $${q.amount.toFixed(2)} to ${q.cardLabel}.`; }
     if (kind === 'cash') { q.due = num(b.due); }
     if (kind === 'sign') { q.title = String(b.title || 'Please sign').slice(0, 80); q.text = String(b.text || '').slice(0, 4000); q.clientId = b.clientId || null; q.clientName = b.clientName || null; q.what = String(b.what || 'terms').slice(0, 40); q.ref = b.ref ? String(b.ref).slice(0, 80) : null; }
     if (kind === 'pay') {   // the client pays on the iPad (card form) or their phone (QR) — a payment made on this business's account
+      q.providers = Array.isArray(b.providers) ? b.providers.slice(0, 8).map((p: any) => ({ id: String(p.id), name: String(p.name || 'Team member').slice(0, 40) })) : [];
       const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Connect Stripe first (Settings → Payments).' }, { status: 400 });
       const amountCents = Math.round(num(b.amount) * 100); if (amountCents < 50) return NextResponse.json({ ok: false, error: 'Nothing to charge.' }, { status: 400 });
       const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
