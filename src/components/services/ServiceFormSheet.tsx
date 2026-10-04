@@ -389,7 +389,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       }
       return acc + cpu * (p.quantityUsed || 1);
     }, 0);
-    return (total / 60) * tmhr + mat;
+    const markup = (selectedTenant as any)?.restocking?.enabled === true ? (Number((selectedTenant as any)?.restocking?.markupPct) || 40) / 100 : 0;   // restocking fund markup on product
+    return (total / 60) * tmhr + mat * (1 + markup);
   }, [values.duration, values.padBefore, values.padAfter, values.products, tmhr, inventory]);
 
   const selectedProducts    = watch('products') || [];
