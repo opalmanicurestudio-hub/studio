@@ -13,6 +13,7 @@
  *    Nothing is hidden behind a step wizard.
  */
 
+import { SettingsStyle } from '@/components/settings/settings-style';
 import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -521,20 +522,17 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-2xl p-0 border-none bg-background flex flex-col overflow-hidden"
+        className="cf-settings cf-legacy w-full sm:max-w-2xl p-0 border-none bg-background flex flex-col overflow-hidden"
       >
-        <SheetHeader className="px-6 pt-6 pb-4 border-b bg-muted/5 shrink-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Zap className="w-4 h-4 text-primary" />
-            <span className="text-[9px] font-black uppercase tracking-[0.25em] text-primary/50">
-              {mode === 'add' ? 'New Service' : 'Edit Service'}
-            </span>
-          </div>
-          <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-            {mode === 'add' ? 'Register Treatment' : 'Modify Record'}
+        <SettingsStyle />
+        <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0" style={{ background: 'var(--card)' }}>
+          <SheetTitle className="text-[26px] font-light leading-none tracking-tight">
+            {mode === 'add' ? 'New service' : (values.name || 'Edit service')}
           </SheetTitle>
-          <SheetDescription className="text-[9px] font-bold uppercase tracking-widest opacity-50 mt-0.5">
-            All fields are live — changes take effect on save
+          <SheetDescription className="text-[14px] cf-muted mt-1">
+            {/* the live summary — what this service is, at a glance */}
+            {[`${values.duration || 0} min${(values.padBefore || 0) + (values.padAfter || 0) ? ` (+${(values.padBefore || 0) + (values.padAfter || 0)} set-up/clean-up)` : ''}`, `$${Number(values.price || 0).toFixed(2)}`,
+              Number(values.price) > 0 ? `${Math.round(((Number(values.price) - breakEven) / Number(values.price)) * 100)}% margin after time and product` : 'no price yet'].join(' · ')}
           </SheetDescription>
         </SheetHeader>
 
@@ -542,12 +540,12 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
           <div className="px-6 py-6 space-y-8 pb-32">
 
             <section className="space-y-4">
-              <SectionLabel>Identity</SectionLabel>
+              <SectionLabel>Basics</SectionLabel>
 
               <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-slate-100 bg-white">
                 <div>
-                  <p className="font-black uppercase text-sm tracking-tight">Add-on Enhancement</p>
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Appendable to primary treatments</p>
+                  <p className="font-black uppercase text-sm tracking-tight">This is an add-on</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Offered alongside a main service, not booked on its own</p>
                 </div>
                 <Controller name="isAddon" control={control} render={({ field }) => (
                   <Switch checked={!!field.value} onCheckedChange={checked => { field.onChange(checked); setValue('type', checked ? 'addon' : 'service'); }} />
@@ -555,7 +553,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Treatment Name</Label>
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Name</Label>
                 <Input {...register('name')} placeholder="e.g., SIGNATURE BLOWOUT" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                 {errors.name && <p className="text-[10px] font-black text-destructive">{errors.name.message}</p>}
               </div>
@@ -593,8 +591,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               <div className="grid grid-cols-3 gap-3">
                 {[
                   { key: 'duration',  label: 'Duration (min)', placeholder: '60' },
-                  { key: 'padBefore', label: 'Pre-pad (min)',   placeholder: '0'  },
-                  { key: 'padAfter',  label: 'Post-pad (min)',  placeholder: '15' },
+                  { key: 'padBefore', label: 'Set-up before (min)', placeholder: '0' },
+                  { key: 'padAfter',  label: 'Clean-up after (min)', placeholder: '15' },
                 ].map(({ key, label, placeholder }) => (
                   <div key={key} className="space-y-1.5 text-center">
                     <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
@@ -657,7 +655,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Menu Visual</Label>
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Photo for the menu</Label>
                 <Controller name="imageUrl" control={control} render={({ field }) => (
                   <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
                 )} />
@@ -667,7 +665,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
             <Separator />
 
             <section className="space-y-3">
-              <SectionLabel>Product Formula</SectionLabel>
+              <SectionLabel>Products it uses</SectionLabel>
               <InlineSearchPanel
                 label="Products"
                 icon={Package}
@@ -726,7 +724,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               <>
                 <Separator />
                 <section className="space-y-3">
-                  <SectionLabel>Compatible Add-ons</SectionLabel>
+                  <SectionLabel>Add-ons offered with it</SectionLabel>
                   <InlineSearchPanel
                     label="Add-ons"
                     icon={PlusCircle}
@@ -748,7 +746,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             <Separator />
             <section className="space-y-3">
-              <SectionLabel>Rooms & Equipment</SectionLabel>
+              <SectionLabel>Rooms & equipment it needs</SectionLabel>
               <InlineSearchPanel
                 label="Resources"
                 icon={Hammer}
@@ -763,11 +761,11 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
             <Separator />
 
             <section className="space-y-4">
-              <SectionLabel>Pricing</SectionLabel>
+              <SectionLabel>Price & deposit</SectionLabel>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between px-1">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Standard Price</Label>
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Price</Label>
                   <span className="text-[9px] font-black text-destructive uppercase">Breakeven: ${breakEven.toFixed(2)}</span>
                 </div>
                 <div className="relative">
@@ -888,7 +886,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
             <Separator />
 
             <section className="space-y-3">
-              <SectionLabel>Required Consent Forms</SectionLabel>
+              <SectionLabel>Consent forms</SectionLabel>
               <InlineSearchPanel
                 label="Consent Forms"
                 icon={ListChecks}
@@ -918,7 +916,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 File" means signed/uploaded once, valid for future visits;
                 "Every Time" means re-requested at every booking. */}
             <section className="space-y-3">
-              <SectionLabel>Required Documents</SectionLabel>
+              <SectionLabel>Documents</SectionLabel>
               <div className="space-y-2">
                 {fileRequirements.length === 0 && (
                   <p className="text-center py-4 text-[10px] font-black uppercase text-slate-400">No documents required for this service</p>
@@ -988,15 +986,15 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
             <Separator />
 
             <section className="space-y-4">
-              <SectionLabel>Policy & Compliance</SectionLabel>
+              <SectionLabel>Policies & online booking</SectionLabel>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Cancel Window (hrs)</Label>
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Cancel window (hours)</Label>
                   <Input type="number" placeholder="Studio default" {...register('cancellationWindowHours')} className="h-11 rounded-xl border-2 font-black text-center" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Override Fee ($)</Label>
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Fee if cancelled late ($)</Label>
                   <div className="relative">
                     <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary opacity-40" />
                     <Input type="number" step="0.01" placeholder="Matrix" {...register('customCancellationFee')} className="h-11 pl-7 rounded-xl border-2 font-black font-mono" />
@@ -1005,13 +1003,13 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Confirmation Message</Label>
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Extra note in the confirmation</Label>
                 <Textarea {...register('confirmationMessage')} placeholder="Post-booking instructions for the guest..." className="rounded-2xl border-2 min-h-[80px]" />
               </div>
 
               <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-dashed border-slate-200">
                 <div>
-                  <p className="font-black uppercase text-sm tracking-tight">Private Listing</p>
+                  <p className="font-black uppercase text-sm tracking-tight">Hidden from the booking page</p>
                   <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Hide from public booking</p>
                 </div>
                 <Controller name="isPrivate" control={control} render={({ field }) => (
@@ -1029,7 +1027,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
               <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border-2 border-dashed">
                 <div>
-                  <p className="font-black uppercase text-sm tracking-tight">Rebook Every</p>
+                  <p className="font-black uppercase text-sm tracking-tight">Rebook every</p>
                   <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Weeks until a client is due again — drives the “you're due” nudge. 0 = off</p>
                 </div>
                 <Controller name="rebookWeeks" control={control} render={({ field }) => (
