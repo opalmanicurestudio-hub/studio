@@ -18,6 +18,19 @@ export async function POST(req: NextRequest) {
   const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
   const auth: any = await verifyStaffActor(req, tenantId); if (!auth.ok) return bad(auth.error || 'Sign in to do that.', auth.status || 401);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
+  if (action === 'my-times') {   // "My times": the provider's typical time per service, vs booked; students also see the team's typical
+    const { staffIdForLogin } = await import('@/lib/owner-staff');
+    const sid = await staffIdForLogin(db, tenantId, auth.actor.uid).catch(() => null); if (!sid) return NextResponse.json({ ok: true, rows: [] });
+    const st: any = (await db.doc(`${T}/staff/${sid}`).get()).data() || {}; if (st.role === 'renter' || st.isRenter) return NextResponse.json({ ok: true, rows: [] });
+    const mine = (await db.collection(`${T}/timingStats`).where('staffId', '==', sid).get()).docs.map((d: any) => d.data() || {}).filter((x: any) => Number(x.count) >= 5);
+    const teamDocs = mine.length ? await Promise.all(mine.map((x: any) => db.doc(`${T}/timingStats/all__${String(x.serviceKey).replace(/[\/]/g, '_').slice(0, 400)}`).get())) : [];
+    const names = new Map<string, string>((await db.collection(`${T}/services`).get()).docs.map((d: any) => [d.id, String((d.data() || {}).name || 'Service')]));
+    const rows = mine.map((x: any, i: number) => { const team: any = teamDocs[i]?.exists ? teamDocs[i].data() : null; const parts = String(x.serviceKey).split('+');
+      return { service: parts.map((id) => names.get(id) || 'Service').join(' + '), count: x.count, typical: x.typicalMinutes, low: x.rangeLow, high: x.rangeHigh, booked: x.bookedMinutes, onTime: x.onTimeRate,
+        trend: x.recentTypical !== null && x.earlierTypical !== null ? x.recentTypical - x.earlierTypical : null, team: st.isStudent && team && Number(team.count) >= 5 ? team.typicalMinutes : null }; })
+      .sort((a: any, b: any) => b.count - a.count);
+    return NextResponse.json({ ok: true, rows, isStudent: !!st.isStudent });
+  }
   if (action === 'my-overruns') {   // the provider's own visits today that ran over and still need a "why"
     const { staffIdForLogin } = await import('@/lib/owner-staff'); const { visitTiming } = await import('@/lib/timing');
     const sid = await staffIdForLogin(db, tenantId, auth.actor.uid).catch(() => null); if (!sid) return NextResponse.json({ ok: true, visits: [] });
