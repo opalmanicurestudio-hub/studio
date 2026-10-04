@@ -3,6 +3,7 @@
 // (a scanned ticket, the desk, the planner, a client's profile, Today's sales). Stage (worded for the business) with the
 // next step one tap away · payment status and flags · receipts · handoff notes (staff-only or for the client) · the
 // timeline (who / when / how) · signed approvals · the client's visit link. Updates live while it's open.
+import { OVER_REASONS } from '@/lib/timing';
 import { ProductsUsed } from '@/components/visit/ProductsUsed';
 import * as React from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -26,7 +27,8 @@ export function VisitTicket({ tenantId, appointmentId, onClose }: { tenantId: st
   const { firestore } = useFirebase() as any;
   const [v, setV] = React.useState<any>(null); const [err, setErr] = React.useState<string | null>(null); const [busy, setBusy] = React.useState<string | null>(null);
   const [note, setNote] = React.useState(''); const [forClient, setForClient] = React.useState(false); const [msg, setMsg] = React.useState<string | null>(null);
-  const load = React.useCallback(async () => { const r: any = await post({ tenantId, action: 'get', appointmentId }); if (r?.ok) { setV(r.visit); setErr(null); } else setErr(r?.error || 'Couldn’t load this visit.'); }, [tenantId, appointmentId]);
+  const [timing, setTiming] = React.useState<any>(null); const [overNote, setOverNote] = React.useState('');   // how long it really took
+  const load = React.useCallback(async () => { const r: any = await post({ tenantId, action: 'get', appointmentId }); if (r?.ok) { setV(r.visit); setTiming(r.timing || null); setErr(null); } else setErr(r?.error || 'Couldn’t load this visit.'); }, [tenantId, appointmentId]);
   React.useEffect(() => { load(); }, [load]);
   // Live: whenever the visit changes (someone else moved it on, a payment landed), refresh.
   React.useEffect(() => { if (!firestore || !tenantId || !appointmentId) return; let t: any = null; let first = true;
@@ -86,6 +88,17 @@ export function VisitTicket({ tenantId, appointmentId, onClose }: { tenantId: st
       </section>}
       {String(v.stage) === 'complete' && <ProductsUsed tenantId={tenantId} visitId={appointmentId} className={card} style={cardStyle} />}
       {/* Handoff notes */}
+      {timing && timing.actualMinutes !== null && <section className={card} style={cardStyle} aria-label="How long it took">
+        <p className="text-[15px]"><b>Took {timing.actualMinutes} min</b> <span style={{ color: 'var(--muted)' }}>· booked {timing.bookedMinutes}{timing.overMinutes > 0 ? ` · ${timing.overMinutes} over` : timing.actualMinutes < timing.bookedMinutes ? ` · ${timing.bookedMinutes - timing.actualMinutes} under` : ''}</span></p>
+        {timing.quality !== 'ok' && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{({ auto_closed: 'Finished by the system, not tapped — not counted in anyone’s typical times.', late_tap: '“Done” was tapped after they paid — not counted in typical times.', outlier: 'Very different from the booked time — not counted in typical times.' } as any)[timing.quality] || ''}</p>}
+        {timing.overReason && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Why: {timing.overReason.label}{timing.overReason.note ? ` — ${timing.overReason.note}` : ''} ({timing.overReason.by})</p>}
+        {timing.needsReason && <div className="space-y-2 pt-1">
+          <p className="text-[14px] font-semibold">It ran {timing.overPastGrace} min past the booked time{timing.grace ? ` and ${timing.grace} min grace` : ''} — why?</p>
+          <div className="flex flex-wrap gap-2">{OVER_REASONS.map((r) => <button key={r.code} type="button" disabled={!!busy} onClick={async () => { setBusy('over'); const x: any = await post({ tenantId, action: 'over-reason', appointmentId, code: r.code, note: overNote }); setBusy(null); if (x?.ok) await load(); else setMsg(x?.error || 'That didn’t save.'); }}
+            className="h-10 rounded-full px-4 text-[13px] font-semibold disabled:opacity-40" style={{ background: 'var(--soft)' }}>{r.label}</button>)}</div>
+          <input value={overNote} onChange={(e) => setOverNote(e.target.value)} placeholder="A note (optional)" aria-label="A note about why it ran over" className="h-10 w-full rounded-xl border px-3 text-[14px]" style={{ borderColor: 'var(--line)' }} />
+        </div>}
+      </section>}
       <section className={card} style={cardStyle} aria-label="Add a note">
         <p className="text-[15px] font-semibold">Handoff note</p>
         <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 300))} rows={2} placeholder={forClient ? `A note ${first} will see on their visit link` : 'For the team — e.g. “prefers a softer file”'} aria-label="Note" className="w-full resize-none rounded-2xl p-3 text-[15px] outline-none" style={soft} />
