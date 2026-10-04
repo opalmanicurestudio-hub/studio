@@ -93,3 +93,17 @@ export async function containerFinished(db: any, tenantId: string, productId: st
     return { ok: true, ...rec };
   });
 }
+
+/** EXTRA PRODUCT beyond the recipe, priced by the business's rule (Settings → Fees & credit → Running over): retail
+ *  (the container's price spread over its size / uses), cost, or never. Using less never credits anything; a different
+ *  product only counts if more of it was used. Suggested at checkout — never charged on its own. */
+export async function extraProductFor(db: any, tenantId: string, visitId: string, tenant: any) {
+  const T = `tenants/${tenantId}`; const rule = String(tenant?.timingPolicy?.extraProduct || 'retail');
+  if (rule === 'off') return { items: [], total: 0, rule };
+  const u: any = (await db.doc(`${T}/usage/${visitId}`).get()).data(); const lines: UsageLine[] = u?.lines || []; const items: { name: string; extra: number; unit: string; price: number }[] = [];
+  for (const l of lines) { const extra = Math.round((n(l.actual) - n(l.expected)) * 1000) / 1000; if (!(l.actual !== undefined && extra > 0)) continue;
+    const it: any = (await db.doc(`${T}/inventory/${l.productId}`).get()).data() || {}; const size = containerSize(it) || 1;
+    const perUnit = rule === 'cost' ? n(it.costPerUnit) / size : n(it.msrp) > 0 ? n(it.msrp) / size : n(it.costPerUnit) / size;
+    const price = Math.round(extra * perUnit * 100) / 100; if (price > 0) items.push({ name: l.name || it.name || 'Product', extra, unit: l.unit || unitOf(it), price }); }
+  return { items, total: Math.round(items.reduce((t, x) => t + x.price, 0) * 100) / 100, rule };
+}
