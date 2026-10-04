@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       approvedBy = ap.approverName || 'Manager';
     }
     const { chargeFeesNow } = await import('@/lib/fee-pay');
-    const r: any = await chargeFeesNow(db, stripe, tenantId, tenant, { clientId, feeIds, by });
+    const r: any = await chargeFeesNow(db, stripe, tenantId, tenant, { clientId, feeIds, by, approvedBy });
     try { const { logAuditAdmin } = await import('@/lib/audit'); await logAuditAdmin(db, tenantId, { action: r.ok ? 'fees.charged_card_on_file' : 'fees.charge_failed', targetType: 'client', targetId: clientId, amount: cents / 100,
       summary: `${r.ok ? 'Charged' : 'Tried to charge'} ${c.name || 'client'}’s card on file $${(cents / 100).toFixed(2)} for fees${approvedBy ? ` — approved by ${approvedBy}` : ''}${r.ok ? '' : ` — ${r.error}`}`, actor: { type: 'user', id: auth.actor.uid, name: by, role: auth.actor.role } } as any); } catch { /* best effort */ }
     return NextResponse.json({ ...r, approvedBy }, { status: r.ok ? 200 : 402 });
