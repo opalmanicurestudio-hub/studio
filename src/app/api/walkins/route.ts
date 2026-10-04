@@ -502,7 +502,7 @@ async function healStale(db: any, tenantId: string, stale: any[], nowIso: string
       }, { merge: true });
       // THE VISIT (T3): it moves to Ready to pay with a note, so the desk settles or clears it — never lost, never "paid".
       const vRef = db.doc(`tenants/${tenantId}/appointments/apt-walkin-${row.id}`); const v: any = (await vRef.get()).data();
-      if (v && ['servicing', 'in_service', 'confirmed', 'waiting', 'checked_in'].includes(String(v.status || ''))) batch.set(vRef, { status: 'ready_for_checkout', stage: 'ready_to_pay', serviceEndedAt: nowIso,
+      if (v && ['servicing', 'in_service', 'confirmed', 'waiting', 'checked_in'].includes(String(v.status || ''))) batch.set(vRef, { status: 'ready_for_checkout', stage: 'ready_to_pay', serviceEndedAt: nowIso, serviceEndAuto: true,
         timeline: [...(Array.isArray(v.timeline) ? v.timeline : []), { at: nowIso, kind: 'stage', stage: 'ready_to_pay', text: 'Service ran long with no finish recorded — moved to Ready to pay', by: 'Queue', via: 'walk-in' }].slice(-60) }, { merge: true });
 
       // A requested walk-in never cost the provider their turn, so finishing
