@@ -433,11 +433,12 @@ export default function ServicesPage() {
                   />
                 </div>
                 {/* Narrow the list: a category, how it's sorted, and "needs attention" (no price, no recipe, unused, wrong length). */}
+                {/* One calm row: which category, and how it's sorted. The menu itself is already grouped by category. */}
                 <div className="flex flex-wrap items-center gap-2">
-                  {[['all', 'All'], ...categories.map((c) => [c, c])].map(([v, l]) => <button key={v} type="button" aria-pressed={category === v} onClick={() => setCategory(v)} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={category === v ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)' }}>{l}</button>)}
-                  <span className="ml-auto inline-flex items-center gap-2 text-[13px] cf-muted">Sort
-                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} aria-label="Sort services" className="h-9 rounded-xl border px-2 text-[13px]" style={{ borderColor: 'var(--line)' }}>
-                      <option value="name">A to Z</option><option value="popular">Most booked (30 days)</option><option value="price">Price, high to low</option><option value="attention">Needs attention</option></select></span>
+                  <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line)', background: 'var(--card)' }}>
+                    <option value="all">All categories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+                  <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} aria-label="Sort" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line)', background: 'var(--card)' }}>
+                    <option value="name">A to Z</option><option value="popular">Most booked (30 days)</option><option value="price">Price, high to low</option><option value="attention">Needs attention</option></select>
                 </div>
                 <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-3">
