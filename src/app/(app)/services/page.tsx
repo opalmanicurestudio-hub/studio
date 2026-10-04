@@ -1,5 +1,7 @@
 'use client';
 
+import { ServiceMenuBoard } from '@/components/services/ServiceMenuBoard';
+import { QuickAddService } from '@/components/services/QuickAddService';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -302,7 +304,7 @@ export default function ServicesPage() {
         setDocumentNonBlocking(ref, { ...rest, id: ref.id, name: `${svc.name} (copy)`, isPrivate: true, status: 'active', createdAt: new Date().toISOString() }, { merge: false }); toast({ title: `Copied — “${svc.name} (copy)” is hidden from the booking page until you’re ready.` }); } };
     return t ? { ...base, __timing: t, __setDuration: (m: number) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { duration: m }); } } : base; };
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
-  const { services, appointments, resources, isLoading, transactions, pricingTiers } = useInventory();
+  const { services, appointments, resources, isLoading, transactions, pricingTiers, inventory } = useInventory();
 
   useEffect(() => { setTmhr(selectedTenant?.tmhr ?? 50); }, [selectedTenant]);
 
@@ -372,6 +374,7 @@ export default function ServicesPage() {
     toast({ title: 'Service Updated', description: `${updated.name} has been updated.` });
   };
 
+  const [view, setView] = useState<'menu' | 'cards'>('menu'); const [quickAdd, setQuickAdd] = useState<{ open: boolean; category: string | null }>({ open: false, category: null });
   const [category, setCategory] = useState<string>('all'); const [sortBy, setSortBy] = useState<'name' | 'price' | 'popular' | 'attention'>('name');
   const categories = useMemo(() => Array.from(new Set((services || []).filter((s: any) => s.status !== 'archived').map((s: any) => String(s.category || 'Other')))).sort(), [services]);
   const since30 = Date.now() - 30 * 86400000; const since90 = Date.now() - 90 * 86400000;
@@ -409,7 +412,7 @@ export default function ServicesPage() {
             <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm">
               <Link href="/services/report"><BarChart className="mr-2 h-4 w-4" /> Reports</Link>
             </Button>
-            <Button onClick={() => setIsAddServiceDialogOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
+            <Button onClick={() => setQuickAdd({ open: true, category: category === 'all' ? null : category })} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
               <PlusCircle className="mr-2 h-4 w-4" /> New Service
             </Button>
           </div>
@@ -454,6 +457,11 @@ export default function ServicesPage() {
                       <p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p>
                     </div>
                     <div className="flex gap-2">
+                      <select aria-label="Change category" defaultValue="" onChange={(e) => { const v = e.target.value; if (!v || !firestore || !tenantId) return; const cat = v === '__new' ? window.prompt('New category name') : v; if (!cat) return;
+                          selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { category: cat })); toast({ title: `Moved to ${cat}` }); setSelectedItems(new Set()); e.target.value = ''; }}
+                        className="h-10 rounded-xl border border-white/20 bg-transparent px-2 text-[12px] font-semibold"><option value="">Change category…</option>{categories.map((c) => <option key={c} value={c} style={{ color: '#111' }}>{c}</option>)}<option value="__new" style={{ color: '#111' }}>New category…</option></select>
+                      <Button variant="outline" size="sm" className="h-10 rounded-xl border-white/20 hover:bg-white/10 text-[12px] font-semibold" onClick={() => { if (!firestore || !tenantId) return; selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { isPrivate: false })); toast({ title: 'Shown on the booking page' }); setSelectedItems(new Set()); }}>Show online</Button>
+                      <Button variant="outline" size="sm" className="h-10 rounded-xl border-white/20 hover:bg-white/10 text-[12px] font-semibold" onClick={() => { if (!firestore || !tenantId) return; selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { isPrivate: true })); toast({ title: 'Hidden from the booking page' }); setSelectedItems(new Set()); }}>Hide online</Button>
                       {showArchived
                         ? <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore</Button>
                         : <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>
@@ -463,6 +471,19 @@ export default function ServicesPage() {
                   </div>
                 )}
 
+                <div className="mb-4 flex gap-1.5" role="tablist" aria-label="View">
+                  {([['menu', 'Menu'], ['cards', 'Cards']] as const).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={view === v ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)' }}>{l}</button>)}
+                </div>
+                {view === 'menu' ? (!hasServices && !isLoading ? <EmptyState onAddNewService={() => setQuickAdd({ open: true, category: null })} /> :
+                  <ServiceMenuBoard services={filteredServices} timingRows={timingRows} bookings30={(id) => bookingsFor(id, since30)} attention={attention}
+                    costOf={(svc: any) => { const prod = (svc.products || []).reduce((n: number, pr: any) => { const it: any = (inventory || []).find((x: any) => x.id === pr.productId); return n + (Number(it?.costPerUnit) || 0) * (Number(pr.quantityUsed) || 0); }, 0); return { product: Math.round(prod * 100) / 100, time: Math.round((((svc.duration || 0) + (svc.padBefore || 0) + (svc.padAfter || 0)) / 60) * tmhr * 100) / 100 }; }}
+                    selected={selectedItems} onToggleSelect={handleItemSelect} onEdit={handleOpenEditService} onDuplicate={(svc) => withTiming(svc).__duplicate?.()} onAddIn={(cat) => setQuickAdd({ open: true, category: cat })}
+                    onSetPrice={(svc, price) => { if (firestore && tenantId) { updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { price }); toast({ title: `${svc.name} is now $${price.toFixed(2)}` }); } }}
+                    onReorder={(_cat, ids) => { if (firestore && tenantId) ids.forEach((id, n) => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { menuOrder: n })); }}
+                    onShowOnline={(svc, shown) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { isPrivate: !shown }); }}
+                    onArchive={(svc) => { if (firestore && tenantId) { updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { status: 'archived' }); toast({ title: `${svc.name} archived` }); } }}
+                    onFixLength={(svc, m) => withTiming(svc).__setDuration?.(m)} />)
+                : (<>
                 <Tabs defaultValue="services" className="w-full">
                   <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8">
                     <TabsTrigger value="services" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Treatments</TabsTrigger>
@@ -470,7 +491,7 @@ export default function ServicesPage() {
                   </TabsList>
                   <TabsContent value="services" className="mt-0">
                     {!hasServices && !isLoading ? (
-                      <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />
+                      <EmptyState onAddNewService={() => setQuickAdd({ open: true, category: category === 'all' ? null : category })} />
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {mainServices.map(service => (
@@ -501,6 +522,11 @@ export default function ServicesPage() {
                     </div>
                   </TabsContent>
                 </Tabs>
+                </>)}
+                <QuickAddService open={quickAdd.open} category={quickAdd.category} categories={categories} onClose={() => setQuickAdd({ open: false, category: null })}
+                  onCreate={(x, thenEdit) => { if (!firestore || !tenantId) return; const ref = doc(collection(firestore, 'tenants', tenantId, 'services'));
+                    const svc: any = { id: ref.id, type: 'service', name: x.name, category: x.category, duration: x.duration, price: x.price, padBefore: 0, padAfter: 0, timedBy: 'provider', isPrivate: x.online === 'desk', membersOnly: x.online === 'members', products: [], status: 'active', createdAt: new Date().toISOString() };
+                    setDocumentNonBlocking(ref, svc, { merge: false }); setQuickAdd({ open: false, category: null }); toast({ title: `${x.name} added` }); if (thenEdit) handleOpenEditService(svc); }} />
               </CardContent>
             </Card>
           </div>
