@@ -206,7 +206,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const pre = prebookMoment(visits.map((v: any) => v.appointment));
   const moment = bestMomentReward([...momentsFor(tenant, client, doneBefore, new Date(), visits.length > 0), ...(pre ? [pre] : [])]);
   const sdIn = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
-  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, momentReward: moment ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
+  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
   const recoveryAmount = Math.min(Math.max(0, num(b.recovery?.amount)), calc.subtotal);
   const recoveryReason = String(b.recovery?.reason || 'Service Recovery Adjustment').slice(0, 200);
   const cardSurcharge = Math.max(0, num(pay.cardSurcharge));
@@ -409,6 +409,13 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       discountIds: (discounts as any[]).map((d) => d.id), groupDiscount: calc.groupDiscount > 0 ? { amount: calc.groupDiscount, month: gMonth, clientId } : null, momentKey: calc.momentDiscount > 0 && calc.moment ? calc.moment.key : null, memberships: items.filter((x) => x.type === 'membership' || x.type === 'package').map((x) => ({ type: x.type, id: x.id, name: x.name })),
       visits: visits.map((v) => ({ id: v.appointment.id, statusBefore: v.appointment.status || 'checked_in', checkInToken: v.appointment.checkInToken || null, clientId: v.appointment.clientId || clientId })),
       stripePaymentIntentId: pay.stripePaymentIntentId || null },
+    // Each discount by name (and any the staff removed for this sale) — so the receipt explains the total.
+    discounts: [...(calc.codeDiscount > 0 ? [{ kind: 'code', label: `Code ${(discounts as any[]).map((d) => d.code).filter(Boolean).join(', ')}`, amount: calc.codeDiscount }] : []),
+      ...(calc.groupDiscount > 0 ? [{ kind: 'group', label: calc.group?.label || 'Team discount', amount: calc.groupDiscount }] : []),
+      ...(calc.momentDiscount > 0 ? [{ kind: 'moment', label: calc.moment?.label || 'Thank-you treat', amount: calc.momentDiscount }] : []),
+      ...(calc.memberDiscount > 0 ? [{ kind: 'member', label: calc.memberLabel || 'Member discount', amount: calc.memberDiscount }] : []),
+      ...(calc.staffDiscount > 0 ? [{ kind: 'staff', label: `Staff discount${staffDiscountReason ? ` — ${staffDiscountReason}` : ''}`, amount: calc.staffDiscount }] : [])],
+    discountsRemoved: [...(b.skipGroupDiscount === true ? ['group'] : []), ...(b.skipMomentReward === true ? ['moment'] : []), ...(b.skipMemberDiscount === true ? ['member'] : [])],
     subtotal: calc.subtotal, tax: calc.tax, taxLabel: calc.taxLabel, tip: calc.tip, discount: calc.discount + calc.memberDiscount, total: calc.total, cashierName: auth.actor.name || '', stripePaymentIntentId: pay.stripePaymentIntentId || null,
     ...(mismatch ? { needsReview: true, screenTotal: expected, reviewNote: `The screen showed $${expected.toFixed(2)}; recorded $${calc.total.toFixed(2)}.` } : {}),
     lineItems: [...visits.flatMap((v, idx) => { const vc = calc.visits[idx]; const forWho = whoHad(v).id !== clientId ? firstName(whoHad(v).name) : undefined; return [{ label: v.service?.name || 'Service', amount: vc.mainPrice, type: 'service', staff: firstName(staff.find((s: any) => s.id === vc.mainStaffId)?.name), for: forWho },
