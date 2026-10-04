@@ -70,7 +70,8 @@ export default function RenterPortalPage() {
     if (typeof window === 'undefined' || session?.token) return;
     const rt = new URLSearchParams(window.location.search).get('rt');
     if (!rt) return;
-    window.history.replaceState({}, '', window.location.pathname);
+    const keepTab = new URLSearchParams(window.location.search).get('tab');   // e.g. ?tab=rent from an autopay link
+    window.history.replaceState({}, '', window.location.pathname + (keepTab ? `?tab=${encodeURIComponent(keepTab)}` : ''));
     (async () => {
       const d = await api({ action: 'token-login', tenantId, magicToken: rt });
       if (d.ok && d.token) saveSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null });
@@ -125,6 +126,8 @@ export default function RenterPortalPage() {
   // waiting. Hidden tabs stay mounted (CSS), so switching is instant and no
   // subscription re-fires.
   const [tab, setTab] = useState<'today' | 'book' | 'rent' | 'studio'>('today');
+  // Opened from a link (e.g. "set up autopay" → ?tab=rent): that tab, once the page has loaded.
+  useEffect(() => { try { const t = new URLSearchParams(window.location.search).get('tab'); if ((['today', 'book', 'rent', 'studio'] as const).includes(t as any)) setTab(t as any); } catch { /* fine */ } }, []);
   useEffect(() => { if (!booksHere && tab === 'book') setTab('today'); }, [booksHere, tab]);
   const [badges, setBadges] = useState<Record<string, number>>({});
   // Book → Setup: seven configuration panels folded into one list, opened one at a time.
