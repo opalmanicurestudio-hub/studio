@@ -563,6 +563,9 @@ export function usePosEngine() {
   const codeDiscountRaw = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0)), [appliedDiscountCodes, discounts, subtotalCalc]);
   // Team / family & friends discount — the same rules as the server (lib/team-discount): automatic, can be skipped for one sale.
   const [skipGroupDiscount, setSkipGroupDiscount] = useState(false);
+  // "Remove for this sale" on the other automatic discounts — honoured by the server too.
+  const [skipMomentReward, setSkipMomentReward] = useState(false); const [skipMemberDiscount, setSkipMemberDiscount] = useState(false);
+  useEffect(() => { setSkipGroupDiscount(false); setSkipMomentReward(false); setSkipMemberDiscount(false); }, [selectedClientId]);   // a different person → their discounts, fresh
   const groupClient = useMemo(() => (clients || []).find((c: any) => c.id === (selectedClientId ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId)) || null, [clients, selectedClientId, readyForCheckoutAppointments, selectedAppointmentIds]);
   const groupInfo = useMemo(() => groupDiscountFor(selectedTenant, groupClient), [selectedTenant, groupClient]);
   const groupDiscountRaw = useMemo(() => (skipGroupDiscount ? 0 : groupDiscountAmount(groupInfo, { services: eligibleServicesRef.current, products: taxPartsRef.current.products })), [groupInfo, skipGroupDiscount, subtotalCalc]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -575,19 +578,32 @@ export function usePosEngine() {
   const momentReward = bestMomentReward(moments);
   const codeAndGroup = (groupInfo && !groupInfo.stackWithCodes && groupWins ? 0 : codeDiscountRaw) + groupDiscountValue;
   const momentRaw = momentReward ? Math.round(eligibleServicesRef.current * momentReward.rewardPct) / 100 : 0;
-  const momentDiscountValue = momentRaw > codeAndGroup ? momentRaw : 0;   // never combines — the bigger applies
+  const momentDiscountValue = !skipMomentReward && momentRaw > codeAndGroup ? momentRaw : 0;   // never combines — the bigger applies
   const discountValue = useMemo(() => safeNumber((momentDiscountValue ? 0 : codeAndGroup) + staffDiscountValue + momentDiscountValue), [codeAndGroup, staffDiscountValue, momentDiscountValue]);
 
   const membershipDiscountValue = useMemo(() => {
-    if (!selectedClient || !memberships || !packages) return 0;
+    if (!selectedClient || !memberships || !packages || skipMemberDiscount) return 0;
     const mId = selectedClient.activeMembershipId || selectedClient?.subscription?.membershipId;
     if (selectedClient?.subscription?.status && selectedClient.subscription.status !== 'active') return 0;
     let bestDiscountPct = 0; let eligibleProductIds: string[] = [];
     if (mId) { const membership = memberships.find(m => m.id === mId); if (membership?.retailDiscount) { bestDiscountPct = membership.retailDiscount; eligibleProductIds = membership.applicableProductIds || []; } }
     if (bestDiscountPct === 0) return 0;
-    return retailItems.reduce((acc, item) => { const isEligible = eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id); return isEligible ? acc + (item.price * item.quantity * (bestDiscountPct / 100)) : acc; }, 0);
-  }, [selectedClient, memberships, packages, retailItems]);
+    return retailItems.reduce((acc, item) => { const isEligible = (item as any).type === 'product' && (eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id)); /* retail = real products only */ return isEligible ? acc + (item.price * item.quantity * (bestDiscountPct / 100)) : acc; }, 0);
+  }, [selectedClient, memberships, packages, retailItems, skipMemberDiscount]);
 
+  // EVERY DISCOUNT BY NAME — what's applied, what was removed, and a code that isn't being used (and why).
+  const discountBreakdown = (() => {
+    const m: any = selectedClient && memberships ? memberships.find((x: any) => x.id === ((selectedClient as any).activeMembershipId || (selectedClient as any)?.subscription?.membershipId)) : null;
+    const codeUsed = momentDiscountValue ? 0 : (groupInfo && !groupInfo.stackWithCodes && groupWins ? 0 : codeDiscountRaw);
+    const groupUsed = momentDiscountValue ? 0 : groupDiscountValue;
+    return {
+      code: codeUsed, codeRaw: codeDiscountRaw, codeLostTo: appliedDiscountCodes.length && codeDiscountRaw > 0 && codeUsed === 0 ? (momentDiscountValue ? 'moment' : 'group') : null,
+      group: groupUsed, groupLabel: groupInfo?.label || 'Team discount', groupAvailable: !!groupInfo && groupDiscountRaw > 0,
+      moment: momentDiscountValue, momentLabel: momentReward ? `${(momentReward as any).rewardLabel || 'Thank-you'} (${momentReward.rewardPct}%)` : null, momentAvailable: momentRaw > 0,
+      member: membershipDiscountValue, memberLabel: m?.retailDiscount ? `${m.name || 'Member'} discount (${m.retailDiscount}%)` : null,
+      staff: staffDiscountValue,
+    };
+  })();
   const taxCalc = posTaxAmount(selectedTenant, taxPartsRef.current);   // Settings → Payments → Sales tax
   const taxLabel = posTaxLabel(selectedTenant);
   const totalCalc = Math.max(0, subtotalCalc + taxCalc + tipAmount - discountValue - membershipDiscountValue - storeCreditApplied);
@@ -1109,7 +1125,7 @@ export function usePosEngine() {
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
     // A tip chosen on the client screen together with the payment is recorded exactly (it goes to the provider(s) on the ticket).
     tipAllocations: paymentData?.tipOverride !== undefined ? {} : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied,
-    skipGroupDiscount,
+    skipGroupDiscount, skipMomentReward, skipMemberDiscount,
     staffDiscount: staffDiscount ? { kind: staffDiscount.kind, value: staffDiscount.value, reason: staffDiscount.reason, approvalToken: staffDiscount.approvalToken || null } : null,
     recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '', approvalToken: paymentData?.recoveryApprovalToken || recoveryApprovalRef.current || null },
     payment: { method: paymentData?.paymentMethod || 'card', amountTendered: safeNumber(paymentData?.amountTendered), stripePaymentIntentId: paymentData?.stripePaymentIntentId || null, cardSurcharge: safeNumber(paymentData?.cardSurcharge), skipLedger: paymentData?.skipLedger === true },
@@ -1158,6 +1174,7 @@ export function usePosEngine() {
           tendered, change: payload.payment?.method === 'cash' ? Math.max(0, Math.round((tendered - collected) * 100) / 100) : 0, clientId: payload.clientId || null, clientName: payer.name || null, email: payer.email || '', phone: payer.phone || '',
           serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, staffId: firstVisit?.appointment?.staffId || null, addOnIds: firstVisit?.appointment?.addOnIds || [], appointmentId: firstVisit?.appointment?.id || null,
           warnings: out.warnings || [], at: new Date().toISOString() , outcomes: Array.isArray(out.outcomes) ? out.outcomes : []}); }
+      setSkipGroupDiscount(false); setSkipMomentReward(false); setSkipMemberDiscount(false);   // removals were for that sale only
       setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null); setSplitActive(false);   // the next sale starts fresh (the client screen goes back to your logo)
       return true;
     } catch (e: any) {
@@ -1481,7 +1498,8 @@ export function usePosEngine() {
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
     onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
-    appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
+    appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue, discountBreakdown,
+    skipMomentReward, setSkipMomentReward, skipMemberDiscount, setSkipMemberDiscount,
     walletOffers, offerClientId, offerServiceIds,
     isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
     appliedAdjustments, onApplyAdjustmentToggle: (id: string, apply: boolean) => { const next = new Set(appliedAdjustments); if (apply) next.add(id); else next.delete(id); setAppliedAdjustments(next); },
