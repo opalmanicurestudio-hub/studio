@@ -30,9 +30,12 @@ export async function POST(req: NextRequest) {
     const renters = mods.booth_rental === false ? [] : (await db.collection(`${T}/renters`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
       .filter((r: any) => !['former', 'archived', 'removed'].includes(String(r.status || '')))
       .map((r: any) => ({ renterId: r.id, clientId: r.clientId || null, name: [r.firstName, r.lastName].filter(Boolean).join(' ') || r.name || 'Renter', email: String(r.email || '').toLowerCase() || null, phone4: digits(r.phone).slice(-4) || null, phoneKey: digits(r.phone) || null }));
+    // What each renter owes right now (open rent invoices, after part-payments) — shown in the search results.
+    if (renters.length) { const open = (await db.collection(`${T}/rentInvoices`).where('status', 'in', ['due', 'late']).get()).docs.map((d: any) => d.data() || {});
+      for (const r of renters as any[]) r.owedCents = open.filter((i: any) => i.renterId === r.renterId).reduce((n: number, i: any) => n + Math.max(0, num(i.amountCents) + num(i.lateFeeCents) - num(i.paidCents)), 0); }
     const students = mods.academy === false ? [] : (await db.collection(`${T}/tuitionPlans`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
       .filter((p: any) => TUITION_OPEN.includes(String(p.status || '')))
-      .map((p: any) => ({ planId: p.id, clientId: p.studentId || null, name: p.name || 'Student', email: String(p.email || '').toLowerCase() || null, phone4: digits(p.phone).slice(-4) || null, phoneKey: digits(p.phone) || null }));
+      .map((p: any) => ({ planId: p.id, clientId: p.studentId || null, name: p.name || 'Student', email: String(p.email || '').toLowerCase() || null, phone4: digits(p.phone).slice(-4) || null, phoneKey: digits(p.phone) || null, pastDue: p.status === 'past_due' }));
     return NextResponse.json({ ok: true, renters, students });
   }
 
@@ -62,7 +65,34 @@ export async function POST(req: NextRequest) {
       for (const a of appts) if (a.status === 'pending_payment' && Date.parse(a.startTime || '') > Date.now() && num(a.depositAmountCents || a.depositCents) > 0)
         out.deposits.push({ clientId, appointmentId: a.id, cents: num(a.depositAmountCents || a.depositCents), service: a.serviceName || 'Booking', startTime: a.startTime, holdUntil: a.paymentDueAt || a.depositDueAt || null });
     }
+    // Everything else that explains what they owe — and what they've just paid (so nobody takes it twice).
+    out.otherBalance = []; out.notes = []; out.reviews = []; out.recent = [];
+    const dayAgo = Date.now() - 86400000; const canDecide = !!(auth.actor.isManager || auth.actor.isTenantOwner);
+    for (const clientId of ids('clientIds')) {
+      const c: any = (await db.doc(`${T}/clients/${clientId}`).get()).data(); if (!c) continue;
+      const listed = (Array.isArray(c.unpaidFees) ? c.unpaidFees : []).reduce((n: number, f: any) => n + Math.round(num(f.feeAmount) * 100), 0);
+      const gap = Math.round(num(c.outstandingBalance) * 100) - listed;
+      if (gap > 0) out.otherBalance.push({ clientId, cents: gap });   // an older balance that isn't itemised as a fee
+      for (const f of (await db.collection(`${T}/chargeFlags`).where('clientId', '==', clientId).get()).docs.map((d: any) => d.data() || {}))
+        if (f.status === 'needs_attention') out.notes.push({ clientId, text: String(f.failReason || 'A card charge didn’t go through').replace(/\s*\([^)]*\)\s*$/, ''), at: f.createdAt || null });
+      for (const d of (await db.collection(`${T}/cancellationEvents`).where('clientId', '==', clientId).get()).docs) { const e: any = d.data() || {};
+        if (e.status === 'needs_review') out.reviews.push({ eventId: d.id, clientId, cents: Math.round(num(e.feeAmount) * 100), label: e.cancellationAudit?.actorType === 'no_show' ? 'No-show' : 'Late cancel', service: e.serviceName || null, date: e.appointmentStartTime || null, canDecide }); }
+      for (const d of (await db.collection(`${T}/receipts`).where('clientId', '==', clientId).get()).docs) { const r: any = d.data() || {};
+        if (!r.voided && Date.parse(r.date || '') >= dayAgo) out.recent.push({ receiptId: d.id, what: (r.detail?.lines || r.lineItems || []).slice(0, 2).map((l: any) => l.label).join(', ') || 'A sale', cents: Math.round(num(r.total) * 100), at: r.date, number: r.detail?.number || d.id.slice(-6).toUpperCase() }); }
+    }
+    for (const renterId of ids('renterIds')) for (const e of (await db.collection(`${T}/rentLedger`).where('renterId', '==', renterId).get()).docs.map((d: any) => d.data() || {}))
+      if (e.type === 'payment' && e.status !== 'refunded' && Date.parse(e.createdAt || e.paidAt || '') >= dayAgo && !out.recent.some((x: any) => x.receiptId && x.receiptId === e.receiptId))
+        out.recent.push({ what: `Rent (${String(e.method || '').replace(/_/g, ' ') || 'payment'})`, cents: Math.abs(num(e.amountCents)), at: e.createdAt || e.paidAt });
+    out.recent.sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
     return NextResponse.json({ ok: true, ...out });
+  }
+  if (b.action === 'itemise-balance') {
+    const clientId = String(b.clientId || ''); const ref = db.doc(`${T}/clients/${clientId}`); let made: any = null;
+    await db.runTransaction(async (tx: any) => { const c: any = (await tx.get(ref)).data(); if (!c) return;
+      const list = Array.isArray(c.unpaidFees) ? c.unpaidFees : []; const gap = Math.round(num(c.outstandingBalance) * 100) - list.reduce((n: number, f: any) => n + Math.round(num(f.feeAmount) * 100), 0);
+      if (gap <= 0) return; made = { feeId: `balance-${Date.now().toString(36)}`, feeAmount: gap / 100, reason: 'Earlier balance', appointmentDate: null, autoCollect: false, itemisedAt: new Date().toISOString(), itemisedBy: auth.actor.name || null };
+      tx.update(ref, { unpaidFees: [...list, made] }); });   // the total owed is unchanged — it's now a line that can be paid
+    return made ? NextResponse.json({ ok: true, fee: made }) : NextResponse.json({ ok: false, error: 'There’s no earlier balance to add.' }, { status: 409 });
   }
   return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
 }
