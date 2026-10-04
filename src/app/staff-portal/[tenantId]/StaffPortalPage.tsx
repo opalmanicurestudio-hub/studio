@@ -1,5 +1,6 @@
 'use client';
 
+import { StaffOverruns } from '@/components/visit/StaffOverruns';
 import { PushPrompt } from '@/components/shared/PushPrompt';
 import { ClientStatusCard } from '@/components/staff/ClientStatusCard';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
@@ -4951,6 +4952,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           </div>
         </div>
         <PushPrompt tenantId={tenantId} tone="dark" />
+        {staffMember.role !== 'renter' && <StaffOverruns tenantId={tenantId} tone="dark" />}
         {staffMember.role !== 'renter' && (
         <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10">
           <div className={cn('w-2.5 h-2.5 rounded-full shrink-0',
