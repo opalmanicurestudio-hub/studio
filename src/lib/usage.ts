@@ -15,7 +15,7 @@ import { buildEntry } from '@/lib/stock-ledger';
 export interface UsageLine { productId: string; name: string; unit: string; expected: number; actual?: number; deducted?: number; shortfall?: number }
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const unitOf = (it: any) => (it?.costingMethod === 'uses' ? it.useUnit || 'uses' : it?.costingMethod === 'size' ? it.unit || 'ml' : it?.unit || 'units');
-const containerSize = (it: any) => (it?.costingMethod === 'uses' ? n(it.estimatedUses) : it?.costingMethod === 'size' ? n(it.size) : 1);
+export const containerSize = (it: any) => (it?.costingMethod === 'uses' ? n(it.estimatedUses) : it?.costingMethod === 'size' ? n(it.size) : 1);
 const partialKey = (it: any) => (it?.costingMethod === 'uses' ? 'partialContainerUses' : it?.costingMethod === 'size' ? 'partialContainerSize' : null);
 
 /** What a visit should have used: its service's products + each add-on's (quantities summed per product). */
