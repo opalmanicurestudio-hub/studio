@@ -1,5 +1,6 @@
 'use client';
 
+import { SettingsStyle } from '@/components/settings/settings-style';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -147,7 +148,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                   Typically {timing.typical}m — book at {timing.suggest}m?</button>)}
               {totalPadding > 0 && (
                 <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase text-muted-foreground opacity-40">
-                  +{totalPadding}m Pad
+                  +{totalPadding}m set-up / clean-up
                 </div>
               )}
             </div>
@@ -156,14 +157,21 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
 
         <div className="grid grid-cols-2 gap-4">
           <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/10 transition-all text-left">
-            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Volume</p>
+            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Bookings (all time)</p>
             <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{performance.totalBookings}</p>
           </div>
           <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/10 transition-all text-right">
-            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Gross Yield</p>
+            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Revenue</p>
             <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${performance.totalRevenue.toFixed(0)}</p>
           </div>
         </div>
+        {/* What the owner actually needs at a glance: what it costs to deliver, what's left, how it's selling, and anything to fix. */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]" style={{ color: 'var(--muted)' }}>
+          <span>Product {materialCost > 0 ? `$${materialCost.toFixed(2)}` : 'none'} · time ${timeCost.toFixed(2)}</span>
+          {Number(service.price) > 0 && <span style={{ color: (service.price - materialCost - timeCost) / service.price < 0.3 ? 'var(--warn)' : 'var(--ok)' }}>{Math.round(((service.price - materialCost - timeCost) / service.price) * 100)}% left after time and product</span>}
+          {typeof (service as any).__bookings30 === 'number' && <span>{(service as any).__bookings30} booked in 30 days</span>}
+        </div>
+        {((service as any).__attention || []).length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{((service as any).__attention as string[]).map((a) => <span key={a} className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn) 12%, transparent)', color: 'var(--warn)' }}>{a}</span>)}</div>}
 
         <Accordion type="single" collapsible className="w-full">
           <AccordionItem value="profitability" className="border-2 rounded-2xl overflow-hidden bg-primary/[0.02] border-primary/10">
@@ -281,7 +289,8 @@ export default function ServicesPage() {
     (async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
       const r = await fetch('/api/timing', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'services' }) }).then((x) => x.json());
       if (on && r?.ok) setTimingRows(r.rows.filter((x: any) => x.plain)); } catch { /* no numbers yet */ } })(); return () => { on = false; }; }, [tenantId]);
-  const withTiming = (svc: any) => { const t = timingRows.find((x) => x.serviceId === svc.id); return t ? { ...svc, __timing: t, __setDuration: (m: number) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { duration: m }); } } : svc; };
+  const withTiming = (svc: any) => { const t = timingRows.find((x) => x.serviceId === svc.id); const base = { ...svc, __bookings30: bookingsFor(svc.id, since30), __attention: attention(svc) };
+    return t ? { ...base, __timing: t, __setDuration: (m: number) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { duration: m }); } } : base; };
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   const { services, appointments, resources, isLoading, transactions, pricingTiers } = useInventory();
 
@@ -353,20 +362,32 @@ export default function ServicesPage() {
     toast({ title: 'Service Updated', description: `${updated.name} has been updated.` });
   };
 
+  const [category, setCategory] = useState<string>('all'); const [sortBy, setSortBy] = useState<'name' | 'price' | 'popular' | 'attention'>('name');
+  const categories = useMemo(() => Array.from(new Set((services || []).filter((s: any) => s.status !== 'archived').map((s: any) => String(s.category || 'Other')))).sort(), [services]);
+  const since30 = Date.now() - 30 * 86400000; const since90 = Date.now() - 90 * 86400000;
+  const bookingsFor = (id: string, since: number) => (appointments || []).filter((a: any) => a.serviceId === id && Date.parse(a.startTime || '') >= since && !['cancelled', 'no-show', 'no_show'].includes(String(a.status || ''))).length;
+  // What needs the owner's attention on a service: no price, no recipe, not booked for 90 days, or booked at a length the team doesn't hit.
+  const attention = (svc: any): string[] => { const out: string[] = []; if (!(Number(svc.price) > 0)) out.push('No price'); if (!(svc.products || []).length && svc.type !== 'addon') out.push('No product recipe');
+    if (svc.type !== 'addon' && bookingsFor(svc.id, since90) === 0 && Date.parse(svc.createdAt || '') < since90) out.push('Not booked in 90 days');
+    const t = timingRows.find((x) => x.serviceId === svc.id); if (t && Math.abs(t.typical - (svc.duration || 0)) >= 10) out.push(`Takes ${t.typical} min, booked ${svc.duration}`); return out; };
   const filteredServices = useMemo(() => {
     if (!services) return [];
     return services
       .filter(s => showArchived ? s.status === 'archived' : s.status !== 'archived')
-      .filter(s => !searchTerm || s.name.toLowerCase().includes(searchTerm.toLowerCase()));
-  }, [services, searchTerm, showArchived]);
+      .filter(s => !searchTerm || s.name.toLowerCase().includes(searchTerm.toLowerCase()))
+      .filter((s: any) => category === 'all' || String(s.category || 'Other') === category)
+      .filter((s: any) => sortBy !== 'attention' || attention(s).length > 0)
+      .sort((a: any, b: any) => sortBy === 'price' ? (Number(b.price) || 0) - (Number(a.price) || 0) : sortBy === 'popular' ? bookingsFor(b.id, since30) - bookingsFor(a.id, since30) : String(a.name).localeCompare(String(b.name)));
+  }, [services, searchTerm, showArchived, category, sortBy, appointments, timingRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const mainServices = filteredServices.filter(s => s.type === 'service');
   const addOnServices = filteredServices.filter(s => s.type === 'addon');
   const hasServices = services && services.length > 0;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
-      <AppHeader title="Service Library" />
+    <div className="cf-settings cf-legacy flex min-h-screen w-full flex-col">
+      <SettingsStyle />
+      <AppHeader title="Services" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
 
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
@@ -391,11 +412,18 @@ export default function ServicesPage() {
                 <div className="relative">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                   <Input
-                    placeholder="SEARCH SERVICES & TREATMENTS..."
+                    placeholder="Search services"
                     className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                   />
+                </div>
+                {/* Narrow the list: a category, how it's sorted, and "needs attention" (no price, no recipe, unused, wrong length). */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {[['all', 'All'], ...categories.map((c) => [c, c])].map(([v, l]) => <button key={v} type="button" aria-pressed={category === v} onClick={() => setCategory(v)} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={category === v ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)' }}>{l}</button>)}
+                  <span className="ml-auto inline-flex items-center gap-2 text-[13px] cf-muted">Sort
+                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} aria-label="Sort services" className="h-9 rounded-xl border px-2 text-[13px]" style={{ borderColor: 'var(--line)' }}>
+                      <option value="name">A to Z</option><option value="popular">Most booked (30 days)</option><option value="price">Price, high to low</option><option value="attention">Needs attention</option></select></span>
                 </div>
                 <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-3">
