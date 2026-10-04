@@ -8,7 +8,7 @@ export async function renterAccount(db: any, T: string, renterId: string) {
   const r: any = (await db.doc(`${T}/renters/${renterId}`).get()).data(); if (!r) return null;
   // Money the desk collected FOR them (owed to them) and invoice-side credits aren't rent they owe.
   const entries = (await db.collection(`${T}/rentLedger`).where('renterId', '==', renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
-    .filter((e: any) => !['desk_collected', 'desk_offset', 'prepaid_credit'].includes(String(e.type || '')));
+    .filter((e: any) => !['desk_collected', 'desk_offset', 'prepaid_credit'].includes(String(e.type || '')) && e.status !== 'migrated' && !e.migratedToInvoiceId);   // old-cycle charges count only until the nightly job has folded them into invoices
   // The rent invoices autopay, late notices and reminders work from — a desk payment must settle these too.
   const allInv = (await db.collection(`${T}/rentInvoices`).where('renterId', '==', renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
   const invoices = allInv.filter((i: any) => ['due', 'late'].includes(String(i.status || '')))
