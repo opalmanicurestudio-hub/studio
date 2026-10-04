@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
+import { channelFrom, catSlug } from '@/lib/share-links';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
@@ -317,6 +318,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // A link to one service (e.g. the school website's clinic menu:
   // /book/{t}?service={id}) opens the booking sheet for it — once.
   const openedServiceLink = useRef(false);
+  // ?category=… from a shared link → scroll straight to that part of the menu.
+  useEffect(() => { try { const c = new URLSearchParams(window.location.search).get('category'); if (!c || !services.length) return;
+    setTimeout(() => document.getElementById(`cat-${c}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300); } catch { /* no-op */ } }, [services.length]);
   useEffect(() => {
     if (openedServiceLink.current || !services.length) return;
     try {
@@ -515,6 +519,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           body: JSON.stringify({
             tenantId,
             source: 'booking-page',
+            channel: channelFrom(new URLSearchParams(window.location.search).get('src')),   // where the link lived (website, instagram, google, qr…)
             ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
             serviceId: restDetails.serviceId,
             ...((restDetails as any).place ? { place: (restDetails as any).place } : {}),
