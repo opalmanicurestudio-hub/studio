@@ -26,6 +26,8 @@ export const SETTINGS_CSS = `
 .cf-legacy .bg-muted\\/5,.cf-legacy .bg-slate-50\\/50,.cf-legacy .bg-muted\\/10{background:transparent!important}
 .cf-legacy .bg-white{background:var(--card)!important}
 .cf-legacy .text-\\[9px\\],.cf-legacy .text-\\[10px\\]{font-size:12.5px!important;letter-spacing:0!important;text-transform:none!important;line-height:1.45}
+.cf-legacy .text-\\[7px\\],.cf-legacy .text-\\[8px\\]{font-size:12.5px!important;letter-spacing:0!important;text-transform:none!important;line-height:1.45}
+.cf-legacy .border-dashed{border-style:solid!important;border-color:var(--line)!important}
 .cf-legacy .tracking-widest,.cf-legacy .tracking-wider,.cf-legacy [class*="tracking-[0."]{letter-spacing:0!important}
 .cf-legacy .uppercase{text-transform:none!important}
 .cf-legacy .font-black,.cf-legacy .font-extrabold{font-weight:600!important}
