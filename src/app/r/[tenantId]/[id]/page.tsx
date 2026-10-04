@@ -32,10 +32,12 @@ export default function ReceiptPage() {
         {(r.lineItems || []).map((l: any, i: number) => <div key={i}>{row(<span>{l.label}{l.for ? <span style={{ color: '#78716c' }}> — for {l.for}</span> : null}{l.staff ? <span style={{ color: '#78716c' }}> · {l.staff}</span> : null}</span>, money(l.amount))}</div>)}
         <hr style={{ border: 0, borderTop: '1px dashed #d6d3d1', margin: '8px 0' }} />
         {row('Subtotal', money(r.subtotal))}
-        {Number(r.discount) > 0 && row('Discounts', `−${money(r.discount)}`)}
+        {Array.isArray(r.discounts) && r.discounts.length ? r.discounts.map((d: any, i: number) => <React.Fragment key={i}>{row(d.label, `−${money(d.amount)}`)}</React.Fragment>)
+          : Number(r.discount) > 0 && row('Discounts', `−${money(r.discount)}`)}
         {Number(r.tax) > 0 && row(r.taxLabel, money(r.tax))}
         {Number(r.tip) > 0 && row('Tip', money(r.tip))}
         {row('Total', money(r.total), true)}
+        {Array.isArray(r.refunds) && r.refunds.map((x: any, i: number) => <React.Fragment key={`rf${i}`}>{row(`Refunded${x.reason ? ` — ${String(x.reason).toLowerCase()}` : ''}`, `−${money(x.cents / 100)}`)}</React.Fragment>)}
         {row('Paid by', cash ? 'Cash' : 'Card')}
         {cash && Number(r.amountTendered) > 0 && <>{row('Cash given', money(r.amountTendered))}{row('Change', money(r.change))}</>}
         {r.voided && <>
