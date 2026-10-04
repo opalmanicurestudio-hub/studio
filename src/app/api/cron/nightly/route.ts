@@ -861,7 +861,7 @@ export async function GET(req: NextRequest) {
             if (r) renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
           }
         } catch { /* name is cosmetic */ }
-        const owed = ((v.amountCents || 0) + (feeCents || v.lateFeeCents || 0)) / 100;
+        const owed = Math.max(0, (v.amountCents || 0) + (feeCents || v.lateFeeCents || 0) - (v.paidCents || 0)) / 100;   // part-payments count
         await logAuditAdmin(db, tDoc.id, {
           action: 'rent.marked_late', targetType: 'rentInvoice', targetId: inv.id,
           summary: `${renterName}'s rent (due ${due}) is now LATE — $${owed.toFixed(2)} owed${feeCents > 0 ? ` (incl. $${(feeCents / 100).toFixed(2)} late fee)` : ''}`,
