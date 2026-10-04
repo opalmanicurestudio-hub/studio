@@ -138,6 +138,7 @@ export async function POST(req: NextRequest) {
   await logAuditAdmin(db, tenantId, { action: 'checkout.voided', targetType: 'client', targetId: rc.clientId || '', amount: num(rc.total),
     summary: `Sale voided — ${rc.clientName || 'client'} · ${money(rc.total)} (${R.method}) — ${reason} · approved by ${approvedBy}${refunded ? ' · card refunded' : ''}${cashBack ? ` · ${money(cashBack)} cash handed back` : ''}`,
     actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
+  try { const { takeBackForSale } = await import('@/lib/restocking-fund'); await takeBackForSale(db, tenantId, receiptId); } catch { /* best effort */ }
   // Rent / tuition taken on this sale no longer counts — tell the person whose account it was.
   try {
     const { sendReversalNotice } = await import('@/lib/account-receipts');
