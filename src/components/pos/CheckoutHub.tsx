@@ -527,6 +527,11 @@ export const CheckoutHub = ({
   groupDiscountValue,
   skipGroupDiscount,
   setSkipGroupDiscount,
+  discountBreakdown,
+  skipMomentReward,
+  setSkipMomentReward,
+  skipMemberDiscount,
+  setSkipMemberDiscount,
   total,
   tipAmount,
   setTipAmount,
@@ -1481,8 +1486,28 @@ export const CheckoutHub = ({
           <section className={card} style={cardStyle} aria-label="Totals">
             <div className="space-y-1.5 text-[14px]">
               <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{coMoney(subtotal)}</span></div>
-              {totalDiscount > 0 && recoveryAmount === 0 && <div className="flex justify-between"><span>Discounts</span><span className="tabular-nums">−{coMoney(totalDiscount)}</span></div>}
-              {totalDiscount > 0 && recoveryAmount > 0 && <div className="flex justify-between"><span>Discounts</span><span className="tabular-nums">−{coMoney(totalDiscount)}</span></div>}
+              {(() => {
+                // Every discount by name, each removable for this sale; removed ones stay visible with "Put back".
+                const b: any = discountBreakdown || {}; const rows: { key: string; label: string; amount: number; off?: boolean; remove?: () => void; restore?: () => void; note?: string }[] = [];
+                if (b.code > 0) rows.push({ key: 'code', label: `Code ${(appliedDiscountCodes || []).join(', ')}`, amount: b.code, remove: () => setAppliedDiscountCodes?.([]) });
+                if (b.groupAvailable || skipGroupDiscount) rows.push({ key: 'group', label: b.groupLabel, amount: b.group, off: !!skipGroupDiscount || b.group === 0, remove: () => setSkipGroupDiscount?.(true), restore: skipGroupDiscount ? () => setSkipGroupDiscount?.(false) : undefined,
+                  note: !skipGroupDiscount && b.group === 0 && b.moment > 0 ? 'the treat below is bigger' : undefined });
+                if (b.momentAvailable) rows.push({ key: 'moment', label: b.momentLabel || 'Thank-you treat', amount: b.moment, off: !!skipMomentReward || b.moment === 0, remove: () => setSkipMomentReward?.(true), restore: skipMomentReward ? () => setSkipMomentReward?.(false) : undefined,
+                  note: !skipMomentReward && b.moment === 0 ? 'smaller than the other discounts — they don’t combine' : undefined });
+                if (b.memberLabel && (b.member > 0 || skipMemberDiscount)) rows.push({ key: 'member', label: b.memberLabel, amount: b.member, off: !!skipMemberDiscount, remove: () => setSkipMemberDiscount?.(true), restore: skipMemberDiscount ? () => setSkipMemberDiscount?.(false) : undefined });
+                if (b.staff > 0) rows.push({ key: 'staff', label: `Staff discount${staffDiscount?.reason ? ` — ${staffDiscount.reason}` : ''}`, amount: b.staff, remove: () => setStaffDiscount?.(null) });
+                return (<>
+                  {rows.map((r) => (
+                    <div key={r.key} className="flex items-baseline justify-between gap-2" style={r.off ? { color: 'var(--muted)' } : undefined}>
+                      <span className="min-w-0">{r.label}{r.off ? <span> — {r.restore ? 'removed for this sale' : r.note || 'not applied'}</span> : null}{' '}
+                        {r.off && r.restore ? <button type="button" onClick={r.restore} className="text-[12px] font-semibold underline underline-offset-2">Put back</button>
+                          : !r.off && r.remove ? <button type="button" onClick={r.remove} className="text-[12px] font-semibold underline underline-offset-2" style={{ color: 'var(--muted)' }} aria-label={`Remove ${r.label}`}>Remove</button> : null}</span>
+                      <span className="shrink-0 tabular-nums">{r.off ? '—' : `−${coMoney(r.amount)}`}</span>
+                    </div>))}
+                  {b.codeLostTo && <p className="text-[12px]" style={{ color: 'var(--warn)' }}>Code {(appliedDiscountCodes || []).join(', ')} ({coMoney(b.codeRaw)}) isn’t used — the {b.codeLostTo === 'moment' ? 'treat' : (b.groupLabel || 'team discount').toLowerCase()} is bigger and they don’t combine.{' '}
+                    <button type="button" onClick={() => (b.codeLostTo === 'moment' ? setSkipMomentReward?.(true) : setSkipGroupDiscount?.(true))} className="font-semibold underline underline-offset-2">Use the code instead</button></p>}
+                </>);
+              })()}
               {recoveryAmount > 0 && <div className="flex justify-between"><span>Service recovery{recoveryReason ? <span style={muted}> · {recoveryReason.slice(0, 28)}{recoveryReason.length > 28 ? '…' : ''}</span> : null}</span><span className="tabular-nums">−{coMoney(recoveryAmount)}</span></div>}
               {finalTotal > 0 && <div className="flex justify-between"><span>{taxLabel || 'Sales tax'}</span><span className="tabular-nums">{coMoney(tax)}</span></div>}
               {tipAmount > 0 && <div className="flex justify-between"><span>Tip</span><span className="tabular-nums">{coMoney(tipAmount)}</span></div>}
