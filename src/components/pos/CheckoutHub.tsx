@@ -1,5 +1,6 @@
 'use client';
 
+import { splitTip } from '@/lib/tip-split';
 import { SplitBill } from '@/components/pos/SplitBill';
 import { saleProfileOf } from '@/lib/sale-profile';
 import { PosCatalog } from '@/components/pos/PosCatalog';
@@ -670,24 +671,30 @@ export const CheckoutHub = ({
   // Academy student-salon providers: their program decides tips —
   // 'student' (as normal), 'school' (goes to the school, not the student's pay), 'none'.
   const studentsNoTips = allInvolvedStaff.length > 0 && allInvolvedStaff.every((s: any) => s.isStudent && s.tipPolicy === 'none');
-  const handleTotalTipChange = useCallback((value: number) => {
+  // WHO SHARES THE TIP — everyone who worked on the visit, weighted by what each did (their services' prices). A student
+  // whose program keeps tips is the school's share; their program can also mean no tips at all.
+  const tipPeople = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; weight: number }>();
+    const keyOf = (st: any) => (st?.isStudent && ['school', 'none'].includes(String(st.tipPolicy || 'school')) ? '__school' : st?.id);
+    const add = (sid: string, amt: number) => { const st: any = (staff || []).find((x: Staff) => x.id === sid); if (!st) return; const k = keyOf(st);
+      const row = m.get(k) || { id: k, name: k === '__school' ? 'The school' : String(st.name || 'Team member'), weight: 0 }; row.weight += Math.max(0, Number(amt) || 0); m.set(k, row); };
+    (appointmentsData || []).forEach((d: any) => { const a = d.appointment || {}; const ov = a.checkoutState?.serviceStaffOverrides || {};
+      const price = (id: string) => Number((services || []).find((x: any) => x.id === id)?.price) || 0;
+      add(ov[a.serviceId] || a.staffId, price(a.serviceId)); for (const ad of (a.addOnIds || [])) add(ov[ad] || a.staffId, price(ad)); });
+    for (const st of allInvolvedStaff) if (!m.has(keyOf(st))) add(st.id, 0);
+    return [...m.values()];
+  }, [appointmentsData, staff, services, allInvolvedStaff]);
+  const [tipMode, setTipMode] = useState<'even' | 'value' | 'custom'>('even');
+  const handleTotalTipChange = useCallback((value: number, mode?: 'even' | 'value' | 'custom') => {
     let roundedValue = Number(safeNumber(value).toFixed(2));
     if (allInvolvedStaff.length > 0 && allInvolvedStaff.every((s: any) => s.isStudent && s.tipPolicy === 'none')) roundedValue = 0;
     setTipAmount(roundedValue);
-    if (allInvolvedStaff.length > 0) {
-      const splitAmount = Number((roundedValue / allInvolvedStaff.length).toFixed(2));
-      const newAllocations: Record<string, number> = {};
-      let currentTotal = 0;
-      allInvolvedStaff.forEach((member: Staff, index: number) => {
-        const policy = (member as any).isStudent ? ((member as any).tipPolicy || 'school') : 'staff';
-        const key = policy === 'school' || policy === 'none' ? '__school' : member.id;   // school tips: kept by the business, never in a student's pay
-        const share = index === allInvolvedStaff.length - 1 ? Number((roundedValue - currentTotal).toFixed(2)) : splitAmount;
-        if (index !== allInvolvedStaff.length - 1) currentTotal += splitAmount;
-        newAllocations[key] = Number(((newAllocations[key] || 0) + share).toFixed(2));
-      });
-      setTipAllocations(newAllocations);
-    }
-  }, [allInvolvedStaff, setTipAmount, setTipAllocations]);
+    const m = mode || tipMode;
+    if (!tipPeople.length) return;
+    // custom: keep the proportions they chose; even / value: from scratch
+    const people = m === 'custom' && Object.keys(tipAllocations || {}).length ? tipPeople.map((p) => ({ ...p, weight: Number((tipAllocations as any)?.[p.id]) || 0 })) : tipPeople;
+    setTipAllocations(splitTip(roundedValue, people, m === 'even' ? 'even' : 'value'));
+  }, [allInvolvedStaff, tipPeople, tipMode, tipAllocations, setTipAmount, setTipAllocations]);
 
   // Re-split the tip across staff only when the staff list changes —
   // NOT when tipAmount changes, since handleTotalTipChange itself sets
@@ -942,7 +949,7 @@ export const CheckoutHub = ({
   const [cofSkip, setCofSkip] = useState(false);
   useEffect(() => {
     const r = cs.response; if (!r) return;
-    if (tipReq && r.requestId === tipReq && r.kind === 'tip') { handleTotalTipChange(safeNumber(r.tip)); setTipReq(null); toast({ title: safeNumber(r.tip) > 0 ? `Tip added — ${'$'}${safeNumber(r.tip).toFixed(2)}` : 'No tip' }); }
+    if (tipReq && r.requestId === tipReq && r.kind === 'tip') { handleTotalTipChange(safeNumber(r.tip), 'even'); if (r.tipAllocations && Object.keys(r.tipAllocations).length) { setTipMode('custom'); setTipAllocations(r.tipAllocations); } setTipReq(null); toast({ title: safeNumber(r.tip) > 0 ? `Tip added — ${'$'}${safeNumber(r.tip).toFixed(2)}` : 'No tip' }); }
     if (r.kind === 'rebook' && r.booked) toast({ title: `${String(lastSale?.clientName || '').split(' ')[0] || 'They'} booked their next visit`, description: r.label });
     if (cofReq?.id && r.requestId === cofReq.id && r.kind === 'approve') setCofReq({ ...cofReq, status: r.approved ? 'approved' : 'declined', consentId: r.consentId || null });
   }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -955,7 +962,7 @@ export const CheckoutHub = ({
   // Rent and tuition are money owed on an account — a sale of only those is never tipped.
   const accountOnly = (cart || []).length > 0 && (cart || []).every((i: any) => ['rent', 'tuition'].includes(i.type)) && !(appointmentsData || []).length;
   const tipBase = Math.round((profile.tip.base * (csSet.tipOn === 'after_tax' && safeNumber(subtotal) > 0 ? 1 + safeNumber(tax) / safeNumber(subtotal) : 1)) * 100) / 100;   // the tippable lines only
-  const askTipAuto = async () => { if (tipAskedFor.current === ticketKey || tipReq) return; tipAskedFor.current = ticketKey; const id = await cs.ask('tip', { base: tipBase }); if (id) setTipReq(id); };
+  const askTipAuto = async () => { if (tipAskedFor.current === ticketKey || tipReq) return; tipAskedFor.current = ticketKey; const id = await cs.ask('tip', { providers: tipPeople.length > 1 ? tipPeople.map((p) => ({ id: p.id, name: p.name })) : [], base: tipBase }); if (id) setTipReq(id); };
   // Card on file asks for the tip on the iPad first (once per ticket). Cash doesn't: the iPad shows the total, then
   // their change with "Keep it as a tip" / "My change, please" — that's the tip moment for cash.
   useEffect(() => { if (!autoTipOn || isCartEmpty) return; if (paymentTab === 'card' && cardMode === 'cof_tip') askTipAuto(); }, [autoTipOn, paymentTab, cardMode, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -988,13 +995,17 @@ export const CheckoutHub = ({
   const payOnIpadOn = cs.connected && csSet.payOnScreen !== false || cs.connected && csSet.payOnPhone !== false;
   // One request: the iPad runs review → tip → pay by itself (the tip is added to the payment on the server).
   const sendPayToScreen = async () => { const amount = Math.round(safeNumber(amountToCharge) * 100) / 100; const askTip = autoTipOn && safeNumber(tipAmount) === 0;
-    const id = await cs.ask('pay', { amount, clientId: selectedClient?.id || null, pendingId: getPendingId?.() || null, askTip, tipBase });
+    const id = await cs.ask('pay', { amount, clientId: selectedClient?.id || null, pendingId: getPendingId?.() || null, askTip, tipBase, providers: tipPeople.length > 1 ? tipPeople.map((p) => ({ id: p.id, name: p.name })) : [] });
     if (id) setPayReq({ id, amount }); else toast({ variant: 'destructive', title: 'The client screen couldn’t start the payment', description: 'Check Stripe is connected, or take the card another way.' }); };
   const startPayOnIpad = () => { tipAskedFor.current = ticketKey; sendPayToScreen(); };
   useEffect(() => { const r = cs.response; if (!r || !payReq || r.requestId !== payReq.id || r.kind !== 'pay' || !r.paid) return;
     const amt = payReq.amount; setPayReq(null);
     if (r.saved) toast({ title: 'Card saved for next time' });
-    onCheckout({ paymentMethod: 'card', amountTendered: safeNumber(r.amount) || amt, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: r.paymentIntentId, cardSurcharge, tipOverride: Math.round((safeNumber(tipAmount) + safeNumber(r.tip)) * 100) / 100 });
+    onCheckout({ paymentMethod: 'card', amountTendered: safeNumber(r.amount) || amt, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: r.paymentIntentId, cardSurcharge, tipOverride: Math.round((safeNumber(tipAmount) + safeNumber(r.tip)) * 100) / 100,
+      // who the tip goes to: the client's choice on the screen, else the split chosen here (even / by what each did)
+      tipAllocationsOverride: (() => { const all = Math.round((safeNumber(tipAmount) + safeNumber(r.tip)) * 100) / 100; if (!(all > 0) || !tipPeople.length) return {};
+        const extra = r.tipAllocations && Object.keys(r.tipAllocations).length ? r.tipAllocations : splitTip(safeNumber(r.tip), tipPeople, tipMode === 'even' ? 'even' : 'value');
+        const out: Record<string, number> = { ...(tipAllocations || {}) }; for (const [k, v] of Object.entries(extra)) out[k] = Math.round(((out[k] || 0) + Number(v)) * 100) / 100; return out; })() } as any);
   }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); setPayReq(null); setPayAfterTip(false); setSignReq(null); cashShown.current = ''; changeDoneFor.current = null; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
   // ── When things change, nothing is left hanging on the iPad ──
@@ -1240,8 +1251,23 @@ export const CheckoutHub = ({
               return <button key={pct} type="button" aria-pressed={on} onClick={() => handleTotalTipChange(amt)} className={pill(on)} style={pillStyle(on)}>{pct === 0 ? 'No tip' : `${pct}% · ${coMoney(amt)}`}</button>; })}</div>
             <input type="number" inputMode="decimal" value={tipAmount || ''} onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} placeholder="Or an amount ($)" aria-label="Tip amount in dollars" className={inputCls} style={inputStyle} />
             {cs.connected && (tipReq ? <div className="flex items-center justify-between gap-2 rounded-2xl p-3 text-[14px]" style={{ background: 'var(--soft)' }}><span>Waiting for {firstOf(selectedClient?.name) || 'the client'} to choose on {cs.name}…</span><button type="button" onClick={() => { setTipReq(null); cs.ask('idle'); }} className="font-semibold underline underline-offset-4">Cancel</button></div>
-              : <button type="button" onClick={async () => { const id = await cs.ask('tip', { base: (selectedTenant as any)?.clientScreen?.tipOn === 'after_tax' ? safeNumber(subtotal) - safeNumber(totalDiscount) + safeNumber(tax) : safeNumber(subtotal) - safeNumber(totalDiscount) }); if (id) setTipReq(id); else toast({ variant: 'destructive', title: 'The client screen didn’t respond' }); }}
+              : <button type="button" onClick={async () => { const id = await cs.ask('tip', { providers: tipPeople.length > 1 ? tipPeople.map((p) => ({ id: p.id, name: p.name })) : [], base: (selectedTenant as any)?.clientScreen?.tipOn === 'after_tax' ? safeNumber(subtotal) - safeNumber(totalDiscount) + safeNumber(tax) : safeNumber(subtotal) - safeNumber(totalDiscount) }); if (id) setTipReq(id); else toast({ variant: 'destructive', title: 'The client screen didn’t respond' }); }}
                 className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Ask for a tip on {cs.name}{cs.online ? '' : ' (offline?)'}</button>)}
+            {safeNumber(tipAmount) > 0 && tipPeople.length > 1 && (() => {
+              const shares: any = tipAllocations || {}; const given = tipPeople.reduce((n, p) => n + (Number(shares[p.id]) || 0), 0); const left = Math.round((safeNumber(tipAmount) - given) * 100) / 100;
+              return (<div className="space-y-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }} aria-label="Who the tip goes to">
+                <div className="flex flex-wrap gap-1.5">{([['even', 'Split evenly'], ['value', 'By what each did'], ['custom', 'Custom']] as const).map(([k, l]) => (
+                  <button key={k} type="button" aria-pressed={tipMode === k} onClick={() => { setTipMode(k); if (k !== 'custom') handleTotalTipChange(tipAmount, k); }} className={pill(tipMode === k)} style={pillStyle(tipMode === k)}>{l}</button>))}</div>
+                {tipPeople.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between gap-2 text-[14px]"><span>{p.name}</span>
+                    {tipMode === 'custom'
+                      ? <input type="number" inputMode="decimal" aria-label={`Tip for ${p.name}`} defaultValue={(Number(shares[p.id]) || 0).toFixed(2)} key={`${p.id}:${tipAmount}`}
+                          onBlur={(e) => setTipAllocations({ ...shares, [p.id]: Math.max(0, Math.round((parseFloat(e.target.value) || 0) * 100) / 100) })} className="h-9 w-24 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line)' }} />
+                      : <span className="tabular-nums">{coMoney(Number(shares[p.id]) || 0)}</span>}
+                  </div>))}
+                {Math.abs(left) >= 0.01 && <p className="text-[12px]" style={{ color: 'var(--warn)' }}>{left > 0 ? `${coMoney(left)} not assigned yet — it goes to ${tipPeople[0]?.name || 'the main provider'} if left.` : `That’s ${coMoney(-left)} more than the tip — lower someone’s share.`}</p>}
+              </div>);
+            })()}
           </section>}
           <section className={card} style={cardStyle} aria-label="Pay">
             <p className={h}>How they’re paying</p>
