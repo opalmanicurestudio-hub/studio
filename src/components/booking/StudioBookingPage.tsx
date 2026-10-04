@@ -9,6 +9,7 @@
 // with the times clients can book). Booking itself is the same flow, with
 // deposits, forms, text consent, memberships and packages unchanged.
 
+import { catSlug } from '@/lib/share-links';
 import { useMemo, useState } from 'react';
 import { PublicFrame, Section, PrimaryButton, QuietButton, money, minutes } from '@/components/public/kit';
 
@@ -72,7 +73,7 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
           {withWho && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-[15px] shadow-sm" role="status"><span>Booking with <b>{withWho.name}</b> — choose a service</span><button type="button" onClick={() => setWithId(null)} className="text-[14px] underline underline-offset-4">Anyone is fine</button></div>}
           {bookable.length === 0 ? <p className="text-stone-600">Online booking is coming soon — please check back shortly.</p> : (
             <div className="space-y-8">{groups.map(([cat, list]) => (
-              <div key={cat} className="space-y-3">
+              <div key={cat} id={`cat-${catSlug(cat)}`} className="space-y-3 scroll-mt-24">
                 {groups.length > 1 && <h3 className="text-lg font-semibold">{cat}</h3>}
                 <div className="grid gap-3 sm:grid-cols-2">{list.map((s: any, i: number) => (
                   <button key={s.id} type="button" onClick={() => onBook(s, withId || undefined)} className="pub-rise pub-card flex w-full items-center gap-4 p-4 text-left transition hover:-translate-y-0.5" style={{ animationDelay: `${Math.min(i, 8) * 0.04}s` }} aria-label={`Book ${s.name}`}>
