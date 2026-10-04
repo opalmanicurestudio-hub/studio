@@ -1463,5 +1463,10 @@ export async function GET(req: NextRequest) {
   } catch (e) { console.error('[nightly] series deposits', e); }
   results.seriesDeposits = { taken: seriesDepositsTaken, failed: seriesDepositsFailed };
 
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
+  // ── Typical times per provider and service (last 120 days, honest visits only) ───────────────────────────
+  let timingGroups = 0;
+  try { const { buildTimingStats } = await import('@/lib/timing-stats');
+    for (const tDoc of (await db.collection('tenants').get()).docs) { try { const r = await buildTimingStats(db, tDoc.id, tDoc.data() || {}); timingGroups += r.groups; } catch (e: any) { console.error('[nightly] timing stats', tDoc.id, e?.message); } }
+  } catch { /* never stops the rest of the night */ }
+  return NextResponse.json({ ok: true, timingGroups, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }
