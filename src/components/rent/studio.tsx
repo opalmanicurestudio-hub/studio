@@ -47,7 +47,7 @@ export function TodayQuick({ data, booksHere, onGo, tenantId, token, onBadges, v
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, token, data?.invoices?.length]);
   const due = (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late');
-  const dueCents = due.reduce((n: number, i: any) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0), 0);
+  const dueCents = due.reduce((n: number, i: any) => n + Math.max(0, (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0) - (Number(i.paidCents) || 0)), 0);
   const late = due.some((i: any) => i.status === 'late');
   const nextAppt = (data?.myBookings || []).filter((b: any) => b.status !== 'cancelled').sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))[0] || null;
   const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }); };
