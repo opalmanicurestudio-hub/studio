@@ -1,5 +1,6 @@
 'use client';
 
+import { useTenant } from '@/context/TenantContext';
 import React, { useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -45,6 +46,12 @@ const resourceSchema = z.object({
   inventoryItemId: z.string().optional(),
   amenities: z.string().optional(),
   isOutOfService: z.boolean().default(false),
+  rentalEnabled: z.boolean().default(false),                      // rent it out by the hour / day (no provider)
+  rentalHourly: z.coerce.number().min(0).optional(),
+  rentalDaily: z.coerce.number().min(0).optional(),
+  rentalGrace: z.coerce.number().min(0).optional(),
+  rentalBlock: z.coerce.number().min(5).optional(),
+  rentalMin: z.coerce.number().min(0).optional(),
   maintenanceNotes: z.string().optional(),
 }).refine(data => data.type !== 'equipment' || !!data.inventoryItemId, {
     message: "Please select an inventory item for equipment.",
@@ -86,6 +93,7 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
   });
 
   const { control, handleSubmit, register, watch, reset, setValue, formState: { errors } } = methods;
+  const { selectedTenant } = useTenant(); const tenantId = selectedTenant?.id || '';
 
   const resourceType = watch('type');
   const selectedInventoryItemId = watch('inventoryItemId');
@@ -98,6 +106,7 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
         capacity: resource.capacity || 1,
         inventoryItemId: resource.inventoryItemId,
         isOutOfService: !!resource.isOutOfService,
+        rentalEnabled: !!(resource as any).rental?.enabled, rentalHourly: ((resource as any).rental?.hourlyCents || 0) / 100 || undefined, rentalDaily: ((resource as any).rental?.dailyCents || 0) / 100 || undefined, rentalGrace: (resource as any).rental?.graceMinutes ?? 10, rentalBlock: (resource as any).rental?.blockMinutes ?? 15, rentalMin: (resource as any).rental?.minMinutes ?? 60,
         amenities: resource.amenities?.join(', ') || '',
         maintenanceNotes: resource.maintenanceNotes || '',
       });
@@ -120,10 +129,14 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
       type: data.type,
       capacity: data.capacity,
       isOutOfService: data.isOutOfService,
+      rental: { enabled: !!data.rentalEnabled, hourlyCents: Math.round((Number(data.rentalHourly) || 0) * 100), dailyCents: Math.round((Number(data.rentalDaily) || 0) * 100), graceMinutes: Number(data.rentalGrace) || 10, blockMinutes: Number(data.rentalBlock) || 15, minMinutes: Number(data.rentalMin) || 60 },
       maintenanceNotes: data.maintenanceNotes,
       amenities: data.amenities ? data.amenities.split(',').map(s => s.trim()).filter(Boolean) : [],
       inventoryItemId: data.type === 'equipment' ? data.inventoryItemId : undefined,
     });
+    // Rentable → mirror into the rental engine (one space per unit) once the resource has saved.
+    if (data.rentalEnabled || (resource as any)?.rental?.enabled) setTimeout(async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+      await fetch('/api/resources/rentable', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, resourceId: resource.id }) }); } catch { /* the next save retries */ } }, 1200);
     onOpenChange(false);
   };
 
@@ -226,6 +239,24 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
                     <Controller name="isOutOfService" control={control} render={({ field }) => (
                         <Switch id="out-of-service-edit" checked={field.value} onCheckedChange={field.onChange} className="scale-125 data-[state=checked]:bg-destructive" />
                     )} />
+                </div>
+
+                {/* RENT IT OUT — a sauna, room, court or piece of equipment booked by the hour or day with no provider.
+                    Public booking, the signed agreement, kiosk check-in, check-out with grace and overstay charges all
+                    come from the rental engine; one rental space per unit of capacity. */}
+                <div className="space-y-3 rounded-2xl border p-4">
+                    <div className="flex items-center justify-between gap-3">
+                        <div><p className="text-[14px] font-semibold">Rent this out</p><p className="text-[12px] text-muted-foreground">Clients book it by the hour or day, no provider needed. Check-in, check-out and overstay charges are handled for you.</p></div>
+                        <Controller name="rentalEnabled" control={control} render={({ field }) => <Switch checked={!!field.value} onCheckedChange={field.onChange} aria-label="Rent this out" />} />
+                    </div>
+                    {watch('rentalEnabled') && <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        <label className="space-y-1 text-[12px] font-semibold">Per hour ($)<Input type="number" step="0.01" min={0} {...register('rentalHourly')} className="h-11 rounded-xl" /></label>
+                        <label className="space-y-1 text-[12px] font-semibold">Per day ($)<Input type="number" step="0.01" min={0} {...register('rentalDaily')} className="h-11 rounded-xl" /></label>
+                        <label className="space-y-1 text-[12px] font-semibold">Minimum (min)<Input type="number" min={0} {...register('rentalMin')} className="h-11 rounded-xl" /></label>
+                        <label className="space-y-1 text-[12px] font-semibold">Grace after booked time (min)<Input type="number" min={0} {...register('rentalGrace')} className="h-11 rounded-xl" /></label>
+                        <label className="space-y-1 text-[12px] font-semibold">Overstay charged per (min)<Input type="number" min={5} {...register('rentalBlock')} className="h-11 rounded-xl" /></label>
+                        <p className="col-span-2 text-[12px] text-muted-foreground sm:col-span-3">Capacity {watch('capacity') || 1} = {watch('capacity') > 1 ? `${watch('capacity')} bookable units` : 'one bookable unit'}. Overstays are charged at the hourly rate in started blocks, after the grace.</p>
+                    </div>}
                 </div>
 
                 <div className="space-y-2">
