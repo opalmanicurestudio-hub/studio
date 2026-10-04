@@ -16,6 +16,10 @@ export async function POST(req: NextRequest) {
   const me = auth.actor; const db = getAdminDb(); const T = `tenants/${tenantId}`; const visitId = String(b.visitId || '').slice(0, 80);
   try {
     if (b.action === 'get') { const u: any = (await db.doc(`${T}/usage/${visitId}`).get()).data() || null; return NextResponse.json({ ok: true, usage: u }); }
+    if (b.action === 'extra') {   // what was used beyond the recipe, priced for a suggestion at checkout
+      const { extraProductFor } = await import('@/lib/usage'); const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      return NextResponse.json({ ok: true, ...(await extraProductFor(db, tenantId, visitId, tenant)) });
+    }
     if (b.action === 'adjust') {
       const a: any = (await db.doc(`${T}/appointments/${visitId}`).get()).data();
       if (!a) return NextResponse.json({ ok: false, error: 'Visit not found.' }, { status: 404 });
