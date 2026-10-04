@@ -224,9 +224,11 @@ function InlineSearchPanel<T extends { id: string; name?: string }>({
   );
 }
 
+const anchorId = (t: any) => `svc-${String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
-  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary/60 px-1 mb-3">{children}</p>
+  <p id={anchorId(children)} className="text-[15px] font-semibold px-1 mb-3 scroll-mt-20">{children}</p>
 );
+const FORM_STEPS: [string, string][] = [['Basics', 'Basics'], ['Products it uses', 'Products'], ['Price & deposit', 'Price'], ['Consent forms', 'Forms'], ['Policies & online booking', 'Policies']];
 
 const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
   pricingTiers: PricingTier[]; values: any; tmhr: number; taxBurden: number; staff: Staff[];
@@ -534,8 +536,14 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
             {[`${values.duration || 0} min${(values.padBefore || 0) + (values.padAfter || 0) ? ` (+${(values.padBefore || 0) + (values.padAfter || 0)} set-up/clean-up)` : ''}`, `$${Number(values.price || 0).toFixed(2)}`,
               Number(values.price) > 0 ? `${Math.round(((Number(values.price) - breakEven) / Number(values.price)) * 100)}% margin after time and product` : 'no price yet'].join(' · ')}
           </SheetDescription>
+          {Object.keys(errors).length > 0 && <p className="text-[13px] font-semibold" style={{ color: 'var(--warn, #b45309)' }} role="alert">
+            Please check: {Object.keys(errors).map((k) => ({ name: 'Name', category: 'Category', duration: 'Duration', price: 'Price', serviceTiers: 'Prices by tier', products: 'Products' } as any)[k] || k).join(', ')}
+          </p>}
         </SheetHeader>
 
+        <div className="flex gap-1.5 overflow-x-auto border-b px-6 py-2" style={{ background: 'var(--card)' }} aria-label="Jump to">
+          {FORM_STEPS.map(([title, short]) => <button key={title} type="button" onClick={() => document.getElementById(anchorId(title))?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="h-9 shrink-0 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{short}</button>)}
+        </div>
         <ScrollArea className="flex-1">
           <div className="px-6 py-6 space-y-8 pb-32">
 
@@ -915,6 +923,64 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 already used in bookingCompletions.fileRequirements — "On
                 File" means signed/uploaded once, valid for future visits;
                 "Every Time" means re-requested at every booking. */}
+
+            <Separator />
+
+            <section className="space-y-4">
+              <SectionLabel>Policies & online booking</SectionLabel>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Cancel window (hours)</Label>
+                  <Input type="number" placeholder="Studio default" {...register('cancellationWindowHours')} className="h-11 rounded-xl border-2 font-black text-center" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Fee if cancelled late ($)</Label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary opacity-40" />
+                    <Input type="number" step="0.01" placeholder="Matrix" {...register('customCancellationFee')} className="h-11 pl-7 rounded-xl border-2 font-black font-mono" />
+                  </div>
+                </div>
+              </div>
+
+
+              <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-dashed border-slate-200">
+                <div>
+                  <p className="font-black uppercase text-sm tracking-tight">Hidden from the booking page</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Hide from public booking</p>
+                </div>
+                <Controller name="isPrivate" control={control} render={({ field }) => (
+                  <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                )} />
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/40">
+                <div>
+                  <p className="font-black uppercase text-sm tracking-tight">Members Only</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Hidden from non-members on the booking page, and refused if they try</p>
+                </div>
+                <Controller name="membersOnly" control={control} render={({ field }) => (
+                  <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                )} />
+              </div>
+              <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border-2 border-dashed">
+                <div>
+                  <p className="font-black uppercase text-sm tracking-tight">Rebook every</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Weeks until a client is due again — drives the “you're due” nudge. 0 = off</p>
+                </div>
+                <Controller name="rebookWeeks" control={control} render={({ field }) => (
+                  <Input type="number" min={0} max={52} value={field.value ?? 0} onChange={(e) => field.onChange(e.target.value)} className="h-11 w-20 rounded-xl border-2 text-center font-black" />
+                )} />
+              </div>
+            </section>
+
+            {/* MORE OPTIONS — the parts most owners never touch, out of the way but one tap away. */}
+            <details className="rounded-3xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
+              <summary className="cursor-pointer text-[15px] font-semibold">More options <span className="font-normal cf-muted">— the confirmation note, documents to sign, how it’s delivered, the return plan</span></summary>
+              <div className="space-y-6 pt-4">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Extra note in the confirmation</Label>
+                <Textarea {...register('confirmationMessage')} placeholder="Post-booking instructions for the guest..." className="rounded-2xl border-2 min-h-[80px]" />
+              </div>
             <section className="space-y-3">
               <SectionLabel>Documents</SectionLabel>
               <div className="space-y-2">
@@ -982,58 +1048,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 </Button>
               </div>
             </section>
-
-            <Separator />
-
-            <section className="space-y-4">
-              <SectionLabel>Policies & online booking</SectionLabel>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Cancel window (hours)</Label>
-                  <Input type="number" placeholder="Studio default" {...register('cancellationWindowHours')} className="h-11 rounded-xl border-2 font-black text-center" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Fee if cancelled late ($)</Label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary opacity-40" />
-                    <Input type="number" step="0.01" placeholder="Matrix" {...register('customCancellationFee')} className="h-11 pl-7 rounded-xl border-2 font-black font-mono" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Extra note in the confirmation</Label>
-                <Textarea {...register('confirmationMessage')} placeholder="Post-booking instructions for the guest..." className="rounded-2xl border-2 min-h-[80px]" />
-              </div>
-
-              <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-dashed border-slate-200">
-                <div>
-                  <p className="font-black uppercase text-sm tracking-tight">Hidden from the booking page</p>
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Hide from public booking</p>
-                </div>
-                <Controller name="isPrivate" control={control} render={({ field }) => (
-                  <Switch checked={!!field.value} onCheckedChange={field.onChange} />
-                )} />
-              </div>
-              <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/40">
-                <div>
-                  <p className="font-black uppercase text-sm tracking-tight">Members Only</p>
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Hidden from non-members on the booking page, and refused if they try</p>
-                </div>
-                <Controller name="membersOnly" control={control} render={({ field }) => (
-                  <Switch checked={!!field.value} onCheckedChange={field.onChange} />
-                )} />
-              </div>
-              <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border-2 border-dashed">
-                <div>
-                  <p className="font-black uppercase text-sm tracking-tight">Rebook every</p>
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Weeks until a client is due again — drives the “you're due” nudge. 0 = off</p>
-                </div>
-                <Controller name="rebookWeeks" control={control} render={({ field }) => (
-                  <Input type="number" min={0} max={52} value={field.value ?? 0} onChange={(e) => field.onChange(e.target.value)} className="h-11 w-20 rounded-xl border-2 text-center font-black" />
-                )} />
-              </div>
               <div className="space-y-3 p-4 rounded-2xl border-2 border-dashed">
                 <div className="flex items-start justify-between gap-3">
                   <div><p className="font-black uppercase text-sm tracking-tight">How it’s delivered</p>
@@ -1102,7 +1116,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                       {(allServices || []).filter((x: any) => x.type !== 'addon').map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}
                     </select>)} /></label>
               </div>
-            </section>
+              </div>
+            </details>
 
           </div>
         </ScrollArea>
