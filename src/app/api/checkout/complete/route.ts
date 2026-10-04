@@ -508,6 +508,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     else if (it.type === 'rental' && it.reservationId) outcomes.push({ kind: 'booth', name: it.name, reservationId: it.reservationId });
     else if (it.type === 'product') { if (!outcomes.some((o) => o.kind === 'retail')) outcomes.push({ kind: 'retail' }); }
   }
+  // Extra time / extra product added at the desk: a charge record each, with the consent it rests on.
+  try { const { recordCharge } = await import('@/lib/charge-records');
+    for (const [idx, v] of (visits as any[]).entries()) { const vc: any = calc.visits[idx]; const a = v.appointment || {}; if (vc?.waived) continue; const who = String(a.clientId || clientId);
+      if (num(vc?.timeOverage) > 0) await recordCharge(db, tenantId, { kind: 'extra_time', clientId: who, cents: Math.round(num(vc.timeOverage) * 100), reason: `Extra time — ${a.checkoutState?.extraTimeMinutes || '?'} min${a.checkoutState?.extraTimeReason ? ` (${a.checkoutState.extraTimeReason})` : ''}`, appointmentId: a.id, receiptId: receiptRef.id, by: auth.actor.name || 'Front desk', needs: ['booking_policies'] });
+      if (num(vc?.materialOverage) > 0) await recordCharge(db, tenantId, { kind: 'extra_product', clientId: who, cents: Math.round(num(vc.materialOverage) * 100), reason: `Extra product — ${a.checkoutState?.extraProductNote || ''}`.trim(), appointmentId: a.id, receiptId: receiptRef.id, by: auth.actor.name || 'Front desk', needs: ['booking_policies'] }); }
+  } catch { /* the sale stands */ }
   // Restocking fund: each studio visit sets aside its product cost + markup (never a renter's service).
   try { const { setAsideForSale } = await import('@/lib/restocking-fund');
     await setAsideForSale(db, tenantId, tenant, receiptRef.id, visits.map((v: any, idx: number) => ({ appointmentId: v.appointment.id, service: v.service, serviceName: v.service?.name || 'Service', renter: !!calc.visits[idx]?.renter }))); } catch { /* the sale stands */ }
