@@ -2365,12 +2365,12 @@ export default function BoothsPage() {
       // v73 — settle at the rate snapshotted at check-in (falls back to
       // the current rate only for stays that predate the snapshot).
       const rate = (r.settleHourlyCents > 0 ? r.settleHourlyCents : hourlyCentsOf(r.boothId));
-      const GRACE_MS = 10 * 60 * 1000;
+      const rules = (boothById.get(r.boothId) as any)?.rental || {}; const GRACE_MS = (Number(rules.graceMinutes) >= 0 ? Number(rules.graceMinutes) : 10) * 60 * 1000; const BLOCK = Math.max(5, Number(rules.blockMinutes) || 15);
       const diffMs = now.getTime() - bookedEnd.getTime();
       if (diffMs > GRACE_MS && rate > 0) {
-        const overQuarters = Math.ceil((diffMs - GRACE_MS) / (15 * 60 * 1000));
-        updates.overageMinutes = overQuarters * 15;
-        updates.overageDueCents = Math.round(rate * (overQuarters * 15) / 60);
+        const overQuarters = Math.ceil((diffMs - GRACE_MS) / (BLOCK * 60 * 1000));
+        updates.overageMinutes = overQuarters * BLOCK;
+        updates.overageDueCents = Math.round(rate * (overQuarters * BLOCK) / 60);
         updates.overageStatus = 'due';
       } else if (diffMs < -(30 * 60 * 1000) && rate > 0) {
         // Left 30+ min early: unused time is recorded as a POTENTIAL
