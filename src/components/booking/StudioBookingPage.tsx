@@ -30,7 +30,8 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
   const reviews = [1, 2, 3].map((i) => ({ name: rv[`rev${i}Name`], text: rv[`rev${i}Text`], rating: rv[`rev${i}Rating`] ?? 5 })).filter((r) => r.text && r.name);
   const bookable = services.filter((s) => s.isActive !== false);
   const groups = useMemo(() => {
-    const m = new Map<string, any[]>(); for (const s of bookable) { const k = s.category || 'Services'; m.set(k, [...(m.get(k) || []), s]); } return [...m.entries()];
+    const m = new Map<string, any[]>(); const ordered = [...bookable].sort((a: any, b: any) => (Number.isFinite(a.menuOrder) ? a.menuOrder : 1e9) - (Number.isFinite(b.menuOrder) ? b.menuOrder : 1e9) || String(a.name).localeCompare(String(b.name)));   // the owner's menu order
+    for (const s of ordered) { const k = s.category || 'Services'; m.set(k, [...(m.get(k) || []), s]); } return [...m.entries()];
   }, [bookable]);
   const team = staff.filter((m) => m.showOnPublicPage !== false && !(m.isRenter && m.bookingOptOut) && !m.isStudent);
   // Hours from the team's own weekly schedules: earliest start – latest finish per day.
