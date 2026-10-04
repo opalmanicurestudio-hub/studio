@@ -175,6 +175,12 @@ export function TakePayment({ e, onDone, preselect }: { e: any; onDone: () => vo
         {(acc.reviews || []).map((x: any) => <div key={x.eventId} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl p-3" style={box}>
           <span><span className="block text-[15px] font-semibold">{x.label}{x.service ? ` — ${x.service}` : ''} · {money(x.cents)}</span><span className="block text-[13px]" style={muted}>{x.date ? `${day(x.date)} · ` : ''}Waiting for a manager to decide — not charged yet.</span></span>
           {x.canDecide ? <button type="button" disabled={busy} onClick={() => void decide(x.eventId)} className="h-9 rounded-full px-4 text-[13px] font-semibold disabled:opacity-40" style={soft}>Add to their balance</button> : null}</div>)}
+        {(acc.charges || []).length > 0 && <details className="rounded-2xl p-3" style={box}>
+          <summary className="cursor-pointer text-[15px] font-semibold">Charges on record <span className="font-normal" style={muted}>— what each one rests on</span></summary>
+          <div className="space-y-2 pt-2">{acc.charges.map((c: any) => (
+            <div key={c.id} className="text-[13px]"><p><b>{money(c.cents)}</b> · {String(c.kind).replace(/_/g, ' ')} · {new Date(c.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{c.approvedBy ? ` · approved by ${c.approvedBy}` : ''}</p>
+              <p style={muted}>{c.reason}{c.basis.length ? ` · agreed: ${c.basis.join('; ')}` : ''}{c.missing.length ? <span style={{ color: 'var(--warn)' }}> · no record of agreeing to {c.missing.map((m: string) => m.replace(/_/g, ' ')).join(', ')}</span> : null}</p></div>))}</div>
+        </details>}
         {acc.owedToThem.map((x: any) => <p key={x.renterId} className="rounded-2xl p-3 text-[13px]" style={{ background: 'color-mix(in srgb, var(--ok) 10%, transparent)' }}>The studio owes {x.name.split(' ')[0]} {money(x.cents)} from front-desk collections — settled from the Rent page, not here.</p>)}
         {!acc.rent.length && !acc.tuition.length && !acc.fees.length && !acc.deposits.length && !(acc.otherBalance || []).length && !(acc.reviews || []).length && <p className="text-[15px]">Nothing owed — {who.name.split(' ')[0]} is all paid up.</p>}
         {(acc.fees.length > 0 || acc.rent.length > 0 || acc.tuition.length > 0) && (() => { const card = (acc.cards || [])[0]; const rule = acc.chargeRule || { mode: 'manager', limitCents: 0 }; const fees = chosenFees(); const feeCents = fees.reduce((n: number, f: any) => n + f.cents, 0);
