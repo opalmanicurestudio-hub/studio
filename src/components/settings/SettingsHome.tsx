@@ -60,6 +60,7 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
     { title: 'Time clock', meaning: 'How the team clocks in and out.', href: T('timeclock'), words: 'clock in out timesheet pin geofence overtime', module: 'team' },
   ] },
   { question: 'Messages & automations', icon: '', items: [
+    { title: 'Links & embeds', meaning: 'Keep your own website — a Book button and a live menu that open your booking flow, plus shareable links.', href: '/settings/embeds' },
     { title: 'Automations', meaning: 'What the app does on its own — reminders, follow-ups, rent notices — one switch each.', href: '/settings/automations', words: 'automation automatic reminders follow up thank you no-show rent digest brief switch on off timing working' },
     { title: 'Messages', meaning: 'The words clients receive — confirmations, reminders and receipts.', href: '/settings/messages', words: 'message wording words text sms email template confirmation reminder' },
     { title: 'Win back quiet clients', meaning: 'Gentle nudges to clients who are due or haven’t been in a while.', href: '/settings/automations#sw:win-back', words: 'reconnect win back quiet lapsed nudge due missed campaigns texts', module: 'marketing' },
