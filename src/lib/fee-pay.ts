@@ -28,11 +28,12 @@ export async function settleFeesPaid(db: any, tenantId: string, x: { clientId: s
         payments: [{ method: x.how === 'link' ? 'card' : 'card_on_file', brand: x.brand || null, last4: x.last4 || null, amount: total, tip: 0 }], depositUsed: 0, storeCredit: 0, cardSurcharge: 0 },
       source: x.how === 'link' ? 'fee_pay_link' : 'fee_card_on_file' });
   });
+  if (!already && paid.length && x.how === 'link') { try { const { recordCharge } = await import('@/lib/charge-records'); await recordCharge(db, tenantId, { kind: 'fees_pay_link', clientId: x.clientId, cents: Math.round(paid.reduce((n, f) => n + num(f.feeAmount), 0) * 100), reason: `Paid by link — ${paid.map((f) => plain(f.reason)).join(', ')}`, paymentIntentId: x.paymentIntentId, receiptId: receiptRef.id, by: x.by, needs: ['booking_policies'] }); } catch { /* fine */ } }
   return { already, paidCents: Math.round(paid.reduce((n, f) => n + num(f.feeAmount), 0) * 100), receiptId: receiptRef.id, fees: paid };
 }
 
 /** Charge the card on file for these fees, now. Locks them first so automatic collection can't take them at the same moment. */
-export async function chargeFeesNow(db: any, stripe: any, tenantId: string, tenant: any, x: { clientId: string; feeIds: string[]; by: string }) {
+export async function chargeFeesNow(db: any, stripe: any, tenantId: string, tenant: any, x: { clientId: string; feeIds: string[]; by: string; approvedBy?: string | null }) {
   const T = `tenants/${tenantId}`; const cRef = db.doc(`${T}/clients/${x.clientId}`); const nowIso = new Date().toISOString();
   let locked: any[] = []; let client: any = null;
   await db.runTransaction(async (tx: any) => {
@@ -61,6 +62,7 @@ export async function chargeFeesNow(db: any, stripe: any, tenantId: string, tena
   }
   if (intent?.status !== 'succeeded') { await unlock(); return { ok: false, error: 'The charge didn’t complete — nothing was taken.' }; }
   const s = await settleFeesPaid(db, tenantId, { clientId: x.clientId, feeIds: ids, how: 'card_on_file', paymentIntentId: intent.id, by: x.by, brand: card.brand || null, last4: card.last4 || null });
+  try { const { recordCharge } = await import('@/lib/charge-records'); await recordCharge(db, tenantId, { kind: 'fees_card_on_file', clientId: x.clientId, cents, reason: `Charged at the front desk — ${locked.map((f) => plain(f.reason)).join(', ')}`, paymentIntentId: intent.id, receiptId: s.receiptId, by: x.by, approvedBy: (x as any).approvedBy || null, needs: ['booking_policies', 'card_on_file'] }); } catch { /* fine */ }
   try { const { tellClient } = await import('@/lib/fee-collection'); await tellClient(db, tenantId, tenant, x.clientId, client, cents / 100, locked.map((f) => plain(f.reason)).join(', ')); } catch { /* the charge stands */ }
   return { ok: true, paidCents: cents, receiptId: s.receiptId, card: card.last4 ? `${card.brand || 'Card'} ••${card.last4}` : 'their card on file' };
 }
