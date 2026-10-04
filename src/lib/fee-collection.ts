@@ -94,7 +94,7 @@ export async function collectFees(db: any, stripe: any, tenantId: string, tenant
   return out;
 }
 
-async function tellClient(db: any, tenantId: string, tenant: any, clientId: string, client: any, amount: number, reason: string) {
+export async function tellClient(db: any, tenantId: string, tenant: any, clientId: string, client: any, amount: number, reason: string) {
   const { resolveMessagePolicy, renderMessage } = await import('@/lib/message-policy'); const { sendNotification } = await import('@/lib/notify');
   const studio = tenant?.name || 'Us'; const toks = { client_first: String(client.name || '').split(' ')[0] || 'there', amount: `$${amount.toFixed(2)}`, fee_reason: reason.toLowerCase(), studio, when: '', service: '', link: '' };
   if (client.phone) { const p = resolveMessagePolicy(tenant, 'fee_charged', 'sms');
