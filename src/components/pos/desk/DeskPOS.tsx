@@ -13,6 +13,7 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { TakePayment } from '@/components/pos/desk/TakePayment';
 import { AssistQueue, AskForHelp, useAssistQueue } from '@/components/pos/desk/AssistQueue';
 import { openCount } from '@/lib/assist';
 import { useInventory } from '@/context/InventoryContext';
@@ -88,6 +89,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [salesOpen, setSalesOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
   const [walkInOpen, setWalkInOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);   // Take a payment — anyone, everything they owe
   const [rentOpen, setRentOpen] = useState(false); const [tuitionOpen, setTuitionOpen] = useState(false);
   const [stationsOpen, setStationsOpen] = useState(false); const [assistOpen, setAssistOpen] = useState(false);
   const [askFor, setAskFor] = useState<any>(null);   // "Ask for help" from a busy station
@@ -399,6 +401,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <Btn quiet onClick={() => setAssistOpen(true)}>Assist{openCount(assistItems) ? ` · ${openCount(assistItems)}` : ''}</Btn>
           {(allResources || []).length > 0 && <Btn quiet onClick={() => setStationsOpen(true)}>Stations{needsAttention(stationRows) ? ` · ${needsAttention(stationRows)}` : ''}</Btn>}
           {retailOn && <Btn quiet onClick={() => { setPickupScan(null); setPickupOpen(true); }}>Pickups</Btn>}
+          <Btn quiet onClick={() => setPayOpen(true)}>Take a payment</Btn>
           {moduleEnabled(tenant, 'booth_rental') && <Btn quiet onClick={() => setRentOpen(true)}>Collect rent</Btn>}
           {moduleEnabled(tenant, 'academy') && <Btn quiet onClick={() => setTuitionOpen(true)}>Tuition</Btn>}
           <Btn quiet onClick={() => setSalesOpen(true)}>Today’s sales</Btn>
@@ -485,6 +488,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={stationsOpen} onClose={() => setStationsOpen(false)} title="Stations"><Stations firestore={e.firestore} tenantId={e.tenantId} resources={allResources || []} appts={todaysAppts} services={e.services || []} staff={e.staff || []} protocols={protocols || []} onAsk={(ctx: any) => { setStationsOpen(false); setAskFor(ctx); }} /></Drawer>
       <Drawer accent={accent} open={assistOpen} onClose={() => setAssistOpen(false)} title="Assist"><AssistQueue firestore={e.firestore} tenantId={e.tenantId} inventory={allInventory || []} user={getAuth().currentUser} /></Drawer>
       <Drawer accent={accent} open={!!askFor} onClose={() => setAskFor(null)} title="Ask for help">{askFor && <AskForHelp tenantId={e.tenantId} context={askFor} onDone={() => setAskFor(null)} />}</Drawer>
+      <Drawer accent={accent} open={payOpen} onClose={() => setPayOpen(false)} title="Take a payment">{payOpen && <TakePayment e={e} onDone={() => setPayOpen(false)} />}</Drawer>
       <Drawer accent={accent} open={rentOpen} onClose={() => setRentOpen(false)} title="Collect rent"><CollectRent tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addRentToCart?.({ renterId: x.renterId, name: x.name, amount: x.amount }); setRentOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>
       <Drawer accent={accent} open={walkInOpen} onClose={() => setWalkInOpen(false)} title="Add a walk-in"><AddWalkIn tenantId={e.tenantId} tenant={tenant} services={e.services || []} staff={e.staff || []} onDone={() => setWalkInOpen(false)} /></Drawer>
       <Drawer accent={accent} open={screenOpen} onClose={() => setScreenOpen(false)} title="Client screen"><ClientScreenPanel tenantId={e.tenantId} /></Drawer>
