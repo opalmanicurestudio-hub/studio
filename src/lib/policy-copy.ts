@@ -45,6 +45,15 @@ export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCe
   if (moveBits.length) out.push(`Rescheduling: ${moveBits.join('; ')}.`);
   const rf = Number(t.rescheduleFee || 0), rw = Number(t.rescheduleFeeWindowHours || 0);
   if (rf > 0 && rw > 0) out.push(`Moving it within ${hrs(rw)} of the time carries a ${money(rf)} reschedule fee.`);
+  // Extra time / product the client asks for — only said when the business actually suggests those charges, and only
+  // for services timed by the provider (never rentals or classes).
+  const auto = t.automations || {}; const tp = t.timingPolicy || {};
+  if ((auto.overtimeSuggest === true || auto.extraProductSuggest === true) && (!service || !service.timedBy || service.timedBy === 'provider')) {
+    const bits: string[] = [];
+    if (auto.overtimeSuggest === true) bits.push(`extra time you ask for beyond your booking (after ${Number(tp.graceMinutes ?? 15)} free minutes) is charged ${tp.pricing === 'per_block' ? `at ${money(Number(tp.blockPrice) || 0)} per ${Number(tp.blockMinutes) || 15} minutes` : 'at the service’s rate'}`);
+    if (auto.extraProductSuggest === true && tp.extraProduct !== 'off') bits.push(`extra product you ask for is charged${tp.extraProduct === 'cost' ? ' at cost' : ''}`);
+    if (bits.length) out.push(`Please note: ${bits.join(', and ')}.`);
+  }
   const dep = Number(opts.depositCents || 0);
   if (dep > 0) {
     const p = resolveDepositPolicy(t);
