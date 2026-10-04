@@ -28,9 +28,9 @@ function Row({ p, onSet, title, sub, cents, editable = true, children }: { p: Pi
     {children}</div>);
 }
 
-type Person = { key: string; name: string; hint: string; clientIds: string[]; renterIds: string[]; planIds: string[]; tags: string[] };
+type Person = { key: string; name: string; hint: string; clientIds: string[]; renterIds: string[]; planIds: string[]; tags: string[]; owedCents: number };
 
-export function TakePayment({ e, onDone }: { e: any; onDone: () => void }) {
+export function TakePayment({ e, onDone, preselect }: { e: any; onDone: () => void; preselect?: { clientId?: string; renterId?: string; planId?: string } | null }) {
   const tenantId = e.tenantId;
   const [dir, setDir] = React.useState<any>(null); const [q, setQ] = React.useState(''); const [who, setWho] = React.useState<Person | null>(null);
   const [acc, setAcc] = React.useState<any>(null); const [pick, setPick] = React.useState<Record<string, Pick>>({});
@@ -41,22 +41,31 @@ export function TakePayment({ e, onDone }: { e: any; onDone: () => void }) {
   const people: Person[] = React.useMemo(() => {
     const m = new Map<string, Person>(); const keyFor = (x: { email?: any; phone?: any; clientId?: any }, fallback: string) => (x.clientId ? `c:${x.clientId}` : '') || (x.email ? `e:${String(x.email).toLowerCase()}` : '') || (digits(x.phone) ? `p:${digits(x.phone)}` : '') || fallback;
     const alias = new Map<string, string>();   // email / phone → the row they belong to
-    const add = (k: string, name: string, hint: string, tag: string, ids: { c?: string | null; r?: string; p?: string }, contacts: string[]) => {
+    const add = (k: string, name: string, hint: string, tag: string, ids: { c?: string | null; r?: string; p?: string }, contacts: string[], owed = 0) => {
       const existing = contacts.map((c) => alias.get(c)).find(Boolean) || (ids.c ? alias.get(`c:${ids.c}`) : undefined);
-      const key = existing || k; const row = m.get(key) || { key, name, hint, clientIds: [], renterIds: [], planIds: [], tags: [] };
+      const key = existing || k; const row = m.get(key) || { key, name, hint, clientIds: [], renterIds: [], planIds: [], tags: [], owedCents: 0 };
       if (ids.c && !row.clientIds.includes(ids.c)) row.clientIds.push(ids.c); if (ids.r) row.renterIds.push(ids.r); if (ids.p) row.planIds.push(ids.p); if (!row.tags.includes(tag)) row.tags.push(tag);
-      if (!row.hint && hint) row.hint = hint; m.set(key, row); for (const c of contacts) if (c) alias.set(c, key); if (ids.c) alias.set(`c:${ids.c}`, key);
+      if (!row.hint && hint) row.hint = hint; row.owedCents += Math.max(0, Math.round(owed)); m.set(key, row); for (const c of contacts) if (c) alias.set(c, key); if (ids.c) alias.set(`c:${ids.c}`, key);
     };
     for (const c of (e.clients || []) as any[]) { const em = c.email ? `e:${String(c.email).toLowerCase()}` : ''; const ph = digits(c.phone) ? `p:${digits(c.phone)}` : '';
       const owes = (Array.isArray(c.unpaidFees) && c.unpaidFees.length) || Number(c.outstandingBalance) > 0;
-      add(keyFor({ clientId: c.id }, `c:${c.id}`), c.name || 'Client', digits(c.phone) ? `•••${digits(c.phone).slice(-4)}` : c.email || '', owes ? 'Owes fees' : 'Client', { c: c.id }, [em, ph]); }
-    for (const r of (dir?.renters || []) as any[]) add(keyFor({ email: r.email, phone: r.phoneKey }, `r:${r.renterId}`), r.name, r.phone4 ? `•••${r.phone4}` : r.email || '', 'Renter', { c: r.clientId, r: r.renterId }, [r.email ? `e:${r.email}` : '', r.phoneKey ? `p:${r.phoneKey}` : '']);
-    for (const s of (dir?.students || []) as any[]) add(keyFor({ email: s.email, phone: s.phoneKey }, `s:${s.planId}`), s.name, s.phone4 ? `•••${s.phone4}` : s.email || '', 'Student', { c: s.clientId, p: s.planId }, [s.email ? `e:${s.email}` : '', s.phoneKey ? `p:${s.phoneKey}` : '']);
+      add(keyFor({ clientId: c.id }, `c:${c.id}`), c.name || 'Client', digits(c.phone) ? `•••${digits(c.phone).slice(-4)}` : c.email || '', owes ? 'Owes fees' : 'Client', { c: c.id }, [em, ph], (Number(c.outstandingBalance) || 0) * 100); }
+    for (const r of (dir?.renters || []) as any[]) add(keyFor({ email: r.email, phone: r.phoneKey }, `r:${r.renterId}`), r.name, r.phone4 ? `•••${r.phone4}` : r.email || '', 'Renter', { c: r.clientId, r: r.renterId }, [r.email ? `e:${r.email}` : '', r.phoneKey ? `p:${r.phoneKey}` : ''], r.owedCents || 0);
+    for (const s of (dir?.students || []) as any[]) add(keyFor({ email: s.email, phone: s.phoneKey }, `s:${s.planId}`), s.name, s.phone4 ? `•••${s.phone4}` : s.email || '', s.pastDue ? 'Tuition past due' : 'Student', { c: s.clientId, p: s.planId }, [s.email ? `e:${s.email}` : '', s.phoneKey ? `p:${s.phoneKey}` : '']);
     return [...m.values()];
   }, [e.clients, dir]);
   const shown = React.useMemo(() => { const t = q.trim().toLowerCase(); const d = digits(q); if (t.length < 2) return [];
     return people.filter((p) => p.name.toLowerCase().includes(t) || (d.length >= 3 && p.hint.includes(d.slice(-4)))).slice(0, 12); }, [people, q]);
 
+  const opened = React.useRef(false);
+  React.useEffect(() => {   // opened from the counter / a client's panel → straight to that person
+    if (!preselect || opened.current || !dir) return;
+    const hit = people.find((p) => (preselect.clientId && p.clientIds.includes(preselect.clientId)) || (preselect.renterId && p.renterIds.includes(preselect.renterId)) || (preselect.planId && p.planIds.includes(preselect.planId)));
+    if (hit) { opened.current = true; void open(hit); }
+  }, [preselect, people, dir]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reload = async () => { if (who) { const keep = pick; await open(who); setPick((m) => ({ ...m, ...Object.fromEntries(Object.entries(keep).filter(([k]) => k in m)) })); } };
+  const itemise = async (clientId: string) => { setBusy(true); const r = await post('/api/desk/accounts', { tenantId, action: 'itemise-balance', clientId }); setBusy(false); if (!r.ok) setErr(r.error); else await reload(); };
+  const decide = async (eventId: string) => { setBusy(true); const r = await post('/api/cancellations/review', { tenantId, eventId, action: 'balance' }); setBusy(false); if (!r.ok) setErr(r.error); else await reload(); };
   const open = async (p: Person) => {
     setWho(p); setAcc(null); setErr(null);
     const r = await post('/api/desk/accounts', { tenantId, action: 'person', clientIds: p.clientIds, renterIds: p.renterIds, planIds: p.planIds });
@@ -108,7 +117,7 @@ export function TakePayment({ e, onDone }: { e: any; onDone: () => void }) {
       {q.trim().length >= 2 && shown.length === 0 && dir && <p className="text-[14px]" style={muted}>Nobody matches “{q.trim()}”.</p>}
       <div className="space-y-2">{shown.map((p) => (
         <button key={p.key} type="button" onClick={() => void open(p)} className="flex w-full items-center justify-between gap-3 rounded-2xl p-3 text-left" style={box}>
-          <span><span className="block text-[15px] font-semibold">{p.name}</span><span className="block text-[13px]" style={muted}>{p.hint}</span></span>
+          <span><span className="block text-[15px] font-semibold">{p.name}</span><span className="block text-[13px]" style={muted}>{p.hint}{p.owedCents > 0 ? <b style={{ color: 'var(--warn)' }}> · owes {money(p.owedCents)}</b> : null}</span></span>
           <span className="flex flex-wrap justify-end gap-1">{p.tags.map((t) => <span key={t} className="rounded-full px-2 py-0.5 text-[12px] font-semibold" style={soft}>{t}</span>)}</span>
         </button>))}</div>
     </div>);
@@ -120,6 +129,11 @@ export function TakePayment({ e, onDone }: { e: any; onDone: () => void }) {
       {err && <p className="text-[14px] font-semibold" style={{ color: 'var(--warn)' }}>{err}</p>}
       {!acc && !err && <p className="text-[14px]" style={muted}>Looking up everything they owe…</p>}
       {acc && (<>
+        {(acc.recent || []).length > 0 && <div className="space-y-1 rounded-2xl p-3 text-[13px]" style={{ background: 'color-mix(in srgb, var(--warn) 12%, transparent)' }}>
+          <p className="font-semibold">Paid in the last 24 hours — check before taking it again:</p>
+          {acc.recent.slice(0, 4).map((x: any, i: number) => <p key={i}>{money(x.cents)} · {x.what} · {new Date(x.at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}{x.number ? ` · #${x.number}` : ''}</p>)}
+        </div>}
+        {(acc.notes || []).map((n: any, i: number) => <p key={`n${i}`} className="text-[13px]" style={muted}>Note: {n.text}{n.at ? ` (${day(n.at)})` : ''} — their card on file may not work.</p>)}
         <div className="flex gap-2"><button type="button" onClick={() => setPick(dueNow(acc))} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={soft}>What’s due now</button>
           <button type="button" onClick={everything} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={soft}>Everything</button></div>
         {acc.rent.map((x: any) => <Row key={x.renterId} p={pick[`rent:${x.renterId}`] || { on: false, cents: 0 }} onSet={(v) => set(`rent:${x.renterId}`, v)} title={`Rent${x.booth ? ` — ${x.booth}` : ''}`} cents={x.owedNowCents}
@@ -136,8 +150,14 @@ export function TakePayment({ e, onDone }: { e: any; onDone: () => void }) {
           </Row>); })}
         {acc.fees.map((x: any) => <Row key={x.feeId} p={pick[`fee:${x.feeId}`] || { on: false, cents: 0 }} onSet={(v) => set(`fee:${x.feeId}`, v)} title={x.reason || 'Fee'} sub={x.date ? `From ${day(x.date)}` : undefined} cents={x.cents} editable={false} />)}
         {acc.deposits.map((x: any) => <Row key={x.appointmentId} p={pick[`dep:${x.appointmentId}`] || { on: false, cents: 0 }} onSet={(v) => set(`dep:${x.appointmentId}`, v)} title={`Deposit — ${x.service}`} sub={`For ${day(x.startTime)}${x.holdUntil ? ` · held until ${new Date(x.holdUntil).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`} cents={x.cents} editable={false} />)}
+        {(acc.otherBalance || []).map((x: any) => <div key={`ob${x.clientId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl p-3" style={box}>
+          <span><span className="block text-[15px] font-semibold">Earlier balance {money(x.cents)}</span><span className="block text-[13px]" style={muted}>On their account but not listed as a fee.</span></span>
+          <button type="button" disabled={busy} onClick={() => void itemise(x.clientId)} className="h-9 rounded-full px-4 text-[13px] font-semibold disabled:opacity-40" style={soft}>Add it to their fees</button></div>)}
+        {(acc.reviews || []).map((x: any) => <div key={x.eventId} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl p-3" style={box}>
+          <span><span className="block text-[15px] font-semibold">{x.label}{x.service ? ` — ${x.service}` : ''} · {money(x.cents)}</span><span className="block text-[13px]" style={muted}>{x.date ? `${day(x.date)} · ` : ''}Waiting for a manager to decide — not charged yet.</span></span>
+          {x.canDecide ? <button type="button" disabled={busy} onClick={() => void decide(x.eventId)} className="h-9 rounded-full px-4 text-[13px] font-semibold disabled:opacity-40" style={soft}>Add to their balance</button> : null}</div>)}
         {acc.owedToThem.map((x: any) => <p key={x.renterId} className="rounded-2xl p-3 text-[13px]" style={{ background: 'color-mix(in srgb, var(--ok) 10%, transparent)' }}>The studio owes {x.name.split(' ')[0]} {money(x.cents)} from front-desk collections — settled from the Rent page, not here.</p>)}
-        {!acc.rent.length && !acc.tuition.length && !acc.fees.length && !acc.deposits.length && <p className="text-[15px]">Nothing owed — {who.name.split(' ')[0]} is all paid up.</p>}
+        {!acc.rent.length && !acc.tuition.length && !acc.fees.length && !acc.deposits.length && !(acc.otherBalance || []).length && !(acc.reviews || []).length && <p className="text-[15px]">Nothing owed — {who.name.split(' ')[0]} is all paid up.</p>}
         {(acc.rent.length > 0 || acc.tuition.length > 0 || acc.fees.length > 0 || acc.deposits.length > 0) && (
           <button type="button" disabled={busy || total <= 0 || acc.tuition.some((x: any) => pick[`tuition:${x.planId}`]?.on && pick[`tuition:${x.planId}`].cents > x.balanceCents)} onClick={() => void addToBill()}
             className="h-12 w-full rounded-full text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{busy ? 'One moment…' : `Add ${money(total)} to the bill`}</button>)}
