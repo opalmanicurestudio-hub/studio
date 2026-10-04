@@ -1,5 +1,6 @@
 'use client';
 
+import { TypicalTimes } from '@/components/staff/TypicalTimes';
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   Sheet,
@@ -340,6 +341,7 @@ export const StaffDetailsSheet = ({
 
   const content = (
     <div className="space-y-8 md:space-y-10">
+          {tenantId && staffMember?.id && <TypicalTimes tenantId={tenantId} staffId={staffMember.id} />}
           <div className={cn("p-5 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50", isMobile && "mb-6")}>
               <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row items-center gap-3">
