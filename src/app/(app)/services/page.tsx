@@ -10,8 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   PlusCircle, Clock, Sparkles, Pencil, Search, SlidersHorizontal,
-  Calculator, Check, Link as LinkIcon, BarChart, ArrowRight, BookOpen,
-} from 'lucide-react';
+  Calculator, Check, Link as LinkIcon, BarChart, ArrowRight, BookOpen, Copy } from 'lucide-react';
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from '@/components/ui/accordion';
@@ -28,7 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking,
 } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { doc, collection } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useInventory } from '@/context/InventoryContext';
@@ -225,8 +224,16 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                   <Pencil className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Modify Record</TooltipContent>
+              <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Edit</TooltipContent>
             </Tooltip>
+            {(service as any).__duplicate && <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white text-primary" onClick={e => { e.stopPropagation(); (service as any).__duplicate(); }} aria-label="Make a copy">
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="font-black uppercase text-[10px] tracking-widest border-2">Make a copy</TooltipContent>
+            </Tooltip>}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -289,7 +296,10 @@ export default function ServicesPage() {
     (async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
       const r = await fetch('/api/timing', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'services' }) }).then((x) => x.json());
       if (on && r?.ok) setTimingRows(r.rows.filter((x: any) => x.plain)); } catch { /* no numbers yet */ } })(); return () => { on = false; }; }, [tenantId]);
-  const withTiming = (svc: any) => { const t = timingRows.find((x) => x.serviceId === svc.id); const base = { ...svc, __bookings30: bookingsFor(svc.id, since30), __attention: attention(svc) };
+  const withTiming = (svc: any) => { const t = timingRows.find((x) => x.serviceId === svc.id); const base = { ...svc, __bookings30: bookingsFor(svc.id, since30), __attention: attention(svc),
+      // "Make a copy": the same service under a new name, hidden from the booking page until it's checked
+      __duplicate: () => { if (!firestore || !tenantId) return; const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = svc as any; const ref = doc(collection(firestore, 'tenants', tenantId, 'services'));
+        setDocumentNonBlocking(ref, { ...rest, id: ref.id, name: `${svc.name} (copy)`, isPrivate: true, status: 'active', createdAt: new Date().toISOString() }, { merge: false }); toast({ title: `Copied — “${svc.name} (copy)” is hidden from the booking page until you’re ready.` }); } };
     return t ? { ...base, __timing: t, __setDuration: (m: number) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { duration: m }); } } : base; };
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   const { services, appointments, resources, isLoading, transactions, pricingTiers } = useInventory();
