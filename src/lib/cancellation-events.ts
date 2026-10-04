@@ -49,6 +49,7 @@ export async function processCancellationEvent(db: any, stripe: any, tenantId: s
           { stripeAccount: tenant.stripeAccountId, idempotencyKey: `cancel-fee-${tenantId}-${eventId}` });
         const lc: any = pi.latest_charge; const chargeId = lc && typeof lc === 'object' ? lc.id : (lc || null);
         updates.chargeStatus = 'charged'; updates.stripeChargeId = chargeId || pi.id; updates.stripeChargeAmountCents = cents;
+        try { const { recordCharge } = await import('@/lib/charge-records'); await recordCharge(db, tenantId, { kind: actor === 'no_show' ? 'no_show_fee' : 'late_cancel_fee', clientId: String(data.clientId || ''), cents, reason: String(data.reason || (actor === 'no_show' ? 'Did not arrive' : 'Cancelled inside the notice period')), appointmentId: data.appointmentId || null, paymentIntentId: pi.id, needs: ['booking_policies', 'card_on_file'] }); } catch { /* the charge stands */ }
         try {
           const ref = db.collection(`${T}/transactions`).doc();
           await ref.set({ id: ref.id, tenantId, date: nowIso(), appointmentId: data.appointmentId || null, clientId: data.clientId || null, clientName: data.clientName, clientOrVendor: data.clientName, type: 'income', context: 'Business',
