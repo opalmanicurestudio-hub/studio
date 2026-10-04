@@ -80,6 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { recordConsent } from '@/lib/consent';
 import { placeOf, placeOptionsOf, placeLine, arrivalLine, clientAddressOf } from '@/lib/service-place';
 import { unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -939,6 +940,8 @@ export async function POST(req: NextRequest) {
         const money$ = (c: number) => `$${(c / 100).toFixed(2)}`;
         const depCents = Number(r.plan?.depositCents) || 0;
         const policyLines: string[] = bookingPolicyLines(tAny, svc, { depositCents: depCents });
+        try { const cid = String(r.clientId || ''); if (cid && policyLines.length) { const c = await recordConsent(db, tenantId, { clientId: cid, kind: 'booking_policies', text: policyLines.join('\n'), via: source, ref: r.aptId, name: body?.client?.name || null });
+          await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ policyConsent: { version: c.version, at: c.at, via: source } }, { merge: true }); } } catch { /* the booking stands */ }   // what they agreed to when booking
         // Where it happens (studio / online / at the client's place) — so online and mobile visits aren't told to "check in when you arrive".
         const placeSvc: any = renterSvc || svcAsBooked; const where = placeLine(placeSvc, clientAddressOf(body?.client), null, { timeZone: (tenant as any)?.timezone || null, clientPhone: phone || null, businessPhone: (tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null });
 
