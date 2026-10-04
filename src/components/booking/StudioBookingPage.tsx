@@ -16,9 +16,10 @@ import { PublicFrame, Section, PrimaryButton, QuietButton, money, minutes } from
 const DAYS: [string, string][] = [['monday', 'Mon'], ['tuesday', 'Tue'], ['wednesday', 'Wed'], ['thursday', 'Thu'], ['friday', 'Fri'], ['saturday', 'Sat'], ['sunday', 'Sun']];
 const clock = (t: string) => { const [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'pm' : 'am'; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, '0')}${ap}` : `${hh}${ap}`; };
 
-export function StudioBookingPage({ tenant, services, staff, sections, accent, onBook }: {
+export function StudioBookingPage({ tenant, services, staff, sections, accent, onBook, focus }: {
   tenant: any; services: any[]; staff: any[]; sections: any[]; accent: string;
   onBook: (service: any, staffId?: string) => void;
+  focus?: any | null;   // a shared link to ONE service → the page is about that service (from a website, a QR code, a bio)
 }) {
   const name = tenant?.name || 'Book an appointment';
   // The page builder's SAMPLE hero text counts as "not set" — Studio shows the
@@ -60,6 +61,18 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
       </header>
 
       <main id="main">
+        {focus ? (
+          <section className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-12 sm:py-20 md:grid-cols-2" aria-label={`Book ${focus.name}`}>
+            <div className="pub-rise space-y-5">
+              <p className="text-sm uppercase tracking-wide text-stone-500">{focus.category || 'Service'} · {name}</p>
+              <h1 className="text-4xl leading-[1.08] sm:text-6xl">{focus.name}</h1>
+              <p className="text-lg text-stone-700">{focus.duration ? `${focus.duration} min · ` : ''}{(focus.priceIsFrom || (focus.serviceTiers || []).length ? 'from ' : '')}${(Number(focus.price) || 0).toFixed(0)}</p>
+              {focus.description && <p className="max-w-xl text-lg text-stone-600">{focus.description}</p>}
+              <div className="flex flex-wrap items-center gap-3"><PrimaryButton onClick={() => onBook(focus)}>Book {focus.name}</PrimaryButton><QuietButton href="#services">See all services</QuietButton></div>
+            </div>
+            {(focus.imageUrl || photo) && <div className="pub-rise pub-card overflow-hidden" style={{ animationDelay: '.1s' }}><img src={focus.imageUrl || photo} alt="" className="aspect-[4/3] w-full object-cover" /></div>}
+          </section>
+        ) : (
         <section className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-12 sm:py-20 md:grid-cols-2">
           <div className="pub-rise space-y-5">
             <h1 className="text-4xl leading-[1.08] sm:text-6xl">{hero.headline ? hero.headline : <>Welcome to <b>{name}</b></>}</h1>
@@ -67,7 +80,7 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
             <div className="flex flex-wrap gap-3"><PrimaryButton onClick={bookTop}>Book an appointment</PrimaryButton>{team.length > 0 && <QuietButton href="#team">Meet the team</QuietButton>}</div>
           </div>
           {photo && <div className="pub-rise pub-card overflow-hidden" style={{ animationDelay: '.1s' }}><img src={photo} alt="" className="aspect-[4/3] w-full object-cover" /></div>}
-        </section>
+        </section>)}
 
         <Section id="services" eyebrow="Services" title={<>Choose your <b>service</b></>}>
           {withWho && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-[15px] shadow-sm" role="status"><span>Booking with <b>{withWho.name}</b> — choose a service</span><button type="button" onClick={() => setWithId(null)} className="text-[14px] underline underline-offset-4">Anyone is fine</button></div>}
