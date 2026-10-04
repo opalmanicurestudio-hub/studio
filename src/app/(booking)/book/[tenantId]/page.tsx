@@ -1073,6 +1073,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   if (studioDesign) {
     return (
       <StudioBookingPage tenant={tenant} accent={resolvedStyle.accentColor}
+        focus={(() => { try { const id = new URLSearchParams(window.location.search).get('service'); return id ? services.find((sv: any) => sv.id === id) || null : null; } catch { return null; } })()}
         services={services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true)} staff={staff} sections={sections}
         onBook={(svc, staffId) => { setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
     );
