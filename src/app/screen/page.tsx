@@ -71,6 +71,8 @@ export default function ClientScreenPage() {
   const [id, setId] = React.useState<string | null>(null); const [s, setS] = React.useState<any>(null); const [err, setErr] = React.useState<string | null>(null);
   const [code, setCode] = React.useState<string | null>(null); const [blocked, setBlocked] = React.useState(false);
   const [custom, setCustom] = React.useState(''); const [sig, setSig] = React.useState<string | null>(null); const [busy, setBusy] = React.useState(false);
+  // Tip → "Who should your tip go to?" when more than one person did the work. Split evenly, or choose in $1 steps.
+  const [tipPick, setTipPick] = React.useState<{ tip: number; tipLabel: string } | null>(null); const [tipSplit, setTipSplit] = React.useState<Record<string, number> | null>(null);
   const [rch, setRch] = React.useState<'email' | 'sms' | null>(null); const [rto, setRto] = React.useState(''); const [rmsg, setRmsg] = React.useState<string | null>(null);
   const [step, setStep] = React.useState<'review' | 'tip' | 'pay'>('review'); const [payWay, setPayWay] = React.useState<'here' | 'phone' | null>(null); const [qr, setQr] = React.useState<string | null>(null);
   const [keepSome, setKeepSome] = React.useState(false); const [keepAmt, setKeepAmt] = React.useState('');
@@ -92,6 +94,7 @@ export default function ClientScreenPage() {
   React.useEffect(() => { if (!id || !s?.tenantId) return; call({ action: 'ping', screenId: id }); const t = setInterval(() => call({ action: 'ping', screenId: id }), 60000); return () => clearInterval(t); }, [id, s?.tenantId]);
   React.useEffect(() => { const tick = () => setClock(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })); tick(); const t = setInterval(tick, 20000); return () => clearInterval(t); }, []);
   const q = s?.request;
+  React.useEffect(() => { setTipPick(null); setTipSplit(null); }, [q?.id]);   // a new question → start fresh
   React.useEffect(() => { setCustom(''); setSig(null); setRch(null); setRto(''); setRmsg(null); setErr(null); setPayWay(null); setQr(null); setKeepSome(false); setKeepAmt('');
     setDayDate(null); setDayTimes(null); setPicked(null); setDepChoice(null); setStandingOn(false); setRbQr(null);
     if (q?.kind === 'pay') setStep(q.review ? 'review' : q.askTip && !q.tipChosen ? 'tip' : 'pay'); }, [q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -175,7 +178,29 @@ export default function ClientScreenPage() {
     </>, { glow: true });
     if (step === 'tip') {
       const base = Number(q.tipBase) || 0; const presets: number[] = q.presets || [18, 20, 25];
-      const choose = async (tip: number) => { setBusy(true); const r: any = await call({ action: 'pay_tip', screenId: id, requestId: q.id, tip }); setBusy(false); if (r?.ok) setStep('pay'); else setErr(r?.error || 'Try again.'); };
+      const sendTip = async (tip: number, tipAllocations?: Record<string, number>) => { setBusy(true); const r: any = await call({ action: 'pay_tip', screenId: id, requestId: q.id, tip, ...(tipAllocations ? { tipAllocations } : {}) }); setBusy(false); if (r?.ok) { setTipPick(null); setTipSplit(null); setStep('pay'); } else setErr(r?.error || 'Try again.'); };
+      const people: { id: string; name: string }[] = Array.isArray(q.providers) ? q.providers : [];
+      const choose = async (tip: number) => { if (tip > 0 && people.length > 1) { setTipPick({ tip, tipLabel: 'pay' }); setTipSplit(null); return; } await sendTip(tip); };
+      if (tipPick) {   // "Who should your tip go to?" — the same step as the tip-only screen
+        const total = Math.round(tipPick.tip * 100); const even = () => { const b0 = Math.floor(total / people.length); return Object.fromEntries(people.map((p, i) => [p.id, (b0 + (i < total - b0 * people.length ? 1 : 0)) / 100])); };
+        const shares = tipSplit || even(); const left = (total - Math.round(Object.values(shares).reduce((a, b) => a + b, 0) * 100)) / 100;
+        const step2 = (pid: string, d: number) => setTipSplit((m) => { const cur = { ...(m || even()) }; cur[pid] = Math.max(0, Math.round(((cur[pid] || 0) + d) * 100) / 100); return cur; });
+        return shell(<>{brandTop}
+          <p className="text-center text-[34px] font-semibold">Who should your tip go to?</p>
+          <p className="text-center text-[18px]" style={{ color: '#78716c' }}>{money(tipPick.tip)} tip</p>
+          {!tipSplit ? <div className="grid grid-cols-2 gap-3">
+              <button type="button" disabled={busy} onClick={() => void sendTip(tipPick.tip)} className={big} style={solid}>Split evenly</button>
+              <button type="button" disabled={busy} onClick={() => setTipSplit(even())} className={big} style={ghost}>Let me choose</button></div>
+            : <div className="space-y-3">{people.map((p) => (
+                <div key={p.id} className="flex items-center justify-between gap-3 rounded-3xl px-5 py-3" style={ghost}><span className="text-[22px]">{p.name}</span>
+                  <span className="flex items-center gap-3"><button type="button" aria-label={`Less for ${p.name}`} onClick={() => step2(p.id, -1)} className="h-14 w-14 rounded-full text-[28px]" style={ghost}>−</button>
+                    <span className="w-24 text-center text-[24px] font-semibold tabular-nums">{money(shares[p.id] || 0)}</span>
+                    <button type="button" aria-label={`More for ${p.name}`} disabled={left < 1} onClick={() => step2(p.id, 1)} className="h-14 w-14 rounded-full text-[28px] disabled:opacity-30" style={ghost}>+</button></span></div>))}
+              <p className="text-center text-[18px]" style={{ color: Math.abs(left) < 0.005 ? '#57534e' : '#b45309' }}>{Math.abs(left) < 0.005 ? 'All of it is shared out.' : left > 0 ? `${money(left)} still to share` : `${money(-left)} more than your tip`}</p>
+              <button type="button" disabled={busy || Math.abs(left) >= 0.005} onClick={() => void sendTip(tipPick.tip, shares)} className={`${big} w-full disabled:opacity-40`} style={solid}>Done</button></div>}
+          <button type="button" disabled={busy} onClick={() => { setTipPick(null); setTipSplit(null); }} className="w-full text-[18px] underline underline-offset-4" style={{ color: '#78716c' }}>Change the amount</button>
+        </>, { glow: true });
+      }
       return shell(<>{brandTop}
         <p className="text-center text-[34px] font-semibold">Add a tip?</p>
         <div className={`grid gap-3 ${presets.length > 3 ? 'grid-cols-2' : 'grid-cols-3'}`}>{presets.map((p, i) => { const amt = Math.round(base * p) / 100; return <button key={p} type="button" disabled={busy} onClick={() => choose(amt)} className={`${big} cs-in flex min-h-[120px] flex-col items-center justify-center`} style={{ ...ghost, animationDelay: `${i * 70}ms` }}><span className="text-[34px]">{p}%</span><span className="text-[18px]" style={{ color: '#78716c' }}>{money(amt)}</span></button>; })}</div>
@@ -201,14 +226,43 @@ export default function ClientScreenPage() {
   }
   if (q?.kind === 'pay' && q.answeredAt) return shell(<>{brandTop}<Check color={accent} /><p className="text-center text-[34px] font-semibold">Paid — thank you!</p>{s.response?.saved ? <p className="text-center text-[18px]" style={{ color: '#57534e' }}>Your card is saved for next time.</p> : null}</>, { confetti: true });
   // ── A tip on its own (card on file) ──
+  const tipPeople: { id: string; name: string }[] = q?.kind === 'tip' && Array.isArray(q.providers) ? q.providers : [];
+  const chooseTip = (tip: number, tipLabel: string) => { if (tip > 0 && tipPeople.length > 1) { setTipPick({ tip, tipLabel }); setTipSplit(null); } else void respond({ tip, tipLabel }); };
+  if (q?.kind === 'tip' && !q.answeredAt && tipPick) {
+    const total = Math.round(tipPick.tip * 100); const even = () => { const base = Math.floor(total / tipPeople.length); return Object.fromEntries(tipPeople.map((p, i) => [p.id, (base + (i < total - base * tipPeople.length ? 1 : 0)) / 100])); };
+    const shares = tipSplit || even(); const given = Math.round(Object.values(shares).reduce((a, b) => a + b, 0) * 100); const left = (total - given) / 100;
+    const step = (id: string, d: number) => setTipSplit((m) => { const cur = { ...(m || even()) }; cur[id] = Math.max(0, Math.round(((cur[id] || 0) + d) * 100) / 100); return cur; });
+    return shell(<>{brandTop}
+      <p className="text-center text-[34px] font-semibold">Who should your tip go to?</p>
+      <p className="text-center text-[18px]" style={{ color: '#78716c' }}>{money(tipPick.tip)} tip</p>
+      {!tipSplit ? <div className="grid grid-cols-2 gap-3">
+          <button type="button" disabled={busy} onClick={() => void respond({ tip: tipPick.tip, tipLabel: tipPick.tipLabel })} className={big} style={solid}>Split evenly</button>
+          <button type="button" disabled={busy} onClick={() => setTipSplit(even())} className={big} style={ghost}>Let me choose</button>
+        </div>
+        : <div className="space-y-3">
+          {tipPeople.map((p) => (
+            <div key={p.id} className="flex items-center justify-between gap-3 rounded-3xl px-5 py-3" style={ghost}>
+              <span className="text-[22px]">{p.name}</span>
+              <span className="flex items-center gap-3">
+                <button type="button" aria-label={`Less for ${p.name}`} onClick={() => step(p.id, -1)} className="h-14 w-14 rounded-full text-[28px]" style={ghost}>−</button>
+                <span className="w-24 text-center text-[24px] font-semibold tabular-nums">{money(shares[p.id] || 0)}</span>
+                <button type="button" aria-label={`More for ${p.name}`} disabled={left < 1} onClick={() => step(p.id, 1)} className="h-14 w-14 rounded-full text-[28px] disabled:opacity-30" style={ghost}>+</button>
+              </span>
+            </div>))}
+          <p className="text-center text-[18px]" style={{ color: Math.abs(left) < 0.005 ? '#57534e' : '#b45309' }}>{Math.abs(left) < 0.005 ? 'All of it is shared out.' : left > 0 ? `${money(left)} still to share` : `${money(-left)} more than your tip`}</p>
+          <button type="button" disabled={busy || Math.abs(left) >= 0.005} onClick={() => void respond({ tip: tipPick.tip, tipLabel: tipPick.tipLabel, tipAllocations: shares })} className={`${big} w-full disabled:opacity-40`} style={solid}>Done</button>
+        </div>}
+      <button type="button" disabled={busy} onClick={() => { setTipPick(null); setTipSplit(null); }} className="w-full text-[18px] underline underline-offset-4" style={{ color: '#78716c' }}>Change the amount</button>
+    </>, { glow: true });
+  }
   if (q?.kind === 'tip' && !q.answeredAt) {
     const base = Number(q.base) || 0;
     return shell(<>{brandTop}
       <p className="text-center text-[34px] font-semibold">Add a tip?</p>
       <p className="text-center text-[18px]" style={{ color: '#78716c' }}>{q.tipOn === 'after_tax' ? 'On your total' : 'On your services and products'} · {money(base)}</p>
-      <div className={`grid gap-3 ${q.presets.length > 3 ? 'grid-cols-2' : 'grid-cols-3'}`}>{q.presets.map((p: number, i: number) => { const amt = Math.round(base * p) / 100; return <button key={p} type="button" disabled={busy} onClick={() => respond({ tip: amt, tipLabel: `${p}%` })} className={`${big} cs-in flex min-h-[120px] flex-col items-center justify-center`} style={{ ...ghost, animationDelay: `${i * 70}ms` }}><span className="text-[34px]">{p}%</span><span className="text-[18px]" style={{ color: '#78716c' }}>{money(amt)}</span></button>; })}</div>
+      <div className={`grid gap-3 ${q.presets.length > 3 ? 'grid-cols-2' : 'grid-cols-3'}`}>{q.presets.map((p: number, i: number) => { const amt = Math.round(base * p) / 100; return <button key={p} type="button" disabled={busy} onClick={() => chooseTip(amt, `${p}%`)} className={`${big} cs-in flex min-h-[120px] flex-col items-center justify-center`} style={{ ...ghost, animationDelay: `${i * 70}ms` }}><span className="text-[34px]">{p}%</span><span className="text-[18px]" style={{ color: '#78716c' }}>{money(amt)}</span></button>; })}</div>
       {q.allowCustom && <div className="flex gap-3"><input value={custom} onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" placeholder="Other amount" aria-label="Other tip amount" className="min-h-[76px] min-w-0 flex-1 rounded-3xl px-6 text-[24px] outline-none" style={ghost} />
-        <button type="button" disabled={busy || !(Number(custom) > 0)} onClick={() => respond({ tip: Number(custom), tipLabel: 'custom' })} className={big} style={solid}>Add</button></div>}
+        <button type="button" disabled={busy || !(Number(custom) > 0)} onClick={() => chooseTip(Number(custom), 'custom')} className={big} style={solid}>Add</button></div>}
       {q.showNoTip && <button type="button" disabled={busy} onClick={() => respond({ tip: 0, tipLabel: 'none' })} className={`${big} w-full`} style={{ ...ghost, color: '#57534e' }}>No tip</button>}
     </>, { glow: true });
   }
