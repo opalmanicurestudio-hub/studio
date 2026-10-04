@@ -18,6 +18,7 @@ export interface CalcInput {
   tip: number; storeCredit: number;
   staffDiscount?: { kind: 'pct' | 'amt'; value: number } | null;   // a staff discount — never a price change
   skipGroupDiscount?: boolean;   // "don't apply the team / family discount this time"
+  skipMemberDiscount?: boolean;  // "don't apply their member discount this time"
   momentReward?: { pct: number; label: string; key: string } | null;   // birthday / milestone treat (lib/moments)
 }
 export interface VisitCalc { appointmentId: string; mainStaffId: string; mainPrice: number; mainRedeemed: boolean; addOns: { addon: any; staffId: string; price: number; redeemed: boolean }[];
@@ -72,14 +73,15 @@ export function computeCheckout(i: CalcInput) {
   const discount = round2(codeDiscount + staffDiscount + groupDiscount + momentDiscount);
   // A member's retail discount (their plan's %, on eligible items).
   let memberDiscount = 0;
-  const c = i.client; const mId = c?.activeMembershipId || c?.subscription?.membershipId;
+  const c = i.client; const mId = c?.activeMembershipId || c?.subscription?.membershipId; let memberLabel: string | null = null;
   if (mId && !(c?.subscription?.status && c.subscription.status !== 'active')) {
     const m = (i.memberships || []).find((x: any) => x.id === mId);
-    const pct = num(m?.retailDiscount); const eligible: string[] = m?.applicableProductIds || [];
-    if (pct > 0) memberDiscount = round2((i.items || []).reduce((s, it) => (it.type !== 'rent' && it.type !== 'tuition' && (eligible.length === 0 || eligible.includes(it.id)) ? s + num(it.price) * num(it.quantity) * (pct / 100) : s), 0));
+    const pct = num(m?.retailDiscount); const eligible: string[] = m?.applicableProductIds || []; if (pct > 0) memberLabel = `${m?.name || 'Member'} discount (${pct}%)`;
+    // A member's RETAIL discount: real products only (never deposits, rent, tuition, memberships or packages).
+    if (pct > 0 && !i.skipMemberDiscount) memberDiscount = round2((i.items || []).reduce((s, it) => (it.type === 'product' && (eligible.length === 0 || eligible.includes(it.id)) ? s + num(it.price) * num(it.quantity) * (pct / 100) : s), 0));
   }
   const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));
   const total = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
-  return { visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
+  return { memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
 }
