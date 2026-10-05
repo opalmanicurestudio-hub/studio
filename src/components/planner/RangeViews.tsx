@@ -23,8 +23,8 @@ function offOn(day: Date, blocks: any[], staff: any[]) {
     .map((b) => staff.find((s) => s.id === b.staffId)?.name).filter(Boolean) as string[];
 }
 
-export function MonthView({ date, appointments, services, staff, events = [], blocks = [], showMoney, isMobile, onOpenDay, onMonth }: {
-  date: Date; appointments: any[]; services: any[]; staff: any[]; events?: any[]; blocks?: any[]; showMoney: boolean; isMobile?: boolean; onOpenDay: (d: Date) => void; onMonth: (d: Date) => void;
+export function MonthView({ date, appointments, services, staff, events = [], blocks = [], showMoney, isMobile, onOpenDay, onMonth, goal }: {
+  date: Date; appointments: any[]; services: any[]; staff: any[]; events?: any[]; blocks?: any[]; showMoney: boolean; isMobile?: boolean; onOpenDay: (d: Date) => void; onMonth: (d: Date) => void; goal?: number | null;
 }) {
   const m0 = startOfMonth(date); const first = startOfWeek(m0); const days = Array.from({ length: 42 }, (_, i) => addDays(first, i)); const weeks = days[35].getMonth() === m0.getMonth() ? 6 : 5;
   const cells = days.slice(0, weeks * 7).map((d) => { const info = dayInfo(d, appointments, staff); const list = appointments.filter((a) => { try { return live(a) && isSameDay(safe(a.startTime), d); } catch { return false; } });
@@ -56,7 +56,7 @@ export function MonthView({ date, appointments, services, staff, events = [], bl
                 {isMobile && info.visits > 0 && <span className="text-[11px]">{info.visits}</span>}
                 <span className="h-[5px] w-full overflow-hidden rounded-full" style={{ background: 'var(--soft, #efebe6)' }}><i className="block h-full rounded-full" style={{ width: `${Math.round(info.full * 100)}%`, background: full ? 'var(--warn, #b45309)' : 'var(--accent)' }} /></span>
                 {!isMobile && <span className="flex flex-col gap-1">
-                  {full && tag('Full', 'warn')}{requests > 0 && tag(`${requests} request${requests === 1 ? '' : 's'}`, 'warn')}
+                  {showMoney && goal && booked >= goal ? tag('Goal met', 'accent') : null}{full && tag('Full', 'warn')}{requests > 0 && tag(`${requests} request${requests === 1 ? '' : 's'}`, 'warn')}
                   {evs.slice(0, 1).map((e: any) => tag(e.title || e.name || 'Event', 'accent'))}{off.slice(0, 1).map((n) => tag(`${n} off`))}
                   {!past && roomy.has(d.toDateString()) && !requests && !evs.length && tag('Plenty of space')}
                 </span>}
