@@ -102,6 +102,7 @@ export const DayTimeline = ({
     mobileSelectedColumnId,
     onMobileColumnChange,
     onBookAt,        // (columnId, Date) — "Book here" on a gap
+    onBlockAt,       // (columnId, Date, minutes) — "Block" on a gap
     onMoveAppointment,   // (appointment, columnId, 'HH:mm') — a card dropped on a new time; the page checks with the server first
     density = 'roomy',   // 'roomy' | 'compact'
     startHour = null,    // a person's "start my day at" (earlier visits still show)
@@ -625,10 +626,12 @@ export const DayTimeline = ({
                                 const busy = (positionedItemsByColumn.get(column.id) || []).filter((it: any) => it.itemType !== 'bill').map((it: any) => { const a = safeDate(it.startTime), b = safeDate(it.endTime); return [differenceInMinutes(a, startOfDay(date)), differenceInMinutes(b, startOfDay(date))]; }).sort((x: number[], y: number[]) => x[0] - y[0]);
                                 const nowMin = isToday(date) ? differenceInMinutes(new Date(), startOfDay(new Date())) : -1; const gaps: number[][] = []; let cursor = Math.max(h.start, nowMin > 0 ? Math.ceil(nowMin / 5) * 5 : h.start);
                                 for (const [a, b] of busy) { if (a - cursor >= 20) gaps.push([cursor, a]); cursor = Math.max(cursor, b); } if (h.end - cursor >= 20) gaps.push([cursor, h.end]);
-                                return gaps.map(([a, b]) => (
-                                    <button key={`gap-${a}`} type="button" onClick={() => onBookAt(column.id, new Date(startOfDay(date).getTime() + a * 60000))} className="absolute left-1 right-1 z-[4] flex items-center justify-between rounded-lg border border-dashed px-2 text-[12px]" style={{ top: `${(a - s0) * PX_PER_MIN + 2}px`, height: `${Math.max(22, (b - a) * PX_PER_MIN - 4)}px`, borderColor: 'var(--line, #e7e2dc)', color: 'var(--muted, #6b635c)', background: 'transparent' }} aria-label={`${b - a} minute gap at ${format(new Date(startOfDay(date).getTime() + a * 60000), 'h:mm a')} — book here`}>
-                                        <span>{b - a} min open</span><span className="font-semibold" style={{ color: 'var(--accent)' }}>Book here</span>
-                                    </button>)); })()}
+                                return gaps.map(([a, b]) => { const when = new Date(startOfDay(date).getTime() + a * 60000); const top = (a - s0) * PX_PER_MIN + 2, h = Math.max(22, (b - a) * PX_PER_MIN - 4);
+                                    return (<div key={`gap-${a}`} className="absolute left-1 right-1 z-[4] flex items-center justify-between gap-2 rounded-lg border border-dashed px-2 text-[12px]" style={{ top: `${top}px`, height: `${h}px`, borderColor: 'var(--line, #e7e2dc)', color: 'var(--muted, #6b635c)' }}>
+                                        <span>{b - a} min open</span>
+                                        <span className="flex gap-2">{onBlockAt && <button type="button" onClick={() => onBlockAt(column.id, when, b - a)} className="font-semibold underline-offset-2 hover:underline" aria-label={`Block ${b - a} minutes at ${format(when, 'h:mm a')}`}>Block</button>}
+                                        <button type="button" onClick={() => onBookAt(column.id, when)} className="font-semibold" style={{ color: 'var(--accent)' }} aria-label={`${b - a} minute gap at ${format(when, 'h:mm a')} — book here`}>Book here</button></span>
+                                    </div>); }); })()}
                             {/* Where a dragged card would land. */}
                             {drag && drag.columnId === column.id && (() => { const a = dragRef.current?.appointment; const len = a ? Math.max(15, differenceInMinutes(safeDate(a.endTime), safeDate(a.startTime))) : 30;
                                 return <div className="absolute left-1 right-1 z-[30] rounded-lg border-2 border-dashed px-2 py-1 text-[12px] font-semibold pointer-events-none" style={{ top: `${drag.top}px`, height: `${len * PX_PER_MIN}px`, borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)', color: 'var(--accent)' }}>{format(new Date(setHours(startOfDay(date), START_HOUR).getTime() + drag.mins * 60000), 'h:mm a')}</div>; })()}
