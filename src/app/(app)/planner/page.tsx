@@ -1,5 +1,6 @@
 'use client';
 
+import { NowFirst } from '@/components/planner/NowFirst';
 import { AgendaView } from '@/components/planner/AgendaView';
 import { VisitPanel } from '@/components/planner/VisitPanel';
 import { SettingsStyle } from '@/components/settings/settings-style';
@@ -360,6 +361,9 @@ function PlannerPageContent() {
   // Board or Agenda — remembered per person on this device; providers open on the agenda filtered to themselves.
   const [plannerView, setPlannerView] = useState<'board' | 'agenda'>(() => { try { const k = `cf_planner_view_${typeof window !== 'undefined' ? (localStorage.getItem('cf_uid') || 'me') : 'me'}`; const v = localStorage.getItem(k); if (v === 'board' || v === 'agenda') return v; } catch { /* fine */ } return 'board'; });
   const [agendaProvider, setAgendaProvider] = useState<string>('all');
+  // On a phone: Now (what matters this minute) · Grid (one provider at a time, swipe between) · List — remembered on this device.
+  const [phoneView, setPhoneView] = useState<'now' | 'grid' | 'list'>(() => { try { const v = localStorage.getItem('cf_planner_phone_view'); if (v === 'now' || v === 'grid' || v === 'list') return v; } catch { /* fine */ } return 'now'; });
+  const choosePhoneView = (v: 'now' | 'grid' | 'list') => { setPhoneView(v); try { localStorage.setItem('cf_planner_phone_view', v); } catch { /* fine */ } };
   const [panelAppt, setPanelAppt] = useState<any | null>(null);
   const [lateAsk, setLateAsk] = useState<any | null>(null);
   useEffect(() => { if (role === 'staff' && currentUser?.uid) { setPlannerView((v) => { try { if (localStorage.getItem(`cf_planner_view_${currentUser.uid}`)) return v; } catch { /* fine */ } return 'agenda'; }); setAgendaProvider(currentUser.uid); } }, [role, currentUser?.uid]);
@@ -1577,7 +1581,10 @@ function PlannerPageContent() {
       )}
 
       <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
-        {plannerView === 'agenda' && (
+        {isMobile && <div className="flex gap-1 px-3 pt-2" role="tablist" aria-label="View">{([['now', 'Now'], ['grid', 'Day grid'], ['list', 'List']] as const).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={phoneView === v} onClick={() => choosePhoneView(v)} className="h-9 flex-1 rounded-full text-[13px] font-semibold" style={phoneView === v ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}</div>}
+        {isMobile && phoneView === 'now' && <NowFirst appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
+          onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => { setBookPreset(null); setIsAddAppointmentOpen(true); }} />}
+        {(isMobile ? phoneView === 'list' : plannerView === 'agenda') && (
           <div className="flex min-h-0 flex-1 gap-4 p-3 sm:p-4">
             <AgendaView date={currentDate} appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} selectedId={panelAppt?.id || null}
               onSelect={(a: any) => setPanelAppt(a)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
@@ -1590,7 +1597,7 @@ function PlannerPageContent() {
             <p className="text-[17px] font-semibold">How far behind?</p><p className="text-[14px]" style={{ color: 'var(--muted)' }}>Everyone affected today is told and can keep their time, move, or cancel without a fee.</p>
             <div className="flex flex-wrap gap-2">{[10, 15, 20, 30, 45].map((m) => <button key={m} type="button" onClick={() => void tellLate(m)} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>{m} min</button>)}<button type="button" onClick={() => setLateAsk(null)} className="h-11 rounded-full px-4 text-[14px]" style={{ color: 'var(--muted)' }}>Cancel</button></div>
           </div></div>}
-        {plannerView === 'board' && <DayTimeline
+        {(isMobile ? phoneView === 'grid' : plannerView === 'board') && <DayTimeline
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
           density={density} onBookAt={(columnId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId: columns.find((c: any) => c.id === columnId && 'role' in c) ? columnId : undefined }); setIsAddAppointmentOpen(true); }}
           onMoveAppointment={(a: any, columnId: string, time: string) => { const col: any = columns.find((c: any) => c.id === columnId); void moveAppointment(a, col && 'role' in col ? columnId : a.staffId, time); }}
