@@ -50,11 +50,11 @@ export function DayPulse({
       {cells.map(cell => (
         <div
           key={cell.label}
-          className="flex min-w-0 flex-1 shrink-0 flex-col justify-center rounded-xl border-2 border-border bg-white px-3 py-2"
+          className="flex min-w-0 flex-1 shrink-0 flex-col justify-center rounded-xl border border-border bg-white px-3 py-2"
         >
-          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{cell.label}</span>
+          <span className="text-[12px] font-semibold text-muted-foreground">{cell.label}</span>
           <span className={cn(
-            'mt-0.5 tabular-nums text-[15px] font-black tracking-tight leading-none',
+            'mt-0.5 tabular-nums text-[15px] font-semibold tracking-tight leading-none',
             cell.tone === 'bad' ? 'text-destructive' : 'text-foreground',
           )}>
             {cell.value}
