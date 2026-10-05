@@ -434,10 +434,13 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     // One page per location when the section names one; without it, every
     // location's spaces share the page exactly as before.
     if (config.locationId && b.locationId && b.locationId !== config.locationId) return false;
+    // Rentable SPACES (rooms, saunas, equipment — kind 'space') and BOOTHS can be listed separately.
+    if (config.kind === 'spaces' && b.kind !== 'space') return false;
+    if (config.kind === 'booths' && b.kind === 'space') return false;
     const hasLease = leaseRatesOf(b).length > 0;
     const hasDay = dayRatesOf(b).length > 0;
     return (hasLease && config.showMonthly !== false) || (hasDay && config.showDaily !== false);
-  }), [booths, config.showMonthly, config.showDaily, config.locationId]);
+  }), [booths, config.showMonthly, config.showDaily, config.locationId, config.kind]);
 
   const photosOf = (b: any): string[] => (Array.isArray(b.photoUrls) && b.photoUrls.length > 0) ? b.photoUrls : (b.photoUrl ? [b.photoUrl] : []);
   // v55 — video tours: YouTube/Vimeo links become embeds, direct files
@@ -767,7 +770,14 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     finally { setSubmitting(false); }
   };
 
+  // A shared link to one space (?space=<id> — the menu embed, a QR code, the owner's Copy link) opens its booking.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const openedLink = React.useRef(false);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  React.useEffect(() => { if (openedLink.current || !booths) return; try { const id = new URLSearchParams(window.location.search).get('space'); const b = id ? visible.find((x: any) => x.id === id) : null;
+    if (b) { openedLink.current = true; openApply(b, 'day'); setTimeout(() => document.getElementById(`space-${b.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200); } } catch { /* fine */ } }, [booths, visible]); // eslint-disable-line react-hooks/exhaustive-deps
   if (booths === null) return null;
+  if (config.hideWhenEmpty && visible.length === 0) return null;
   if (visible.length === 0 && !config.emptyMessage) return null;
 
   const layout = config.layout || 'grid';
@@ -895,7 +905,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           </div>
         )}
         <div className="text-center mb-10 md:mb-14">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-50 mb-3">Now Leasing</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-50 mb-3">{config.kind === 'spaces' ? 'By the hour or day' : 'Now Leasing'}</p>
           <h2 className="text-3xl md:text-5xl font-black tracking-tight">{config.title || 'Space Available'}</h2>
           {config.subtitle && <p className="mt-3 text-sm md:text-base opacity-70 max-w-xl mx-auto font-medium">{config.subtitle}</p>}
         </div>
@@ -995,7 +1005,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
               const rates = dayRates(b);
               const lease = leaseRates(b);
               return (
-                <button key={b.id} onClick={() => openApply(b)} className="relative rounded-3xl overflow-hidden text-left group h-[420px] block w-full">
+                <button key={b.id} id={`space-${b.id}`} onClick={() => openApply(b)} className="relative rounded-3xl overflow-hidden text-left group h-[420px] block w-full">
                   {ph.length > 0 ? (
                     <img src={ph[0]} alt={b.name} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
                   ) : (
