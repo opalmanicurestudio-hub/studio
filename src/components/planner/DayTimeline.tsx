@@ -59,6 +59,8 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+// Colour by provider: a calm palette, one per column in order.
+const PROVIDER_COLOURS = ['#2e6f6a', '#7c5a3c', '#5b5bd6', '#b45309', '#be185d', '#0f766e', '#6d28d9', '#a16207'];
 export const DayTimeline = ({ 
     date, 
     columns,
@@ -102,6 +104,8 @@ export const DayTimeline = ({
     onBookAt,        // (columnId, Date) — "Book here" on a gap
     onMoveAppointment,   // (appointment, columnId, 'HH:mm') — a card dropped on a new time; the page checks with the server first
     density = 'roomy',   // 'roomy' | 'compact'
+    startHour = null,    // a person's "start my day at" (earlier visits still show)
+    colourBy = 'state',  // 'state' | 'provider'
 }: any) => {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const safeColumns = columns || [];
@@ -143,7 +147,7 @@ export const DayTimeline = ({
         return { start, end };
     }, [itemsByColumn, date]);
 
-    const START_HOUR = showFullDay ? 0 : dayWindow.start;
+    const START_HOUR = showFullDay ? 0 : (Number.isFinite(startHour) && startHour !== null ? Math.min(dayWindow.start, Number(startHour)) : dayWindow.start);
     const END_HOUR = showFullDay ? 24 : dayWindow.end;
     const hours = useMemo(
         () => Array.from({ length: Math.max(1, END_HOUR - START_HOUR) }, (_, i) => START_HOUR + i),
@@ -412,6 +416,7 @@ export const DayTimeline = ({
                 )}
                 <AppointmentCard
                     appointment={item} client={client} service={service} style={{ height: '100%'}} heightPx={height}
+                    edgeColor={colourBy === 'provider' ? PROVIDER_COLOURS[Math.max(0, safeColumns.findIndex((c: any) => c.id === item.staffId)) % PROVIDER_COLOURS.length] : undefined}
                     onUpdateStatus={onUpdateStatus} onDelete={onDeleteAppointment}
                     onCompleteClick={onCompleteClick} onPrintReceipt={onPrintReceipt} onPrintTicket={onPrintTicket}
                     onEdit={onEditAppointment} onReschedule={onReschedule} onRebook={onRebook}
