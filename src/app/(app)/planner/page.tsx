@@ -392,6 +392,15 @@ function PlannerPageContent() {
   const [density, setDensity] = useState<'roomy' | 'compact'>(() => { try { return (localStorage.getItem('cf_planner_density') as any) || 'roomy'; } catch { return 'roomy'; } });
   // A card dropped on a new time: ask the server (hours, clashes, the client's say) before it lands; managers may move anyway.
   const [moveAsk, setMoveAsk] = useState<{ appointment: any; staffId: string; time: string; reason: string } | null>(null);
+  // Moving one person in a group: just them, or everyone (each checked by the engine; anyone who can't move is named).
+  const [groupMoveAsk, setGroupMoveAsk] = useState<{ appointment: any; staffId: string; time: string; others: any[] } | null>(null);
+  const moveGroup = async (lead: any, staffId: string, time: string, others: any[]) => {
+    if (!tenantId) return; const dateStr = format(currentDate, 'yyyy-MM-dd'); const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+    const call = (a: any, sid: string) => fetch('/api/appointments/reschedule', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, appointmentId: a.id, staffId: sid, date: dateStr, time, action: 'move' }) }).then((r) => r.json()).catch(() => null);
+    const fails: string[] = []; let moved = 0;
+    for (const [a, sid] of [[lead, staffId], ...others.map((o: any) => [o, o.staffId])] as [any, string][]) { const r: any = await call(a, sid); if (r?.ok) moved++; else fails.push(`${(clients || []).find((c: any) => c.id === a.clientId)?.name || a.clientName || 'Guest'} (${String(r?.error || r?.reason || 'not free').replace(/[.!]+$/, '')})`); }
+    toast(fails.length ? { title: `Moved ${moved} of ${moved + fails.length}`, description: `Couldn’t move ${fails.join(', ')}.`, variant: 'destructive' } : { title: `Whole group moved to ${time}` });
+  };
   const moveAppointment = async (appointment: any, staffId: string, time: string, override = false) => {
     if (!tenantId) return; const dateStr = format(currentDate, 'yyyy-MM-dd');
     try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
@@ -1397,7 +1406,7 @@ function PlannerPageContent() {
     for (const it of all) { if (!it || (it.itemType !== 'event' && it.itemType !== 'block') || seen.has(it.id)) continue; seen.add(it.id); out.push(it); } return out; }, [itemsByColumn]);
   // Week density for the date strip: visits per day, against the busiest day this week.
   const weekLoad = useMemo(() => { const m = new Map<string, number>(); for (const a of (appointments || []) as any[]) { if (['cancelled', 'declined'].includes(String(a.status))) continue; try { const k = format(safeDate(a.startTime), 'yyyy-MM-dd'); m.set(k, (m.get(k) || 0) + 1); } catch { /* fine */ } } return m; }, [appointments]);
-  const visitActions = { onApprove: (a: any) => handleApproveRequest(a), onDecline: (a: any) => handleDeclineRequest(a), canDecline: myAuthority === 'full', onEdit: (a: any) => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }, onReschedule: (a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); },
+  const visitActions = { onCheckIn: (a: any) => handleDeskCheckIn(a), onApprove: (a: any) => handleApproveRequest(a), onDecline: (a: any) => handleDeclineRequest(a), canDecline: myAuthority === 'full', onEdit: (a: any) => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }, onReschedule: (a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); },
     onRebook: (a: any) => { setAppointmentToRebook(a); setClientForNewApt(null); setIsAddAppointmentOpen(true); }, onPrintTicket: (a: any) => handlePrintTicket(a), onReportIssue: (a: any) => setIssueFor(a), onResolveIssue: (a: any) => setResolveFor(a), canResolve: isManagerHere };
 
   if (UNDEFINED_IMPORTS.length > 0) {
@@ -1424,7 +1433,15 @@ function PlannerPageContent() {
     <div className="cf-settings cf-legacy flex h-[100dvh] w-full flex-col overflow-hidden" style={{ background: 'var(--paper)' }}>
       <SettingsStyle />
       <AppHeader title="Planner" />
-                    {moveAsk && <div role="dialog" aria-label="Move anyway?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setMoveAsk(null)}>
+                    {groupMoveAsk && <div role="dialog" aria-label="Move the group?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setGroupMoveAsk(null)}>
+        <div className="w-full max-w-sm space-y-3 rounded-3xl p-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
+          <p className="text-[17px] font-semibold">Move just this person, or the whole group?</p>
+          <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{groupMoveAsk.others.length + 1} people are booked together. Moving everyone keeps each with their own provider at {groupMoveAsk.time}; anyone who can’t move is named.</p>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { const g = groupMoveAsk; setGroupMoveAsk(null); void moveGroup(g.appointment, g.staffId, g.time, g.others); }} className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Everyone</button>
+            <button type="button" onClick={() => { const g = groupMoveAsk; setGroupMoveAsk(null); void moveAppointment(g.appointment, g.staffId, g.time); }} className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Just this person</button>
+            <button type="button" onClick={() => setGroupMoveAsk(null)} className="h-11 rounded-full px-4 text-[14px]" style={{ color: 'var(--muted)' }}>Cancel</button></div>
+        </div></div>}
+      {moveAsk && <div role="dialog" aria-label="Move anyway?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setMoveAsk(null)}>
                 <div className="w-full max-w-sm space-y-3 rounded-3xl p-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
                   <p className="text-[17px] font-semibold">That time won’t work</p><p className="text-[14px]" style={{ color: 'var(--muted)' }}>{moveAsk.reason}</p>
                   <div className="flex gap-2">{String(role) !== 'staff' && <button type="button" onClick={() => { const m = moveAsk; setMoveAsk(null); void moveAppointment(m.appointment, m.staffId, m.time, true); }} className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Move anyway</button>}<button type="button" onClick={() => setMoveAsk(null)} className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Leave it</button></div>
@@ -1494,7 +1511,9 @@ function PlannerPageContent() {
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
           startHour={prefs.startHour} colourBy={prefs.colourBy}
           density={density} onBookAt={(columnId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId: columns.find((c: any) => c.id === columnId && 'role' in c) ? columnId : undefined }); setIsAddAppointmentOpen(true); }}
-          onMoveAppointment={(a: any, columnId: string, time: string) => { const col: any = columns.find((c: any) => c.id === columnId); void moveAppointment(a, col && 'role' in col ? columnId : a.staffId, time); }}
+          onMoveAppointment={(a: any, columnId: string, time: string) => { const col: any = columns.find((c: any) => c.id === columnId); const sid = col && 'role' in col ? columnId : a.staffId;
+            const others = a.groupId ? (appointments || []).filter((x: any) => x.groupId === a.groupId && x.id !== a.id && !['cancelled', 'declined', 'completed'].includes(String(x.status))) : [];
+            if (others.length) setGroupMoveAsk({ appointment: a, staffId: sid, time, others }); else void moveAppointment(a, sid, time); }}
           showColumnHeader={activeView === 'resources' || activeView === 'booths'} isMobile={isMobile || false} activeView={activeView}
           allStaff={allStaff || []} mobileSelectedColumnId={mobileSelectedColumnId} onMobileColumnChange={onMobileColumnChange}
           onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus}
