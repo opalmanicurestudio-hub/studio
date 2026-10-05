@@ -1,5 +1,8 @@
 'use client';
 
+import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
+import { ClientSnapshot } from '@/components/clients/ClientSnapshot';
+import { ClientPeople } from '@/components/clients/ClientPeople';
 import { openVisit } from '@/lib/visit-client';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -273,6 +276,9 @@ export default function ClientDetailPage() {
   const showFinancials = canSeeFinancials(selectedTenant, role);
   const showCareContents = canSeeCareNoteContents(selectedTenant, role);
   const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages, transactions: allTransactions } = useInventory();
+  const allClientsList: any[] = ((useInventory() as any).clients) || [];
+  const { showProfitability: seesMoney } = useProfitabilityVisibility();
+  const [linkCount, setLinkCount] = useState(0);
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -538,12 +544,12 @@ export default function ClientDetailPage() {
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden text-left">
-      <AppHeader title="Guest Dossier" />
+      <AppHeader title="Client" />
       <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0 text-left">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 text-left">
           <div className="space-y-1 text-left">
-            <h1 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Record Detail</h1>
-            <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Identity & performance profile</p>
+            <h1 className="text-[28px] md:text-[34px] font-light leading-none text-left">{client.name || 'Client'}</h1>
+            <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Client profile</p>
           </div>
           <div className="flex items-center gap-2 md:gap-3 w-full sm:w-auto text-left">
             <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Link href="/clients" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link></Button>
@@ -636,6 +642,9 @@ export default function ClientDetailPage() {
               </ScrollArea>
 
               <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500 text-left">
+                {/* BEFORE YOU HELP THIS CLIENT, then the people linked to them (guardians, households, who books or pays). */}
+                <ClientSnapshot client={client} appointments={allAppointments || []} services={services || []} activeMembership={activeMembership} linkCount={linkCount} showMoney={!!seesMoney} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} />
+                {tenantId && <ClientPeople tenantId={tenantId} client={client} clients={allClientsList || []} onCount={setLinkCount} onOpenClient={(id: string) => router.push(`/clients/${id}`)} />}
                 {activeMembership && (
                   <div className="space-y-4 text-left">
                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3 text-left"><Award className="w-5 h-5" />Active Privilege Matrix</h3>
