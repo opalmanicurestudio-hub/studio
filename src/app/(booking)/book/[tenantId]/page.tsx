@@ -502,6 +502,20 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       if (!restDetails?.serviceId || !restDetails?.startTime) {
         return { requiresPayment: true, error: 'Please pick a service and a time first.' };
       }
+      // GUESTS OR MORE SERVICES → one request through the engine (all or nothing); the studio confirms, then asks for any deposit.
+      const party: any = (restDetails as any).party;
+      if (party && ((party.guests || []).length || (party.extras || []).length)) {
+        const durOf = (id: string) => Number((services || []).find((x: any) => x.id === id)?.duration) || 60;
+        const parts: any[] = [{ serviceId: restDetails.serviceId, staffId: restDetails.staffId || 'any', startTime: restDetails.startTime, addOnIds: restDetails.addOnIds || [] }];
+        let after = new Date(restDetails.endTime || new Date(Date.parse(restDetails.startTime) + durOf(restDetails.serviceId) * 60000).toISOString()).getTime();
+        for (const x of party.extras || []) { if (!x.serviceId) continue; if (x.when === 'after') { parts.push({ serviceId: x.serviceId, staffId: 'any', startTime: new Date(after).toISOString() }); after += durOf(x.serviceId) * 60000; } else parts.push({ serviceId: x.serviceId, staffId: 'any', startTime: restDetails.startTime }); }
+        for (const g of party.guests || []) { if (!g.serviceId) continue; parts.push({ serviceId: g.serviceId, staffId: 'any', startTime: restDetails.startTime, guest: { name: g.name, email: g.email || '', phone: g.phone || '' } }); }
+        const gr = await fetch('/api/appointments/book-group', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, parts, notes: formData.notes, signedForms: Array.isArray(signedForms) ? signedForms : [],
+          channel: channelFrom(new URLSearchParams(window.location.search).get('src')), organizer: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone, smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null } }) }).then((x) => x.json()).catch(() => null);
+        if (!gr?.ok) return { requiresPayment: true, error: gr?.error || 'We couldn’t send that request — please try again. Nothing was booked.' };
+        setBookingOutcome({ status: 'requested', notice: String(gr.clientNotice || ''), depositCents: Number(gr.depositCents) || 0, cardOnFile: false } as any);
+        return { requiresPayment: false };
+      }
       const holdKey = `${restDetails.serviceId}|${restDetails.startTime}|${String(formData.clientEmail || '').toLowerCase()}`;
       const payFor = async (appointmentId: string): Promise<ConfirmResult> => {
         const dres = await fetch('/api/stripe/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId }) }).catch(() => null);
