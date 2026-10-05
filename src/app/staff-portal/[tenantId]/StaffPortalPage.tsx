@@ -1,5 +1,6 @@
 'use client';
 
+import { handoffEntry } from '@/lib/handoff-log';
 import { StaffOverruns } from '@/components/visit/StaffOverruns';
 import { MyTimes } from '@/components/visit/MyTimes';
 import { MyTips } from '@/components/visit/MyTips';
@@ -5432,6 +5433,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               ? (checkoutState as any).reviewNotes.trim() : '';
             batch.update(doc(firestore, `tenants/${tenantId}/appointments`, aptId), {
               checkoutState: JSON.parse(JSON.stringify(checkoutState)),
+              handoffs: arrayUnion(JSON.parse(JSON.stringify(handoffEntry(reviewApt, checkoutState)))),   // who handed to whom, when
               ...(reviewNote ? { serviceNotes: reviewNote, serviceNotesRecordedAt: new Date().toISOString() } : {}),
             });
             batch.commit()
