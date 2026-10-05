@@ -606,7 +606,12 @@ function SettingsPageImpl() {
                   </div>)}
               </Section>
               <More help="Booking times, and limiting some days to certain clients.">
-                <Section title="How often a booking can start" help="Every 15 minutes gives clients the most choice.">
+                <Section title="Your daily goal" help="What a good day looks like, in bookings. The planner shows each day's booked total against it, and the month view marks the days that reach it.">
+                <Row label="Daily goal" help="Leave it empty to hide the goal. It applies to every open day.">
+                  <span className="inline-flex items-center gap-2 text-[15px]">$<input type="number" min={0} step={10} inputMode="decimal" value={(tenantData as any).dailyGoal ?? ''} onChange={(e) => setTenantData((prev: any) => ({ ...prev, dailyGoal: e.target.value === '' ? null : Math.max(0, Math.round(Number(e.target.value))) }))} aria-label="Daily goal in dollars" placeholder="1600" className={cfInput} style={{ ...cfInputStyle, maxWidth: 140 }} /></span>
+                </Row>
+              </Section>
+              <Section title="How often a booking can start" help="Every 15 minutes gives clients the most choice.">
                   <Row label="Clients can start a booking every" inline>
                     <Choice label="Booking times" value={localInterval} options={[{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 hour' }]} onChange={(v) => { dirty.current.sched = true; setLocalInterval(Number(v)); }} />
                   </Row>
@@ -905,4 +910,3 @@ function SettingsGate() {
 }
 
 // ── Reconnect tally: the last 30 days of the studio's own nudges ──────────
-
