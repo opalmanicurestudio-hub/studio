@@ -10,7 +10,7 @@ import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calenda
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service, type Client, type Package, type Redemption, type CustomFormula } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
-import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { cn, safeNumber } from '@/lib/utils';
@@ -368,6 +368,10 @@ function PlannerPageContent() {
   useEffect(() => { try { const v = JSON.parse(localStorage.getItem(prefsKey) || 'null'); if (v) { setPrefs((p) => ({ ...p, ...v })); if (v.defaultProvider && v.defaultProvider !== 'all') setAgendaProvider(v.defaultProvider); } } catch { /* fine */ } }, [prefsKey]);
   const savePrefs = (patch: any) => setPrefs((p) => { const n = { ...p, ...patch }; try { localStorage.setItem(prefsKey, JSON.stringify(n)); } catch { /* fine */ } return n; });
   // On a phone: Now (what matters this minute) · Grid (one provider at a time, swipe between) · List — remembered on this device.
+  // A visit's own address: /planner?visit=<id> opens that visit (on its day) — from a copied link, the desk, a profile.
+  const visitParam = searchParams.get('visit'); const openedVisitParam = useRef<string | null>(null);
+  useEffect(() => { if (!visitParam || openedVisitParam.current === visitParam || !appointments?.length) return; const a: any = appointments.find((x: any) => x.id === visitParam); if (!a) return;
+    openedVisitParam.current = visitParam; try { setCurrentDate(safeDate(a.startTime)); } catch { /* fine */ } setSelectedAppointment(a); setIsDetailsOpen(true); }, [visitParam, appointments]);
   const [phoneView, setPhoneView] = useState<'now' | 'grid' | 'list'>(() => { try { const v = localStorage.getItem('cf_planner_phone_view'); if (v === 'now' || v === 'grid' || v === 'list') return v; } catch { /* fine */ } return 'now'; });
   const choosePhoneView = (v: 'now' | 'grid' | 'list') => { setPhoneView(v); try { localStorage.setItem('cf_planner_phone_view', v); } catch { /* fine */ } };
   const [panelAppt, setPanelAppt] = useState<any | null>(null);
