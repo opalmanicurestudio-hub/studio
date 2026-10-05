@@ -1,5 +1,6 @@
 'use client';
 
+import { ClientTimeline, ClientMessages, ClientFormsNeeded, useClientMessages } from '@/components/clients/ClientTabs';
 import { ClientHeader, NextVisitCard, ClientRail, clientFacts } from '@/components/clients/ClientProfileParts';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
@@ -282,6 +283,8 @@ export default function ClientDetailPage() {
   const { showProfitability: seesMoney } = useProfitabilityVisibility();
   const [linkCount, setLinkCount] = useState(0);
   const [tab, setTab] = useState('overview'); const [bookOpen, setBookOpen] = useState(false);
+  const msgs = useClientMessages(selectedTenant?.id, String(clientId || ''));
+  const consentFormDefs: any[] = ((useInventory() as any).consentForms) || [];
   const allStaffList: any[] = ((useInventory() as any).staff) || [];
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
@@ -566,7 +569,7 @@ export default function ClientDetailPage() {
                 className="h-16 w-16 rounded-full text-xl sm:h-20 sm:w-20"
                 fallbackClassName="bg-[var(--soft)] text-[var(--ink)]"
               />}
-          onBook={() => setBookOpen(true)} onPay={showFinancials ? () => setTab('credits') : undefined} onEdit={isOwnerOrAdmin ? () => setIsEditClientOpen(true) : undefined}
+          onBook={() => setBookOpen(true)} onPay={showFinancials ? () => { void handleQuickSettle(); } : undefined} extraFlags={isHighRisk && selectedTenant?.guardianProtocolEnabled !== false ? [['Stricter booking rules (cancellation history)', 'warn']] : []} onEdit={isOwnerOrAdmin ? () => setIsEditClientOpen(true) : undefined}
           onMessage={isOwnerOrAdmin && (client.phone || client.email) ? () => { window.location.href = client.phone ? `sms:${String(client.phone).replace(/[^\d+]/g, '')}` : `mailto:${client.email}`; } : undefined} />
 
         <ClientIntelBanner client={client} />
@@ -587,6 +590,7 @@ export default function ClientDetailPage() {
                     )}
                   </TabsTrigger>
                   <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Visits</TabsTrigger>
+                  <TabsTrigger value="messages" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Messages</TabsTrigger>
                   <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
                   <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</TabsTrigger>
                   <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Payments</TabsTrigger>
@@ -606,6 +610,7 @@ export default function ClientDetailPage() {
               <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500 text-left">
                 {/* BEFORE YOU HELP THIS CLIENT, then the people linked to them (guardians, households, who books or pays). */}
                 <NextVisitCard facts={facts!} services={services || []} staff={allStaffList} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} onBook={() => setBookOpen(true)} />
+                <ClientTimeline appointments={facts!.mine} services={services || []} staff={allStaffList} transactions={clientTransactions || []} consents={signedConsents || []} messages={msgs.rows} showMoney={!!showFinancials} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} />
                 {activeMembership && (
                   <div className="space-y-4 text-left">
                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3 text-left"><Award className="w-5 h-5" />Active Privilege Matrix</h3>
@@ -736,6 +741,7 @@ export default function ClientDetailPage() {
               </TabsContent>
 
               <TabsContent value="documents" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
+                <ClientFormsNeeded appointments={facts!.mine} services={services || []} consentForms={consentFormDefs} consents={signedConsents || []} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} />
                 <div className="space-y-4 text-left">
                   <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
                     <FileSignature className="w-5 h-5" />Signed Consent Forms
@@ -1101,97 +1107,19 @@ export default function ClientDetailPage() {
               <TabsContent value="credits" className="m-0 animate-in fade-in duration-500 text-left">
                 <StoreCreditHistory client={client} isOwnerOrAdmin={isOwnerOrAdmin} />
               </TabsContent>
+              <TabsContent value="messages" className="m-0 space-y-6 text-left">
+                {tenantId && <ClientMessages tenantId={tenantId} client={client} msgs={msgs} canSeeContact={isOwnerOrAdmin} />}
+              </TabsContent>
             </Tabs>
           </div>
           <div className="lg:col-span-1 space-y-8 text-left">
             <ClientRail client={client} facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} cancels={cancelTotal} noShows={noShowTotal} reschedules={rescheduleTotal}>
+              <section className="flex flex-wrap gap-2 rounded-3xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} aria-label="More actions">
+                <button type="button" onClick={() => setIsRecoveryDialogOpen(true)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>Make things right…</button>
+                {showFinancials && isOwnerOrAdmin && <button type="button" onClick={handleReconcileLtv} disabled={isReconciling} className="h-9 rounded-full px-3 text-[13px] font-semibold disabled:opacity-50" style={{ background: 'var(--soft)' }}>{isReconciling ? 'Recalculating…' : 'Recalculate spent from payments'}</button>}
+              </section>
               {tenantId && <ClientPeople tenantId={tenantId} client={client} clients={allClientsList || []} onCount={setLinkCount} onOpenClient={(id: string) => router.push(`/clients/${id}`)} />}
             </ClientRail>
-            <Card className={cn("border-4 rounded-[2.5rem] overflow-hidden shadow-2xl relative group text-left", isHighRisk ? "border-destructive/20 bg-destructive/[0.02]" : "border-primary/10 bg-white")}>
-              <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between text-left">
-                <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground text-left">Reliability Audit</CardTitle>
-                {isHighRisk && <Badge variant="destructive" className="animate-bounce font-black text-[7px] h-4">High Risk Profile</Badge>}
-              </CardHeader>
-              <CardContent className="p-6 space-y-6 text-left">
-                <div className="grid grid-cols-1 gap-3 text-left">
-                  <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background text-left"><span className="text-[8px] font-black text-muted-foreground uppercase text-left">No-Shows</span><span className={cn("text-xl font-black font-mono text-right", noShowTotal > 0 ? "text-destructive" : "text-slate-900")}>{noShowTotal}</span></div>
-                  <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background text-left"><span className="text-[8px] font-black text-muted-foreground uppercase text-left">Late Cancels</span><span className={cn("text-xl font-black font-mono text-right", cancelTotal > 0 ? "text-amber-600" : "text-slate-900")}>{cancelTotal}</span></div>
-                  <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-background text-left"><span className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Reschedules</span><span className={cn("text-xl font-black font-mono text-right", rescheduleTotal > 0 ? "text-blue-600" : "text-slate-900")}>{rescheduleTotal}</span></div>
-                </div>
-                <AnimatePresence>
-                  {(isHighRisk && selectedTenant?.guardianProtocolEnabled !== false) && (
-                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5 text-destructive space-y-2 text-left">
-                      <div className="flex items-center gap-2 text-left"><Lock className="w-4 h-4 shrink-0" /><span className="text-[10px] font-black uppercase text-left">Guardian Lock Active</span></div>
-                      <p className="text-[10px] font-bold leading-relaxed uppercase text-left">High-risk behavior detected. Booking engine will now strictly enforce upfront deposits for all sessions.</p>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </CardContent>
-            </Card>
-
-            <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white text-left">
-              <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between text-left">
-                <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground text-left">Financial Vault</CardTitle>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button onClick={handleReconcileLtv} disabled={isReconciling} className="h-8 w-8 rounded-xl text-primary hover:bg-primary/5 border border-primary/10 shadow-sm flex items-center justify-center transition-colors disabled:opacity-50">
-                        {isReconciling ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Reconcile LTV from Ledger</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </CardHeader>
-              <CardContent className="p-6 space-y-6 text-left">
-                <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group text-left">
-                  <div className="absolute top-0 right-0 p-4 opacity-5"><TrendingUp className="w-10 h-10 md:w-12 md:h-12 text-primary"/></div>
-                  <p className="text-[8px] md:text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1 text-left">Lifetime Yield</p>
-                  <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none text-left">{showFinancials ? `$${safeLTV.toFixed(2)}` : '••••'}</p>
-                </div>
-                <div className="grid grid-cols-1 gap-4 text-left">
-                  <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner text-left">
-                    <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60 text-left">Store Credit</p>
-                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono text-left">${safeStoreCredit.toFixed(2)}</p>
-                  </div>
-                  <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all text-left", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive" : "bg-muted/20 border-transparent")}>
-                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60 text-left">Account Arrears</p>
-                    <p className="text-xl md:text-2xl font-black tracking-tighter font-mono text-left">${safeBalance.toFixed(2)}</p>
-                  </div>
-                </div>
-                <Separator className="border-dashed" />
-                <div className="space-y-4 text-left">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2 text-left"><Lock className="w-3 h-3" /> Secure Card on File</p>
-                  {client.cardOnFile ? (
-                    <div className="p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] flex items-center justify-between text-left">
-                      <div className="flex items-center gap-3 text-left">
-                        <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><CreditCard className="w-5 h-5 text-primary" /></div>
-                        <div className="text-left">
-                          <p className="text-xs font-black uppercase tracking-tighter text-slate-900 text-left">{String(client.cardOnFile.brand || 'Card')} **** {String(client.cardOnFile.last4 || '****')}</p>
-                          <p className="text-[8px] font-bold text-muted-foreground uppercase text-left">Exp: {safeNumber((client.cardOnFile as any).expMonth ?? client.cardOnFile.expiryMonth)}/{safeNumber((client.cardOnFile as any).expYear ?? client.cardOnFile.expiryYear)}</p>
-                        </div>
-                      </div>
-                      <button onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5 flex items-center justify-center rounded-lg transition-colors"><RefreshCw className="w-3.5 h-3.5" /></button>
-                    </div>
-                  ) : (
-                    <Button variant="outline" onClick={() => setIsEditClientOpen(true)} className="w-full h-12 rounded-xl border-2 border-dashed font-black uppercase text-[9px] tracking-widest bg-muted/5 hover:bg-primary/[0.02] hover:border-primary/20 transition-all"><PlusCircle className="mr-2 h-3.5 w-3.5 opacity-40" /> Vault Security Card</Button>
-                  )}
-                </div>
-              </CardContent>
-              <CardFooter className="p-6 pt-0 flex flex-col gap-3 text-left">
-                <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white" onClick={() => setIsRecoveryDialogOpen(true)}>
-                  <HeartHandshake className="mr-2 h-4 w-4" /> Issue Recovery Protocol
-                </Button>
-                {hasDebt && hasCardOnFile && (
-                  <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 bg-primary text-white" onClick={handleQuickSettle} disabled={isSettleProcessing}>
-                    {isSettleProcessing ? <Loader className="animate-spin" /> : <><Zap className="mr-2 h-4 w-4" /> Charge Card on File</>}
-                  </Button>
-                )}
-                <Button disabled={!hasDebt} variant="outline" className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs border-2" asChild>
-                  <Link href={`/pos?payer_id=${client.id}&action=settle`}>Initialize POS Settlement</Link>
-                </Button>
-              </CardFooter>
-            </Card>
           </div>
         </div>
       </main>
