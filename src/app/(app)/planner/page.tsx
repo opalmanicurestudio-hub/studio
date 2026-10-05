@@ -1,5 +1,6 @@
 'use client';
 
+import { MonthView, WeekView } from '@/components/planner/RangeViews';
 import { PlannerHeader } from '@/components/planner/PlannerHeader';
 import { handoffEntry } from '@/lib/handoff-log';
 import { NowFirst } from '@/components/planner/NowFirst';
@@ -361,7 +362,7 @@ function PlannerPageContent() {
   // "Book here" on a gap → the booking dialog opens on that provider and time.
   const [bookPreset, setBookPreset] = useState<{ date: Date; time: string; staffId?: string } | null>(null);
   // Board or Agenda — remembered per person on this device; providers open on the agenda filtered to themselves.
-  const [plannerView, setPlannerView] = useState<'board' | 'agenda'>(() => { try { const k = `cf_planner_view_${typeof window !== 'undefined' ? (localStorage.getItem('cf_uid') || 'me') : 'me'}`; const v = localStorage.getItem(k); if (v === 'board' || v === 'agenda') return v; } catch { /* fine */ } return 'board'; });
+  const [plannerView, setPlannerView] = useState<'board' | 'agenda' | 'week' | 'month'>(() => { try { const k = `cf_planner_view_${typeof window !== 'undefined' ? (localStorage.getItem('cf_uid') || 'me') : 'me'}`; const v = localStorage.getItem(k); if (v === 'board' || v === 'agenda' || v === 'week' || v === 'month') return v as any; } catch { /* fine */ } return 'board'; });
   const [agendaProvider, setAgendaProvider] = useState<string>('all');
   // PERSONAL VIEW SETTINGS — remembered per person on this device: start my day at, default provider, card colour.
   const prefsKey = `cf_planner_prefs_${currentUser?.uid || 'me'}`;
@@ -374,12 +375,12 @@ function PlannerPageContent() {
   const visitParam = searchParams.get('visit'); const openedVisitParam = useRef<string | null>(null);
   useEffect(() => { if (!visitParam || openedVisitParam.current === visitParam || !appointments?.length) return; const a: any = appointments.find((x: any) => x.id === visitParam); if (!a) return;
     openedVisitParam.current = visitParam; try { setCurrentDate(safeDate(a.startTime)); } catch { /* fine */ } setSelectedAppointment(a); setIsDetailsOpen(true); }, [visitParam, appointments]);
-  const [phoneView, setPhoneView] = useState<'now' | 'grid' | 'list'>(() => { try { const v = localStorage.getItem('cf_planner_phone_view'); if (v === 'now' || v === 'grid' || v === 'list') return v; } catch { /* fine */ } return 'now'; });
-  const choosePhoneView = (v: 'now' | 'grid' | 'list') => { setPhoneView(v); try { localStorage.setItem('cf_planner_phone_view', v); } catch { /* fine */ } };
+  const [phoneView, setPhoneView] = useState<'now' | 'grid' | 'list' | 'week' | 'month'>(() => { try { const v = localStorage.getItem('cf_planner_phone_view'); if (v === 'now' || v === 'grid' || v === 'list' || v === 'week' || v === 'month') return v as any; } catch { /* fine */ } return 'now'; });
+  const choosePhoneView = (v: 'now' | 'grid' | 'list' | 'week' | 'month') => { setPhoneView(v); try { localStorage.setItem('cf_planner_phone_view', v); } catch { /* fine */ } };
   const [panelAppt, setPanelAppt] = useState<any | null>(null);
   const [lateAsk, setLateAsk] = useState<any | null>(null);
   useEffect(() => { if (role === 'staff' && currentUser?.uid) { setPlannerView((v) => { try { if (localStorage.getItem(`cf_planner_view_${currentUser.uid}`)) return v; } catch { /* fine */ } return 'agenda'; }); setAgendaProvider(currentUser.uid); } }, [role, currentUser?.uid]);
-  const choosePlannerView = (v: 'board' | 'agenda') => { setPlannerView(v); try { localStorage.setItem(`cf_planner_view_${currentUser?.uid || 'me'}`, v); } catch { /* fine */ } };
+  const choosePlannerView = (v: 'board' | 'agenda' | 'week' | 'month') => { setPlannerView(v); try { localStorage.setItem(`cf_planner_view_${currentUser?.uid || 'me'}`, v); } catch { /* fine */ } };
   const dayAppointments = useMemo(() => (appointments || []).filter((a: any) => { try { return isSameDay(safeDate(a.startTime), currentDate); } catch { return false; } }), [appointments, currentDate]);
 
   // "Tell them we're late": the provider-late route works out who moves and gives each client their choice.
@@ -1446,12 +1447,16 @@ function PlannerPageContent() {
           ['Waiting list', () => setIsWaitlistSheetOpen(true)], ['Scan check-in code', () => setIsScannerOpen(true)], ['View settings', () => setPrefsOpen(true)],
           [density === 'compact' ? 'Roomy cards' : 'Compact cards', () => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })],
         ]}
-        viewControls={<><span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span></>} />
+        viewControls={<><span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda', 'week', 'month'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span></>} />
       <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
-        {isMobile && <div className="flex gap-1 px-3 pt-2" role="tablist" aria-label="View">{([['now', 'Now'], ['grid', 'Day grid'], ['list', 'List']] as const).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={phoneView === v} onClick={() => choosePhoneView(v)} className="h-9 flex-1 rounded-full text-[13px] font-semibold" style={phoneView === v ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}</div>}
+        {isMobile && <div className="flex gap-1 px-3 pt-2" role="tablist" aria-label="View">{([['now', 'Now'], ['grid', 'Grid'], ['list', 'List'], ['week', 'Week'], ['month', 'Month']] as const).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={phoneView === v} onClick={() => choosePhoneView(v)} className="h-9 flex-1 rounded-full text-[13px] font-semibold" style={phoneView === v ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}</div>}
         {isMobile && phoneView === 'now' && <NowFirst appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
           onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => { setBookPreset(null); setIsAddAppointmentOpen(true); }}
           onApprove={visitActions.onApprove} onDecline={visitActions.onDecline} canDecline={visitActions.canDecline} />}
+        {(isMobile ? phoneView === 'month' : plannerView === 'month') && <MonthView date={currentDate} appointments={appointments || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []} blocks={staffBlocksRaw || []}
+          showMoney={!!showProfitability} isMobile={isMobile} onMonth={(d: Date) => setCurrentDate(d)} onOpenDay={(d: Date) => { setCurrentDate(d); if (isMobile) choosePhoneView('now'); else choosePlannerView('board'); }} />}
+        {(isMobile ? phoneView === 'week' : plannerView === 'week') && <WeekView date={currentDate} appointments={appointments || []} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []} blocks={staffBlocksRaw || []}
+          isMobile={isMobile} onWeek={(d: Date) => setCurrentDate(d)} onOpenVisit={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onOpenDay={(d: Date) => { setCurrentDate(d); if (isMobile) choosePhoneView('now'); else choosePlannerView('board'); }} />}
         {(isMobile ? phoneView === 'list' : plannerView === 'agenda') && (
           <div className="flex min-h-0 flex-1 gap-4 p-3 sm:p-4">
             <AgendaView date={currentDate} appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} selectedId={panelAppt?.id || null}
