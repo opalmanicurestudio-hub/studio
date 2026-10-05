@@ -119,7 +119,7 @@ type WaitState = 'idle' | 'joining' | 'joined' | 'failed';
 // standing up, and one line split on "does this look like an address" gets the
 // same two fields onto the row. Both are optional — a first name is enough to
 // print them a ticket and put them on the board.
-type PartyGuest = { name: string; contact: string };
+type PartyGuest = { name: string; contact: string; serviceId?: string };   // serviceId: their own service (empty = the same as the person checking in)
 
 type Floor = {
   enabled: boolean;
@@ -836,6 +836,8 @@ export default function WalkInKioskPage() {
         const contact = g.contact.trim();
         return {
           name: g.name.trim(),
+          // Their own service, when it differs — the server seats them unassigned and flags the desk to match a provider.
+          ...(g.serviceId && g.serviceId !== service?.id ? { serviceId: g.serviceId } : {}),
           ...(looksLikeEmail(contact)
             ? { email: contact }
             : contact
@@ -1767,6 +1769,12 @@ export default function WalkInKioskPage() {
                     spellCheck={false}
                     className="w-full h-14 min-h-[44px] px-4 rounded-2xl border-2 border-slate-200 bg-white text-base font-medium focus:border-rose-300 focus:outline-none"
                   />
+                  {/* What they're having: the same as the person checking in, or their own. */}
+                  <select value={g.serviceId || ''} onChange={e => setGuestField(i, 'serviceId', e.target.value)} aria-label={`Guest ${i + 2}'s service`}
+                    className="w-full h-14 min-h-[44px] px-4 rounded-2xl border-2 border-slate-200 bg-white text-base font-medium focus:border-rose-300 focus:outline-none">
+                    <option value="">{service?.name ? `Same as you — ${service.name}` : 'Same as you'}</option>
+                    {services.filter((sv: any) => sv.id !== service?.id).map((sv: any) => <option key={sv.id} value={sv.id}>{sv.name}</option>)}
+                  </select>
                 </div>
               ))}
             </div>
