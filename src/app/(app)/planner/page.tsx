@@ -353,6 +353,21 @@ function PlannerPageContent() {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
+  // "Book here" on a gap → the booking dialog opens on that provider and time.
+  const [bookPreset, setBookPreset] = useState<{ date: Date; time: string; staffId?: string } | null>(null);
+  // Board density, remembered on this device.
+  const [density, setDensity] = useState<'roomy' | 'compact'>(() => { try { return (localStorage.getItem('cf_planner_density') as any) || 'roomy'; } catch { return 'roomy'; } });
+  // A card dropped on a new time: ask the server (hours, clashes, the client's say) before it lands; managers may move anyway.
+  const [moveAsk, setMoveAsk] = useState<{ appointment: any; staffId: string; time: string; reason: string } | null>(null);
+  const moveAppointment = async (appointment: any, staffId: string, time: string, override = false) => {
+    if (!tenantId) return; const dateStr = format(currentDate, 'yyyy-MM-dd');
+    try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+      const call = (body: any) => fetch('/api/appointments/reschedule', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, appointmentId: appointment.id, staffId, date: dateStr, time, ...body }) }).then((r) => r.json()).catch(() => null);
+      if (!override) { const c: any = await call({ action: 'check' }); if (c && c.ok === false) { toast({ title: c.error || 'That didn’t work', variant: 'destructive' }); return; } if (c?.reason) { setMoveAsk({ appointment, staffId, time, reason: String(c.reason) }); return; } }
+      const m: any = await call({ action: 'move', override, overrideReason: override ? 'Moved on the planner' : undefined });
+      if (m?.ok) toast({ title: `Moved to ${time}${m.told ? ' — the client has been told' : ''}` }); else toast({ title: m?.error || m?.reason || 'Couldn’t move it', variant: 'destructive' });
+    } catch { toast({ title: 'Couldn’t move it — try again', variant: 'destructive' }); }
+  };
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [isEditEventOpen, setIsEditEventOpen] = useState(false);
@@ -1363,8 +1378,14 @@ function PlannerPageContent() {
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <h1 className="text-[22px] sm:text-[26px] font-light leading-none">Planner</h1>
+              {moveAsk && <div role="dialog" aria-label="Move anyway?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setMoveAsk(null)}>
+                <div className="w-full max-w-sm space-y-3 rounded-3xl p-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[17px] font-semibold">That time won’t work</p><p className="text-[14px]" style={{ color: 'var(--muted)' }}>{moveAsk.reason}</p>
+                  <div className="flex gap-2">{String(role) !== 'staff' && <button type="button" onClick={() => { const m = moveAsk; setMoveAsk(null); void moveAppointment(m.appointment, m.staffId, m.time, true); }} className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Move anyway</button>}<button type="button" onClick={() => setMoveAsk(null)} className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Leave it</button></div>
+                </div></div>}
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
+              <button type="button" aria-pressed={density === 'compact'} onClick={() => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })} title="Fit more of the day on screen" className="hidden sm:inline-flex h-9 items-center rounded-full px-3 text-[13px] font-semibold" style={{ background: density === 'compact' ? 'var(--ink)' : 'var(--soft)', color: density === 'compact' ? '#fff' : 'inherit' }}>{density === 'compact' ? 'Compact' : 'Roomy'}</button>
               {(role === 'owner' || role === 'admin') && (
                 <div className="flex gap-1.5 sm:gap-2">
                   <Button variant="outline" size="icon" title="Bills due" aria-label="Bills due" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsBillsSheetOpen(true)}>
@@ -1542,6 +1563,8 @@ function PlannerPageContent() {
       <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
         <DayTimeline
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
+          density={density} onBookAt={(columnId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId: columns.find((c: any) => c.id === columnId && 'role' in c) ? columnId : undefined }); setIsAddAppointmentOpen(true); }}
+          onMoveAppointment={(a: any, columnId: string, time: string) => { const col: any = columns.find((c: any) => c.id === columnId); void moveAppointment(a, col && 'role' in col ? columnId : a.staffId, time); }}
           showColumnHeader={activeView === 'resources' || activeView === 'booths'} isMobile={isMobile || false} activeView={activeView}
           allStaff={allStaff || []} mobileSelectedColumnId={mobileSelectedColumnId} onMobileColumnChange={onMobileColumnChange}
           onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus}
@@ -1623,7 +1646,8 @@ function PlannerPageContent() {
 
       <AddAppointmentDialog
         open={isAddAppointmentOpen}
-        onOpenChange={(val: boolean) => { setIsAddAppointmentOpen(val); if (!val) { setClientForNewApt(null); setAppointmentToRebook(null); } }}
+        onOpenChange={(val: boolean) => { setIsAddAppointmentOpen(val); if (!val) { setClientForNewApt(null); setAppointmentToRebook(null); setBookPreset(null); } }}
+        preset={bookPreset}
         onConfirm={async (data: any) => {
           if (!firestore || !tenantId) return;
           const id = nanoid();
