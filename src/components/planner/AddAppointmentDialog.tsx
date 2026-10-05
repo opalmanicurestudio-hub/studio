@@ -118,7 +118,7 @@ const sanitizeForFirestore = (obj: any): any => {
 
 type Step = 'details' | 'timing' | 'deposit' | 'success';
 
-export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client: initialClient, appointmentToRebook }) => {
+export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client: initialClient, appointmentToRebook, preset }) => {   // preset: { date, time: 'HH:mm', staffId } from "Book here" on a gap
   const isMobile = useIsMobile();
   const { firestore } = useFirebase();
   const { user } = useUser();
@@ -171,10 +171,10 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             newClientEmail: '',
             newClientPhone: '',
             serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
-            staffId: staffDefault,
+            staffId: preset?.staffId || staffDefault,
             selectedTierId: 'any',
-            date: appointmentToRebook ? safeDate(appointmentToRebook.startTime) : new Date(),
-            startTime: appointmentToRebook ? (() => { try { return format(safeDate(appointmentToRebook.startTime), 'HH:mm'); } catch { return ''; } })() : '',
+            date: preset?.date || (appointmentToRebook ? safeDate(appointmentToRebook.startTime) : new Date()),
+            startTime: preset?.time || (appointmentToRebook ? (() => { try { return format(safeDate(appointmentToRebook.startTime), 'HH:mm'); } catch { return ''; } })() : ''),
             addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
             overrideBusinessHours: false,
             paymentMethod: 'card_on_file',
