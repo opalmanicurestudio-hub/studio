@@ -13,6 +13,10 @@ export function VisitTicketHost() {
   const tenantId = selectedTenant?.id || null;
   const accent = selectedTenant?.bookingPageSettings?.cfPageConfig?.accentColor || selectedTenant?.brandColor || null;
   return <Drawer accent={accent} open={!!id && !!tenantId} onClose={() => setId(null)} title="Visit ticket">
-    {id && tenantId ? <VisitTicket key={id} tenantId={tenantId} appointmentId={id} onClose={() => setId(null)} /> : null}
+    {id && tenantId ? <>
+      {/* The full Visit (every detail, in five tabs) lives on the planner; this quick ticket links to it. */}
+      {typeof window !== 'undefined' && !window.location.pathname.startsWith('/planner') && <a href={`/planner?visit=${encodeURIComponent(id)}`} className="mb-3 flex h-11 items-center justify-center rounded-full text-[14px] font-semibold" style={{ background: '#1c1917', color: '#fff' }}>Open the full visit</a>}
+      <VisitTicket key={id} tenantId={tenantId} appointmentId={id} onClose={() => setId(null)} />
+    </> : null}
   </Drawer>;
 }
