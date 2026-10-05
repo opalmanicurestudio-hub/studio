@@ -1,5 +1,7 @@
 'use client';
 
+import { AgendaView } from '@/components/planner/AgendaView';
+import { VisitPanel } from '@/components/planner/VisitPanel';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
@@ -355,6 +357,19 @@ function PlannerPageContent() {
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   // "Book here" on a gap → the booking dialog opens on that provider and time.
   const [bookPreset, setBookPreset] = useState<{ date: Date; time: string; staffId?: string } | null>(null);
+  // Board or Agenda — remembered per person on this device; providers open on the agenda filtered to themselves.
+  const [plannerView, setPlannerView] = useState<'board' | 'agenda'>(() => { try { const k = `cf_planner_view_${typeof window !== 'undefined' ? (localStorage.getItem('cf_uid') || 'me') : 'me'}`; const v = localStorage.getItem(k); if (v === 'board' || v === 'agenda') return v; } catch { /* fine */ } return 'board'; });
+  const [agendaProvider, setAgendaProvider] = useState<string>('all');
+  const [panelAppt, setPanelAppt] = useState<any | null>(null);
+  const [lateAsk, setLateAsk] = useState<any | null>(null);
+  useEffect(() => { if (role === 'staff' && currentUser?.uid) { setPlannerView((v) => { try { if (localStorage.getItem(`cf_planner_view_${currentUser.uid}`)) return v; } catch { /* fine */ } return 'agenda'; }); setAgendaProvider(currentUser.uid); } }, [role, currentUser?.uid]);
+  const choosePlannerView = (v: 'board' | 'agenda') => { setPlannerView(v); try { localStorage.setItem(`cf_planner_view_${currentUser?.uid || 'me'}`, v); } catch { /* fine */ } };
+  const dayAppointments = useMemo(() => (appointments || []).filter((a: any) => { try { return isSameDay(safeDate(a.startTime), currentDate); } catch { return false; } }), [appointments, currentDate]);
+  // "Tell them we're late": the provider-late route works out who moves and gives each client their choice.
+  const tellLate = async (minutes: number) => { if (!tenantId || !lateAsk) return; const staffId = lateAsk.staffId; setLateAsk(null);
+    try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+      const r: any = await fetch('/api/appointments/provider-late', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, staffId, minutes }) }).then((x) => x.json()).catch(() => null);
+      toast(r?.ok ? { title: `Told ${r.affected ?? r.notified ?? 'the'} client${(r.affected ?? r.notified) === 1 ? '' : 's'} — they can keep, move or cancel` } : { title: r?.error || 'Couldn’t send that', variant: 'destructive' }); } catch { toast({ title: 'Couldn’t send that', variant: 'destructive' }); } };
   // Board density, remembered on this device.
   const [density, setDensity] = useState<'roomy' | 'compact'>(() => { try { return (localStorage.getItem('cf_planner_density') as any) || 'roomy'; } catch { return 'roomy'; } });
   // A card dropped on a new time: ask the server (hours, clashes, the client's say) before it lands; managers may move anyway.
@@ -1385,6 +1400,7 @@ function PlannerPageContent() {
                 </div></div>}
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
+              <span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span>
               <button type="button" aria-pressed={density === 'compact'} onClick={() => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })} title="Fit more of the day on screen" className="hidden sm:inline-flex h-9 items-center rounded-full px-3 text-[13px] font-semibold" style={{ background: density === 'compact' ? 'var(--ink)' : 'var(--soft)', color: density === 'compact' ? '#fff' : 'inherit' }}>{density === 'compact' ? 'Compact' : 'Roomy'}</button>
               {(role === 'owner' || role === 'admin') && (
                 <div className="flex gap-1.5 sm:gap-2">
@@ -1561,7 +1577,20 @@ function PlannerPageContent() {
       )}
 
       <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
-        <DayTimeline
+        {plannerView === 'agenda' && (
+          <div className="flex min-h-0 flex-1 gap-4 p-3 sm:p-4">
+            <AgendaView date={currentDate} appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} selectedId={panelAppt?.id || null}
+              onSelect={(a: any) => setPanelAppt(a)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
+              onBookAt={(staffId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId }); setIsAddAppointmentOpen(true); }} />
+            {panelAppt && <div className="hidden w-[380px] shrink-0 lg:block"><VisitPanel appointment={dayAppointments.find((a: any) => a.id === panelAppt.id) || panelAppt} appointments={appointments || []} clients={clients || []} services={services || []} staff={allStaff || []}
+              onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nextA: any) => setLateAsk(nextA)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onClose={() => setPanelAppt(null)} /></div>}
+          </div>)}
+        {lateAsk && <div role="dialog" aria-label="How far behind?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setLateAsk(null)}>
+          <div className="w-full max-w-sm space-y-3 rounded-3xl p-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
+            <p className="text-[17px] font-semibold">How far behind?</p><p className="text-[14px]" style={{ color: 'var(--muted)' }}>Everyone affected today is told and can keep their time, move, or cancel without a fee.</p>
+            <div className="flex flex-wrap gap-2">{[10, 15, 20, 30, 45].map((m) => <button key={m} type="button" onClick={() => void tellLate(m)} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>{m} min</button>)}<button type="button" onClick={() => setLateAsk(null)} className="h-11 rounded-full px-4 text-[14px]" style={{ color: 'var(--muted)' }}>Cancel</button></div>
+          </div></div>}
+        {plannerView === 'board' && <DayTimeline
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
           density={density} onBookAt={(columnId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId: columns.find((c: any) => c.id === columnId && 'role' in c) ? columnId : undefined }); setIsAddAppointmentOpen(true); }}
           onMoveAppointment={(a: any, columnId: string, time: string) => { const col: any = columns.find((c: any) => c.id === columnId); void moveAppointment(a, col && 'role' in col ? columnId : a.staffId, time); }}
@@ -1585,7 +1614,7 @@ function PlannerPageContent() {
           onResolveIssue={(a: any) => setResolveFor(a)} canResolveIssues={isManagerHere}
           focusId={focusId} onFocusSettled={() => setFocusId(null)}
           walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
-        />
+        />}
       </main>
 
       <DebugErrorBoundary>
