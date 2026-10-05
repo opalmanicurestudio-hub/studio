@@ -1,5 +1,6 @@
 'use client';
 
+import { SettingsStyle } from '@/components/settings/settings-style';
 import React, { useEffect, useState, useMemo } from 'react';
 import { WeeklyHoursEditor, weekFrom, type WeekHours } from '@/components/staff/WeeklyHoursEditor';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
@@ -81,6 +82,10 @@ const editStaffSchema = z.object({
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
   role: z.enum(['admin', 'staff', 'owner']),
+  // Tip sharing (Settings → Fees & credit → How tips are shared): their part in tip-outs and weighted pools, and —
+  // for owners and admins — whether they also work as a provider and may share in tips.
+  tipRole: z.enum(['provider', 'assistant', 'front_desk']).optional(),
+  tipPoolEligible: z.boolean().optional(),
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission']),
   employmentModel: z.enum(['unset', 'employee', 'commission', 'contractor', 'renter']).optional(),
@@ -270,7 +275,7 @@ const EditStaffFormInternal = ({
           </div>
 
           <div className="p-6 rounded-[2rem] border-2 bg-muted/5 space-y-4 text-left">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+            <p className="ml-1 text-[13px] font-semibold text-foreground flex items-center gap-2">
               <ShieldCheck className="w-3.5 h-3.5 opacity-40" /> Authentication Control
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -290,7 +295,7 @@ const EditStaffFormInternal = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
             <div className="space-y-3">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Role</Label>
+              <Label className="ml-1 text-[13px] font-semibold text-foreground">Role</Label>
               <Controller name="role" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5">
@@ -305,7 +310,7 @@ const EditStaffFormInternal = ({
               )} />
             </div>
             <div className="space-y-3 text-left">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expertise Tier</Label>
+              <Label className="ml-1 text-[13px] font-semibold text-foreground">Level</Label>
               <Controller name="pricingTierId" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} value={field.value}>
                   <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5">
@@ -325,7 +330,7 @@ const EditStaffFormInternal = ({
 
           <div className="flex items-center justify-between p-6 border-2 border-dashed rounded-[2rem] bg-muted/5">
             <div className="space-y-1 text-left">
-              <Label htmlFor="public-toggle-edit" className="text-base font-black uppercase tracking-tight">Public Registry</Label>
+              <Label htmlFor="public-toggle-edit" className="text-base font-black uppercase tracking-tight">Show their licence publicly</Label>
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
                 Show on the guest booking page
               </p>
@@ -347,7 +352,7 @@ const EditStaffFormInternal = ({
         <SectionHeader icon={Sparkles} title="Profile & Mastery" step={2} />
         <div className="space-y-8 text-left">
           <div className="space-y-2 text-left">
-            <Label htmlFor="bio-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+            <Label htmlFor="bio-edit" className="ml-1 text-[13px] font-semibold text-foreground">
               Professional Narrative (Public)
             </Label>
             <Textarea
@@ -359,7 +364,7 @@ const EditStaffFormInternal = ({
           </div>
 
           <div className="space-y-2 text-left">
-            <Label htmlFor="specialties-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+            <Label htmlFor="specialties-edit" className="ml-1 text-[13px] font-semibold text-foreground">
               Signature Specialties
             </Label>
             <Input
@@ -536,7 +541,7 @@ const EditStaffFormInternal = ({
         <div className="space-y-10 text-left">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Pay Structure</Label>
+              <Label className="ml-1 text-[13px] font-semibold text-foreground">How they’re paid</Label>
               <Controller name="payStructure" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} value={field.value}>
                   <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
@@ -552,7 +557,7 @@ const EditStaffFormInternal = ({
               )} />
             </div>
             <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Working Relationship</Label>
+              <Label className="ml-1 text-[13px] font-semibold text-foreground">Working relationship</Label>
               <Controller name="employmentModel" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} value={field.value || 'unset'}>
                   <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
@@ -573,7 +578,7 @@ const EditStaffFormInternal = ({
             </div>
 
             <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Sees Money</Label>
+              <Label className="ml-1 text-[13px] font-semibold text-foreground">Sees money</Label>
               <Controller name="showProfitability" control={control} render={({ field }) => (
                 <button
                   type="button" role="switch" aria-checked={field.value === true}
@@ -599,8 +604,21 @@ const EditStaffFormInternal = ({
               </p>
             </div>
 
+            {/* TIPS — their part when tips are shared, and (owners / admins) whether they may share in them at all. */}
             <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Booking Authority</Label>
+              <Label className="ml-1 text-[13px] font-semibold">Tips</Label>
+              <Controller name="tipRole" control={control} render={({ field }) => (
+                <select value={field.value || 'provider'} onChange={(e) => field.onChange(e.target.value)} aria-label="Their part in shared tips" className="h-12 w-full rounded-xl border px-3 text-[15px]">
+                  <option value="provider">Provider — does services</option><option value="assistant">Assistant — helps providers</option><option value="front_desk">Front desk</option>
+                </select>)} />
+              {['owner', 'admin'].includes(String(watch('role'))) && <Controller name="tipPoolEligible" control={control} render={({ field }) => (
+                <label className="flex items-start gap-3 rounded-xl border p-3 text-[14px]"><input type="checkbox" checked={field.value === true} onChange={(e) => field.onChange(e.target.checked)} className="mt-1 h-5 w-5" />
+                  <span><b>Works as a provider — can share in tips</b><br /><span className="text-[13px] text-muted-foreground">Owners and managers can’t take shared tips (US federal law) unless they also do services. Tick only if they regularly work as a provider.</span></span></label>)} />}
+              <p className="ml-1 text-[13px] text-muted-foreground">Used when tips are shared — tip-outs go to assistants and front desk on shift; weighted pools use this role.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="ml-1 text-[13px] font-semibold text-foreground">Can decide on bookings</Label>
               <Controller name="decisionAuthority" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} value={field.value || 'default'}>
                   <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
@@ -619,7 +637,7 @@ const EditStaffFormInternal = ({
 
             {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
               <div className="space-y-2 text-left">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Cadence</Label>
+                <Label className="ml-1 text-[13px] font-semibold text-foreground">How often they’re paid</Label>
                 <Controller name="payoutFrequency" control={control} render={({ field }) => (
                   <Select onValueChange={field.onChange} value={field.value}>
                     <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest shadow-inner bg-muted/5">
@@ -656,7 +674,7 @@ const EditStaffFormInternal = ({
 
           {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
             <div className="space-y-2 animate-in slide-in-from-top-2">
-              <Label htmlFor="hourlyRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>
+              <Label htmlFor="hourlyRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly rate</Label>
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                 <Input id="hourlyRate-edit" type="number" placeholder="25.00" {...register('hourlyRate')} className="h-14 pl-10 rounded-2xl border-2 font-black text-xl font-mono text-primary shadow-inner" />
@@ -677,7 +695,7 @@ const EditStaffFormInternal = ({
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5 text-left">
-                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Legal Contact Name</Label>
+                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Emergency contact</Label>
                 <Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" />
               </div>
               <div className="space-y-1.5 text-left">
@@ -696,7 +714,7 @@ const EditStaffFormInternal = ({
                 )} />
               </div>
               <div className="sm:col-span-2 text-left space-y-1.5">
-                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Emergency Contact Mobile</Label>
+                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Their mobile</Label>
                 <PhoneInput name="emergencyContact.phone" label="" className="h-11 rounded-xl kiosk-phone-input" />
               </div>
             </div>
@@ -708,11 +726,11 @@ const EditStaffFormInternal = ({
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5 text-left">
-                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License Number</Label>
+                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Licence number</Label>
                 <Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-white shadow-inner" />
               </div>
               <div className="space-y-1.5 text-left">
-                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Registry Expiry</Label>
+                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Licence expires</Label>
                 <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => (
                   <Popover>
                     <PopoverTrigger asChild>
@@ -753,6 +771,8 @@ export const EditStaffDialog: React.FC<any> = ({
         specialties: specialtiesString,
         avatarUrl: staffMember.avatarUrl || '',
         pricingTierId: staffMember.pricingTierId || '',
+        tipRole: (staffMember as any).tipRole || ((staffMember as any).isAssistant ? 'assistant' : 'provider'),
+        tipPoolEligible: (staffMember as any).tipPoolEligible === true,
         payoutFrequency: staffMember.payoutFrequency || 'weekly',
         employmentModel: (staffMember as any).employmentModel || 'unset',
         showProfitability: (staffMember as any).showProfitability === true,
@@ -893,7 +913,7 @@ export const EditStaffDialog: React.FC<any> = ({
   // Desktop Dialog ─────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden sm:max-w-2xl h-[90dvh]">
+      <DialogContent className="cf-settings cf-legacy p-0 border-none bg-background flex flex-col shadow-2xl overflow-hidden sm:max-w-2xl h-[90dvh]"><SettingsStyle />
         <FormProvider {...methods}>
           <form
             id="edit-staff-strategic-form"
