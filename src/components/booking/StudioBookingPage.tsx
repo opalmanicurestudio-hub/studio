@@ -9,6 +9,7 @@
 // with the times clients can book). Booking itself is the same flow, with
 // deposits, forms, text consent, memberships and packages unchanged.
 
+import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
 import { catSlug } from '@/lib/share-links';
 import { useMemo, useState } from 'react';
 import { PublicFrame, Section, PrimaryButton, QuietButton, money, minutes } from '@/components/public/kit';
@@ -101,6 +102,8 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
             ))}</div>
           )}
         </Section>
+        {/* Rentable spaces (rooms, saunas, equipment) — booked by the hour or day through the rental engine; hidden when none are on offer. */}
+        {tenant?.id && <div id="spaces"><BoothListingsSection tenantId={tenant.id} config={{ kind: 'spaces', title: 'Book a space', subtitle: 'By the hour or the day — no appointment needed.', showMonthly: false, hideWhenEmpty: true }} /></div>}
 
         {team.length > 0 && <Section id="team" eyebrow="The team" title={<>Meet the <b>people</b></>}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{team.map((m: any) => (
