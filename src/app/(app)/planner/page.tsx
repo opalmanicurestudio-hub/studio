@@ -1290,11 +1290,17 @@ function PlannerPageContent() {
     toast({ variant: 'destructive', title: res.reason });
   }, [toast]);
 
+  // An online group or multi-service request is answered together: accept one part → every requested part is accepted,
+  // guests first and the organiser last (the organiser's part carries the group's deposit, so it's the one that asks for money).
+  const linkedParts = useCallback((apt: any) => { const key = apt?.groupId ? 'groupId' : apt?.visitId ? 'visitId' : null; if (!key || !apt?.onlineGroupRequest) return [apt];
+    const all = (appointments || []).filter((x: any) => x[key] === apt[key] && (x.status === 'requested' || x.approvalStatus === 'pending'));
+    return [...all.filter((x: any) => x.groupRole !== 'organizer' && x.visitStep !== 0), ...all.filter((x: any) => x.groupRole === 'organizer' || x.visitStep === 0)]; }, [appointments]);
   const handleApproveRequest = useCallback(async (apt: any) => {
-    const res = await approveBooking(firestore, tenantId, apt, currentUser?.uid, selectedTenant?.name, decidingStaffName);
-    reportDecision(res, 'Request accepted');
+    const parts = linkedParts(apt); let res: any = null;
+    for (const part of parts.length ? parts : [apt]) res = await approveBooking(firestore, tenantId, part, currentUser?.uid, selectedTenant?.name, decidingStaffName);
+    reportDecision(res, parts.length > 1 ? `Group of ${parts.length} accepted` : 'Request accepted');
     return res;
-  }, [firestore, tenantId, currentUser, selectedTenant, decidingStaffName, reportDecision]);
+  }, [firestore, tenantId, currentUser, selectedTenant, decidingStaffName, reportDecision, linkedParts]);
 
   const handleReportIssue = useCallback(async (code: string, note: string) => {
     if (!issueFor) return;
@@ -1374,10 +1380,11 @@ function PlannerPageContent() {
   }, [resolveFor, allStaff, currentUser, firestore, tenantId, decidingStaffName, role, isManagerHere, toast]);
 
   const handleDeclineRequest = useCallback(async (apt: any) => {
-    const res = await denyBooking(firestore, tenantId, apt, currentUser?.uid, decidingStaffName, 'alternative');
-    reportDecision(res, 'Request declined');
+    const parts = linkedParts(apt); let res: any = null;   // a group is declined together — no half-groups left holding slots
+    for (const part of parts.length ? parts : [apt]) res = await denyBooking(firestore, tenantId, part, currentUser?.uid, decidingStaffName, 'alternative');
+    reportDecision(res, parts.length > 1 ? `Group of ${parts.length} declined` : 'Request declined');
     return res;
-  }, [firestore, tenantId, currentUser, decidingStaffName, reportDecision]);
+  }, [firestore, tenantId, currentUser, decidingStaffName, reportDecision, linkedParts]);
 
   const billInstancesWithDefinitions = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
