@@ -78,6 +78,7 @@ const safeDate = (val: any): Date => {
 };
 
 export function AppointmentCard({
+  edgeColor,
   appointment,
   client,
   service,
@@ -395,6 +396,7 @@ export function AppointmentCard({
           )}
           role="button"
           tabIndex={0}
+          style={edgeColor ? { borderLeftColor: edgeColor, borderLeftWidth: 5 } : undefined}   // "colour by provider" (planner view settings)
           aria-label={`Open details for ${client.name}`}
           onClick={openDetails}
           onKeyDown={(e: any) => {
