@@ -11,6 +11,7 @@
 //   Pay    only when a deposit is due — the secure card form
 //   Done   the server's own words · who/when/where · calendar · directions
 
+import { PartyBuilder } from '@/components/booking/PartyBuilder';
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, FormProvider } from 'react-hook-form';
@@ -237,6 +238,7 @@ export function StudioFlow({ c }: { c: any }) {
         {currentStep === 'dateTime' && whenStep}
         {currentStep === 'details' && c.placeChooser && <section className="mb-4 rounded-3xl bg-white p-5 shadow-sm">{c.placeChooser}</section>}
         {currentStep === 'details' && youStep}
+        {currentStep === 'details' && c.groupPol?.enabled && !c.rescheduleOf && <PartyBuilder policy={c.groupPol} services={c.allServices || []} mainServiceId={service?.id} party={c.party} onChange={c.setParty} accent={accent} />}
         {currentStep === 'details' && (() => { const lines = bookingPolicyLines(tenant, service); return lines.length ? (
           <section className="mb-4 rounded-3xl bg-white p-5 shadow-sm" aria-label="Our policies">
             <p className="text-[14px] font-semibold">By confirming, you agree to these policies</p>
