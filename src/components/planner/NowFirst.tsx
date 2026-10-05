@@ -5,18 +5,22 @@
 // filtered to themselves. Tapping any row opens the full visit.
 import * as React from 'react';
 import { format, differenceInMinutes } from 'date-fns';
-import { stateOf } from '@/components/planner/AgendaView';
+import { stateOf, visitMarks, MARK_COLOR, elapsedLabel, useNow } from '@/components/planner/AgendaView';
 
 const safe = (v: any) => (v instanceof Date ? v : new Date(v?.toDate ? v.toDate() : v));
 const money = (n: number) => `$${Math.round(Number(n) || 0)}`;
-export function NowFirst({ appointments, clients, services, staff, providerFilter, onProviderFilter, onStart, onFinish, onToDesk, onRunningLate, onOpen, onBook }: {
+export function NowFirst({ appointments, clients, services, staff, providerFilter, onProviderFilter, onStart, onFinish, onToDesk, onRunningLate, onOpen, onBook, onApprove, onDecline, canDecline = true }: {
+  onApprove?: (a: any) => void; onDecline?: (a: any) => void; canDecline?: boolean;
   appointments: any[]; clients: any[]; services: any[]; staff: any[]; providerFilter: string; onProviderFilter: (id: string) => void;
   onStart: (a: any) => void; onFinish: (a: any) => void; onToDesk: (a: any) => void; onRunningLate: (next: any) => void; onOpen: (a: any) => void; onBook: () => void;
 }) {
-  const [showDone, setShowDone] = React.useState(false);
+  const [showDone, setShowDone] = React.useState(false); const [declining, setDeclining] = React.useState<string | null>(null);
+  useNow(1000);   // the live timer
   const mine = appointments.filter((a) => !['cancelled', 'declined'].includes(String(a.status)) && (providerFilter === 'all' || a.staffId === providerFilter)).sort((x, y) => safe(x.startTime).getTime() - safe(y.startTime).getTime());
   const done = mine.filter((a) => a.status === 'completed').reverse();
-  const open = mine.filter((a) => a.status !== 'completed');
+  const isReq = (a: any) => a.status === 'requested' || a.approvalStatus === 'pending';
+  const requests = mine.filter(isReq);
+  const open = mine.filter((a) => a.status !== 'completed' && !isReq(a));
   // "Now": someone in the chair first, then ready to pay, then here and waiting, then the next booked visit.
   const now = open.find((a) => a.status === 'servicing') || open.find((a) => a.status === 'ready_for_checkout') || open.find((a) => a.checkInStatus === 'arrived') || null;
   const upNext = open.filter((a) => a.id !== now?.id);
@@ -30,7 +34,8 @@ export function NowFirst({ appointments, clients, services, staff, providerFilte
   const row = (a: any) => { const st = stateOf(a, svc(a)); return (
     <button key={a.id} type="button" onClick={() => onOpen(a)} className="grid min-h-[60px] w-full grid-cols-[52px_5px_minmax(0,1fr)] items-center gap-3 border-t px-4 py-3 text-left text-[14px]" style={{ borderColor: 'var(--line)' }}>
       <span style={muted}>{format(safe(a.startTime), 'h:mm')}</span><span className="h-9 w-[5px] rounded-full" style={{ background: st.color }} />
-      <span className="min-w-0"><b>{name(a)}</b> · {svc(a)?.name || a.serviceName || 'Service'}<br /><span className="text-[12px]" style={{ color: st.over || /late|due|unpaid/i.test(st.word) ? 'var(--warn, #b45309)' : 'var(--muted, #6b635c)', fontWeight: st.over ? 600 : 400 }}>{prov(a)?.name ? `${prov(a).name} · ` : ''}{st.word}</span></span>
+      <span className="min-w-0"><b>{name(a)}</b> · {svc(a)?.name || a.serviceName || 'Service'}<br /><span className="text-[12px]" style={{ color: st.over || /late|due|unpaid/i.test(st.word) ? 'var(--warn, #b45309)' : 'var(--muted, #6b635c)', fontWeight: st.over ? 600 : 400 }}>{prov(a)?.name ? `${prov(a).name} · ` : ''}{st.word}</span>
+      {(() => { const mk = visitMarks(a, clients.find((c) => c.id === a.clientId), svc(a)).filter((m) => !/Needs an answer|^Here$/.test(m.label)).slice(0, 3); return mk.length ? <span className="mt-1 flex flex-wrap gap-1">{mk.map((m) => <span key={m.label} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: `color-mix(in srgb, ${MARK_COLOR[m.tone]} 12%, transparent)`, color: MARK_COLOR[m.tone] }}>{m.label}</span>)}</span> : null; })()}</span>
     </button>); };
   const card = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties;
   return (
@@ -41,10 +46,19 @@ export function NowFirst({ appointments, clients, services, staff, providerFilte
       </div>
       <div className="flex gap-1.5 overflow-x-auto px-4 pb-2">{[{ id: 'all', name: 'Everyone' }, ...staff].map((s: any) => <button key={s.id} type="button" aria-pressed={providerFilter === s.id} onClick={() => onProviderFilter(s.id)} className="h-9 shrink-0 rounded-full px-3 text-[13px] font-semibold" style={providerFilter === s.id ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{s.name}</button>)}</div>
       <div className="min-h-0 flex-1 space-y-3 overflow-auto px-3 pb-28">
+        {requests.length > 0 && <section className="overflow-hidden rounded-3xl" style={{ ...card, borderLeft: '5px solid var(--warn, #b45309)' }} aria-label="Needs an answer">
+          <h2 className="px-4 pb-1 pt-3 text-[12px] font-semibold" style={{ color: 'var(--warn, #b45309)' }}>Needs an answer · {requests.length}</h2>
+          {requests.map((a) => (<div key={a.id} className="border-t px-4 py-3" style={{ borderColor: 'var(--line)' }}>
+            <button type="button" onClick={() => onOpen(a)} className="block w-full text-left text-[14px]"><b>{name(a)}</b> · {svc(a)?.name || 'Service'}<br /><span className="text-[12px]" style={muted}>{format(safe(a.startTime), 'EEE h:mm a')}{prov(a) ? ` · ${prov(a).name}` : ''}</span></button>
+            {declining === a.id
+              ? <div className="mt-2 flex gap-2"><button type="button" onClick={() => { setDeclining(null); onDecline?.(a); }} className="h-10 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--danger, #b91c1c)', color: '#fff' }}>Yes, decline</button><button type="button" onClick={() => setDeclining(null)} className="h-10 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Keep it</button></div>
+              : <div className="mt-2 flex gap-2">{onApprove && <button type="button" onClick={() => onApprove(a)} className="h-10 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Accept</button>}{onDecline && canDecline && <button type="button" onClick={() => setDeclining(a.id)} className="h-10 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Decline</button>}</div>}
+          </div>))}</section>}
         {now ? (() => { const st = stateOf(now, svc(now)); const nx = nextAfter(now); const elapsed = now.actualStartTime ? differenceInMinutes(new Date(), safe(now.actualStartTime)) : null;
           return (
             <section className="rounded-3xl p-4" style={{ ...card, borderLeft: `5px solid ${st.color}` }} aria-label="Now">
-              <p className="text-[12px]" style={muted}>Now{prov(now) ? ` · ${prov(now).name}` : ''} · <span style={st.over ? { color: st.color, fontWeight: 600 } : undefined}>{st.word}</span>{elapsed !== null && !st.over ? ` · ${elapsed} min in` : ''}</p>
+              <div className="flex items-start justify-between gap-3"><p className="text-[12px]" style={muted}>Now{prov(now) ? ` · ${prov(now).name}` : ''} · <span style={st.over ? { color: st.color, fontWeight: 600 } : undefined}>{st.word}</span></p>
+                {elapsedLabel(now) && <span className="text-[22px] font-light tabular-nums leading-none" style={{ color: st.over ? 'var(--warn, #b45309)' : 'var(--ink)' }}>{elapsedLabel(now)}</span>}</div>
               <button type="button" onClick={() => onOpen(now)} className="mt-1 block text-left"><span className="block text-[19px] font-semibold leading-tight">{name(now)} · {svc(now)?.name || 'Service'}</span>
                 <span className="block text-[13px]" style={muted}>{format(safe(now.startTime), 'h:mm')} – {format(safe(now.endTime || now.startTime), 'h:mm a')}{nx ? ` · next: ${first(nx)} at ${format(safe(nx.startTime), 'h:mm')}${nx.checkInStatus === 'arrived' ? ', waiting' : ''}` : ''}</span></button>
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -55,7 +69,7 @@ export function NowFirst({ appointments, clients, services, staff, providerFilte
                   : <button type="button" onClick={() => onOpen(now)} className="h-12 rounded-full text-[15px] font-semibold" style={{ background: 'var(--soft)' }}>Open</button>}
               </div>
             </section>); })()
-          : open.length ? null : <p className="px-2 pt-6 text-center text-[15px]" style={muted}>{done.length ? 'All done for the day.' : 'Nothing booked yet.'}</p>}
+          : open.length || requests.length ? null : <p className="px-2 pt-6 text-center text-[15px]" style={muted}>{done.length ? 'All done for the day.' : 'Nothing booked yet.'}</p>}
         {upNext.length > 0 && <section className="overflow-hidden rounded-3xl" style={card} aria-label="Up next"><h2 className="px-4 pb-1 pt-3 text-[12px] font-semibold" style={muted}>Up next · {upNext.length}</h2>{upNext.map(row)}</section>}
         {done.length > 0 && <section className="overflow-hidden rounded-3xl" style={{ ...card, opacity: 0.9 }} aria-label="Done">
           <button type="button" aria-expanded={showDone} onClick={() => setShowDone((v) => !v)} className="flex w-full items-center justify-between px-4 py-3 text-[13px] font-semibold" style={muted}><span>Done · {done.length}</span><span>{showDone ? 'Hide' : 'Show'}</span></button>
