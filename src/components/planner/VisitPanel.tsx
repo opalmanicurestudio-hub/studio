@@ -9,7 +9,7 @@ import { stateOf, visitMarks, MARK_COLOR, elapsedLabel, useNow } from '@/compone
 
 const safe = (v: any) => (v instanceof Date ? v : new Date(v?.toDate ? v.toDate() : v));
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
-export type VisitActions = { onApprove?: (a: any) => void; onDecline?: (a: any) => void; canDecline?: boolean; onEdit?: (a: any) => void; onReschedule?: (a: any) => void; onRebook?: (a: any) => void; onPrintTicket?: (a: any) => void; onReportIssue?: (a: any) => void; onResolveIssue?: (a: any) => void; canResolve?: boolean };
+export type VisitActions = { onCheckIn?: (a: any) => void; onApprove?: (a: any) => void; onDecline?: (a: any) => void; canDecline?: boolean; onEdit?: (a: any) => void; onReschedule?: (a: any) => void; onRebook?: (a: any) => void; onPrintTicket?: (a: any) => void; onReportIssue?: (a: any) => void; onResolveIssue?: (a: any) => void; canResolve?: boolean };
 export function VisitPanel({ appointment, appointments, clients, services, staff, typical, onStart, onFinish, onToDesk, onRunningLate, onOpen, onClose, actions: more = {} }: {
   appointment: any; appointments: any[]; clients: any[]; services: any[]; staff: any[]; typical?: number | null;
   onStart: (a: any) => void; onFinish: (a: any) => void; onToDesk: (a: any) => void; onRunningLate?: (a: any) => void; onOpen: (a: any) => void; onClose?: () => void; actions?: VisitActions;
@@ -44,6 +44,10 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
   actions.push(btn('Open the full visit', () => onOpen(a)));
   const extra: [string, (() => void) | undefined][] = [['Edit', more.onEdit && (() => more.onEdit!(a))], ['Reschedule', more.onReschedule && (() => more.onReschedule!(a))], ['Book again', more.onRebook && (() => more.onRebook!(a))], ['Print ticket', more.onPrintTicket && (() => more.onPrintTicket!(a))], ['Report an issue', !isRequest && more.onReportIssue ? () => more.onReportIssue!(a) : undefined]];
   const live = elapsedLabel(a); const marks = visitMarks(a, client, service).filter((m) => !/Needs an answer|add-on/.test(m.label));
+  // A GROUP (or one client's several services): everyone in it, their state, and one tap to check them all in.
+  const linkKey = a.groupId ? 'groupId' : a.visitId ? 'visitId' : null;
+  const members = linkKey ? appointments.filter((x) => x[linkKey] === a[linkKey] && !['cancelled', 'declined'].includes(String(x.status))).sort((x, y) => (x.groupRole === 'organizer' ? -1 : 0) - (y.groupRole === 'organizer' ? -1 : 0) || (Number(x.visitStep) || 0) - (Number(y.visitStep) || 0)) : [];
+  const notHere = members.filter((x) => x.status === 'confirmed' && x.checkInStatus !== 'arrived');
   return (
     <aside className="flex w-full flex-col gap-4 overflow-auto rounded-3xl p-5" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} aria-label={`${client?.name || 'Client'} — ${service?.name || 'visit'}`}>
       <div className="flex items-start justify-between gap-3">
@@ -56,6 +60,12 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{actions}</div>
       {extra.some(([, f]) => f) && <div><button type="button" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} className="text-[13px] font-semibold underline underline-offset-2" style={muted}>{showMore ? 'Fewer actions' : 'More actions'}</button>
         {showMore && <div className="mt-2 flex flex-wrap gap-2">{extra.filter(([, f]) => f).map(([l, f]) => <button key={l} type="button" onClick={f} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{l}</button>)}</div>}</div>}
+      {members.length > 1 && <div className="space-y-2 rounded-2xl p-3" style={{ background: 'var(--soft, #efebe6)' }} aria-label="Group">
+        <div className="flex items-center justify-between gap-2"><p className="text-[14px] font-semibold">{a.groupId ? (a.groupName || `Group of ${members.length}`) : `${members.length} services, one visit`}</p>
+          {more.onCheckIn && notHere.length > 0 && <button type="button" onClick={() => notHere.forEach((x) => more.onCheckIn!(x))} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>{notHere.length === members.length ? 'Check the group in' : `Check in the other ${notHere.length}`}</button>}</div>
+        {members.map((x) => { const xs = stateOf(x, services.find((sv) => sv.id === x.serviceId)); const xc = clients.find((c) => c.id === x.clientId); const xp = staff.find((st) => st.id === x.staffId);
+          return <p key={x.id} className="flex justify-between gap-2 text-[13px]" style={x.id === a.id ? { fontWeight: 600 } : undefined}><span className="min-w-0 truncate">{xc?.name || x.clientName || 'Guest'}{x.groupRole === 'organizer' ? ' · booked it' : ''} · {services.find((sv) => sv.id === x.serviceId)?.name || 'Service'}{xp ? ` · ${xp.name}` : ''}</span><span style={{ color: xs.color }}>{xs.word}</span></p>; })}
+      </div>}
       <div className="space-y-2 border-t pt-3 text-[14px]" style={{ borderColor: 'var(--line)' }}>
         {last ? <p><b>Last time:</b> {lastService?.name || 'a visit'} on {format(safe(last.startTime), 'd MMM')}{last.note || last.notes || last.providerNote ? ` · ${last.note || last.notes || last.providerNote}` : ''}</p> : <p style={muted}><b>Last time:</b> nothing on record yet</p>}
         {(client?.nextVisitNote || client?.notes) && <p><b>Note:</b> {client.nextVisitNote || client.notes}</p>}
