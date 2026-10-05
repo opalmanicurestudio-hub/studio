@@ -20,6 +20,11 @@ export async function GET(req: NextRequest) {
   for (const s of rows) { const cat = String(s.category || 'Services'); if (only.length && !only.includes(cat.toLowerCase())) continue;
     m.set(cat, [...(m.get(cat) || []), { id: s.id, name: s.name, price: Number(s.price) || 0, from: !!(s.priceIsFrom || (s.serviceTiers || []).length), duration: Number(s.duration) || null, description: s.description ? String(s.description).slice(0, 240) : null, imageUrl: s.imageUrl || null, membersOnly: !!s.membersOnly }]); }
   const cfg: any = t.bookingPageSettings?.cfPageConfig || {};
+  // Rentable spaces on offer (kind 'space', day use on, not hidden), with their hourly / daily rates.
+  const spaces = only.length && !only.includes('spaces') ? [] : (await db.collection(`tenants/${tenantId}/booths`).where('kind', '==', 'space').get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+    .filter((b: any) => b.isActive !== false && b.dayUseEnabled && b.listed !== false && b.status !== 'maintenance')
+    .map((b: any) => { const rate = (f: string) => { const o = (b.pricingOptions || []).find((x: any) => x.frequency === f && x.amountCents > 0); return o ? o.amountCents / 100 : null; };
+      return { id: b.id, name: b.name, hourly: rate('hourly'), daily: rate('daily'), description: b.description ? String(b.description).slice(0, 200) : null, imageUrl: (b.photoUrls || [])[0] || b.photoUrl || null }; });
   return NextResponse.json({ ok: true, business: { name: t.name || 'Studio', accent: cfg.accentColor || t.brandColor || '#1c1917', logoUrl: cfg.logoUrl || t.logoUrl || null },
-    bookBase: `${linkOrigin(t, req.nextUrl.origin)}/book/${encodeURIComponent(tenantId)}`, categories: [...m.entries()].map(([name, services]) => ({ name, services })) }, { headers: H });
+    bookBase: `${linkOrigin(t, req.nextUrl.origin)}/book/${encodeURIComponent(tenantId)}`, spaces, categories: [...m.entries()].map(([name, services]) => ({ name, services })) }, { headers: H });
 }
