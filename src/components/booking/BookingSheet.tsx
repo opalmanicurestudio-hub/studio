@@ -1,5 +1,7 @@
 'use client';
 
+import { emptyParty, partyHasMore, type Party } from '@/components/booking/PartyBuilder';
+import { groupPolicy } from '@/lib/group-policy';
 import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -258,6 +260,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   // ADD-ONS the client can add to this visit (the service's "offered with it" list) — chosen on the When step; they
   // lengthen the visit (availability accounts for them) and add to the price.
   const [addOnIds, setAddOnIds] = useState<string[]>([]);
+  // Guests and more services (online groups) — sent as one request when anything's added.
+  const [party, setParty] = useState<Party>(emptyParty);
+  const groupPol = useMemo(() => groupPolicy(tenant), [tenant]);
   const addOns = useMemo(() => ((service as any)?.compatibleAddOnIds || []).map((id: string) => (services || []).find((x: any) => x.id === id)).filter((x: any) => x && x.status !== 'archived'), [service, services]);
   const toggleAddOn = (id: string) => setAddOnIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   useEffect(() => { setAddOnIds([]); }, [service?.id]);
@@ -598,7 +603,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       clientData,
       signedForms,
       appointmentDetails: {
-        serviceId: service.id, staffId: finalStaffId, addOnIds,
+        serviceId: service.id, staffId: finalStaffId, addOnIds, ...(partyHasMore(party) ? { party } : {}),
         ...(placeOpts.length > 1 ? { place: placeChoice } : {}),
         startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
         status: 'confirmed', isWalkIn: false, source: 'online',
@@ -920,7 +925,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       placeChooser,
       service, tenant, tenantId: tenantIdProp || (tenant as any)?.id, steps, currentStep, currentStepIndex, setCurrentStepIndex, handleNextStep, handlePrevStep, onOpenChange,
       qualifiedStaff, lockedStaffId, selectedStaffId, handleStaffSelect, selectedStaff, bookedStaff, availableTiersForService, selectedTierId, setSelectedTierId,
-      date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn,
+      party, setParty, groupPol, allServices: services, date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn,
       methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance,
       requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, accentHex: 'var(--accent, #7c3aed)',
       price, previewLines, bookingPreview, confirming, depositAmount, depositClientSecret, depositLoading, depositError, embeddedMountRef, initiateCheckout, bookingOutcome,
