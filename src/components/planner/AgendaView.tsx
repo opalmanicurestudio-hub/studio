@@ -16,6 +16,8 @@ export function elapsedLabel(a: any): string | null { if (a.status !== 'servicin
 export function visitMarks(a: any, client: any, service: any): { label: string; tone: 'alert' | 'good' | 'info' }[] {
   const out: { label: string; tone: 'alert' | 'good' | 'info' }[] = []; const c = client || {};
   if (a.status === 'requested' || a.approvalStatus === 'pending') out.push({ label: 'Needs an answer', tone: 'alert' });
+  if (a.groupId) out.push({ label: a.groupSize ? `Group of ${a.groupSize}` : 'Group', tone: 'info' });
+  else if (a.visitId) out.push({ label: 'Several services', tone: 'info' });
   if (a.isEscalated) out.push({ label: 'Manager', tone: 'alert' });
   if (a.issue && a.issue.status === 'open') out.push({ label: 'Issue', tone: 'alert' });
   if (a.checkInStatus === 'running_late') out.push({ label: a.lateTimeMinutes ? `Late +${a.lateTimeMinutes}` : 'Running late', tone: 'alert' });
