@@ -1,6 +1,8 @@
 'use client';
 
-import { stateOf } from '@/components/planner/AgendaView';
+import { stateOf, elapsedLabel, useNow } from '@/components/planner/AgendaView';
+import { LastFormula, PartsPlan, AddAsYouGo, ThisVisitFormula, VisitCharges, recipeFormula, addToFormula } from '@/components/visit/VisitWork';
+import { ProductsUsed } from '@/components/visit/ProductsUsed';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { VisitTicket } from '@/components/visit/VisitTicket';
 import { getAuth } from 'firebase/auth';
@@ -1590,8 +1592,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const { user: currentUser } = useUser();
   const tenantId = selectedTenant?.id;
   // THE VISIT — one screen in five tabs (the sheet and the visit ticket, merged). Opens on Now; resets per visit.
+  useNow(open && initialAppointment?.status === 'servicing' ? 1000 : 60000);   // the header's live timer
   const [visitTab, setVisitTab] = useState<'now' | 'client' | 'service' | 'money' | 'history'>('now');
   useEffect(() => { setVisitTab('now'); }, [initialAppointment?.id]);
+  // This visit's formula lives on checkoutState.formula — the hand-off review opens with it and saves it.
+  const writeFormula = (items: any[] | null) => { if (!firestore || !tenantId || !initialAppointment?.id) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, initialAppointment.id), { 'checkoutState.formula': items === null ? deleteField() : items } as any); };
   const { toast } = useToast();
   const { firestore } = useFirebase();
   const { copied: ticketCopied, copy: copyTicket } = useCopyToClipboard();
@@ -2378,6 +2383,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div className="flex items-center gap-1.5 flex-wrap">
           <Link href={`/clients/${client.id}`} className="hover:underline">
             <h2 className="truncate text-[22px] font-light leading-tight" style={{ color: 'var(--ink)' }}>{client.name}</h2>
+            {elapsedLabel(appointment) && <span className="ml-auto shrink-0 text-[22px] font-light tabular-nums" style={{ color: stateOf(appointment, service).over ? 'var(--warn, #b45309)' : 'var(--ink)' }} aria-label="Time in the chair">{elapsedLabel(appointment)}</span>}
           </Link>
           {client.activeMembershipId && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-indigo-600 text-white border-none shrink-0"><Award className="w-2 h-2 mr-0.5" />Member</Badge>}
           {client.status === 'banned' && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-black text-white border-none shrink-0"><Ban className="w-2 h-2 mr-0.5" />Banned</Badge>}
@@ -2436,6 +2442,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div hidden={visitTab !== 'now'} className="space-y-5">
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
+        {!['cancelled', 'declined'].includes(String(appointment?.status)) && <div className="space-y-3">
+          {appointment.status !== 'completed' && <LastFormula appointment={appointment} client={client} allAppointments={allAppointments || []} onUse={(items) => writeFormula(items)} />}
+          <PartsPlan appointment={appointment} service={service} allServices={allServices || []} staff={staff || []} />
+          {['confirmed', 'servicing'].includes(String(appointment.status)) && <AddAsYouGo inventory={inventory || []} onAdd={(pid, q) => { const it: any = (inventory || []).find((x: any) => x.id === pid); if (!it) return; const base = appointment.checkoutState?.formula?.length ? appointment.checkoutState.formula : recipeFormula(service, inventory || []); writeFormula(addToFormula(base, it, q)); }} />}
+        </div>}
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
@@ -2504,6 +2515,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'service'} className="space-y-5">
+        <ThisVisitFormula appointment={appointment} onClear={() => writeFormula(null)} />
+        {appointment?.status === 'completed' && tenantId && <ProductsUsed tenantId={tenantId} visitId={String(appointment.id)} className="rounded-2xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} />}
         {/* ── Service card ─────────────────────────────────────────────────── */}
         <Card className="rounded-[1.5rem] border bg-muted/5 shadow-inner overflow-hidden">
           <CardContent className="p-4 space-y-3">
@@ -2620,6 +2633,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'money'} className="space-y-5">
+        {tenantId && appointment?.id && visitTab === 'money' && <VisitCharges tenantId={tenantId} appointmentId={String(appointment.id)} />}
         {/* ── Financial summary (active appointments only) ──────────────── */}
         {!isCancelled && !isCompleted && (
           <div className="space-y-3">
@@ -3271,7 +3285,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </div>
         {/* History also holds the visit record: stage, payments, receipts, handoff notes, timeline and approvals. */}
         <div hidden={visitTab !== 'history'} className="space-y-5">
-          {tenantId && appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && visitTab === 'history' && <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--line)' }}><VisitTicket tenantId={tenantId} appointmentId={String(appointment.id)} /></div>}
+          {tenantId && appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && visitTab === 'history' && <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--line)' }}><VisitTicket tenantId={tenantId} appointmentId={String(appointment.id)} hideProducts /></div>}
         </div>
         <div hidden={visitTab !== 'money' || !['completed', 'cancelled'].includes(String(appointment?.status))}><p className="rounded-2xl p-4 text-[14px]" style={{ background: 'var(--soft)' }}>Payments, receipts and refunds for this visit are under <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setVisitTab('history')}>History</button>.</p></div>
         {/* ── Keyboard shortcut hint ───────────────────────────────────────── */}
