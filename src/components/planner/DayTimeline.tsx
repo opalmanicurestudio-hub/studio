@@ -161,6 +161,7 @@ export const DayTimeline = ({
     // Drag to move: the card being dragged, and where it would land (snapped to 5 min).
     const [drag, setDrag] = useState<{ id: string; mins: number; columnId: string | null; top: number } | null>(null);
     const dragRef = useRef<any>(null);
+    const swipeRef = useRef<{ x: number; y: number } | null>(null);
     const displayedColumns = useMemo(() => {
         if (!isMobile) return safeColumns;
         const selected = safeColumns.find((c:any) => c.id === mobileSelectedColumnId);
@@ -537,7 +538,11 @@ export const DayTimeline = ({
     }
 
     return (
-        <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
+        <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}
+             // Phone: swipe left / right to move between providers (one column at a time).
+             onTouchStart={(e) => { if (!isMobile) return; const t = e.touches[0]; swipeRef.current = { x: t.clientX, y: t.clientY }; }}
+             onTouchEnd={(e) => { if (!isMobile || !swipeRef.current || !onMobileColumnChange || safeColumns.length < 2) return; const t = e.changedTouches[0]; const dx = t.clientX - swipeRef.current.x, dy = t.clientY - swipeRef.current.y; swipeRef.current = null;
+               if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return; const i = Math.max(0, safeColumns.findIndex((c: any) => c.id === (displayedColumns[0] as any)?.id)); const j = dx < 0 ? Math.min(safeColumns.length - 1, i + 1) : Math.max(0, i - 1); if (j !== i) onMobileColumnChange(safeColumns[j].id); }}>
             <div className="grid grid-cols-[auto,1fr] min-w-max md:min-w-full">
                 <button
                     type="button"
