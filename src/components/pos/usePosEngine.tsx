@@ -1493,6 +1493,11 @@ export function usePosEngine() {
 
   const checkoutHubProps = {
     cart: retailItems, onCartChange: setRetailItems, appointmentsData: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)), onSelectAppointment: handleSelectAppointment,
+    // A group or multi-service visit: the rest of it, ready to pay but not on this ticket yet → "add them, one bill".
+    groupRest: (() => { const on = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)); const keys = new Set(on.map((a: any) => a.appointment?.groupId || a.appointment?.visitId).filter(Boolean));
+      if (!keys.size) return null; const rest = readyForCheckoutAppointments.filter((a: any) => !selectedAppointmentIds.has(a.id) && keys.has(a.appointment?.groupId || a.appointment?.visitId));
+      if (!rest.length) return null; const lead: any = on.find((a: any) => a.appointment?.groupId || a.appointment?.visitId)?.appointment || {};
+      return { label: lead.groupName || (lead.groupId ? 'This group' : 'This visit'), names: rest.map((a: any) => a.client?.name || a.appointment?.clientName || 'Guest'), add: () => { const next = new Set(selectedAppointmentIds); rest.forEach((a: any) => next.add(a.id)); setSelectedAppointmentIds(next); } }; })(),
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
