@@ -341,6 +341,19 @@ export const StaffDetailsSheet = ({
 
   const content = (
     <div className="space-y-8 md:space-y-10">
+          {/* PAY AND TIPS — how they're paid and their part when tips are shared, at a glance (edit to change). */}
+          {staffMember?.id && (() => { const m: any = staffMember; const ps = String(m.payStructure || '');
+            const pay = ps === 'commission' ? `${m.commissionRate ?? 0}% of services` : ps === 'hourly' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour` : ps === 'hourly_plus_commission' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour + ${m.commissionRate ?? 0}% of services` : ps === 'salary' ? 'Salary' : 'Not set';
+            const tipPart = m.role === 'renter' ? 'Renter — keeps their own tips' : ['owner', 'admin'].includes(String(m.role)) && m.tipPoolEligible !== true ? 'Can’t share in tips (owner / manager)' : ({ provider: 'Provider', assistant: 'Assistant', front_desk: 'Front desk' } as any)[m.tipRole || (m.isAssistant ? 'assistant' : 'provider')] || 'Provider';
+            return (<section className="space-y-2 rounded-2xl border p-4" style={{ borderColor: 'var(--line, #e7e2dc)' }} aria-label="Pay and tips">
+              <p className="text-[15px] font-semibold">Pay and tips</p>
+              <div className="grid grid-cols-1 gap-1 text-[14px] sm:grid-cols-2">
+                <p><span className="text-muted-foreground">Paid:</span> {pay}{m.payoutFrequency ? ` · ${m.payoutFrequency === 'bi-weekly' ? 'every two weeks' : 'weekly'}` : ''}</p>
+                <p><span className="text-muted-foreground">Retail:</span> {m.retailCommissionRate ? `${m.retailCommissionRate}% of sales` : 'no commission'}</p>
+                <p><span className="text-muted-foreground">Tips:</span> {tipPart}</p>
+                <p><span className="text-muted-foreground">Sees money:</span> {m.showProfitability === true ? 'yes' : 'no'}</p>
+              </div>
+            </section>); })()}
           {tenantId && staffMember?.id && <TypicalTimes tenantId={tenantId} staffId={staffMember.id} />}
           <div className={cn("p-5 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50", isMobile && "mb-6")}>
               <div className="space-y-4">
