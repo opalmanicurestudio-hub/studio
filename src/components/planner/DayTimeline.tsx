@@ -34,9 +34,9 @@ const LiveTimer = ({ startIso, bookedEndIso, overageRateCentsPerHour }: { startI
         const overMin = (now - endMs) / 60000;
         let est = 0;
         if (overageRateCentsPerHour && overMin > 10) est = overageRateCentsPerHour * (Math.ceil(overMin / 15) * 15) / 60;
-        return <span className="tabular-nums font-black text-destructive">OVER +{fmt(now - endMs)}{est > 0 ? ` · ~$${(est / 100).toFixed(0)}` : ''}</span>;
+        return <span className="tabular-nums font-semibold text-destructive">OVER +{fmt(now - endMs)}{est > 0 ? ` · ~$${(est / 100).toFixed(0)}` : ''}</span>;
     }
-    return <span className="tabular-nums font-black">{fmt(now - start)}</span>;
+    return <span className="tabular-nums font-semibold">{fmt(now - start)}</span>;
 };
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -238,14 +238,14 @@ export const DayTimeline = ({
         
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <Card className="h-full border-2 border-amber-600/40 bg-amber-500/[0.07] hover:bg-amber-500/[0.12] transition-colors cursor-pointer overflow-hidden shadow-none rounded-xl sm:rounded-2xl">
+                <Card className="h-full border border-amber-600/40 bg-amber-500/[0.07] hover:bg-amber-500/[0.12] transition-colors cursor-pointer overflow-hidden shadow-none rounded-xl sm:rounded-2xl">
                     <CardContent className="p-2 sm:p-3 flex flex-col justify-center h-full gap-0.5 sm:gap-1 text-left">
                         <div className="flex items-center gap-1.5 sm:gap-2">
                             <Landmark className="w-3 h-3 sm:w-4 sm:h-4 text-amber-700" />
-                            <p className="text-[8px] sm:text-[10px] font-black uppercase text-amber-800 tracking-widest truncate">{item.definition?.name || 'Bill'}</p>
+                            <p className="text-[12px] sm:text-[12px] font-semibold text-amber-800 truncate">{item.definition?.name || 'Bill'}</p>
                         </div>
-                        <p className="font-black text-sm sm:text-lg text-amber-900 tracking-tighter">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
-                        <Badge variant="outline" className="w-fit h-4 sm:h-5 px-1 sm:px-1.5 text-[8px] sm:text-[9px] border-amber-600/30 text-amber-800 uppercase font-black">Due Today</Badge>
+                        <p className="font-semibold text-sm sm:text-lg text-amber-900">${item.definition?.amount?.toFixed(2) || '0.00'}</p>
+                        <Badge variant="outline" className="w-fit h-4 sm:h-5 px-1 sm:px-1.5 text-[12px] sm:text-[12px] border-amber-600/30 text-amber-800 font-semibold">Due Today</Badge>
                     </CardContent>
                 </Card>
             </div>
@@ -383,7 +383,7 @@ export const DayTimeline = ({
                     <div
                         title={group.label}
                         className={cn(
-                            'absolute -top-1 left-1 z-20 pointer-events-none inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] sm:text-[8px] font-black uppercase tracking-widest text-white shadow-sm max-w-[calc(100%-0.75rem)]',
+                            'absolute -top-1 left-1 z-20 pointer-events-none inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[12px] sm:text-[12px] font-semibold  text-white shadow-sm max-w-[calc(100%-0.75rem)]',
                             'bg-foreground/80',
                         )}
                     >
@@ -450,7 +450,7 @@ export const DayTimeline = ({
         const label = isTour ? 'Tour' : (item.bookingType === 'hourly' ? 'Hourly' : 'Day rental');
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <div className={cn('relative h-full rounded-xl sm:rounded-2xl border-2 overflow-hidden shadow-none transition-colors p-1.5 sm:p-2', scheme.bg, scheme.border)}>
+                <div className={cn('relative h-full rounded-xl sm:rounded-2xl border overflow-hidden shadow-none transition-colors p-1.5 sm:p-2', scheme.bg, scheme.border)}>
                     {/* A tour opens its LEAD in the pipeline — the place with the
                         approve/confirm/outcome buttons — not the booth hub's old
                         contact drawer, which is being retired. Day rentals still
@@ -464,27 +464,27 @@ export const DayTimeline = ({
                         className="absolute inset-0 z-0"
                     />
                     <div className="relative z-10 flex items-center justify-between gap-1 pointer-events-none">
-                        <span className={cn('inline-flex items-center gap-0.5 text-[8px] sm:text-[8px] font-black uppercase tracking-widest text-white rounded-full px-1.5 py-0.5', scheme.badge)}>
+                        <span className={cn('inline-flex items-center gap-0.5 text-[12px] sm:text-[12px] font-semibold  text-white rounded-full px-1.5 py-0.5', scheme.badge)}>
                             {isTour ? <Eye className="w-2 h-2" /> : <DollarSign className="w-2 h-2" />}{label}
                         </span>
                         {live ? (
-                            <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] text-emerald-800"><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" /><LiveTimer startIso={item.checkedInAt} bookedEndIso={item.bookedEndIso} overageRateCentsPerHour={item.overageRateCentsPerHour} /></span>
+                            <span className="inline-flex items-center gap-1 text-[12px] sm:text-[12px] text-emerald-800"><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" /><LiveTimer startIso={item.checkedInAt} bookedEndIso={item.bookedEndIso} overageRateCentsPerHour={item.overageRateCentsPerHour} /></span>
                         ) : (
-                            <span className={cn('text-[8px] sm:text-[8px] font-black uppercase tracking-widest', scheme.text)}>{item.tourTimeTBD ? 'Time TBD' : fmtT(startTime)}</span>
+                            <span className={cn('text-[12px] sm:text-[12px] font-semibold ', scheme.text)}>{item.tourTimeTBD ? 'Time TBD' : fmtT(startTime)}</span>
                         )}
                     </div>
-                    <p className={cn('relative z-10 pointer-events-none font-black text-[11px] sm:text-sm tracking-tight truncate mt-0.5', scheme.text)}>{item.guestName || item.name || 'Guest'}</p>
-                    {med && <p className="relative z-10 pointer-events-none text-[8px] sm:text-[10px] font-bold text-muted-foreground truncate">{item.boothName || item.location || ''}{!live && !isTour ? ` · ${fmtT(startTime)}–${fmtT(endTime)}` : ''}</p>}
+                    <p className={cn('relative z-10 pointer-events-none font-semibold text-[11px] sm:text-sm tracking-tight truncate mt-0.5', scheme.text)}>{item.guestName || item.name || 'Guest'}</p>
+                    {med && <p className="relative z-10 pointer-events-none text-[12px] sm:text-[12px] font-bold text-muted-foreground truncate">{item.boothName || item.location || ''}{!live && !isTour ? ` · ${fmtT(startTime)}–${fmtT(endTime)}` : ''}</p>}
                     {(overageDue || balanceDue) && (
                         <div className="relative z-10 pointer-events-none flex flex-wrap gap-1 mt-1">
-                            {overageDue && <span className="text-[8px] font-black uppercase tracking-widest bg-destructive text-white rounded-full px-1.5 py-0.5">Overage due</span>}
-                            {balanceDue && <span className="text-[8px] font-black uppercase tracking-widest bg-amber-700 text-white rounded-full px-1.5 py-0.5">Balance ${(item.balanceDueCents / 100).toFixed(0)}</span>}
+                            {overageDue && <span className="text-[12px] font-semibold bg-destructive text-white rounded-full px-1.5 py-0.5">Overage due</span>}
+                            {balanceDue && <span className="text-[12px] font-semibold bg-amber-700 text-white rounded-full px-1.5 py-0.5">Balance ${(item.balanceDueCents / 100).toFixed(0)}</span>}
                         </div>
                     )}
                     {tall && item.phone && (
                         <div className="relative z-20 flex gap-1 mt-1.5">
-                            <a href={`tel:${item.phone}`} aria-label={`Call ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[8px] font-black uppercase tracking-widest rounded-md bg-white/80 border py-1 active:scale-95"><Phone className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Call</a>
-                            <a href={`sms:${item.phone}`} aria-label={`Text ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[8px] font-black uppercase tracking-widest rounded-md bg-white/80 border py-1 active:scale-95"><MessageSquare className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Text</a>
+                            <a href={`tel:${item.phone}`} aria-label={`Call ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold rounded-md bg-white/80 border py-1 active:scale-95"><Phone className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Call</a>
+                            <a href={`sms:${item.phone}`} aria-label={`Text ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold rounded-md bg-white/80 border py-1 active:scale-95"><MessageSquare className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Text</a>
                         </div>
                     )}
                 </div>
@@ -513,8 +513,8 @@ export const DayTimeline = ({
 
     if (_MISSING_CARDS.length > 0) {
         return (
-            <div className="m-4 p-4 rounded-xl border-2 border-red-300 bg-red-50 text-sm text-red-800">
-                <p className="font-black uppercase tracking-widest text-[10px] mb-2">Planner import problem</p>
+            <div className="m-4 p-4 rounded-xl border border-red-300 bg-red-50 text-sm text-red-800">
+                <p className="font-semibold text-[12px] mb-2">Planner import problem</p>
                 {_MISSING_CARDS.map(n => (
                     <p key={n} className="font-semibold">{n} resolved to <code>undefined</code> — that file likely uses <code>export default</code> instead of a named export (or the export name doesn't match).</p>
                 ))}
@@ -536,7 +536,7 @@ export const DayTimeline = ({
                 >
                     <ChevronsUpDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
                     {hoursHidden > 0 && !showFullDay && (
-                        <span className="text-[8px] font-black tabular-nums text-muted-foreground leading-none">+{hoursHidden}</span>
+                        <span className="text-[12px] font-semibold tabular-nums text-muted-foreground leading-none">+{hoursHidden}</span>
                     )}
                 </button>
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background/80 backdrop-blur-md" style={gridStyle}>
@@ -549,12 +549,12 @@ export const DayTimeline = ({
                                             <SelectValue />
                                         </div>
                                     </SelectTrigger>
-                                    <SelectContent className="rounded-2xl border-2 shadow-2xl">
+                                    <SelectContent className="rounded-2xl border shadow-2xl">
                                         {safeColumns.map((c: any) => (
                                             <SelectItem key={c.id} value={c.id}>
                                                 <div className="flex items-center gap-2">
-                                                    {'isBusiness' in c ? <Briefcase className="w-3.5 h-3.5 text-primary" /> : 'role' in c ? <Avatar className="w-5 h-5"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-black text-[8px] bg-primary/10 text-primary">{(c.name || '?').charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-3.5 h-3.5" /> : <HardHat className="w-3.5 h-3.5" />)}
-                                                    <span className="font-black uppercase text-[9px] tracking-widest">{c.name || 'Unnamed'}</span>
+                                                    {'isBusiness' in c ? <Briefcase className="w-3.5 h-3.5 text-primary" /> : 'role' in c ? <Avatar className="w-5 h-5"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-semibold text-[12px] bg-primary/10 text-primary">{(c.name || '?').charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-3.5 h-3.5" /> : <HardHat className="w-3.5 h-3.5" />)}
+                                                    <span className="font-semibold text-[12px]">{c.name || 'Unnamed'}</span>
                                                 </div>
                                             </SelectItem>
                                         ))}
@@ -565,14 +565,14 @@ export const DayTimeline = ({
                                     {'isBusiness' in column ? (
                                         <Briefcase className="w-5 h-5 text-primary" />
                                     ) : 'role' in column ? (
-                                        <Avatar className="w-9 h-9 border-2 border-background shadow-md rounded-xl">
+                                        <Avatar className="w-9 h-9 border border-background shadow-md rounded-xl">
                                             <AvatarImage src={(column as Staff).avatarUrl} className="object-cover" />
-                                            <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(column.name || '?').charAt(0)}</AvatarFallback>
+                                            <AvatarFallback className="font-semibold text-xs bg-primary/10 text-primary">{(column.name || '?').charAt(0)}</AvatarFallback>
                                         </Avatar>
                                     ) : (
                                         (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
                                     )}
-                                    <p className="font-black uppercase tracking-tight text-xs truncate max-w-[180px]">{column.name || 'Unnamed'}</p>
+                                    <p className="font-semibold tracking-tight text-xs truncate max-w-[180px]">{column.name || 'Unnamed'}</p>
                                 </div>
                             )}
                         </div>
@@ -581,7 +581,7 @@ export const DayTimeline = ({
                 <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-16")}>
                     {hours.map(hour => (
                         <div key={hour} className="border-r border-b border-border text-right pr-1.5 sm:pr-3 pt-1 flex justify-end items-start" style={{ height: `${PX_PER_HOUR}px` }}>
-                            <span className="text-[10px] font-black uppercase text-muted-foreground -mt-2 sm:-mt-2.5 opacity-60 tracking-widest">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                            <span className="text-[12px] font-semibold text-muted-foreground -mt-2 sm:-mt-2.5 opacity-60">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                         </div>
                     ))}
                 </div>
@@ -603,9 +603,9 @@ export const DayTimeline = ({
                                     const style = { top: `${mins * PX_PER_MIN}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
                                     return (
                                         <div key={item.id} style={style} title={`${item.reason || 'Blocked'} · ${item.source === 'renter_portal' ? 'set by the renter' : 'blocked'}`}
-                                             className="absolute z-[5] overflow-hidden rounded-lg border-2 border-dashed border-slate-300 bg-slate-50/90 px-2 py-1 text-left">
-                                            <p className="truncate text-[9px] font-black uppercase tracking-widest text-slate-500">{item.reason || 'Blocked'}</p>
-                                            {height > 34 && <p className="truncate text-[9px] font-bold text-slate-400">{item.source === 'renter_portal' ? 'Set by renter' : 'Not bookable'}</p>}
+                                             className="absolute z-[5] overflow-hidden rounded-lg border border-slate-300 bg-slate-50/90 px-2 py-1 text-left">
+                                            <p className="truncate text-[12px] font-semibold text-slate-500">{item.reason || 'Blocked'}</p>
+                                            {height > 34 && <p className="truncate text-[12px] font-bold text-slate-400">{item.source === 'renter_portal' ? 'Set by renter' : 'Not bookable'}</p>}
                                         </div>
                                     );
                                 }
@@ -622,7 +622,7 @@ export const DayTimeline = ({
                             className="absolute w-full flex items-center z-20 pointer-events-none" 
                             style={{ top: `${(differenceInMinutes(new Date(), setHours(startOfDay(new Date()), START_HOUR)) * PX_PER_MIN)}px` }}
                         >
-                            <span className="-ml-1 shrink-0 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black tabular-nums leading-none text-white shadow-[0_0_12px_rgba(239,68,68,0.45)]">{format(new Date(), 'h:mm')}</span>
+                            <span className="-ml-1 shrink-0 rounded-full bg-red-500 px-1.5 py-0.5 text-[12px] font-semibold tabular-nums leading-none text-white shadow-[0_0_12px_rgba(239,68,68,0.45)]">{format(new Date(), 'h:mm')}</span>
                             <div className="h-0.5 w-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]"></div>
                         </div>
                     )}
