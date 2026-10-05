@@ -361,6 +361,7 @@ function PlannerPageContent() {
   const [bookPreset, setBookPreset] = useState<{ date: Date; time: string; staffId?: string; serviceId?: string } | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [bookMode, setBookMode] = useState<'one' | 'repeat' | 'group' | 'steps'>('one');
+  const [bookGuests, setBookGuests] = useState<{ serviceId: string; staffId: string }[] | null>(null);
   // Board or Agenda — remembered per person on this device; providers open on the agenda filtered to themselves.
   const [plannerView, setPlannerView] = useState<'board' | 'agenda' | 'week' | 'month'>(() => { try { const k = `cf_planner_view_${typeof window !== 'undefined' ? (localStorage.getItem('cf_uid') || 'me') : 'me'}`; const v = localStorage.getItem(k); if (v === 'board' || v === 'agenda' || v === 'week' || v === 'month') return v as any; } catch { /* fine */ } return 'board'; });
   const [agendaProvider, setAgendaProvider] = useState<string>('all');
@@ -412,8 +413,6 @@ function PlannerPageContent() {
   };
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
-  const [eventPreset, setEventPreset] = useState<any | null>(null);   // "Block" on a gap / + on a day
-  const [dayAdd, setDayAdd] = useState<Date | null>(null);
   const [isEditEventOpen, setIsEditEventOpen] = useState(false);
   const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
   const [isBillsSheetOpen, setIsBillsSheetOpen] = useState(false);
@@ -1435,15 +1434,7 @@ function PlannerPageContent() {
     <div className="cf-settings cf-legacy flex h-[100dvh] w-full flex-col overflow-hidden" style={{ background: 'var(--paper)' }}>
       <SettingsStyle />
       <AppHeader title="Planner" />
-                    {dayAdd && <div role="dialog" aria-label={`Add on ${format(dayAdd, 'EEEE d MMMM')}`} className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setDayAdd(null)}>
-        <div className="w-full max-w-sm rounded-t-3xl p-2 pb-6 sm:rounded-3xl sm:pb-2" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
-          <p className="px-4 pb-1 pt-3 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>{format(dayAdd, 'EEEE d MMMM')}</p>
-          {([['Appointment', 'one'], ['Group booking', 'group'], ['Several providers, one client', 'steps']] as const).map(([l, m]) => <button key={l} type="button" onClick={() => { const d = dayAdd; setDayAdd(null); setBookPreset({ date: d, time: '' }); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode(m); setIsAddAppointmentOpen(true); }} className="block w-full rounded-2xl px-4 py-3.5 text-left text-[16px] hover:bg-black/5">{l}</button>)}
-          <button type="button" onClick={() => { const d = dayAdd; setDayAdd(null); setEventPreset({ type: 'business', date: d }); setIsAddEventOpen(true); }} className="block w-full rounded-2xl px-4 py-3.5 text-left text-[16px] hover:bg-black/5">Event</button>
-          <button type="button" onClick={() => { const d = dayAdd; setDayAdd(null); setEventPreset({ type: 'blocked', date: d, allDay: true }); setIsAddEventOpen(true); }} className="block w-full rounded-2xl px-4 py-3.5 text-left text-[16px] hover:bg-black/5">Block the day (time off, closed)</button>
-          <button type="button" onClick={() => { const d = dayAdd; setDayAdd(null); setCurrentDate(d); choosePlannerView('board'); if (isMobile) choosePhoneView('now'); }} className="block w-full rounded-2xl px-4 py-3.5 text-left text-[16px] hover:bg-black/5">Open the day</button>
-        </div></div>}
-      {groupMoveAsk && <div role="dialog" aria-label="Move the group?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setGroupMoveAsk(null)}>
+                    {groupMoveAsk && <div role="dialog" aria-label="Move the group?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setGroupMoveAsk(null)}>
         <div className="w-full max-w-sm space-y-3 rounded-3xl p-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
           <p className="text-[17px] font-semibold">Move just this person, or the whole group?</p>
           <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{groupMoveAsk.others.length + 1} people are booked together. Moving everyone keeps each with their own provider at {groupMoveAsk.time}; anyone who can’t move is named.</p>
@@ -1465,6 +1456,7 @@ function PlannerPageContent() {
                   <button type="button" onClick={() => setPrefsOpen(false)} className="h-11 w-full rounded-full text-[15px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Done</button>
                 </div></div>}
       {findOpen && tenantId && <FindATime tenantId={tenantId} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} from={currentDate < new Date() ? new Date() : currentDate} isMobile={isMobile} onClose={() => setFindOpen(false)}
+        onBookGroup={(x) => { setFindOpen(false); setCurrentDate(x.date); const [lead, ...rest] = x.people; setBookPreset({ date: x.date, time: x.time, staffId: lead.staffId, serviceId: lead.serviceId }); setBookGuests(rest); setBookMode('group'); setAppointmentToRebook(null); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
         onBook={(x) => { setFindOpen(false); setCurrentDate(x.date); setBookPreset({ date: x.date, time: x.time, staffId: x.staffId, serviceId: x.serviceId }); setAppointmentToRebook(null); setClientForNewApt(null); setIsAddAppointmentOpen(true); }} />}
       <PlannerHeader date={currentDate} onDate={(d: Date) => setCurrentDate(d)} isMobile={isMobile}
         appointments={appointments || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []}
@@ -1482,7 +1474,7 @@ function PlannerPageContent() {
           ['Group booking', () => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode('group'); setIsAddAppointmentOpen(true); }],
           ['Several providers, one client', () => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode('steps'); setIsAddAppointmentOpen(true); }],
           ['Repeat booking', () => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode('repeat'); setIsAddAppointmentOpen(true); }],
-          ['Event or blocked time', () => { setEventPreset({ date: currentDate }); setIsAddEventOpen(true); }],
+          ['Event or blocked time', () => setIsAddEventOpen(true)],
           ['Class or workshop', () => router.push('/events')],
           ['Find a time', () => setFindOpen(true)],
         ]}
@@ -1500,9 +1492,9 @@ function PlannerPageContent() {
           onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => { setBookPreset(null); setIsAddAppointmentOpen(true); }}
           onApprove={visitActions.onApprove} onDecline={visitActions.onDecline} canDecline={visitActions.canDecline} />}
         {(isMobile ? phoneView === 'month' : plannerView === 'month') && <MonthView date={currentDate} appointments={appointments || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []} blocks={staffBlocksRaw || []}
-          onAddOn={(d: Date) => setDayAdd(d)} showMoney={!!showProfitability} goal={Number((selectedTenant as any)?.dailyGoal) || null} isMobile={isMobile} onMonth={(d: Date) => setCurrentDate(d)} onOpenDay={(d: Date) => { setCurrentDate(d); if (isMobile) choosePhoneView('now'); else choosePlannerView('board'); }} />}
+          showMoney={!!showProfitability} goal={Number((selectedTenant as any)?.dailyGoal) || null} isMobile={isMobile} onMonth={(d: Date) => setCurrentDate(d)} onOpenDay={(d: Date) => { setCurrentDate(d); if (isMobile) choosePhoneView('now'); else choosePlannerView('board'); }} />}
         {(isMobile ? phoneView === 'week' : plannerView === 'week') && <WeekView date={currentDate} appointments={appointments || []} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []} blocks={staffBlocksRaw || []}
-          onAddOn={(d: Date) => setDayAdd(d)} isMobile={isMobile} onWeek={(d: Date) => setCurrentDate(d)} onOpenVisit={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onOpenDay={(d: Date) => { setCurrentDate(d); if (isMobile) choosePhoneView('now'); else choosePlannerView('board'); }} />}
+          isMobile={isMobile} onWeek={(d: Date) => setCurrentDate(d)} onOpenVisit={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onOpenDay={(d: Date) => { setCurrentDate(d); if (isMobile) choosePhoneView('now'); else choosePlannerView('board'); }} />}
         {(isMobile ? phoneView === 'list' : plannerView === 'agenda') && (
           <div className="flex min-h-0 flex-1 gap-4 p-3 sm:p-4">
             <AgendaView date={currentDate} appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} selectedId={panelAppt?.id || null}
@@ -1520,7 +1512,6 @@ function PlannerPageContent() {
         {(isMobile ? phoneView === 'grid' : plannerView === 'board') && <DayTimeline
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
           startHour={prefs.startHour} colourBy={prefs.colourBy}
-          onBlockAt={(columnId: string, when: Date, minutes: number) => { const isStaff = columns.some((c: any) => c.id === columnId && 'role' in c); setEventPreset({ type: 'blocked', date: when, time: format(when, 'HH:mm'), duration: Math.max(15, Math.min(minutes, 240)), staffIds: isStaff ? [columnId] : [] }); setIsAddEventOpen(true); }}
           density={density} onBookAt={(columnId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId: columns.find((c: any) => c.id === columnId && 'role' in c) ? columnId : undefined }); setIsAddAppointmentOpen(true); }}
           onMoveAppointment={(a: any, columnId: string, time: string) => { const col: any = columns.find((c: any) => c.id === columnId); const sid = col && 'role' in col ? columnId : a.staffId;
             const others = a.groupId ? (appointments || []).filter((x: any) => x.groupId === a.groupId && x.id !== a.id && !['cancelled', 'declined', 'completed'].includes(String(x.status))) : [];
@@ -1606,7 +1597,7 @@ function PlannerPageContent() {
 
       {/* EVERY PLANNER BOOKING GOES THROUGH THE BOOKING ENGINE (the desk's Book sheet): availability, deposits,
           confirmations, consent — and repeat, group and several-providers bookings. Pre-filled from where it was opened. */}
-      <StaffBookSheet open={isAddAppointmentOpen} onClose={() => { setIsAddAppointmentOpen(false); setClientForNewApt(null); setAppointmentToRebook(null); setBookPreset(null); setBookMode('one'); }}
+      <StaffBookSheet open={isAddAppointmentOpen} onClose={() => { setIsAddAppointmentOpen(false); setClientForNewApt(null); setAppointmentToRebook(null); setBookPreset(null); setBookMode('one'); setBookGuests(null); }}
         tenantId={tenantId || ''} tenant={selectedTenant} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)}
         appointments={appointments || []} role={role} uid={currentUser?.uid || null}
         prefill={{
@@ -1615,13 +1606,12 @@ function PlannerPageContent() {
           addOnIds: (appointmentToRebook as any)?.addOnIds || [],
           staffId: bookPreset?.staffId || (appointmentToRebook as any)?.staffId || null,
           date: bookPreset ? format(bookPreset.date, 'yyyy-MM-dd') : !appointmentToRebook && currentDate > new Date() ? format(currentDate, 'yyyy-MM-dd') : null,
-          time: bookPreset?.time || null, mode: bookMode,
+          time: bookPreset?.time || null, mode: bookMode, guests: bookGuests || undefined,
         }} />
 
       <AddEventDialog
         open={isAddEventOpen}
-        onOpenChange={(o: boolean) => { setIsAddEventOpen(o); if (!o) setEventPreset(null); }}
-        preset={eventPreset}
+        onOpenChange={setIsAddEventOpen}
         onConfirm={async (data: any) => {
           if (!firestore || !tenantId) return;
           /* A BLOCK GOES THROUGH THE POLICY, an event does not. Blocking a
