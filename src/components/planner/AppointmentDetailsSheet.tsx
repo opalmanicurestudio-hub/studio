@@ -1,7 +1,7 @@
 'use client';
 
 import { stateOf, elapsedLabel, useNow } from '@/components/planner/AgendaView';
-import { LastFormula, PartsPlan, AddAsYouGo, ThisVisitFormula, VisitCharges, recipeFormula, addToFormula } from '@/components/visit/VisitWork';
+import { LastFormula, PartsPlan, AddAsYouGo, ThisVisitFormula, VisitCharges, HandoffLog, recipeFormula, addToFormula } from '@/components/visit/VisitWork';
 import { ProductsUsed } from '@/components/visit/ProductsUsed';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { VisitTicket } from '@/components/visit/VisitTicket';
@@ -3285,6 +3285,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </div>
         {/* History also holds the visit record: stage, payments, receipts, handoff notes, timeline and approvals. */}
         <div hidden={visitTab !== 'history'} className="space-y-5">
+          <HandoffLog appointment={appointment} staff={staff || []} allServices={allServices || []} />
           {tenantId && appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && visitTab === 'history' && <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--line)' }}><VisitTicket tenantId={tenantId} appointmentId={String(appointment.id)} hideProducts /></div>}
         </div>
         <div hidden={visitTab !== 'money' || !['completed', 'cancelled'].includes(String(appointment?.status))}><p className="rounded-2xl p-4 text-[14px]" style={{ background: 'var(--soft)' }}>Payments, receipts and refunds for this visit are under <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setVisitTab('history')}>History</button>.</p></div>
