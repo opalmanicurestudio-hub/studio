@@ -611,6 +611,19 @@ function SettingsPageImpl() {
                   <span className="inline-flex items-center gap-2 text-[15px]">$<input type="number" min={0} step={10} inputMode="decimal" value={(tenantData as any).dailyGoal ?? ''} onChange={(e) => setTenantData((prev: any) => ({ ...prev, dailyGoal: e.target.value === '' ? null : Math.max(0, Math.round(Number(e.target.value))) }))} aria-label="Daily goal in dollars" placeholder="1600" className={cfInput} style={{ ...cfInputStyle, maxWidth: 140 }} /></span>
                 </Row>
               </Section>
+              <Section title="Group bookings online" help="Let clients bring guests and add a second service when they book. Everything they add comes to you as one request: you accept it together in the planner, and that's when deposits are asked for. Renters' services are never part of a group.">
+                {(() => { const g: any = (tenantData as any).groupBooking || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, groupBooking: { ...((prev as any).groupBooking || {}), ...patch } }));
+                  const sel = { ...cfInputStyle, maxWidth: 320 } as any;
+                  return (<>
+                    <Row label="Take group bookings online"><Toggle checked={g.enabled === true} onChange={(v) => set({ enabled: v })} label="Take group bookings online" /></Row>
+                    {g.enabled === true && <>
+                      <Row label="Most guests online" help="Bigger groups are asked to call."><select value={g.maxGuests ?? 4} onChange={(e) => set({ maxGuests: Number(e.target.value) })} className={cfInput} style={sel} aria-label="Most guests online">{[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n} guest{n === 1 ? '' : 's'}</option>)}</select></Row>
+                      <Row label="Who pays the deposits" help="“Each guest” only applies to guests who give their own email or phone; anyone who doesn't is covered by the person booking."><select value={g.deposits === 'each' ? 'each' : 'organizer'} onChange={(e) => set({ deposits: e.target.value })} className={cfInput} style={sel} aria-label="Who pays the deposits"><option value="organizer">The person booking pays for everyone</option><option value="each">Each guest pays their own</option></select></Row>
+                      <Row label="A second service at the same time" help="With another provider, side by side (for example a manicure and pedicure together)."><Toggle checked={g.sideBySide !== false} onChange={(v) => set({ sideBySide: v })} label="A second service at the same time" /></Row>
+                      <Row label="A second service straight after"><Toggle checked={g.after !== false} onChange={(v) => set({ after: v })} label="A second service straight after" /></Row>
+                    </>}
+                  </>); })()}
+              </Section>
               <Section title="How often a booking can start" help="Every 15 minutes gives clients the most choice.">
                   <Row label="Clients can start a booking every" inline>
                     <Choice label="Booking times" value={localInterval} options={[{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 hour' }]} onChange={(v) => { dirty.current.sched = true; setLocalInterval(Number(v)); }} />
