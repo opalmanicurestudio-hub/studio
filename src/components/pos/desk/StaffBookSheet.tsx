@@ -37,7 +37,7 @@ const digits = (v: string) => String(v || '').replace(/\D/g, '');
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 const addMinutes = (date: string, time: string, min: number) => new Date(new Date(`${date}T${time}:00`).getTime() + min * 60000);
 
-export type BookPrefill = { clientId?: string | null; serviceId?: string | null; staffId?: string | null; date?: string | null; time?: string | null; addOnIds?: string[]; mode?: Mode };
+export type BookPrefill = { clientId?: string | null; serviceId?: string | null; staffId?: string | null; date?: string | null; time?: string | null; addOnIds?: string[]; mode?: Mode; guests?: { serviceId: string; staffId: string }[] };
 export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, services, staff, appointments, role, uid, resume, prefill }: {
   open: boolean; onClose: () => void; tenantId: string; tenant: any; clients: any[]; services: any[]; staff: any[];
   appointments?: any[]; role?: string | null; uid?: string | null; resume?: any | null;
@@ -90,7 +90,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     if (!resume) { reset();
       if (prefill) { const c = prefill.clientId ? clients.find((x) => x.id === prefill.clientId) : null; if (c) setClient(c);
         if (prefill.serviceId) setServiceId(prefill.serviceId); if (prefill.addOnIds?.length) setAddOnIds(prefill.addOnIds); if (prefill.staffId) setStaffId(prefill.staffId);
-        if (prefill.date && prefill.date >= todayStr()) setDate(prefill.date); if (prefill.time) setTime(prefill.time); if (prefill.mode) setMode(prefill.mode); }
+        if (prefill.date && prefill.date >= todayStr()) setDate(prefill.date); if (prefill.time) setTime(prefill.time); if (prefill.mode) setMode(prefill.mode); if (prefill.guests?.length) setGuests(prefill.guests.map((g) => ({ name: '', phone: '', serviceId: g.serviceId, staffId: g.staffId }))); }
       return; }
     reset(); setDraftId(resume.id || null);
     const s = resume.snapshot || {};
