@@ -25,6 +25,11 @@ export async function POST(req: NextRequest) {
   const allowed: string[] = Array.isArray(tenant.accountPaymentRoles) && tenant.accountPaymentRoles.length ? tenant.accountPaymentRoles : ['owner', 'admin', 'manager', 'staff', 'front_desk', 'reception'];
   if (!auth.actor.isTenantOwner && !allowed.includes(String(auth.actor.role || '').toLowerCase())) return NextResponse.json({ ok: false, error: 'Taking account payments isn’t part of your role here.' }, { status: 403 });
 
+  // One visit's charges (fees, extra time, extra product, card on file) and the agreement each rests on — the Visit's Money tab.
+  if (b.action === 'visit-charges') { const id = String(b.appointmentId || '').slice(0, 120); if (!id) return NextResponse.json({ ok: false, error: 'Which visit?' }, { status: 400 });
+    const rows = (await db.collection(`${T}/chargeRecords`).where('appointmentId', '==', id).get()).docs.map((d: any) => { const c: any = d.data() || {}; return { id: d.id, kind: c.kind, cents: c.cents, reason: c.reason, at: c.at, by: c.by, approvedBy: c.approvedBy || null, basis: (c.consents || []).map((x: any) => `${String(x.kind).replace(/_/g, ' ')} ${x.version} (${String(x.at).slice(0, 10)}, ${x.via})`), missing: c.missingConsent || [] }; })
+      .sort((x: any, y: any) => String(y.at).localeCompare(String(x.at)));
+    return NextResponse.json({ ok: true, charges: rows }); }
   if (b.action === 'directory') {
     const mods = tenant.modules || {};
     const renters = mods.booth_rental === false ? [] : (await db.collection(`${T}/renters`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
