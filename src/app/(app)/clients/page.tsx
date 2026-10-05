@@ -1,5 +1,8 @@
 'use client';
 
+import { ClientsList } from '@/components/clients/ClientsList';
+import { SettingsStyle } from '@/components/settings/settings-style';
+import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -33,7 +36,7 @@ import { cn, safeNumber } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, query, where, getDocs } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, query, where, getDocs, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { canSeeFinancials, canSeeClientContact } from '@/lib/privacy';
 import { useInventory } from '@/context/InventoryContext';
@@ -64,7 +67,9 @@ export default function ClientsPage() {
   const showContact = canSeeClientContact(selectedTenant, role);
   const router = useRouter();
   const tenantId = selectedTenant?.id;
-  const { clients, appointments, transactions } = useInventory();
+  const inv = useInventory();
+  const { clients, appointments, transactions } = inv;
+  const [bookFor, setBookFor] = useState<string | null>(null);
 
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
@@ -298,125 +303,17 @@ export default function ClientsPage() {
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Client Log" />
       <ClientOnly>
-        <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
-          <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
-              <div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-2 text-left">
-                      <div className="space-y-1">
-                          <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Rolodex</h1>
-                          <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Complete guest record database</p>
-                      </div>
-                      <div className="flex items-center gap-3 w-full md:w-auto">
-                          {showFinancials && showContact && <Button variant="outline" onClick={() => { const headers = ['Name','Email','Phone','Lifetime Value','Last Seen','Outstanding Balance']; const data = filteredClients.map(c => [c.name,c.email,c.phone,safeNumber(c.lifetimeValue).toString(),format(new Date(c.lastAppointment),'yyyy-MM-dd'),safeNumber(c.outstandingBalance).toFixed(2)]); const csv = [headers.join(','),...data.map(r => r.join(','))].join('\n'); const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href=url; link.setAttribute('download',`clients_${new Date().toISOString().split('T')[0]}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); }} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm"><FileDown className="mr-2 h-4 w-4" /> Export</Button>}
-                          <Button onClick={() => setIsAddClientOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20"><UserPlus className="mr-2 h-4 w-4" /> New Guest</Button>
-                      </div>
-                  </div>
-
-                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-                      <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
-                          <div className="flex flex-col md:flex-row items-center gap-4">
-                              <div className="relative flex-1 w-full">
-                                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
-                                  <Input 
-                                      placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
-                                      className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
-                                      value={searchTerm}
-                                      onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                                  />
-                                  {/* Phone search hint */}
-                                  {searchTerm.replace(/\D/g, '').length >= 3 && searchTerm.replace(/\D/g, '').length < 10 && (
-                                      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                                          <Phone className="w-3 h-3 text-primary opacity-40" />
-                                          <span className="text-[8px] font-black uppercase text-primary opacity-40 tracking-widest">Phone Search</span>
-                                      </div>
-                                  )}
-                              </div>
-                              <div className="w-full md:w-auto">
-                                  <Select value={lastSeenFilter} onValueChange={setLastSeenFilter}>
-                                      <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner"><SelectValue placeholder="ACTIVITY WINDOW" /></SelectTrigger>
-                                      <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                          <SelectItem value="all" className="font-bold">ALL TIME ACTIVITY</SelectItem>
-                                          <SelectItem value="30" className="font-bold">OVER 30 DAYS AGO</SelectItem>
-                                          <SelectItem value="90" className="font-bold">OVER 90 DAYS AGO</SelectItem>
-                                          <SelectItem value="180" className="font-bold">OVER 180 DAYS AGO</SelectItem>
-                                      </SelectContent>
-                                  </Select>
-                              </div>
-                          </div>
-
-                          <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-6 md:gap-x-10 gap-y-4 md:gap-y-6">
-                              <div className="flex items-center gap-3 w-full md:w-auto text-left">
-                                  <div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div>
-                                  <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Library Matrix</h4>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-4 md:gap-8">
-                                  <div className="flex items-center space-x-2">
-                                      <Switch id="show-archived" checked={showArchived} onCheckedChange={(val) => { setShowArchived(val); if(val) setShowBanned(false); }} />
-                                      <Label htmlFor="show-archived" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived</Label>
-                                  </div>
-                                  <div className="flex items-center space-x-2">
-                                      <Switch id="show-banned" checked={showBanned} onCheckedChange={(val) => { setShowBanned(val); if(val) setShowArchived(false); }} />
-                                      <Label htmlFor="show-banned" className="text-[10px] font-black uppercase tracking-widest text-destructive cursor-pointer">Banned</Label>
-                                  </div>
-                                  <div className="flex items-center space-x-2">
-                                      <Switch id="owes-balance" checked={owesBalanceOnly} onCheckedChange={setOwesBalanceOnly} />
-                                      <Label htmlFor="owes-balance" className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer"><Wallet className="w-3 h-3 text-destructive" /> Arrears Only</Label>
-                                  </div>
-                              </div>
-                              <div className="flex flex-wrap gap-2 w-full md:w-auto md:ml-auto">
-                                <Button variant="ghost" size="sm" className='h-9 font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={handleBulkReconcile} disabled={isReconciling}>
-                                    {isReconciling ? <Loader className="animate-spin h-3.5 w-3.5 mr-2"/> : <Database className="mr-2 h-3.5 w-3.5"/>}Sync All Ledgers
-                                </Button>
-                                <Button variant="ghost" size="sm" className='h-9 font-black uppercase text-[9px] tracking-widest text-primary hover:bg-primary/5 rounded-xl border border-primary/10' onClick={() => setIsMergeClientsOpen(true)}>
-                                    <Merge className="mr-2 h-3.5 w-3.5"/>Merge Duplicate Profiles
-                                </Button>
-                              </div>
-                          </div>
-                      </CardHeader>
-                      <CardContent className="p-6 md:p-8">
-                          {selectedItems.size > 0 && (
-                              <div className="mb-8 p-5 rounded-[2rem] bg-slate-900 text-white flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
-                                  <div className="flex items-center gap-4"><div className="p-2 bg-white/10 rounded-xl"><Check className="w-5 h-5" /></div><p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p></div>
-                                  <div className="flex gap-2">
-                                      {showArchived || showBanned ? (
-                                          <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore Access</Button>
-                                      ) : (
-                                          <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>
-                                      )}
-                                      <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={() => setIsBulkDeleteConfirmOpen(true)}>Purge</Button>
-                                  </div>
-                              </div>
-                          )}
-                          {!clients || clients.length === 0 ? (
-                              <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
-                          ) : filteredClients.length === 0 ? (
-                              <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
-                                  <Filter className="w-16 h-16" />
-                                  <p className="font-black uppercase tracking-widest text-sm">No Matches Found</p>
-                              </div>
-                          ) : (
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                  {paginatedClients.map((client) => (
-                                      <ClientCard key={client.id} client={client} isSelected={selectedItems.has(client.id)} onSelect={() => handleItemSelect(client.id)} />
-                                  ))}
-                              </div>
-                          )}
-                      </CardContent>
-                      {totalPages > 1 && (
-                          <CardFooter className="p-8 pt-0 border-t bg-muted/5">
-                              <div className="flex items-center justify-between w-full">
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Segment {currentPage} of {totalPages}</span>
-                                  <div className="flex items-center gap-2">
-                                      <Button variant="ghost" size="sm" onClick={() => setCurrentPage(p => Math.max(p-1,1))} disabled={currentPage===1} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest"><ChevronLeft className="mr-2 h-4 w-4" /> Previous</Button>
-                                      <Button variant="ghost" size="sm" onClick={() => setCurrentPage(p => Math.min(p+1,totalPages))} disabled={currentPage===totalPages} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Next <ChevronRight className="ml-2 h-4 w-4" /></Button>
-                                  </div>
-                              </div>
-                          </CardFooter>
-                      )}
-                  </Card>
-              </div>
-              <div className="hidden lg:block lg:col-span-1"><ClientStatsSidebar /></div>
-          </div>
+        <main className="cf-settings cf-legacy flex-1 w-full max-w-7xl mx-auto min-w-0 p-4 pb-28 md:p-8">
+          <SettingsStyle />
+          <ClientsList tenantId={tenantId || ''} clients={clients || []} appointments={appointments || []} services={(inv as any).services || []} staff={(inv as any).staff || []}
+            showMoney={!!showFinancials} showContact={!!showContact} canManage={role === 'owner' || role === 'admin' || role === 'manager'}
+            onOpen={(id: string) => router.push(`/clients/${id}`)} onBook={(id: string) => setBookFor(id)} onAdd={() => setIsAddClientOpen(true)} onFindDuplicates={() => setIsMergeClientsOpen(true)}
+            onArchive={(ids: string[]) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: 'archived' })); toast({ title: `${ids.length} archived` }); }}
+            onUnarchive={(ids: string[]) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: 'active' })); toast({ title: `${ids.length} restored` }); }}
+            onDelete={role === 'owner' ? (ids: string[]) => { setSelectedItems(new Set(ids)); setIsBulkDeleteConfirmOpen(true); } : undefined}
+            onTag={(ids: string[], tag: string) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { tags: arrayUnion(tag) } as any)); toast({ title: `Tagged ${ids.length} “${tag}”` }); }} />
+          {tenantId && <StaffBookSheet open={!!bookFor} onClose={() => setBookFor(null)} tenantId={tenantId} tenant={selectedTenant} clients={clients || []} services={(inv as any).services || []} staff={((inv as any).staff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)}
+            appointments={appointments || []} role={role} uid={null} prefill={bookFor ? { clientId: bookFor } : null} />}
         </main>
 
         <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
@@ -424,12 +321,12 @@ export default function ClientsPage() {
         <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
               <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
                   <AlertDialogHeader className="p-6 pb-0 text-left">
-                      <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Confirm Purge</AlertDialogTitle>
-                      <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">You are about to permanently delete {selectedItems.size} guest records. <strong>This action is non-reversible.</strong></AlertDialogDescription>
+                      <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Delete for good?</AlertDialogTitle>
+                      <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">You are about to permanently delete {selectedItems.size} client records. <strong>This action is non-reversible.</strong></AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                       <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Records</Button>
-                      <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Abort</AlertDialogCancel>
+                      <AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none">Cancel</AlertDialogCancel>
                   </AlertDialogFooter>
               </AlertDialogContent>
           </AlertDialog>
