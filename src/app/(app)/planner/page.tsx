@@ -1,5 +1,6 @@
 'use client';
 
+import { SettingsStyle } from '@/components/settings/settings-style';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2, ArrowRight, Hourglass, Armchair } from 'lucide-react';
@@ -1338,7 +1339,7 @@ function PlannerPageContent() {
   if (UNDEFINED_IMPORTS.length > 0) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-background p-8">
-        <div className="max-w-md p-6 rounded-2xl border-2 border-red-200 bg-red-50 text-left space-y-3">
+        <div className="max-w-md p-6 rounded-2xl border border-red-200 bg-red-50 text-left space-y-3">
           <p className="text-sm font-semibold text-red-700">Found the crash — a component import is undefined:</p>
           <p className="text-lg font-mono font-bold text-red-800">{UNDEFINED_IMPORTS.join(', ')}</p>
           <p className="text-xs text-red-600 leading-relaxed">
@@ -1354,30 +1355,30 @@ function PlannerPageContent() {
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-white">
-      <AppHeader />
+    <div className="cf-settings cf-legacy flex h-[100dvh] w-full flex-col overflow-hidden" style={{ background: 'var(--paper)' }}>
+      <SettingsStyle />
+      <AppHeader title="Planner" />
       <div className="shrink-0 px-3 py-2.5 sm:p-4 md:py-3 md:px-8 border-b bg-white/50 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto space-y-2.5 sm:space-y-4 text-left">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
-              <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Planner</h1>
-              <p className="hidden sm:block text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Synchronized studio agenda</p>
+              <h1 className="text-[22px] sm:text-[26px] font-light leading-none">Planner</h1>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               {(role === 'owner' || role === 'admin') && (
                 <div className="flex gap-1.5 sm:gap-2">
-                  <Button variant="outline" size="icon" title="Bills due" aria-label="Bills due" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsBillsSheetOpen(true)}>
+                  <Button variant="outline" size="icon" title="Bills due" aria-label="Bills due" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsBillsSheetOpen(true)}>
                     <CreditCard className="h-4 w-4 sm:h-5 sm:w-5" />
-                    {billInstancesWithDefinitions.length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-destructive text-[8px] sm:text-[10px] font-black text-white shadow-lg border-2 border-white">{billInstancesWithDefinitions.length}</span>}
+                    {billInstancesWithDefinitions.length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-destructive text-[12px] sm:text-[12px] font-semibold text-white shadow-lg border border-white">{billInstancesWithDefinitions.length}</span>}
                   </Button>
-                  <Button variant="outline" size="icon" title="Weekly numbers" aria-label="Weekly numbers" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
+                  <Button variant="outline" size="icon" title="Weekly numbers" aria-label="Weekly numbers" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
                 </div>
               )}
-              <Button variant="outline" size="icon" title="Waiting list" aria-label="Waiting list" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsWaitlistSheetOpen(true)}>
+              <Button variant="outline" size="icon" title="Waiting list" aria-label="Waiting list" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsWaitlistSheetOpen(true)}>
                 <Hourglass className="h-4 w-4 sm:h-5 sm:w-5" />
-                {openWaitlistCount > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-amber-500 text-[8px] sm:text-[10px] font-black text-white shadow-lg border-2 border-white">{openWaitlistCount}</span>}
+                {openWaitlistCount > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-amber-500 text-[12px] sm:text-[12px] font-semibold text-white shadow-lg border border-white">{openWaitlistCount}</span>}
               </Button>
-              <Button variant="outline" size="icon" title="Scan check-in code" aria-label="Scan check-in code" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
+              <Button variant="outline" size="icon" title="Scan check-in code" aria-label="Scan check-in code" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
             </div>
           </div>
 
@@ -1388,7 +1389,7 @@ function PlannerPageContent() {
                   key={se.id}
                   onClick={() => router.push(`/events/${se.id}/manifest`)}
                   className={cn(
-                    'flex items-center gap-2 px-3 py-2 rounded-xl border-2 whitespace-nowrap shrink-0 transition-all active:scale-95',
+                    'flex items-center gap-2 px-3 py-2 rounded-xl border whitespace-nowrap shrink-0 transition-all active:scale-95',
                     se.status === 'active'
                       ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                       : se.status === 'completed'
@@ -1397,14 +1398,14 @@ function PlannerPageContent() {
                   )}
                 >
                   {se.status === 'active' && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />}
-                  <span className="text-[10px] font-black uppercase tracking-widest">
+                  <span className="text-[12px] font-semibold">
                     {se.title || se.name}
                   </span>
                   {se.status === 'active' && (
-                    <span className="text-[9px] font-black uppercase tracking-widest opacity-60">Live →</span>
+                    <span className="text-[12px] font-semibold opacity-60">Live →</span>
                   )}
                   {se.status !== 'active' && se.time && (
-                    <span className="text-[9px] font-bold opacity-60">{se.time}</span>
+                    <span className="text-[12px] font-bold opacity-60">{se.time}</span>
                   )}
                 </button>
               ))}
@@ -1427,7 +1428,7 @@ function PlannerPageContent() {
                   type="button"
                   onClick={jumpToNextAwaiting}
                   aria-label={`Go to the next of ${awaitingUpcoming.length} bookings awaiting your answer`}
-                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border-2 border-violet-300 bg-violet-50 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-violet-800 active:scale-95"
+                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-violet-300 bg-violet-50 px-2.5 py-1.5 text-[12px] font-semibold text-violet-800 active:scale-95"
                 >
                   <AlertCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
                   {awaitingUpcoming.length} awaiting you
@@ -1439,7 +1440,7 @@ function PlannerPageContent() {
                   onClick={revealCancelled}
                   aria-pressed={showCancelled}
                   aria-label={`${showCancelled ? 'Hide' : 'Show'} ${cancelledToday} cancelled bookings on this day`}
-                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border-2 border-muted bg-muted/40 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground active:scale-95"
+                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-muted bg-muted/40 px-2.5 py-1.5 text-[12px] font-semibold text-muted-foreground active:scale-95"
                 >
                   <XCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
                   {cancelledToday} cancelled · {showCancelled ? 'hide' : 'show'}
@@ -1465,14 +1466,14 @@ function PlannerPageContent() {
                       aria-pressed={isSelected}
                       aria-label={format(day, 'EEEE, MMMM d')}
                       className={cn(
-                        "flex-1 py-1.5 sm:py-2 min-w-[44px] sm:min-w-[80px] rounded-xl sm:rounded-2xl transition-colors border-2 flex flex-col items-center gap-0.5 active:scale-95",
+                        "flex-1 py-1.5 sm:py-2 min-w-[44px] sm:min-w-[80px] rounded-xl sm:rounded-2xl transition-colors border flex flex-col items-center gap-0.5 active:scale-95",
                         isSelected
                           ? "bg-primary border-primary shadow-lg shadow-primary/20"
                           : "bg-muted/50 border-transparent hover:bg-muted"
                       )}
                     >
-                      <p className={cn("text-[10px] font-black uppercase tracking-widest", isSelected ? "text-white/70" : "text-muted-foreground/70")}>{format(day, 'EEE')}</p>
-                      <p className={cn("text-base sm:text-2xl font-black tracking-tighter leading-none", isSelected ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
+                      <p className={cn("text-[12px] font-semibold ", isSelected ? "text-white/70" : "text-muted-foreground/70")}>{format(day, 'EEE')}</p>
+                      <p className={cn("text-base sm:text-2xl font-semibold  leading-none", isSelected ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
                       {hasStudioEvent && (
                         <span className={cn('w-1.5 h-1.5 rounded-full', isSelected ? 'bg-white/70' : 'bg-violet-400')} />
                       )}
@@ -1487,15 +1488,15 @@ function PlannerPageContent() {
 
           <div className="flex items-center justify-between gap-2 sm:gap-6">
             <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-widest text-primary leading-none mb-0.5">{format(currentDate, 'MMMM yyyy')}</p>
-              <p className="text-sm sm:text-base font-black text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
+              <p className="text-[12px] font-semibold text-primary leading-none mb-0.5">{format(currentDate, 'MMMM yyyy')}</p>
+              <p className="text-sm sm:text-base font-semibold text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 shadow-sm shrink-0">Today</Button>
-              <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1 p-1 bg-muted/30 rounded-xl border-2 border-muted shadow-inner shrink-0">
-                <Label htmlFor="staff-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-black text-[10px] uppercase tracking-widest transition-colors", activeView === 'staff' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><User className="w-3.5 h-3.5 shrink-0" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
-                <Label htmlFor="res-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-black text-[10px] uppercase tracking-widest transition-colors", activeView === 'resources' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3.5 h-3.5 shrink-0" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
-                <Label htmlFor="booth-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-black text-[10px] uppercase tracking-widest transition-colors", activeView === 'booths' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Armchair className="w-3.5 h-3.5 shrink-0" /> Spaces <RadioGroupItem value="booths" id="booth-v" className="sr-only" /></Label>
+              <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-[12px] font-semibold border shadow-sm shrink-0">Today</Button>
+              <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1 p-1 bg-muted/30 rounded-xl border border-muted shrink-0">
+                <Label htmlFor="staff-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-semibold text-[12px]  transition-colors", activeView === 'staff' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><User className="w-3.5 h-3.5 shrink-0" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
+                <Label htmlFor="res-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-semibold text-[12px]  transition-colors", activeView === 'resources' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3.5 h-3.5 shrink-0" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
+                <Label htmlFor="booth-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-semibold text-[12px]  transition-colors", activeView === 'booths' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Armchair className="w-3.5 h-3.5 shrink-0" /> Spaces <RadioGroupItem value="booths" id="booth-v" className="sr-only" /></Label>
               </RadioGroup>
             </div>
           </div>
@@ -1505,7 +1506,7 @@ function PlannerPageContent() {
       {stuckAppointments.length > 0 && (
         <div className="shrink-0 px-4 py-2 bg-amber-50 border-b-2 border-amber-200">
           <div className="max-w-7xl mx-auto space-y-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+            <p className="text-[12px] font-semibold text-amber-700 flex items-center gap-2">
               <AlertTriangle className="w-3 h-3" />
               {stuckAppointments.length} session{stuckAppointments.length > 1 ? 's' : ''} need attention
             </p>
@@ -1516,17 +1517,17 @@ function PlannerPageContent() {
                   <button
                     key={apt.id}
                     onClick={() => { setSelectedAppointment(apt); setIsDetailsOpen(true); }}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border-2 border-amber-300 shrink-0 hover:bg-amber-50 transition-all active:scale-95"
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-amber-300 shrink-0 hover:bg-amber-50 transition-all active:scale-95"
                   >
                     <div className={cn('w-2 h-2 rounded-full shrink-0',
                       apt.status === 'servicing' ? 'bg-primary animate-pulse' : 'bg-emerald-500')} />
                     <div className="text-left">
-                      <p className="font-black uppercase text-[10px] text-slate-800">{apt.clientName || 'Guest'}</p>
-                      <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                      <p className="font-semibold text-[12px] text-slate-800">{apt.clientName || 'Guest'}</p>
+                      <p className="text-[12px] font-bold text-muted-foreground opacity-60">
                         {svc?.name || 'Service'} · {(() => { try { const d = safeDate(apt.startTime); return isNaN(d.getTime()) ? '' : format(d, 'MMM d, h:mm a'); } catch { return ''; } })()}
                       </p>
                     </div>
-                    <Badge className={cn('font-black text-[8px] uppercase border-none shrink-0',
+                    <Badge className={cn('font-semibold text-[12px] border-none shrink-0',
                       apt.status === 'servicing' ? 'bg-primary/10 text-primary' : 'bg-emerald-100 text-emerald-700')}>
                       {apt.status === 'servicing' ? 'In Service' : 'Checkout'}
                     </Badge>
