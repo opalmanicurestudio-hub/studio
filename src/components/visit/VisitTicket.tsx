@@ -23,7 +23,7 @@ const clock = (iso: any) => { const d = new Date(iso); return Number.isNaN(d.get
 const TRACK = ['booked', 'arrived', 'waiting', 'in_service', 'ready_to_pay', 'complete'];
 const PRIMARY: Record<string, string> = { booked: 'arrived', arrived: 'in_service', waiting: 'in_service', in_service: 'ready_to_pay' };   // Arrived → straight to service (Waiting can be skipped)
 
-export function VisitTicket({ tenantId, appointmentId, onClose }: { tenantId: string; appointmentId: string; onClose?: () => void }) {
+export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts }: { tenantId: string; appointmentId: string; onClose?: () => void; hideProducts?: boolean }) {   // hideProducts: inside the full Visit, Products used is on the Service tab
   const { firestore } = useFirebase() as any;
   const [v, setV] = React.useState<any>(null); const [err, setErr] = React.useState<string | null>(null); const [busy, setBusy] = React.useState<string | null>(null);
   const [note, setNote] = React.useState(''); const [forClient, setForClient] = React.useState(false); const [msg, setMsg] = React.useState<string | null>(null);
@@ -86,7 +86,7 @@ export function VisitTicket({ tenantId, appointmentId, onClose }: { tenantId: st
           <button type="button" onClick={() => openReceipt(tenantId, r.id)} className="text-[13px] font-semibold underline underline-offset-4">{r.voided ? 'Void slip' : 'Receipt'}</button></div>)}
         {v.stage === 'complete' && act.bookNext && <button type="button" onClick={() => act.bookNext!(v.id, v.clientId, v.serviceId)} className="h-10 w-full rounded-full text-[14px] font-semibold" style={soft}>Book {first}’s next visit</button>}
       </section>}
-      {String(v.stage) === 'complete' && <ProductsUsed tenantId={tenantId} visitId={appointmentId} className={card} style={cardStyle} />}
+      {String(v.stage) === 'complete' && !hideProducts && <ProductsUsed tenantId={tenantId} visitId={appointmentId} className={card} style={cardStyle} />}
       {/* Handoff notes */}
       {timing && timing.actualMinutes !== null && <section className={card} style={cardStyle} aria-label="How long it took">
         <p className="text-[15px]"><b>Took {timing.actualMinutes} min</b> <span style={{ color: 'var(--muted)' }}>· booked {timing.bookedMinutes}{timing.overMinutes > 0 ? ` · ${timing.overMinutes} over` : timing.actualMinutes < timing.bookedMinutes ? ` · ${timing.bookedMinutes - timing.actualMinutes} under` : ''}</span></p>
