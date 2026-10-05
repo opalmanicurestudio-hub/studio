@@ -37,6 +37,14 @@
           var t = document.createElement('div'); var b = document.createElement('b'); b.textContent = s.name; t.appendChild(b); var sm = document.createElement('small'); sm.textContent = (s.duration ? s.duration + ' min' : '') + (s.description ? (s.duration ? ' · ' : '') + s.description : ''); t.appendChild(sm); row.appendChild(t);
           var p = document.createElement('span'); p.className = 'cf-p'; p.textContent = (s.from ? 'from ' : '') + money(s.price); row.appendChild(p);
           var a = document.createElement('a'); a.className = 'cf-btn'; a.textContent = 'Book'; wire(a, { service: s.id, base: d.bookBase }); row.appendChild(a); wrap.appendChild(row); }); });
+      // Rentable spaces (rooms, saunas, equipment) — by the hour or day.
+      if ((d.spaces || []).length) { var h2 = document.createElement('h3'); h2.textContent = 'Spaces'; el.appendChild(h2); var w2 = document.createElement('div'); w2.className = 'cf-cat'; el.appendChild(w2);
+        d.spaces.forEach(function (sp) { var row = document.createElement('div'); row.className = 'cf-row';
+          if (el.getAttribute('data-layout') === 'cards' && sp.imageUrl) { var im = document.createElement('img'); im.src = sp.imageUrl; im.alt = ''; row.appendChild(im); }
+          var t = document.createElement('div'); var b = document.createElement('b'); b.textContent = sp.name; t.appendChild(b); if (sp.description) { var sm = document.createElement('small'); sm.textContent = sp.description; t.appendChild(sm); } row.appendChild(t);
+          var p = document.createElement('span'); p.className = 'cf-p'; p.textContent = [sp.hourly != null ? money(sp.hourly) + '/hr' : null, sp.daily != null ? money(sp.daily) + '/day' : null].filter(Boolean).join(' · '); row.appendChild(p);
+          var a = document.createElement('a'); a.className = 'cf-btn'; a.textContent = 'Book'; var u = d.bookBase + '?space=' + encodeURIComponent(sp.id) + '&src=website#spaces'; a.href = u;
+          a.addEventListener('click', function (e) { if (e.metaKey || e.ctrlKey) return; e.preventDefault(); open(u.replace('#spaces', '')); }); row.appendChild(a); w2.appendChild(row); }); }
     }).catch(function () { el.textContent = ''; });
   }
   function init() {
