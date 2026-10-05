@@ -23,8 +23,8 @@ function offOn(day: Date, blocks: any[], staff: any[]) {
     .map((b) => staff.find((s) => s.id === b.staffId)?.name).filter(Boolean) as string[];
 }
 
-export function MonthView({ date, appointments, services, staff, events = [], blocks = [], showMoney, isMobile, onOpenDay, onMonth, goal }: {
-  date: Date; appointments: any[]; services: any[]; staff: any[]; events?: any[]; blocks?: any[]; showMoney: boolean; isMobile?: boolean; onOpenDay: (d: Date) => void; onMonth: (d: Date) => void; goal?: number | null;
+export function MonthView({ date, appointments, services, staff, events = [], blocks = [], showMoney, isMobile, onOpenDay, onMonth, goal, onAddOn }: {
+  date: Date; appointments: any[]; services: any[]; staff: any[]; events?: any[]; blocks?: any[]; showMoney: boolean; isMobile?: boolean; onOpenDay: (d: Date) => void; onMonth: (d: Date) => void; goal?: number | null; onAddOn?: (d: Date) => void;
 }) {
   const m0 = startOfMonth(date); const first = startOfWeek(m0); const days = Array.from({ length: 42 }, (_, i) => addDays(first, i)); const weeks = days[35].getMonth() === m0.getMonth() ? 6 : 5;
   const cells = days.slice(0, weeks * 7).map((d) => { const info = dayInfo(d, appointments, staff); const list = appointments.filter((a) => { try { return live(a) && isSameDay(safe(a.startTime), d); } catch { return false; } });
@@ -50,7 +50,7 @@ export function MonthView({ date, appointments, services, staff, events = [], bl
           return (
             <button key={d.toISOString()} type="button" onClick={() => onOpenDay(d)} aria-label={label} className="flex min-w-0 flex-col gap-1 overflow-hidden rounded-2xl p-1.5 text-left text-[12px] sm:p-2.5"
               style={{ background: info.closed ? 'var(--soft, #f3f0ec)' : 'var(--card, #fff)', border: `1px solid ${sel ? 'var(--ink, #1c1917)' : 'var(--line, #e7e2dc)'}`, boxShadow: sel ? 'inset 0 0 0 1px var(--ink, #1c1917)' : undefined, opacity: out ? 0.45 : 1 }}>
-              <span className="flex items-baseline gap-1"><b className="text-[14px] font-semibold sm:text-[15px]">{format(d, 'd')}</b>{isToday(d) && <span className="text-[10px] font-semibold" style={{ color: 'var(--accent)' }}>{isMobile ? '•' : 'Today'}</span>}</span>
+              <span className="flex items-baseline gap-1"><b className="text-[14px] font-semibold sm:text-[15px]">{format(d, 'd')}</b>{isToday(d) && <span className="text-[10px] font-semibold" style={{ color: 'var(--accent)' }}>{isMobile ? '•' : 'Today'}</span>}{onAddOn && !isMobile && !out && !past && <span role="button" tabIndex={0} aria-label={`Add on ${format(d, 'EEEE d MMMM')}`} onClick={(e) => { e.stopPropagation(); onAddOn(d); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onAddOn(d); } }} className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-[15px] leading-none" style={{ background: 'var(--soft, #efebe6)' }}>+</span>}</span>
               {info.closed ? <span style={muted}>{isMobile ? '' : 'Closed'}</span> : <>
                 {!isMobile && <span>{info.visits} visit{info.visits === 1 ? '' : 's'}{showMoney && booked ? ` · ${money(booked)}` : ''}</span>}
                 {isMobile && info.visits > 0 && <span className="text-[11px]">{info.visits}</span>}
@@ -68,8 +68,8 @@ export function MonthView({ date, appointments, services, staff, events = [], bl
     </section>);
 }
 
-export function WeekView({ date, appointments, clients, services, staff, events = [], blocks = [], isMobile, onOpenDay, onOpenVisit, onWeek }: {
-  date: Date; appointments: any[]; clients: any[]; services: any[]; staff: any[]; events?: any[]; blocks?: any[]; isMobile?: boolean; onOpenDay: (d: Date) => void; onOpenVisit: (a: any) => void; onWeek: (d: Date) => void;
+export function WeekView({ date, appointments, clients, services, staff, events = [], blocks = [], isMobile, onOpenDay, onOpenVisit, onWeek, onAddOn }: {
+  date: Date; appointments: any[]; clients: any[]; services: any[]; staff: any[]; events?: any[]; blocks?: any[]; isMobile?: boolean; onOpenDay: (d: Date) => void; onOpenVisit: (a: any) => void; onWeek: (d: Date) => void; onAddOn?: (d: Date) => void;
 }) {
   const w0 = startOfWeek(date); const days = Array.from({ length: 7 }, (_, i) => addDays(w0, i));
   const name = (a: any) => clients.find((c) => c.id === a.clientId)?.name || a.clientName || 'Client';
@@ -84,7 +84,7 @@ export function WeekView({ date, appointments, clients, services, staff, events 
     const evs = events.filter((e: any) => { try { return isSameDay(safe(e.date || e.startTime), d); } catch { return false; } }); return { d, info, list, evs, off: offOn(d, blocks, staff) }; });
   const head = (c: any) => (
     <button type="button" onClick={() => onOpenDay(c.d)} className="flex w-full flex-col gap-1 rounded-xl p-2 text-left" aria-label={`Open ${format(c.d, 'EEEE d MMMM')}`} style={isSameDay(c.d, date) ? { background: 'var(--card, #fff)', outline: '1.5px solid var(--ink, #1c1917)' } : undefined}>
-      <span className="flex items-baseline gap-1.5"><span className="text-[12px]" style={muted}>{format(c.d, 'EEE')}</span><b className="text-[17px] font-semibold">{format(c.d, 'd')}</b>{isToday(c.d) && <span className="text-[10px] font-semibold" style={{ color: 'var(--accent)' }}>TODAY</span>}</span>
+      <span className="flex items-baseline gap-1.5"><span className="text-[12px]" style={muted}>{format(c.d, 'EEE')}</span><b className="text-[17px] font-semibold">{format(c.d, 'd')}</b>{isToday(c.d) && <span className="text-[10px] font-semibold" style={{ color: 'var(--accent)' }}>TODAY</span>}{onAddOn && !isBefore(c.d, startOfDay(new Date())) && <span role="button" tabIndex={0} aria-label={`Add on ${format(c.d, 'EEEE d MMMM')}`} onClick={(e) => { e.stopPropagation(); onAddOn(c.d); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onAddOn(c.d); } }} className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-[15px] leading-none" style={{ background: 'var(--soft, #efebe6)' }}>+</span>}</span>
       {c.info.closed ? <span className="text-[12px]" style={muted}>Closed</span> : <><span className="text-[12px]" style={muted}>{c.info.visits} visit{c.info.visits === 1 ? '' : 's'} · {Math.round(c.info.full * 100)}%</span><span className="h-1 w-full overflow-hidden rounded-full" style={{ background: 'var(--soft)' }}><i className="block h-full rounded-full" style={{ width: `${Math.round(c.info.full * 100)}%`, background: c.info.full >= 0.95 ? 'var(--warn, #b45309)' : 'var(--accent)' }} /></span></>}
       {(c.evs.length > 0 || c.off.length > 0) && <span className="flex flex-wrap gap-1">{c.evs.slice(0, 1).map((e: any) => tag(e.title || e.name || 'Event', 'accent'))}{c.off.slice(0, 2).map((n: string) => tag(`${n} off`))}</span>}
     </button>);
