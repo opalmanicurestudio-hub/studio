@@ -314,6 +314,10 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   const { data: consentForms }   = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/consentForms`), [firestore, selectedTenant]));
   const { data: pricingTiers }   = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`), [firestore, selectedTenant]));
 
+  // STEP BY STEP: one part of the service at a time (Back · Next), Save from any step, or "Show everything".
+  const [step, setStep] = React.useState(0); const [showAll, setShowAll] = React.useState(false);
+  React.useEffect(() => { if (open) setStep(0); }, [open]);
+  const stepOfError = (keys: string[]) => keys.some((k) => ['name', 'category', 'duration'].includes(k)) ? 0 : keys.some((k) => ['products'].includes(k)) ? 1 : keys.some((k) => ['price', 'serviceTiers'].includes(k)) ? 2 : null;
   const { control, register, watch, setValue, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -546,13 +550,15 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
           </p>}
         </SheetHeader>
 
-        <div className="flex gap-1.5 overflow-x-auto border-b px-6 py-2" style={{ background: 'var(--card)' }} aria-label="Jump to">
-          {FORM_STEPS.map(([title, short]) => <button key={title} type="button" onClick={() => document.getElementById(anchorId(title))?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="h-9 shrink-0 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{short}</button>)}
+        <div className="flex items-center gap-1.5 overflow-x-auto border-b px-6 py-2" style={{ background: 'var(--card)' }} role="tablist" aria-label="Steps">
+          {FORM_STEPS.map(([title, short], i) => <button key={title} type="button" role="tab" aria-selected={!showAll && step === i} onClick={() => { if (showAll) document.getElementById(anchorId(title))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); else setStep(i); }}
+            className="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-semibold" style={!showAll && step === i ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>{showAll ? short : `${i + 1}. ${short}`}</button>)}
+          <button type="button" onClick={() => setShowAll((v) => !v)} aria-pressed={showAll} className="ml-auto h-9 shrink-0 rounded-full px-3 text-[13px]" style={{ color: 'var(--muted, #6b635c)' }}>{showAll ? 'One step at a time' : 'Show everything'}</button>
         </div>
         <ScrollArea className="flex-1">
           <div className="px-6 py-6 space-y-8 pb-32">
 
-            <section className="space-y-4">
+            <section hidden={!showAll && step !== 0} className="space-y-4">
               <SectionLabel>Basics</SectionLabel>
 
               <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white">
@@ -675,9 +681,9 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
             </section>
 
-            <Separator />
+            {showAll && <Separator />}
 
-            <section className="space-y-3">
+            <section hidden={!showAll && step !== 1} className="space-y-3">
               <SectionLabel>Products it uses</SectionLabel>
               {(() => { const gaps = selectedProducts.map((p: any) => ({ p, it: (inventory || []).find((x: any) => x.id === p.id || x.id === p.productId) })).map(({ p, it }: any) => ({ name: it?.name || p.name || 'Product', gap: costGap(it) })).filter((x: any) => x.gap);
                 return gaps.length ? <p className="mb-3 rounded-2xl px-4 py-3 text-[13px]" style={{ background: 'rgba(180,83,9,.1)', color: '#8a3f06' }}>{gaps.length === 1 ? `${gaps[0].name} has ${gaps[0].gap} — the margin above and the restocking fund can’t count it yet.` : `${gaps.length} products can’t be counted yet (${gaps.map((g: any) => `${g.name}: ${g.gap}`).join('; ')}).`} Fix them in Inventory.</p> : null; })()}
@@ -737,8 +743,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             {!isAddon && (
               <>
-                <Separator />
-                <section className="space-y-3">
+                {showAll && <Separator />}
+                <section hidden={!showAll && step !== 1} className="space-y-3">
                   <SectionLabel>Add-ons offered with it</SectionLabel>
                   <InlineSearchPanel
                     label="Add-ons"
@@ -759,8 +765,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </>
             )}
 
-            <Separator />
-            <section className="space-y-3">
+            {showAll && <Separator />}
+            <section hidden={!showAll && step !== 1} className="space-y-3">
               <SectionLabel>Rooms & equipment it needs</SectionLabel>
               <InlineSearchPanel
                 label="Resources"
@@ -773,9 +779,9 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               />
             </section>
 
-            <Separator />
+            {showAll && <Separator />}
 
-            <section className="space-y-4">
+            <section hidden={!showAll && step !== 2} className="space-y-4">
               <SectionLabel>Price & deposit</SectionLabel>
 
               <div className="space-y-1.5">
@@ -905,9 +911,9 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
             </section>
 
-            <Separator />
+            {showAll && <Separator />}
 
-            <section className="space-y-3">
+            <section hidden={!showAll && step !== 3} className="space-y-3">
               <SectionLabel>Consent forms</SectionLabel>
               <InlineSearchPanel
                 label="Consent Forms"
@@ -923,7 +929,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               />
             </section>
 
-            <Separator />
+            {showAll && <Separator />}
 
             {/* v2 — NEW: Required Documents. Mirrors the consent-forms
                 section above, but these are custom, ad-hoc entries rather
@@ -938,9 +944,9 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 File" means signed/uploaded once, valid for future visits;
                 "Every Time" means re-requested at every booking. */}
 
-            <Separator />
+            {showAll && <Separator />}
 
-            <section className="space-y-4">
+            <section hidden={!showAll && step !== 4} className="space-y-4">
               <SectionLabel>Policies & online booking</SectionLabel>
 
               <div className="grid grid-cols-2 gap-3">
@@ -995,7 +1001,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 <Label className="text-[12px] font-semibold text-muted-foreground">Extra note in the confirmation</Label>
                 <Textarea {...register('confirmationMessage')} placeholder="Post-booking instructions for the guest..." className="rounded-2xl border min-h-[80px]" />
               </div>
-            <section className="space-y-3">
+            <section hidden={!showAll && step !== 3} className="space-y-3">
               <SectionLabel>Documents</SectionLabel>
               <div className="space-y-2">
                 {fileRequirements.length === 0 && (
@@ -1137,21 +1143,14 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         </ScrollArea>
 
         <div className="shrink-0 border-t bg-background px-6 py-4 flex gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            className="flex-1 h-14 rounded-2xl font-semibold border"
-          >
-            Cancel
+          <Button type="button" variant="outline" onClick={() => (!showAll && step > 0 ? setStep(step - 1) : onOpenChange(false))} className="flex-1 h-14 rounded-2xl font-semibold border">
+            {!showAll && step > 0 ? 'Back' : 'Cancel'}
           </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit(onSubmit)}
-            disabled={saving}
-            className="flex-[2] h-14 rounded-2xl font-semibold shadow-xl shadow-primary/20"
-          >
-            {saving ? <Loader className="w-5 h-5 animate-spin" /> : mode === 'add' ? 'Save Service' : 'Commit Changes'}
+          {!showAll && step < FORM_STEPS.length - 1 && <Button type="button" variant="outline" onClick={() => setStep(step + 1)} className="flex-1 h-14 rounded-2xl font-semibold border">
+            Next · {FORM_STEPS[step + 1][1]}
+          </Button>}
+          <Button type="button" onClick={handleSubmit(onSubmit, (errs: any) => { const k = stepOfError(Object.keys(errs || {})); if (k !== null && !showAll) setStep(k); })} disabled={saving} className="flex-[2] h-14 rounded-2xl font-semibold">
+            {saving ? <Loader className="w-5 h-5 animate-spin" /> : mode === 'add' ? 'Save service' : 'Save changes'}
           </Button>
         </div>
       </SheetContent>
