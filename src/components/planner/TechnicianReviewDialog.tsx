@@ -28,6 +28,7 @@
  * All state, handlers, and business logic below are unchanged from v1.
  */
 
+import { handoffEntry } from '@/lib/handoff-log';
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   Dialog,
@@ -104,7 +105,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '../ui/switch';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { doc, writeBatch, collection, increment } from 'firebase/firestore';
+import { doc, writeBatch, collection, increment, arrayUnion } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import Image from 'next/image';
 import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
@@ -526,6 +527,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         });
 
         batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), {
+            handoffs: arrayUnion(JSON.parse(JSON.stringify(handoffEntry(appointment, checkoutState)))),   // the last part, to the desk
             status: 'ready_for_checkout',
             checkoutState: JSON.parse(JSON.stringify(checkoutState)),
             actualEndTime: now
