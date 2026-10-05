@@ -1,5 +1,6 @@
 'use client';
 
+import { PlannerHeader } from '@/components/planner/PlannerHeader';
 import { handoffEntry } from '@/lib/handoff-log';
 import { NowFirst } from '@/components/planner/NowFirst';
 import { AgendaView } from '@/components/planner/AgendaView';
@@ -1415,21 +1416,12 @@ function PlannerPageContent() {
     <div className="cf-settings cf-legacy flex h-[100dvh] w-full flex-col overflow-hidden" style={{ background: 'var(--paper)' }}>
       <SettingsStyle />
       <AppHeader title="Planner" />
-      <div className="shrink-0 px-3 py-2.5 sm:p-4 md:py-3 md:px-8 border-b bg-white/50 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto space-y-2.5 sm:space-y-4 text-left">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <h1 className="text-[22px] sm:text-[26px] font-light leading-none">Planner</h1>
-              {moveAsk && <div role="dialog" aria-label="Move anyway?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setMoveAsk(null)}>
+                    {moveAsk && <div role="dialog" aria-label="Move anyway?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setMoveAsk(null)}>
                 <div className="w-full max-w-sm space-y-3 rounded-3xl p-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
                   <p className="text-[17px] font-semibold">That time won’t work</p><p className="text-[14px]" style={{ color: 'var(--muted)' }}>{moveAsk.reason}</p>
                   <div className="flex gap-2">{String(role) !== 'staff' && <button type="button" onClick={() => { const m = moveAsk; setMoveAsk(null); void moveAppointment(m.appointment, m.staffId, m.time, true); }} className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Move anyway</button>}<button type="button" onClick={() => setMoveAsk(null)} className="h-11 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Leave it</button></div>
                 </div></div>}
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span>
-              <button type="button" onClick={() => setPrefsOpen(true)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }} aria-label="View settings">View</button>
-              {prefsOpen && <div role="dialog" aria-label="View settings" className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setPrefsOpen(false)}>
+                    {prefsOpen && <div role="dialog" aria-label="View settings" className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setPrefsOpen(false)}>
                 <div className="w-full max-w-md space-y-4 rounded-t-3xl p-5 pb-8 sm:rounded-3xl sm:pb-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
                   <p className="text-[17px] font-semibold">Your view <span className="text-[13px] font-normal" style={{ color: 'var(--muted)' }}>· just for you, on this device</span></p>
                   <label className="flex items-center justify-between gap-3 text-[15px]">Start my day at<select value={prefs.startHour ?? ''} onChange={(e) => savePrefs({ startHour: e.target.value === '' ? null : Number(e.target.value) })} className="h-11 rounded-xl border px-3" style={{ borderColor: 'var(--line)' }}><option value="">The first visit</option>{Array.from({ length: 14 }, (_, i) => i + 5).map((h) => <option key={h} value={h}>{format(new Date(2026, 0, 1, h), 'h a')}</option>)}</select></label>
@@ -1437,183 +1429,24 @@ function PlannerPageContent() {
                   <label className="flex items-center justify-between gap-3 text-[15px]">Card colour<select value={prefs.colourBy} onChange={(e) => savePrefs({ colourBy: e.target.value })} className="h-11 rounded-xl border px-3" style={{ borderColor: 'var(--line)' }}><option value="state">By state (done, in the chair…)</option><option value="provider">By provider</option></select></label>
                   <button type="button" onClick={() => setPrefsOpen(false)} className="h-11 w-full rounded-full text-[15px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Done</button>
                 </div></div>}
-              <button type="button" aria-pressed={density === 'compact'} onClick={() => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })} title="Fit more of the day on screen" className="hidden sm:inline-flex h-9 items-center rounded-full px-3 text-[13px] font-semibold" style={{ background: density === 'compact' ? 'var(--ink)' : 'var(--soft)', color: density === 'compact' ? '#fff' : 'inherit' }}>{density === 'compact' ? 'Compact' : 'Roomy'}</button>
-              {(role === 'owner' || role === 'admin') && (
-                <div className="flex gap-1.5 sm:gap-2">
-                  <Button variant="outline" size="icon" title="Bills due" aria-label="Bills due" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsBillsSheetOpen(true)}>
-                    <CreditCard className="h-4 w-4 sm:h-5 sm:w-5" />
-                    {billInstancesWithDefinitions.length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-destructive text-[12px] sm:text-[12px] font-semibold text-white shadow-lg border border-white">{billInstancesWithDefinitions.length}</span>}
-                  </Button>
-                  <Button variant="outline" size="icon" title="Weekly numbers" aria-label="Weekly numbers" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
-                </div>
-              )}
-              <Button variant="outline" size="icon" title="Waiting list" aria-label="Waiting list" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsWaitlistSheetOpen(true)}>
-                <Hourglass className="h-4 w-4 sm:h-5 sm:w-5" />
-                {openWaitlistCount > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-amber-500 text-[12px] sm:text-[12px] font-semibold text-white shadow-lg border border-white">{openWaitlistCount}</span>}
-              </Button>
-              <Button variant="outline" size="icon" title="Scan check-in code" aria-label="Scan check-in code" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
-            </div>
-          </div>
-
-          {studioEventsToday.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
-              {studioEventsToday.map(se => (
-                <button
-                  key={se.id}
-                  onClick={() => router.push(`/events/${se.id}/manifest`)}
-                  className={cn(
-                    'flex items-center gap-2 px-3 py-2 rounded-xl border whitespace-nowrap shrink-0 transition-all active:scale-95',
-                    se.status === 'active'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : se.status === 'completed'
-                        ? 'bg-slate-100 border-slate-200 text-slate-500'
-                        : 'bg-violet-50 border-violet-200 text-violet-800'
-                  )}
-                >
-                  {se.status === 'active' && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />}
-                  <span className="text-[12px] font-semibold">
-                    {se.title || se.name}
-                  </span>
-                  {se.status === 'active' && (
-                    <span className="text-[12px] font-semibold opacity-60">Live →</span>
-                  )}
-                  {se.status !== 'active' && se.time && (
-                    <span className="text-[12px] font-bold opacity-60">{se.time}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {dayPulse && (
-            <DayPulse
-              booked={dayPulse.booked}
-              net={dayPulse.net}
-              bookedMinutes={dayPulse.bookedMinutes}
-              availableMinutes={dayPulse.availableMinutes}
-            />
-          )}
-
-          {(awaitingUpcoming.length > 0 || cancelledToday > 0) && (
-            <div className="flex w-full items-center gap-2 overflow-x-auto scrollbar-hide">
-              {awaitingUpcoming.length > 0 && (
-                <button
-                  type="button"
-                  onClick={jumpToNextAwaiting}
-                  aria-label={`Go to the next of ${awaitingUpcoming.length} bookings awaiting your answer`}
-                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-violet-300 bg-violet-50 px-2.5 py-1.5 text-[12px] font-semibold text-violet-800 active:scale-95"
-                >
-                  <AlertCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  {awaitingUpcoming.length} awaiting you
-                </button>
-              )}
-              {cancelledToday > 0 && (
-                <button
-                  type="button"
-                  onClick={revealCancelled}
-                  aria-pressed={showCancelled}
-                  aria-label={`${showCancelled ? 'Hide' : 'Show'} ${cancelledToday} cancelled bookings on this day`}
-                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-muted bg-muted/40 px-2.5 py-1.5 text-[12px] font-semibold text-muted-foreground active:scale-95"
-                >
-                  <XCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  {cancelledToday} cancelled · {showCancelled ? 'hide' : 'show'}
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center gap-1 sm:gap-2">
-            <Button variant="ghost" size="icon" title="Previous day" aria-label="Previous day" className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl shrink-0 hover:bg-muted" onClick={() => setCurrentDate(subDays(currentDate, 1))}><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
-            <ScrollArea className="flex-1 min-w-0">
-              <div className="flex w-full gap-1.5 sm:gap-2 px-0.5 pb-1">
-                {weekDays.map(day => {
-                  const isSelected = isSameDay(day, currentDate);
-                  const hasStudioEvent = studioEventsRaw?.some(se => {
-                    const d = se.date ? safeDate(se.date) : se.startTime ? safeDate(se.startTime) : null;
-                    return d && isSameDay(d, day);
-                  });
-                  return (
-                    <button
-                      key={day.toISOString()}
-                      onClick={() => setCurrentDate(day)}
-                      aria-pressed={isSelected}
-                      aria-label={format(day, 'EEEE, MMMM d')}
-                      className={cn(
-                        "flex-1 py-1.5 sm:py-2 min-w-[44px] sm:min-w-[80px] rounded-xl sm:rounded-2xl transition-colors border flex flex-col items-center gap-0.5 active:scale-95",
-                        isSelected
-                          ? "bg-primary border-primary shadow-lg shadow-primary/20"
-                          : "bg-muted/50 border-transparent hover:bg-muted"
-                      )}
-                    >
-                      <p className={cn("text-[12px] font-semibold ", isSelected ? "text-white/70" : "text-muted-foreground/70")}>{format(day, 'EEE')}</p>
-                      <p className={cn("text-base sm:text-2xl font-semibold  leading-none", isSelected ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
-                      {(() => { const n = weekLoad.get(format(day, 'yyyy-MM-dd')) || 0; const max = Math.max(1, ...weekDays.map((d) => weekLoad.get(format(d, 'yyyy-MM-dd')) || 0));
-                        return <span className="mt-0.5 block h-1 w-8 overflow-hidden rounded-full" style={{ background: isSelected ? 'rgba(255,255,255,.3)' : 'var(--line, #e7e2dc)' }} title={`${n} visit${n === 1 ? '' : 's'}`} aria-label={`${n} visit${n === 1 ? '' : 's'}`}><span className="block h-full rounded-full" style={{ width: `${Math.round((n / max) * 100)}%`, background: isSelected ? '#fff' : 'var(--accent)' }} /></span>; })()}
-                      {hasStudioEvent && (
-                        <span className={cn('w-1.5 h-1.5 rounded-full', isSelected ? 'bg-white/70' : 'bg-violet-400')} />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              <ScrollBar orientation="horizontal" className="hidden" />
-            </ScrollArea>
-            <Button variant="ghost" size="icon" title="Next day" aria-label="Next day" className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl shrink-0 hover:bg-muted" onClick={() => setCurrentDate(addDays(currentDate, 1))}><ChevronRight className="w-4 h-4 sm:w-5 sm:h-5"/></Button>
-          </div>
-
-          <div className="flex items-center justify-between gap-2 sm:gap-6">
-            <div className="min-w-0">
-              <p className="text-[12px] font-semibold text-primary leading-none mb-0.5">{format(currentDate, 'MMMM yyyy')}</p>
-              <p className="text-sm sm:text-base font-semibold text-slate-900 leading-none truncate">{format(currentDate, 'EEEE, do')}</p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-[12px] font-semibold border shadow-sm shrink-0">Today</Button>
-              <RadioGroup value={activeView} onValueChange={(v: any) => setActiveView(v)} className="flex gap-1 p-1 bg-muted/30 rounded-xl border border-muted shrink-0">
-                <Label htmlFor="staff-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-semibold text-[12px]  transition-colors", activeView === 'staff' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><User className="w-3.5 h-3.5 shrink-0" /> Providers <RadioGroupItem value="staff" id="staff-v" className="sr-only" /></Label>
-                <Label htmlFor="res-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-semibold text-[12px]  transition-colors", activeView === 'resources' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Building className="w-3.5 h-3.5 shrink-0" /> Resources <RadioGroupItem value="resources" id="res-v" className="sr-only" /></Label>
-                <Label htmlFor="booth-v" className={cn("flex items-center justify-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-4 rounded-lg cursor-pointer font-semibold text-[12px]  transition-colors", activeView === 'booths' ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:bg-white/50")}><Armchair className="w-3.5 h-3.5 shrink-0" /> Spaces <RadioGroupItem value="booths" id="booth-v" className="sr-only" /></Label>
-              </RadioGroup>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {stuckAppointments.length > 0 && (
-        <div className="shrink-0 px-4 py-2 bg-amber-50 border-b-2 border-amber-200">
-          <div className="max-w-7xl mx-auto space-y-2">
-            <p className="text-[12px] font-semibold text-amber-700 flex items-center gap-2">
-              <AlertTriangle className="w-3 h-3" />
-              {stuckAppointments.length} session{stuckAppointments.length > 1 ? 's' : ''} need attention
-            </p>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-              {stuckAppointments.map(apt => {
-                const svc = services?.find(s => s.id === apt.serviceId);
-                return (
-                  <button
-                    key={apt.id}
-                    onClick={() => { setSelectedAppointment(apt); setIsDetailsOpen(true); }}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-amber-300 shrink-0 hover:bg-amber-50 transition-all active:scale-95"
-                  >
-                    <div className={cn('w-2 h-2 rounded-full shrink-0',
-                      apt.status === 'servicing' ? 'bg-primary animate-pulse' : 'bg-emerald-500')} />
-                    <div className="text-left">
-                      <p className="font-semibold text-[12px] text-slate-800">{apt.clientName || 'Guest'}</p>
-                      <p className="text-[12px] font-bold text-muted-foreground opacity-60">
-                        {svc?.name || 'Service'} · {(() => { try { const d = safeDate(apt.startTime); return isNaN(d.getTime()) ? '' : format(d, 'MMM d, h:mm a'); } catch { return ''; } })()}
-                      </p>
-                    </div>
-                    <Badge className={cn('font-semibold text-[12px] border-none shrink-0',
-                      apt.status === 'servicing' ? 'bg-primary/10 text-primary' : 'bg-emerald-100 text-emerald-700')}>
-                      {apt.status === 'servicing' ? 'In Service' : 'Checkout'}
-                    </Badge>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
+      <PlannerHeader date={currentDate} onDate={(d: Date) => setCurrentDate(d)} isMobile={isMobile}
+        appointments={appointments || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []}
+        figures={{ visits: dayAppointments.filter((a: any) => !['cancelled', 'declined'].includes(String(a.status))).length, booked: dayPulse ? dayPulse.booked : null, goal: Number((selectedTenant as any)?.dailyGoal) || null }}
+        onFigures={role === 'owner' || role === 'admin' ? () => setIsKpiSheetOpen(true) : undefined}
+        needsYou={[
+          ...(awaitingUpcoming.length ? [{ key: 'awaiting', label: `${awaitingUpcoming.length} booking${awaitingUpcoming.length === 1 ? '' : 's'} awaiting your answer`, onClick: jumpToNextAwaiting, tone: 'warn' as const }] : []),
+          ...((role === 'owner' || role === 'admin') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
+          ...(cancelledToday > 0 ? [{ key: 'cancelled', label: `${cancelledToday} cancelled today — ${showCancelled ? 'hide' : 'show'}`, onClick: revealCancelled }] : []),
+          ...studioEventsToday.map((se: any) => ({ key: `ev-${se.id}`, label: `${se.status === 'active' ? 'Live now · ' : ''}${se.title || se.name || 'Event'}${se.time ? ` · ${se.time}` : ''}`, onClick: () => router.push(`/events/${se.id}/manifest`) })),
+        ]}
+        onBook={() => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
+        onScan={() => setIsScannerOpen(true)} onWaitlist={() => setIsWaitlistSheetOpen(true)} waitlistCount={openWaitlistCount}
+        moreItems={[
+          ...((role === 'owner' || role === 'admin') ? [['Weekly numbers', () => setIsKpiSheetOpen(true)] as [string, () => void], [`Bills due${billInstancesWithDefinitions.length ? ` · ${billInstancesWithDefinitions.length}` : ''}`, () => setIsBillsSheetOpen(true)] as [string, () => void]] : []),
+          ['Waiting list', () => setIsWaitlistSheetOpen(true)], ['Scan check-in code', () => setIsScannerOpen(true)], ['View settings', () => setPrefsOpen(true)],
+          [density === 'compact' ? 'Roomy cards' : 'Compact cards', () => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })],
+        ]}
+        viewControls={<><span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span></>} />
       <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
         {isMobile && <div className="flex gap-1 px-3 pt-2" role="tablist" aria-label="View">{([['now', 'Now'], ['grid', 'Day grid'], ['list', 'List']] as const).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={phoneView === v} onClick={() => choosePhoneView(v)} className="h-9 flex-1 rounded-full text-[13px] font-semibold" style={phoneView === v ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}</div>}
         {isMobile && phoneView === 'now' && <NowFirst appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
