@@ -47,7 +47,7 @@ export function parseGoTo(text: string, from: Date): Date | null {
 
 const shade = (d: DayInfo) => d.closed ? 'var(--soft, #f3f0ec)' : d.full >= 0.95 ? '#f1dcc4' : d.visits === 0 ? 'transparent' : `color-mix(in srgb, var(--accent, #2e6f6a) ${Math.round(10 + d.full * 40)}%, var(--card, #fff))`;
 
-export function DatePicker({ date, onPick, onClose, appointments, staff, events = [], isMobile }: { date: Date; onPick: (d: Date) => void; onClose: () => void; appointments: any[]; staff: any[]; events?: any[]; isMobile?: boolean }) {
+export function DatePicker({ date, onPick, onClose, appointments, staff, events = [], isMobile, onFindTime }: { date: Date; onPick: (d: Date) => void; onClose: () => void; appointments: any[]; staff: any[]; events?: any[]; isMobile?: boolean; onFindTime?: () => void }) {
   const [month, setMonth] = React.useState(startOfMonth(date)); const [q, setQ] = React.useState(''); const [preview, setPreview] = React.useState<Date | null>(null);
   const parsed = q ? parseGoTo(q, date) : null;
   const jumps: [string, Date][] = [['Today', startOfDay(new Date())], [`Next ${format(date, 'EEE')}`, addWeeks(date, 1)], ['+2 weeks', addWeeks(date, 2)], ['+4 weeks', addWeeks(date, 4)], ['+6 weeks', addWeeks(date, 6)], ['+3 months', addMonths(date, 3)]];
@@ -77,6 +77,7 @@ export function DatePicker({ date, onPick, onClose, appointments, staff, events 
         <form onSubmit={(e) => { e.preventDefault(); if (parsed) pick(parsed); }}><input autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Go to… “fri”, “14 Nov”" aria-label="Go to a date" className="h-11 w-full rounded-xl border px-3 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
           {q && <p className="mt-1 text-[12px]" style={parsed ? { color: 'var(--accent)' } : muted}>{parsed ? <>Enter → {format(parsed, 'EEEE d MMMM yyyy')}</> : 'Try “fri”, “next tue”, “14 nov”, “in 2 weeks”'}</p>}</form>
         {(upcomingEvents.length > 0 || fullDays.length > 0) && <div><p className="mb-1 font-semibold">Coming up</p>{upcomingEvents.map((e: any) => <button key={e.id} type="button" onClick={() => pick(safe(e.date || e.startTime))} className="block text-left">{format(safe(e.date || e.startTime), 'EEE d')} · {e.title || e.name || 'Event'}</button>)}{fullDays.map((d) => <button key={d.date.toISOString()} type="button" onClick={() => pick(d.date)} className="block text-left">{format(d.date, 'EEE d')} · fully booked</button>)}</div>}
+        {onFindTime && <button type="button" onClick={() => { onClose(); onFindTime(); }} className="h-10 rounded-full text-[14px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Find a time…</button>}
         {room.length > 0 && <div><p className="mb-1 font-semibold">Most room</p>{room.map((d) => <button key={d.date.toISOString()} type="button" onClick={() => pick(d.date)} className="block text-left font-semibold" style={{ color: 'var(--accent)' }}>{format(d.date, 'EEE d MMM')} · {d.visits} visit{d.visits === 1 ? '' : 's'}</button>)}</div>}
       </aside>
     </div>);
@@ -90,7 +91,8 @@ export function DatePicker({ date, onPick, onClose, appointments, staff, events 
 }
 
 export type NeedsYouItem = { key: string; label: string; onClick: () => void; tone?: 'warn' | 'info' };
-export function PlannerHeader({ date, onDate, appointments, staff, events, figures, onFigures, needsYou, onBook, onScan, onWaitlist, waitlistCount, moreItems, viewControls, isMobile }: {
+export function PlannerHeader({ date, onDate, appointments, staff, events, figures, onFigures, needsYou, onBook, onScan, onWaitlist, waitlistCount, moreItems, viewControls, isMobile, onFindTime }: {
+  onFindTime?: () => void;
   date: Date; onDate: (d: Date) => void; appointments: any[]; staff: any[]; events?: any[];
   figures: { visits: number; booked?: number | null; goal?: number | null }; onFigures?: () => void; needsYou: NeedsYouItem[];
   onBook: () => void; onScan: () => void; onWaitlist: () => void; waitlistCount: number; moreItems: [string, () => void][]; viewControls?: React.ReactNode; isMobile?: boolean;
@@ -146,6 +148,6 @@ export function PlannerHeader({ date, onDate, appointments, staff, events, figur
           </button>); })}
         {!isMobile && <button type="button" aria-label="Next week" onClick={() => onDate(addWeeks(date, 1))} className="rounded-full" style={soft}>›</button>}
       </div>
-      {picker && <DatePicker date={date} onPick={onDate} onClose={() => setPicker(false)} appointments={appointments} staff={staff} events={events} isMobile={isMobile} />}
+      {picker && <DatePicker date={date} onPick={onDate} onClose={() => setPicker(false)} appointments={appointments} staff={staff} events={events} isMobile={isMobile} onFindTime={onFindTime} />}
     </header>);
 }
