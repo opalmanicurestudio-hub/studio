@@ -32,8 +32,25 @@ export async function POST(req: NextRequest) {
     const addOnMin = addOnIds.reduce((m, id) => m + (Number(services.find((s: any) => s.id === id)?.duration) || 0), 0);
     services = services.map((s: any) => (s.id === serviceId ? { ...s, duration: Math.max(5, Math.round(len) - addOnMin) } : s));
   }
-  const f = engineFrame({ appointments: raw(data.ap), events: raw(data.ce), staffBlocks: raw(data.sb), tickets: raw(data.tk) }, tz, date);
   const staffId = b.staffId && b.staffId !== 'any' ? String(b.staffId) : undefined;
+  // One day's open times (the same engine and rules as online booking, with the desk's freedoms).
+  const openOn = (day: string) => { const f = engineFrame({ appointments: raw(data.ap), events: raw(data.ce), staffBlocks: raw(data.sb), tickets: raw(data.tk) }, tz, day);
+    const r: any = computeAvailability({
+      date: day, serviceId, staffId, addOnIds, services, staff: raw(data.st).filter((m: any) => m.isActive !== false),
+      appointments: f.appointments, events: f.events, staffBlocks: f.staffBlocks, tickets: f.tickets, now: f.now,
+      scheduleProfiles: raw(data.sp), tenant: data.t, shifts: raw(data.sh), dayOffBlocks: raw(data.dof), resources: raw(data.rs), maintenancePlans: raw(data.mp),
+      fallbackHours: FALLBACK_HOURS, ignoreHeuristics: true, includeUnavailable: false, ...({ minLeadMinutes: 0, maxHorizonDays: 3650 } as any) } as any);
+    return (r?.times || []).map((t: string) => ({ time: t, label: r.byTime?.[t]?.[0]?.label || t, staff: (r.byTime?.[t] || []).map((x: any) => ({ id: x.staffId || x.staff?.id, name: x.staff?.name || x.staffName || '' })) })); };
+  // FIND A TIME: { scanDays } — walk forward from `date` and return the first openings (up to 8, at most 3 per day).
+  const scanDays = Math.max(0, Math.min(90, Math.round(Number(b.scanDays) || 0)));
+  if (scanDays > 0) {
+    const openings: any[] = []; const [y, mo, d] = date.split('-').map(Number);
+    try { for (let i = 0; i < scanDays && openings.length < 8; i++) { const day = new Date(Date.UTC(y, mo - 1, d + i)).toISOString().slice(0, 10);
+        const ts = openOn(day); for (const t of ts.slice(0, 3)) { if (openings.length >= 8) break; openings.push({ date: day, ...t }); } } }
+    catch (e) { console.error('[open-times scan]', e); return NextResponse.json({ ok: false, error: 'Couldn’t work out open times.' }, { status: 500 }); }
+    return NextResponse.json({ ok: true, date, openings, searchedDays: scanDays });
+  }
+  const f = engineFrame({ appointments: raw(data.ap), events: raw(data.ce), staffBlocks: raw(data.sb), tickets: raw(data.tk) }, tz, date);
   let res: any;
   try {
     res = computeAvailability({
