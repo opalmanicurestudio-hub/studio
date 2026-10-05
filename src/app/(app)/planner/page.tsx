@@ -1,5 +1,6 @@
 'use client';
 
+import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { FindATime } from '@/components/planner/FindATime';
 import { MonthView, WeekView } from '@/components/planner/RangeViews';
 import { PlannerHeader } from '@/components/planner/PlannerHeader';
@@ -19,7 +20,6 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { cn, safeNumber } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { Badge } from '@/components/ui/badge';
 import { AddEventDialog } from '@/components/planner/EventsDialog';
@@ -32,7 +32,6 @@ import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
 import { WaitlistSheet } from '@/components/planner/WaitlistSheet';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
-import { FloatingActionButton } from '@/components/planner/FloatingActionButton';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
@@ -84,10 +83,8 @@ const sanitizeForFirestore = (obj: any): any => {
 // all and prints the guilty name(s) on screen. Zero cost when all is well.
 const IMPORT_CHECK: Record<string, any> = {
   AppHeader, Button, Badge, Label, Separator, ScrollArea, ScrollBar,
-  RadioGroup, RadioGroupItem, Tooltip, TooltipProvider, TooltipTrigger, TooltipContent,
-  AddAppointmentDialog, EditAppointmentDialog, AddEventDialog, DayTimeline,
-  WeeklyKpiSheet, BillsDueSheet, WaitlistSheet, AppointmentDetailsSheet, LogPaymentDialog,
-  FloatingActionButton, OverrideCancellationDialog, CancelAppointmentDialog,
+  RadioGroup, RadioGroupItem, Tooltip, TooltipProvider, TooltipTrigger, TooltipContent, EditAppointmentDialog, AddEventDialog, DayTimeline,
+  WeeklyKpiSheet, BillsDueSheet, WaitlistSheet, AppointmentDetailsSheet, LogPaymentDialog, OverrideCancellationDialog, CancelAppointmentDialog,
   TechnicianReviewDialog, DebugErrorBoundary,
 };
 const UNDEFINED_IMPORTS = Object.entries(IMPORT_CHECK)
@@ -363,6 +360,7 @@ function PlannerPageContent() {
   // "Book here" on a gap → the booking dialog opens on that provider and time.
   const [bookPreset, setBookPreset] = useState<{ date: Date; time: string; staffId?: string; serviceId?: string } | null>(null);
   const [findOpen, setFindOpen] = useState(false);
+  const [bookMode, setBookMode] = useState<'one' | 'repeat' | 'group' | 'steps'>('one');
   // Board or Agenda — remembered per person on this device; providers open on the agenda filtered to themselves.
   const [plannerView, setPlannerView] = useState<'board' | 'agenda' | 'week' | 'month'>(() => { try { const k = `cf_planner_view_${typeof window !== 'undefined' ? (localStorage.getItem('cf_uid') || 'me') : 'me'}`; const v = localStorage.getItem(k); if (v === 'board' || v === 'agenda' || v === 'week' || v === 'month') return v as any; } catch { /* fine */ } return 'board'; });
   const [agendaProvider, setAgendaProvider] = useState<string>('all');
@@ -1444,7 +1442,16 @@ function PlannerPageContent() {
           ...(cancelledToday > 0 ? [{ key: 'cancelled', label: `${cancelledToday} cancelled today — ${showCancelled ? 'hide' : 'show'}`, onClick: revealCancelled }] : []),
           ...studioEventsToday.map((se: any) => ({ key: `ev-${se.id}`, label: `${se.status === 'active' ? 'Live now · ' : ''}${se.title || se.name || 'Event'}${se.time ? ` · ${se.time}` : ''}`, onClick: () => router.push(`/events/${se.id}/manifest`) })),
         ]}
-        onBook={() => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
+        onBook={() => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode('one'); setIsAddAppointmentOpen(true); }}
+        bookMenu={[
+          ['Appointment', () => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode('one'); setIsAddAppointmentOpen(true); }],
+          ['Group booking', () => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode('group'); setIsAddAppointmentOpen(true); }],
+          ['Several providers, one client', () => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode('steps'); setIsAddAppointmentOpen(true); }],
+          ['Repeat booking', () => { setBookPreset(null); setAppointmentToRebook(null); setClientForNewApt(null); setBookMode('repeat'); setIsAddAppointmentOpen(true); }],
+          ['Event or blocked time', () => setIsAddEventOpen(true)],
+          ['Class or workshop', () => router.push('/events')],
+          ['Find a time', () => setFindOpen(true)],
+        ]}
         onScan={() => setIsScannerOpen(true)} onWaitlist={() => setIsWaitlistSheetOpen(true)} waitlistCount={openWaitlistCount}
         moreItems={[
           ...((role === 'owner' || role === 'admin') ? [['Weekly numbers', () => setIsKpiSheetOpen(true)] as [string, () => void], [`Bills due${billInstancesWithDefinitions.length ? ` · ${billInstancesWithDefinitions.length}` : ''}`, () => setIsBillsSheetOpen(true)] as [string, () => void]] : []),
@@ -1560,24 +1567,19 @@ function PlannerPageContent() {
       {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
       {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: (clients || []).find(c => c.id === selectedAppointment.clientId), service: (services || []).find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
 
-      <AddAppointmentDialog
-        open={isAddAppointmentOpen}
-        onOpenChange={(val: boolean) => { setIsAddAppointmentOpen(val); if (!val) { setClientForNewApt(null); setAppointmentToRebook(null); setBookPreset(null); } }}
-        preset={bookPreset}
-        onConfirm={async (data: any) => {
-          if (!firestore || !tenantId) return;
-          const id = nanoid();
-          const token = nanoid(16);
-          const apt = { ...data, id, tenantId, checkInToken: token, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString(), source: 'manual' };
-          await setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', id), apt, {});
-          await setDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), apt, {});
-          setIsAddAppointmentOpen(false);
-          toast({ title: "Booked" });
-        }}
-        client={clientForNewApt}
-        appointmentToRebook={appointmentToRebook}
-        memberships={memberships || []}
-      />
+      {/* EVERY PLANNER BOOKING GOES THROUGH THE BOOKING ENGINE (the desk's Book sheet): availability, deposits,
+          confirmations, consent — and repeat, group and several-providers bookings. Pre-filled from where it was opened. */}
+      <StaffBookSheet open={isAddAppointmentOpen} onClose={() => { setIsAddAppointmentOpen(false); setClientForNewApt(null); setAppointmentToRebook(null); setBookPreset(null); setBookMode('one'); }}
+        tenantId={tenantId || ''} tenant={selectedTenant} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)}
+        appointments={appointments || []} role={role} uid={currentUser?.uid || null}
+        prefill={{
+          clientId: (appointmentToRebook as any)?.clientId || (clientForNewApt as any)?.id || null,
+          serviceId: bookPreset?.serviceId || (appointmentToRebook as any)?.serviceId || null,
+          addOnIds: (appointmentToRebook as any)?.addOnIds || [],
+          staffId: bookPreset?.staffId || (appointmentToRebook as any)?.staffId || null,
+          date: bookPreset ? format(bookPreset.date, 'yyyy-MM-dd') : !appointmentToRebook && currentDate > new Date() ? format(currentDate, 'yyyy-MM-dd') : null,
+          time: bookPreset?.time || null, mode: bookMode,
+        }} />
 
       <AddEventDialog
         open={isAddEventOpen}
@@ -1637,7 +1639,6 @@ function PlannerPageContent() {
         onPrintTicket={handlePrintTicket}
       />
 
-      <FloatingActionButton onNewAppointmentClick={() => { setClientForNewApt(null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }} onNewEventClick={() => setIsAddEventOpen(true)} />
       <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={billInstancesWithDefinitions} isMobile={isMobile || false} onLogPaymentClick={(instance: any) => { setSelectedBill(instance); setIsBillsSheetOpen(false); }} />
       <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={kpis} isMobile={isMobile || false} />
       <WaitlistSheet
