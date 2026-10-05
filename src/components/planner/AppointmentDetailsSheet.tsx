@@ -1,5 +1,6 @@
 'use client';
 
+import { SettingsStyle } from '@/components/settings/settings-style';
 import { openVisit } from '@/lib/visit-client';
 import { getAuth } from 'firebase/auth';
 import { placeOf } from '@/lib/service-place';
@@ -451,11 +452,11 @@ const RequirementRow = ({ icon, label, value, status, action }: {
   icon: React.ReactNode; label: string; value: React.ReactNode; status: RowStatus; action?: React.ReactNode;
 }) => (
   <div className="flex items-center justify-between gap-3 py-2.5">
-    <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-muted-foreground">
+    <span className="flex items-center gap-2 text-[12px] font-semibold tracking-wide text-muted-foreground">
       <span className="opacity-50">{icon}</span>{label}
     </span>
     <div className="flex items-center gap-2 shrink-0">
-      <span className={cn('text-[10px] font-black uppercase tracking-tight font-mono', STATUS_TEXT[status])}>{value}</span>
+      <span className={cn('text-[12px] font-semibold tracking-tight font-mono', STATUS_TEXT[status])}>{value}</span>
       {action}
     </div>
   </div>
@@ -486,13 +487,13 @@ const ClientStatsBar = ({ client, recentVisits, allVisits, isLoading }: { client
     <div className="grid grid-cols-4 gap-2">
       {stats.map((s, i) => (
         <div key={i} className={cn(
-          'rounded-xl p-2.5 text-center border-2',
+          'rounded-xl p-2.5 text-center border',
           s.warn ? 'bg-red-50 border-red-100' : 'bg-muted/5 border-transparent',
           showSkeleton && 'animate-pulse'
         )}>
           <div className={cn('flex justify-center mb-1', s.warn ? 'text-destructive' : 'text-muted-foreground opacity-40')}>{s.icon}</div>
-          <p className={cn('text-[12px] font-black font-mono leading-none', s.warn ? 'text-destructive' : 'text-slate-800')}>{s.value}</p>
-          <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-50 mt-0.5 leading-tight">{s.label}</p>
+          <p className={cn('text-[12px] font-semibold font-mono leading-none', s.warn ? 'text-destructive' : 'text-slate-800')}>{s.value}</p>
+          <p className="text-[12px] font-bold text-muted-foreground opacity-50 mt-0.5 leading-tight">{s.label}</p>
         </div>
       ))}
     </div>
@@ -534,25 +535,25 @@ const SessionNotePanel = ({
   return (
     <div className="space-y-2">
       {existing && !editing ? (
-        <div className="rounded-2xl border-2 border-primary/10 bg-primary/[0.02] p-4 space-y-2">
+        <div className="rounded-2xl border border-primary/10 bg-primary/[0.02] p-4 space-y-2">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
               <StickyNote className="w-3.5 h-3.5 text-primary/50 shrink-0" />
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+              <span className="text-[12px] font-semibold text-muted-foreground opacity-60">
                 Session note
                 {appointment.sessionNote?.addedAt && ` · ${format(safeDate(appointment.sessionNote.addedAt), 'MMM d')}`}
                 {appointment.sessionNote?.addedBy && ` · ${staffName(appointment.sessionNote.addedBy, staff)}`}
               </span>
             </div>
             <Button variant="ghost" size="sm" onClick={() => { setDraft(existing); setEditing(true); }}
-              className="relative h-8 px-2.5 text-[8px] font-black uppercase tracking-widest rounded-lg shrink-0 after:absolute after:-inset-2 after:content-['']">
+              className="relative h-8 px-2.5 text-[12px] font-semibold rounded-lg shrink-0 after:absolute after:-inset-2 after:content-['']">
               <Edit className="w-2.5 h-2.5 mr-1" /> Edit
             </Button>
           </div>
           <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5">{existing}</p>
         </div>
       ) : editing ? (
-        <div className="space-y-2.5 p-4 rounded-2xl border-2 border-primary/20 bg-primary/[0.02]">
+        <div className="space-y-2.5 p-4 rounded-2xl border border-primary/20 bg-primary/[0.02]">
           <Textarea
             value={draft}
             onChange={e => setDraft(e.target.value)}
@@ -562,20 +563,20 @@ const SessionNotePanel = ({
           />
           <div className="flex gap-2">
             <Button size="sm" onClick={handleSave} disabled={saving || !draft.trim()}
-              className="h-8 flex-1 rounded-lg text-[9px] font-black uppercase tracking-widest">
+              className="h-8 flex-1 rounded-lg text-[12px] font-semibold">
               {saving ? <Loader className="w-3 h-3 animate-spin" /> : 'Save Note'}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setEditing(false)}
-              className="h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest border-2">
+              className="h-8 px-3 rounded-lg text-[12px] font-semibold border">
               Cancel
             </Button>
           </div>
         </div>
       ) : (
         <button onClick={() => setEditing(true)}
-          className="w-full flex items-center gap-2.5 px-4 py-3 min-h-[44px] rounded-2xl border-2 border-dashed border-primary/15 bg-primary/[0.015] hover:bg-primary/[0.04] hover:border-primary/30 transition-all text-left">
+          className="w-full flex items-center gap-2.5 px-4 py-3 min-h-[44px] rounded-2xl border border-primary/15 bg-primary/[0.015] hover:bg-primary/[0.04] hover:border-primary/30 transition-all text-left">
           <PenLine className="w-3.5 h-3.5 text-primary/40 shrink-0" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-primary/40">Add session note</span>
+          <span className="text-[12px] font-semibold text-primary/40">Add session note</span>
         </button>
       )}
     </div>
@@ -672,12 +673,12 @@ const EditableNoteRow = ({
 
   if (editing) {
     return (
-      <div className={cn('space-y-2.5 p-3.5 rounded-2xl border-2', tone.ring)}>
+      <div className={cn('space-y-2.5 p-3.5 rounded-2xl border', tone.ring)}>
         <div className="flex items-center gap-2">
           <Icon className={cn('w-3.5 h-3.5 shrink-0', tone.dot)} />
-          <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-70">{tone.label}</span>
+          <span className="text-[12px] font-semibold text-muted-foreground opacity-70">{tone.label}</span>
         </div>
-        <p className="text-[9px] font-bold text-muted-foreground opacity-60 leading-snug">{tone.hint}</p>
+        <p className="text-[12px] font-bold text-muted-foreground opacity-60 leading-snug">{tone.hint}</p>
         <Textarea
           value={draft}
           onChange={e => setDraft(e.target.value)}
@@ -691,11 +692,11 @@ const EditableNoteRow = ({
         />
         <div className="flex gap-2">
           <Button size="sm" onClick={handleSave} disabled={saving}
-            className="h-9 flex-1 rounded-lg text-[9px] font-black uppercase tracking-widest">
+            className="h-9 flex-1 rounded-lg text-[12px] font-semibold">
             {saving ? <Loader className="w-3 h-3 animate-spin" /> : 'Save'}
           </Button>
           <Button size="sm" variant="outline" onClick={() => { setDraft(value || ''); setEditing(false); }}
-            className="h-9 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest border-2">
+            className="h-9 px-3 rounded-lg text-[12px] font-semibold border">
             Cancel
           </Button>
         </div>
@@ -706,31 +707,31 @@ const EditableNoteRow = ({
   if (!value) {
     return (
       <button onClick={() => setEditing(true)}
-        className={cn('w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border-2 border-dashed transition-all text-left min-h-[44px] hover:bg-muted/20', tone.dashed)}>
+        className={cn('w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border transition-all text-left min-h-[44px] hover:bg-muted/20', tone.dashed)}>
         <PenLine className={cn('w-3.5 h-3.5 shrink-0', tone.dot)} />
-        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-50">Add {tone.label.toLowerCase()}</span>
+        <span className="text-[12px] font-semibold text-muted-foreground opacity-50">Add {tone.label.toLowerCase()}</span>
       </button>
     );
   }
 
   return (
-    <div className={cn('rounded-2xl border-2 p-4 space-y-2', tone.ring)}>
+    <div className={cn('rounded-2xl border p-4 space-y-2', tone.ring)}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 min-w-0">
           <Icon className={cn('w-3.5 h-3.5 shrink-0 mt-px', tone.dot)} />
           {/* Label and provenance stack rather than sharing one line — on a
               phone "Service note · From checkout · Jul 25" truncated. */}
           <div className="min-w-0">
-            <span className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 truncate">{tone.label}</span>
+            <span className="block text-[12px] font-semibold text-muted-foreground opacity-60 truncate">{tone.label}</span>
             {provenance && (
-              <span className="block text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 truncate">{provenance}</span>
+              <span className="block text-[12px] font-bold text-muted-foreground opacity-40 truncate">{provenance}</span>
             )}
           </div>
         </div>
         {/* h-8 keeps the row visually tight; the -inset-2 pseudo-element gives
             it a ~48px touch target on a phone without growing the layout. */}
         <Button variant="ghost" size="sm" onClick={() => { setDraft(value); setEditing(true); }}
-          className="relative h-8 px-2.5 text-[8px] font-black uppercase tracking-widest rounded-lg shrink-0 after:absolute after:-inset-2 after:content-['']">
+          className="relative h-8 px-2.5 text-[12px] font-semibold rounded-lg shrink-0 after:absolute after:-inset-2 after:content-['']">
           <Edit className="w-2.5 h-2.5 mr-1" /> Edit
         </Button>
       </div>
@@ -773,10 +774,10 @@ const AppointmentNotesPanel = ({
           from every other note. Repeated here so one place answers "what do we
           know about this appointment." */}
       {resolutionNote && (
-        <div className="rounded-2xl border-2 border-slate-300 bg-slate-50 p-4 space-y-2">
+        <div className="rounded-2xl border border-slate-300 bg-slate-50 p-4 space-y-2">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+            <span className="text-[12px] font-semibold text-muted-foreground opacity-60">
               Escalation resolved
               {appointment?.resolvedAt && ` · ${fmtDT(appointment.resolvedAt, 'MMM d')}`}
             </span>
@@ -846,17 +847,17 @@ const VisitOutcomePanel = ({
 
   if (existing && !editing) {
     return (
-      <div className="rounded-2xl border-2 border-primary/10 bg-primary/[0.02] p-4 space-y-2.5">
+      <div className="rounded-2xl border border-primary/10 bg-primary/[0.02] p-4 space-y-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
             <HeartPulse className="w-3.5 h-3.5 text-primary/50 shrink-0" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+            <span className="text-[12px] font-semibold text-muted-foreground opacity-60">
               Visit outcome
               {existing.recordedAt && ` · ${format(safeDate(existing.recordedAt), 'MMM d')}`}
             </span>
           </div>
           <Button variant="ghost" size="sm" onClick={() => { setText(existing.text); setRating(existing.satisfactionRating); setRetail(existing.retailPurchased); setAdverse(existing.adverseReaction); setEditing(true); }}
-            className="h-6 px-2 text-[8px] font-black uppercase tracking-widest rounded-lg">
+            className="h-6 px-2 text-[12px] font-semibold rounded-lg">
             <Edit className="w-2.5 h-2.5 mr-1" /> Edit
           </Button>
         </div>
@@ -870,10 +871,10 @@ const VisitOutcomePanel = ({
             </span>
           )}
           {existing.retailPurchased && (
-            <span className="text-[9px] font-bold text-green-700 uppercase flex items-center gap-1"><Gift className="w-2.5 h-2.5" /> {existing.retailPurchased}</span>
+            <span className="text-[12px] font-bold text-green-700 flex items-center gap-1"><Gift className="w-2.5 h-2.5" /> {existing.retailPurchased}</span>
           )}
           {existing.adverseReaction && (
-            <span className="text-[9px] font-black text-destructive uppercase flex items-center gap-1"><AlertTriangle className="w-2.5 h-2.5" /> Adverse reaction noted</span>
+            <span className="text-[12px] font-semibold text-destructive flex items-center gap-1"><AlertTriangle className="w-2.5 h-2.5" /> Adverse reaction noted</span>
           )}
         </div>
       </div>
@@ -882,7 +883,7 @@ const VisitOutcomePanel = ({
 
   if (editing) {
     return (
-      <div className="space-y-2.5 p-4 rounded-2xl border-2 border-primary/20 bg-primary/[0.02]">
+      <div className="space-y-2.5 p-4 rounded-2xl border border-primary/20 bg-primary/[0.02]">
         <Textarea
           value={text}
           onChange={e => setText(e.target.value)}
@@ -898,7 +899,7 @@ const VisitOutcomePanel = ({
         />
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-1">
-            <span className="text-[9px] font-black uppercase text-muted-foreground mr-1">Satisfaction</span>
+            <span className="text-[12px] font-semibold text-muted-foreground mr-1">Satisfaction</span>
             {Array.from({ length: 5 }).map((_, i) => (
               <button key={i} type="button" onClick={() => setRating(i + 1)}>
                 <Star className={cn('w-4 h-4', i < (rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground opacity-20')} />
@@ -908,18 +909,18 @@ const VisitOutcomePanel = ({
           <button
             type="button"
             onClick={() => setAdverse(v => !v)}
-            className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border-2 text-[8px] font-black uppercase tracking-widest transition-all', adverse ? 'border-destructive bg-destructive/5 text-destructive' : 'border-muted text-muted-foreground')}
+            className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] font-semibold  transition-all', adverse ? 'border-destructive bg-destructive/5 text-destructive' : 'border-muted text-muted-foreground')}
           >
             <AlertTriangle className="w-3 h-3" /> Adverse reaction
           </button>
         </div>
         <div className="flex gap-2">
           <Button size="sm" onClick={handleSave} disabled={saving}
-            className="h-8 flex-1 rounded-lg text-[9px] font-black uppercase tracking-widest">
+            className="h-8 flex-1 rounded-lg text-[12px] font-semibold">
             {saving ? <Loader className="w-3 h-3 animate-spin" /> : 'Save Outcome'}
           </Button>
           <Button size="sm" variant="outline" onClick={() => setEditing(false)}
-            className="h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest border-2">
+            className="h-8 px-3 rounded-lg text-[12px] font-semibold border">
             Cancel
           </Button>
         </div>
@@ -929,9 +930,9 @@ const VisitOutcomePanel = ({
 
   return (
     <button onClick={() => setEditing(true)}
-      className="w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border-2 border-dashed border-primary/15 bg-primary/[0.015] hover:bg-primary/[0.04] hover:border-primary/30 transition-all text-left">
+      className="w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border border-primary/15 bg-primary/[0.015] hover:bg-primary/[0.04] hover:border-primary/30 transition-all text-left">
       <HeartPulse className="w-3.5 h-3.5 text-primary/40" />
-      <span className="text-[10px] font-black uppercase tracking-widest text-primary/40">Record visit outcome</span>
+      <span className="text-[12px] font-semibold text-primary/40">Record visit outcome</span>
     </button>
   );
 };
@@ -970,7 +971,7 @@ const AfterPhotoPanel = ({ appointment, tenantId, firestore }: { appointment: an
       {afterPhotos.length > 0 && (
         <div className="grid grid-cols-4 gap-2">
           {afterPhotos.map((url, i) => (
-            <div key={i} className="relative aspect-square rounded-xl overflow-hidden border-2 border-green-100 bg-muted/5">
+            <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-green-100 bg-muted/5">
               <img src={url} alt="After photo" className="w-full h-full object-cover" />
             </div>
           ))}
@@ -981,11 +982,11 @@ const AfterPhotoPanel = ({ appointment, tenantId, firestore }: { appointment: an
         onClick={() => inputRef.current?.click()}
         disabled={uploading}
         className={cn(
-          'w-full flex items-center justify-center gap-2.5 px-4 py-3 rounded-2xl border-2 border-dashed transition-all',
+          'w-full flex items-center justify-center gap-2.5 px-4 py-3 rounded-2xl border transition-all',
           afterPhotos.length > 0 ? 'border-green-200 bg-green-50/50 hover:bg-green-50' : 'border-primary/15 bg-primary/[0.015] hover:bg-primary/[0.04] hover:border-primary/30'
         )}>
         {uploading ? <Loader className="w-4 h-4 animate-spin text-primary/40" /> : <ImagePlus className="w-3.5 h-3.5 text-primary/40" />}
-        <span className="text-[10px] font-black uppercase tracking-widest text-primary/40">
+        <span className="text-[12px] font-semibold text-primary/40">
           {uploading ? 'Uploading…' : afterPhotos.length > 0 ? 'Add more after photos' : 'Attach after photos'}
         </span>
       </button>
@@ -1053,74 +1054,74 @@ const CancellationRecord = ({
 
   if (!audit) {
     return (
-      <div className="rounded-[1.75rem] bg-destructive/5 border-2 border-destructive/20 overflow-hidden p-5">
+      <div className="rounded-[1.75rem] bg-destructive/5 border border-destructive/20 overflow-hidden p-5">
         <div className="flex items-center gap-2.5">
           <Ban className="w-5 h-5 text-destructive shrink-0" />
-          <p className="text-[11px] font-black uppercase tracking-widest text-destructive leading-tight">Cancelled</p>
+          <p className="text-[11px] font-semibold text-destructive leading-tight">Cancelled</p>
         </div>
-        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight mt-2 pl-7 opacity-60">No further cancellation detail was recorded for this appointment.</p>
+        <p className="text-[12px] font-bold text-muted-foreground tracking-tight mt-2 pl-7 opacity-60">No further cancellation detail was recorded for this appointment.</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-[1.75rem] bg-destructive/5 border-2 border-destructive/20 overflow-hidden">
+    <div className="rounded-[1.75rem] bg-destructive/5 border border-destructive/20 overflow-hidden">
       <div className="p-5 space-y-2.5">
         <div className="flex items-center gap-2.5">
           {isNoShow ? <UserX className="w-5 h-5 text-destructive shrink-0" /> : <Ban className="w-5 h-5 text-destructive shrink-0" />}
           <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-widest text-destructive leading-tight">
+            <p className="text-[11px] font-semibold text-destructive leading-tight">
               {isNoShow ? 'No-Show' : `Cancelled by ${actorLabel}`}
             </p>
-            {audit?.timestamp && <p className="text-[9px] font-bold text-destructive/60 uppercase tracking-wide">{fmtDT(audit.timestamp, 'MMM d, yyyy · h:mm a')}</p>}
+            {audit?.timestamp && <p className="text-[12px] font-bold text-destructive/60 tracking-wide">{fmtDT(audit.timestamp, 'MMM d, yyyy · h:mm a')}</p>}
           </div>
         </div>
-        {reasonText && <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed pl-7">{reasonText}{audit?.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}</p>}
+        {reasonText && <p className="text-[12px] font-bold text-slate-600 tracking-tight leading-relaxed pl-7">{reasonText}{audit?.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}</p>}
         {isNoShow && safeNumber(appointment.lateTimeMinutes) > 0 && (
-          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight pl-7 opacity-70">
+          <p className="text-[12px] font-bold text-muted-foreground tracking-tight pl-7 opacity-70">
             {appointment.noShowConfirmedBy ? `Confirmed by ${staffName(appointment.noShowConfirmedBy, staff)}` : `Automatically flagged after ${appointment.lateTimeMinutes}m past start`}
           </p>
         )}
       </div>
       <div className="px-5 pb-5 space-y-2">
-        <div className="rounded-2xl bg-white border-2 border-destructive/10 divide-y divide-dashed divide-muted/40">
+        <div className="rounded-2xl bg-white border border-destructive/10 divide-y divide-dashed divide-muted/40">
           {rows.map((r, i) => (
             <div key={i} className="flex items-center justify-between px-4 py-3">
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{r.label}</span>
-              <span className={cn('text-[11px] font-black uppercase tracking-tight font-mono', r.tone)}>{r.value}</span>
+              <span className="text-[12px] font-semibold text-muted-foreground">{r.label}</span>
+              <span className={cn('text-[11px] font-semibold tracking-tight font-mono', r.tone)}>{r.value}</span>
             </div>
           ))}
         </div>
         {showWaiverRow && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-green-50 border-2 border-green-200">
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-green-50 border border-green-200">
             <HeartHandshake className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
-            <p className="text-[9px] font-black uppercase tracking-wide text-green-700 leading-relaxed">
+            <p className="text-[12px] font-semibold tracking-wide text-green-700 leading-relaxed">
               Fee waived by {staffName(appointment.waivedBy, staff)}{appointment.waivedReason ? ` — "${appointment.waivedReason}"` : ''}
             </p>
           </div>
         )}
         {chargeOutcomeKnown && cancellationEvent.errorMessage && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border-2 border-red-200">
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200">
             <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
-            <p className="text-[9px] font-black uppercase tracking-wide text-destructive leading-relaxed">Stripe error: {cancellationEvent.errorMessage}</p>
+            <p className="text-[12px] font-semibold tracking-wide text-destructive leading-relaxed">Stripe error: {cancellationEvent.errorMessage}</p>
           </div>
         )}
         {feeMarkedButMissing && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border-2 border-amber-200">
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-[9px] font-black uppercase tracking-wide text-amber-700 leading-relaxed">A ${feeCharged.toFixed(2)} fee was marked but no matching charge is in the ledger — verify the card was actually run.</p>
+            <p className="text-[12px] font-semibold tracking-wide text-amber-700 leading-relaxed">A ${feeCharged.toFixed(2)} fee was marked but no matching charge is in the ledger — verify the card was actually run.</p>
           </div>
         )}
         {refundPending && (
-          <div className="p-3.5 rounded-xl bg-blue-50 border-2 border-blue-200 space-y-2.5">
-            <p className="text-[9px] font-black uppercase tracking-wide text-blue-800 flex items-center gap-1.5">
+          <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 space-y-2.5">
+            <p className="text-[12px] font-semibold tracking-wide text-blue-800 flex items-center gap-1.5">
               <Wallet className="w-3.5 h-3.5" /> Deposit refund pending — ${safeNumber(depositDecision.amountDollars).toFixed(2)}
             </p>
             <div className="flex gap-2">
-              <Button size="sm" onClick={onProcessRefund} disabled={isProcessingRefund} className="h-8 flex-1 rounded-lg text-[8px] font-black uppercase tracking-widest">
+              <Button size="sm" onClick={onProcessRefund} disabled={isProcessingRefund} className="h-8 flex-1 rounded-lg text-[12px] font-semibold">
                 {isProcessingRefund ? <Loader className="w-3 h-3 animate-spin" /> : 'Refund to Card'}
               </Button>
-              <Button size="sm" variant="outline" onClick={onKeepAsCredit} disabled={isProcessingRefund} className="h-8 flex-1 rounded-lg text-[8px] font-black uppercase tracking-widest border-2">
+              <Button size="sm" variant="outline" onClick={onKeepAsCredit} disabled={isProcessingRefund} className="h-8 flex-1 rounded-lg text-[12px] font-semibold border">
                 Keep as Credit
               </Button>
             </div>
@@ -1128,14 +1129,14 @@ const CancellationRecord = ({
         )}
         {aptTxns.length > 0 && (
           <div className="space-y-1.5 pt-1">
-            <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-50 pl-1">Ledger Receipts</p>
+            <p className="text-[12px] font-semibold text-muted-foreground opacity-50 pl-1">Ledger Receipts</p>
             {aptTxns.map((t: any) => (
               <div key={t.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/10 border border-muted/30">
                 <div className="min-w-0 flex items-center gap-2">
                   <History className="w-3 h-3 text-muted-foreground opacity-40 shrink-0" />
-                  <span className="text-[9px] font-bold uppercase tracking-tight text-slate-600 truncate">{String(t.description || t.category || 'Transaction')}</span>
+                  <span className="text-[12px] font-bold tracking-tight text-slate-600 truncate">{String(t.description || t.category || 'Transaction')}</span>
                 </div>
-                <span className={cn('text-[10px] font-black font-mono shrink-0 ml-2', t.type === 'income' ? 'text-green-600' : t.type === 'refund' || t.type === 'reversal' ? 'text-slate-400' : t.type === 'store_credit_issued' ? 'text-primary' : 'text-amber-600')}>
+                <span className={cn('text-[12px] font-semibold font-mono shrink-0 ml-2', t.type === 'income' ? 'text-green-600' : t.type === 'refund' || t.type === 'reversal' ? 'text-slate-400' : t.type === 'store_credit_issued' ? 'text-primary' : 'text-amber-600')}>
                   {t.type === 'income' ? '+' : t.type === 'refund' || t.type === 'reversal' ? '−' : ''}${Math.abs(safeNumber(t.amount)).toFixed(2)}
                 </span>
               </div>
@@ -1175,86 +1176,86 @@ const CompletionReceipt = ({ appointment, transactions, staff, providers }: { ap
     : null;
 
   return (
-    <div className="rounded-[1.75rem] bg-green-50 border-2 border-green-200 overflow-hidden">
+    <div className="rounded-[1.75rem] bg-green-50 border border-green-200 overflow-hidden">
       <div className="p-5 flex items-center gap-2.5">
         <Receipt className="w-5 h-5 text-green-600 shrink-0" />
         <div>
-          <p className="text-[11px] font-black uppercase tracking-widest text-green-700 leading-tight">Session Completed</p>
-          {appointment.actualEndTime && <p className="text-[9px] font-bold text-green-700/60 uppercase tracking-wide">{format(safeDate(appointment.actualEndTime), 'MMM d, yyyy · h:mm a')}</p>}
+          <p className="text-[11px] font-semibold text-green-700 leading-tight">Session Completed</p>
+          {appointment.actualEndTime && <p className="text-[12px] font-bold text-green-700/60 tracking-wide">{format(safeDate(appointment.actualEndTime), 'MMM d, yyyy · h:mm a')}</p>}
         </div>
         {duration && (
-          <div className="ml-auto flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-green-600/60">
+          <div className="ml-auto flex items-center gap-1 text-[12px] font-semibold text-green-600/60">
             <Clock className="w-3 h-3" /> {duration}m
           </div>
         )}
       </div>
       <div className="px-5 pb-5">
-        <div className="rounded-2xl bg-white border-2 border-green-100 divide-y divide-dashed divide-muted/30">
+        <div className="rounded-2xl bg-white border border-green-100 divide-y divide-dashed divide-muted/30">
           <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Service Revenue</span>
-            <span className="text-[11px] font-black font-mono">${serviceRevenue.toFixed(2)}</span>
+            <span className="text-[12px] font-semibold text-muted-foreground">Service Revenue</span>
+            <span className="text-[11px] font-semibold font-mono">${serviceRevenue.toFixed(2)}</span>
           </div>
           {adjustments > 0 && (
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Adjustments</span>
-              <span className="text-[11px] font-black font-mono text-amber-600">${adjustments.toFixed(2)}</span>
+              <span className="text-[12px] font-semibold text-muted-foreground">Adjustments</span>
+              <span className="text-[11px] font-semibold font-mono text-amber-600">${adjustments.toFixed(2)}</span>
             </div>
           )}
           {discounts > 0 && (
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+              <span className="text-[12px] font-semibold text-muted-foreground">
                 Discount{promoCode ? ` · ${promoCode}` : ''}
               </span>
-              <span className="text-[11px] font-black font-mono text-amber-600">-${discounts.toFixed(2)}</span>
+              <span className="text-[11px] font-semibold font-mono text-amber-600">-${discounts.toFixed(2)}</span>
             </div>
           )}
           {tips > 0 && (
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Gratuity</span>
-              <span className="text-[11px] font-black font-mono text-green-600">${tips.toFixed(2)}</span>
+              <span className="text-[12px] font-semibold text-muted-foreground">Gratuity</span>
+              <span className="text-[11px] font-semibold font-mono text-green-600">${tips.toFixed(2)}</span>
             </div>
           )}
           {tax > 0 && (
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tax</span>
-              <span className="text-[11px] font-black font-mono">${tax.toFixed(2)}</span>
+              <span className="text-[12px] font-semibold text-muted-foreground">Tax</span>
+              <span className="text-[11px] font-semibold font-mono">${tax.toFixed(2)}</span>
             </div>
           )}
           {giftCardUsed > 0 && (
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1"><Gift className="w-3 h-3" /> Gift Card</span>
-              <span className="text-[11px] font-black font-mono text-primary">-${giftCardUsed.toFixed(2)}</span>
+              <span className="text-[12px] font-semibold text-muted-foreground flex items-center gap-1"><Gift className="w-3 h-3" /> Gift Card</span>
+              <span className="text-[11px] font-semibold font-mono text-primary">-${giftCardUsed.toFixed(2)}</span>
             </div>
           )}
           {/* Payment method breakdown for split payments */}
           {singleMethod ? (
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Payment</span>
-              <span className="text-[11px] font-black font-mono">{singleMethod}</span>
+              <span className="text-[12px] font-semibold text-muted-foreground">Payment</span>
+              <span className="text-[11px] font-semibold font-mono">{singleMethod}</span>
             </div>
           ) : (
             Object.entries(paymentMethods).map(([method, amount]) => (
               <div key={method} className="flex items-center justify-between px-4 py-3">
-                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{method}</span>
-                <span className="text-[11px] font-black font-mono">${amount.toFixed(2)}</span>
+                <span className="text-[12px] font-semibold text-muted-foreground">{method}</span>
+                <span className="text-[11px] font-semibold font-mono">${amount.toFixed(2)}</span>
               </div>
             ))
           )}
           <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Performed By</span>
-            <span className="text-[11px] font-black font-mono">{completedByName}</span>
+            <span className="text-[12px] font-semibold text-muted-foreground">Performed By</span>
+            <span className="text-[11px] font-semibold font-mono">{completedByName}</span>
           </div>
           {otherProviders.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Also Worked By</span>
-              <span className="text-[10px] font-black font-mono text-right">
+              <span className="text-[12px] font-semibold text-muted-foreground">Also Worked By</span>
+              <span className="text-[12px] font-semibold font-mono text-right">
                 {otherProviders.map(p => p.staffMember?.name || 'Staff').join(', ')}
               </span>
             </div>
           )}
           <div className="flex items-center justify-between px-4 py-3 bg-green-50/50">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-700">Total Collected</span>
-            <span className="text-[13px] font-black font-mono text-primary">${total.toFixed(2)}</span>
+            <span className="text-[12px] font-semibold text-slate-700">Total Collected</span>
+            <span className="text-[13px] font-semibold font-mono text-primary">${total.toFixed(2)}</span>
           </div>
         </div>
       </div>
@@ -1296,18 +1297,18 @@ export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposi
 
   if (flags.depositRequired && isLoadingDeposit) {
     return (
-      <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-muted/10 border-2 border-muted/30">
+      <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-muted/10 border border-muted/30">
         <Loader className="w-4 h-4 text-muted-foreground animate-spin shrink-0" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Verifying deposit status…</p>
+        <p className="text-[12px] font-semibold text-muted-foreground">Verifying deposit status…</p>
       </div>
     );
   }
 
   if (blockers.length === 0) {
     return (
-      <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-green-50 border-2 border-green-200">
+      <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-green-50 border border-green-200">
         <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-green-700">Ready to start — all requirements met</p>
+        <p className="text-[12px] font-semibold text-green-700">Ready to start — all requirements met</p>
       </div>
     );
   }
@@ -1319,9 +1320,9 @@ export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposi
   return (
     <div className="space-y-2">
       {blockers.map((b, i) => (
-        <div key={i} className={cn('flex items-start gap-3 p-4 rounded-2xl border-2', BG[b.level])}>
+        <div key={i} className={cn('flex items-start gap-3 p-4 rounded-2xl border', BG[b.level])}>
           <AlertTriangle className={cn('w-4 h-4 shrink-0 mt-0.5', IC[b.level])} />
-          <p className={cn('text-[10px] font-black uppercase tracking-wide leading-snug', TX[b.level])}>{b.msg}</p>
+          <p className={cn('text-[12px] font-semibold tracking-wide leading-snug', TX[b.level])}>{b.msg}</p>
         </div>
       ))}
     </div>
@@ -1409,18 +1410,18 @@ const MidServiceHandoffDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-3xl border-2 max-w-md">
+      <DialogContent className="rounded-3xl border max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+          <DialogTitle className="text-sm font-semibold tracking-tight flex items-center gap-2">
             <Repeat2 className="w-4 h-4 text-primary" /> Mid-Session Handoff
           </DialogTitle>
-          <DialogDescription className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground leading-relaxed">
+          <DialogDescription className="text-[12px] font-bold tracking-wide text-muted-foreground leading-relaxed">
             Reassign a provider while the session is already underway. This is logged with its own timestamp on the activity timeline.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label className="text-[9px] font-black uppercase text-muted-foreground">Which part of the service?</Label>
+            <Label className="text-[12px] font-semibold text-muted-foreground">Which part of the service?</Label>
             <div className="grid gap-2">
               {assignableServices.map((s) => (
                 <button
@@ -1428,15 +1429,15 @@ const MidServiceHandoffDialog = ({
                   type="button"
                   onClick={() => { setSelectedServiceId(s.id); setSelectedStaffId(''); }}
                   className={cn(
-                    'flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all',
+                    'flex items-center justify-between p-3 rounded-xl border text-left transition-all',
                     selectedServiceId === s.id ? 'border-primary bg-primary/5' : 'border-border bg-white'
                   )}
                 >
-                  <span className="text-[10px] font-black uppercase tracking-tight flex items-center gap-2 min-w-0">
-                    {s.isLead && <Badge className="h-4 px-1.5 text-[7px] bg-primary text-white border-none shrink-0">LEAD</Badge>}
+                  <span className="text-[12px] font-semibold tracking-tight flex items-center gap-2 min-w-0">
+                    {s.isLead && <Badge className="h-4 px-1.5 text-[12px] bg-primary text-white border-none shrink-0">LEAD</Badge>}
                     <span className="truncate">{s.name}</span>
                   </span>
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase shrink-0 ml-2">
+                  <span className="text-[12px] font-bold text-muted-foreground shrink-0 ml-2">
                     Now: {staffName(s.currentStaffId, staff)}
                   </span>
                 </button>
@@ -1445,7 +1446,7 @@ const MidServiceHandoffDialog = ({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-[9px] font-black uppercase text-muted-foreground">Hand off to</Label>
+            <Label className="text-[12px] font-semibold text-muted-foreground">Hand off to</Label>
             <div className="grid gap-2 max-h-40 overflow-y-auto">
               {eligibleStaff.map((s: any) => (
                 <button
@@ -1453,25 +1454,25 @@ const MidServiceHandoffDialog = ({
                   type="button"
                   onClick={() => setSelectedStaffId(s.id)}
                   className={cn(
-                    'flex items-center gap-2.5 p-2.5 rounded-xl border-2 text-left transition-all',
+                    'flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all',
                     selectedStaffId === s.id ? 'border-primary bg-primary/5' : 'border-border bg-white'
                   )}
                 >
                   <Avatar className="h-6 w-6 border shrink-0">
                     <AvatarImage src={s.avatarUrl} className="object-cover" />
-                    <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(s.name || 'S')[0]}</AvatarFallback>
+                    <AvatarFallback className="text-[12px] font-semibold bg-primary/10 text-primary">{(s.name || 'S')[0]}</AvatarFallback>
                   </Avatar>
-                  <span className="text-[10px] font-black uppercase tracking-tight truncate">{s.name}</span>
+                  <span className="text-[12px] font-semibold tracking-tight truncate">{s.name}</span>
                 </button>
               ))}
               {eligibleStaff.length === 0 && (
-                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-50 text-center py-2">No other staff available</p>
+                <p className="text-[12px] font-bold text-muted-foreground opacity-50 text-center py-2">No other staff available</p>
               )}
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label className="text-[9px] font-black uppercase text-muted-foreground">Reason (optional)</Label>
+            <Label className="text-[12px] font-semibold text-muted-foreground">Reason (optional)</Label>
             <Textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -1481,10 +1482,10 @@ const MidServiceHandoffDialog = ({
           </div>
         </div>
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-xl font-semibold text-[12px] border">
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!selectedServiceId || !selectedStaffId || submitting} className="rounded-xl font-black uppercase text-[9px] tracking-widest">
+          <Button onClick={handleSubmit} disabled={!selectedServiceId || !selectedStaffId || submitting} className="rounded-xl font-semibold text-[12px]">
             {submitting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : 'Confirm Handoff'}
           </Button>
         </DialogFooter>
@@ -2362,9 +2363,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const IdentityHeader = (
     <div className="flex items-center gap-3 min-w-0">
       <Link href={`/clients/${client.id}`} className="shrink-0 transition-opacity hover:opacity-80">
-        <Avatar className="w-11 h-11 border-2 border-background shadow-lg rounded-2xl shrink-0">
+        <Avatar className="w-11 h-11 border border-background shadow-lg rounded-2xl shrink-0">
           <AvatarImage src={client.avatarUrl} className="object-cover" />
-          <AvatarFallback className="text-sm font-black bg-primary/10 text-primary uppercase">
+          <AvatarFallback className="text-sm font-semibold bg-primary/10 text-primary">
             {(client?.name || 'G').substring(0, 2).toUpperCase()}
           </AvatarFallback>
         </Avatar>
@@ -2372,31 +2373,31 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
           <Link href={`/clients/${client.id}`} className="hover:underline">
-            <h2 className="font-black uppercase tracking-tighter text-slate-900 truncate text-base leading-none">{client.name}</h2>
+            <h2 className="font-semibold text-slate-900 truncate text-base leading-none">{client.name}</h2>
           </Link>
-          {client.activeMembershipId && <Badge className="h-[16px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-indigo-600 text-white border-none shrink-0"><Award className="w-2 h-2 mr-0.5" />Member</Badge>}
-          {client.status === 'banned' && <Badge className="h-[16px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-black text-white border-none shrink-0"><Ban className="w-2 h-2 mr-0.5" />Banned</Badge>}
-          {client.hasOpenDispute && <Badge className="h-[16px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-purple-600 text-white border-none shrink-0"><AlertTriangle className="w-2 h-2 mr-0.5" />Dispute</Badge>}
+          {client.activeMembershipId && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-indigo-600 text-white border-none shrink-0"><Award className="w-2 h-2 mr-0.5" />Member</Badge>}
+          {client.status === 'banned' && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-black text-white border-none shrink-0"><Ban className="w-2 h-2 mr-0.5" />Banned</Badge>}
+          {client.hasOpenDispute && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-purple-600 text-white border-none shrink-0"><AlertTriangle className="w-2 h-2 mr-0.5" />Dispute</Badge>}
           <StoreCreditBadge credits={Array.isArray(availableCredits) ? availableCredits : []} totalAvailable={totalStoreCreditAvailable} />
         </div>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {client.phone && (
             <span className="flex items-center gap-1 shrink-0">
-              <a href={`tel:${client.phone}`} className="text-[9px] font-bold text-primary uppercase tracking-widest flex items-center gap-1 hover:underline">
+              <a href={`tel:${client.phone}`} className="text-[12px] font-bold text-primary flex items-center gap-1 hover:underline">
                 <Phone className="w-2.5 h-2.5" /> {safeFormatPhone(client.phone)}
               </a>
               <a href={`sms:${client.phone}`} title="Text" className="text-primary/40 hover:text-primary transition-colors"><MessageSquare className="w-3 h-3" /></a>
             </span>
           )}
           {client.email && (
-            <a href={`mailto:${client.email}`} className="text-[9px] font-bold text-primary uppercase tracking-widest truncate flex items-center gap-1 hover:underline min-w-0 max-w-[140px]">
+            <a href={`mailto:${client.email}`} className="text-[12px] font-bold text-primary truncate flex items-center gap-1 hover:underline min-w-0 max-w-[140px]">
               <Mail className="w-2.5 h-2.5 shrink-0" /><span className="truncate">{client.email}</span>
             </a>
           )}
           {/* Copyable ticket ID */}
           <button
             onClick={() => copyTicket(appointment.id)}
-            className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-50 hover:opacity-80 transition-opacity shrink-0"
+            className="flex items-center gap-1 text-[12px] font-bold text-muted-foreground opacity-50 hover:opacity-80 transition-opacity shrink-0"
             title="Copy ticket ID"
           >
             {ticketCopied ? <Check className="w-2.5 h-2.5 text-green-600" /> : <Hash className="w-2.5 h-2.5" />}
@@ -2405,7 +2406,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </div>
       </div>
       <Badge variant="outline" className={cn(
-        'h-6 px-2 rounded-full font-black uppercase text-[8px] tracking-widest border-2 shrink-0',
+        'h-6 px-2 rounded-full font-semibold text-[12px]  border shrink-0',
         isCancelled ? 'border-destructive/30 text-destructive bg-destructive/5'
         : isCompleted ? 'border-green-300 text-green-700 bg-green-50'
         : canFinish ? 'border-primary/30 text-primary bg-primary/5'
@@ -2437,22 +2438,22 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {/* ── Live timer ─────────────────────────────────────────────────── */}
         {appointment.status === 'servicing' && elapsedTime && (
           <div className={cn('rounded-2xl border-4 text-center p-4 transition-all', isRunningOver ? 'bg-destructive/5 border-destructive animate-pulse' : 'bg-primary/5 border-primary/20')}>
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary mb-1">Live Session Time</p>
-            <p className={cn('font-black font-mono tracking-tighter text-4xl', isRunningOver ? 'text-destructive' : 'text-primary')}>{elapsedTime}</p>
-            {isRunningOver && <p className="text-[8px] font-black uppercase tracking-widest text-destructive/60 mt-1">Running over by {Math.floor(differenceInSeconds(new Date(), safeDate(appointment.actualStartTime)) / 60) - (service?.duration || 0)}m</p>}
+            <p className="text-[12px] font-semibold text-primary mb-1">Live Session Time</p>
+            <p className={cn('font-semibold font-mono  text-4xl', isRunningOver ? 'text-destructive' : 'text-primary')}>{elapsedTime}</p>
+            {isRunningOver && <p className="text-[12px] font-semibold text-destructive/60 mt-1">Running over by {Math.floor(differenceInSeconds(new Date(), safeDate(appointment.actualStartTime)) / 60) - (service?.duration || 0)}m</p>}
             <button
               onClick={() => setIsHandoffOpen(true)}
-              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border-2 border-dashed border-primary/20 bg-white/60 hover:bg-white hover:border-primary/40 transition-all"
+              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-primary/20 bg-white/60 hover:bg-white hover:border-primary/40 transition-all"
             >
               <Repeat2 className="w-3 h-3 text-primary/60" />
-              <span className="text-[8px] font-black uppercase tracking-widest text-primary/60">Client wants a different artist? Hand off now</span>
+              <span className="text-[12px] font-semibold text-primary/60">Client wants a different artist? Hand off now</span>
             </button>
           </div>
         )}
 
         {/* ── Reschedule badge ────────────────────────────────────────────── */}
         {safeNumber(appointment.rescheduleCount) > 0 && (
-          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-50 border-2 border-blue-200 text-[9px] font-bold uppercase text-blue-700">
+          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-[12px] font-bold text-blue-700">
             <RefreshCw className="w-3 h-3 shrink-0" />
             Rescheduled {appointment.rescheduleCount}×
             {appointment.lastRescheduledAt && ` · last moved ${format(safeDate(appointment.lastRescheduledAt), 'MMM d, h:mm a')}`}
@@ -2462,57 +2463,57 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         {/* ── Client intelligence ─────────────────────────────────────────── */}
         <div className="space-y-3">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+          <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
             <Activity className="w-3 h-3" /> Client Intelligence
           </h3>
           <ClientStatsBar client={client} recentVisits={recentVisits} allVisits={allClientVisits} isLoading={isLoadingClientHistory} />
           {/* Staff relationship signal */}
           {(isPreferredStaff || isFirstTimeWithStaff) && (
-            <div className={cn('flex items-center gap-2 px-3.5 py-2.5 rounded-xl border-2 text-[9px] font-bold uppercase', isPreferredStaff ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-amber-50 border-amber-200 text-amber-700')}>
+            <div className={cn('flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-[12px] font-bold', isPreferredStaff ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-amber-50 border-amber-200 text-amber-700')}>
               {isPreferredStaff ? <><Star className="w-3 h-3 shrink-0" /> Preferred artist — {allClientVisits.filter((a: any) => a.staffId === mainStaffId).length} visits together</> : <><UserCheck className="w-3 h-3 shrink-0" /> First time with {mainStaffMember?.name || 'this artist'}</>}
             </div>
           )}
           {/* Referral source */}
           {client.referralSource && (
-            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-muted/5 border-2 border-transparent text-[9px] font-bold uppercase text-muted-foreground">
+            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-muted/5 border border-transparent text-[12px] font-bold text-muted-foreground">
               <ArrowUpRight className="w-3 h-3 shrink-0 opacity-50" /> Referred via {client.referralSource}
             </div>
           )}
         </div>
 
         {/* ── Service card ─────────────────────────────────────────────────── */}
-        <Card className="rounded-[1.5rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
+        <Card className="rounded-[1.5rem] border bg-muted/5 shadow-inner overflow-hidden">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-700 tracking-tight">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-700 tracking-tight">
                 <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
                 {fmtDT(appointment.startTime, 'EEE, MMM d · h:mm a')}
                 {appointment.rescheduledFromTime && (
-                  <span className="text-[9px] font-bold text-muted-foreground line-through opacity-50">
+                  <span className="text-[12px] font-bold text-muted-foreground line-through opacity-50">
                     {format(safeDate(appointment.rescheduledFromTime), 'MMM d, h:mm a')}
                   </span>
                 )}
               </div>
-              <span className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 shrink-0">
+              <span className="flex items-center gap-1 text-[12px] font-semibold text-muted-foreground opacity-60 shrink-0">
                 <SourceIcon className="w-3 h-3" /> {sourceLabel}
               </span>
             </div>
 
             {/* Multi-provider strip — shows everyone currently involved */}
             {providers.length > 1 && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-50 border-2 border-indigo-200">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-200">
                 <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                 <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                  <span className="text-[8px] font-black uppercase tracking-widest text-indigo-700 shrink-0">Multi-Provider:</span>
+                  <span className="text-[12px] font-semibold text-indigo-700 shrink-0">Multi-Provider:</span>
                   {providers.map((p) => (
                     <span key={p.staffId} className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white border border-indigo-200">
                       <Avatar className="h-3.5 w-3.5">
                         <AvatarImage src={p.staffMember?.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="text-[6px] font-black bg-primary/10 text-primary">
+                        <AvatarFallback className="text-[6px] font-semibold bg-primary/10 text-primary">
                           {(p.staffMember?.name || 'S')[0]}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="text-[8px] font-black uppercase text-indigo-700">
+                      <span className="text-[12px] font-semibold text-indigo-700">
                         {p.staffMember?.name || 'Staff'}
                         {p.isMain ? ' (Lead)' : p.services.some(sv => sv.isConcurrent) ? ' (Concurrent)' : ''}
                       </span>
@@ -2524,23 +2525,23 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
             <div className="flex justify-between items-start gap-4">
               <div className="space-y-1 min-w-0 flex-1">
-                <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p>
-                <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                <p className="font-semibold text-base tracking-tight text-slate-900 truncate leading-tight">{service.name}</p>
+                <div className="flex items-center gap-2 text-[12px] font-bold text-muted-foreground">
                   <Clock className="w-2.5 h-2.5" /> {service.duration}m
                   {(appointment.addOnIds || []).length > 0 && <span className="opacity-60">· {(appointment.addOnIds || []).length} add-on{(appointment.addOnIds || []).length !== 1 ? 's' : ''}</span>}
                 </div>
                 <div className="flex items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-primary/10">
                   <Avatar className="h-5 w-5 border shadow-sm">
                     <AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" />
-                    <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback>
+                    <AvatarFallback className="text-[12px] font-semibold bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback>
                   </Avatar>
-                  <span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span>
+                  <span className="text-[12px] font-semibold text-primary truncate">{mainStaffMember?.name || 'Unassigned'}</span>
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-2xl font-black text-primary tracking-tighter font-mono">${(financialData?.revenue ?? 0).toFixed(2)}</p>
+                <p className="text-2xl font-semibold text-primary font-mono">${(financialData?.revenue ?? 0).toFixed(2)}</p>
                 {financialData?.vsAverage !== null && financialData?.vsAverage !== undefined && (
-                  <p className={cn('text-[8px] font-black uppercase tracking-widest', financialData.vsAverage >= 0 ? 'text-green-600' : 'text-amber-600')}>
+                  <p className={cn('text-[12px] font-semibold ', financialData.vsAverage >= 0 ? 'text-green-600' : 'text-amber-600')}>
                     {financialData.vsAverage >= 0 ? '↑' : '↓'} {Math.abs(financialData.vsAverage).toFixed(0)}% vs avg
                   </p>
                 )}
@@ -2556,7 +2557,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   const isConcurrent = (appointment.checkoutState?.concurrentServiceIds || []).includes(id);
                   const assignedStaffMember = isDifferentProvider ? (staff || []).find((st: any) => st.id === assignedStaffId) : null;
                   return (
-                    <div key={id} className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground bg-white p-2 rounded-lg border border-muted/20">
+                    <div key={id} className="flex items-center justify-between text-[12px] font-bold text-muted-foreground bg-white p-2 rounded-lg border border-muted/20">
                       <span className="truncate flex items-center gap-2 min-w-0">
                         <Sparkles className="w-3 h-3 shrink-0" />
                         <span className="truncate">{s.name}</span>
@@ -2564,12 +2565,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                           <span className="flex items-center gap-1 shrink-0 text-primary/70 normal-case">
                             <Avatar className="h-3.5 w-3.5 border shrink-0">
                               <AvatarImage src={assignedStaffMember?.avatarUrl} className="object-cover" />
-                              <AvatarFallback className="text-[6px] font-black bg-primary/10 text-primary">
+                              <AvatarFallback className="text-[6px] font-semibold bg-primary/10 text-primary">
                                 {(assignedStaffMember?.name || 'S')[0]}
                               </AvatarFallback>
                             </Avatar>
                             {assignedStaffMember?.name || 'Staff'}
-                            {isConcurrent && <span className="text-[7px] font-black px-1 rounded bg-indigo-100 text-indigo-700 shrink-0">CONCURRENT</span>}
+                            {isConcurrent && <span className="text-[12px] font-semibold px-1 rounded bg-indigo-100 text-indigo-700 shrink-0">CONCURRENT</span>}
                           </span>
                         )}
                       </span>
@@ -2583,11 +2584,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             {appointment.promoCode && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
                 <BadgePercent className="w-3 h-3 text-amber-600 shrink-0" />
-                <span className="text-[9px] font-black uppercase tracking-widest text-amber-700">Promo: {appointment.promoCode}</span>
+                <span className="text-[12px] font-semibold text-amber-700">Promo: {appointment.promoCode}</span>
               </div>
             )}
             {!isCancelled && (
-              <Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-7 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 w-fit">
+              <Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-7 px-2 text-[12px] font-semibold text-primary border border-primary/20 rounded-lg hover:bg-primary/5 w-fit">
                 <PlusCircle className="w-3 h-3 mr-1" /> Add Part
               </Button>
             )}
@@ -2597,17 +2598,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {/* ── Financial summary (active appointments only) ──────────────── */}
         {!isCancelled && !isCompleted && (
           <div className="space-y-3">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+            <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
               <DollarSign className="w-3 h-3" /> Financial Summary
             </h3>
-            <div className="rounded-2xl border-2 bg-white shadow-inner divide-y divide-dashed divide-muted/30 px-4">
+            <div className="rounded-2xl border bg-white shadow-inner divide-y divide-dashed divide-muted/30 px-4">
               <RequirementRow
                 icon={<Wallet className="w-3.5 h-3.5" />} label="Deposit"
                 status={appointment.depositStatus === 'paid' ? 'good' : depositOwedCents > 0 ? 'bad' : 'neutral'}
                 value={appointment.depositStatus === 'paid' ? `Paid $${(depositOwedCents / 100).toFixed(2)}` : depositOwedCents > 0 ? `Due $${(depositOwedCents / 100).toFixed(2)}` : '—'}
                 action={canCollectDepositNow && (
                   <Button size="sm" onClick={handleCollectDepositNow} disabled={isCollectingDeposit}
-                    className="h-7 px-2.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-md shadow-primary/20">
+                    className="h-7 px-2.5 rounded-lg text-[12px] font-semibold shadow-md shadow-primary/20">
                     {isCollectingDeposit ? <Loader className="w-3 h-3 animate-spin" /> : <><CreditCard className="w-3 h-3 mr-1" />Collect</>}
                   </Button>
                 )}
@@ -2632,7 +2633,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               </div>
             </div>
             {canCollectDepositNow && (
-              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 leading-relaxed pl-1">
+              <p className="text-[12px] font-bold text-muted-foreground tracking-tight opacity-60 leading-relaxed pl-1">
                 Card on file but no deposit was collected — charge it now instead of waiting on a link.
               </p>
             )}
@@ -2646,7 +2647,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             Previously only the session log appeared here, so a note typed at
             checkout was saved and then never shown. */}
         <div className="space-y-2">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+          <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
             <StickyNote className="w-3 h-3" /> Notes
           </h3>
           <AppointmentNotesPanel
@@ -2658,7 +2659,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {/* ── After photos (completed only) ───────────────────────────────── */}
         {isCompleted && (
           <div className="space-y-2">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+            <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
               <Camera className="w-3 h-3" /> After Photos
             </h3>
             <AfterPhotoPanel appointment={appointment} tenantId={tenantId!} firestore={firestore} />
@@ -2668,7 +2669,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {/* ── Visit outcome (v2 — completed only) ─────────────────────────── */}
         {isCompleted && (
           <div className="space-y-2">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+            <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
               <HeartPulse className="w-3 h-3" /> Visit Outcome
             </h3>
             <VisitOutcomePanel
@@ -2680,17 +2681,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {/* ── Requirements & intake ───────────────────────────────────────── */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Requirements & Intake</h3>
-            <Badge className={cn('text-[8px] font-black uppercase h-5 px-2 border-none text-white shadow-sm', appointment.completionStatus === 'complete' ? 'bg-green-500' : appointment.completionStatus === 'pending' ? 'bg-amber-500' : 'bg-slate-400')}>
+            <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Requirements & Intake</h3>
+            <Badge className={cn('text-[12px] font-semibold h-5 px-2 border-none text-white shadow-sm', appointment.completionStatus === 'complete' ? 'bg-green-500' : appointment.completionStatus === 'pending' ? 'bg-amber-500' : 'bg-slate-400')}>
               {appointment.completionStatus === 'complete' ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Complete</> : appointment.completionStatus === 'pending' ? <><Clock className="w-2 h-2 mr-1" /> Awaiting Client</> : 'None Requested'}
             </Badge>
           </div>
 
           {complianceInfo.healthPendingForms.length > 0 && (
-            <div className="rounded-2xl bg-red-50 border-2 border-red-300 p-3.5 space-y-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-red-700 flex items-center gap-1.5"><HeartPulse className="w-3 h-3" /> Health Disclosure Required</p>
+            <div className="rounded-2xl bg-red-50 border border-red-300 p-3.5 space-y-2">
+              <p className="text-[12px] font-semibold text-red-700 flex items-center gap-1.5"><HeartPulse className="w-3 h-3" /> Health Disclosure Required</p>
               {complianceInfo.healthPendingForms.map(f => (
-                <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-red-700 bg-white/70 p-2 rounded-lg border border-red-200">
+                <div key={f.id} className="flex items-center justify-between text-[12px] font-bold text-red-700 bg-white/70 p-2 rounded-lg border border-red-200">
                   <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-50" /> {f.title}</span>
                   <span className="shrink-0 ml-4 opacity-70">Unsigned</span>
                 </div>
@@ -2698,20 +2699,20 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </div>
           )}
 
-          <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-1 shadow-inner divide-y divide-dashed divide-muted/30">
+          <div className="p-4 rounded-2xl bg-muted/10 border space-y-1 shadow-inner divide-y divide-dashed divide-muted/30">
             {complianceInfo.otherPendingForms.map(f => (
-              <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-amber-700 py-2">
+              <div key={f.id} className="flex items-center justify-between text-[12px] font-bold text-amber-700 py-2">
                 <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-40" /> {f.title}</span>
                 <span className="shrink-0 ml-4">Required</span>
               </div>
             ))}
             {complianceInfo.allCertified && (
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase text-green-600 py-1">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-green-600 py-1">
                 <CheckCircle2 className="w-3 h-3" /> All consent forms signed
               </div>
             )}
             <div className="pt-2">
-              <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
+              <Button variant="ghost" className="w-full h-10 rounded-xl font-semibold text-[12px] text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
                 <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
               </Button>
             </div>
@@ -2720,7 +2721,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               const otherFiles = (rf.files || []).filter((f: any) => !/\.(png|jpe?g|gif|webp)$/i.test(f.name || ''));
               return (
                 <div key={rf.requirementId} className="space-y-2 pt-2">
-                  <div className="flex items-center justify-between text-[10px] font-black uppercase">
+                  <div className="flex items-center justify-between text-[12px] font-semibold">
                     <span className="flex items-center gap-2 text-muted-foreground"><FileImage className="w-3 h-3 opacity-40" /> {rf.label || 'Files'}</span>
                     <span className="text-green-600">{(rf.files || []).length} received</span>
                   </div>
@@ -2730,14 +2731,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         <button
                           key={i}
                           onClick={async () => { const urls = await Promise.all(imageFiles.map((im: any) => resolvePrivateUrl(im.url).catch(() => im.url))); openLightbox(imageFiles.map((im: any, k: number) => ({ url: urls[k], name: im.name })), i); }}
-                          className="group relative aspect-square rounded-xl overflow-hidden border-2 bg-muted/5 cursor-zoom-in"
+                          className="group relative aspect-square rounded-xl overflow-hidden border bg-muted/5 cursor-zoom-in"
                         >
                           <PrivateImg src={f.url} alt={f.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
                             <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
                           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <p className="text-[8px] text-white font-bold truncate">{f.name}</p>
+                            <p className="text-[12px] text-white font-bold truncate">{f.name}</p>
                           </div>
                         </button>
                       ))}
@@ -2746,9 +2747,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   {otherFiles.length > 0 && (
                     <div className="grid grid-cols-3 gap-2.5">
                       {otherFiles.map((f: any, i: number) => (
-                        <a key={i} href={f.url} onClick={(e) => { e.preventDefault(); void openPrivateFile(f.url); }} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center gap-1 aspect-square rounded-xl border-2 bg-muted/5 hover:border-primary/30 transition-colors p-2 text-center">
+                        <a key={i} href={f.url} onClick={(e) => { e.preventDefault(); void openPrivateFile(f.url); }} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center gap-1 aspect-square rounded-xl border bg-muted/5 hover:border-primary/30 transition-colors p-2 text-center">
                           <FileText className="w-5 h-5 text-muted-foreground opacity-40" />
-                          <p className="text-[8px] text-muted-foreground break-all line-clamp-2">{f.name}</p>
+                          <p className="text-[12px] text-muted-foreground break-all line-clamp-2">{f.name}</p>
                         </a>
                       ))}
                     </div>
@@ -2758,7 +2759,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             })}
             {!reqLink ? (
               !isRequestOpen ? (
-                <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10 mt-1" onClick={() => setIsRequestOpen(true)}>
+                <Button variant="ghost" className="w-full h-10 rounded-xl font-semibold text-[12px] text-primary hover:bg-primary/5 border border-primary/10 mt-1" onClick={() => setIsRequestOpen(true)}>
                   <ArrowRight className="w-3 h-3 mr-2" /> Request from Client
                 </Button>
               ) : (
@@ -2773,8 +2774,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       re-request something that's already fine. */}
                   {(complianceInfo.allFormsWithStatus || []).length > 0 && (
                     <div className="space-y-1.5">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Additional forms for this visit</p>
-                      <div className="rounded-xl border-2 divide-y overflow-hidden max-h-40 overflow-y-auto">
+                      <p className="text-[12px] font-semibold text-muted-foreground ml-1">Additional forms for this visit</p>
+                      <div className="rounded-xl border divide-y overflow-hidden max-h-40 overflow-y-auto">
                         {(complianceInfo.allFormsWithStatus || [])
                           .filter((f: any) => !(service?.requiredFormIds || []).includes(f.id)) // service defaults are already always included — no need to double-list them here
                           .map((f: any) => {
@@ -2787,13 +2788,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                                 className={cn('w-full flex items-center justify-between px-3 py-2 text-left transition-colors', isChecked ? 'bg-primary/5' : 'bg-white hover:bg-muted/10')}
                               >
                                 <span className="flex items-center gap-2 min-w-0">
-                                  <div className={cn('w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center', isChecked ? 'bg-primary border-primary' : 'border-slate-300')}>
+                                  <div className={cn('w-4 h-4 rounded border shrink-0 flex items-center justify-center', isChecked ? 'bg-primary border-primary' : 'border-slate-300')}>
                                     {isChecked && <Check className="w-2.5 h-2.5 text-white" />}
                                   </div>
-                                  <span className="text-[10px] font-bold truncate">{f.title || f.name}</span>
+                                  <span className="text-[12px] font-bold truncate">{f.title || f.name}</span>
                                 </span>
                                 {f.isSatisfied && !isChecked && (
-                                  <span className="text-[8px] font-black uppercase text-green-600 shrink-0 ml-2">On file</span>
+                                  <span className="text-[12px] font-semibold text-green-600 shrink-0 ml-2">On file</span>
                                 )}
                               </button>
                             );
@@ -2803,42 +2804,42 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   )}
 
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestPhotos ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
-                      <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"><FileImage className="w-3.5 h-3.5 text-primary shrink-0" /> Inspo photos</span>
+                    <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestPhotos ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[12px] font-semibold flex items-center gap-1.5"><FileImage className="w-3.5 h-3.5 text-primary shrink-0" /> Inspo photos</span>
                     </button>
-                    <button type="button" onClick={() => setRequestPhotoId(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestPhotoId ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
-                      <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0" /> Photo ID</span>
+                    <button type="button" onClick={() => setRequestPhotoId(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestPhotoId ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[12px] font-semibold flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0" /> Photo ID</span>
                     </button>
                   </div>
 
                   <div className="space-y-1.5">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Request a specific file (optional)</p>
+                    <p className="text-[12px] font-semibold text-muted-foreground ml-1">Request a specific file (optional)</p>
                     <Input
                       value={customFileLabel}
                       onChange={(e) => setCustomFileLabel(e.target.value)}
                       placeholder="e.g. Doctor's note, referral..."
-                      className="h-10 rounded-xl border-2 text-[11px]"
+                      className="h-10 rounded-xl border text-[11px]"
                     />
                     {customFileLabel.trim() && (
                       <label className="flex items-center gap-2 ml-1 cursor-pointer">
-                        <input type="checkbox" checked={persistCustomFile} onChange={(e) => setPersistCustomFile(e.target.checked)} className="h-3.5 w-3.5 rounded border-2 accent-primary" />
-                        <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide">Save to client profile (don't ask again)</span>
+                        <input type="checkbox" checked={persistCustomFile} onChange={(e) => setPersistCustomFile(e.target.checked)} className="h-3.5 w-3.5 rounded border accent-primary" />
+                        <span className="text-[12px] font-bold text-muted-foreground tracking-wide">Save to client profile (don't ask again)</span>
                       </label>
                     )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setRequestMarketingConsent(v => !v)} className={cn('p-3 rounded-xl border-2 text-left transition-all', requestMarketingConsent ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
-                      <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"><Camera className="w-3.5 h-3.5 text-primary shrink-0" /> Marketing consent</span>
+                    <button type="button" onClick={() => setRequestMarketingConsent(v => !v)} className={cn('p-3 rounded-xl border text-left transition-all', requestMarketingConsent ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[12px] font-semibold flex items-center gap-1.5"><Camera className="w-3.5 h-3.5 text-primary shrink-0" /> Marketing consent</span>
                     </button>
-                    <button type="button" onClick={() => setRequestEmergencyContact(v => !v)} className={cn('p-3 rounded-xl border-2 text-left transition-all', requestEmergencyContact ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
-                      <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-primary shrink-0" /> Emergency contact</span>
+                    <button type="button" onClick={() => setRequestEmergencyContact(v => !v)} className={cn('p-3 rounded-xl border text-left transition-all', requestEmergencyContact ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[12px] font-semibold flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-primary shrink-0" /> Emergency contact</span>
                     </button>
                   </div>
 
                   <div className="space-y-1.5">
-                    <button type="button" onClick={() => setRequestAcknowledgment(v => !v)} className={cn('w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestAcknowledgment ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
-                      <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><Info className="w-3.5 h-3.5 text-primary" /> Pre-appointment acknowledgment</span>
+                    <button type="button" onClick={() => setRequestAcknowledgment(v => !v)} className={cn('w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestAcknowledgment ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[12px] font-semibold flex items-center gap-2"><Info className="w-3.5 h-3.5 text-primary" /> Pre-appointment acknowledgment</span>
                       <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', requestAcknowledgment ? 'bg-primary' : 'bg-slate-200')}>
                         <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', requestAcknowledgment ? 'left-[18px]' : 'left-0.5')} />
                       </div>
@@ -2848,12 +2849,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         value={acknowledgmentText}
                         onChange={(e) => setAcknowledgmentText(e.target.value)}
                         rows={2}
-                        className="w-full rounded-xl border-2 px-3 py-2 text-[11px] resize-none"
+                        className="w-full rounded-xl border px-3 py-2 text-[11px] resize-none"
                       />
                     )}
                   </div>
 
-                  <Button onClick={handleSendRequirements} disabled={reqSending} className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                  <Button onClick={handleSendRequirements} disabled={reqSending} className="w-full h-11 rounded-xl font-semibold text-[12px] shadow-lg shadow-primary/20">
                     {reqSending ? <Loader className="w-4 h-4 animate-spin" /> : 'Generate & Send Link'}
                   </Button>
                 </div>
@@ -2861,12 +2862,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             ) : (
               <div className="space-y-2 pt-2">
                 <div className="flex items-center gap-2">
-                  <input readOnly value={reqLink} onFocus={e => e.currentTarget.select()} className="flex-1 h-10 rounded-xl border-2 px-3 text-[10px] font-mono bg-white" />
-                  <Button onClick={() => { navigator.clipboard.writeText(reqLink!); setReqCopied(true); setTimeout(() => setReqCopied(false), 2000); }} className="h-10 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest shrink-0">
+                  <input readOnly value={reqLink} onFocus={e => e.currentTarget.select()} className="flex-1 h-10 rounded-xl border px-3 text-[12px] font-mono bg-white" />
+                  <Button onClick={() => { navigator.clipboard.writeText(reqLink!); setReqCopied(true); setTimeout(() => setReqCopied(false), 2000); }} className="h-10 px-3 rounded-xl font-semibold text-[12px] shrink-0">
                     {reqCopied ? 'Copied' : 'Copy'}
                   </Button>
                 </div>
-                <p className="text-[9px] font-black text-green-600 uppercase tracking-tight">Sent to {client.name} · valid 7 days</p>
+                <p className="text-[12px] font-semibold text-green-600 tracking-tight">Sent to {client.name} · valid 7 days</p>
               </div>
             )}
           </div>
@@ -2876,12 +2877,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {appointment.inspirationPhotoUrl && (
           <div className="space-y-3">
             <div className="flex justify-between items-center gap-2 flex-wrap">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Inspiration & Mapping</h3>
+              <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Inspiration & Mapping</h3>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => setIsMarkupOpen(true)} className="h-8 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                <Button variant="ghost" size="sm" onClick={() => setIsMarkupOpen(true)} className="h-8 px-3 text-[12px] font-semibold text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
                   <Edit className="w-3 h-3 mr-1.5" /> Markup
                 </Button>
-                <Button variant="ghost" size="sm" onClick={handleShareImage} disabled={isSharingImage} className="h-8 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                <Button variant="ghost" size="sm" onClick={handleShareImage} disabled={isSharingImage} className="h-8 px-3 text-[12px] font-semibold text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
                   {isSharingImage ? <Loader className="w-3 h-3 animate-spin" /> : <><Send className="w-3 h-3 mr-1.5" /> Send to client</>}
                 </Button>
               </div>
@@ -2889,13 +2890,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             {/* v15 — the photo IS the content here: full width, natural
                 aspect (object-contain, never cropped), tall enough to
                 actually read nail detail. Tap for the full-screen viewer. */}
-            <div className="relative w-full rounded-2xl overflow-hidden border-2 border-primary/10 bg-slate-950/90 group cursor-zoom-in" onClick={() => openLightbox([{ url: appointment.inspirationPhotoUrl, name: 'Inspiration reference' }], 0)}>
+            <div className="relative w-full rounded-2xl overflow-hidden border border-primary/10 bg-slate-950/90 group cursor-zoom-in" onClick={() => openLightbox([{ url: appointment.inspirationPhotoUrl, name: 'Inspiration reference' }], 0)}>
               <img src={appointment.inspirationPhotoUrl} alt="Inspiration" className="w-full max-h-[68vh] object-contain" />
               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                 <Maximize2 className="w-8 h-8 text-white" />
               </div>
               <div className="absolute top-4 right-4">
-                <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Choice</Badge>
+                <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-semibold text-[12px] h-6 px-3 shadow-xl">Guest Choice</Badge>
               </div>
             </div>
           </div>
@@ -2904,15 +2905,15 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {/* ── Incident report ──────────────────────────────────────────────── */}
         {appointment.incident && (
           <div className="space-y-3">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Incident Report</h3>
-            <div className={cn('rounded-2xl border-2 p-4 space-y-2.5', appointment.incident.severity === 'Severe' ? 'bg-red-50 border-red-300' : appointment.incident.severity === 'Moderate' ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200')}>
+            <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Incident Report</h3>
+            <div className={cn('rounded-2xl border p-4 space-y-2.5', appointment.incident.severity === 'Severe' ? 'bg-red-50 border-red-300' : appointment.incident.severity === 'Moderate' ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200')}>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-black uppercase tracking-wide flex items-center gap-2 text-slate-800"><AlertCircle className="w-3.5 h-3.5" /> {appointment.incident.type}</span>
-                <Badge className={cn('text-[8px] font-black uppercase border-none text-white shrink-0', appointment.incident.severity === 'Severe' ? 'bg-red-600' : appointment.incident.severity === 'Moderate' ? 'bg-amber-600' : 'bg-slate-500')}>{appointment.incident.severity}</Badge>
+                <span className="text-[12px] font-semibold tracking-wide flex items-center gap-2 text-slate-800"><AlertCircle className="w-3.5 h-3.5" /> {appointment.incident.type}</span>
+                <Badge className={cn('text-[12px] font-semibold border-none text-white shrink-0', appointment.incident.severity === 'Severe' ? 'bg-red-600' : appointment.incident.severity === 'Moderate' ? 'bg-amber-600' : 'bg-slate-500')}>{appointment.incident.severity}</Badge>
               </div>
-              {appointment.incident.date && <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-60">{format(safeDate(appointment.incident.date), 'MMM d, yyyy · h:mm a')}</p>}
-              <p className="text-[10px] font-medium text-slate-700 leading-relaxed">{appointment.incident.description}</p>
-              {appointment.incident.actionsTaken && <p className="text-[9px] font-bold uppercase text-muted-foreground"><span className="opacity-60">Action taken: </span>{appointment.incident.actionsTaken}</p>}
+              {appointment.incident.date && <p className="text-[12px] font-bold text-muted-foreground opacity-60">{format(safeDate(appointment.incident.date), 'MMM d, yyyy · h:mm a')}</p>}
+              <p className="text-[12px] font-medium text-slate-700 leading-relaxed">{appointment.incident.description}</p>
+              {appointment.incident.actionsTaken && <p className="text-[12px] font-bold text-muted-foreground"><span className="opacity-60">Action taken: </span>{appointment.incident.actionsTaken}</p>}
               {appointment.incident.photoUrls?.length > 0 && (
                 <div className="grid grid-cols-4 gap-2 pt-1">
                   {appointment.incident.photoUrls.map((url: string, i: number) => (
@@ -2945,10 +2946,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               red: 'text-red-700', amber: 'text-amber-700', green: 'text-emerald-700', slate: 'text-slate-600',
             };
             return (
-              <div key={label} className={cn('rounded-2xl border-2 px-3 py-2.5', TONES[g.tone])}>
-                <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-400">{label}</p>
-                <p className={cn('text-[11px] font-black uppercase tracking-tight mt-0.5', TEXT[g.tone])}>{g.label}</p>
-                {g.hint && <p className="text-[8px] font-bold text-slate-500 mt-0.5 leading-snug">{g.hint}</p>}
+              <div key={label} className={cn('rounded-2xl border px-3 py-2.5', TONES[g.tone])}>
+                <p className="text-[12px] font-semibold tracking-[0.18em] text-slate-400">{label}</p>
+                <p className={cn('text-[11px] font-semibold tracking-tight mt-0.5', TEXT[g.tone])}>{g.label}</p>
+                {g.hint && <p className="text-[12px] font-bold text-slate-500 mt-0.5 leading-snug">{g.hint}</p>}
               </div>
             );
           })}
@@ -2956,16 +2957,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         {/* ── Activity timeline ────────────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
-          <AccordionItem value="timeline" className="border-2 rounded-2xl overflow-hidden bg-white shadow-inner">
+          <AccordionItem value="timeline" className="border rounded-2xl overflow-hidden bg-white shadow-inner">
             <AccordionTrigger className="px-4 py-3 hover:no-underline">
-              <span className="flex items-center gap-2 font-black uppercase text-[10px] tracking-widest text-slate-700">
+              <span className="flex items-center gap-2 font-semibold text-[12px] text-slate-700">
                 <History className="w-3.5 h-3.5 text-primary" /> Activity Timeline
-                <Badge variant="outline" className="h-5 px-2 rounded-full text-[8px] font-black border-2 ml-1">{timelineEvents.length}</Badge>
+                <Badge variant="outline" className="h-5 px-2 rounded-full text-[12px] font-semibold border ml-1">{timelineEvents.length}</Badge>
               </span>
             </AccordionTrigger>
             <AccordionContent className="px-4 pb-4 pt-1">
               {timelineEvents.length === 0 ? (
-                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-3">No recorded activity yet</p>
+                <p className="text-[12px] font-bold text-muted-foreground opacity-40 text-center py-3">No recorded activity yet</p>
               ) : (
                 <div className="border-l-2 border-dashed border-muted/40 ml-1.5 pl-4">
                   {timelineEvents.map((ev) => {
@@ -2974,15 +2975,15 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     const bg = TIMELINE_BG[ev.tone || 'default'];
                     return (
                       <div key={ev.id} className="relative pb-4 last:pb-0">
-                        <span className={cn('absolute -left-[1.45rem] top-0.5 w-3 h-3 rounded-full border-2 border-white', bg)} />
+                        <span className={cn('absolute -left-[1.45rem] top-0.5 w-3 h-3 rounded-full border border-white', bg)} />
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className={cn('text-[10px] font-black uppercase tracking-tight flex items-center gap-1.5', tone)}>
+                            <p className={cn('text-[12px] font-semibold tracking-tight flex items-center gap-1.5', tone)}>
                               <Icon className="w-3 h-3 shrink-0" /> {ev.label}
                             </p>
-                            {ev.detail && <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 mt-0.5">{ev.detail}</p>}
+                            {ev.detail && <p className="text-[12px] font-bold text-muted-foreground tracking-tight opacity-60 mt-0.5">{ev.detail}</p>}
                           </div>
-                          <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wide opacity-50 shrink-0 whitespace-nowrap">
+                          <span className="text-[12px] font-bold text-muted-foreground tracking-wide opacity-50 shrink-0 whitespace-nowrap">
                             {fmtDT(ev.timestamp, 'MMM d, h:mm a')}
                           </span>
                         </div>
@@ -2997,19 +2998,19 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         {/* ── Communications journey ───────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
-          <AccordionItem value="comms" className="border-2 rounded-2xl overflow-hidden bg-white shadow-inner">
+          <AccordionItem value="comms" className="border rounded-2xl overflow-hidden bg-white shadow-inner">
             <AccordionTrigger className="px-4 py-3 hover:no-underline">
-              <span className="flex items-center gap-2 font-black uppercase text-[10px] tracking-widest text-slate-700">
+              <span className="flex items-center gap-2 font-semibold text-[12px] text-slate-700">
                 <Send className="w-3.5 h-3.5 text-primary" /> Communications
-                <Badge variant="outline" className="h-5 px-2 rounded-full text-[8px] font-black border-2 ml-1">{messages.length}</Badge>
+                <Badge variant="outline" className="h-5 px-2 rounded-full text-[12px] font-semibold border ml-1">{messages.length}</Badge>
                 {messages.some((m: any) => m.bouncedAt || m.status === 'failed') && (
-                  <Badge className="h-5 px-2 rounded-full text-[8px] font-black bg-red-100 text-red-700 border-red-200 border-2">NEEDS ATTENTION</Badge>
+                  <Badge className="h-5 px-2 rounded-full text-[12px] font-semibold bg-red-100 text-red-700 border-red-200 border">NEEDS ATTENTION</Badge>
                 )}
               </span>
             </AccordionTrigger>
             <AccordionContent className="px-4 pb-4 pt-1 space-y-3">
               {messages.length === 0 && (
-                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">Nothing sent for this appointment yet</p>
+                <p className="text-[12px] font-bold text-muted-foreground opacity-40 text-center py-2">Nothing sent for this appointment yet</p>
               )}
               {messages.map((m: any) => {
                 const failed = !!(m.bouncedAt || m.status === 'failed');
@@ -3019,17 +3020,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 const STEPS = ['Sent', 'Delivered', 'Opened', 'Clicked'];
                 const reached = STEPS.indexOf(stage);
                 return (
-                  <div key={m.id} className={cn('rounded-xl border-2 p-3', failed ? 'border-red-200 bg-red-50/50' : 'bg-muted/5')}>
+                  <div key={m.id} className={cn('rounded-xl border p-3', failed ? 'border-red-200 bg-red-50/50' : 'bg-muted/5')}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-tight flex items-center gap-1.5">
+                        <p className="text-[12px] font-semibold tracking-tight flex items-center gap-1.5">
                           {m.channel === 'sms' ? <MessageSquare className="w-3 h-3 text-primary shrink-0" /> : <Mail className="w-3 h-3 text-primary shrink-0" />}
                           {String(m.kind || 'message').replace(/_/g, ' ')}
                         </p>
-                        <p className="text-[9px] font-bold text-muted-foreground mt-0.5 break-all">{m.to || '—'}</p>
-                        {(m.subject || m.preview) && <p className="text-[9px] font-medium text-muted-foreground/70 mt-0.5 line-clamp-1 italic">{m.subject || m.preview}</p>}
+                        <p className="text-[12px] font-bold text-muted-foreground mt-0.5 break-all">{m.to || '—'}</p>
+                        {(m.subject || m.preview) && <p className="text-[12px] font-medium text-muted-foreground/70 mt-0.5 line-clamp-1 italic">{m.subject || m.preview}</p>}
                       </div>
-                      <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wide opacity-50 shrink-0 whitespace-nowrap">
+                      <span className="text-[12px] font-bold text-muted-foreground tracking-wide opacity-50 shrink-0 whitespace-nowrap">
                         {m.sentAt ? fmtDT(m.sentAt, 'MMM d, h:mm a') : ''}
                       </span>
                     </div>
@@ -3038,38 +3039,38 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <div className="flex items-center gap-1 mt-2 flex-wrap">
                         {(m.channel === 'sms' ? STEPS.slice(0, 2) : STEPS).map((s, i) => (
                           <span key={s} className={cn(
-                            'px-2 h-5 inline-flex items-center rounded-full text-[8px] font-black uppercase tracking-wide border-2',
+                            'px-2 h-5 inline-flex items-center rounded-full text-[12px] font-semibold tracking-wide border',
                             i <= reached ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-white text-slate-300 border-slate-100',
                           )}>
                             {i <= reached ? '✓ ' : ''}{s}
                           </span>
                         ))}
-                        {m.openedAt && <span className="text-[8px] font-bold text-muted-foreground opacity-60">opened {fmtDT(m.openedAt, 'MMM d, h:mm a')}</span>}
+                        {m.openedAt && <span className="text-[12px] font-bold text-muted-foreground opacity-60">opened {fmtDT(m.openedAt, 'MMM d, h:mm a')}</span>}
                       </div>
                     )}
                     {failed && (
-                      <p className="text-[9px] font-black text-red-700 mt-2">
+                      <p className="text-[12px] font-semibold text-red-700 mt-2">
                         {m.failureDetail || m.error || 'Not delivered — check the address/number below and resend.'}
                       </p>
                     )}
                     {skipped && (
-                      <p className="text-[9px] font-black text-amber-700 mt-2">Skipped — the {m.channel === 'sms' ? 'texting' : 'email'} provider isn't configured yet.</p>
+                      <p className="text-[12px] font-semibold text-amber-700 mt-2">Skipped — the {m.channel === 'sms' ? 'texting' : 'email'} provider isn't configured yet.</p>
                     )}
                   </div>
                 );
               })}
 
               {/* Fix & resend — corrects the client record AND resends in one motion */}
-              <div className="rounded-xl border-2 border-dashed p-3 space-y-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">Fix contact info &amp; resend confirmation</p>
+              <div className="rounded-xl border p-3 space-y-2">
+                <p className="text-[12px] font-semibold text-slate-600">Fix contact info &amp; resend confirmation</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Input value={resendEmail} onChange={(e) => setResendEmail(e.target.value)} placeholder="client@email.com" type="email" className="h-9 text-xs" />
                   <Input value={resendPhone} onChange={(e) => setResendPhone(e.target.value)} placeholder="Phone" type="tel" className="h-9 text-xs" />
                 </div>
-                <Button onClick={handleResendConfirmation} disabled={isResendingConf || (!resendEmail.trim() && !resendPhone.trim())} className="w-full h-9 text-[10px] font-black uppercase tracking-widest">
+                <Button onClick={handleResendConfirmation} disabled={isResendingConf || (!resendEmail.trim() && !resendPhone.trim())} className="w-full h-9 text-[12px] font-semibold">
                   {isResendingConf ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" /> Send confirmation now</>}
                 </Button>
-                <p className="text-[8px] font-bold text-muted-foreground opacity-60">Changed address or number? It's saved to the client's record too, so reminders and follow-ups use the fixed one.</p>
+                <p className="text-[12px] font-bold text-muted-foreground opacity-60">Changed address or number? It's saved to the client's record too, so reminders and follow-ups use the fixed one.</p>
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -3077,63 +3078,63 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         {/* ── Dossier intelligence ─────────────────────────────────────────── */}
         <div className="space-y-3">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Dossier Intelligence</h3>
+          <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Dossier Intelligence</h3>
           <Accordion type="multiple" className="w-full space-y-2">
 
-            <AccordionItem value="pref-notes" className="border-2 rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
-              <AccordionTrigger className="px-4 py-3 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+            <AccordionItem value="pref-notes" className="border rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
+              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-slate-600">
                 <Sparkles className="w-3.5 h-3.5 mr-2 opacity-40" /> Client Profile &amp; Preferences
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
                 {/* Standing record on the CLIENT, not notes about this visit —
                     appointment notes live in the Notes section above. */}
-                <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 leading-relaxed">
+                <p className="text-[12px] font-bold text-muted-foreground opacity-40 leading-relaxed">
                   Standing record for {client.name || 'this client'} — carries across every visit
                 </p>
-                {client.notes?.goals && <div className="space-y-1"><p className="text-[8px] font-black uppercase text-primary/60">Strategic Goals</p><p className="text-[10px] font-medium leading-relaxed italic">"{client.notes.goals}"</p></div>}
-                {client.sensoryNeeds && <div className="space-y-1"><p className="text-[8px] font-black uppercase text-blue-600/60">Sensory Needs</p><p className="text-[10px] font-medium leading-relaxed italic">"{client.sensoryNeeds}"</p></div>}
-                {client.allergyNotes && <div className="space-y-1"><p className="text-[8px] font-black uppercase text-red-600">Allergy / Medical</p><p className="text-[10px] font-medium leading-relaxed text-red-700">"{client.allergyNotes}"</p></div>}
-                {client.notes?.history && <div className="space-y-1"><p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">History Alert</p><p className="text-[10px] font-medium leading-relaxed italic">"{client.notes.history}"</p></div>}
+                {client.notes?.goals && <div className="space-y-1"><p className="text-[12px] font-semibold text-primary/60">Strategic Goals</p><p className="text-[12px] font-medium leading-relaxed italic">"{client.notes.goals}"</p></div>}
+                {client.sensoryNeeds && <div className="space-y-1"><p className="text-[12px] font-semibold text-blue-600/60">Sensory Needs</p><p className="text-[12px] font-medium leading-relaxed italic">"{client.sensoryNeeds}"</p></div>}
+                {client.allergyNotes && <div className="space-y-1"><p className="text-[12px] font-semibold text-red-600">Allergy / Medical</p><p className="text-[12px] font-medium leading-relaxed text-red-700">"{client.allergyNotes}"</p></div>}
+                {client.notes?.history && <div className="space-y-1"><p className="text-[12px] font-semibold text-muted-foreground opacity-60">History Alert</p><p className="text-[12px] font-medium leading-relaxed italic">"{client.notes.history}"</p></div>}
                 {!client.notes?.goals && !client.sensoryNeeds && !client.allergyNotes && !client.notes?.history && (
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">No preference data archived</p>
+                  <p className="text-[12px] font-bold text-muted-foreground opacity-40 text-center py-2">No preference data archived</p>
                 )}
               </AccordionContent>
             </AccordionItem>
 
-            <AccordionItem value="prev-formulas" className="border-2 rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
-              <AccordionTrigger className="px-4 py-3 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+            <AccordionItem value="prev-formulas" className="border rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
+              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-slate-600">
                 <FlaskConical className="w-3.5 h-3.5 mr-2 opacity-40" /> Technical Formulas
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-3">
                 {client.customFormulas && client.customFormulas.length > 0 ? (
                   <div className="grid gap-2">
                     {client.customFormulas.map((f: any) => (
-                      <div key={f.id} className="p-3 rounded-xl bg-white border-2 border-transparent hover:border-primary/10 transition-all flex justify-between items-center shadow-sm">
+                      <div key={f.id} className="p-3 rounded-xl bg-white border border-transparent hover:border-primary/10 transition-all flex justify-between items-center shadow-sm">
                         <div className="min-w-0">
-                          <span className="text-[10px] font-black uppercase tracking-tight truncate block">{f.name}</span>
-                          <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{fmtDT(f.date, 'MMM d, yyyy')}</span>
+                          <span className="text-[12px] font-semibold tracking-tight truncate block">{f.name}</span>
+                          <span className="text-[12px] font-bold text-muted-foreground opacity-60">{fmtDT(f.date, 'MMM d, yyyy')}</span>
                         </div>
                         <ArrowRight className="w-3 h-3 text-primary opacity-20" />
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">No historical formulas found</p>
+                  <p className="text-[12px] font-bold text-muted-foreground opacity-40 text-center py-2">No historical formulas found</p>
                 )}
               </AccordionContent>
             </AccordionItem>
 
-            <AccordionItem value="recent-visits" className="border-2 rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
-              <AccordionTrigger className="px-4 py-3 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+            <AccordionItem value="recent-visits" className="border rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
+              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-slate-600">
                 <Calendar className="w-3.5 h-3.5 mr-2 opacity-40" /> Recent Visits
-                <Badge variant="outline" className="h-4 px-1.5 rounded-full text-[7px] font-black border ml-2">{allClientVisits.length}</Badge>
+                <Badge variant="outline" className="h-4 px-1.5 rounded-full text-[12px] font-semibold border ml-2">{allClientVisits.length}</Badge>
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-2">
                 {/* Visit frequency sparkline */}
                 {allClientVisits.length > 1 && (
                   <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white border border-muted/20 mb-2">
                     <div className="min-w-0">
-                      <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Visit frequency</p>
+                      <p className="text-[12px] font-semibold text-muted-foreground opacity-60 mb-1">Visit frequency</p>
                       <VisitSparkline visits={allClientVisits} />
                     </div>
                   </div>
@@ -3144,8 +3145,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   return (
                     <div key={a.id} className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-muted/20">
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-tight truncate">{svc?.name || 'Service'}</p>
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                        <p className="text-[12px] font-semibold tracking-tight truncate">{svc?.name || 'Service'}</p>
+                        <p className="text-[12px] font-bold text-muted-foreground opacity-60">
                           {fmtDT(a.startTime, 'MMM d, yyyy')}
                           {staffMember && ` · ${staffMember.name}`}
                         </p>
@@ -3162,16 +3163,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         {a.visitOutcome?.adverseReaction && (
                           <AlertTriangle className="w-2.5 h-2.5 text-destructive" title="Adverse reaction noted" />
                         )}
-                        <Badge className={cn('text-[7px] font-black uppercase border-none text-white shrink-0', a.status === 'cancelled' ? 'bg-destructive' : a.status === 'completed' ? 'bg-green-500' : 'bg-slate-400')}>{a.status}</Badge>
+                        <Badge className={cn('text-[12px] font-semibold border-none text-white shrink-0', a.status === 'cancelled' ? 'bg-destructive' : a.status === 'completed' ? 'bg-green-500' : 'bg-slate-400')}>{a.status}</Badge>
                       </div>
                     </div>
                   );
                 }) : isLoadingClientHistory ? (
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">Loading visit history…</p>
+                  <p className="text-[12px] font-bold text-muted-foreground opacity-40 text-center py-2">Loading visit history…</p>
                 ) : (
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">No other visits on record</p>
+                  <p className="text-[12px] font-bold text-muted-foreground opacity-40 text-center py-2">No other visits on record</p>
                 )}
-                <Link href={`/clients/${client.id}`} className="flex items-center justify-center gap-1 text-[8px] font-bold text-primary uppercase tracking-tight opacity-60 hover:opacity-100 pt-1">
+                <Link href={`/clients/${client.id}`} className="flex items-center justify-center gap-1 text-[12px] font-bold text-primary tracking-tight opacity-60 hover:opacity-100 pt-1">
                   Full history on profile <ExternalLink className="w-2.5 h-2.5" />
                 </Link>
               </AccordionContent>
@@ -3183,20 +3184,20 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {/* ── Escalation panel ─────────────────────────────────────────────── */}
         <div className="space-y-3">
           {appointment.isEscalated ? (
-            <div className="flex flex-col gap-4 p-5 rounded-[2rem] border-4 bg-destructive text-white border-destructive shadow-xl shadow-destructive/20">
+            <div className="flex flex-col gap-4 p-5 rounded-3xl border-4 bg-destructive text-white border-destructive shadow-xl shadow-destructive/20">
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-1">
-                  <Label className="text-sm font-black uppercase tracking-tight flex items-center gap-2 text-white"><ShieldAlert className="w-4 h-4" /> Priority Escalated</Label>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/80">Manager dispatch active</p>
+                  <Label className="text-sm font-semibold tracking-tight flex items-center gap-2 text-white"><ShieldAlert className="w-4 h-4" /> Priority Escalated</Label>
+                  <p className="text-[12px] font-bold text-white/80">Manager dispatch active</p>
                 </div>
               </div>
               {isOwnerOrAdminUser && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-4 border-t border-white/20">
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase text-white/60 ml-1">Resolution Protocol Summary</Label>
+                    <Label className="text-[12px] font-semibold text-white/60 ml-1">Resolution Protocol Summary</Label>
                     <Textarea value={resolutionNote} onChange={e => setResolutionNote(e.target.value)} placeholder="Detail the manager intervention..." className="bg-white/10 border-white/20 text-white placeholder:text-white/40 min-h-[80px] rounded-xl focus-visible:ring-white/20" />
                   </div>
-                  <Button onClick={handleResolveEscalation} disabled={isResolving || !resolutionNote.trim()} className="w-full h-12 bg-white text-destructive hover:bg-white/90 rounded-xl font-black uppercase text-[10px] tracking-widest">
+                  <Button onClick={handleResolveEscalation} disabled={isResolving || !resolutionNote.trim()} className="w-full h-12 bg-white text-destructive hover:bg-white/90 rounded-xl font-semibold text-[12px]">
                     {isResolving ? <Loader className="animate-spin" /> : 'Certify Resolution & Clear Alert'}
                   </Button>
                 </motion.div>
@@ -3205,17 +3206,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           ) : (
             <>
               {appointment.resolutionNotes && (
-                <div className="rounded-xl border-2 border-muted/30 bg-muted/5 p-3.5 space-y-1">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+                <div className="rounded-xl border border-muted/30 bg-muted/5 p-3.5 space-y-1">
+                  <p className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
                     <CheckCircle2 className="w-3 h-3 text-green-500" /> Escalation resolved
                     {appointment.resolvedAt && ` · ${format(safeDate(appointment.resolvedAt), 'MMM d, h:mm a')}`}
                     {appointment.resolvedBy && ` · ${staffName(appointment.resolvedBy, staff)}`}
                   </p>
-                  <p className="text-[10px] font-medium text-slate-600 leading-relaxed">{appointment.resolutionNotes}</p>
+                  <p className="text-[12px] font-medium text-slate-600 leading-relaxed">{appointment.resolutionNotes}</p>
                 </div>
               )}
-              <button onClick={handleEscalate} disabled={isEscalating} className="w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border-2 border-destructive/15 bg-destructive/[0.02] hover:bg-destructive/5 transition-all text-left">
-                <span className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-widest text-destructive/70"><ShieldAlert className="w-3.5 h-3.5" /> Report an issue / escalate to manager</span>
+              <button onClick={handleEscalate} disabled={isEscalating} className="w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-destructive/15 bg-destructive/[0.02] hover:bg-destructive/5 transition-all text-left">
+                <span className="flex items-center gap-2.5 text-[12px] font-semibold text-destructive/70"><ShieldAlert className="w-3.5 h-3.5" /> Report an issue / escalate to manager</span>
                 {isEscalating ? <Loader className="w-3.5 h-3.5 animate-spin text-destructive/50" /> : <ArrowRight className="w-3.5 h-3.5 text-destructive/30" />}
               </button>
             </>
@@ -3224,7 +3225,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         {/* ── Keyboard shortcut hint ───────────────────────────────────────── */}
         {!isMobile && (canStart || canFinish) && (
-          <p className="text-center text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-30 pb-2">
+          <p className="text-center text-[12px] font-bold text-muted-foreground opacity-30 pb-2">
             {canStart ? 'K' : 'F'} to {canStart ? 'start' : 'finish'} · P to print · Esc to close
           </p>
         )}
@@ -3243,7 +3244,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               <Button
                 onClick={() => onStartService(appointment.id)}
                 disabled={startDisabled}
-                className="flex-1 h-11 rounded-2xl font-black uppercase shadow-xl shadow-primary/20 text-sm"
+                className="flex-1 h-11 rounded-2xl font-semibold shadow-xl shadow-primary/20 text-sm"
               >
                 <Play className="mr-2 h-4 w-4" /> Start Session
               </Button>
@@ -3259,70 +3260,70 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </TooltipProvider>
       )}
       {canFinish && (
-        <Button onClick={() => onFinishService(appointment)} className="flex-1 h-11 rounded-2xl font-black uppercase shadow-xl shadow-primary/20 text-sm">
+        <Button onClick={() => onFinishService(appointment)} className="flex-1 h-11 rounded-2xl font-semibold shadow-xl shadow-primary/20 text-sm">
           <Square className="mr-2 h-4 w-4" /> Finish Service
         </Button>
       )}
       {isCancelled && (
-        <Button onClick={() => onRebook?.(appointment)} className="flex-1 h-11 rounded-2xl font-black uppercase shadow-xl shadow-primary/20 text-sm">
+        <Button onClick={() => onRebook?.(appointment)} className="flex-1 h-11 rounded-2xl font-semibold shadow-xl shadow-primary/20 text-sm">
           <Undo2 className="mr-2 h-4 w-4" /> Rebook
         </Button>
       )}
       {isCompleted && (
-        <Button onClick={() => onBookNewForClient?.(client)} variant="outline" className="flex-1 h-11 rounded-2xl font-bold uppercase border-2 text-sm">
+        <Button onClick={() => onBookNewForClient?.(client)} variant="outline" className="flex-1 h-11 rounded-2xl font-bold border text-sm">
           <Calendar className="mr-2 h-4 w-4" /> Book Next
         </Button>
       )}
       {!canStart && !canFinish && !isCancelled && !isCompleted && (
-        <Button variant="outline" className="flex-1 h-11 rounded-2xl font-bold uppercase border-2" asChild>
+        <Button variant="outline" className="flex-1 h-11 rounded-2xl font-bold border" asChild>
           <Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-4 w-4" /> View Profile</Link>
         </Button>
       )}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" className="h-11 w-11 rounded-2xl border-2 shrink-0">
+          <Button variant="outline" size="icon" className="h-11 w-11 rounded-2xl border shrink-0">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="rounded-2xl border-2 w-60">
-          <DropdownMenuItem asChild className="font-bold uppercase text-[10px] tracking-wide">
+        <DropdownMenuContent align="end" className="rounded-2xl border w-60">
+          <DropdownMenuItem asChild className="font-bold text-[12px] tracking-wide">
             <Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-3.5 w-3.5" /> View Client Profile</Link>
           </DropdownMenuItem>
           {onPrintTicket && (
-            <DropdownMenuItem onClick={() => onPrintTicket(appointment)} className="font-bold uppercase text-[10px] tracking-wide">
+            <DropdownMenuItem onClick={() => onPrintTicket(appointment)} className="font-bold text-[12px] tracking-wide">
               <Printer className="mr-2 h-3.5 w-3.5" /> Print Ticket
             </DropdownMenuItem>
           )}
           {client.phone && (
-            <DropdownMenuItem asChild className="font-bold uppercase text-[10px] tracking-wide">
+            <DropdownMenuItem asChild className="font-bold text-[12px] tracking-wide">
               <a href={`sms:${client.phone}`}><MessageSquare className="mr-2 h-3.5 w-3.5" /> Send SMS</a>
             </DropdownMenuItem>
           )}
           {client.email && (
-            <DropdownMenuItem asChild className="font-bold uppercase text-[10px] tracking-wide">
+            <DropdownMenuItem asChild className="font-bold text-[12px] tracking-wide">
               <a href={`mailto:${client.email}`}><Mail className="mr-2 h-3.5 w-3.5" /> Email Client</a>
             </DropdownMenuItem>
           )}
           {!isCancelled && (
-            <DropdownMenuItem onClick={() => setIsRescheduleOpen(true)} className="font-bold uppercase text-[10px] tracking-wide">
+            <DropdownMenuItem onClick={() => setIsRescheduleOpen(true)} className="font-bold text-[12px] tracking-wide">
               <CalendarClock className="mr-2 h-3.5 w-3.5" /> Reschedule
             </DropdownMenuItem>
           )}
           {appointment.status === 'servicing' && (
-            <DropdownMenuItem onClick={() => setIsHandoffOpen(true)} className="font-bold uppercase text-[10px] tracking-wide text-indigo-700 focus:text-indigo-700">
+            <DropdownMenuItem onClick={() => setIsHandoffOpen(true)} className="font-bold text-[12px] tracking-wide text-indigo-700 focus:text-indigo-700">
               <Repeat2 className="mr-2 h-3.5 w-3.5" /> Mid-Session Handoff
             </DropdownMenuItem>
           )}
           {isCompleted && onBookNewForClient && (
-            <DropdownMenuItem onClick={() => onBookNewForClient(client)} className="font-bold uppercase text-[10px] tracking-wide">
+            <DropdownMenuItem onClick={() => onBookNewForClient(client)} className="font-bold text-[12px] tracking-wide">
               <Calendar className="mr-2 h-3.5 w-3.5" /> Book Next Appointment
             </DropdownMenuItem>
           )}
           {onWaiveFee && !isCancelled && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => onWaiveFee(appointment)} className="font-bold uppercase text-[10px] tracking-wide text-amber-700 focus:text-amber-700">
+              <DropdownMenuItem onClick={() => onWaiveFee(appointment)} className="font-bold text-[12px] tracking-wide text-amber-700 focus:text-amber-700">
                 <HeartHandshake className="mr-2 h-3.5 w-3.5" /> Waive Fee
               </DropdownMenuItem>
             </>
@@ -3330,7 +3331,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           {!isCancelled && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }} className="font-bold uppercase text-[10px] tracking-wide text-destructive focus:text-destructive">
+              <DropdownMenuItem onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }} className="font-bold text-[12px] tracking-wide text-destructive focus:text-destructive">
                 <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel Appointment
               </DropdownMenuItem>
             </>
@@ -3346,22 +3347,23 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <SheetContent
           side={isMobile ? 'bottom' : 'right'}
           className={cn(
-            'flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden',
+            'cf-settings cf-legacy flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden',
             isMobile ? 'h-[94dvh] rounded-t-[2.5rem] w-full' : 'sm:max-w-lg md:max-w-xl'
           )}
         >
+          <SettingsStyle />
           <SheetHeader className="border-b bg-muted/5 flex-shrink-0 p-4 md:p-5">
             {isMobile && <div className="w-10 h-1 bg-muted-foreground/20 rounded-full mx-auto mb-3" />}
             <SheetTitle className="sr-only">Session Details for {client.name}</SheetTitle>
             <SheetDescription className="sr-only">Appointment {ticketId}</SheetDescription>
             {IdentityHeader}
-            {appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && <button type="button" onClick={() => openVisit(String(appointment.id))} className="mt-2 inline-flex h-8 items-center rounded-full border-2 border-primary/20 bg-white px-3 text-[11px] font-black uppercase tracking-widest text-primary hover:border-primary">Visit ticket</button>}
+            {appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && <button type="button" onClick={() => openVisit(String(appointment.id))} className="mt-2 inline-flex h-8 items-center rounded-full border border-primary/20 bg-white px-3 text-[11px] font-semibold text-primary hover:border-primary">Visit ticket</button>}
           </SheetHeader>
           {/* An offer is waiting: booked with a campaign code, or a renter's offer. */}
           {((appointment as any)?.pendingDiscountCode || (appointment as any)?.renterOfferLine) && (
             <div className="glass relative mx-4 mt-2 overflow-hidden rounded-2xl px-4 py-3 text-xs font-bold text-emerald-900 shadow-[0_8px_24px_-12px_rgba(16,185,129,0.35)]">
               🎁 {(appointment as any).pendingDiscountCode
-                ? <>Offer at checkout: code <span className="font-black">{(appointment as any).pendingDiscountCode}</span> — applied automatically when you check them out.</>
+                ? <>Offer at checkout: code <span className="font-semibold">{(appointment as any).pendingDiscountCode}</span> — applied automatically when you check them out.</>
                 : <>Offer to honor: {(appointment as any).renterOfferLine}</>}
             </div>
           )}
@@ -3450,7 +3452,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <ChevronRight className="w-5 h-5" />
                 </button>
                 <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/50 rounded-full px-3 py-1">
-                  <p className="text-[10px] font-bold text-white">{lightboxIndex + 1} / {lightboxImages.length}</p>
+                  <p className="text-[12px] font-bold text-white">{lightboxIndex + 1} / {lightboxImages.length}</p>
                 </div>
               </>
             )}
