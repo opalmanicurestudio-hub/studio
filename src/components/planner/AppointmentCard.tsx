@@ -105,7 +105,7 @@ export function AppointmentCard({
   const { toast } = useToast();
   const { showProfitability } = useProfitabilityVisibility();
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
-  const [isRunningOver, setIsRunningOver] = useState(false);
+  const [isRunningOver, setIsRunningOver] = useState(false); const [overMinutes, setOverMinutes] = useState(0);
   const [confirmingDecline, setConfirmingDecline] = useState(false);
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [settledStatus, setSettledStatus] = useState<string | null>(null);
@@ -122,7 +122,8 @@ export function AppointmentCard({
         const displayMins = mins % 60;
         const displaySecs = diff % 60;
         setElapsedTime(hours > 0 ? `${hours}:${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}` : `${displayMins}:${String(displaySecs).padStart(2, '0')}`);
-        setIsRunningOver(mins > (service?.duration ?? Infinity));
+        const booked = (service?.duration ?? 0) + ((appointment as any).addOnIds || []).reduce((n: number, id: string) => n + (Number((allServices || []).find((x: any) => x.id === id)?.duration) || 0), 0);   // the service plus its add-ons
+        setOverMinutes(booked > 0 ? Math.max(0, mins - booked) : 0); setIsRunningOver(booked > 0 && mins > booked);
       };
       updateTimer();
       timer = setInterval(updateTimer, 1000);
@@ -213,13 +214,13 @@ export function AppointmentCard({
      *   dashed    nobody has answered it yet
      *
      * Five meanings, four hues, scannable down a column at arm's length. */
-    confirmed: { text: 'Confirmed', className: 'border-border border-l-primary text-foreground bg-white', bgClassName: 'bg-white', dotColor: 'bg-primary' },
-    servicing: { text: 'Live', className: 'border-primary/30 border-l-primary ring-2 sm:ring-4 ring-primary/10 text-primary bg-primary/[0.04]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
+    confirmed: { text: 'Booked', className: 'border-border border-l-primary text-foreground bg-white', bgClassName: 'bg-white', dotColor: 'bg-primary' },
+    servicing: { text: 'In the chair', className: 'border-primary/30 border-l-primary ring-2 sm:ring-4 ring-primary/10 text-primary bg-primary/[0.04]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
     completed: { text: 'Finished', className: 'border-border border-l-foreground/25 text-muted-foreground bg-muted/30', bgClassName: 'bg-muted/30', dotColor: 'bg-emerald-600' },
     cancelled: { text: 'Cancelled', className: 'border-border border-l-foreground/20 text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
-    deposit_pending: { text: 'Deposit Due', className: 'border-amber-600/25 border-l-amber-600 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
-    ready_for_checkout: { text: 'Checkout', className: 'border-emerald-600/25 border-l-emerald-600 text-emerald-900 bg-emerald-500/[0.05]', bgClassName: 'bg-emerald-500/5', dotColor: 'bg-emerald-600' },
-    pending_payment: { text: 'Awaiting Payment', className: 'border-amber-600/25 border-l-amber-600 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
+    deposit_pending: { text: 'Deposit due', className: 'border-amber-600/25 border-l-amber-600 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
+    ready_for_checkout: { text: 'Ready to pay', className: 'border-emerald-600/25 border-l-emerald-600 text-emerald-900 bg-emerald-500/[0.05]', bgClassName: 'bg-emerald-500/5', dotColor: 'bg-emerald-600' },
+    pending_payment: { text: 'Deposit unpaid', className: 'border-amber-600/25 border-l-amber-600 text-amber-900 bg-amber-500/[0.05]', bgClassName: 'bg-amber-500/5', dotColor: 'bg-amber-600' },
     declined: { text: 'Declined', className: 'border-border border-l-foreground/20 text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
     requested: { text: 'Requested', className: 'border-dashed border-primary/30 border-l-primary/70 text-foreground bg-primary/[0.03]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary/60' },
   };
@@ -321,7 +322,16 @@ export function AppointmentCard({
     }
     if (setupPending) push('prep', 'alert', AlertTriangle, 'Prep');
     if (profitTier === 'negative') push('cost', 'alert', TrendingDown, 'Below cost');
-    if (appointment.status === 'servicing') push('live', 'live', Sparkles, 'Live');
+    if (appointment.status === 'servicing') push('live', 'live', Sparkles, overMinutes > 0 ? `${overMinutes} min over` : 'In the chair');
+    // What the desk needs to know at a glance — first visit, a form still to sign, add-ons, a group, a renter's client.
+    const a1: any = appointment; const c1: any = client || {};
+    if (c1.id && (c1.totalVisits === 0 || c1.visitCount === 0 || c1.isNew === true || (Array.isArray(c1.visitHistory) && c1.visitHistory.length === 0))) push('first', 'info', Sparkles, 'First visit');
+    const need: string[] = [...((service as any)?.requiredFormIds || []), ...(a1.requiredFormIds || [])]; const signed = new Set((a1.signedForms || []).map((f: any) => f.formId));
+    if (need.length && need.some((id) => !signed.has(id)) && !['completed', 'cancelled', 'declined'].includes(String(appointment.status))) push('form', 'alert', FileImage, 'Form to sign');
+    if (Array.isArray(a1.addOnIds) && a1.addOnIds.length) push('addons', 'info', Sparkles, a1.addOnIds.length === 1 ? '+1 add-on' : `+${a1.addOnIds.length} add-ons`);
+    if ((Number(a1.partySize) || 0) > 1 || a1.groupId) push('group', 'info', Repeat, a1.partySize ? `Group of ${a1.partySize}` : 'Group');
+    if (a1.renterStaffId || a1.renterServiceName || a1.isRenterBooking) push('renter', 'info', Award, 'Collected for renter');
+    if (c1.lastVisitNote || c1.nextVisitNote || a1.noteFromLastTime) push('note', 'info', FileImage, 'Note from last time');
     if (awaitingReview) push('rev', 'info', FileImage, 'Review');
     if (hasDeferredFee) push('fee', 'info', Scale, 'Fee');
     if (isMember) push('mem', 'info', Award, 'Member');
@@ -331,7 +341,7 @@ export function AppointmentCard({
     if (appointment.isWalkIn) push('walk', 'info', Users, 'Walk-in');
     if (isBirthdayToday) push('bday', 'info', Cake, 'Birthday');
     return out;
-  }, [appointment, setupPending, profitTier, awaitingReview, hasDeferredFee, isMember, hasPackage, hasInspiration, isBirthdayToday, estimatedArrival, tripFresh]);
+  }, [appointment, client, service, setupPending, profitTier, awaitingReview, hasDeferredFee, isMember, hasPackage, hasInspiration, isBirthdayToday, estimatedArrival, tripFresh, overMinutes]);
 
 
   const involvedStaff = useMemo(() => {
@@ -558,6 +568,13 @@ export function AppointmentCard({
                     <Button size="xs" disabled={decisionBusy} aria-label={`Confirm declining ${client.name}`} className="h-6 px-2 bg-destructive text-white border-none font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('decline'); }}>Yes</Button>
                     <Button size="xs" variant="outline" aria-label="Keep the request" className="h-6 px-2 border font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(false); }}>Keep</Button>
                 </div>
+            )}
+            {/* The one action this state most likely needs, right on the card (the menu has the rest). */}
+            {tier !== 'compact' && !canDecide && !canResolve && appointment.status === 'confirmed' && appointment.checkInStatus === 'arrived' && onStartService && (
+                <Button size="xs" aria-label={`Start ${client.name}'s service`} className="h-7 px-3 bg-primary text-white border-none font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onStartService(appointment); }}>Start</Button>
+            )}
+            {tier !== 'compact' && appointment.status === 'servicing' && onFinishService && (
+                <Button size="xs" aria-label={`${client.name} is finished`} className="h-7 px-3 bg-primary text-white border-none font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onFinishService(appointment); }}>Finished</Button>
             )}
             {appointment.status === 'ready_for_checkout' && (
                 <Button size="xs" aria-label={`Take payment for ${client.name}`} className="h-6 px-2.5 bg-primary text-white border-none font-semibold text-[12px] shadow-sm rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
