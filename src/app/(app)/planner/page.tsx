@@ -361,6 +361,12 @@ function PlannerPageContent() {
   // Board or Agenda — remembered per person on this device; providers open on the agenda filtered to themselves.
   const [plannerView, setPlannerView] = useState<'board' | 'agenda'>(() => { try { const k = `cf_planner_view_${typeof window !== 'undefined' ? (localStorage.getItem('cf_uid') || 'me') : 'me'}`; const v = localStorage.getItem(k); if (v === 'board' || v === 'agenda') return v; } catch { /* fine */ } return 'board'; });
   const [agendaProvider, setAgendaProvider] = useState<string>('all');
+  // PERSONAL VIEW SETTINGS — remembered per person on this device: start my day at, default provider, card colour.
+  const prefsKey = `cf_planner_prefs_${currentUser?.uid || 'me'}`;
+  const [prefs, setPrefs] = useState<{ startHour: number | null; defaultProvider: string; colourBy: 'state' | 'provider' }>({ startHour: null, defaultProvider: 'all', colourBy: 'state' });
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  useEffect(() => { try { const v = JSON.parse(localStorage.getItem(prefsKey) || 'null'); if (v) { setPrefs((p) => ({ ...p, ...v })); if (v.defaultProvider && v.defaultProvider !== 'all') setAgendaProvider(v.defaultProvider); } } catch { /* fine */ } }, [prefsKey]);
+  const savePrefs = (patch: any) => setPrefs((p) => { const n = { ...p, ...patch }; try { localStorage.setItem(prefsKey, JSON.stringify(n)); } catch { /* fine */ } return n; });
   // On a phone: Now (what matters this minute) · Grid (one provider at a time, swipe between) · List — remembered on this device.
   const [phoneView, setPhoneView] = useState<'now' | 'grid' | 'list'>(() => { try { const v = localStorage.getItem('cf_planner_phone_view'); if (v === 'now' || v === 'grid' || v === 'list') return v; } catch { /* fine */ } return 'now'; });
   const choosePhoneView = (v: 'now' | 'grid' | 'list') => { setPhoneView(v); try { localStorage.setItem('cf_planner_phone_view', v); } catch { /* fine */ } };
@@ -369,6 +375,7 @@ function PlannerPageContent() {
   useEffect(() => { if (role === 'staff' && currentUser?.uid) { setPlannerView((v) => { try { if (localStorage.getItem(`cf_planner_view_${currentUser.uid}`)) return v; } catch { /* fine */ } return 'agenda'; }); setAgendaProvider(currentUser.uid); } }, [role, currentUser?.uid]);
   const choosePlannerView = (v: 'board' | 'agenda') => { setPlannerView(v); try { localStorage.setItem(`cf_planner_view_${currentUser?.uid || 'me'}`, v); } catch { /* fine */ } };
   const dayAppointments = useMemo(() => (appointments || []).filter((a: any) => { try { return isSameDay(safeDate(a.startTime), currentDate); } catch { return false; } }), [appointments, currentDate]);
+
   // "Tell them we're late": the provider-late route works out who moves and gives each client their choice.
   const tellLate = async (minutes: number) => { if (!tenantId || !lateAsk) return; const staffId = lateAsk.staffId; setLateAsk(null);
     try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
@@ -1370,6 +1377,14 @@ function PlannerPageContent() {
     return billInstances.filter(i => { const d = safeDate(i.dueDate); return i.status !== 'paid' && (isPast(d) || isToday(d) || differenceInDays(d, today) <= 7); }).map(instance => { const definition = billDefinitions.find(def => def.id === instance.billDefinitionId); return definition ? { ...instance, definition } : null; }).filter((i): i is any => i !== null);
   }, [billInstances, billDefinitions]);
 
+  // Events and blocks for the agenda (the board draws them from its columns).
+  const dayExtras = useMemo(() => { const seen = new Set<string>(); const out: any[] = []; const all: any[] = Array.from(((itemsByColumn as any)?.values?.() || Object.values(itemsByColumn || {})) as any).flat();
+    for (const it of all) { if (!it || (it.itemType !== 'event' && it.itemType !== 'block') || seen.has(it.id)) continue; seen.add(it.id); out.push(it); } return out; }, [itemsByColumn]);
+  // Week density for the date strip: visits per day, against the busiest day this week.
+  const weekLoad = useMemo(() => { const m = new Map<string, number>(); for (const a of (appointments || []) as any[]) { if (['cancelled', 'declined'].includes(String(a.status))) continue; try { const k = format(safeDate(a.startTime), 'yyyy-MM-dd'); m.set(k, (m.get(k) || 0) + 1); } catch { /* fine */ } } return m; }, [appointments]);
+  const visitActions = { onApprove: (a: any) => handleApproveRequest(a), onDecline: (a: any) => handleDeclineRequest(a), canDecline: myAuthority === 'full', onEdit: (a: any) => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }, onReschedule: (a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); },
+    onRebook: (a: any) => { setAppointmentToRebook(a); setClientForNewApt(null); setIsAddAppointmentOpen(true); }, onPrintTicket: (a: any) => handlePrintTicket(a), onReportIssue: (a: any) => setIssueFor(a), onResolveIssue: (a: any) => setResolveFor(a), canResolve: isManagerHere };
+
   if (UNDEFINED_IMPORTS.length > 0) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-background p-8">
@@ -1388,6 +1403,8 @@ function PlannerPageContent() {
 
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 
+
+
   return (
     <div className="cf-settings cf-legacy flex h-[100dvh] w-full flex-col overflow-hidden" style={{ background: 'var(--paper)' }}>
       <SettingsStyle />
@@ -1405,6 +1422,15 @@ function PlannerPageContent() {
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               <span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span>
+              <button type="button" onClick={() => setPrefsOpen(true)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }} aria-label="View settings">View</button>
+              {prefsOpen && <div role="dialog" aria-label="View settings" className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setPrefsOpen(false)}>
+                <div className="w-full max-w-md space-y-4 rounded-t-3xl p-5 pb-8 sm:rounded-3xl sm:pb-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[17px] font-semibold">Your view <span className="text-[13px] font-normal" style={{ color: 'var(--muted)' }}>· just for you, on this device</span></p>
+                  <label className="flex items-center justify-between gap-3 text-[15px]">Start my day at<select value={prefs.startHour ?? ''} onChange={(e) => savePrefs({ startHour: e.target.value === '' ? null : Number(e.target.value) })} className="h-11 rounded-xl border px-3" style={{ borderColor: 'var(--line)' }}><option value="">The first visit</option>{Array.from({ length: 14 }, (_, i) => i + 5).map((h) => <option key={h} value={h}>{format(new Date(2026, 0, 1, h), 'h a')}</option>)}</select></label>
+                  <label className="flex items-center justify-between gap-3 text-[15px]">Show first<select value={prefs.defaultProvider} onChange={(e) => { savePrefs({ defaultProvider: e.target.value }); setAgendaProvider(e.target.value); }} className="h-11 rounded-xl border px-3" style={{ borderColor: 'var(--line)' }}><option value="all">Everyone</option>{(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false).map((st: any) => <option key={st.id} value={st.id}>{st.id === currentUser?.uid ? `Me (${st.name})` : st.name}</option>)}</select></label>
+                  <label className="flex items-center justify-between gap-3 text-[15px]">Card colour<select value={prefs.colourBy} onChange={(e) => savePrefs({ colourBy: e.target.value })} className="h-11 rounded-xl border px-3" style={{ borderColor: 'var(--line)' }}><option value="state">By state (done, in the chair…)</option><option value="provider">By provider</option></select></label>
+                  <button type="button" onClick={() => setPrefsOpen(false)} className="h-11 w-full rounded-full text-[15px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Done</button>
+                </div></div>}
               <button type="button" aria-pressed={density === 'compact'} onClick={() => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })} title="Fit more of the day on screen" className="hidden sm:inline-flex h-9 items-center rounded-full px-3 text-[13px] font-semibold" style={{ background: density === 'compact' ? 'var(--ink)' : 'var(--soft)', color: density === 'compact' ? '#fff' : 'inherit' }}>{density === 'compact' ? 'Compact' : 'Roomy'}</button>
               {(role === 'owner' || role === 'admin') && (
                 <div className="flex gap-1.5 sm:gap-2">
@@ -1515,6 +1541,8 @@ function PlannerPageContent() {
                     >
                       <p className={cn("text-[12px] font-semibold ", isSelected ? "text-white/70" : "text-muted-foreground/70")}>{format(day, 'EEE')}</p>
                       <p className={cn("text-base sm:text-2xl font-semibold  leading-none", isSelected ? "text-white" : "text-slate-900")}>{format(day, 'd')}</p>
+                      {(() => { const n = weekLoad.get(format(day, 'yyyy-MM-dd')) || 0; const max = Math.max(1, ...weekDays.map((d) => weekLoad.get(format(d, 'yyyy-MM-dd')) || 0));
+                        return <span className="mt-0.5 block h-1 w-8 overflow-hidden rounded-full" style={{ background: isSelected ? 'rgba(255,255,255,.3)' : 'var(--line, #e7e2dc)' }} title={`${n} visit${n === 1 ? '' : 's'}`} aria-label={`${n} visit${n === 1 ? '' : 's'}`}><span className="block h-full rounded-full" style={{ width: `${Math.round((n / max) * 100)}%`, background: isSelected ? '#fff' : 'var(--accent)' }} /></span>; })()}
                       {hasStudioEvent && (
                         <span className={cn('w-1.5 h-1.5 rounded-full', isSelected ? 'bg-white/70' : 'bg-violet-400')} />
                       )}
@@ -1583,14 +1611,16 @@ function PlannerPageContent() {
       <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
         {isMobile && <div className="flex gap-1 px-3 pt-2" role="tablist" aria-label="View">{([['now', 'Now'], ['grid', 'Day grid'], ['list', 'List']] as const).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={phoneView === v} onClick={() => choosePhoneView(v)} className="h-9 flex-1 rounded-full text-[13px] font-semibold" style={phoneView === v ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}</div>}
         {isMobile && phoneView === 'now' && <NowFirst appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
-          onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => { setBookPreset(null); setIsAddAppointmentOpen(true); }} />}
+          onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => { setBookPreset(null); setIsAddAppointmentOpen(true); }}
+          onApprove={visitActions.onApprove} onDecline={visitActions.onDecline} canDecline={visitActions.canDecline} />}
         {(isMobile ? phoneView === 'list' : plannerView === 'agenda') && (
           <div className="flex min-h-0 flex-1 gap-4 p-3 sm:p-4">
             <AgendaView date={currentDate} appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} selectedId={panelAppt?.id || null}
               onSelect={(a: any) => setPanelAppt(a)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
+              extras={dayExtras} onOpenExtra={(x: any) => { if (x.itemType === 'event') { setSelectedEvent(x); setIsEditEventOpen(true); } }}
               onBookAt={(staffId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId }); setIsAddAppointmentOpen(true); }} />
             {panelAppt && <div className="hidden w-[380px] shrink-0 lg:block"><VisitPanel appointment={dayAppointments.find((a: any) => a.id === panelAppt.id) || panelAppt} appointments={appointments || []} clients={clients || []} services={services || []} staff={allStaff || []}
-              onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nextA: any) => setLateAsk(nextA)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onClose={() => setPanelAppt(null)} /></div>}
+              onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nextA: any) => setLateAsk(nextA)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onClose={() => setPanelAppt(null)} actions={visitActions} /></div>}
           </div>)}
         {lateAsk && <div role="dialog" aria-label="How far behind?" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.35)' }} onClick={() => setLateAsk(null)}>
           <div className="w-full max-w-sm space-y-3 rounded-3xl p-5" style={{ background: 'var(--card)' }} onClick={(e) => e.stopPropagation()}>
@@ -1599,6 +1629,7 @@ function PlannerPageContent() {
           </div></div>}
         {(isMobile ? phoneView === 'grid' : plannerView === 'board') && <DayTimeline
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
+          startHour={prefs.startHour} colourBy={prefs.colourBy}
           density={density} onBookAt={(columnId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId: columns.find((c: any) => c.id === columnId && 'role' in c) ? columnId : undefined }); setIsAddAppointmentOpen(true); }}
           onMoveAppointment={(a: any, columnId: string, time: string) => { const col: any = columns.find((c: any) => c.id === columnId); void moveAppointment(a, col && 'role' in col ? columnId : a.staffId, time); }}
           showColumnHeader={activeView === 'resources' || activeView === 'booths'} isMobile={isMobile || false} activeView={activeView}
