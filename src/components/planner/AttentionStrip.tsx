@@ -86,7 +86,7 @@ export function AttentionStrip({ items, className }: AttentionStripProps) {
   return (
     <div className={cn('px-4 py-2 bg-amber-50 border-b-2 border-amber-200', className)}>
       <div className="max-w-7xl mx-auto space-y-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+        <p className="text-[12px] font-semibold text-amber-700 flex items-center gap-2">
           <AlertTriangle className="w-3 h-3" />
           {items.length} need{items.length === 1 ? 's' : ''} attention
         </p>
@@ -99,14 +99,14 @@ export function AttentionStrip({ items, className }: AttentionStripProps) {
               <button
                 key={item.id}
                 onClick={item.onClick}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border-2 border-amber-300 shrink-0 hover:bg-amber-50 transition-all active:scale-95"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-amber-300 shrink-0 hover:bg-amber-50 transition-all active:scale-95"
               >
                 <div className={cn('w-2 h-2 rounded-full shrink-0', dotClass, pulse && 'animate-pulse')} />
                 <div className="text-left">
-                  <p className="font-black uppercase text-[10px] text-slate-800">{item.label}</p>
-                  <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{item.sublabel}</p>
+                  <p className="font-semibold text-[12px] text-slate-800">{item.label}</p>
+                  <p className="text-[12px] font-bold text-muted-foreground opacity-60">{item.sublabel}</p>
                 </div>
-                <span className={cn('font-black text-[8px] uppercase border-none shrink-0 rounded-full px-1.5 py-0.5', badge.className)}>
+                <span className={cn('font-semibold text-[12px] border-none shrink-0 rounded-full px-1.5 py-0.5', badge.className)}>
                   {badge.label}
                 </span>
               </button>
