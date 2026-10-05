@@ -2,7 +2,7 @@
 
 import { stateOf } from '@/components/planner/AgendaView';
 import { SettingsStyle } from '@/components/settings/settings-style';
-import { openVisit } from '@/lib/visit-client';
+import { VisitTicket } from '@/components/visit/VisitTicket';
 import { getAuth } from 'firebase/auth';
 import { placeOf } from '@/lib/service-place';
 import { hasRealCard } from '@/lib/card-on-file';
@@ -1589,6 +1589,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const { role, selectedTenant } = useTenant();
   const { user: currentUser } = useUser();
   const tenantId = selectedTenant?.id;
+  // THE VISIT — one screen in five tabs (the sheet and the visit ticket, merged). Opens on Now; resets per visit.
+  const [visitTab, setVisitTab] = useState<'now' | 'client' | 'service' | 'money' | 'history'>('now');
+  useEffect(() => { setVisitTab('now'); }, [initialAppointment?.id]);
   const { toast } = useToast();
   const { firestore } = useFirebase();
   const { copied: ticketCopied, copy: copyTicket } = useCopyToClipboard();
@@ -2430,9 +2433,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const SheetBody = (
     <ScrollArea className="flex-1 overflow-y-auto">
       <div className="space-y-5 p-4 md:p-6 pb-6">
+        <div hidden={visitTab !== 'now'} className="space-y-5">
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
 
+        </div>
+        <div hidden={visitTab !== 'now'} className="space-y-5">
         {/* ── Status section ─────────────────────────────────────────────── */}
         {isCancelled
           ? <CancellationRecord appointment={appointment} transactions={transactions} staff={staff || []} cancellationEvent={cancellationEvent} depositDecision={latestDepositDecision} onProcessRefund={handleProcessPendingRefund} onKeepAsCredit={handleKeepAsCredit} isProcessingRefund={isProcessingRefund} />
@@ -2444,6 +2450,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   actorUid={currentUser?.uid || null} actorName={String(currentUser?.displayName || currentUser?.email || selectedTenant?.name || 'The studio')} studioName={selectedTenant?.name || null} />
               : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured} />}
 
+        </div>
+        <div hidden={visitTab !== 'now'} className="space-y-5">
         {/* ── Live timer ─────────────────────────────────────────────────── */}
         {appointment.status === 'servicing' && elapsedTime && (
           <div className={cn('rounded-2xl border-4 text-center p-4 transition-all', isRunningOver ? 'bg-destructive/5 border-destructive animate-pulse' : 'bg-primary/5 border-primary/20')}>
@@ -2460,6 +2468,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        </div>
+        <div hidden={visitTab !== 'now'} className="space-y-5">
         {/* ── Reschedule badge ────────────────────────────────────────────── */}
         {safeNumber(appointment.rescheduleCount) > 0 && (
           <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-[12px] font-bold text-blue-700">
@@ -2470,6 +2480,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        </div>
+        <div hidden={visitTab !== 'client'} className="space-y-5">
         {/* ── Client intelligence ─────────────────────────────────────────── */}
         <div className="space-y-3">
           <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
@@ -2490,6 +2502,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           )}
         </div>
 
+        </div>
+        <div hidden={visitTab !== 'service'} className="space-y-5">
         {/* ── Service card ─────────────────────────────────────────────────── */}
         <Card className="rounded-[1.5rem] border bg-muted/5 shadow-inner overflow-hidden">
           <CardContent className="p-4 space-y-3">
@@ -2604,6 +2618,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </CardContent>
         </Card>
 
+        </div>
+        <div hidden={visitTab !== 'money'} className="space-y-5">
         {/* ── Financial summary (active appointments only) ──────────────── */}
         {!isCancelled && !isCompleted && (
           <div className="space-y-3">
@@ -2649,6 +2665,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        </div>
+        <div hidden={visitTab !== 'client'} className="space-y-5">
         {/* ── Notes ───────────────────────────────────────────────────────────
             One place for every note attached to THIS appointment: the booking
             note, the staff-only internal note, whatever the technician typed at
@@ -2665,6 +2683,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           />
         </div>
 
+        </div>
+        <div hidden={visitTab !== 'client'} className="space-y-5">
         {/* ── After photos (completed only) ───────────────────────────────── */}
         {isCompleted && (
           <div className="space-y-2">
@@ -2675,6 +2695,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        </div>
+        <div hidden={visitTab !== 'service'} className="space-y-5">
         {/* ── Visit outcome (v2 — completed only) ─────────────────────────── */}
         {isCompleted && (
           <div className="space-y-2">
@@ -2687,6 +2709,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        </div>
+        <div hidden={visitTab !== 'now'} className="space-y-5">
         {/* ── Requirements & intake ───────────────────────────────────────── */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -2882,6 +2906,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         </div>
 
+        </div>
+        <div hidden={visitTab !== 'client'} className="space-y-5">
         {/* ── Inspiration photo & markup ───────────────────────────────────── */}
         {appointment.inspirationPhotoUrl && (
           <div className="space-y-3">
@@ -2911,6 +2937,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        </div>
+        <div hidden={visitTab !== 'history'} className="space-y-5">
         {/* ── Incident report ──────────────────────────────────────────────── */}
         {appointment.incident && (
           <div className="space-y-3">
@@ -2964,6 +2992,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           })}
         </div>
 
+        </div>
+        <div hidden={visitTab !== 'history'} className="space-y-5">
         {/* ── Activity timeline ────────────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
           <AccordionItem value="timeline" className="border rounded-2xl overflow-hidden bg-white shadow-inner">
@@ -3005,6 +3035,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </AccordionItem>
         </Accordion>
 
+        </div>
+        <div hidden={visitTab !== 'history'} className="space-y-5">
         {/* ── Communications journey ───────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
           <AccordionItem value="comms" className="border rounded-2xl overflow-hidden bg-white shadow-inner">
@@ -3085,6 +3117,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </AccordionItem>
         </Accordion>
 
+        </div>
+        <div hidden={visitTab !== 'client'} className="space-y-5">
         {/* ── Dossier intelligence ─────────────────────────────────────────── */}
         <div className="space-y-3">
           <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Dossier Intelligence</h3>
@@ -3190,6 +3224,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </Accordion>
         </div>
 
+        </div>
+        <div hidden={visitTab !== 'now'} className="space-y-5">
         {/* ── Escalation panel ─────────────────────────────────────────────── */}
         <div className="space-y-3">
           {appointment.isEscalated ? (
@@ -3232,6 +3268,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           )}
         </div>
 
+        </div>
+        {/* History also holds the visit record: stage, payments, receipts, handoff notes, timeline and approvals. */}
+        <div hidden={visitTab !== 'history'} className="space-y-5">
+          {tenantId && appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && visitTab === 'history' && <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--line)' }}><VisitTicket tenantId={tenantId} appointmentId={String(appointment.id)} /></div>}
+        </div>
+        <div hidden={visitTab !== 'money' || !['completed', 'cancelled'].includes(String(appointment?.status))}><p className="rounded-2xl p-4 text-[14px]" style={{ background: 'var(--soft)' }}>Payments, receipts and refunds for this visit are under <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setVisitTab('history')}>History</button>.</p></div>
         {/* ── Keyboard shortcut hint ───────────────────────────────────────── */}
         {!isMobile && (canStart || canFinish) && (
           <p className="text-center text-[12px] font-bold text-muted-foreground opacity-30 pb-2">
@@ -3366,7 +3408,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <SheetTitle className="sr-only">Session Details for {client.name}</SheetTitle>
             <SheetDescription className="sr-only">Appointment {ticketId}</SheetDescription>
             {IdentityHeader}
-            {appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && <button type="button" onClick={() => openVisit(String(appointment.id))} className="mt-2 inline-flex h-8 items-center rounded-full border border-primary/20 bg-white px-3 text-[11px] font-semibold text-primary hover:border-primary">Visit ticket</button>}
+            <nav className="mt-3 flex gap-1 overflow-x-auto" role="tablist" aria-label="Visit sections">{([['now', 'Now'], ['client', 'Client'], ['service', 'Service'], ['money', 'Money'], ['history', 'History']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={visitTab === k} onClick={() => setVisitTab(k)} className="h-9 shrink-0 rounded-full px-4 text-[13px] font-semibold" style={visitTab === k ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}
+              {appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && <button type="button" onClick={async () => { const url = `${window.location.origin}/planner?visit=${encodeURIComponent(String(appointment.id))}`; try { await navigator.clipboard.writeText(url); } catch { window.prompt('Link to this visit', url); } }} className="ml-auto h-9 shrink-0 rounded-full px-3 text-[13px] font-semibold" style={{ color: 'var(--muted)' }} aria-label="Copy a link to this visit">Copy link</button>}</nav>
           </SheetHeader>
           {/* An offer is waiting: booked with a campaign code, or a renter's offer. */}
           {((appointment as any)?.pendingDiscountCode || (appointment as any)?.renterOfferLine) && (
