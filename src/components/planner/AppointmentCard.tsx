@@ -377,7 +377,7 @@ export function AppointmentCard({
       <div style={{ height: `${(safeDuration / totalDuration) * 100}%` }} className="flex-1 min-h-0 overflow-hidden">
         <Card 
           className={cn(
-            'p-1.5 sm:p-2.5 border-2 border-l-[3px] w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-r-xl overflow-hidden', 
+            'p-1.5 sm:p-2.5 border border-l-[3px] w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-r-xl overflow-hidden', 
             currentStatus?.className,
             (isRunningOver || appointment.isEscalated) && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10',
             awaitingDecision && 'bg-[repeating-linear-gradient(-45deg,transparent,transparent_5px,rgba(22,23,26,0.06)_5px,rgba(22,23,26,0.06)_7px)]',
@@ -403,7 +403,7 @@ export function AppointmentCard({
                         <span
                           key={chip.key}
                           className={cn(
-                            "inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 h-5 text-[10px] font-black uppercase tracking-widest",
+                            "inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 h-5 text-[12px] font-semibold ",
                             CHIP_TONES[chip.tone] || CHIP_TONES.info,
                             chip.key === 'live' && 'animate-pulse',
                           )}
@@ -414,19 +414,19 @@ export function AppointmentCard({
                       );
                     })}
                     {chips.length > chipCap && (
-                      <span className="inline-flex shrink-0 items-center rounded-lg px-1.5 h-5 text-[10px] font-black uppercase tracking-widest bg-foreground/[0.08] text-foreground/70">
+                      <span className="inline-flex shrink-0 items-center rounded-lg px-1.5 h-5 text-[12px] font-semibold bg-foreground/[0.08] text-foreground/70">
                         +{chips.length - chipCap}
                       </span>
                     )}
                 </div>
                 <div className="flex items-baseline gap-2 mb-1">
-                  <span className="shrink-0 tabular-nums font-black tracking-tight leading-none text-[11px] sm:text-[12px] text-foreground">
+                  <span className="shrink-0 tabular-nums font-semibold tracking-tight leading-none text-[11px] sm:text-[12px] text-foreground">
                     {format(safeDate(appointment.startTime), 'h:mm')}
                   </span>
-                  <p className="font-black tracking-tight text-[13px] sm:text-[14px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
+                  <p className="font-semibold tracking-tight text-[13px] sm:text-[14px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
                   {ticket !== null && tier !== 'compact' && appointment.status !== 'servicing' && (
                     <span className={cn(
-                      'shrink-0 tabular-nums font-black tracking-tight leading-none text-[12px] sm:text-[13px]',
+                      'shrink-0 tabular-nums font-semibold tracking-tight leading-none text-[12px] sm:text-[13px]',
                       profitTier === 'negative' ? 'text-destructive' : 'text-foreground',
                     )}>
                       ${ticket.toFixed(0)}
@@ -437,13 +437,13 @@ export function AppointmentCard({
                   <p className="text-[11px] sm:text-[12px] font-bold text-muted-foreground truncate leading-snug">{service?.name || appointment.serviceName || 'Service'}</p>
                 )}
                 {holdReason && tier === 'full' && (
-                  <p className="text-[8px] font-bold text-foreground/70 uppercase tracking-widest truncate">{holdReason}</p>
+                  <p className="text-[12px] font-bold text-foreground/70 truncate">{holdReason}</p>
                 )}
                 {openIssue && tier !== 'compact' && (
-                  <p className="text-[8px] font-bold text-destructive uppercase tracking-widest truncate">{openIssue.label}</p>
+                  <p className="text-[12px] font-bold text-destructive truncate">{openIssue.label}</p>
                 )}
                 {acceptConsequence && tier === 'full' && (
-                  <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest truncate">{acceptConsequence}</p>
+                  <p className="text-[12px] font-bold text-muted-foreground truncate">{acceptConsequence}</p>
                 )}
             </div>
             <div className="flex flex-col items-end gap-1 shrink-0">
@@ -461,45 +461,45 @@ export function AppointmentCard({
                     <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="rounded-2xl border-2 shadow-xl p-1 min-w-[11rem]">
+                <DropdownMenuContent align="end" className="rounded-2xl border shadow-xl p-1 min-w-[11rem]">
                     {!canDecide && canReport && (
                       <>
-                        <DropdownMenuItem onSelect={() => { onReportIssue(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Report an Issue</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => { onReportIssue(appointment); }} className="font-bold text-[12px]"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Report an Issue</DropdownMenuItem>
                         <DropdownMenuSeparator />
                       </>
                     )}
                     {canResolve && (
                       <>
-                        <DropdownMenuItem onSelect={() => { onResolveIssue(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Resolve Issue</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => { onResolveIssue(appointment); }} className="font-bold text-[12px] text-destructive"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Resolve Issue</DropdownMenuItem>
                         <DropdownMenuSeparator />
                       </>
                     )}
                     {canDecide && (
                       <>
-                        <DropdownMenuItem disabled={decisionBusy} onSelect={() => { void runDecision('approve'); }} className="font-bold text-[10px] uppercase tracking-widest text-emerald-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
+                        <DropdownMenuItem disabled={decisionBusy} onSelect={() => { void runDecision('approve'); }} className="font-bold text-[12px] text-emerald-700"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Accept Request</DropdownMenuItem>
                         {declinesDirectly
-                          ? <DropdownMenuItem disabled={decisionBusy} onSelect={() => { setConfirmingDecline(true); }} className="font-bold text-[10px] uppercase tracking-widest text-destructive"><ShieldAlert className="mr-2 h-3.5 w-3.5" /> Decline Request</DropdownMenuItem>
+                          ? <DropdownMenuItem disabled={decisionBusy} onSelect={() => { setConfirmingDecline(true); }} className="font-bold text-[12px] text-destructive"><ShieldAlert className="mr-2 h-3.5 w-3.5" /> Decline Request</DropdownMenuItem>
                           : canReport
-                            ? <DropdownMenuItem disabled={decisionBusy} onSelect={() => { onReportIssue(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Report an Issue</DropdownMenuItem>
+                            ? <DropdownMenuItem disabled={decisionBusy} onSelect={() => { onReportIssue(appointment); }} className="font-bold text-[12px]"><AlertTriangle className="mr-2 h-3.5 w-3.5" /> Report an Issue</DropdownMenuItem>
                             : null}
                         <DropdownMenuSeparator />
                       </>
                     )}
-                    <DropdownMenuItem onSelect={() => { openDetails(); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => { onEdit(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Calendar className="mr-2 h-3.5 w-3.5" /> Edit</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => { openDetails(); }} className="font-bold text-[12px]"><FileText className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => { onEdit(appointment); }} className="font-bold text-[12px]"><Calendar className="mr-2 h-3.5 w-3.5" /> Edit</DropdownMenuItem>
                     {typeof onPrintTicket === 'function' && (
-                      <DropdownMenuItem onSelect={() => { onPrintTicket(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><FileText className="mr-2 h-3.5 w-3.5" /> Print Ticket</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { onPrintTicket(appointment); }} className="font-bold text-[12px]"><FileText className="mr-2 h-3.5 w-3.5" /> Print Ticket</DropdownMenuItem>
                     )}
                     {typeof onStartService === 'function' && appointment.status !== 'servicing' && appointment.status !== 'ready_for_checkout' && (
-                      <DropdownMenuItem onSelect={() => { onStartService(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-primary"><Clock className="mr-2 h-3.5 w-3.5" /> Start Session</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { onStartService(appointment); }} className="font-bold text-[12px] text-primary"><Clock className="mr-2 h-3.5 w-3.5" /> Start Session</DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
-                    {appointment.status === 'servicing' && <DropdownMenuItem onSelect={() => { onFinishService(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
-                    {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onSelect={() => { onCompleteClick(appointment); }} className="font-bold text-[10px] uppercase tracking-widest text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
-                    <DropdownMenuItem onSelect={() => { onReschedule(appointment); }} className="font-bold text-[10px] uppercase tracking-widest"><Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => { handleCopyCheckInLink({ stopPropagation: () => {} } as any); }} className="font-bold text-[10px] uppercase tracking-widest"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
+                    {appointment.status === 'servicing' && <DropdownMenuItem onSelect={() => { onFinishService(appointment); }} className="font-bold text-[12px]"><Square className="mr-2 h-3.5 w-3.5" /> End Session</DropdownMenuItem>}
+                    {appointment.status === 'ready_for_checkout' && <DropdownMenuItem onSelect={() => { onCompleteClick(appointment); }} className="font-bold text-[12px] text-primary"><CheckCircle className="mr-2 h-3.5 w-3.5" /> Open Checkout</DropdownMenuItem>}
+                    <DropdownMenuItem onSelect={() => { onReschedule(appointment); }} className="font-bold text-[12px]"><Undo2 className="mr-2 h-3.5 w-3.5" /> Reschedule</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => { handleCopyCheckInLink({ stopPropagation: () => {} } as any); }} className="font-bold text-[12px]"><LinkIcon className="mr-2 h-3.5 w-3.5" /> Copy Link</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={() => { onDelete(appointment.id); }} className="text-destructive font-bold text-[10px] uppercase tracking-widest"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => { onDelete(appointment.id); }} className="text-destructive font-bold text-[12px]"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
                 </DropdownMenuContent>
                 </DropdownMenu>
                 
@@ -509,12 +509,12 @@ export function AppointmentCard({
                             <TooltipProvider key={s.id}>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <Avatar className="h-4 w-4 sm:h-5 sm:w-5 border-2 border-background shadow-sm">
+                                        <Avatar className="h-4 w-4 sm:h-5 sm:w-5 border border-background shadow-sm">
                                             <AvatarImage src={s.avatarUrl} className="object-cover" />
-                                            <AvatarFallback className="text-[8px] sm:text-[8px] font-black">{(s.name || 'S')[0]}</AvatarFallback>
+                                            <AvatarFallback className="text-[12px] sm:text-[12px] font-semibold">{(s.name || 'S')[0]}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
-                                    <TooltipContent className="rounded-xl border-2 font-black uppercase text-[8px] tracking-widest">{s.name}</TooltipContent>
+                                    <TooltipContent className="rounded-xl border font-semibold text-[12px]">{s.name}</TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         ))}
@@ -525,14 +525,14 @@ export function AppointmentCard({
 
           {appointment.status === 'servicing' && elapsedTime && tier === 'full' && (
             <div className="flex-1 flex items-center justify-center py-0.5 sm:py-1">
-                <p className={cn("text-lg sm:text-2xl font-black font-mono tracking-tighter leading-none", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
+                <p className={cn("text-lg sm:text-2xl font-semibold font-mono  leading-none", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
             </div>
           )}
 
           <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 sm:gap-1.5">
                 <div className={cn("w-1.5 h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
-                <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest text-left">
+                <p className="text-[12px] font-semibold text-muted-foreground text-left">
                     {(appointment.checkInStatus === 'running_late' || appointment.checkInStatus === 'on_my_way') && estimatedArrival
                         ? `Est ${estimatedArrival}`
                         : currentStatus?.text || ''
@@ -540,27 +540,27 @@ export function AppointmentCard({
                 </p>
             </div>
             {canResolve && !canDecide && tier !== 'compact' && (
-                <Button size="xs" aria-label={`Resolve the issue on ${client.name}'s booking`} className="h-6 px-2 bg-destructive text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onResolveIssue(appointment); }}>Resolve</Button>
+                <Button size="xs" aria-label={`Resolve the issue on ${client.name}'s booking`} className="h-6 px-2 bg-destructive text-white border-none font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onResolveIssue(appointment); }}>Resolve</Button>
             )}
             {canDecide && tier !== 'compact' && !confirmingDecline && (
                 <div className="flex items-center gap-1">
-                    <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-8 px-4 bg-emerald-600 text-white border-none font-black text-[11px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
+                    <Button size="xs" disabled={decisionBusy} aria-label={`Accept the request from ${client.name}`} className="h-8 px-4 bg-emerald-600 text-white border-none font-semibold text-[11px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('approve'); }}>Accept</Button>
                     {declinesDirectly
-                      ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Decline the request from ${client.name}`} className="h-8 px-4 border-2 font-black text-[11px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(true); }}>Decline</Button>
+                      ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Decline the request from ${client.name}`} className="h-8 px-4 border font-semibold text-[11px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(true); }}>Decline</Button>
                       : canReport
-                        ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Report an issue with ${client.name}'s booking`} className="h-8 px-4 border-2 font-black text-[11px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onReportIssue(appointment); }}>Report</Button>
+                        ? <Button size="xs" variant="outline" disabled={decisionBusy} aria-label={`Report an issue with ${client.name}'s booking`} className="h-8 px-4 border font-semibold text-[11px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onReportIssue(appointment); }}>Report</Button>
                         : null}
                 </div>
             )}
             {canDecide && confirmingDecline && (
                 <div className="flex items-center gap-1">
-                    <span className="text-[8px] font-black uppercase tracking-widest text-destructive">{decisionChannel === 'request' ? 'Tell them no?' : 'Release it?'}</span>
-                    <Button size="xs" disabled={decisionBusy} aria-label={`Confirm declining ${client.name}`} className="h-6 px-2 bg-destructive text-white border-none font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('decline'); }}>Yes</Button>
-                    <Button size="xs" variant="outline" aria-label="Keep the request" className="h-6 px-2 border-2 font-black text-[8px] uppercase tracking-widest rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(false); }}>Keep</Button>
+                    <span className="text-[12px] font-semibold text-destructive">{decisionChannel === 'request' ? 'Tell them no?' : 'Release it?'}</span>
+                    <Button size="xs" disabled={decisionBusy} aria-label={`Confirm declining ${client.name}`} className="h-6 px-2 bg-destructive text-white border-none font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); runDecision('decline'); }}>Yes</Button>
+                    <Button size="xs" variant="outline" aria-label="Keep the request" className="h-6 px-2 border font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(false); }}>Keep</Button>
                 </div>
             )}
             {appointment.status === 'ready_for_checkout' && (
-                <Button size="xs" aria-label={`Take payment for ${client.name}`} className="h-6 px-2.5 bg-primary text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
+                <Button size="xs" aria-label={`Take payment for ${client.name}`} className="h-6 px-2.5 bg-primary text-white border-none font-semibold text-[12px] shadow-sm rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onCompleteClick(appointment); }}>PAY</Button>
             )}
           </div>
         </Card>
