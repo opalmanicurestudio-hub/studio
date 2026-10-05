@@ -502,6 +502,7 @@ export const CheckoutHub = ({
   onCartChange,
   appointmentsData,
   onSelectAppointment,
+  groupRest,
   clients,
   isGroupCheckout,
   payerOptions,
@@ -1129,6 +1130,10 @@ export const CheckoutHub = ({
               </div></div>
             {addOpen && onAddItem && <div className="rounded-2xl p-3" style={{ background: 'var(--paper)' }}>
               <PosCatalog compact inventory={inventory || []} services={services || []} memberships={memberships || []} packages={packages || []} cart={cart || []} onAdd={(i: any) => onAddItem(i)} onScan={onPosScan ? (c: string) => onPosScan(c) : undefined} />
+            </div>}
+            {groupRest && <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--accent) 10%, transparent)' }}>
+              <span><b>{groupRest.label}</b> · {groupRest.names.join(', ')} {groupRest.names.length === 1 ? 'is' : 'are'} ready to pay too</span>
+              <button type="button" onClick={groupRest.add} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Add them · one bill</button>
             </div>}
             {isCartEmpty ? <p className="text-[14px]" style={muted}>Nothing yet — pick a visit, scan a ticket, or add items from the counter.</p> : <div className="space-y-2">
               {appointmentsData.map((data: any) => {
