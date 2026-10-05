@@ -97,7 +97,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
             >
               {/* New Event Button */}
               <motion.div variants={itemVariants} className="flex items-center gap-4 group">
-                <span className="bg-white/95 backdrop-blur-xl border-2 border-primary/10 px-5 py-2.5 rounded-2xl shadow-2xl font-black uppercase text-[10px] tracking-[0.2em] text-slate-900">
+                <span className="bg-white/95 backdrop-blur-xl border border-primary/10 px-5 py-2.5 rounded-2xl shadow-2xl font-semibold text-[12px] text-slate-900">
                   New Event
                 </span>
                 <Button
@@ -111,7 +111,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
 
               {/* New Appointment Button */}
               <motion.div variants={itemVariants} className="flex items-center gap-4 group">
-                <span className="bg-white/95 backdrop-blur-xl border-2 border-primary/10 px-5 py-2.5 rounded-2xl shadow-2xl font-black uppercase text-[10px] tracking-[0.2em] text-slate-900">
+                <span className="bg-white/95 backdrop-blur-xl border border-primary/10 px-5 py-2.5 rounded-2xl shadow-2xl font-semibold text-[12px] text-slate-900">
                   New Session
                 </span>
                 <Button
@@ -128,7 +128,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
 
         {/* Main Toggle Button */}
         <Button
-          className="rounded-[2rem] w-20 h-20 shadow-3xl bg-primary text-white hover:bg-primary/90 transition-all active:scale-95 border-4 border-white flex flex-col items-center justify-center gap-1"
+          className="rounded-3xl w-20 h-20 shadow-3xl bg-primary text-white hover:bg-primary/90 transition-all active:scale-95 border-4 border-white flex flex-col items-center justify-center gap-1"
           size="lg"
           onClick={toggleOpen}
         >
@@ -138,7 +138,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
           >
             <Plus className="h-8 w-8" strokeWidth={3} />
           </motion.div>
-          <span className="text-[8px] font-black uppercase tracking-widest opacity-60">Command</span>
+          <span className="text-[12px] font-semibold opacity-60">Command</span>
         </Button>
       </div>
     </>
