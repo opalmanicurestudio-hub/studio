@@ -110,3 +110,17 @@ export function VisitCharges({ tenantId, appointmentId }: { tenantId: string; ap
         <p style={muted}>{c.reason}{c.basis.length ? ` · agreed: ${c.basis.join('; ')}` : ''}{c.missing.length ? <span style={{ color: 'var(--warn, #b45309)' }}> · no record of agreeing to {c.missing.map((m: string) => m.replace(/_/g, ' ')).join(', ')}</span> : null}</p></div>))}
     </section>);
 }
+
+/** History tab: every hand-off — the parts finished, by whom, to whom (or the desk), when, and the note left. */
+export function HandoffLog({ appointment, staff, allServices }: { appointment: any; staff: any[]; allServices: any[] }) {
+  const rows: any[] = [...(appointment.handoffs || [])].sort((a, b) => String(a.at).localeCompare(String(b.at))); if (!rows.length) return null;
+  const nm = (id: string | null) => (id && staff.find((s) => s.id === id)?.name) || 'someone';
+  const part = (id: string) => allServices.find((s) => s.id === id)?.name || 'a part';
+  return (
+    <section className="space-y-2 rounded-2xl p-4" style={card} aria-label="Hand-offs">
+      <p className="text-[14px] font-semibold">Hand-offs</p>
+      {rows.map((h, i) => (<div key={i} className="border-t pt-2 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+        <p><span style={muted}>{new Date(h.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · </span><b>{nm(h.fromStaffId)}</b>{h.partsDone?.length ? ` finished ${h.partsDone.map(part).join(', ')}` : ''} → {h.toDesk ? <b>the desk</b> : <b>{nm(h.toStaffId)}</b>}</p>
+        {h.note && <p className="text-[13px]" style={muted}>“{h.note}”</p>}</div>))}
+    </section>);
+}
