@@ -5,14 +5,17 @@
 // "Open the full visit" hands over to the full appointment sheet for everything else.
 import * as React from 'react';
 import { format, differenceInMinutes } from 'date-fns';
-import { stateOf } from '@/components/planner/AgendaView';
+import { stateOf, visitMarks, MARK_COLOR, elapsedLabel, useNow } from '@/components/planner/AgendaView';
 
 const safe = (v: any) => (v instanceof Date ? v : new Date(v?.toDate ? v.toDate() : v));
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
-export function VisitPanel({ appointment, appointments, clients, services, staff, typical, onStart, onFinish, onToDesk, onRunningLate, onOpen, onClose }: {
+export type VisitActions = { onApprove?: (a: any) => void; onDecline?: (a: any) => void; canDecline?: boolean; onEdit?: (a: any) => void; onReschedule?: (a: any) => void; onRebook?: (a: any) => void; onPrintTicket?: (a: any) => void; onReportIssue?: (a: any) => void; onResolveIssue?: (a: any) => void; canResolve?: boolean };
+export function VisitPanel({ appointment, appointments, clients, services, staff, typical, onStart, onFinish, onToDesk, onRunningLate, onOpen, onClose, actions: more = {} }: {
   appointment: any; appointments: any[]; clients: any[]; services: any[]; staff: any[]; typical?: number | null;
-  onStart: (a: any) => void; onFinish: (a: any) => void; onToDesk: (a: any) => void; onRunningLate?: (a: any) => void; onOpen: (a: any) => void; onClose?: () => void;
+  onStart: (a: any) => void; onFinish: (a: any) => void; onToDesk: (a: any) => void; onRunningLate?: (a: any) => void; onOpen: (a: any) => void; onClose?: () => void; actions?: VisitActions;
 }) {
+  useNow(1000);   // the live timer
+  const [confirmDecline, setConfirmDecline] = React.useState(false); const [showMore, setShowMore] = React.useState(false);
   const a = appointment; const client = clients.find((c) => c.id === a.clientId); const service = services.find((s) => s.id === a.serviceId); const prov = staff.find((s) => s.id === a.staffId);
   const st = stateOf(a, service); const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
   const elapsed = a.status === 'servicing' && a.actualStartTime ? differenceInMinutes(new Date(), safe(a.actualStartTime)) : null;
@@ -29,11 +32,18 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
   const chip = (t: string, c?: string) => <span key={t} className="rounded-full px-3 py-1 text-[12px] font-semibold" style={c ? { background: `color-mix(in srgb, ${c} 12%, transparent)`, color: c } : { background: 'var(--soft)' }}>{t}</span>;
   const btn = (label: string, f: () => void, primary = false) => <button key={label} type="button" onClick={f} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={primary ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{label}</button>;
   const actions: React.ReactNode[] = [];
+  const isRequest = a.status === 'requested' || a.approvalStatus === 'pending';
+  if (isRequest && more.onApprove) actions.push(btn('Accept', () => more.onApprove!(a), true));
+  if (isRequest && more.onDecline && !confirmDecline) actions.push(more.canDecline !== false ? btn('Decline…', () => setConfirmDecline(true)) : more.onReportIssue ? btn('Report an issue', () => more.onReportIssue!(a)) : null);
+  if (isRequest && confirmDecline && more.onDecline) { actions.push(btn('Yes, decline', () => { setConfirmDecline(false); more.onDecline!(a); }, true)); actions.push(btn('Keep it', () => setConfirmDecline(false))); }
+  if (a.issue?.status === 'open' && more.canResolve && more.onResolveIssue) actions.push(btn('Resolve the issue', () => more.onResolveIssue!(a), true));
   if (a.status === 'confirmed' && a.checkInStatus === 'arrived') actions.push(btn('Start', () => onStart(a), true));
   if (a.status === 'servicing') actions.push(btn('Finished — to the desk', () => onFinish(a), true));
   if (a.status === 'ready_for_checkout') actions.push(btn('Take payment', () => onToDesk(a), true));
   if (onRunningLate && ['confirmed', 'servicing'].includes(String(a.status)) && next) actions.push(btn(`Tell ${nextClient?.name?.split(' ')[0] || 'the next client'} we're late`, () => onRunningLate(next)));
   actions.push(btn('Open the full visit', () => onOpen(a)));
+  const extra: [string, (() => void) | undefined][] = [['Edit', more.onEdit && (() => more.onEdit!(a))], ['Reschedule', more.onReschedule && (() => more.onReschedule!(a))], ['Book again', more.onRebook && (() => more.onRebook!(a))], ['Print ticket', more.onPrintTicket && (() => more.onPrintTicket!(a))], ['Report an issue', !isRequest && more.onReportIssue ? () => more.onReportIssue!(a) : undefined]];
+  const live = elapsedLabel(a); const marks = visitMarks(a, client, service).filter((m) => !/Needs an answer|add-on/.test(m.label));
   return (
     <aside className="flex w-full flex-col gap-4 overflow-auto rounded-3xl p-5" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} aria-label={`${client?.name || 'Client'} — ${service?.name || 'visit'}`}>
       <div className="flex items-start justify-between gap-3">
@@ -41,8 +51,11 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
           <h2 className="mt-1 text-[22px] font-light leading-tight">{client?.name || a.clientName || 'Client'} <span className="text-[15px]" style={muted}>· {service?.name || a.serviceName || 'Service'}</span></h2></div>
         {onClose && <button type="button" onClick={onClose} aria-label="Close" className="h-9 w-9 shrink-0 rounded-full text-[18px]" style={{ background: 'var(--soft)' }}>×</button>}
       </div>
-      <div className="flex flex-wrap gap-2">{chip(st.word, st.color)}{visits === 0 ? chip('First visit', 'var(--accent)') : chip(`${visits + 1}${['st', 'nd', 'rd'][((visits + 1) % 10) - 1] && (visits + 1) % 100 - (visits + 1) % 10 !== 10 ? ['st', 'nd', 'rd'][((visits + 1) % 10) - 1] : 'th'} visit`)}{paid > 0 && chip(`Deposit ${money(paid)} paid`)}{owed > 0 && chip(`${money(owed)} owed`, 'var(--warn, #b45309)')}{Array.isArray(a.addOnIds) && a.addOnIds.length > 0 && chip(`+${a.addOnIds.length} add-on${a.addOnIds.length === 1 ? '' : 's'}`)}</div>
+      <div className="flex flex-wrap gap-2">{chip(st.word, st.color)}{visits === 0 ? chip('First visit', 'var(--accent)') : chip(`${visits + 1}${['st', 'nd', 'rd'][((visits + 1) % 10) - 1] && (visits + 1) % 100 - (visits + 1) % 10 !== 10 ? ['st', 'nd', 'rd'][((visits + 1) % 10) - 1] : 'th'} visit`)}{paid > 0 && chip(`Deposit ${money(paid)} paid`)}{owed > 0 && chip(`${money(owed)} owed`, 'var(--warn, #b45309)')}{Array.isArray(a.addOnIds) && a.addOnIds.length > 0 && chip(`+${a.addOnIds.length} add-on${a.addOnIds.length === 1 ? '' : 's'}`)}{marks.map((m) => chip(m.label, m.tone === 'info' ? undefined : MARK_COLOR[m.tone]))}</div>
+      {live && <div className="flex items-baseline gap-3"><span className="text-[34px] font-light tabular-nums leading-none" style={{ color: st.over ? 'var(--warn, #b45309)' : 'var(--ink)' }} aria-live="off">{live}</span><span className="text-[13px]" style={muted}>in the chair{service?.duration ? ` · booked ${service.duration} min` : ''}</span></div>}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{actions}</div>
+      {extra.some(([, f]) => f) && <div><button type="button" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} className="text-[13px] font-semibold underline underline-offset-2" style={muted}>{showMore ? 'Fewer actions' : 'More actions'}</button>
+        {showMore && <div className="mt-2 flex flex-wrap gap-2">{extra.filter(([, f]) => f).map(([l, f]) => <button key={l} type="button" onClick={f} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{l}</button>)}</div>}</div>}
       <div className="space-y-2 border-t pt-3 text-[14px]" style={{ borderColor: 'var(--line)' }}>
         {last ? <p><b>Last time:</b> {lastService?.name || 'a visit'} on {format(safe(last.startTime), 'd MMM')}{last.note || last.notes || last.providerNote ? ` · ${last.note || last.notes || last.providerNote}` : ''}</p> : <p style={muted}><b>Last time:</b> nothing on record yet</p>}
         {(client?.nextVisitNote || client?.notes) && <p><b>Note:</b> {client.nextVisitNote || client.notes}</p>}
