@@ -56,7 +56,9 @@ export async function POST(req: NextRequest) {
     const organiserPays = i > 0 && m.depositCents > 0 && (pol.deposits === 'organizer' || !m.hasContact || !m.guest);
     if (organiserPays) { movedCents += m.depositCents; Object.assign(link, { depositAmountCents: 0, depositCoveredBy: linkId, depositPaidBy: 'organizer' }); }
     batch.set(db.doc(`${T}/appointments/${m.appointmentId}`), { ...link, onlineGroupRequest: true }, { merge: true });
-    if (m.guest && !m.hasContact && m.clientId && lead.clientId) batch.set(db.doc(`${T}/clients/${m.clientId}`), { guestOf: lead.clientId, guestOnly: true }, { merge: true }); });
+    if (m.guest && !m.hasContact && m.clientId && lead.clientId) batch.set(db.doc(`${T}/clients/${m.clientId}`), { guestOf: lead.clientId, guestOnly: true }, { merge: true });
+    // Every guest is linked to the organiser ("Organises for" / "Guest of"), with an organiser's limited permissions.
+    if (m.guest && m.clientId && lead.clientId && m.clientId !== lead.clientId) batch.set(db.collection(`${T}/clientRelationships`).doc(`org_${linkId}_${i}`), { fromId: lead.clientId, toId: m.clientId, kind: 'organizer', permissions: ['book', 'readiness', 'reminders'], note: s(b.groupName, 80) || 'Booked together online', createdAt: new Date().toISOString(), createdBy: 'online booking', endedAt: null, startsAt: null, endsAt: null }, { merge: true }); });
   if (movedCents > 0) batch.set(db.doc(`${T}/appointments/${lead.appointmentId}`), { depositAmountCents: lead.depositCents + movedCents, groupDepositCents: lead.depositCents + movedCents }, { merge: true });
   await batch.commit();
   return NextResponse.json({ ok: true, linkId, kind: isGroup ? 'group' : 'visit', booked: made.length, status: 'requested', depositCents: lead.depositCents + movedCents,
