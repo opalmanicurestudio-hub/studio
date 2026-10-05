@@ -91,13 +91,13 @@ export function DatePicker({ date, onPick, onClose, appointments, staff, events 
 }
 
 export type NeedsYouItem = { key: string; label: string; onClick: () => void; tone?: 'warn' | 'info' };
-export function PlannerHeader({ date, onDate, appointments, staff, events, figures, onFigures, needsYou, onBook, onScan, onWaitlist, waitlistCount, moreItems, viewControls, isMobile, onFindTime }: {
-  onFindTime?: () => void;
+export function PlannerHeader({ date, onDate, appointments, staff, events, figures, onFigures, needsYou, onBook, onScan, onWaitlist, waitlistCount, moreItems, viewControls, isMobile, onFindTime, bookMenu }: {
+  onFindTime?: () => void; bookMenu?: [string, () => void][];   // + Book opens these (appointment, group, several providers, event, …)
   date: Date; onDate: (d: Date) => void; appointments: any[]; staff: any[]; events?: any[];
   figures: { visits: number; booked?: number | null; goal?: number | null }; onFigures?: () => void; needsYou: NeedsYouItem[];
   onBook: () => void; onScan: () => void; onWaitlist: () => void; waitlistCount: number; moreItems: [string, () => void][]; viewControls?: React.ReactNode; isMobile?: boolean;
 }) {
-  const [picker, setPicker] = React.useState(false); const [needsOpen, setNeedsOpen] = React.useState(false); const [moreOpen, setMoreOpen] = React.useState(false);
+  const [picker, setPicker] = React.useState(false); const [bookOpen, setBookOpen] = React.useState(false); const [needsOpen, setNeedsOpen] = React.useState(false); const [moreOpen, setMoreOpen] = React.useState(false);
   const week = React.useMemo(() => Array.from({ length: 7 }, (_, i) => dayInfo(addDays(startOfWeek(date), i), appointments, staff)), [date, appointments, staff]);
   const today = week.find((d) => isSameDay(d.date, date)) || dayInfo(date, appointments, staff);
   // Keys: T today · ←/→ day · Shift+←/→ week · G the date picker (not while typing).
@@ -130,7 +130,11 @@ export function PlannerHeader({ date, onDate, appointments, staff, events, figur
         <button type="button" onClick={onScan} aria-label="Scan check-in code" title="Scan check-in code" className={iconBtn} style={soft}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" /></svg></button>
         <span className="relative"><button type="button" onClick={() => setMoreOpen((v) => !v)} aria-label="More" aria-expanded={moreOpen} className={iconBtn} style={soft}>⋯</button>
           {moreOpen && <div role="menu" className="absolute right-0 z-40 mt-2 w-56 overflow-hidden rounded-2xl text-[14px]" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)', boxShadow: '0 12px 30px rgba(0,0,0,.12)' }}>{moreItems.map(([l, f]) => <button key={l} type="button" role="menuitem" onClick={() => { setMoreOpen(false); f(); }} className="block w-full px-4 py-3 text-left hover:bg-black/5">{l}</button>)}</div>}</span>
-        <button type="button" onClick={onBook} aria-label="Book" className="inline-flex h-9 items-center rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>{isMobile ? '+' : '+ Book'}</button>
+        <span className="relative"><button type="button" onClick={() => (bookMenu?.length ? setBookOpen((v) => !v) : onBook())} aria-label="Book" aria-expanded={bookOpen} aria-haspopup={bookMenu?.length ? 'menu' : undefined} className="inline-flex h-9 items-center rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>{isMobile ? '+' : '+ Book ▾'}</button>
+          {bookOpen && bookMenu && (isMobile
+            ? <div role="dialog" aria-label="Book" className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(28,25,23,.38)' }} onClick={() => setBookOpen(false)}><div className="w-full rounded-t-[28px] p-2 pb-8" style={{ background: 'var(--card, #fff)' }} onClick={(e) => e.stopPropagation()}>
+                <div className="mx-auto my-2 h-1 w-10 rounded-full" style={{ background: 'var(--line, #d6d3d1)' }} />{bookMenu.map(([l, f]) => <button key={l} type="button" onClick={() => { setBookOpen(false); f(); }} className="block w-full rounded-2xl px-4 py-3.5 text-left text-[16px] hover:bg-black/5">{l}</button>)}</div></div>
+            : <div role="menu" className="absolute right-0 z-40 mt-2 w-64 overflow-hidden rounded-2xl text-[14px]" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)', boxShadow: '0 12px 30px rgba(0,0,0,.12)' }}>{bookMenu.map(([l, f], i) => <button key={l} type="button" role="menuitem" onClick={() => { setBookOpen(false); f(); }} className="block w-full px-4 py-3 text-left hover:bg-black/5" style={i === 4 ? { borderTop: '1px solid var(--line, #e7e2dc)' } : undefined}>{l}</button>)}</div>)}</span>
       </div>
       {/* The day ribbon */}
       <div className="mt-2 grid items-stretch gap-1 sm:gap-1.5" style={{ gridTemplateColumns: isMobile ? 'repeat(7, minmax(0, 1fr))' : '28px repeat(7, minmax(0, 1fr)) 28px' }}
