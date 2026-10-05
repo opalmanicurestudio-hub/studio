@@ -17,7 +17,7 @@ import { computeDepositCents } from '@/lib/deposit-policy';
 import { hasRealCard } from '@/lib/card-on-file';
 import { callbackReasonsFor, callbackReason } from '@/lib/callback-reasons';
 
-type Mode = 'one' | 'repeat' | 'group' | 'steps';
+export type Mode = 'one' | 'repeat' | 'group' | 'steps';
 type Guest = { name: string; phone: string; serviceId: string; staffId: string };
 type Step = { serviceId: string; staffId: string };
 
@@ -37,9 +37,11 @@ const digits = (v: string) => String(v || '').replace(/\D/g, '');
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 const addMinutes = (date: string, time: string, min: number) => new Date(new Date(`${date}T${time}:00`).getTime() + min * 60000);
 
-export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, services, staff, appointments, role, uid, resume }: {
+export type BookPrefill = { clientId?: string | null; serviceId?: string | null; staffId?: string | null; date?: string | null; time?: string | null; addOnIds?: string[]; mode?: Mode };
+export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, services, staff, appointments, role, uid, resume, prefill }: {
   open: boolean; onClose: () => void; tenantId: string; tenant: any; clients: any[]; services: any[]; staff: any[];
   appointments?: any[]; role?: string | null; uid?: string | null; resume?: any | null;
+  prefill?: BookPrefill | null;   // where the sheet starts: a client (book again), a provider and time (a gap, Find a time), or a mode (group, several providers)
 }) {
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   // ── client ──
@@ -85,7 +87,11 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   // Resume a saved call-back (this sheet's own snapshot, or the old form's).
   React.useEffect(() => {
     if (!open) return;
-    if (!resume) { reset(); return; }
+    if (!resume) { reset();
+      if (prefill) { const c = prefill.clientId ? clients.find((x) => x.id === prefill.clientId) : null; if (c) setClient(c);
+        if (prefill.serviceId) setServiceId(prefill.serviceId); if (prefill.addOnIds?.length) setAddOnIds(prefill.addOnIds); if (prefill.staffId) setStaffId(prefill.staffId);
+        if (prefill.date && prefill.date >= todayStr()) setDate(prefill.date); if (prefill.time) setTime(prefill.time); if (prefill.mode) setMode(prefill.mode); }
+      return; }
     reset(); setDraftId(resume.id || null);
     const s = resume.snapshot || {};
     if (resume.snapshotKind === 'staff_book_sheet') {
