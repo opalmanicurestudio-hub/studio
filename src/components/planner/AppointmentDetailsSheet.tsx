@@ -1,5 +1,6 @@
 'use client';
 
+import { stateOf } from '@/components/planner/AgendaView';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { openVisit } from '@/lib/visit-client';
 import { getAuth } from 'firebase/auth';
@@ -2373,13 +2374,21 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
           <Link href={`/clients/${client.id}`} className="hover:underline">
-            <h2 className="font-semibold text-slate-900 truncate text-base leading-none">{client.name}</h2>
+            <h2 className="truncate text-[22px] font-light leading-tight" style={{ color: 'var(--ink)' }}>{client.name}</h2>
           </Link>
           {client.activeMembershipId && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-indigo-600 text-white border-none shrink-0"><Award className="w-2 h-2 mr-0.5" />Member</Badge>}
           {client.status === 'banned' && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-black text-white border-none shrink-0"><Ban className="w-2 h-2 mr-0.5" />Banned</Badge>}
           {client.hasOpenDispute && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-purple-600 text-white border-none shrink-0"><AlertTriangle className="w-2 h-2 mr-0.5" />Dispute</Badge>}
           <StoreCreditBadge credits={Array.isArray(availableCredits) ? availableCredits : []} totalAvailable={totalStoreCreditAvailable} />
         </div>
+        {(() => { const prov = (staff || []).find((x: any) => x.id === appointment.staffId); const st = stateOf(appointment, service);
+          const visits = (allAppointments || []).filter((x: any) => x.clientId === appointment.clientId && x.status === 'completed' && x.id !== appointment.id).length;
+          let when = ''; try { when = `${format(new Date(appointment.startTime?.toDate ? appointment.startTime.toDate() : appointment.startTime), 'EEE d MMM · h:mm')}–${format(new Date(appointment.endTime?.toDate ? appointment.endTime.toDate() : appointment.endTime), 'h:mm a')}`; } catch { /* fine */ }
+          const chip = (t: string, c?: string) => <span key={t} className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold" style={c ? { background: `color-mix(in srgb, ${c} 12%, transparent)`, color: c } : { background: 'var(--soft)', color: 'var(--ink)' }}>{t}</span>;
+          return (<>
+            <p className="mt-1 truncate text-[13px]" style={{ color: 'var(--muted)' }}>{service?.name || appointment.serviceName || 'Service'}{when ? ` · ${when}` : ''}{prov ? ` · ${prov.name}` : ''}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">{chip(st.word, st.color)}{visits === 0 ? chip('First visit', 'var(--accent)') : chip(`${visits} visit${visits === 1 ? '' : 's'} before`)}{Array.isArray(appointment.addOnIds) && appointment.addOnIds.length > 0 && chip(`+${appointment.addOnIds.length} add-on${appointment.addOnIds.length === 1 ? '' : 's'}`)}</div>
+          </>); })()}
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {client.phone && (
             <span className="flex items-center gap-1 shrink-0">
