@@ -1,7 +1,9 @@
 'use client';
 
+import { ClientHeader, NextVisitCard, ClientRail, clientFacts } from '@/components/clients/ClientProfileParts';
+import { SettingsStyle } from '@/components/settings/settings-style';
+import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
-import { ClientSnapshot } from '@/components/clients/ClientSnapshot';
 import { ClientPeople } from '@/components/clients/ClientPeople';
 import { openVisit } from '@/lib/visit-client';
 import { hasRealCard } from '@/lib/card-on-file';
@@ -279,6 +281,8 @@ export default function ClientDetailPage() {
   const allClientsList: any[] = ((useInventory() as any).clients) || [];
   const { showProfitability: seesMoney } = useProfitabilityVisibility();
   const [linkCount, setLinkCount] = useState(0);
+  const [tab, setTab] = useState('overview'); const [bookOpen, setBookOpen] = useState(false);
+  const allStaffList: any[] = ((useInventory() as any).staff) || [];
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
@@ -514,6 +518,7 @@ export default function ClientDetailPage() {
       setIsAddFormulaOpen(true);
   };
 
+  const facts = useMemo(() => (client ? clientFacts(client, allAppointments || [], services || [], allStaffList) : null), [client, allAppointments, services, allStaffList]);
   const { safeLTV, safeStoreCredit, safeBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => ({
       safeLTV: safeNumber(client?.lifetimeValue),
       // totalStoreCredit is the unified Client Credit Ledger total — covers
@@ -545,22 +550,12 @@ export default function ClientDetailPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden text-left">
       <AppHeader title="Client" />
-      <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0 text-left">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 text-left">
-          <div className="space-y-1 text-left">
-            <h1 className="text-[28px] md:text-[34px] font-light leading-none text-left">{client.name || 'Client'}</h1>
-            <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Client profile</p>
-          </div>
-          <div className="flex items-center gap-2 md:gap-3 w-full sm:w-auto text-left">
-            <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Link href="/clients" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link></Button>
-            {isOwnerOrAdmin && <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)} className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Edit className="h-4 w-4 mr-2" />Modify</Button>}
-          </div>
-        </div>
-
-        <Card className={cn("border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white/80 backdrop-blur-xl transition-all text-left", client.status === 'banned' && "border-destructive ring-4 ring-destructive/10")}>
-          <CardContent className="p-6 md:p-12 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 md:gap-12">
-            <div className="relative shrink-0">
-              <AvatarUpload
+      <main className="cf-settings cf-legacy flex-1 p-4 sm:p-6 md:p-10 space-y-6 w-full max-w-7xl mx-auto min-w-0 text-left">
+        <SettingsStyle />
+        <Link href="/clients" className="inline-block text-[14px] font-semibold" style={{ color: 'var(--muted)' }}>← Clients</Link>
+        {/* THE HEADER: who they are, the main actions, a summary written from the records, and flags. */}
+        <ClientHeader client={client} facts={facts!} showMoney={!!showFinancials} canSeeContact={isOwnerOrAdmin} balance={safeBalance} credit={safeStoreCredit} linkCount={linkCount}
+          avatar={<AvatarUpload
                 url={client.avatarUrl}
                 name={client.name}
                 storagePath={`tenants/${selectedTenant?.id}/avatars/client_${client.id}.jpg`}
@@ -568,68 +563,35 @@ export default function ClientDetailPage() {
                   if (!firestore || !selectedTenant?.id) return;
                   await setDoc(doc(firestore, `tenants/${selectedTenant.id}/clients`, client.id), { avatarUrl: newUrl }, { merge: true });
                 }}
-                className="w-28 h-28 md:w-40 md:h-40 text-2xl border-4 border-white shadow-2xl rounded-[2.5rem] md:rounded-[3rem]"
-                fallbackClassName="font-black bg-primary/10 text-primary uppercase"
-              />
-              {activeMembership && <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-indigo-600 text-white p-1.5 md:p-2 rounded-2xl shadow-xl border-4 border-white"><Award className="w-4 h-4 md:w-6 md:h-6" /></div>}
-            </div>
-            <div className="space-y-4 flex-1 min-w-0 w-full text-left">
-              <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start sm:items-baseline gap-3 md:gap-4 text-left">
-                <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 truncate leading-none w-full sm:w-auto text-left", client.name.length > 15 ? "text-xl md:text-4xl" : "text-2xl md:text-5xl")}>{client.name}</h2>
-                <div className="flex gap-2 shrink-0">
-                  {activeMembership && <Badge className="bg-indigo-500/10 text-indigo-700 border-none font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Master Member</Badge>}
-                  {client.status === 'banned' && <Badge variant="destructive" className="animate-pulse font-black text-[8px] md:text-[9px] uppercase tracking-widest h-6 px-3">Hard Restriction</Badge>}
-                </div>
-              </div>
-              <div className="flex flex-wrap justify-center sm:justify-start gap-x-6 sm:gap-x-10 gap-y-4 pt-2 w-full text-left">
-                {isOwnerOrAdmin ? (
-                  <div className="space-y-1 min-w-0 max-w-full text-left">
-                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Verified Contact</p>
-                    <a href={`mailto:${client.email}`} className="text-xs font-black uppercase tracking-tight text-primary hover:underline block truncate w-full text-left">{String(client.email || '')}</a>
-                    <p className="text-xs font-black tracking-tight text-slate-700 text-left">{client.phone ? formatPhoneNumber(String(client.phone)) : 'N/A'}</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1 text-left">
-                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Verified Contact</p>
-                    <p className="text-xs font-black uppercase tracking-tight text-muted-foreground italic text-left">Contact Restricted</p>
-                  </div>
-                )}
-                <div className="space-y-1 text-left">
-                  <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Discovery Source</p>
-                  <p className="text-xs font-black uppercase tracking-tight text-slate-700 text-left">{String(client.intel?.referralSource || 'Unknown')}</p>
-                </div>
-                <div className="space-y-1 text-left">
-                  <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Strategic Origin</p>
-                  <Badge variant="secondary" className="h-6 px-2.5 rounded-lg border-2 font-black text-[8px] md:text-[9px] uppercase tracking-widest bg-white shadow-sm flex items-center gap-1.5 w-fit"><Globe className="w-3 h-3" />Online</Badge>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                className="h-16 w-16 rounded-full text-xl sm:h-20 sm:w-20"
+                fallbackClassName="bg-[var(--soft)] text-[var(--ink)]"
+              />}
+          onBook={() => setBookOpen(true)} onPay={showFinancials ? () => setTab('credits') : undefined} onEdit={isOwnerOrAdmin ? () => setIsEditClientOpen(true) : undefined}
+          onMessage={isOwnerOrAdmin && (client.phone || client.email) ? () => { window.location.href = client.phone ? `sms:${String(client.phone).replace(/[^\d+]/g, '')}` : `mailto:${client.email}`; } : undefined} />
 
         <ClientIntelBanner client={client} />
 
         <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10 text-left">
           <div className="lg:col-span-2 xl:col-span-3 space-y-8 md:space-y-10 min-w-0 text-left">
-            <Tabs defaultValue="overview" className="text-left" onValueChange={(v) => { if (v === 'documents') logDocumentAccess(); }}>
+            <Tabs value={tab} className="text-left" onValueChange={(v) => { setTab(v); if (v === 'documents') logDocumentAccess(); }}>
               <ScrollArea className="w-full overflow-hidden text-left">
                 <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max text-left">
                   <TabsTrigger value="overview" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
                   <TabsTrigger value="preferences" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Preferences</TabsTrigger>
                   <TabsTrigger value="documents" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md flex items-center gap-1.5">
-                    <FileText className="w-3 h-3" /> Documents
+                    <FileText className="w-3 h-3" /> Forms & files
                     {((signedConsents?.length || 0) + (client.profileDocuments?.length || 0)) > 0 && (
                       <span className="ml-1 text-[7px] font-black bg-primary text-white px-1.5 py-0.5 rounded-full leading-none">
                         {(signedConsents?.length || 0) + (client.profileDocuments?.length || 0)}
                       </span>
                     )}
                   </TabsTrigger>
-                  <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
+                  <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Visits</TabsTrigger>
                   <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
                   <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</TabsTrigger>
-                  <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
+                  <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Payments</TabsTrigger>
                   <TabsTrigger value="credits" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md flex items-center gap-1.5">
-                    <Wallet className="w-3 h-3" /> Credits
+                    <Wallet className="w-3 h-3" /> Credit & balance
                     {(client?.totalStoreCredit || 0) > 0 && (
                       <span className="ml-1 text-[7px] font-black bg-green-500 text-white px-1.5 py-0.5 rounded-full leading-none">
                         ${(client.totalStoreCredit || 0).toFixed(0)}
@@ -643,8 +605,7 @@ export default function ClientDetailPage() {
 
               <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500 text-left">
                 {/* BEFORE YOU HELP THIS CLIENT, then the people linked to them (guardians, households, who books or pays). */}
-                <ClientSnapshot client={client} appointments={allAppointments || []} services={services || []} activeMembership={activeMembership} linkCount={linkCount} showMoney={!!seesMoney} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} />
-                {tenantId && <ClientPeople tenantId={tenantId} client={client} clients={allClientsList || []} onCount={setLinkCount} onOpenClient={(id: string) => router.push(`/clients/${id}`)} />}
+                <NextVisitCard facts={facts!} services={services || []} staff={allStaffList} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} onBook={() => setBookOpen(true)} />
                 {activeMembership && (
                   <div className="space-y-4 text-left">
                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3 text-left"><Award className="w-5 h-5" />Active Privilege Matrix</h3>
@@ -1143,6 +1104,9 @@ export default function ClientDetailPage() {
             </Tabs>
           </div>
           <div className="lg:col-span-1 space-y-8 text-left">
+            <ClientRail client={client} facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} cancels={cancelTotal} noShows={noShowTotal} reschedules={rescheduleTotal}>
+              {tenantId && <ClientPeople tenantId={tenantId} client={client} clients={allClientsList || []} onCount={setLinkCount} onOpenClient={(id: string) => router.push(`/clients/${id}`)} />}
+            </ClientRail>
             <Card className={cn("border-4 rounded-[2.5rem] overflow-hidden shadow-2xl relative group text-left", isHighRisk ? "border-destructive/20 bg-destructive/[0.02]" : "border-primary/10 bg-white")}>
               <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between text-left">
                 <CardTitle className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground text-left">Reliability Audit</CardTitle>
@@ -1232,6 +1196,9 @@ export default function ClientDetailPage() {
         </div>
       </main>
 
+      {/* BOOK: the engine-backed Book sheet, opened on this client. */}
+      {tenantId && <StaffBookSheet open={bookOpen} onClose={() => setBookOpen(false)} tenantId={tenantId} tenant={selectedTenant} clients={allClientsList} services={services || []} staff={allStaffList.filter((st: any) => st.role !== 'renter' && st.active !== false)}
+        appointments={allAppointments || []} role={role} uid={currentUser?.uid || null} prefill={{ clientId: client.id }} />}
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => {
         if (!firestore || !tenantId) return;
         // Consent to marketing texts was given for a NUMBER. If the number
