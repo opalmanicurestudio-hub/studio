@@ -1,7 +1,7 @@
 'use client';
 
 import { ClientTimeline, ClientMessages, ClientFormsNeeded, useClientMessages } from '@/components/clients/ClientTabs';
-import { ClientHeader, NextVisitCard, ClientRail, clientFacts } from '@/components/clients/ClientProfileParts';
+import { ClientHeader, NextVisitCard, ClientRail, ClientQuickFacts, clientFacts } from '@/components/clients/ClientProfileParts';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
@@ -556,7 +556,6 @@ export default function ClientDetailPage() {
       <main className="cf-settings cf-legacy flex-1 p-4 sm:p-6 md:p-10 space-y-6 w-full max-w-7xl mx-auto min-w-0 text-left">
         <SettingsStyle />
         <Link href="/clients" className="inline-block text-[14px] font-semibold" style={{ color: 'var(--muted)' }}>← Clients</Link>
-        {/* THE HEADER: who they are, the main actions, a summary written from the records, and flags. */}
         <ClientHeader client={client} facts={facts!} showMoney={!!showFinancials} canSeeContact={isOwnerOrAdmin} balance={safeBalance} credit={safeStoreCredit} linkCount={linkCount}
           avatar={<AvatarUpload
                 url={client.avatarUrl}
@@ -571,6 +570,7 @@ export default function ClientDetailPage() {
               />}
           onBook={() => setBookOpen(true)} onPay={showFinancials ? () => { void handleQuickSettle(); } : undefined} extraFlags={isHighRisk && selectedTenant?.guardianProtocolEnabled !== false ? [['Stricter booking rules (cancellation history)', 'warn']] : []} onEdit={isOwnerOrAdmin ? () => setIsEditClientOpen(true) : undefined}
           onMessage={isOwnerOrAdmin && (client.phone || client.email) ? () => { window.location.href = client.phone ? `sms:${String(client.phone).replace(/[^\d+]/g, '')}` : `mailto:${client.email}`; } : undefined} />
+        <ClientQuickFacts facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} />
 
         <ClientIntelBanner client={client} />
 
@@ -608,7 +608,6 @@ export default function ClientDetailPage() {
               </ScrollArea>
 
               <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500 text-left">
-                {/* BEFORE YOU HELP THIS CLIENT, then the people linked to them (guardians, households, who books or pays). */}
                 <NextVisitCard facts={facts!} services={services || []} staff={allStaffList} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} onBook={() => setBookOpen(true)} />
                 <ClientTimeline appointments={facts!.mine} services={services || []} staff={allStaffList} transactions={clientTransactions || []} consents={signedConsents || []} messages={msgs.rows} showMoney={!!showFinancials} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} />
                 {activeMembership && (
@@ -967,7 +966,6 @@ export default function ClientDetailPage() {
 
               <TabsContent value="ledger" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
 
-                {/* ── Full transaction history ── */}
                 <div className="space-y-4 text-left">
                   <div className="flex items-center justify-between px-1">
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Transaction History</h3>
@@ -1053,7 +1051,6 @@ export default function ClientDetailPage() {
 
                 <Separator className="border-dashed" />
 
-                {/* ── Unpaid fees ── */}
                 <div className="space-y-4 text-left">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1 text-left">Unpaid Protocol Fees</h3>
                   {client.unpaidFees && client.unpaidFees.length > 0 ? (
@@ -1073,7 +1070,6 @@ export default function ClientDetailPage() {
 
                 <Separator className="border-dashed" />
 
-                {/* ── Redemptions ── */}
                 <div className="space-y-4 text-left">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Certified Redemptions & Waivers</h3>
                   <div className="grid gap-3 text-left">
@@ -1113,6 +1109,7 @@ export default function ClientDetailPage() {
             </Tabs>
           </div>
           <div className="lg:col-span-1 space-y-8 text-left">
+            <p className="text-[17px] font-semibold lg:hidden">About {String(client.name || 'them').split(' ')[0]}</p>
             <ClientRail client={client} facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} cancels={cancelTotal} noShows={noShowTotal} reschedules={rescheduleTotal}>
               <section className="flex flex-wrap gap-2 rounded-3xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} aria-label="More actions">
                 <button type="button" onClick={() => setIsRecoveryDialogOpen(true)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>Make things right…</button>
@@ -1124,7 +1121,6 @@ export default function ClientDetailPage() {
         </div>
       </main>
 
-      {/* BOOK: the engine-backed Book sheet, opened on this client. */}
       {tenantId && <StaffBookSheet open={bookOpen} onClose={() => setBookOpen(false)} tenantId={tenantId} tenant={selectedTenant} clients={allClientsList} services={services || []} staff={allStaffList.filter((st: any) => st.role !== 'renter' && st.active !== false)}
         appointments={allAppointments || []} role={role} uid={currentUser?.uid || null} prefill={{ clientId: client.id }} />}
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => {
@@ -1179,8 +1175,6 @@ export default function ClientDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* v6 — Documents tab gallery lightbox, same multi-image prev/next
-          pattern already built into AppointmentDetailsSheet. */}
       <Dialog open={!!docExpandedImage} onOpenChange={(val) => !val && setDocExpandedImage(null)}>
         <DialogContent className="max-w-fit p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
           <DialogHeader className="sr-only">
