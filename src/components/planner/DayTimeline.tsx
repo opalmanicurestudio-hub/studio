@@ -99,12 +99,15 @@ export const DayTimeline = ({
     allStaff,
     mobileSelectedColumnId,
     onMobileColumnChange,
+    onBookAt,        // (columnId, Date) — "Book here" on a gap
+    onMoveAppointment,   // (appointment, columnId, 'HH:mm') — a card dropped on a new time; the page checks with the server first
+    density = 'roomy',   // 'roomy' | 'compact'
 }: any) => {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const safeColumns = columns || [];
     const [showFullDay, setShowFullDay] = useState(false);
 
-    const PX_PER_HOUR = isMobile ? 96 : 160;
+    const PX_PER_HOUR = isMobile ? 96 : density === 'compact' ? 100 : 160;
     const PX_PER_MIN = PX_PER_HOUR / 60;
 
     const dayWindow = useMemo(() => {
@@ -148,6 +151,16 @@ export const DayTimeline = ({
     );
     const hoursHidden = 24 - (END_HOUR - START_HOUR);
 
+    // WORKING HOURS for a provider column on this day (from their availability), as minutes from the window start.
+    const dayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
+    const hoursFor = (column: any): { start: number; end: number } | null => {
+        const d = column?.availability?.week?.[dayKey]; if (!d || d.enabled === false || !d.start || !d.end) return null;
+        const toMin = (t: string) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + (m || 0); };
+        return { start: toMin(d.start), end: toMin(d.end) };
+    };
+    // Drag to move: the card being dragged, and where it would land (snapped to 5 min).
+    const [drag, setDrag] = useState<{ id: string; mins: number; columnId: string | null; top: number } | null>(null);
+    const dragRef = useRef<any>(null);
     const displayedColumns = useMemo(() => {
         if (!isMobile) return safeColumns;
         const selected = safeColumns.find((c:any) => c.id === mobileSelectedColumnId);
@@ -378,6 +391,7 @@ export const DayTimeline = ({
                     focusId === item.id && "ring-4 ring-primary/60 z-20",
                 )}
                 style={style}
+                draggable={!!onMoveAppointment && !['completed', 'cancelled', 'declined', 'servicing'].includes(String(item.status))} onDragStart={(e) => { const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); dragRef.current = { id: item.id, appointment: item, grabOffset: e.clientY - rect.top }; try { e.dataTransfer.setData('text/plain', item.id); e.dataTransfer.effectAllowed = 'move'; } catch { /* fine */ } }} onDragEnd={() => { dragRef.current = null; setDrag(null); }}
             >
                 {group && height > 44 && (
                     <div
@@ -573,6 +587,9 @@ export const DayTimeline = ({
                                         (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
                                     )}
                                     <p className="font-semibold tracking-tight text-xs truncate max-w-[180px]">{column.name || 'Unnamed'}</p>
+                                    {'role' in column && (() => { const its = (positionedItemsByColumn.get(column.id) || []).filter((it: any) => it.itemType !== 'bill' && it.itemType !== 'block' && it.itemType !== 'event'); const live = its.find((it: any) => it.status === 'servicing');
+                                        const over = live?.actualStartTime ? Math.max(0, differenceInMinutes(new Date(), safeDate(live.actualStartTime)) - (Number(services?.find((sv: any) => sv.id === live.serviceId)?.duration) || 0)) : 0;
+                                        return <p className="text-[12px] truncate" style={{ color: over > 0 ? 'var(--warn, #b45309)' : 'var(--muted, #6b635c)' }}>{its.length} visit{its.length === 1 ? '' : 's'}{over > 0 ? ` · ${over} min behind` : live ? ' · on time' : ''}</p>; })()}
                                 </div>
                             )}
                         </div>
@@ -587,7 +604,24 @@ export const DayTimeline = ({
                 </div>
                 <div className="col-start-2 grid relative bg-white/30" style={gridStyle}>
                     {displayedColumns.map(column => (
-                        <div key={column.id} className="relative border-r border-border">
+                        <div key={column.id} className="relative border-r border-border"
+                             onDragOver={(e) => { if (!dragRef.current || !onMoveAppointment) return; e.preventDefault(); const rect = e.currentTarget.getBoundingClientRect(); const y = e.clientY - rect.top - (dragRef.current.grabOffset || 0); const mins = Math.max(0, Math.round((y / PX_PER_MIN) / 5) * 5); setDrag({ id: dragRef.current.id, mins, columnId: column.id, top: mins * PX_PER_MIN }); }}
+                             onDrop={(e) => { if (!dragRef.current || !onMoveAppointment || !drag) return; e.preventDefault(); const start = setHours(startOfDay(date), START_HOUR); const when = new Date(start.getTime() + drag.mins * 60000); onMoveAppointment(dragRef.current.appointment, column.id, format(when, 'HH:mm')); dragRef.current = null; setDrag(null); }}>
+                            {/* Outside the provider's hours: dimmed, so the day reads at a glance. */}
+                            {(() => { const h = hoursFor(column); if (!h) return null; const s0 = START_HOUR * 60, e0 = END_HOUR * 60; const dim = 'absolute left-0 right-0 z-[1] pointer-events-none bg-stone-900/[0.04]';
+                                return <>{h.start > s0 && <div className={dim} style={{ top: 0, height: `${(h.start - s0) * PX_PER_MIN}px` }} />}{h.end < e0 && <div className={dim} style={{ top: `${(h.end - s0) * PX_PER_MIN}px`, height: `${(e0 - h.end) * PX_PER_MIN}px` }} />}</>; })()}
+                            {/* Gaps inside working hours (20 min or more) are things, not blank space. */}
+                            {onBookAt && 'role' in column && (() => { const h = hoursFor(column); if (!h) return null; const s0 = START_HOUR * 60;
+                                const busy = (positionedItemsByColumn.get(column.id) || []).filter((it: any) => it.itemType !== 'bill').map((it: any) => { const a = safeDate(it.startTime), b = safeDate(it.endTime); return [differenceInMinutes(a, startOfDay(date)), differenceInMinutes(b, startOfDay(date))]; }).sort((x: number[], y: number[]) => x[0] - y[0]);
+                                const nowMin = isToday(date) ? differenceInMinutes(new Date(), startOfDay(new Date())) : -1; const gaps: number[][] = []; let cursor = Math.max(h.start, nowMin > 0 ? Math.ceil(nowMin / 5) * 5 : h.start);
+                                for (const [a, b] of busy) { if (a - cursor >= 20) gaps.push([cursor, a]); cursor = Math.max(cursor, b); } if (h.end - cursor >= 20) gaps.push([cursor, h.end]);
+                                return gaps.map(([a, b]) => (
+                                    <button key={`gap-${a}`} type="button" onClick={() => onBookAt(column.id, new Date(startOfDay(date).getTime() + a * 60000))} className="absolute left-1 right-1 z-[4] flex items-center justify-between rounded-lg border border-dashed px-2 text-[12px]" style={{ top: `${(a - s0) * PX_PER_MIN + 2}px`, height: `${Math.max(22, (b - a) * PX_PER_MIN - 4)}px`, borderColor: 'var(--line, #e7e2dc)', color: 'var(--muted, #6b635c)', background: 'transparent' }} aria-label={`${b - a} minute gap at ${format(new Date(startOfDay(date).getTime() + a * 60000), 'h:mm a')} — book here`}>
+                                        <span>{b - a} min open</span><span className="font-semibold" style={{ color: 'var(--accent)' }}>Book here</span>
+                                    </button>)); })()}
+                            {/* Where a dragged card would land. */}
+                            {drag && drag.columnId === column.id && (() => { const a = dragRef.current?.appointment; const len = a ? Math.max(15, differenceInMinutes(safeDate(a.endTime), safeDate(a.startTime))) : 30;
+                                return <div className="absolute left-1 right-1 z-[30] rounded-lg border-2 border-dashed px-2 py-1 text-[12px] font-semibold pointer-events-none" style={{ top: `${drag.top}px`, height: `${len * PX_PER_MIN}px`, borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)', color: 'var(--accent)' }}>{format(new Date(setHours(startOfDay(date), START_HOUR).getTime() + drag.mins * 60000), 'h:mm a')}</div>; })()}
                             {hours.map(hour => (
                                 <div key={hour} className="border-b border-border" style={{ height: `${PX_PER_HOUR}px` }}>
                                     <div className="h-1/2 border-b border-dashed border-border/50" />
