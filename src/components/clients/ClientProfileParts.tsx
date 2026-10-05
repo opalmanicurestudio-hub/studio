@@ -51,7 +51,8 @@ export function clientSummary(client: any, f: ReturnType<typeof clientFacts>, op
   return parts.join(' ');
 }
 
-export function ClientHeader({ client, facts, showMoney, canSeeContact, balance, credit, linkCount, avatar, onBook, onMessage, onPay, onEdit, summaryOn = true }: {
+export function ClientHeader({ client, facts, showMoney, canSeeContact, balance, credit, linkCount, avatar, onBook, onMessage, onPay, onEdit, summaryOn = true, extraFlags = [] }: {
+  extraFlags?: [string, 'warn' | 'info'][];
   client: any; facts: ReturnType<typeof clientFacts>; showMoney: boolean; canSeeContact: boolean; balance: number; credit: number; linkCount: number; avatar: React.ReactNode;
   onBook: () => void; onMessage?: () => void; onPay?: () => void; onEdit?: () => void; summaryOn?: boolean;
 }) {
@@ -66,6 +67,7 @@ export function ClientHeader({ client, facts, showMoney, canSeeContact, balance,
   if (linkCount > 0) flags.push([`${linkCount} linked ${linkCount === 1 ? 'person' : 'people'}`, 'info']);
   if (client.accommodations || client.accessibilityNotes) flags.push([String(client.accommodations || client.accessibilityNotes).slice(0, 40), 'info']);
   if (client.allergies) flags.push([`Allergy: ${String(client.allergies).slice(0, 30)}`, 'warn']);
+  flags.push(...extraFlags);
   const contact = [canSeeContact && client.phone ? String(client.phone) : null, canSeeContact && client.email ? String(client.email) : null, client.preferredContact ? `${String(client.preferredContact)} preferred` : null, facts.first ? `client since ${format(safe(facts.first.startTime), 'MMMM yyyy')}` : null].filter(Boolean).join(' · ');
   const summary = summaryOn ? clientSummary(client, facts, { showMoney, balance, credit }) : '';
   const btn = 'h-10 rounded-full px-4 text-[14px] font-semibold';
