@@ -1,5 +1,6 @@
 'use client';
 
+import { SettingsStyle } from '@/components/settings/settings-style';
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -47,11 +48,13 @@ const safeDate = (val: any): Date => {
 };
 
 // ─── ADD EVENT FORM ────────────────────────────────────────────────────────────
+export type EventPreset = { type?: 'personal' | 'business' | 'blocked'; date?: Date; time?: string; duration?: number; staffIds?: string[]; allDay?: boolean };
 const AddEventForm = ({
-  onConfirm, staff,
+  onConfirm, staff, preset,
 }: {
   onConfirm: (event: Omit<Event, 'id' | 'startTime' | 'endTime'> & { startTime: Date; endTime: Date }) => void;
   staff: Staff[];
+  preset?: EventPreset | null;   // from "Block" on a gap, or + on a day: the type, day, time, length and who
 }) => {
   const { user, role, selectedTenant } = useTenant();
   const { firestore } = useFirebase();
@@ -73,13 +76,13 @@ const AddEventForm = ({
   })), [eventsFromDB]);
 
   const [title, setTitle]   = useState('');
-  const [type, setType]     = useState<'personal' | 'business' | 'blocked'>('business');
-  const [date, setDate]     = useState<Date>(new Date());
-  const [startTime, setStartTime] = useState('');
-  const [duration, setDuration]   = useState<number>(60);
-  const [allDay, setAllDay]         = useState(false);
+  const [type, setType]     = useState<'personal' | 'business' | 'blocked'>(preset?.type || 'business');
+  const [date, setDate]     = useState<Date>(preset?.date || new Date());
+  const [startTime, setStartTime] = useState(preset?.time || '');
+  const [duration, setDuration]   = useState<number>(preset?.duration || 60);
+  const [allDay, setAllDay]         = useState(!!preset?.allDay);
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>(
-    () => (role === 'staff' && user ? [user.uid] : [])
+    () => (preset?.staffIds?.length ? preset.staffIds : role === 'staff' && user ? [user.uid] : [])
   );
   const [notes, setNotes]       = useState('');
   const [location, setLocation] = useState('');
@@ -540,25 +543,25 @@ const EditEventForm = ({
 
 // ─── ADD EVENT DIALOG ─────────────────────────────────────────────────────────
 export const AddEventDialog = ({
-  open, onOpenChange, onConfirm, staff,
+  open, onOpenChange, onConfirm, staff, preset,
 }: {
+  preset?: EventPreset | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (event: Omit<Event, 'id' | 'startTime' | 'endTime'> & { startTime: Date; endTime: Date }) => void;
   staff: Staff[];
 }) => {
   const isMobile = useIsMobile();
-  const title = "New Event";
-  const desc  = "Initialize a business, personal, or blocked window.";
+  const title = preset?.type === 'blocked' ? "Block time" : "New event";
+  const desc  = preset?.type === 'blocked' ? "Nobody can book this time." : "A business or personal event, or time nobody can book.";
 
   const Header = (
     <>
       <div className="flex items-center gap-3 mb-1.5">
         <Sparkles className="w-4 h-4 text-primary" />
-        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Planning Suite</span>
       </div>
-      <div className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</div>
-      <div className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{desc}</div>
+      <div className="text-[24px] font-light leading-none">{title}</div>
+      <div className="mt-1 text-[13px] text-muted-foreground">{desc}</div>
     </>
   );
 
@@ -566,7 +569,7 @@ export const AddEventDialog = ({
     <div className="flex w-full gap-3">
       <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Cancel</Button>
       <Button type="submit" form="add-event-form" className="h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl flex-[2]">
-        Establish Event
+        Save
       </Button>
     </div>
   );
@@ -574,10 +577,10 @@ export const AddEventDialog = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] p-0 border-none rounded-t-[3rem] overflow-hidden bg-background flex flex-col">
+        <SheetContent side="bottom" className="cf-settings cf-legacy h-[95vh] p-0 border-none rounded-t-[2rem] overflow-hidden bg-background flex flex-col"><SettingsStyle />
           <SheetHeader className="text-left p-6 border-b bg-muted/5 flex-shrink-0">{Header}</SheetHeader>
           <div className="flex-1 overflow-y-auto"><div className="p-6">
-            <AddEventForm onConfirm={data => { onConfirm(data); onOpenChange(false); }} staff={staff} />
+            <AddEventForm key={JSON.stringify(preset || {})} preset={preset} onConfirm={data => { onConfirm(data); onOpenChange(false); }} staff={staff} />
           </div></div>
           <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">{Footer}</SheetFooter>
         </SheetContent>
@@ -587,10 +590,10 @@ export const AddEventDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl p-0 rounded-[3rem] border-4 shadow-3xl bg-background max-h-[90vh] flex flex-col">
+      <DialogContent className="cf-settings cf-legacy sm:max-w-xl p-0 rounded-3xl border shadow-2xl bg-background max-h-[90vh] flex flex-col"><SettingsStyle />
         <DialogHeader className="p-8 pb-6 bg-muted/5 border-b text-left flex-shrink-0">{Header}</DialogHeader>
         <ScrollArea className="flex-1"><div className="px-8 py-8">
-          <AddEventForm onConfirm={data => { onConfirm(data); onOpenChange(false); }} staff={staff} />
+          <AddEventForm key={JSON.stringify(preset || {})} preset={preset} onConfirm={data => { onConfirm(data); onOpenChange(false); }} staff={staff} />
         </div></ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
@@ -598,7 +601,7 @@ export const AddEventDialog = ({
             const form = document.getElementById('add-event-form') as HTMLFormElement;
             if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));
           }} className="h-14 px-12 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 group">
-            Establish Event <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+            Save <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
           </Button>
         </DialogFooter>
       </DialogContent>
