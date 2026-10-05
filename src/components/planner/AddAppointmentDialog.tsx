@@ -170,7 +170,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             newClientName: '',
             newClientEmail: '',
             newClientPhone: '',
-            serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
+            serviceId: preset?.serviceId || (appointmentToRebook ? appointmentToRebook.serviceId : ''),
             staffId: preset?.staffId || staffDefault,
             selectedTierId: 'any',
             date: preset?.date || (appointmentToRebook ? safeDate(appointmentToRebook.startTime) : new Date()),
