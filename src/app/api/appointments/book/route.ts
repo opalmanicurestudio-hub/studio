@@ -720,7 +720,12 @@ export async function POST(req: NextRequest) {
         client: clientRecord,
         byStaff: staffSide,
       });
-      if (plan.status === 'requested' && shouldAutoApprove(tenant, clientRecord)) {
+      // ONLINE GROUPS AND MULTI-SERVICE VISITS ARRIVE AS ONE REQUEST: each part holds its slot (requests do), the studio
+      // accepts the group together, and accepting is when the money is asked for. Only ever makes a public booking
+      // stricter, so it needs no trust.
+      const groupRequest = body?.groupRequest === true && !staffSide;
+      if (groupRequest) plan = { ...plan, status: 'requested', mode: 'approval' } as any;
+      if (!groupRequest && plan.status === 'requested' && shouldAutoApprove(tenant, clientRecord)) {
         plan = { ...plan, status: 'confirmed', chargeTiming: plan.depositCents > 0 ? 'at_booking' : 'never',
           reason: `${plan.reason} — auto-accepted (proven regular)` };
       }
