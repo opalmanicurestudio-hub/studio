@@ -2,6 +2,7 @@
 // src/components/planner/AgendaView.tsx — THE DAY AS ONE LIST. Every visit in time order with the provider, the client,
 // the service and the state in words; sticky hour headers; gaps inside working hours as "Book here" rows; provider chips
 // to narrow it; arrow keys move, Enter opens. The selected row drives the side panel next to it.
+import { extraMinutesFor } from '@/lib/client-timing';
 import * as React from 'react';
 import { format, differenceInMinutes, isToday, startOfDay } from 'date-fns';
 
@@ -18,6 +19,7 @@ export function visitMarks(a: any, client: any, service: any): { label: string; 
   if (a.status === 'requested' || a.approvalStatus === 'pending') out.push({ label: 'Needs an answer', tone: 'alert' });
   if (a.groupId) out.push({ label: a.groupSize ? `Group of ${a.groupSize}` : 'Group', tone: 'info' });
   else if (a.visitId) out.push({ label: 'Several services', tone: 'info' });
+  { const ex = Number(a.clientExtraMinutes) || extraMinutesFor(c, a.serviceId); if (ex > 0) out.push({ label: `Usually +${ex} min`, tone: 'info' }); }
   if (a.isEscalated) out.push({ label: 'Manager', tone: 'alert' });
   if (a.issue && a.issue.status === 'open') out.push({ label: 'Issue', tone: 'alert' });
   if (a.checkInStatus === 'running_late') out.push({ label: a.lateTimeMinutes ? `Late +${a.lateTimeMinutes}` : 'Running late', tone: 'alert' });
