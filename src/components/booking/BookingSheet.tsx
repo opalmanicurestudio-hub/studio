@@ -377,6 +377,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   // browser, fed with busy-time data sent to every visitor.)
   // A returning client whose visits usually run longer: once the booking engine says so, show only times that fit.
   const [clientExtra, setClientExtra] = useState(0);
+  // A charge for their usual extra time: shown, agreed, then booked — never added silently.
+  const [extraOffer, setExtraOffer] = useState<{ minutes: number; cents: number; text: string } | null>(null); const [acceptExtraCents, setAcceptExtraCents] = useState(0);
   const availability = useServerAvailability({
     tenantId: tenantIdProp || (tenant as any)?.id,
     date: dateKey,
@@ -606,7 +608,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       clientData,
       signedForms,
       appointmentDetails: {
-        serviceId: service.id, staffId: finalStaffId, addOnIds, ...(partyHasMore(party) ? { party } : {}),
+        serviceId: service.id, staffId: finalStaffId, addOnIds, ...(partyHasMore(party) ? { party } : {}), ...(acceptExtraCents > 0 ? { acceptExtraCents } : {}),
         ...(placeOpts.length > 1 ? { place: placeChoice } : {}),
         startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
         status: 'confirmed', isWalkIn: false, source: 'online',
@@ -695,6 +697,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         setServerNeedsPayment(true); // the effect below moves to the payment step
         return;
       }
+      if (result && (result as any).code === 'confirm_extra') {
+        setExtraOffer({ minutes: Number((result as any).extraMinutes) || 0, cents: Number((result as any).extraCents) || 0, text: String((result as any).error || '') });
+        return;
+      }
       if (result && (result as any).code === 'needs_longer') {
         setClientExtra(Number((result as any).extraMinutes) || 0); setSelectedTime(null as any);
         setCurrentStepIndex(Math.max(0, steps.findIndex((x: string) => /date|time|when/i.test(x))));
@@ -708,6 +714,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       toast({ variant: 'destructive', title: 'Could not book that', description: e?.message || 'Please try again.' });
     } finally { setConfirming(false); }
   };
+  // After they agree to the extra-time charge, book again — with their agreement to that exact amount attached.
+  const [rebookTick, setRebookTick] = useState(0);
+  useEffect(() => { if (rebookTick) void handleConfirmBooking(); }, [rebookTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Deposit checkout init (used at the 'checkout' step) ─────────────────────
   const initiateCheckout = useCallback(async () => {
@@ -1051,6 +1060,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
           )}
           style={asPage ? undefined : ({ paddingTop: 'var(--sheet-header-h, 7.5rem)', paddingBottom: 'var(--sheet-footer-h, 6.5rem)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties)}
         >
+          {extraOffer && <div className="mx-4 my-3 space-y-3 rounded-2xl border bg-white p-4 shadow-sm" role="alertdialog" aria-label="Extra time">
+            <p className="text-[15px] leading-relaxed">{extraOffer.text}</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={confirming} onClick={() => { setAcceptExtraCents(extraOffer.cents); setExtraOffer(null); setRebookTick((t) => t + 1); }} className="h-11 rounded-full bg-stone-900 px-5 text-[15px] font-semibold text-white disabled:opacity-50">Agree and book</button>
+              <button type="button" onClick={() => { setExtraOffer(null); setAcceptExtraCents(0); setSelectedTime(null); setCurrentStepIndex(Math.max(0, steps.findIndex((x: string) => /date|time|when/i.test(x)))); }} className="h-11 rounded-full border px-4 text-[15px]">Choose something else</button>
+            </div>
+          </div>}
           <div className="px-4 pt-2 pb-2 space-y-5 text-left">
             {/* ── NO EXIT ANIMATION BETWEEN STEPS ────────────────────────
              * This was <AnimatePresence mode="wait">. That mode holds the
