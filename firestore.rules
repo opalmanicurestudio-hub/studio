@@ -25,6 +25,15 @@ service cloud.firestore {
         hasStaffDoc(tenantId)
       );
     }
+    function staffStatusFields() {
+      return ['status', 'onBreak', 'acceptingWalkIns', 'lastClockIn', 'lastClockOut', 'lastBreakStart', 'lastBreakEnd',
+              'lastWalkInStartedAt', 'lastWalkInCompletedAt', 'turnOrder', 'currentAppointmentId', 'lastActiveAt', 'lastSeenAt', 'updatedAt'];
+    }
+    function staffProtectedFields() {
+      return ['role', 'payStructure', 'hourlyRate', 'commissionRate', 'retailCommissionRate', 'payoutFrequency', 'salary', 'salaryAmount',
+              'permissions', 'showProfitability', 'tipRole', 'tipPoolEligible', 'isActive', 'active', 'isRenter', 'renterId', 'pricingTierId',
+              'services', 'employmentType', 'userId', 'tenantId', 'isAdmin', 'isManager', 'isStudent', 'compliance', 'pinHash', 'locationIds'];
+    }
     function isManager(tenantId) {
       return isSignedIn() && (
         request.auth.uid == tenantDoc(tenantId).data.userId ||
@@ -50,7 +59,11 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/staff/{staffId} {
       allow get: if true;
-      allow list, write: if isStaff(tenantId);
+      allow list: if isStaff(tenantId);
+      allow create, delete: if isManager(tenantId);
+      allow update: if isManager(tenantId)
+        || (isStaff(tenantId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffStatusFields()))
+        || (isStaff(tenantId) && request.auth.uid == staffId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(staffProtectedFields()));
       match /private/{docId} {
         allow read, write: if false;
       }
