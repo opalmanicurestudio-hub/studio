@@ -606,6 +606,17 @@ function SettingsPageImpl() {
                   </div>)}
               </Section>
               <More help="Booking times, and limiting some days to certain clients.">
+                <Section title="Who sees what" help="What your team can see about clients. Owners and admins always see everything. Clients belong to the business — if you hide their contact details, staff can still reach them through the business without ever seeing the number.">
+                  {(() => { const sp: any = (tenantData as any).staffPrivacy || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, staffPrivacy: { ...((prev as any).staffPrivacy || {}), ...patch } }));
+                    const pick = (k: string, def: string) => (<select value={sp[k] || def} onChange={(e) => set({ [k]: e.target.value })} className={cfInput} style={{ ...cfInputStyle, maxWidth: 260 } as any} aria-label={k}><option value="all_staff">Everyone on the team</option><option value="admins_only">Owners and admins only</option></select>);
+                    return (<>
+                      <Row label="Client phone numbers, emails and addresses" help="Hidden everywhere the app shows clients — the clients list and profile, the planner and visits, the desk, check-in.">{pick('clientContact', 'all_staff')}</Row>
+                      <Row label="Staff can message clients through the business" help="Texts and emails go from the business's number and address, and are kept on the client's record. Staff never see the number.">
+                        <Toggle checked={sp.staffMessaging !== false} onChange={(v) => set({ staffMessaging: v })} label="Staff can message clients through the business" /></Row>
+                      <Row label="Money figures" help="What clients have spent and owe, ticket values and the day's totals.">{pick('financials', 'admins_only')}</Row>
+                      <Row label="What's in care notes" help="Medical, allergy and sensory note contents. Everyone still sees that a note exists.">{pick('careNoteContents', 'admins_only')}</Row>
+                    </>); })()}
+                </Section>
                 <Section title="Your daily goal" help="What a good day looks like, in bookings. The planner shows each day's booked total against it, and the month view marks the days that reach it.">
                 <Row label="Daily goal" help="Leave it empty to hide the goal. It applies to every open day.">
                   <span className="inline-flex items-center gap-2 text-[15px]">$<input type="number" min={0} step={10} inputMode="decimal" value={(tenantData as any).dailyGoal ?? ''} onChange={(e) => setTenantData((prev: any) => ({ ...prev, dailyGoal: e.target.value === '' ? null : Math.max(0, Math.round(Number(e.target.value))) }))} aria-label="Daily goal in dollars" placeholder="1600" className={cfInput} style={{ ...cfInputStyle, maxWidth: 140 }} /></span>
