@@ -149,7 +149,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                     {isOwnerOrAdmin && (
                         <div className="flex-1 flex flex-col items-end gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity">
                             <p className="text-[8px] font-black uppercase tracking-tighter text-muted-foreground truncate w-full text-right">{client.email || 'No email'}</p>
-                            <p className="text-[8px] font-black uppercase tracking-tighter text-muted-foreground">{client.phone ? formatPhoneNumber(client.phone) : 'No phone'}</p>
+                            <p className="text-[8px] font-black uppercase tracking-tighter text-muted-foreground">{client.phone ? formatPhoneNumber(client.phone) : (client as any).phoneHint || 'No phone'}</p>
                         </div>
                     )}
                 </div>
