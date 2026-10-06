@@ -25,6 +25,7 @@
  * POST { action: 'application-received',  tenantId, applicationId }
  */
 
+import { staffOrServer } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { sendNotification } from '@/lib/notify';
@@ -78,6 +79,7 @@ export async function POST(req: NextRequest) {
   let body: any = {};
   try { body = await req.json(); } catch { /* handled below */ }
   const { action, tenantId } = body || {};
+  if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
   if (!action || !tenantId) {
     return NextResponse.json({ ok: false, error: 'Missing action or tenant.' }, { status: 400 });
   }
