@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { AuthFetch } from '@/components/shared/AuthFetch';
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { FirebaseClientProvider } from "@/firebase";
@@ -52,6 +53,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`font-body antialiased`}>
+        <AuthFetch />
         <RegisterSW />
         <FirebaseClientProvider>
           {children}
