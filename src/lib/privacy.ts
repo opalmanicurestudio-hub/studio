@@ -28,19 +28,21 @@ export interface StaffPrivacySettings {
   financials?: PrivacyAudience;        // balance owed, lifetime value, revenue figures
   clientContact?: PrivacyAudience;     // phone/email on client-facing surfaces
   careNoteContents?: PrivacyAudience;  // medical/allergy/sensory note CONTENTS (flag always visible)
+  staffMessaging?: boolean;            // staff may text / email clients THROUGH THE BUSINESS even when they can't see the number (default yes)
 }
 
 export const PRIVACY_DEFAULTS: Required<StaffPrivacySettings> = {
   financials: 'admins_only',
   clientContact: 'all_staff',
   careNoteContents: 'admins_only',
+  staffMessaging: true,
 };
 
 function isPrivileged(role?: string | null): boolean {
   return role === 'owner' || role === 'admin';
 }
 
-function audienceFor(tenant: any, key: keyof StaffPrivacySettings): PrivacyAudience {
+function audienceFor(tenant: any, key: 'financials' | 'clientContact' | 'careNoteContents'): PrivacyAudience {
   return tenant?.staffPrivacy?.[key] || PRIVACY_DEFAULTS[key];
 }
 
@@ -54,4 +56,31 @@ export function canSeeClientContact(tenant: any, role?: string | null): boolean 
 
 export function canSeeCareNoteContents(tenant: any, role?: string | null): boolean {
   return isPrivileged(role) || audienceFor(tenant, 'careNoteContents') === 'all_staff';
+}
+
+/** May this person text or email a client through the business? Owners and admins always; staff unless the business
+ *  has switched it off. Works whether or not they can SEE the number — the server looks it up and sends. */
+export function canMessageClients(tenant: any, role?: string | null): boolean {
+  return isPrivileged(role) || canSeeClientContact(tenant, role) || tenant?.staffPrivacy?.staffMessaging !== false;
+}
+
+/** The fields that count as a client's contact details. */
+export const CONTACT_FIELDS = ['phone', 'email', 'address', 'mobile', 'phoneNumber', 'secondaryPhone', 'alternatePhone'] as const;
+/** A client record with contact details removed (not blanked) and marked, for people who may not see them.
+ *  Removed rather than emptied so nothing can mistake "hidden" for "no number"; marked so no screen can save the
+ *  gap back over the real details (see stripHiddenContact). */
+export function maskClientContact<T extends Record<string, any>>(c: T): T {
+  if (!c) return c; const out: any = { ...c }; for (const k of CONTACT_FIELDS) delete out[k];
+  if (out.emergencyContact) { const e = { ...out.emergencyContact }; delete e.phone; delete e.email; out.emergencyContact = e; }
+  out.contactHidden = true; return out;
+}
+/** Copies of contact details stored on an appointment / visit. */
+export function maskAppointmentContact<T extends Record<string, any>>(a: T): T {
+  if (!a) return a; const out: any = { ...a }; for (const k of ['clientPhone', 'clientEmail', 'customerPhone', 'customerEmail', 'phone', 'email']) delete out[k]; return out;
+}
+/** Before saving a client record that was loaded hidden: drop every contact field, so the hidden gap is never written
+ *  back over the real details. */
+export function stripHiddenContact<T extends Record<string, any>>(record: { contactHidden?: boolean } | null | undefined, patch: T): T {
+  if (!record?.contactHidden || !patch) return patch; const out: any = { ...patch }; for (const k of CONTACT_FIELDS) delete out[k];
+  delete out.contactHidden; if (out.emergencyContact) { const e = { ...out.emergencyContact }; delete e.phone; delete e.email; out.emergencyContact = e; } return out;
 }
