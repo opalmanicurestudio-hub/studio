@@ -323,7 +323,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                     <input value={nName} onChange={(e) => setNName(e.target.value)} placeholder="Full name" className={inp} style={inpS} />
                     <input value={nPhone} onChange={(e) => setNPhone(e.target.value)} placeholder="Phone" inputMode="tel" className={inp} style={inpS} />
                     <input value={nEmail} onChange={(e) => setNEmail(e.target.value)} placeholder="Email" type="email" className={inp} style={inpS} />
-                    {dupes.map((c: any) => <button key={c.id} type="button" onClick={() => { setClient(c); setIsNew(false); }} className="w-full rounded-2xl p-3 text-left text-[14px]" style={{ background: 'color-mix(in srgb, var(--warn) 10%, transparent)' }}>Already a client? <b>Use {c.name}</b> {c.phone ? `· ${c.phone}` : ''}</button>)}
+                    {dupes.map((c: any) => <button key={c.id} type="button" onClick={() => { setClient(c); setIsNew(false); }} className="w-full rounded-2xl p-3 text-left text-[14px]" style={{ background: 'color-mix(in srgb, var(--warn) 10%, transparent)' }}>Already a client? <b>Use {c.name}</b> {(c.phone || c.phoneHint) ? `· ${c.phone || c.phoneHint}` : ''}</button>)}
                     <button type="button" className="text-[13px] underline" onClick={() => setIsNew(false)}>Search existing clients instead</button>
                   </div>
                 ) : (
