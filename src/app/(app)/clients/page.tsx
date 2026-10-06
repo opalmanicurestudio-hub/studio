@@ -38,7 +38,7 @@ import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, query, where, getDocs, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
-import { canSeeFinancials, canSeeClientContact } from '@/lib/privacy';
+import { canSeeFinancials, canSeeClientContact, canMessageClients } from '@/lib/privacy';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientCard } from '@/components/clients/ClientCard';
 
@@ -306,7 +306,7 @@ export default function ClientsPage() {
         <main className="cf-settings cf-legacy flex-1 w-full max-w-7xl mx-auto min-w-0 p-4 pb-28 md:p-8">
           <SettingsStyle />
           <ClientsList tenantId={tenantId || ''} clients={clients || []} appointments={appointments || []} services={(inv as any).services || []} staff={(inv as any).staff || []}
-            showMoney={!!showFinancials} showContact={!!showContact} canManage={role === 'owner' || role === 'admin' || role === 'manager'}
+            showMoney={!!showFinancials} showContact={!!showContact} canMessage={canMessageClients(selectedTenant, role)} canManage={role === 'owner' || role === 'admin' || role === 'manager'}
             onOpen={(id: string) => router.push(`/clients/${id}`)} onBook={(id: string) => setBookFor(id)} onAdd={() => setIsAddClientOpen(true)} onFindDuplicates={() => setIsMergeClientsOpen(true)}
             onArchive={(ids: string[]) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: 'archived' })); toast({ title: `${ids.length} archived` }); }}
             onUnarchive={(ids: string[]) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: 'active' })); toast({ title: `${ids.length} restored` }); }}
