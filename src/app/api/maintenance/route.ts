@@ -736,7 +736,7 @@ export async function POST(req: NextRequest) {
         try {
           const origin = req.nextUrl?.origin || '';
           const res = await fetch(`${origin}/api/booths/notify`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': process.env.CRON_SECRET || '' },
             body: JSON.stringify({ action: 'renter-message', tenantId, renterId: t.reporter.renterId, byName: 'Maintenance', text: line }),
           });
           sent = res.ok;
