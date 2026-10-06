@@ -80,6 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { limitPublic } from '@/lib/rate-limit';
 import { recordConsent } from '@/lib/consent';
 import { placeOf, placeOptionsOf, placeLine, arrivalLine, clientAddressOf } from '@/lib/service-place';
 import { unpaidFeeRuleOf } from '@/lib/booking-policies';
@@ -94,7 +95,7 @@ import { logAuditAdmin } from '@/lib/audit';
 import { generateShortCode } from '@/lib/short-code';
 import { nanoid } from 'nanoid';
 import { verifyStaffActor } from '@/lib/staff-auth';
-import { createHash } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 
 /**
  * WHO IS ASKING. Staff treatment (no notice/horizon limits, the staff booking
@@ -196,6 +197,14 @@ export async function POST(req: NextRequest) {
     const source = String(body.source || 'api').slice(0, 40);
     const channel = String(body.channel || '').slice(0, 24) || null;   // where the client came from (a shared link's src)
     const trust = await callerTrust(req, String(tenantId || ''), body);
+    if (!trust) {
+      // Public bookings send texts and emails, so they're limited: per visitor per hour, and per business per day.
+      // A group booking calls this once per guest from our own server; those calls are signed (x-cf-group-sig) and
+      // skip the per-visitor count, because the group route already counted the visitor.
+      const secret = process.env.CRON_SECRET || ''; const sig = req.headers.get('x-cf-group-sig') || '';
+      const signed = !!secret && !!sig && body?.groupRequest === true && sig === createHmac('sha256', secret).update(`${tenantId}|${body?.serviceId}|${body?.startTime}`).digest('hex');
+      const limited = await limitPublic(req, 'book', String(tenantId || ''), { perHour: signed ? 1000 : 20, perDay: 600 }); if (limited) return limited;
+    }
     if (!tenantId || !serviceId || !startTime) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     }
