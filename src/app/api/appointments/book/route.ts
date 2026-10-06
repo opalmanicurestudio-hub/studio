@@ -80,6 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
+import { extraMinutesFor } from '@/lib/client-timing';
 import { limitPublic } from '@/lib/rate-limit';
 import { recordConsent } from '@/lib/consent';
 import { placeOf, placeOptionsOf, placeLine, arrivalLine, clientAddressOf } from '@/lib/service-place';
@@ -363,7 +364,20 @@ export async function POST(req: NextRequest) {
     // Staff may set a custom length (5–600 min); the clash check below uses it too.
     const staffSet = trust === 'staff' || trust === 'internal';
     const customLen = staffSet && Number.isFinite(Number(body.durationMinutes)) && Number(body.durationMinutes) >= 5 && Number(body.durationMinutes) <= 600 ? Math.round(Number(body.durationMinutes)) : null;
-    const duration = customLen ?? ((Number(svc.duration) || 60) + addOnMinutes);
+    // THE CLIENT'S OWN TIME (online): when the email or phone matches a client with a usual extra time for this service,
+    // reserve it — only ever MORE time (shortening a visit is a staff decision). The price is unchanged here; the charge for
+    // extra time is shown and agreed separately. If the longer visit doesn't fit, the answer says so (code 'needs_longer').
+    let clientExtra = 0;
+    if (!staffSet && customLen == null) {
+      try {
+        const em = String(body?.client?.email || '').trim().toLowerCase(); const pd = String(body?.client?.phone || '').replace(/\D/g, '').slice(-10);
+        const own = (snap: any) => (snap?.docs || []).map((d: any) => d.data() || {}).find((c: any) => !c.ownerRenterId) || null;
+        let hit: any = em ? own(await db.collection(`tenants/${tenantId}/clients`).where('email', '==', em).limit(5).get()) : null;
+        if (!hit && pd.length === 10) for (const f of [pd, `+1${pd}`, `(${pd.slice(0, 3)}) ${pd.slice(3, 6)}-${pd.slice(6)}`]) { hit = own(await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', f).limit(3).get()); if (hit) break; }
+        if (hit) clientExtra = Math.max(0, extraMinutesFor(hit, String(svc.id || body.serviceId || '')));
+      } catch { /* best-effort: never blocks a booking */ }
+    }
+    const duration = customLen ?? ((Number(svc.duration) || 60) + addOnMinutes + clientExtra);
     const padBefore = Number(svc.padBefore) || 0;
     const padAfter = Number(svc.padAfter) || 0;
 
@@ -750,6 +764,7 @@ export async function POST(req: NextRequest) {
       const payload: any = {
         ...(overrideReason ? { conflictOverride: { reason: overrideReason, by: (body as any).__staffActor?.name || 'Manager', clash: firstReason || null, at: nowIso } } : {}),
         ...(customLen ? { durationMinutes: customLen, customLength: true } : {}),
+        ...(clientExtra > 0 ? { clientExtraMinutes: clientExtra } : {}),
         ...(staffSet && typeof body.internalNotes === 'string' && body.internalNotes.trim() ? { internalNotes: body.internalNotes.trim().slice(0, 2000) } : {}),
         // Linked bookings: a repeat series, a group, or one guest's visit with several providers.
         ...(staffSet && typeof body.seriesId === 'string' ? { seriesId: body.seriesId.slice(0, 64), seriesIndex: Number(body.seriesIndex) || 0 } : {}),
@@ -862,6 +877,7 @@ export async function POST(req: NextRequest) {
     });
 
     if ((result as any).conflict) {
+      if (clientExtra > 0) return NextResponse.json({ ok: false, code: 'needs_longer', extraMinutes: clientExtra, error: `Your visits here usually take about ${clientExtra} minutes longer, so this time doesn’t leave enough room. Here are times that fit.` }, { status: 409 });
       return NextResponse.json({ ok: false, error: (result as any).conflict }, { status: 409 });
     }
     const r: any = result;
