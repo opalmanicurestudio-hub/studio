@@ -1,5 +1,6 @@
 'use client';
 
+import { canSeeClientContact } from '@/lib/privacy';
 import { ClientTimeline, ClientMessages, ClientFormsNeeded, ClientPhotos, ClientNotes, useClientMessages } from '@/components/clients/ClientTabs';
 import { ClientHeader, NextVisitCard, ClientRail, ClientQuickFacts, clientFacts } from '@/components/clients/ClientProfileParts';
 import { SettingsStyle } from '@/components/settings/settings-style';
@@ -133,19 +134,19 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
             <div className={cn("absolute top-0 left-0 w-1.5 h-full", client.status === 'banned' ? "bg-destructive" : "bg-primary")} />
             <CardContent className="p-5 md:p-6 flex flex-wrap gap-x-8 gap-y-4 text-left">
                 {client.status === 'banned' && (
-                    <div className="flex items-center gap-3"><div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Ban className="w-4 h-4 text-white" /></div><span className="text-[10px] md:text-xs font-black text-destructive uppercase tracking-widest">Banned Guest</span></div>
+                    <div className="flex items-center gap-3"><div className="p-2 bg-destructive rounded-xl shadow-lg shadow-destructive/20"><Ban className="w-4 h-4 text-white" /></div><span className="text-[10px] md:text-xs font-black text-destructive uppercase tracking-widest">Not to be booked</span></div>
                 )}
                 {client.intel?.hasIncidents && (
-                    <div className="flex items-center gap-3"><div className="p-2 bg-purple-50/10 rounded-xl border border-purple-500/20 text-purple-600"><ShieldAlert className="w-4 h-4" /></div><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-purple-600">Incident History</span></div>
+                    <div className="flex items-center gap-3"><div className="p-2 bg-purple-50/10 rounded-xl border border-purple-500/20 text-purple-600"><ShieldAlert className="w-4 h-4" /></div><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-purple-600">Issues</span></div>
                 )}
                 {client.medicalNotes && (
-                    <div className="flex items-center gap-3"><div className="p-2 bg-red-500/10 rounded-xl border border-red-500/20 text-red-600"><ShieldPlus className="w-4 h-4" /></div><span className="text-[10px] md:text-xs font-black text-red-600 uppercase tracking-widest">Medical Alert</span></div>
+                    <div className="flex items-center gap-3"><div className="p-2 bg-red-500/10 rounded-xl border border-red-500/20 text-red-600"><ShieldPlus className="w-4 h-4" /></div><span className="text-[10px] md:text-xs font-black text-red-600 uppercase tracking-widest">Medical note</span></div>
                 )}
                 {client.allergyNotes && (
-                    <div className="flex items-center gap-3"><div className="p-2 bg-orange-500/10 rounded-xl border-orange-500/20 text-orange-600 border"><AlertTriangle className="w-4 h-4" /></div><span className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest">Allergy Warning</span></div>
+                    <div className="flex items-center gap-3"><div className="p-2 bg-orange-500/10 rounded-xl border-orange-500/20 text-orange-600 border"><AlertTriangle className="w-4 h-4" /></div><span className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest">Allergy</span></div>
                 )}
                 {client.sensoryNeeds && (
-                    <div className="flex items-center gap-3"><div className="p-2 bg-blue-500/10 rounded-xl border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div><span className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest">Sensory Intel</span></div>
+                    <div className="flex items-center gap-3"><div className="p-2 bg-blue-500/10 rounded-xl border-blue-500/20 text-blue-600 border"><Ear className="w-4 h-4" /></div><span className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest">Sensory needs</span></div>
                 )}
             </CardContent>
         </Card>
@@ -180,7 +181,7 @@ const AppointmentHistoryCard = ({
               {format(safeDate(appointment.startTime), 'MMMM d, yyyy')}
             </p>
             <div className="flex gap-1 mt-1.5 flex-wrap">
-              {hasRecovery && <Badge className="bg-amber-100 text-amber-700 border-none font-black text-[7px] h-4 px-1.5">Recovery Applied</Badge>}
+              {hasRecovery && <Badge className="bg-amber-100 text-amber-700 border-none font-black text-[7px] h-4 px-1.5">Made right</Badge>}
               {hasAdjustment && <Badge className="bg-blue-100 text-blue-700 border-none font-black text-[7px] h-4 px-1.5">Adjustment</Badge>}
               {hasTip && <Badge className="bg-green-100 text-green-700 border-none font-black text-[7px] h-4 px-1.5">Tip: +${safeNumber(appointment.realTip).toFixed(2)}</Badge>}
             </div>
@@ -288,6 +289,7 @@ export default function ClientDetailPage() {
   const allStaffList: any[] = ((useInventory() as any).staff) || [];
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+  const seesContact = canSeeClientContact(selectedTenant, role);   // Settings → privacy: who may see client phone numbers and emails
 
   const router = useRouter();
   const clientDocRef = useMemoFirebase(() => !firestore || !clientId || !tenantId ? null : doc(firestore, `tenants/${tenantId}/clients`, clientId), [firestore, tenantId, clientId]);
@@ -416,7 +418,7 @@ export default function ClientDetailPage() {
     if (!client || !firestore || !tenantId) return;
     const hasCard = !!hasRealCard(client);
     if (!hasCard) {
-        toast({ variant: 'destructive', title: "No Card on File", description: "Vault a card before attempting to settle." });
+        toast({ variant: 'destructive', title: "No Card on File", description: "Save a card for them first, then settle the balance." });
         return;
     }
     const amount = safeNumber(client.outstandingBalance);
@@ -556,7 +558,7 @@ export default function ClientDetailPage() {
       <main className="cf-settings cf-legacy flex-1 p-4 sm:p-6 md:p-10 space-y-6 w-full max-w-7xl mx-auto min-w-0 text-left">
         <SettingsStyle />
         <Link href="/clients" className="inline-block text-[14px] font-semibold" style={{ color: 'var(--muted)' }}>← Clients</Link>
-        <ClientHeader client={client} facts={facts!} showMoney={!!showFinancials} canSeeContact={isOwnerOrAdmin} balance={safeBalance} credit={safeStoreCredit} linkCount={linkCount}
+        <ClientHeader client={client} facts={facts!} showMoney={!!showFinancials} canSeeContact={seesContact} balance={safeBalance} credit={safeStoreCredit} linkCount={linkCount}
           avatar={<AvatarUpload
                 url={client.avatarUrl}
                 name={client.name}
@@ -569,7 +571,7 @@ export default function ClientDetailPage() {
                 fallbackClassName="bg-[var(--soft)] text-[var(--ink)]"
               />}
           onBook={() => setBookOpen(true)} onPay={showFinancials ? () => { void handleQuickSettle(); } : undefined} extraFlags={isHighRisk && selectedTenant?.guardianProtocolEnabled !== false ? [['Stricter booking rules (cancellation history)', 'warn']] : []} onEdit={isOwnerOrAdmin ? () => setIsEditClientOpen(true) : undefined}
-          onMessage={isOwnerOrAdmin && (client.phone || client.email) ? () => { window.location.href = client.phone ? `sms:${String(client.phone).replace(/[^\d+]/g, '')}` : `mailto:${client.email}`; } : undefined} />
+          onMessage={seesContact && (client.phone || client.email) ? () => { window.location.href = client.phone ? `sms:${String(client.phone).replace(/[^\d+]/g, '')}` : `mailto:${client.email}`; } : undefined} />
         <ClientQuickFacts facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} />
 
         <ClientIntelBanner client={client} />
@@ -590,6 +592,7 @@ export default function ClientDetailPage() {
                     )}
                   </TabsTrigger>
                   <TabsTrigger value="photos" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Photos</TabsTrigger>
+                  {activeMembership && <TabsTrigger value="membership" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Membership</TabsTrigger>}
                   <TabsTrigger value="notes" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Notes</TabsTrigger>
                   <TabsTrigger value="messages" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Messages</TabsTrigger>
                   <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Payments</TabsTrigger>
@@ -614,118 +617,21 @@ export default function ClientDetailPage() {
               <TabsContent value="overview" className="m-0 space-y-6 md:space-y-8 animate-in fade-in duration-500 text-left">
                 <NextVisitCard facts={facts!} services={services || []} staff={allStaffList} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} onBook={() => setBookOpen(true)} />
                 <ClientTimeline appointments={facts!.mine} services={services || []} staff={allStaffList} transactions={clientTransactions || []} consents={signedConsents || []} messages={msgs.rows} showMoney={!!showFinancials} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} />
-                {activeMembership && (
-                  <div className="space-y-4 text-left">
-                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3 text-left"><Award className="w-5 h-5" />Active Privilege Matrix</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
-                      {(activeMembership.includedServices || []).map(perk => {
-                        const usage = getCycleCorrectUsage(perk.id);
-                        const isExhausted = usage.total >= perk.quantity;
-                        const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
-                        return (
-                          <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
-                            <CardContent className="p-5 space-y-4 text-left">
-                              <div className="flex justify-between items-start gap-2 text-left">
-                                <div className="min-w-0 text-left">
-                                  <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
-                                  <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Monthly Service Allotment</p>
-                                </div>
-                                <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
-                                  {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Star className="w-4 h-4" />}
-                                </div>
-                              </div>
-                              <div className="space-y-2 text-left">
-                                <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
-                                  <span>Allotment Usage</span>
-                                  <div className="flex items-center gap-1">
-                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
-                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
-                                  </div>
-                                </div>
-                                <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
-                              </div>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                      {(activeMembership.includedAddOns || []).map(perk => {
-                        const usage = getCycleCorrectUsage(perk.id);
-                        const isExhausted = usage.total >= perk.quantity;
-                        const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
-                        return (
-                          <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
-                            <CardContent className="p-5 space-y-4 text-left">
-                              <div className="flex justify-between items-start text-left">
-                                <div className="min-w-0 text-left">
-                                  <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
-                                  <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Monthly Enhancement Allotment</p>
-                                </div>
-                                <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-700")}>
-                                  {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
-                                </div>
-                              </div>
-                              <div className="space-y-2 text-left">
-                                <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
-                                  <span>Allotment Usage</span>
-                                  <div className="flex items-center gap-1">
-                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
-                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
-                                  </div>
-                                </div>
-                                <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
-                              </div>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                      {(activeMembership.includedProducts || []).map(perk => {
-                        const usage = getCycleCorrectUsage(perk.id);
-                        const isExhausted = usage.total >= perk.quantity;
-                        const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
-                        return (
-                          <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left">
-                            <CardContent className="p-5 space-y-4 text-left">
-                              <div className="flex justify-between items-start text-left">
-                                <div className="min-w-0 text-left">
-                                  <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
-                                  <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Monthly Hospitality Allotment</p>
-                                </div>
-                                <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-primary/10 text-primary")}>
-                                  {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Coffee className="w-4 h-4" />}
-                                </div>
-                              </div>
-                              <div className="space-y-2 text-left">
-                                <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
-                                  <span>Allotment Usage</span>
-                                  <div className="flex items-center gap-1">
-                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
-                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
-                                  </div>
-                                </div>
-                                <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
-                              </div>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 <Card className="border-2 shadow-sm rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-white text-left">
                   <CardHeader className="bg-muted/5 border-b p-6 md:p-8 pb-4 text-left">
-                    <CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3 text-left"><BadgeInfo className="w-4 h-4 text-primary" /> Dossier Details</CardTitle>
+                    <CardTitle className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3 text-left"><BadgeInfo className="w-4 h-4 text-primary" /> Details</CardTitle>
                   </CardHeader>
                   <CardContent className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 text-left">
                     <div className="space-y-6 text-left">
                       <div className="space-y-1 text-left">
-                        <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Birth Milestone</p>
+                        <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Birthday</p>
                         <p className="text-base md:text-lg font-black uppercase text-slate-900 tracking-tight text-left">{client.birthday ? format(safeDate(client.birthday), 'MMMM d') : 'Not on file'}</p>
                       </div>
-                      {client.address && <div className="space-y-1 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Primary Domicile</p><p className="text-xs font-bold text-slate-700 leading-relaxed uppercase tracking-tight text-left">{String(client.address.street || '')}<br/>{String(client.address.city || '')}, {String(client.address.state || '')} {String(client.address.zip || '')}</p></div>}
+                      {seesContact && client.address && <div className="space-y-1 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Home address</p><p className="text-xs font-bold text-slate-700 leading-relaxed uppercase tracking-tight text-left">{String(client.address.street || '')}<br/>{String(client.address.city || '')}, {String(client.address.state || '')} {String(client.address.zip || '')}</p></div>}
                     </div>
                     <div className="space-y-6 text-left">
-                      {client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2 text-left">Emergency Protocol</p><p className="text-xs font-black text-slate-900 uppercase tracking-tight text-left">{String(client.emergencyContact.name || '')}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60 text-left">{String(client.emergencyContact.relationship || '')}</p><p className="text-xs font-black text-primary tracking-tight mt-2 text-left">{client.emergencyContact.phone ? formatPhoneNumber(String(client.emergencyContact.phone)) : 'N/A'}</p></div>}
+                      {seesContact && client.emergencyContact && <div className="space-y-1 p-4 md:p-5 rounded-2xl bg-destructive/[0.02] border-2 border-destructive/10 text-left"><p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-destructive/60 mb-2 text-left">Emergency contact</p><p className="text-xs font-black text-slate-900 uppercase tracking-tight text-left">{String(client.emergencyContact.name || '')}</p><p className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-60 text-left">{String(client.emergencyContact.relationship || '')}</p><p className="text-xs font-black text-primary tracking-tight mt-2 text-left">{client.emergencyContact.phone ? formatPhoneNumber(String(client.emergencyContact.phone)) : 'N/A'}</p></div>}
                     </div>
                   </CardContent>
                 </Card>
@@ -733,12 +639,12 @@ export default function ClientDetailPage() {
 
               <TabsContent value="preferences" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                 <div className="space-y-8 text-left">
-                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1"><Sparkles className="w-5 h-5 text-primary" />Guest Discovery & Preferences</h3>
+                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1"><Sparkles className="w-5 h-5 text-primary" />Preferences</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><Target className="w-4 h-4 text-primary opacity-40" />Strategic Goals</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.goals ? `"${client.notes.goals}"` : "No specific goals archived."}</p></CardContent></Card>
-                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><RefreshCw className="w-4 h-4 text-primary opacity-40" />Current Routine</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.routine ? `"${client.notes.routine}"` : "No routine details on file."}</p></CardContent></Card>
-                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><History className="w-4 h-4 text-primary opacity-40" />Service History Notes</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.history ? `"${client.notes.history}"` : "No historical context archived."}</p></CardContent></Card>
-                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><Ear className="w-4 h-4 text-primary opacity-40" />Sensory & Environment</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.sensoryNeeds ? (showCareContents ? `"${client.sensoryNeeds}"` : 'Sensory notes on file — visible to admins.') : "No sensory preferences recorded."}</p></CardContent></Card>
+                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><Target className="w-4 h-4 text-primary opacity-40" />Their goals</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.goals ? `"${client.notes.goals}"` : "No specific goals archived."}</p></CardContent></Card>
+                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><RefreshCw className="w-4 h-4 text-primary opacity-40" />Their routine</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.routine ? `"${client.notes.routine}"` : "No routine details on file."}</p></CardContent></Card>
+                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><History className="w-4 h-4 text-primary opacity-40" />History notes</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.history ? `"${client.notes.history}"` : "No historical context archived."}</p></CardContent></Card>
+                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><Ear className="w-4 h-4 text-primary opacity-40" />Comfort & environment</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.sensoryNeeds ? (showCareContents ? `"${client.sensoryNeeds}"` : 'Sensory notes on file — visible to admins.') : "No sensory preferences recorded."}</p></CardContent></Card>
                   </div>
                 </div>
               </TabsContent>
@@ -864,22 +770,22 @@ export default function ClientDetailPage() {
 
               <TabsContent value="history" className="m-0 space-y-8 md:space-y-10 animate-in fade-in duration-500 text-left">
                 <div className="space-y-4 text-left">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Scheduled Events</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Upcoming</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
-                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={handleRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming sessions</p></div>}
+                    {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={handleRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><CalendarIcon className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">No upcoming visits</p></div>}
                   </div>
                 </div>
                 <div className="space-y-4 pt-6 border-t border-dashed text-left">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Historical Records</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-4 mb-4 opacity-60 text-left">Past records</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
-                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={handleRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] font-black uppercase tracking-widest">Empty history</p></div>}
+                    {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={handleRebook} />) : <div className="col-span-full py-12 md:py-16 text-center border-4 border-dashed rounded-[2rem] md:rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3"><Clock className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2"/><p className="text-[10px] font-black uppercase tracking-widest">Nothing yet</p></div>}
                   </div>
                 </div>
               </TabsContent>
 
               <TabsContent value="hospitality" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                 <div className="space-y-6 text-left">
-                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1"><Coffee className="w-5 h-5 text-primary" />Concierge Service Log</h3>
+                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1"><Coffee className="w-5 h-5 text-primary" />Hospitality given</h3>
                   {clientRefreshments.length > 0 ? (
                     <div className="grid gap-3 text-left">
                       {clientRefreshments.map((req: any) => (
@@ -897,7 +803,7 @@ export default function ClientDetailPage() {
                             </div>
                             <div className="text-right shrink-0">
                               <p className="font-black text-sm font-mono text-slate-900 text-right">x{safeNumber(req.quantity) || 1}</p>
-                              {safeNumber(req.priceAtRequest) > 0 ? <p className="text-[8px] font-black uppercase text-primary text-right">${(safeNumber(req.priceAtRequest) * (safeNumber(req.quantity) || 1)).toFixed(2)}</p> : <p className="text-[8px] font-black uppercase text-green-600 text-right">COMP</p>}
+                              {safeNumber(req.priceAtRequest) > 0 ? <p className="text-[8px] font-black uppercase text-primary text-right">${(safeNumber(req.priceAtRequest) * (safeNumber(req.quantity) || 1)).toFixed(2)}</p> : <p className="text-[8px] font-black uppercase text-green-600 text-right">Free</p>}
                             </div>
                           </CardContent>
                         </Card>
@@ -916,7 +822,7 @@ export default function ClientDetailPage() {
                 <div className="space-y-6 text-left">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1 text-left">
                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left"><FlaskConical className="w-5 h-5 text-primary" />Technical Archive (Formulas)</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setIsAddFormulaOpen(true)} className="h-8 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10"><PlusCircle className="mr-2 h-3.5 w-3.5" /> Establish Protocol</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setIsAddFormulaOpen(true)} className="h-8 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest shadow-sm hover:bg-primary/10"><PlusCircle className="mr-2 h-3.5 w-3.5" /> Save</Button>
                   </div>
                   {client.customFormulas && client.customFormulas.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
@@ -951,7 +857,7 @@ export default function ClientDetailPage() {
                             </div>
                             {formula.notes && (
                               <div className="pt-2 text-left">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 text-left">Global Method Audit</p>
+                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 text-left">Formulas used</p>
                                 <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic border-l-2 border-primary/20 pl-3 text-left">"{String(formula.notes)}"</p>
                               </div>
                             )}
@@ -972,7 +878,7 @@ export default function ClientDetailPage() {
 
                 <div className="space-y-4 text-left">
                   <div className="flex items-center justify-between px-1">
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Transaction History</h3>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Payments</h3>
                     <span className="text-[9px] font-black uppercase text-muted-foreground opacity-60">{(clientTransactions || []).length} records</span>
                   </div>
                   {(clientTransactions || []).length > 0 ? (() => {
@@ -1048,7 +954,7 @@ export default function ClientDetailPage() {
                   })() : (
                     <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
                       <History className="w-10 h-10" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">No transactions on file</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest">No payments yet</p>
                     </div>
                   )}
                 </div>
@@ -1056,7 +962,7 @@ export default function ClientDetailPage() {
                 <Separator className="border-dashed" />
 
                 <div className="space-y-4 text-left">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1 text-left">Unpaid Protocol Fees</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1 text-left">Unpaid fees</h3>
                   {client.unpaidFees && client.unpaidFees.length > 0 ? (
                     <div className="grid gap-3 text-left">
                       {client.unpaidFees.map((fee) => (
@@ -1069,13 +975,13 @@ export default function ClientDetailPage() {
                         </div>
                       ))}
                     </div>
-                  ) : <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3"><CheckCircle2 className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">Account Clear</p></div>}
+                  ) : <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3"><CheckCircle2 className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">Nothing owed</p></div>}
                 </div>
 
                 <Separator className="border-dashed" />
 
                 <div className="space-y-4 text-left">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Certified Redemptions & Waivers</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Used and waived</h3>
                   <div className="grid gap-3 text-left">
                     {clientRedemptions.map(r => (
                       <div key={r.id} className={cn("flex items-center justify-between p-4 rounded-2xl border-2 bg-white text-left", r.isForfeit && "border-destructive/20 bg-destructive/[0.01]")}>
@@ -1097,7 +1003,7 @@ export default function ClientDetailPage() {
                     {clientRedemptions.length === 0 && (
                       <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
                         <History className="w-10 h-10" />
-                        <p className="text-[10px] font-black uppercase tracking-widest">No Redemption History</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest">Nothing used yet</p>
                       </div>
                     )}
                   </div>
@@ -1107,6 +1013,103 @@ export default function ClientDetailPage() {
               <TabsContent value="credits" className="m-0 animate-in fade-in duration-500 text-left">
                 <StoreCreditHistory client={client} isOwnerOrAdmin={isOwnerOrAdmin} />
               </TabsContent>
+              {activeMembership && <TabsContent value="membership" className="m-0 space-y-6 text-left">
+                  <div className="space-y-4 text-left">
+                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3 text-left"><Award className="w-5 h-5" />Membership benefits</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+                      {(activeMembership.includedServices || []).map(perk => {
+                        const usage = getCycleCorrectUsage(perk.id);
+                        const isExhausted = usage.total >= perk.quantity;
+                        const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
+                        return (
+                          <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-500/20 transition-all text-left">
+                            <CardContent className="p-5 space-y-4 text-left">
+                              <div className="flex justify-between items-start gap-2 text-left">
+                                <div className="min-w-0 text-left">
+                                  <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
+                                  <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Services each month</p>
+                                </div>
+                                <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-indigo-500/10 text-indigo-600")}>
+                                  {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Star className="w-4 h-4" />}
+                                </div>
+                              </div>
+                              <div className="space-y-2 text-left">
+                                <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
+                                  <span>What’s been used</span>
+                                  <div className="flex items-center gap-1">
+                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
+                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
+                                  </div>
+                                </div>
+                                <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                      {(activeMembership.includedAddOns || []).map(perk => {
+                        const usage = getCycleCorrectUsage(perk.id);
+                        const isExhausted = usage.total >= perk.quantity;
+                        const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
+                        return (
+                          <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-amber-500/20 transition-all text-left">
+                            <CardContent className="p-5 space-y-4 text-left">
+                              <div className="flex justify-between items-start text-left">
+                                <div className="min-w-0 text-left">
+                                  <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
+                                  <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Add-ons each month</p>
+                                </div>
+                                <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-700")}>
+                                  {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Zap className="w-5 h-5" />}
+                                </div>
+                              </div>
+                              <div className="space-y-2 text-left">
+                                <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
+                                  <span>What’s been used</span>
+                                  <div className="flex items-center gap-1">
+                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
+                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
+                                  </div>
+                                </div>
+                                <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                      {(activeMembership.includedProducts || []).map(perk => {
+                        const usage = getCycleCorrectUsage(perk.id);
+                        const isExhausted = usage.total >= perk.quantity;
+                        const progress = Math.min(100, (usage.total / safeNumber(perk.quantity)) * 100);
+                        return (
+                          <Card key={perk.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-primary/20 transition-all text-left">
+                            <CardContent className="p-5 space-y-4 text-left">
+                              <div className="flex justify-between items-start text-left">
+                                <div className="min-w-0 text-left">
+                                  <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-none mb-1 text-left">{perk.name}</p>
+                                  <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Hospitality each month</p>
+                                </div>
+                                <div className={cn("p-2 rounded-xl shadow-inner", isExhausted ? "bg-green-500/10 text-green-600" : "bg-primary/10 text-primary")}>
+                                  {isExhausted ? <CheckCircle2 className="w-4 h-4" /> : <Coffee className="w-4 h-4" />}
+                                </div>
+                              </div>
+                              <div className="space-y-2 text-left">
+                                <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1 text-left">
+                                  <span>What’s been used</span>
+                                  <div className="flex items-center gap-1">
+                                    <span>{usage.total} / {safeNumber(perk.quantity)}</span>
+                                    {usage.pending > 0 && <span className="text-primary animate-pulse">(+{usage.pending} Pending)</span>}
+                                  </div>
+                                </div>
+                                <Progress value={progress} className={cn("h-1.5 rounded-full bg-muted", isExhausted && "[&>div]:bg-green-500")} />
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  </div>
+              </TabsContent>}
               <TabsContent value="photos" className="m-0 space-y-6 text-left">
                 <ClientPhotos client={client} appointments={facts!.mine} services={services || []} />
               </TabsContent>
@@ -1114,7 +1117,7 @@ export default function ClientDetailPage() {
                 {tenantId && <ClientNotes tenantId={tenantId} client={client} />}
               </TabsContent>
               <TabsContent value="messages" className="m-0 space-y-6 text-left">
-                {tenantId && <ClientMessages tenantId={tenantId} client={client} msgs={msgs} canSeeContact={isOwnerOrAdmin} />}
+                {tenantId && <ClientMessages tenantId={tenantId} client={client} msgs={msgs} canSeeContact={seesContact} />}
               </TabsContent>
             </Tabs>
           </div>
@@ -1154,22 +1157,22 @@ export default function ClientDetailPage() {
       <Dialog open={isQuickSettleOpen} onOpenChange={setIsQuickSettleOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden text-left">
           <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-            <div className="flex items-center gap-3 mb-2"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Strategic Settlement</span></div>
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Confirm Vault Charge</DialogTitle>
+            <div className="flex items-center gap-3 mb-2"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Settle the balance</span></div>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Confirm charge</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Authorize debt reconciliation for: <strong>{client.name}</strong></DialogDescription>
           </DialogHeader>
           <div className="p-8 space-y-8 text-left">
             <div className="p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
-              <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest text-center">Total Arrears Balance</p>
+              <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest text-center">Owed</p>
               <p className="text-5xl font-black text-primary tracking-tighter font-mono text-center">${safeBalance.toFixed(2)}</p>
             </div>
             <div className="space-y-4 text-left">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">Distribution Method</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">How it was sent</p>
               <div className="p-4 rounded-2xl border-2 bg-muted/5 flex items-center gap-4 text-left">
                 <div className="p-2 bg-white rounded-xl shadow-sm border"><CreditCard className="w-5 h-5 text-primary" /></div>
                 <div className="text-left">
                   <p className="font-black text-sm uppercase tracking-tight text-slate-900 text-left">{String(client.cardOnFile?.brand || 'Card')} **** {String(client.cardOnFile?.last4 || '****')}</p>
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase text-left">Authorized Vault Access</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase text-left">Card on file</p>
                 </div>
               </div>
             </div>
