@@ -25,6 +25,7 @@
  *      Plaid's own categorization, mapped to ledger vocabulary.
  */
 
+import { requireRole } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { bucketFor } from '@/lib/categories';
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, tenantId } = body || {};
+    { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
     if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing tenantId.' }, { status: 400 });
     if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
       return NextResponse.json({ ok: false, error: 'Plaid is not configured. Add PLAID_CLIENT_ID and PLAID_SECRET in Vercel → Settings → Environment Variables, then redeploy.' }, { status: 500 });
