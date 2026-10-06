@@ -8,6 +8,7 @@
 // POST { tenantId, appointmentId, imageUrl, note?, clientEmail? }
 // → { ok: true } | { ok: false, reason }
 
+import { staffOrServer } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendNotification, emailShell } from '@/lib/notify';
@@ -15,6 +16,7 @@ import { sendNotification, emailShell } from '@/lib/notify';
 export async function POST(req: NextRequest) {
   try {
     const { tenantId, appointmentId, imageUrl, note, clientEmail } = await req.json();
+    if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
     if (!tenantId || !imageUrl || typeof imageUrl !== 'string' || !/^https:\/\//.test(imageUrl)) {
       return NextResponse.json({ ok: false, reason: 'Missing or invalid image.' }, { status: 400 });
     }
