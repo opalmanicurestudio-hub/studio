@@ -9,7 +9,9 @@ const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
 const card = { background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' } as React.CSSProperties;
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 
-export function ClientTimingCard({ tenant, client, services, canEdit, onSave }: { tenant: any; client: any; services: any[]; canEdit: boolean; onSave: (t: ClientTiming) => void }) {
+export function ClientTimingCard({ tenant, client, services, canEdit, onSave, onDecide }: { tenant: any; client: any; services: any[]; canEdit: boolean; onSave: (t: ClientTiming) => void;
+  onDecide?: (serviceId: string, accept: boolean, extra: number, visits: number) => void;   // a suggestion from their real visit times
+}) {
   const timing: ClientTiming = client?.timing || {}; const entries = Object.entries(timing.services || {}).filter(([, e]) => Number(e?.extra));
   const [editing, setEditing] = React.useState<string | null>(null);
   const [sid, setSid] = React.useState('all'); const [mins, setMins] = React.useState(15); const [reason, setReason] = React.useState(''); const [fixed, setFixed] = React.useState('');
@@ -30,6 +32,13 @@ export function ClientTimingCard({ tenant, client, services, canEdit, onSave }: 
   return (
     <section className="space-y-2 rounded-3xl p-4" style={card} aria-label="Their usual time">
       <p className="text-[12px] font-semibold" style={muted}>THEIR USUAL TIME</p>
+      {Object.entries((client?.timingSuggestions || {}) as Record<string, any>).filter(([, x]) => x && !x.dismissedAt && Number(x.extra)).map(([sid2, x]) => (
+        <div key={`sg-${sid2}`} className="space-y-2 rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--accent, #2e6f6a) 9%, transparent)' }} role="note">
+          <p><b>{nameOf(sid2)}</b> usually takes about <b>{Math.abs(Number(x.extra))} min {Number(x.extra) > 0 ? 'longer' : 'less'}</b> than booked for {first} <span style={muted}>(last {x.visits} timed visits)</span>.{Number(x.extra) > 0 ? ` Reserve it for ${first === 'they' ? 'them' : first}?` : ' Book them shorter?'}</p>
+          {canEdit && onDecide ? <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onDecide(sid2, true, Number(x.extra), Number(x.visits) || 0)} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Use {minutesLabel(Number(x.extra))}</button>
+            <button type="button" onClick={() => onDecide(sid2, false, Number(x.extra), Number(x.visits) || 0)} className="h-9 rounded-full px-3 text-[13px]" style={muted}>Not now</button></div>
+            : <p className="text-[12px]" style={muted}>A manager can apply this.</p>}
+        </div>))}
       {rows.length === 0 && editing !== 'new' && <p className="text-[14px]" style={muted}>Booked at each service’s normal length.</p>}
       {rows.map(([key, label, m, why]) => (
         <div key={key} className="flex items-start justify-between gap-2 text-[14px]">
