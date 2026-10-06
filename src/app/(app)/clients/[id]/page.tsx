@@ -1,6 +1,6 @@
 'use client';
 
-import { ClientTimeline, ClientMessages, ClientFormsNeeded, useClientMessages } from '@/components/clients/ClientTabs';
+import { ClientTimeline, ClientMessages, ClientFormsNeeded, ClientPhotos, ClientNotes, useClientMessages } from '@/components/clients/ClientTabs';
 import { ClientHeader, NextVisitCard, ClientRail, ClientQuickFacts, clientFacts } from '@/components/clients/ClientProfileParts';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
@@ -580,7 +580,7 @@ export default function ClientDetailPage() {
               <ScrollArea className="w-full overflow-hidden text-left">
                 <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max text-left">
                   <TabsTrigger value="overview" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
-                  <TabsTrigger value="preferences" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Preferences</TabsTrigger>
+                  <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Visits</TabsTrigger>
                   <TabsTrigger value="documents" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md flex items-center gap-1.5">
                     <FileText className="w-3 h-3" /> Forms & files
                     {((signedConsents?.length || 0) + (client.profileDocuments?.length || 0)) > 0 && (
@@ -589,10 +589,9 @@ export default function ClientDetailPage() {
                       </span>
                     )}
                   </TabsTrigger>
-                  <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Visits</TabsTrigger>
+                  <TabsTrigger value="photos" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Photos</TabsTrigger>
+                  <TabsTrigger value="notes" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Notes</TabsTrigger>
                   <TabsTrigger value="messages" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Messages</TabsTrigger>
-                  <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
-                  <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</TabsTrigger>
                   <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Payments</TabsTrigger>
                   <TabsTrigger value="credits" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md flex items-center gap-1.5">
                     <Wallet className="w-3 h-3" /> Credit & balance
@@ -602,6 +601,11 @@ export default function ClientDetailPage() {
                       </span>
                    )}
                  </TabsTrigger>
+                  <TabsTrigger value="preferences" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Preferences</TabsTrigger>
+                  {((selectedTenant as any)?.guestExperienceEnabled || clientRefreshments.length > 0) && (
+                  <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
+                  )}
+                  <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</TabsTrigger>
                 </TabsList>
 
                 <ScrollBar orientation="horizontal" className="hidden" />
@@ -1102,6 +1106,12 @@ export default function ClientDetailPage() {
 
               <TabsContent value="credits" className="m-0 animate-in fade-in duration-500 text-left">
                 <StoreCreditHistory client={client} isOwnerOrAdmin={isOwnerOrAdmin} />
+              </TabsContent>
+              <TabsContent value="photos" className="m-0 space-y-6 text-left">
+                <ClientPhotos client={client} appointments={facts!.mine} services={services || []} />
+              </TabsContent>
+              <TabsContent value="notes" className="m-0 space-y-6 text-left">
+                {tenantId && <ClientNotes tenantId={tenantId} client={client} />}
               </TabsContent>
               <TabsContent value="messages" className="m-0 space-y-6 text-left">
                 {tenantId && <ClientMessages tenantId={tenantId} client={client} msgs={msgs} canSeeContact={isOwnerOrAdmin} />}
