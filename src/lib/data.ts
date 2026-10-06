@@ -227,6 +227,7 @@ export type Client = {
     general?: string;
   };
   customFormulas?: CustomFormula[];
+  contactHidden?: boolean;   // set by the app when this person may not see contact details (never stored)
   medicalNotes?: string;
   allergyNotes?: string;
   sensoryNeeds?: string;
