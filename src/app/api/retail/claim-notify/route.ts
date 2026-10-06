@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
 // ─── /api/retail/claim-notify/route.ts ────────────────────────────────────────
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
   const tenantId = String(body.tenantId || '').trim();
+  if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
   const claimId = String(body.claimId || '').trim();
   if (!tenantId || !claimId) return NextResponse.json({ error: 'Missing details' }, { status: 400 });
 
