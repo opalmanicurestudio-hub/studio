@@ -24,6 +24,7 @@
 //
 // GET — ?tenantId=&payrollId= → processing status, mirrored to payrollRuns.
 
+import { requireRole } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid payroll draft' }, { status: 400 });
   }
   const tenantId = String(draft.tenantId);
+  { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
 
   try {
     const db = getAdminDb();
@@ -173,6 +175,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const tenantId = req.nextUrl.searchParams.get('tenantId');
+  { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
   const payrollId = req.nextUrl.searchParams.get('payrollId');
   if (!tenantId || !payrollId) {
     return NextResponse.json({ error: 'tenantId and payrollId are required' }, { status: 400 });
