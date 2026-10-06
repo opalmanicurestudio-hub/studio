@@ -31,6 +31,7 @@
  * self-cancel).
  */
 
+import { requireRole } from '@/lib/route-guard';
 import { hasRealCard } from '@/lib/card-on-file';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { tenantId, appointmentId, notificationId, action, staffId } = body;
+  { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
 
   if (!tenantId || !appointmentId || !action || !staffId) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
