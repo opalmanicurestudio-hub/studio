@@ -6,6 +6,7 @@
 //   service · add-ons · custom length · price · real open times · any time (managers may book over a clash, with a reason)
 //   repeat · group · several providers · deposit (link / charge / paid / waive) · package · promo · how to meet · notes
 //   save for a call-back at any point · resume one · confirmation: copy link, resend, share, print
+import { extraMinutesFor, extraChargeCents, minutesLabel } from '@/lib/client-timing';
 import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
@@ -121,6 +122,16 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   }, [services, svc]);
   const baseLen = (Number(svc?.duration) || 60) + addOnIds.reduce((m, id) => m + (Number((services || []).find((s: any) => s.id === id)?.duration) || 0), 0);
   const length = Math.max(5, baseLen + lenAdj);
+  // THE CLIENT'S OWN TIME NEEDS: with a client and service chosen, reserve their usual length (and the extra-time charge, if
+  // the business charges for it). Shown as a note, and one tap goes back to the standard length.
+  const clientExtra = client?.id && serviceId ? extraMinutesFor(client, serviceId) : 0;
+  const clientExtraCents = client?.id && svc ? extraChargeCents(tenant, svc, client, serviceId) : 0;
+  const [timingApplied, setTimingApplied] = React.useState<string | null>(null);
+  React.useEffect(() => { const key = `${client?.id || ''}|${serviceId}`;
+    if (!client?.id || !serviceId || !clientExtra) { setTimingApplied(null); return; }
+    if (timingApplied === key || timingApplied === `${key}|off`) return;   // applied already, or turned off by hand
+    setLenAdj(clientExtra); if (clientExtraCents > 0) setPrice(String(((Number(svc?.price) || 0) + clientExtraCents / 100).toFixed(2))); setTimingApplied(key);
+  }, [client?.id, serviceId, clientExtra, clientExtraCents]); // eslint-disable-line react-hooks/exhaustive-deps
   const qualified = React.useMemo(() => (staff || []).filter((m: any) => m.isActive !== false && m.active !== false && (!svc?.staffIds?.length || svc.staffIds.includes(m.id))), [staff, svc]);
   const matches = React.useMemo(() => {
     const t = q.trim().toLowerCase(); if (t.length < 2) return [];
@@ -372,6 +383,8 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                   <span className="text-[14px]">Length <b>{length} min</b>{lenAdj ? <span style={{ color: 'var(--muted)' }}> (usually {baseLen})</span> : null}</span>
                   <Btn quiet onClick={() => setLenAdj((x) => Math.max(5 - baseLen, x - 15))} label="15 minutes shorter">−15</Btn>
                   <Btn quiet onClick={() => setLenAdj((x) => Math.min(600 - baseLen, x + 15))} label="15 minutes longer">+15</Btn>
+                  {timingApplied?.endsWith('|off') && clientExtra !== 0 && <span className="basis-full text-[13px]" style={{ color: 'var(--muted)' }}>Standard length. <button type="button" onClick={() => { setLenAdj(clientExtra); if (clientExtraCents > 0) setPrice(String(((Number(svc?.price) || 0) + clientExtraCents / 100).toFixed(2))); setTimingApplied(`${client?.id}|${serviceId}`); }} className="font-semibold underline underline-offset-2">Apply {String(client?.name || 'their').split(' ')[0]}’s usual {minutesLabel(clientExtra)}</button></span>}
+                  {timingApplied && !timingApplied.endsWith('|off') && <span className="basis-full text-[13px]" style={{ color: 'var(--muted)' }}>Includes {String(client?.name || 'their').split(' ')[0]}’s usual {minutesLabel(clientExtra)}{clientExtraCents > 0 ? ` (+$${(clientExtraCents / 100).toFixed(2)})` : ''}. <button type="button" onClick={() => { setLenAdj(0); setPrice(''); setTimingApplied(`${client?.id}|${serviceId}|off`); }} className="font-semibold underline underline-offset-2">Use the standard length</button></span>}
                   <input value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.]/g, ''))} placeholder={`Price (${Number(svc.price) ? `$${Number(svc.price).toFixed(0)}` : 'usual'})`} inputMode="decimal" className="h-9 w-32 rounded-xl px-3 text-[14px] outline-none" style={inpS} />
                 </div>}
                 {placeOpts.length > 1 && <div className="space-y-1.5"><p className="text-[13px]" style={{ color: 'var(--muted)' }}>How they’ll meet</p><div className="flex flex-wrap gap-1.5">{placeOpts.map((k) => <Chip key={k} on={(place || placeOpts[0]) === k} onClick={() => setPlace(k)}>{PLACE_LABEL[k]}</Chip>)}</div></div>}
