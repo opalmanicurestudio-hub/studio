@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { sendNotification } from '@/lib/notify';
+import { canMessageClients } from '@/lib/privacy';
 export const dynamic = 'force-dynamic';
 const s = (v: any, n = 200) => String(v ?? '').trim().slice(0, n);
 const last10 = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
@@ -31,12 +32,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, rows, canText: !!client.phone && client.smsConsent !== false && client.smsOptOut !== true, canEmail: !!client.email });
   }
   if (b.action === 'send') {
+    const tenantDoc: any = (await db.doc(T).get()).data() || {};
+    if (!canMessageClients(tenantDoc, auth.actor.isTenantOwner ? 'owner' : auth.actor.role)) return NextResponse.json({ ok: false, error: 'Messaging clients is switched off for staff in this business.' }, { status: 403 });
     const text = s(b.text, 1200); if (!text) return NextResponse.json({ ok: false, error: 'Write a message first.' }, { status: 400 });
     const canText = !!client.phone && client.smsConsent !== false && client.smsOptOut !== true;
     const channel: 'sms' | 'email' = b.channel === 'email' ? 'email' : b.channel === 'sms' ? 'sms' : canText ? 'sms' : 'email';
     if (channel === 'sms' && !canText) return NextResponse.json({ ok: false, error: client.phone ? 'They’ve asked not to get texts — send an email instead.' : 'No mobile number on file.' }, { status: 400 });
     if (channel === 'email' && !client.email) return NextResponse.json({ ok: false, error: 'No email address on file.' }, { status: 400 });
-    const tenant: any = (await db.doc(T).get()).data() || {};
+    const tenant: any = tenantDoc;
     const r: any = await sendNotification(db, { tenantId, channel, to: channel === 'sms' ? String(client.phone) : String(client.email), text, ...(channel === 'email' ? { subject: s(b.subject, 140) || `A message from ${tenant.name || 'us'}`, html: `<p>${text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]).replace(/\n/g, '<br>')}</p>` } : {}),
       kind: 'staff_message', clientId, clientName: client.name || null, recipientType: 'client', recipientId: clientId, recipientName: client.name || null } as any).catch((e: any) => ({ status: 'failed', error: String(e?.message || e) }));
     if (r?.status === 'failed') return NextResponse.json({ ok: false, error: r.error || 'It didn’t send.' }, { status: 502 });
