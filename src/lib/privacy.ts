@@ -70,17 +70,26 @@ export const CONTACT_FIELDS = ['phone', 'email', 'address', 'mobile', 'phoneNumb
  *  Removed rather than emptied so nothing can mistake "hidden" for "no number"; marked so no screen can save the
  *  gap back over the real details (see stripHiddenContact). */
 export function maskClientContact<T extends Record<string, any>>(c: T): T {
-  if (!c) return c; const out: any = { ...c }; for (const k of CONTACT_FIELDS) delete out[k];
+  if (!c) return c; const out: any = { ...c }; const ph = phoneHint(c.phone || c.mobile || c.phoneNumber), em = emailHint(c.email);
+  for (const k of CONTACT_FIELDS) delete out[k];
+  if (ph) out.phoneHint = ph; if (em) out.emailHint = em;   // enough to say "is this the Mia ending 7788?" — never the number
   if (out.emergencyContact) { const e = { ...out.emergencyContact }; delete e.phone; delete e.email; out.emergencyContact = e; }
   out.contactHidden = true; return out;
 }
 /** Copies of contact details stored on an appointment / visit. */
 export function maskAppointmentContact<T extends Record<string, any>>(a: T): T {
-  if (!a) return a; const out: any = { ...a }; for (const k of ['clientPhone', 'clientEmail', 'customerPhone', 'customerEmail', 'phone', 'email']) delete out[k]; return out;
+  if (!a) return a; const out: any = { ...a }; const ph = phoneHint(a.clientPhone || a.customerPhone || a.phone), em = emailHint(a.clientEmail || a.customerEmail || a.email);
+  for (const k of ['clientPhone', 'clientEmail', 'customerPhone', 'customerEmail', 'phone', 'email']) delete out[k];
+  if (ph) out.clientPhoneHint = ph; if (em) out.clientEmailHint = em; return out;
 }
 /** Before saving a client record that was loaded hidden: drop every contact field, so the hidden gap is never written
  *  back over the real details. */
 export function stripHiddenContact<T extends Record<string, any>>(record: { contactHidden?: boolean } | null | undefined, patch: T): T {
   if (!record?.contactHidden || !patch) return patch; const out: any = { ...patch }; for (const k of CONTACT_FIELDS) delete out[k];
-  delete out.contactHidden; if (out.emergencyContact) { const e = { ...out.emergencyContact }; delete e.phone; delete e.email; out.emergencyContact = e; } return out;
+  delete out.contactHidden; delete out.phoneHint; delete out.emailHint; if (out.emergencyContact) { const e = { ...out.emergencyContact }; delete e.phone; delete e.email; out.emergencyContact = e; } return out;
 }
+
+/** "(•••) •••-7788" — the last four digits only. Shown to people who may not see contact details. */
+export function phoneHint(phone: any): string { const d = String(phone || '').replace(/\D/g, ''); return d.length >= 7 ? `(•••) •••-${d.slice(-4)}` : ''; }
+/** "m•••@gmail.com" — the first letter and the domain only. */
+export function emailHint(email: any): string { const e = String(email || '').trim(); const at = e.indexOf('@'); return at > 0 ? `${e[0]}•••${e.slice(at)}` : ''; }
