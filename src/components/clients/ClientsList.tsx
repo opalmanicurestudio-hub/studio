@@ -47,8 +47,8 @@ export function buildRows(clients: any[], appointments: any[], services: any[], 
   });
 }
 
-export function ClientsList({ tenantId, clients, appointments, services, staff, showMoney, showContact, canManage, onOpen, onBook, onAdd, onFindDuplicates, onArchive, onUnarchive, onDelete, onTag }: {
-  tenantId: string; clients: any[]; appointments: any[]; services: any[]; staff: any[]; showMoney: boolean; showContact: boolean; canManage: boolean;
+export function ClientsList({ tenantId, clients, appointments, services, staff, showMoney, showContact, canMessage = showContact, canManage, onOpen, onBook, onAdd, onFindDuplicates, onArchive, onUnarchive, onDelete, onTag }: {
+  tenantId: string; clients: any[]; appointments: any[]; services: any[]; staff: any[]; showMoney: boolean; showContact: boolean; canMessage?: boolean; canManage: boolean;
   onOpen: (id: string) => void; onBook: (id: string) => void; onAdd: () => void; onFindDuplicates: () => void;
   onArchive: (ids: string[]) => void; onUnarchive: (ids: string[]) => void; onDelete?: (ids: string[]) => void; onTag: (ids: string[], tag: string) => void;
 }) {
@@ -146,15 +146,15 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
               <span className="hidden min-w-0 md:block"><span className="block truncate">{r.usual || '—'}</span>{r.everyDays && <span className="block text-[12px]" style={muted}>every {Math.max(1, Math.round(r.everyDays / 7))} weeks</span>}</span>
               <span className="hidden md:block">{showMoney ? <>{money(r.spent)}<span className="mt-1 block h-[5px] w-20 overflow-hidden rounded-full" style={{ background: 'var(--soft, #efebe6)' }}><i className="block h-full rounded-full" style={{ width: `${Math.round((r.spent / maxSpent) * 100)}%`, background: 'var(--accent, #2e6f6a)' }} /></span></> : r.visits}</span>
               <span className="hidden flex-wrap gap-1 md:flex">{pills.length ? pills : <span style={muted}>—</span>}</span>
-              <span className="text-right">{action === 'invite' && showContact ? <button type="button" onClick={() => { setSel(new Set([r.c.id])); setCompose('invite'); }} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Invite back</button>
+              <span className="text-right">{action === 'invite' && canMessage ? <button type="button" onClick={() => { setSel(new Set([r.c.id])); setCompose('invite'); }} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Invite back</button>
                 : action ? <button type="button" onClick={() => onBook(r.c.id)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Book</button> : null}</span>
             </div></React.Fragment>); })}
         {rows.length > limit && <button type="button" onClick={() => setLimit(limit + 100)} className="w-full border-t py-3 text-[14px] font-semibold" style={{ borderColor: 'var(--line, #efebe6)' }}>Show more ({rows.length - limit})</button>}
       </div>
       {sel.size > 0 && <div className="fixed inset-x-3 bottom-3 z-40 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-2 text-[14px] shadow-lg md:sticky md:inset-x-auto md:z-30 md:mx-auto md:w-fit md:rounded-full" style={{ background: 'var(--ink, #1c1917)', color: '#fff', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }} role="toolbar" aria-label="With the selected clients">
         <span className="px-1">{sel.size} selected</span>
-        {showContact && <button type="button" onClick={() => setCompose('message')} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Message</button>}
-        {showContact && <button type="button" onClick={() => setCompose('invite')} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Invite back</button>}
+        {canMessage && <button type="button" onClick={() => setCompose('message')} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Message</button>}
+        {canMessage && <button type="button" onClick={() => setCompose('invite')} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Invite back</button>}
         <button type="button" onClick={() => { const t = window.prompt('Tag to add (for example “bridal 2026”)'); if (t && t.trim()) { onTag(ids, t.trim().slice(0, 40)); setSel(new Set()); } }} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Add a tag</button>
         <button type="button" onClick={exportCsv} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Export</button>
         {canManage && (seg === 'archived' ? <button type="button" onClick={() => { onUnarchive(ids); setSel(new Set()); }} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Restore</button>
