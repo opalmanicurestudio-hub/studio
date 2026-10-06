@@ -2,6 +2,7 @@
 // Creates a PaymentIntent for the embedded card form at POS checkout.
 // Optionally creates/reuses a Stripe customer so the card can be saved.
 
+import { requireRole } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
       description = 'Studio Services',
       saveCard = false,
     } = await req.json();
+    { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
 
     if (!tenantId || !amountCents || amountCents <= 0) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
