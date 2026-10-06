@@ -53,7 +53,7 @@ export function ClientTimeline({ appointments, services, staff, transactions, co
     </section>);
 }
 
-export function ClientMessages({ tenantId, client, msgs, canSeeContact }: { tenantId: string; client: any; msgs: ReturnType<typeof useClientMessages>; canSeeContact: boolean }) {
+export function ClientMessages({ tenantId, client, msgs, canSeeContact, canMessage = canSeeContact }: { tenantId: string; client: any; msgs: ReturnType<typeof useClientMessages>; canSeeContact: boolean; canMessage?: boolean }) {
   const [text, setText] = React.useState(''); const [channel, setChannel] = React.useState<'sms' | 'email'>('sms'); const [busy, setBusy] = React.useState(false); const [note, setNote] = React.useState<string | null>(null);
   React.useEffect(() => { if (!msgs.canText && msgs.canEmail) setChannel('email'); }, [msgs.canText, msgs.canEmail]);
   const first = String(client.name || 'them').split(' ')[0];
@@ -70,11 +70,12 @@ export function ClientMessages({ tenantId, client, msgs, canSeeContact }: { tena
             <span className="mt-1 flex items-center gap-1.5 text-[11px]" style={muted}>{m.channel === 'sms' ? 'Text' : 'Email'}{m.kind && m.kind !== 'staff_message' ? ` · ${String(m.kind).replace(/_/g, ' ')}` : ''}{m.to && m.to !== client.name ? ` · to ${m.to}` : ''} · {format(safe(m.at), 'd MMM, h:mm a')} {statusPill(m.status)}</span>
             {m.error && /fail|bounce/.test(m.status) && <span className="text-[11px]" style={{ color: 'var(--warn, #b45309)' }}>{String(m.error).slice(0, 120)}</span>}
           </div>))}</div>)}
-      {canSeeContact && (msgs.canText || msgs.canEmail) ? <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--line, #efebe6)' }}>
+      {canMessage && (msgs.canText || msgs.canEmail) ? <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--line, #efebe6)' }}>
         <div className="flex gap-1">{msgs.canText && <button type="button" onClick={() => setChannel('sms')} aria-pressed={channel === 'sms'} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={channel === 'sms' ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>Text</button>}{msgs.canEmail && <button type="button" onClick={() => setChannel('email')} aria-pressed={channel === 'email'} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={channel === 'email' ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>Email</button>}</div>
+        {!canSeeContact && <p className="text-[12px]" style={muted}>Sent from the business; you won’t see their number or email.</p>}
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`Write ${channel === 'sms' ? 'a text' : 'an email'} to ${first}…`} aria-label="Message" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
         <div className="flex items-center gap-3"><button type="button" onClick={send} disabled={busy || !text.trim()} className="h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-50" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>{busy ? 'Sending…' : 'Send'}</button>{note && <span className="text-[13px]" style={/Sent|Queued/.test(note) ? { color: 'var(--ok, #15803d)' } : { color: 'var(--warn, #b45309)' }}>{note}</span>}</div>
-      </div> : <p className="text-[13px]" style={muted}>{canSeeContact ? `No way to reach ${first} — add a mobile number or email.` : 'Messaging clients is for people who can see contact details.'}</p>}
+      </div> : <p className="text-[13px]" style={muted}>{!canMessage ? 'Messaging clients is switched off for staff here.' : canSeeContact ? `No way to reach ${first} — add a mobile number or email.` : `There’s no way to reach ${first} on file.`}</p>}
     </section>);
 }
 
