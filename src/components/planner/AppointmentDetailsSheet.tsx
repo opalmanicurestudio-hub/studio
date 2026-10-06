@@ -2444,6 +2444,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
         {!['cancelled', 'declined'].includes(String(appointment?.status)) && <div className="space-y-3">
           {appointment.status !== 'completed' && <LastFormula appointment={appointment} client={client} allAppointments={allAppointments || []} onUse={(items) => writeFormula(items)} />}
+          {(() => { const sg: any = (client as any)?.timingSuggestions?.[String(appointment?.serviceId || '')]; if (!sg || sg.dismissedAt || !Number(sg.extra)) return null;
+            return <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--accent) 9%, transparent)' }}>{String(client?.name || 'They').split(' ')[0]}’s {String(service?.name || 'visits').toLowerCase()} usually take{Number(sg.extra) > 0 ? 's' : 's'} about {Math.abs(Number(sg.extra))} min {Number(sg.extra) > 0 ? 'longer' : 'less'} than booked. <a href={`/clients/${client?.id}`} className="font-semibold underline underline-offset-2">Review on their profile</a></p>; })()}
           <PartsPlan appointment={appointment} service={service} allServices={allServices || []} staff={staff || []} />
           {['confirmed', 'servicing'].includes(String(appointment.status)) && <AddAsYouGo inventory={inventory || []} onAdd={(pid, q) => { const it: any = (inventory || []).find((x: any) => x.id === pid); if (!it) return; const base = appointment.checkoutState?.formula?.length ? appointment.checkoutState.formula : recipeFormula(service, inventory || []); writeFormula(addToFormula(base, it, q)); }} />}
         </div>}
