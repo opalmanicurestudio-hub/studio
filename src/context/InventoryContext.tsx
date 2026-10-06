@@ -1,5 +1,6 @@
 'use client';
 
+import { canSeeClientContact, maskClientContact, maskAppointmentContact } from '@/lib/privacy';
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
 import { useFirebase, useMemoFirebase } from '@/firebase/provider';
 import { useCollection } from '@/firebase/firestore/use-collection';
@@ -101,7 +102,11 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 
 export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role } = useTenant() as any;
+  // CONTACT PRIVACY (Settings → privacy → client contact details): for people who may not see them, phone numbers,
+  // emails and addresses are removed HERE, so every screen fed from this context follows the setting — including
+  // ones built later. Records are marked contactHidden so nothing can save the gap back over the real details.
+  const hideContact = !canSeeClientContact(selectedTenant, role);
   const tenantId = selectedTenant?.id;
 
   const { data: inventory, isLoading: inventoryLoading } = useCollection<InventoryItem>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'inventory') : null, [firestore, tenantId]));
@@ -122,7 +127,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   // surface that reads clients from here — the Clients page, planner search,
   // POS lookup, reports — sees only the studio's own. The renter sees theirs
   // in the portal. Filtered here rather than per page so nothing can forget.
-  const clients = useMemo(() => (rawClients || []).filter((c: any) => !c.ownerRenterId), [rawClients]);
+  const clients = useMemo(() => { const own = (rawClients || []).filter((c: any) => !c.ownerRenterId); return hideContact ? own.map((c: any) => maskClientContact(c)) : own; }, [rawClients, hideContact]);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId]));
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'services') : null, [firestore, tenantId]));
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'staff') : null, [firestore, tenantId]));
@@ -271,7 +276,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
     const checkInMap = new Map((checkIns || []).map(ci => [ci.checkInToken, ci]));
-    return appointmentsFromDB.map(apt => {
+    const merged = appointmentsFromDB.map(rawApt => {
+      const apt: any = rawApt;
       const ci = apt.checkInToken ? checkInMap.get(apt.checkInToken) : null;
       return {
         ...apt,
@@ -291,7 +297,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         status: (apt.status === 'confirmed' && DAY_OF_PROGRESS.has(String(ci?.status || ''))) ? (ci as any).status : apt.status
       };
     });
-  }, [appointmentsFromDB, checkIns, DAY_OF_PROGRESS]);
+    return hideContact ? merged.map((a: any) => maskAppointmentContact(a)) : merged;
+  }, [appointmentsFromDB, checkIns, DAY_OF_PROGRESS, hideContact]);
 
   const activityLogs = useMemo(() => {
     if (!rawActivityLogs) return [];
@@ -391,7 +398,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     appointments: appointments || [],
     services: services || [],
     staff: staff || [],
-    walkIns: walkIns || [],
+    walkIns: hideContact ? (walkIns || []).map((w: any) => maskAppointmentContact(w)) : (walkIns || []),
     activityLogs: activityLogs || [],
     memberships: memberships || [],
     packages: packages || [],
