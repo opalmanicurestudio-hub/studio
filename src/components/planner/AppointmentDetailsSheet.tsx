@@ -2407,6 +2407,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               <a href={`sms:${client.phone}`} title="Text" className="text-primary/40 hover:text-primary transition-colors"><MessageSquare className="w-3 h-3" /></a>
             </span>
           )}
+          {!client.phone && (client as any).phoneHint && <span className="text-[12px] font-bold flex items-center gap-1 shrink-0" style={{ color: 'var(--muted)' }} title="Contact details are private to the business"><Phone className="w-2.5 h-2.5" /> {(client as any).phoneHint}</span>}
+          {!client.email && (client as any).emailHint && <span className="text-[12px] font-bold truncate flex items-center gap-1 min-w-0 max-w-[160px]" style={{ color: 'var(--muted)' }} title="Contact details are private to the business"><Mail className="w-2.5 h-2.5 shrink-0" /><span className="truncate">{(client as any).emailHint}</span></span>}
           {client.email && (
             <a href={`mailto:${client.email}`} className="text-[12px] font-bold text-primary truncate flex items-center gap-1 hover:underline min-w-0 max-w-[140px]">
               <Mail className="w-2.5 h-2.5 shrink-0" /><span className="truncate">{client.email}</span>
