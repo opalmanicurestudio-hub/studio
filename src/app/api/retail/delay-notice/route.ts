@@ -1,31 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
+import { staffOrServer } from '@/lib/route-guard';
+import { sendTenantSms } from '@/lib/sms';
 
-// ─── /api/retail/delay-notice ────────────────────────────────────────────────
-// The shop's half of the FTC Mail, Internet, or Telephone Order Rule.
+// ─── /api/retail/curbside-notify ─────────────────────────────────────────────
+// The message that reaches a phone in a pocket.
 //
-// The rule: when you can't ship by the date you promised, you owe the buyer
-// a notice with a REVISED date and a plain way to cancel for a full refund.
-// Their silence is not consent to keep waiting — which is why this email
-// leads with the cancel option instead of burying it.
+// Everything built so far assumes the customer is looking at their order page.
+// In a car park they are not: the screen is off, the phone is in a cupholder,
+// and the person is watching the door. A banner nobody sees is not a
+// notification — a text is.
 //
-// Mechanics that keep it honest:
-//   · The revised date REPLACES the promise on the order, so the customer's
-//     late-order banner and their unconditional cancel right both re-arm
-//     against the new date. A revised promise you can't keep is late again.
-//   · Idempotent per revised date (notifiedForPromiseAt === shipPromiseAt),
-//     the same guard the claim decisions use — a double-tap sends nothing,
-//     a genuinely NEW date earns exactly one email.
-//   · Every notice lands on the order's event ledger with both dates, so a
-//     dispute months later can be answered with a record rather than memory.
+// Two moments earn one, and only two:
+//   ready  — "your order is ready" (they may still be at home)
+//   out    — "someone is walking out to you now"
+// Anything more is spam, and a shop that texts too much gets muted, which
+// costs you the one message that mattered.
+//
+// Idempotent per moment: the order records which texts have gone, so a
+// double-tap, a retry, or two staff hitting the same button send one message.
+// SMS failure is never allowed to break the flow it describes — the board
+// action already committed before this route is called.
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+type Moment = 'ready' | 'out' | 'staff_escalation';
+
+/**
+ * Nobody at the board.
+ *
+ * The chime only helps if a screen is awake in the building. On a quiet
+ * afternoon, in the back room, mid-service — nobody hears it, and the
+ * customer waits. After a few minutes the alert has to leave the building and
+ * find a person, which means a text to the shop's own number.
+ *
+ * Sent once per order, ever: the point is to get someone moving, not to
+ * pester a staff member who is already walking.
+ */
+const ESCALATE_TO = (t: any): string =>
+  String(t?.retailSettings?.curbsideAlertPhone || t?.sms?.fromNumber || t?.phone || '').trim();
+
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore } = require('firebase-admin/firestore');
-  let app = getApps().find((a: any) => a.name === 'retail-delay-notice');
+  let app = getApps().find((a: any) => a.name === 'retail-curbside-notify');
   if (!app) {
     app = initializeApp({
       credential: cert({
@@ -33,7 +51,7 @@ function getAdminDb() {
         clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
         privateKey: (process.env.FIREBASE_ADMIN_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
       }),
-    }, 'retail-delay-notice');
+    }, 'retail-curbside-notify');
   }
   return getFirestore(app);
 }
@@ -44,90 +62,80 @@ export async function POST(req: NextRequest) {
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json({ error: 'Bad request' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'Bad request' }, { status: 400 });
     }
     const tenantId = String(body.tenantId || '').trim();
+    if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
     const orderId = String(body.orderId || '').trim();
-    const revisedDate = String(body.revisedDate || '').trim();   // YYYY-MM-DD
-    const note = String(body.note || '').trim().slice(0, 400);
-    if (!tenantId || !orderId || !revisedDate) {
-      return NextResponse.json({ error: 'Order and a new date are required.' }, { status: 400 });
-    }
-    const revisedAt = new Date(`${revisedDate}T23:59:59`);
-    if (Number.isNaN(revisedAt.getTime())) {
-      return NextResponse.json({ error: 'That date isn\u2019t readable.' }, { status: 400 });
+    const raw = String(body.moment || '');
+    const moment: Moment = raw === 'ready' ? 'ready'
+      : raw === 'staff_escalation' ? 'staff_escalation' : 'out';
+    if (!tenantId || !orderId) {
+      return NextResponse.json({ ok: false, error: 'Missing details' }, { status: 400 });
     }
 
     const db = getAdminDb();
     const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
 
-    // Claim the send inside the transaction, then email after it commits:
-    // a crash loses one email, never sends two.
+    // Claim the send inside a transaction, then text after it commits: a crash
+    // loses one message rather than sending two.
     const claimed = await db.runTransaction(async (txn: any) => {
       const snap = await txn.get(orderRef);
       if (!snap.exists) return null;
       const o = snap.data() as any;
-      if (['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(String(o.stage))) return null;
-      const promiseIso = revisedAt.toISOString();
-      if (o.notifiedForPromiseAt === promiseIso) return null;
+      if (o.method !== 'curbside') return null;
+      const sentKey = moment === 'ready' ? 'smsReadyAt'
+        : moment === 'staff_escalation' ? 'smsStaffAlertAt' : 'smsBringingOutAt';
+      if (o.curbside?.[sentKey]) return null;
+      // The escalation goes to the SHOP, not the customer.
+      let phone = String(o.customerPhone || '').trim();
+      if (moment === 'staff_escalation') {
+        const tSnap = await txn.get(db.doc(`tenants/${tenantId}`));
+        phone = ESCALATE_TO(tSnap.exists ? tSnap.data() : {});
+        if (!phone) return null;
+      }
+      if (!phone) return null;
       txn.update(orderRef, {
-        shipPromiseAt: promiseIso,
-        notifiedForPromiseAt: promiseIso,
-        promiseRevisions: (Number(o.promiseRevisions) || 0) + 1,
+        curbside: { ...(o.curbside || {}), [sentKey]: new Date().toISOString() },
       });
-      const ev = orderRef.collection('events').doc();
-      txn.set(ev, {
-        id: ev.id, type: 'note', at: new Date().toISOString(),
-        actorId: 'staff', actorName: 'Shop',
-        meta: {
-          text: `Delay notice sent \u2014 new ship-by ${revisedDate}${o.shipPromiseAt ? ` (was ${String(o.shipPromiseAt).slice(0, 10)})` : ''}${note ? ` \u00b7 ${note}` : ''}`,
-        },
-      });
-      return { ...o, shipPromiseAt: promiseIso };
+      return {
+        phone,
+        firstName: String(o.customerName || '').trim().split(/\s+/)[0] || '',
+        orderNumber: o.orderNumber ?? null,
+        spot: String(o.curbside?.spotOrVehicle || '').trim(),
+        email: String(o.customerEmail || '').trim() || null,
+        arrivedAt: String(o.curbside?.arrivedAt || ''),
+      };
     });
 
     if (!claimed) return NextResponse.json({ ok: true, sent: false });
 
-    const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
-    const to = String(claimed.customerEmail || '').trim();
-    if (!RESEND_API_KEY || !RESEND_FROM || !to) {
-      return NextResponse.json({ ok: true, sent: false, why: 'email not configured' });
+    const num = `#${String(claimed.orderNumber ?? '').padStart(4, '0')}`;
+    const hi = claimed.firstName ? `${claimed.firstName}, ` : '';
+    if (moment === 'staff_escalation') {
+      const waited = Math.max(1, Math.floor((Date.now() - Date.parse(String(claimed.arrivedAt || ''))) / 60000) || 1);
+      const res = await sendTenantSms(
+        db, tenantId, claimed.phone,
+        `${claimed.firstName || 'A customer'} has been waiting outside ${waited} min for order ${num}${claimed.spot ? ` (${claimed.spot})` : ''}. Nobody has taken it out.`,
+      );
+      return NextResponse.json({ ok: true, sent: res.ok === true });
     }
 
-    const brand = await getEmailBrand(db, tenantId);
-    const firstName = String(claimed.customerName || '').trim().split(/\s+/)[0] || 'there';
-    const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
-    const orderLink = origin ? `${origin}/shop/${tenantId}/order/${orderId}` : '';
-    const pretty = revisedAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const message = moment === 'ready'
+      // Said plainly, because they may be reading it while driving.
+      ? `${hi}order ${num} is ready. Park anywhere out front and tap "I'm here" on your order link, or scan the sign at your spot.`
+      : `${hi}we're walking out with order ${num} now${claimed.spot ? ` — ${claimed.spot}` : ''}.`;
 
-    const html = brandedEmail(brand, `
-      <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
-      <p style="font-size:14px;color:#334155;line-height:1.6">
-        Your order #${String(claimed.orderNumber ?? '').padStart(4, '0')} is taking longer than we said it would. We now expect it to ship by <strong>${pretty}</strong>.
-      </p>
-      ${note ? `<p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${note.replace(/</g, '&lt;')}</p>` : ''}
-      <p style="font-size:14px;color:#334155;line-height:1.6">
-        You don\u2019t have to wait. If the new date doesn\u2019t work for you, cancel from your order page and we\u2019ll refund you in full \u2014 no reason needed, nothing to explain.
-      </p>
-      ${orderLink ? emailButton(orderLink, 'Wait or cancel \u2014 my order', brand) : ''}
-      <p style="font-size:12px;color:#94a3b8;line-height:1.6">
-        We\u2019re sorry for the wait. If you\u2019d rather talk it through, just reply to this email.
-      </p>`,
-      { preheader: `New ship-by date: ${pretty} \u2014 or cancel for a full refund` });
+    const res = await sendTenantSms(
+      db, tenantId, claimed.phone, message,
+      { email: claimed.email, subject: moment === 'ready' ? `Order ${num} is ready` : `Order ${num} is on its way out` },
+    );
 
-    const { sendNotification } = await import('@/lib/notify');
-    await sendNotification(db, {
-      tenantId, channel: 'email',
-        to: to,
-        subject: `Your order is running late \u2014 ${brand.shopName}`,
-        html,
-      kind: 'order_delayed', recipientType: 'client',
-    });
-
-    return NextResponse.json({ ok: true, sent: true });
+    return NextResponse.json({ ok: true, sent: res.ok === true, why: res.ok ? undefined : res.error });
   } catch (err: any) {
-    console.error('[delay-notice] failed:', err?.message);
-    return NextResponse.json({ error: 'Could not send the notice.' }, { status: 500 });
+    console.error('[curbside-notify] failed:', err?.message);
+    // Never an error the board has to interpret: the action it describes has
+    // already happened.
+    return NextResponse.json({ ok: true, sent: false });
   }
 }
