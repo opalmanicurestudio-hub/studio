@@ -13,6 +13,7 @@
 // GET ?tenantId=&resId=&k= → calendar file (.ics) — all-day event(s) for
 //   daily bookings, exact window for hourly ones.
 
+import { limitPublic } from '@/lib/rate-limit';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -31,6 +32,7 @@ async function loadAuthed(db: any, tenantId: string, resId: string, k: any) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    { const limited = await limitPublic(req, 'reservation', String(body?.tenantId || ''), { perHour: 30, perDay: 400 }); if (limited) return limited; }
     const { action, tenantId, resId } = body || {};
     if (!action || !tenantId || !resId) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     const db = getAdminDb();
