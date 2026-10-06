@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { staffOrServer } from '@/lib/route-guard';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendStoreCreditEmail } from '@/lib/retail-webhook';
 
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
     try { body = await req.json(); } catch { body = {}; }
 
     const tenantId = str(body?.tenantId, 120);
+    if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
     const creditId = str(body?.creditId, 200);
     if (!tenantId || !creditId) {
       return NextResponse.json({ ok: false, error: 'Missing tenant or credit.' }, { status: 400 });
