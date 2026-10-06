@@ -18,6 +18,7 @@
  *   5. Return how much was applied and what's left to charge
  */
 
+import { requireRole } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 
 function getAdmin() {
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { tenantId, clientId, appointmentId, amountToApply, staffId } = body;
+  { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
 
   if (!tenantId || !clientId || !appointmentId || !amountToApply || amountToApply <= 0) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
