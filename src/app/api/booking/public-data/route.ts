@@ -78,9 +78,12 @@ export async function POST(req: NextRequest) {
     const providerId = String(b.providerId || '');
     const provider = providerId ? bookable.find((m: any) => m.id === providerId && m.isRenter) : null;
     // Same service list the page shows: a renter's own menu on their link, else the house menu.
-    const services = provider
+    const listed = provider
       ? raw(rsv).filter((x: any) => x.isActive !== false && x.staffId === provider.id).map((x: any) => ({ ...x, staffIds: [provider.id] }))
       : raw(sv).filter((x: any) => x.isActive !== false);
+    // A returning client's usual extra time (0–240 min): only ever makes the visit LONGER, so it can only remove times.
+    const extraMinutes = Math.max(0, Math.min(240, Math.round(Number(b.extraMinutes) || 0)));
+    const services = extraMinutes ? listed.map((x: any) => (x.id === serviceId ? { ...x, duration: (Number(x.duration) || 60) + extraMinutes } : x)) : listed;
     const service = services.find((x: any) => x.id === serviceId);
     if (!service) return NextResponse.json({ ok: false, error: 'That service isn’t available.' }, { status: 404 });
     const pool = provider ? [provider] : bookable;
