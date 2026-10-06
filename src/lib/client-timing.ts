@@ -29,7 +29,7 @@ export function extraChargeCents(tenant: any, service: any, client: any, service
   const sid = serviceId || service?.id; const mins = extraMinutesFor(client, sid); if (mins <= 0) return 0;
   const entry = (client?.timing as ClientTiming | undefined)?.services?.[String(sid || '')];
   if (entry && Number.isFinite(Number(entry.chargeCents)) && Number(entry.chargeCents) >= 0) return Math.round(Number(entry.chargeCents));
-  if (service?.extraTimeCharge === false) return 0;
+  if (service?.extraTimeCharge === false || service?.noExtraTimeCharge === true) return 0;
   const pol = extraTimePolicy(tenant); return pol.mode === 'per15' ? Math.ceil(mins / 15) * pol.centsPer15 : 0;
 }
 /** "+20 min" / "−10 min" */
