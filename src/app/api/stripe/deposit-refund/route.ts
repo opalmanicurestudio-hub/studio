@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
 
 // ─── Lazy inits — must NOT be at module scope (build-time env vars unavailable) ─
@@ -38,6 +39,7 @@ function getStripe() {
 export async function POST(req: NextRequest) {
   try {
     const { tenantId, creditId } = await req.json();
+    { const g = await requireRole(req, String(tenantId || ''), 'manager'); if (g.deny) return g.deny; }
     if (!tenantId || !creditId) {
       return NextResponse.json({ error: 'Missing tenantId or creditId' }, { status: 400 });
     }
