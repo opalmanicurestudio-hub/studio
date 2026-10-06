@@ -235,6 +235,7 @@ export function StudioFlow({ c }: { c: any }) {
     <div className="min-h-[100dvh] bg-[#faf8f5] text-[#1c1917]" style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       {header}
       <main className="mx-auto max-w-xl px-5 pb-40 pt-2" key={currentStep} style={{ animation: 'pubRise .45s cubic-bezier(.2,.8,.2,1) both' }}>
+        {currentStep === 'dateTime' && c.clientExtra > 0 && <p className="mb-3 rounded-2xl bg-white px-4 py-3 text-[14px] shadow-sm">Your visits usually take about {c.clientExtra} minutes longer, so these times leave enough room for you.</p>}
         {currentStep === 'dateTime' && whenStep}
         {currentStep === 'details' && c.placeChooser && <section className="mb-4 rounded-3xl bg-white p-5 shadow-sm">{c.placeChooser}</section>}
         {currentStep === 'details' && youStep}
