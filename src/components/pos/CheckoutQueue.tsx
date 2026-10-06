@@ -1,5 +1,6 @@
 'use client';
 
+import { CheckoutQueueCard as DeskQueueCard } from './CheckoutQueueCard';
 import React, { useMemo } from 'react';
 import { CardContent } from '@/components/ui/card';
 import { type Appointment, type Service, type Client, type Staff, getServicePrice } from '@/lib/data';
@@ -154,3 +155,23 @@ const CheckoutQueueCardInner: React.FC<any> = ({ appointmentData, isSelected, on
     </div>
   );
 };
+
+// CheckoutQueue — the list of visits ready to pay, for the Retail page. Built on the maintained card the front desk uses
+// (./CheckoutQueueCard), so both stay in step. Tick visits to bring them into the sale; Scan opens the ticket scanner.
+export function CheckoutQueue({ appointments, onSelectAppointment, selectedAppointmentIds, onScanClick, onRevertToService }: {
+  appointments: any[]; onSelectAppointment: (id: string) => void; selectedAppointmentIds: Set<string>; onScanClick?: () => void; onRevertToService?: (id: string) => void;
+}) {
+  const list = Array.isArray(appointments) ? appointments : [];
+  return (
+    <section aria-label="Ready to pay" className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-[17px] font-semibold">Ready to pay <span className="font-normal text-muted-foreground">· {list.length}</span></h2>
+        {onScanClick && <Button type="button" variant="outline" size="sm" onClick={onScanClick} className="rounded-full">Scan a ticket</Button>}
+      </div>
+      {list.length === 0
+        ? <p className="rounded-2xl border border-dashed p-6 text-center text-[14px] text-muted-foreground">Nobody is waiting to pay.</p>
+        : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{list.map((data: any) => (
+            <DeskQueueCard key={data.id} appointmentData={data} isSelected={selectedAppointmentIds?.has?.(data.id) || false}
+              onSelect={() => onSelectAppointment(data.id)} onRevertToService={() => onRevertToService?.(data.id)} />))}</div>}
+    </section>);
+}
