@@ -1,5 +1,6 @@
 'use client';
 
+import { ClientTimingCard } from '@/components/clients/ClientTimingCard';
 import { canSeeClientContact, canMessageClients, stripHiddenContact } from '@/lib/privacy';
 import { ClientTimeline, ClientMessages, ClientFormsNeeded, ClientPhotos, ClientNotes, useClientMessages } from '@/components/clients/ClientTabs';
 import { ClientHeader, NextVisitCard, ClientRail, ClientQuickFacts, clientFacts } from '@/components/clients/ClientProfileParts';
@@ -1125,6 +1126,8 @@ export default function ClientDetailPage() {
           <div className="lg:col-span-1 space-y-8 text-left">
             <p className="text-[17px] font-semibold lg:hidden">About {String(client.name || 'them').split(' ')[0]}</p>
             <ClientRail client={client} facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} cancels={cancelTotal} noShows={noShowTotal} reschedules={rescheduleTotal}>
+              <ClientTimingCard tenant={selectedTenant} client={client} services={services || []} canEdit={isOwnerOrAdmin || String(role) === 'manager'}
+                onSave={(t: any) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), { timing: t } as any); toast({ title: 'Their usual time is saved' }); }} />
               <section className="flex flex-wrap gap-2 rounded-3xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} aria-label="More actions">
                 <button type="button" onClick={() => setIsRecoveryDialogOpen(true)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>Make things right…</button>
                 {showFinancials && isOwnerOrAdmin && <button type="button" onClick={handleReconcileLtv} disabled={isReconciling} className="h-9 rounded-full px-3 text-[13px] font-semibold disabled:opacity-50" style={{ background: 'var(--soft)' }}>{isReconciling ? 'Recalculating…' : 'Recalculate spent from payments'}</button>}
