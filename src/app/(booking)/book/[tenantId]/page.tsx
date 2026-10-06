@@ -556,6 +556,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       }
       const out = await bookRes.json().catch(() => null);
       if (!out?.ok) {
+        if (out?.code === 'needs_longer') return { requiresPayment: true, error: out.error, code: 'needs_longer', extraMinutes: Number(out.extraMinutes) || 0 } as any;
         return { requiresPayment: true, error: out?.error || (bookRes.status === 409 ? 'That time was just taken — pick another slot.' : 'We could not hold that time. Please pick another slot.') };
       }
       /* The SERVER decided what this booking became; the screen, the email
