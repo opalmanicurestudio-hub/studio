@@ -1269,7 +1269,7 @@ export function usePosEngine() {
     if (data.mustFinishBy) updates.mustFinishBy = data.mustFinishBy;
     batch.update(docRef, sanitizeForFirestore(updates));
     if (!isWalkIn && pendingCheckInItem.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', pendingCheckInItem.checkInToken), sanitizeForFirestore({ ...updates, tenantId }));
-    if (pendingCheckInItem.clientId) batch.update(doc(firestore, `tenants/${tenantId}/clients`, pendingCheckInItem.clientId), sanitizeForFirestore({ email: data.email, phone: data.phone, ...(data.accommodations?.length ? { sensoryNeeds: data.accommodations.join(', ') } : {}) }));
+    if (pendingCheckInItem.clientId) batch.update(doc(firestore, `tenants/${tenantId}/clients`, pendingCheckInItem.clientId), sanitizeForFirestore({ ...(!((clients || []) as any[]).find((c: any) => c.id === pendingCheckInItem.clientId)?.contactHidden && String(data.email || '').trim() ? { email: data.email } : {}), ...(!((clients || []) as any[]).find((c: any) => c.id === pendingCheckInItem.clientId)?.contactHidden && String(data.phone || '').trim() ? { phone: data.phone } : {}), ...(data.accommodations?.length ? { sensoryNeeds: data.accommodations.join(', ') } : {}) }));
     try { await batch.commit(); toast({ title: "Check-in Certified" }); setPendingCheckInItem(null); }
     catch (e) { console.error(e); toast({ variant: 'destructive', title: "Confirmation Failed" }); }
   };
