@@ -536,6 +536,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             channel: channelFrom(new URLSearchParams(window.location.search).get('src')),   // where the link lived (website, instagram, google, qr…)
             ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
             serviceId: restDetails.serviceId,
+            ...(Number((restDetails as any).acceptExtraCents) > 0 ? { acceptExtraCents: Number((restDetails as any).acceptExtraCents) } : {}),
             ...((restDetails as any).place ? { place: (restDetails as any).place } : {}),
             addOnIds: restDetails.addOnIds || [],
             staffId: restDetails.staffId || 'any',
@@ -556,6 +557,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       }
       const out = await bookRes.json().catch(() => null);
       if (!out?.ok) {
+        if (out?.code === 'confirm_extra') return { requiresPayment: true, error: out.error, code: 'confirm_extra', extraMinutes: Number(out.extraMinutes) || 0, extraCents: Number(out.extraCents) || 0, line: String(out.line || '') } as any;
         if (out?.code === 'needs_longer') return { requiresPayment: true, error: out.error, code: 'needs_longer', extraMinutes: Number(out.extraMinutes) || 0 } as any;
         return { requiresPayment: true, error: out?.error || (bookRes.status === 409 ? 'That time was just taken — pick another slot.' : 'We could not hold that time. Please pick another slot.') };
       }
