@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireRole } from '@/lib/route-guard';
 import { FieldValue } from 'firebase-admin/firestore';
 
 function getAdminDb() {
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
     if (tenantsSnap.empty) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
     }
+    { const g = await requireRole(req, String(tenantsSnap.docs[0].id || ''), 'owner'); if (g.deny) return g.deny; }
 
     await tenantsSnap.docs[0].ref.update({
       stripeAccountId:      FieldValue.delete(),
