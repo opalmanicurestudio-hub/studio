@@ -80,7 +80,7 @@
 // without looking at the published roster. That is the server being right and
 // the page being behind, and the fix is to pass that page the same data.
 
-import { extraMinutesFor } from '@/lib/client-timing';
+import { extraMinutesFor, extraChargeCents } from '@/lib/client-timing';
 import { limitPublic } from '@/lib/rate-limit';
 import { recordConsent } from '@/lib/consent';
 import { placeOf, placeOptionsOf, placeLine, arrivalLine, clientAddressOf } from '@/lib/service-place';
@@ -367,17 +367,24 @@ export async function POST(req: NextRequest) {
     // THE CLIENT'S OWN TIME (online): when the email or phone matches a client with a usual extra time for this service,
     // reserve it — only ever MORE time (shortening a visit is a staff decision). The price is unchanged here; the charge for
     // extra time is shown and agreed separately. If the longer visit doesn't fit, the answer says so (code 'needs_longer').
-    let clientExtra = 0;
+    let clientExtra = 0; let clientExtraCents = 0;
     if (!staffSet && customLen == null) {
       try {
         const em = String(body?.client?.email || '').trim().toLowerCase(); const pd = String(body?.client?.phone || '').replace(/\D/g, '').slice(-10);
         const own = (snap: any) => (snap?.docs || []).map((d: any) => d.data() || {}).find((c: any) => !c.ownerRenterId) || null;
         let hit: any = em ? own(await db.collection(`tenants/${tenantId}/clients`).where('email', '==', em).limit(5).get()) : null;
         if (!hit && pd.length === 10) for (const f of [pd, `+1${pd}`, `(${pd.slice(0, 3)}) ${pd.slice(3, 6)}-${pd.slice(6)}`]) { hit = own(await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', f).limit(3).get()); if (hit) break; }
-        if (hit) clientExtra = Math.max(0, extraMinutesFor(hit, String(svc.id || body.serviceId || '')));
+        if (hit) { clientExtra = Math.max(0, extraMinutesFor(hit, String(svc.id || body.serviceId || ''))); if (clientExtra > 0) clientExtraCents = extraChargeCents(tenant, svc, hit, String(svc.id || body.serviceId || '')); }
       } catch { /* best-effort: never blocks a booking */ }
     }
     const duration = customLen ?? ((Number(svc.duration) || 60) + addOnMinutes + clientExtra);
+    // Group requests: the time is reserved, but no one is there to agree a charge per guest — the desk can add it.
+    if (body?.groupRequest === true) clientExtraCents = 0;
+    // A charge for that extra time is never added silently: unless they've agreed to THIS amount, ask first.
+    const extraLine = clientExtraCents > 0 ? `Includes about ${clientExtra} extra minutes (+$${(clientExtraCents / 100).toFixed(2)}), based on your past visits.` : '';
+    if (clientExtraCents > 0 && Math.round(Number(body?.acceptExtraCents)) !== clientExtraCents)
+      return NextResponse.json({ ok: false, code: 'confirm_extra', extraMinutes: clientExtra, extraCents: clientExtraCents, line: extraLine,
+        error: `Your visits here usually take about ${clientExtra} minutes longer, so we reserve that time for you. ${extraLine.replace(/^Includes/, 'That’s')}` }, { status: 409 });
     const padBefore = Number(svc.padBefore) || 0;
     const padAfter = Number(svc.padAfter) || 0;
 
@@ -735,7 +742,7 @@ export async function POST(req: NextRequest) {
       let plan = resolveBookingPlan({
         tenant, service: svcAsBooked,   // paid in full when they chose video / phone
         // Only staff may set a price; everyone else pays the service's price.
-        price: Number((trust ? body.price : undefined) ?? svc.price ?? 0),
+        price: Number((trust ? body.price : undefined) ?? (Number(svc.price ?? 0) + clientExtraCents / 100)),
         // From a campaign's Book button. The code is only stored if it names
         // a real, active discount; checkout applies it automatically.
         ...(typeof body.campaignId === 'string' && body.campaignId ? { campaignId: String(body.campaignId).slice(0, 64) } : {}),
@@ -765,6 +772,7 @@ export async function POST(req: NextRequest) {
         ...(overrideReason ? { conflictOverride: { reason: overrideReason, by: (body as any).__staffActor?.name || 'Manager', clash: firstReason || null, at: nowIso } } : {}),
         ...(customLen ? { durationMinutes: customLen, customLength: true } : {}),
         ...(clientExtra > 0 ? { clientExtraMinutes: clientExtra } : {}),
+        ...(clientExtraCents > 0 ? { checkoutState: { adjustments: { timeOverage: clientExtraCents / 100 }, extraTimeMinutes: clientExtra, extraTimeReason: 'Usual extra time, agreed when booking' } } : {}),
         ...(staffSet && typeof body.internalNotes === 'string' && body.internalNotes.trim() ? { internalNotes: body.internalNotes.trim().slice(0, 2000) } : {}),
         // Linked bookings: a repeat series, a group, or one guest's visit with several providers.
         ...(staffSet && typeof body.seriesId === 'string' ? { seriesId: body.seriesId.slice(0, 64), seriesIndex: Number(body.seriesIndex) || 0 } : {}),
@@ -971,7 +979,10 @@ export async function POST(req: NextRequest) {
         const depCents = Number(r.plan?.depositCents) || 0;
         const policyLines: string[] = bookingPolicyLines(tAny, svc, { depositCents: depCents });
         try { const cid = String(r.clientId || ''); if (cid && policyLines.length) { const c = await recordConsent(db, tenantId, { clientId: cid, kind: 'booking_policies', text: policyLines.join('\n'), via: source, ref: r.aptId, name: body?.client?.name || null });
-          await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ policyConsent: { version: c.version, at: c.at, via: source } }, { merge: true }); } } catch { /* the booking stands */ }   // what they agreed to when booking
+          await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ policyConsent: { version: c.version, at: c.at, via: source } }, { merge: true }); } } catch { /* the booking stands */ }
+        // The extra-time charge they agreed to, in the words they saw — the desk's charge record cites it.
+        try { const cid = String(r.clientId || ''); if (cid && clientExtraCents > 0) { const c = await recordConsent(db, tenantId, { clientId: cid, kind: 'extra_time', text: extraLine, via: source, ref: r.aptId, name: String(body?.client?.name || '') || null });
+          await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ extraTimeConsent: { version: c.version, at: c.at, cents: clientExtraCents, minutes: clientExtra } }, { merge: true }); } } catch { /* the booking stands */ }   // what they agreed to when booking
         // Where it happens (studio / online / at the client's place) — so online and mobile visits aren't told to "check in when you arrive".
         const placeSvc: any = renterSvc || svcAsBooked; const where = placeLine(placeSvc, clientAddressOf(body?.client), null, { timeZone: (tenant as any)?.timezone || null, clientPhone: phone || null, businessPhone: (tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null });
 
