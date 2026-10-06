@@ -56,6 +56,7 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
   const all = React.useMemo(() => buildRows(clients, appointments, services, staff, now), [clients, appointments, services, staff, now]);
   const [seg, setSeg] = React.useState<Seg>('all'); const [q, setQ] = React.useState(''); const [sort, setSort] = React.useState<'last' | 'next' | 'name' | 'spent' | 'visits'>('last');
   const [sel, setSel] = React.useState<Set<string>>(new Set()); const [limit, setLimit] = React.useState(50); const [compose, setCompose] = React.useState<null | 'message' | 'invite'>(null);
+  const [selecting, setSelecting] = React.useState(false); const [menu, setMenu] = React.useState(false);   // phones: selecting is a mode; extras live in ⋯
   const live = all.filter((r) => !r.c.isArchived && r.c.status !== 'archived');
   const segs: { k: Seg; l: string; f: (r: Row) => boolean; money?: boolean }[] = [
     { k: 'all', l: 'Everyone', f: (r) => r.c.status !== 'banned' }, { k: 'due', l: 'Due back', f: (r) => r.dueThisWeek }, { k: 'quiet', l: 'Gone quiet', f: (r) => r.quiet }, { k: 'new', l: 'New', f: (r) => r.isNew },
@@ -87,12 +88,22 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="w-full min-w-0 sm:w-auto sm:flex-1"><h1 className="text-[32px] font-light leading-tight">Clients</h1><p className="text-[14px]" style={muted}>{live.length} {live.length === 1 ? 'person' : 'people'} · {seen90} seen in the last 90 days</p></div>
-        {dupCount > 0 && canManage && <button type="button" onClick={onFindDuplicates} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Possible duplicates · {dupCount}</button>}
-        <button type="button" onClick={exportCsv} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Export</button>
-        <button type="button" onClick={onAdd} className="h-10 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>+ Add client</button>
+        <div className="min-w-0 flex-1"><h1 className="text-[28px] font-light leading-tight md:text-[32px]">Clients</h1>
+          <p className="hidden text-[14px] md:block" style={muted}>{live.length} {live.length === 1 ? 'person' : 'people'} · {seen90} seen in the last 90 days</p>
+          <p className="truncate text-[13px] md:hidden" style={muted}>{[`${live.filter((r) => r.c.status !== 'banned').length} people`, dueWeek.length ? `${dueWeek.length} due back` : null, live.some((r) => r.quiet) ? `${live.filter((r) => r.quiet).length} gone quiet` : null, showMoney && owing.length ? `${money(owing.reduce((x, r) => x + r.owes, 0))} owed` : null].filter(Boolean).join(' · ')}</p></div>
+        {dupCount > 0 && canManage && <button type="button" onClick={onFindDuplicates} className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'var(--soft, #efebe6)' }}>Possible duplicates · {dupCount}</button>}
+        <button type="button" onClick={exportCsv} className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'var(--soft, #efebe6)' }}>Export</button>
+        <button type="button" onClick={onAdd} aria-label="Add client" className="h-11 w-11 rounded-full text-[22px] font-light md:h-10 md:w-auto md:px-5 md:text-[14px] md:font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}><span className="md:hidden">+</span><span className="hidden md:inline">+ Add client</span></button>
+        <span className="relative md:hidden"><button type="button" onClick={() => setMenu((v) => !v)} aria-label="More" aria-expanded={menu} className="h-11 w-11 rounded-full text-[18px]" style={{ background: 'var(--soft, #efebe6)' }}>⋯</button>
+          {menu && <div role="menu" className="absolute right-0 z-40 mt-2 w-60 overflow-hidden rounded-2xl text-[15px]" style={{ ...card, boxShadow: '0 12px 30px rgba(0,0,0,.14)' }}>
+            <button type="button" role="menuitem" onClick={() => { setSelecting((v) => !v); setSel(new Set()); setMenu(false); }} className="block w-full px-4 py-3.5 text-left">{selecting ? 'Done selecting' : 'Select'}</button>
+            {dupCount > 0 && canManage && <button type="button" role="menuitem" onClick={() => { setMenu(false); onFindDuplicates(); }} className="block w-full border-t px-4 py-3.5 text-left" style={{ borderColor: 'var(--line, #efebe6)' }}>Possible duplicates · {dupCount}</button>}
+            <button type="button" role="menuitem" onClick={() => { setMenu(false); exportCsv(); }} className="block w-full border-t px-4 py-3.5 text-left" style={{ borderColor: 'var(--line, #efebe6)' }}>Export</button>
+            <p className="border-t px-4 pb-1 pt-3 text-[12px] font-semibold" style={{ ...muted, borderColor: 'var(--line, #efebe6)' }}>SORT BY</p>
+            {([['last', 'Last visit'], ['next', 'Next visit'], ['name', 'Name'], ['visits', 'Most visits'], ...(showMoney ? [['spent', 'Most spent']] : [])] as [any, string][]).map(([k, l]) => <button key={k} type="button" role="menuitemradio" aria-checked={sort === k} onClick={() => { setSort(k); setMenu(false); }} className="block w-full px-4 py-2.5 text-left" style={sort === k ? { fontWeight: 600 } : undefined}>{sort === k ? '✓ ' : ''}{l}</button>)}
+          </div>}</span>
       </div>
-      <div className="-mx-1 flex snap-x gap-2.5 overflow-x-auto px-1 pb-1 md:mx-0 md:grid md:grid-cols-5 md:overflow-visible md:px-0">
+      <div className="hidden gap-2.5 md:grid md:grid-cols-5">
         {stat('Due back this week', dueWeek.length, `${dueWeek.length ? 'none rebooked yet' : 'all caught up'}`, false, 'due')}
         {stat('New in 30 days', newMonth.length, `${newMonth.filter((r) => r.next || r.visits > 1).length} coming back`, false, 'new')}
         {stat('Next visit booked', recent.length ? `${Math.round((bookedAhead / recent.length) * 100)}%` : '—', 'of those seen in 30 days')}
@@ -105,7 +116,7 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
           {[...segs.filter((s) => !s.money || showMoney), { k: 'archived' as Seg, l: 'Archived', f: () => true }].map((s) => { const n = segRows(s.k).length; if (n === 0 && !['all', seg].includes(s.k)) return null;
             return <button key={s.k} type="button" role="tab" aria-selected={seg === s.k} onClick={() => { setSeg(s.k); setSel(new Set()); setLimit(50); }} className="h-9 shrink-0 rounded-full border px-3.5 text-[13px] font-semibold" style={seg === s.k ? { background: 'var(--ink, #1c1917)', color: '#fff', borderColor: 'var(--ink, #1c1917)' } : { background: 'var(--card, #fff)', borderColor: 'var(--line, #e7e2dc)' }}>{s.l} <span style={seg === s.k ? { color: '#d6d3d1' } : muted}>{n}</span></button>; })}
         </div>
-        <select value={sort} onChange={(e) => setSort(e.target.value as any)} aria-label="Sort" className="ml-auto h-9 rounded-full border px-3 text-[13px]" style={{ borderColor: 'var(--line, #e7e2dc)', background: 'var(--card, #fff)' }}>
+        <select value={sort} onChange={(e) => setSort(e.target.value as any)} aria-label="Sort" className="ml-auto hidden h-9 rounded-full border px-3 text-[13px] md:block" style={{ borderColor: 'var(--line, #e7e2dc)', background: 'var(--card, #fff)' }}>
           <option value="last">Last visit</option><option value="next">Next visit</option><option value="name">Name</option><option value="visits">Most visits</option>{showMoney && <option value="spent">Most spent</option>}</select>
       </div>
       <div className="overflow-hidden rounded-3xl" style={card}>
@@ -114,12 +125,22 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
           <span /><span>Client</span><span>Next / last visit</span><span>Usually</span><span>{showMoney ? 'Spent' : 'Visits'}</span><span>Needs attention</span><span /></div>
         {rows.length === 0 && <p className="border-t p-6 text-[14px]" style={{ ...muted, borderColor: 'var(--line, #efebe6)' }}>{term ? 'No one matches that search.' : 'No one here right now.'}</p>}
         {rows.slice(0, limit).map((r, i) => { const pills = attention(r); const action = r.c.status === 'banned' ? null : r.quiet || r.dueThisWeek ? 'invite' : 'book';
-          return (
-            <div key={r.c.id} className="grid grid-cols-[28px_40px_1fr_auto] items-center gap-3 border-t px-4 py-3 text-[14px] md:grid-cols-[28px_44px_1.6fr_1.2fr_1.2fr_0.9fr_1.3fr_120px]" style={{ borderColor: 'var(--line, #efebe6)', background: sel.has(r.c.id) ? 'color-mix(in srgb, var(--accent, #2e6f6a) 6%, transparent)' : undefined }}>
+          const status = r.next ? <>{format(safe(r.next.startTime), 'EEE d MMM · h:mm a')}</> : r.dueBack && !r.quiet ? <span style={{ color: 'var(--warn, #b45309)' }}>Due {format(r.dueBack, 'd MMM')}</span> : r.last ? <>Last seen {format(r.last, 'd MMM yyyy')}</> : <>No visits yet</>;
+          const avatar = (size: number) => r.c.avatarUrl ? <img src={r.c.avatarUrl} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} /> : <span className="flex shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white" style={{ width: size, height: size, background: AV[i % AV.length] }} aria-hidden="true">{initials(r.c.name)}</span>;
+          return (<React.Fragment key={r.c.id}>
+            <button type="button" onClick={() => (selecting ? toggle(r.c.id) : onOpen(r.c.id))} aria-pressed={selecting ? sel.has(r.c.id) : undefined}
+              className="flex w-full items-center gap-3 border-t px-4 py-3.5 text-left md:hidden" style={{ borderColor: 'var(--line, #efebe6)', background: selecting && sel.has(r.c.id) ? 'color-mix(in srgb, var(--accent, #2e6f6a) 8%, transparent)' : undefined }}>
+              {selecting && <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[13px]" style={sel.has(r.c.id) ? { background: 'var(--ink, #1c1917)', borderColor: 'var(--ink, #1c1917)', color: '#fff' } : { borderColor: 'var(--line, #d6d3d1)' }} aria-hidden="true">{sel.has(r.c.id) ? '✓' : ''}</span>}
+              {avatar(44)}
+              <span className="min-w-0 flex-1"><b className="block truncate text-[16px]">{r.c.name || 'Client'}</b><span className="block truncate text-[13px]" style={muted}>{status}</span></span>
+              {pills[0] || null}
+              {!selecting && <span className="text-[20px] leading-none" style={muted} aria-hidden="true">›</span>}
+            </button>
+            <div className="hidden grid-cols-[28px_40px_1fr_auto] items-center gap-3 border-t px-4 py-3 text-[14px] md:grid md:grid-cols-[28px_44px_1.6fr_1.2fr_1.2fr_0.9fr_1.3fr_120px]" style={{ borderColor: 'var(--line, #efebe6)', background: sel.has(r.c.id) ? 'color-mix(in srgb, var(--accent, #2e6f6a) 6%, transparent)' : undefined }}>
               <input type="checkbox" aria-label={`Select ${r.c.name}`} checked={sel.has(r.c.id)} onChange={() => toggle(r.c.id)} />
-              {r.c.avatarUrl ? <img src={r.c.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full text-[13px] font-semibold text-white" style={{ background: AV[i % AV.length] }} aria-hidden="true">{initials(r.c.name)}</span>}
+              {avatar(40)}
               <button type="button" onClick={() => onOpen(r.c.id)} className="min-w-0 text-left"><b className="block truncate">{r.c.name || 'Client'}</b><span className="block truncate text-[12px]" style={muted}>{identity(r)}</span>
-                <span className="mt-1 flex flex-wrap gap-1 md:hidden">{r.next ? pill(format(safe(r.next.startTime), 'EEE d MMM, h:mm a')) : null}{pills}</span></button>
+</button>
               <span className="hidden min-w-0 md:block">{r.next ? <b className="block truncate">{format(safe(r.next.startTime), 'EEE d MMM, h:mm a')}</b> : r.dueBack && !r.quiet ? <span className="block" style={{ color: 'var(--warn, #b45309)' }}>Due {format(r.dueBack, 'd MMM')}</span> : <span className="block" style={muted}>—</span>}
                 <span className="block text-[12px]" style={muted}>{r.last ? `last ${format(r.last, 'd MMM yyyy')}` : 'never visited'}</span></span>
               <span className="hidden min-w-0 md:block"><span className="block truncate">{r.usual || '—'}</span>{r.everyDays && <span className="block text-[12px]" style={muted}>every {Math.max(1, Math.round(r.everyDays / 7))} weeks</span>}</span>
@@ -127,10 +148,10 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
               <span className="hidden flex-wrap gap-1 md:flex">{pills.length ? pills : <span style={muted}>—</span>}</span>
               <span className="text-right">{action === 'invite' && showContact ? <button type="button" onClick={() => { setSel(new Set([r.c.id])); setCompose('invite'); }} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Invite back</button>
                 : action ? <button type="button" onClick={() => onBook(r.c.id)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Book</button> : null}</span>
-            </div>); })}
+            </div></React.Fragment>); })}
         {rows.length > limit && <button type="button" onClick={() => setLimit(limit + 100)} className="w-full border-t py-3 text-[14px] font-semibold" style={{ borderColor: 'var(--line, #efebe6)' }}>Show more ({rows.length - limit})</button>}
       </div>
-      {sel.size > 0 && <div className="sticky bottom-3 z-30 mx-auto flex w-full max-w-full flex-wrap items-center gap-2 rounded-2xl px-4 py-2 text-[14px] shadow-lg md:w-fit md:rounded-full" style={{ background: 'var(--ink, #1c1917)', color: '#fff', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }} role="toolbar" aria-label="With the selected clients">
+      {sel.size > 0 && <div className="fixed inset-x-3 bottom-3 z-40 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-2 text-[14px] shadow-lg md:sticky md:inset-x-auto md:z-30 md:mx-auto md:w-fit md:rounded-full" style={{ background: 'var(--ink, #1c1917)', color: '#fff', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }} role="toolbar" aria-label="With the selected clients">
         <span className="px-1">{sel.size} selected</span>
         {showContact && <button type="button" onClick={() => setCompose('message')} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Message</button>}
         {showContact && <button type="button" onClick={() => setCompose('invite')} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Invite back</button>}
