@@ -18,6 +18,7 @@
 // POST { tenantId, appointmentId, clientEmail?, clientPhone? }
 // → { ok, emailSent, smsSent, reason? }
 
+import { staffOrServer } from '@/lib/route-guard';
 import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -28,6 +29,7 @@ import { smsConfigured } from '@/lib/sms';
 export async function POST(req: NextRequest) {
   try {
     const { tenantId, appointmentId, clientEmail, clientPhone } = await req.json();
+    if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
     if (!tenantId || !appointmentId) {
       return NextResponse.json({ ok: false, reason: 'Missing parameters.' }, { status: 400 });
     }
