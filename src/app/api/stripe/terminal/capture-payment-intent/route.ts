@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
       customerId,
       saveCard = false,
     } = await req.json();
+    { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
 
     if (!tenantId || !paymentIntentId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
