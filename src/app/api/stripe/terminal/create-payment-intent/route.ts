@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
 
 function getAdminDb() {
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
       description = 'Studio Services',
       saveCard = false,
     } = await req.json();
+    { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
 
     if (!tenantId || !amountCents || amountCents <= 0) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
