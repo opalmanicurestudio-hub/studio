@@ -22,6 +22,7 @@
  *    both. This is the same trust model as the public booking flow.
  */
 
+import { requireRole } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { encryptTin, tinLast4, maskTin } from '@/lib/tin-crypto';
@@ -37,6 +38,17 @@ function validateTin(tin: string, type: 'ssn' | 'ein'): boolean {
 }
 
 // POST — W-9 submission from the portal
+/** A W-9 is read or saved only by a manager, or by the renter it belongs to (signed in through the staff portal). */
+async function mayTouchW9(req: NextRequest, tenantId: string, renterId: string) {
+  const g = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
+  const a = g.actor; if (a.isManager || a.uid === renterId) return null;
+  const db = getAdminDb();
+  const [me, renter] = await Promise.all([db.doc(`tenants/${tenantId}/staff/${a.uid}`).get(), db.doc(`tenants/${tenantId}/renters/${renterId}`).get()]);
+  const m: any = me.data() || {}, r: any = renter.data() || {};
+  if (m.renterId === renterId || r.userId === a.uid || r.staffId === a.uid || r.uid === a.uid) return null;
+  return NextResponse.json({ ok: false, error: 'Only a manager or the renter can see or change these tax details.' }, { status: 403 });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -49,6 +61,7 @@ export async function POST(req: NextRequest) {
     } = body || {};
 
     if (!tenantId || !renterId) return NextResponse.json({ ok: false, error: 'Missing tenantId or renterId.' }, { status: 400 });
+    { const deny = await mayTouchW9(req, String(tenantId), String(renterId)); if (deny) return deny; }
     if (!tin || !tinType) return NextResponse.json({ ok: false, error: 'TIN and TIN type are required.' }, { status: 400 });
     if (!['ssn','ein'].includes(tinType)) return NextResponse.json({ ok: false, error: 'Invalid TIN type.' }, { status: 400 });
     if (!validateTin(tin, tinType)) return NextResponse.json({ ok: false, error: `Invalid ${tinType.toUpperCase()} format.` }, { status: 400 });
@@ -107,6 +120,7 @@ export async function GET(req: NextRequest) {
     const tenantId = searchParams.get('tenantId');
     const renterId = searchParams.get('renterId');
     if (!tenantId || !renterId) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+    { const deny = await mayTouchW9(req, String(tenantId), String(renterId)); if (deny) return deny; }
 
     const db = getAdminDb();
     const snap = await db.doc(`tenants/${tenantId}/renters/${renterId}`).get();
