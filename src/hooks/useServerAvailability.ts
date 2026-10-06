@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 export interface ServerAvailability { times: string[]; hotTimes: string[]; addOnUpsells: any[]; selectedSlotGap: number; warnings: string[]; staffByTime: Record<string, string[]>; loading: boolean }
 const EMPTY: ServerAvailability = { times: [], hotTimes: [], addOnUpsells: [], selectedSlotGap: 0, warnings: [], staffByTime: {}, loading: false };
 
-export function useServerAvailability(p: { tenantId?: string | null; date: string; serviceId: string; staffId: string; tierId?: string; providerId?: string | null; addOnIds?: string[] }): ServerAvailability {
+export function useServerAvailability(p: { tenantId?: string | null; date: string; serviceId: string; staffId: string; tierId?: string; providerId?: string | null; addOnIds?: string[]; extraMinutes?: number }): ServerAvailability {
   const [out, setOut] = useState<ServerAvailability>(EMPTY);
   const seq = useRef(0);
   const addOnKey = (p.addOnIds || []).join(',');
@@ -18,7 +18,7 @@ export function useServerAvailability(p: { tenantId?: string | null; date: strin
     const my = ++seq.current; const ctrl = new AbortController();
     setOut((o) => ({ ...o, loading: true }));
     fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
-      body: JSON.stringify({ tenantId: p.tenantId, action: 'availability', date: p.date, serviceId: p.serviceId, staffId: p.staffId || 'any', tierId: p.tierId, providerId: p.providerId || undefined, addOnIds: p.addOnIds || [] }) })
+      body: JSON.stringify({ tenantId: p.tenantId, action: 'availability', date: p.date, serviceId: p.serviceId, extraMinutes: p.extraMinutes || 0, staffId: p.staffId || 'any', tierId: p.tierId, providerId: p.providerId || undefined, addOnIds: p.addOnIds || [] }) })
       .then((r) => r.json()).then((d) => {
         if (my !== seq.current) return; // a newer request (the client tapped again) wins
         setOut(d?.ok ? { times: d.times || [], hotTimes: d.hotTimes || [], addOnUpsells: d.addOnUpsells || [], selectedSlotGap: d.bestGapMinutes || 0, warnings: d.warnings || [], staffByTime: d.staffByTime || {}, loading: false }
@@ -27,7 +27,7 @@ export function useServerAvailability(p: { tenantId?: string | null; date: strin
       .catch((e) => { if (e?.name !== 'AbortError' && my === seq.current) setOut({ ...EMPTY, warnings: ['Couldn’t load open times — check your connection and try again.'] }); });
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.tenantId, p.date, p.serviceId, p.staffId, p.tierId, p.providerId, addOnKey]);
+  }, [p.tenantId, p.date, p.serviceId, p.staffId, p.tierId, p.providerId, addOnKey, p.extraMinutes]);
   return out;
 }
 
