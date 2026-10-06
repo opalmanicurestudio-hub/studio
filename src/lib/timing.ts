@@ -37,7 +37,10 @@ export function visitTiming(a: any, services: any[] = [], tenant?: any) {
   const addOns: string[] = Array.isArray(a?.addOnIds) ? a.addOnIds : [];
   const setLen = num(svc(a?.serviceId)?.duration) + addOns.reduce((n, id) => n + num(svc(id)?.duration), 0);
   const bookedLen = (() => { const s = ms(a?.startTime), e = ms(a?.endTime); return s && e && e > s ? Math.round((e - s) / 60000) : 0; })();
-  const bookedMinutes = setLen > 0 ? setLen : bookedLen || 60;
+  // A length staff set on purpose (customLength) or a client's usual extra time booked online counts as planned — a client
+  // booked for 80 minutes who takes 80 is on time, not 20 minutes over.
+  const customLen = a?.customLength && num(a?.durationMinutes) > 0 ? num(a.durationMinutes) : 0;
+  const bookedMinutes = customLen || (setLen > 0 ? setLen + Math.max(0, num(a?.clientExtraMinutes)) : bookedLen || 60);
   const timedBy: TimedBy = (['provider', 'booking', 'none'] as const).includes(svc(a?.serviceId)?.timedBy) ? svc(a?.serviceId).timedBy : 'provider';
   const start = ms(a?.serviceStartedAt) ?? ms(a?.actualStartTime); const end = ms(a?.serviceEndedAt) ?? ms(a?.actualEndTime);
   const paid = ms(a?.paidAt) ?? ms(a?.completedAt) ?? ms(a?.checkedOutAt);
