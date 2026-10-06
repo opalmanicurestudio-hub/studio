@@ -375,6 +375,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   // booking route verifies with — the browser never receives other people's
   // appointments, shifts or days off. (Was: useSmartAvailability in the
   // browser, fed with busy-time data sent to every visitor.)
+  // A returning client whose visits usually run longer: once the booking engine says so, show only times that fit.
+  const [clientExtra, setClientExtra] = useState(0);
   const availability = useServerAvailability({
     tenantId: tenantIdProp || (tenant as any)?.id,
     date: dateKey,
@@ -383,6 +385,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     tierId: selectedStaffId === 'any' && selectedTierId !== 'any' ? selectedTierId : undefined,
     providerId: (service as any)?.renterProviderId || null,
     addOnIds,
+    extraMinutes: clientExtra,
   });
   // "Any available": ask the server who takes the chosen time, as soon as it's tapped.
   const [anyPick, setAnyPick] = useState<{ key: string; staffId?: string; error?: string } | null>(null);
@@ -692,6 +695,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         setServerNeedsPayment(true); // the effect below moves to the payment step
         return;
       }
+      if (result && (result as any).code === 'needs_longer') {
+        setClientExtra(Number((result as any).extraMinutes) || 0); setSelectedTime(null as any);
+        setCurrentStepIndex(Math.max(0, steps.findIndex((x: string) => /date|time|when/i.test(x))));
+        toast({ title: 'A little more time for you', description: String((result as any).error) });
+        return;
+      }
       if (result && 'error' in result && result.error) {
         toast({ variant: 'destructive', title: 'Could not book that', description: String(result.error) });
       }
@@ -925,7 +934,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       placeChooser,
       service, tenant, tenantId: tenantIdProp || (tenant as any)?.id, steps, currentStep, currentStepIndex, setCurrentStepIndex, handleNextStep, handlePrevStep, onOpenChange,
       qualifiedStaff, lockedStaffId, selectedStaffId, handleStaffSelect, selectedStaff, bookedStaff, availableTiersForService, selectedTierId, setSelectedTierId,
-      party, setParty, groupPol, allServices: services, date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn,
+      clientExtra, party, setParty, groupPol, allServices: services, date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn,
       methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance,
       requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, accentHex: 'var(--accent, #7c3aed)',
       price, previewLines, bookingPreview, confirming, depositAmount, depositClientSecret, depositLoading, depositError, embeddedMountRef, initiateCheckout, bookingOutcome,
