@@ -1306,7 +1306,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
                   </span>
                 )}
               </p>
-              {apt.clientPhone && <p className="text-[11px] font-bold text-muted-foreground mt-0.5">📞 {apt.clientPhone}</p>}
+              {(apt.clientPhone || (apt as any).clientPhoneHint) && <p className="text-[11px] font-bold text-muted-foreground mt-0.5">📞 {apt.clientPhone || (apt as any).clientPhoneHint}</p>}
             </div>
             <Badge className={cn('font-black text-[10px] uppercase border-none shrink-0 mt-1', statusColor[st] || 'bg-slate-100 text-slate-600')}>
               {statusLabel[st] || st}
