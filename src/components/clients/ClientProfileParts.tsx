@@ -72,19 +72,19 @@ export function ClientHeader({ client, facts, showMoney, canSeeContact, balance,
   const summary = summaryOn ? clientSummary(client, facts, { showMoney, balance, credit }) : '';
   const btn = 'h-10 rounded-full px-4 text-[14px] font-semibold';
   return (
-    <header className="space-y-3 rounded-3xl p-5 sm:p-6" style={{ background: 'linear-gradient(color-mix(in srgb, var(--accent, #2e6f6a) 7%, var(--paper, #faf8f5)), var(--paper, #faf8f5))', border: '1px solid var(--line, #e7e2dc)' }}>
+    <header className="space-y-3 rounded-3xl p-4 md:p-6" style={{ background: 'linear-gradient(color-mix(in srgb, var(--accent, #2e6f6a) 7%, var(--paper, #faf8f5)), var(--paper, #faf8f5))', border: '1px solid var(--line, #e7e2dc)' }}>
       <div className="flex flex-wrap items-center gap-4">
         <div className="shrink-0">{avatar}</div>
-        <div className="min-w-0 flex-1"><h1 className="truncate text-[30px] font-light leading-tight sm:text-[36px]">{client.name || 'Client'}</h1>{contact && <p className="mt-1 text-[14px]" style={muted}>{contact}</p>}</div>
-        <div className="flex flex-wrap gap-2">
-          {onMessage && <button type="button" onClick={onMessage} className={btn} style={{ background: 'var(--soft, #efebe6)' }}>Message</button>}
-          {onPay && balance > 0 && <button type="button" onClick={onPay} className={btn} style={{ background: 'var(--soft, #efebe6)' }}>Take payment</button>}
-          {client.status !== 'banned' && <button type="button" onClick={onBook} className={btn} style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Book {String(client.name || '').split(' ')[0] || 'them'}</button>}
-          {onEdit && <button type="button" onClick={onEdit} className={btn} style={{ background: 'var(--soft, #efebe6)' }}>Edit</button>}
+        <div className="min-w-0 flex-1"><h1 className="truncate text-[28px] font-light leading-tight md:text-[36px]">{client.name || 'Client'}</h1>{contact && <p className="mt-1 text-[14px]" style={muted}>{contact}</p>}</div>
+        <div className="flex w-full flex-wrap gap-2 md:w-auto">
+          {client.status !== 'banned' && <button type="button" onClick={onBook} className={`${btn} order-first h-12 w-full text-[15px] md:order-last md:h-10 md:w-auto md:text-[14px]`} style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Book {String(client.name || '').split(' ')[0] || 'them'}</button>}
+          {onMessage && <button type="button" onClick={onMessage} className={`${btn} flex-1 md:flex-none`} style={{ background: 'var(--soft, #efebe6)' }}>Message</button>}
+          {onPay && balance > 0 && <button type="button" onClick={onPay} className={`${btn} flex-1 md:flex-none`} style={{ background: 'var(--soft, #efebe6)' }}><span className="md:hidden">Pay</span><span className="hidden md:inline">Take payment</span></button>}
+          {onEdit && <button type="button" onClick={onEdit} className={`${btn} flex-1 md:flex-none`} style={{ background: 'var(--soft, #efebe6)' }}>Edit</button>}
         </div>
       </div>
-      {summary && <p className="max-w-[900px] text-[16px] leading-relaxed">{summary}</p>}
-      {flags.length > 0 && <div className="flex flex-wrap gap-1.5">{flags.map(([l, t]) => <span key={l} className="rounded-full px-3 py-1 text-[12px] font-semibold" style={t === 'warn' ? { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' } : { background: 'var(--soft, #efebe6)' }}>{l}</span>)}</div>}
+      {summary && <p className="max-w-[900px] text-[15px] leading-relaxed md:text-[16px]">{summary}</p>}
+      {flags.length > 0 && <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 md:flex-wrap md:overflow-visible">{flags.map(([l, t]) => <span key={l} className="shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-semibold" style={t === 'warn' ? { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' } : { background: 'var(--soft, #efebe6)' }}>{l}</span>)}</div>}
     </header>);
 }
 
@@ -120,4 +120,15 @@ export function ClientRail({ client, facts, showMoney, ltv, balance, credit, can
       {children}
       {prefs.length > 0 && <section className="rounded-3xl p-4" style={card}><p className="mb-1 text-[12px] font-semibold" style={muted}>PREFERENCES</p><p className="text-[14px]">{prefs.join(' · ')}</p></section>}
     </aside>);
+}
+
+/** Phones: the few facts people look for first, right under the header (the full rail sits at the bottom). */
+export function ClientQuickFacts({ facts, showMoney, ltv, balance, credit }: { facts: ReturnType<typeof clientFacts>; showMoney: boolean; ltv: number; balance: number; credit: number }) {
+  const items: [string, string, boolean?][] = [
+    ...(showMoney ? [[money(ltv), 'spent'] as [string, string]] : []), [`${facts.done.length}`, facts.done.length === 1 ? 'visit' : 'visits'],
+    ...(facts.everyWeeks ? [[`${facts.everyWeeks} wks`, 'apart'] as [string, string]] : []),
+    ...(balance > 0 ? [[showMoney ? money(balance) : 'Yes', 'owed', true] as [string, string, boolean]] : []), ...(showMoney && credit > 0 ? [[money(credit), 'credit'] as [string, string]] : [])];
+  return (
+    <div className="-mx-1 flex gap-2 overflow-x-auto px-1 lg:hidden" aria-label="Quick facts">{items.map(([v, l, warn]) => (
+      <span key={l} className="shrink-0 rounded-2xl px-3.5 py-2" style={card}><b className="block text-[16px] font-semibold" style={warn ? { color: 'var(--warn, #b45309)' } : undefined}>{v}</b><span className="text-[12px]" style={muted}>{l}</span></span>))}</div>);
 }
