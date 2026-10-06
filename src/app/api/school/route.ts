@@ -12,6 +12,7 @@
 //                                             donate / sponsor / general → the website inbox
 // Every visitor gets an instant confirmation; the school gets an alert.
 
+import { limitPublic } from '@/lib/rate-limit';
 import { logAuditAdmin } from '@/lib/audit';
 import { sponsorFromGift } from '@/lib/academy-funding';
 import { donationSession, completeDonation, scholarshipApply } from '@/lib/academy-funding';
@@ -66,6 +67,7 @@ async function alertSchool(tenantId: string, t: any, subject: string, lines: str
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const tenantId = clean(b.tenantId, 80);
+  { const limited = await limitPublic(req, 'school', String(tenantId || ''), { perHour: 10, perDay: 200 }); if (limited) return limited; }
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(tenantId)) return NextResponse.json({ ok: false, error: 'Unknown school.' }, { status: 400 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const t = ((await db.doc(T).get()).data() as any) || null;
