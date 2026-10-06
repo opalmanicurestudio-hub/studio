@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
 
 function getAdminDb() {
@@ -25,6 +26,7 @@ function getStripe() {
 export async function POST(req: NextRequest) {
   try {
     const { tenantId } = await req.json();
+    { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
     if (!tenantId) {
       return NextResponse.json({ error: 'Missing tenantId' }, { status: 400 });
     }
