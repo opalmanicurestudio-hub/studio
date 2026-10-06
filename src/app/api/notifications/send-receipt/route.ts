@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { staffOrServer } from '@/lib/route-guard';
 import { brandedEmail, getEmailBrand, type EmailBrand } from '@/lib/email-shell';
 
 // ─── /api/notifications/send-receipt/route.ts ─────────────────────────────────
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
       receipt: ReceiptPayload;
       tenantId?: string;
     };
+    if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
 
     if (!contact || !receipt) {
       return NextResponse.json({ error: 'Missing contact or receipt data' }, { status: 400 });
