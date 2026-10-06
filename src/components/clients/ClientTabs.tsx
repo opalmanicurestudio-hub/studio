@@ -96,3 +96,55 @@ export function ClientFormsNeeded({ appointments, services, consentForms, consen
       <p className="text-[12px]" style={muted}>Everything signed is listed below, with its version and who signed.</p>
     </section>);
 }
+
+/** Photos: after photos and inspiration from every visit, grouped by visit, with the client's sharing consent shown. */
+export function ClientPhotos({ client, appointments, services }: { client: any; appointments: any[]; services: any[] }) {
+  const [kind, setKind] = React.useState<'all' | 'after' | 'inspo'>('all'); const [open, setOpen] = React.useState<string | null>(null);
+  const groups = React.useMemo(() => appointments.map((a) => { const after: string[] = (a.afterPhotoUrls || []).filter(Boolean); const inspo: string[] = [...(a.inspirationPhotos || []).map((p: any) => p?.url).filter(Boolean), ...(a.inspirationPhotoUrl ? [a.inspirationPhotoUrl] : [])].filter((u, i, arr) => arr.indexOf(u) === i);
+    return { a, after, inspo }; }).filter((g) => g.after.length || g.inspo.length).sort((x, y) => safe(y.a.startTime).getTime() - safe(x.a.startTime).getTime()), [appointments]);
+  const total = groups.reduce((n, g) => n + g.after.length + g.inspo.length, 0); const ok = client.marketingConsent?.consented === true;
+  const tile = (u: string, label: string) => <button key={u} type="button" onClick={() => setOpen(u)} aria-label={`Open ${label}`} className="relative aspect-square overflow-hidden rounded-2xl" style={{ background: 'var(--soft, #efebe6)' }}><img src={u} alt="" loading="lazy" className="h-full w-full object-cover" /><span className="absolute bottom-1.5 left-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: 'rgba(255,255,255,.88)' }}>{label}</span></button>;
+  return (
+    <section className="space-y-3 rounded-3xl p-5" style={card} aria-label="Photos">
+      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-[17px] font-semibold">{total ? `${total} photo${total === 1 ? '' : 's'} · ${groups.length} visit${groups.length === 1 ? '' : 's'}` : 'Photos'}</h3>
+        <span>{ok ? pill('OK to share in marketing', 'ok') : pill('Not for marketing')}</span></div>
+      {total > 0 && <div className="flex gap-1" role="tablist" aria-label="Show">{([['all', 'All'], ['after', 'After'], ['inspo', 'Inspiration']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={kind === k} onClick={() => setKind(k)} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={kind === k ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>{l}</button>)}</div>}
+      {total === 0 ? <p className="text-[14px]" style={muted}>No photos yet. After photos added on a visit, and inspiration they send when booking, appear here.</p> : groups.map((g) => { const after = kind === 'inspo' ? [] : g.after, inspo = kind === 'after' ? [] : g.inspo; if (!after.length && !inspo.length) return null;
+        return (<div key={g.a.id} className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--line, #efebe6)' }}>
+          <p className="text-[13px]"><b>{format(safe(g.a.startTime), 'd MMM yyyy')}</b><span style={muted}> · {services.find((s) => s.id === g.a.serviceId)?.name || 'Visit'}</span></p>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">{after.map((u) => tile(u, 'After'))}{inspo.map((u) => tile(u, 'Inspiration'))}</div></div>); })}
+      {open && <div role="dialog" aria-label="Photo" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.82)' }} onClick={() => setOpen(null)}>
+        <img src={open} alt="" className="max-h-[86dvh] max-w-full rounded-2xl object-contain" /><button type="button" onClick={() => setOpen(null)} className="absolute right-4 top-4 h-11 w-11 rounded-full text-[18px]" style={{ background: 'rgba(255,255,255,.9)' }} aria-label="Close">✕</button></div>}
+    </section>);
+}
+
+async function notesCall(body: any) { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+  return fetch('/api/clients/notes', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => null); }
+const VIS: Record<string, string> = { team: 'The team', managers: 'Managers only', private: 'Just me' };
+
+/** Notes: what the team should know, each saying who wrote it, when, and who can see it. Visibility is enforced on the server. */
+export function ClientNotes({ tenantId, client }: { tenantId: string; client: any }) {
+  const [rows, setRows] = React.useState<any[] | null>(null); const [isManager, setIsManager] = React.useState(false); const [err, setErr] = React.useState<string | null>(null);
+  const [text, setText] = React.useState(''); const [vis, setVis] = React.useState<'team' | 'managers' | 'private'>('team'); const [busy, setBusy] = React.useState(false);
+  const load = React.useCallback(async () => { const r: any = await notesCall({ tenantId, action: 'list', clientId: client.id }); if (r?.ok) { setRows(r.rows); setIsManager(!!r.isManager); } else { setRows([]); setErr(r?.error || 'Couldn’t load notes.'); } }, [tenantId, client.id]);
+  React.useEffect(() => { void load(); }, [load]);
+  const add = async () => { setBusy(true); setErr(null); const r: any = await notesCall({ tenantId, action: 'add', clientId: client.id, text, visibility: vis }); setBusy(false); if (!r?.ok) { setErr(r?.error || 'Couldn’t save that.'); return; } setText(''); void load(); };
+  const act = async (id: string, action: string) => { const r: any = await notesCall({ tenantId, action, id }); if (!r?.ok) setErr(r?.error || 'Couldn’t do that.'); void load(); };
+  return (
+    <section className="space-y-3 rounded-3xl p-5" style={card} aria-label="Notes">
+      <h3 className="text-[17px] font-semibold">What the team should know</h3>
+      {err && <p className="text-[13px]" style={{ color: 'var(--warn, #b45309)' }}>{err}</p>}
+      {rows === null ? <p className="text-[14px]" style={muted}>Loading…</p> : rows.length === 0 ? <p className="text-[14px]" style={muted}>No notes yet.</p> : rows.map((n) => (
+        <div key={n.id} className="flex items-start justify-between gap-3 border-t pt-3 text-[14px]" style={{ borderColor: 'var(--line, #efebe6)' }}>
+          <div className="min-w-0"><p className="whitespace-pre-wrap">{n.pinned ? '📌 ' : ''}{n.text}</p><p className="mt-1 text-[12px]" style={muted}>{n.authorName}{n.at ? ` · ${format(safe(n.at), 'd MMM yyyy')}` : ''}{n.legacy ? ' · from their profile' : ''}</p>
+            {!n.legacy && <span className="mt-1 flex gap-3 text-[12px]">{(isManager || n.mine) && <button type="button" onClick={() => act(n.id, n.pinned ? 'unpin' : 'pin')} className="font-semibold underline underline-offset-2">{n.pinned ? 'Unpin' : 'Pin to top'}</button>}{n.mine && <button type="button" onClick={() => { if (window.confirm('Delete this note?')) void act(n.id, 'delete'); }} style={muted}>Delete</button>}</span>}</div>
+          {pill(VIS[n.visibility] || 'The team', n.visibility === 'managers' ? 'warn' : 'soft')}
+        </div>))}
+      <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--line, #efebe6)' }}>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`A note about ${String(client.name || 'them').split(' ')[0]}…`} aria-label="New note" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
+        <div className="flex flex-wrap items-center gap-2"><span className="text-[13px]" style={muted}>Who can see it:</span>
+          {(['team', ...(isManager ? ['managers'] : []), 'private'] as const).map((v) => <button key={v} type="button" onClick={() => setVis(v as any)} aria-pressed={vis === v} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={vis === v ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>{VIS[v]}</button>)}
+          <button type="button" onClick={add} disabled={busy || !text.trim()} className="ml-auto h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-50" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>{busy ? 'Saving…' : 'Save note'}</button></div>
+      </div>
+    </section>);
+}
