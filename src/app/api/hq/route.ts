@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
     const at = new Date().toISOString();
 
     if (fix === 'resend-confirmation') {
-      const r = await fetch(`${internalOrigin(t, req.nextUrl.origin)}/api/notifications/resend-confirmation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: String(b.appointmentId || '') }) });
+      const r = await fetch(`${internalOrigin(t, req.nextUrl.origin)}/api/notifications/resend-confirmation`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': process.env.CRON_SECRET || '' }, body: JSON.stringify({ tenantId, appointmentId: String(b.appointmentId || '') }) });
       const d = await r.json().catch(() => ({}));
       await audit(db, admin.email, tenantId, fix, `Resent the confirmation for appointment ${b.appointmentId}`, { result: d });
       return NextResponse.json({ ok: !!(d.emailSent || d.smsSent), message: d.emailSent || d.smsSent ? `Sent${d.emailSent ? ' by email' : ''}${d.smsSent ? ' by text' : ''}.` : (d.reason || 'Nothing was sent.') });
