@@ -112,6 +112,10 @@ export function ClientRail({ client, facts, showMoney, ltv, balance, credit, can
       <section className="rounded-3xl p-4" style={card}><p className="mb-1 text-[12px] font-semibold" style={muted}>THEIR VALUE</p>
         {showMoney && row('Spent so far', money(ltv))}{row('Visits', facts.done.length)}{facts.everyWeeks && row('Comes every', `${facts.everyWeeks} weeks`)}
         {facts.last && row('Last visit', format(safe(facts.last.startTime), 'd MMM yyyy'))}{row('Cancelled · no-show', `${cancels} · ${noShows}`, noShows > 1)}{reschedules > 0 && row('Moved', reschedules)}
+        {(() => { const t: any = client?.timing || {}; const per = Object.values(t.services || {}).map((e: any) => Number(e?.extra) || 0).filter((x) => x !== 0); const all = Number(t.all) || 0;
+          const charged = facts.done.reduce((m: number, a: any) => m + (Number(a.checkoutState?.adjustments?.timeOverage) || 0), 0);
+          const label = per.length ? `${per.length === 1 ? (per[0] > 0 ? '+' : '') + per[0] + ' min on 1 service' : `on ${per.length} services`}` : all ? `${all > 0 ? '+' : ''}${all} min every visit` : '';
+          return (<>{label && row('Usual extra time', label)}{showMoney && charged > 0 && row('Charged for extra time', money(charged))}</>); })()}
         <div className="mt-2 flex h-9 items-end gap-1" aria-label={`Visits a month: ${facts.perMonth.join(', ')}`}>{facts.perMonth.map((n, i) => <i key={i} className="flex-1 rounded-[3px]" style={{ height: `${Math.max(6, (n / max) * 100)}%`, background: n ? 'color-mix(in srgb, var(--accent, #2e6f6a) 55%, transparent)' : 'var(--line, #e7e2dc)' }} title={`${format(facts.months[i], 'MMM')}: ${n}`} />)}</div>
         <p className="mt-1 text-[12px]" style={muted}>visits a month, {format(facts.months[0], 'MMM')}–{format(facts.months[6], 'MMM')}</p></section>
       <section className="rounded-3xl p-4" style={card}><p className="mb-1 text-[12px] font-semibold" style={muted}>MONEY</p>
