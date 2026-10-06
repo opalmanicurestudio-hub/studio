@@ -59,7 +59,21 @@ export async function POST(req: NextRequest) {
 
   // Shippo track_updated payload: { event, data: { tracking_number,
   // tracking_status: { status, status_date }, carrier } }
-  const data = body?.data || body || {};
+  // NEVER TRUST THE CALLER. Shippo doesn't sign its webhooks, so anyone could post a fake "DELIVERED". We take only the
+  // carrier and tracking number from the call and ask Shippo ourselves, with this business's own key — the order moves
+  // (and the customer is emailed) only on what Shippo itself says. If it can't be confirmed, nothing happens.
+  const claimed = body?.data || body || {};
+  const claimedCarrier = String(claimed.carrier || '').trim(); const claimedNumber = String(claimed.tracking_number || '').trim();
+  if (!claimedCarrier || !claimedNumber) return NextResponse.json({ ok: true, skipped: 'no carrier or tracking number' });
+  let data: any = {};
+  try {
+    const tdoc: any = (await getAdminDb().doc(`tenants/${tenantId}`).get()).data() || {};
+    const key = String(tdoc.retailSettings?.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
+    if (!key) return NextResponse.json({ ok: true, skipped: 'no Shippo key to confirm with' });
+    const r = await fetch(`https://api.goshippo.com/tracks/${encodeURIComponent(claimedCarrier)}/${encodeURIComponent(claimedNumber)}`, { headers: { Authorization: `ShippoToken ${key}` } });
+    if (!r.ok) return NextResponse.json({ ok: true, skipped: 'Shippo could not confirm this tracking number' });
+    data = await r.json();
+  } catch { return NextResponse.json({ ok: true, skipped: 'could not confirm with Shippo' }); }
   const trackingNumber = String(data.tracking_number || '').trim();
   const status = readShippoStatus(data);
   if (!trackingNumber || !status) {
