@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
   // Everything booked → now send the confirmations (a multi-provider visit is one client: one message).
   const toTell = kind === 'visit' ? made.slice(0, 1) : made;
   for (const m of toTell) {
-    await fetch(`${origin}/api/notifications/resend-confirmation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: m.appointmentId }) }).catch(() => {});
+    await fetch(`${origin}/api/notifications/resend-confirmation`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': process.env.CRON_SECRET || '' }, body: JSON.stringify({ tenantId, appointmentId: m.appointmentId }) }).catch(() => {});
   }
   await logAuditAdmin(db, tenantId, { action: kind === 'group' ? 'appointment.group_booked' : 'appointment.visit_booked', targetType: kind, targetId: linkId, summary: kind === 'group' ? `Group booking — ${made.length} guests${b.groupName ? ` (${b.groupName})` : ''}` : `Visit with ${made.length} providers`, actor }).catch(() => {});
   return NextResponse.json({ ok: true, linkId, booked: made.length, appointments: made });
