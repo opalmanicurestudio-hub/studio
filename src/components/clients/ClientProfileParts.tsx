@@ -68,7 +68,7 @@ export function ClientHeader({ client, facts, showMoney, canSeeContact, balance,
   if (client.accommodations || client.accessibilityNotes) flags.push([String(client.accommodations || client.accessibilityNotes).slice(0, 40), 'info']);
   if (client.allergies) flags.push([`Allergy: ${String(client.allergies).slice(0, 30)}`, 'warn']);
   flags.push(...extraFlags);
-  const contact = [canSeeContact && client.phone ? String(client.phone) : null, canSeeContact && client.email ? String(client.email) : null, client.preferredContact ? `${String(client.preferredContact)} preferred` : null, facts.first ? `client since ${format(safe(facts.first.startTime), 'MMMM yyyy')}` : null].filter(Boolean).join(' · ');
+  const contact = [canSeeContact && client.phone ? String(client.phone) : (client.phoneHint || null), canSeeContact && client.email ? String(client.email) : (client.emailHint || null), client.preferredContact ? `${String(client.preferredContact)} preferred` : null, facts.first ? `client since ${format(safe(facts.first.startTime), 'MMMM yyyy')}` : null].filter(Boolean).join(' · ');
   const summary = summaryOn ? clientSummary(client, facts, { showMoney, balance, credit }) : '';
   const btn = 'h-10 rounded-full px-4 text-[14px] font-semibold';
   return (
