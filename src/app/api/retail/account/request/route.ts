@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { limitPublic } from '@/lib/rate-limit';
 import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
 
 import { accountUrl, normalizeEmail } from '@/lib/retail-account';
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const tenantId = String(body.tenantId || '').trim();
+  { const limited = await limitPublic(req, 'account-request', String(tenantId || ''), { perHour: 5, perDay: 100 }); if (limited) return limited; }
   const email = normalizeEmail(body.email);
   if (!tenantId || !email || !email.includes('@')) {
     return NextResponse.json({ error: 'A valid email is required' }, { status: 400 });
