@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
 // ─── /api/retail/preorder-run-eta ────────────────────────────────────────────
@@ -51,6 +52,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Bad request' }, { status: 400 });
     }
     const tenantId = String(body.tenantId || '').trim();
+    if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
     const productId = String(body.productId || '').trim();
     const newDate = String(body.newDate || '').trim();       // YYYY-MM-DD
     const note = String(body.note || '').trim().slice(0, 400);
