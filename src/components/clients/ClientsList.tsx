@@ -64,7 +64,7 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
     { k: 'birthdays', l: 'Birthdays', f: (r) => r.birthday }, { k: 'banned', l: 'Not to be booked', f: (r) => r.c.status === 'banned' }];
   const segRows = (k: Seg) => k === 'archived' ? all.filter((r) => r.c.isArchived || r.c.status === 'archived') : live.filter(segs.find((s) => s.k === k)!.f);
   const term = q.trim().toLowerCase(); const qd = term.replace(/\D/g, '');
-  const rows = segRows(seg).filter((r) => !term || String(r.c.name || '').toLowerCase().includes(term) || (showContact && ((qd.length >= 3 && last10(r.c.phone).includes(qd)) || String(r.c.email || '').toLowerCase().includes(term))))
+  const rows = segRows(seg).filter((r) => !term || String(r.c.name || '').toLowerCase().includes(term) || (showContact && ((qd.length >= 3 && last10(r.c.phone).includes(qd)) || String(r.c.email || '').toLowerCase().includes(term))) || (!showContact && qd.length === 4 && String(r.c.phoneHint || '').endsWith(qd)))
     .sort((a, b) => sort === 'name' ? String(a.c.name || '').localeCompare(String(b.c.name || '')) : sort === 'spent' ? b.spent - a.spent : sort === 'visits' ? b.visits - a.visits
       : sort === 'next' ? (a.next ? safe(a.next.startTime).getTime() : Infinity) - (b.next ? safe(b.next.startTime).getTime() : Infinity) : (b.last?.getTime() || 0) - (a.last?.getTime() || 0));
   const maxSpent = Math.max(1, ...live.map((r) => r.spent));
@@ -111,7 +111,7 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
         {showMoney ? stat('Owe the business', money(owing.reduce((s, r) => s + r.owes, 0)), `${owing.length} ${owing.length === 1 ? 'person' : 'people'}`, owing.length > 0, 'owe') : stat('Regulars', live.filter((r) => r.regular).length, '6+ visits this year', false, 'regulars')}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <input value={q} onChange={(e) => { setQ(e.target.value); setLimit(50); }} placeholder={showContact ? 'Search name, phone or email' : 'Search by name'} aria-label="Search clients" className="h-10 w-full rounded-full border px-4 text-[15px] sm:w-72" style={{ borderColor: 'var(--line, #e7e2dc)', background: 'var(--card, #fff)' }} />
+        <input value={q} onChange={(e) => { setQ(e.target.value); setLimit(50); }} placeholder={showContact ? 'Search name, phone or email' : 'Search name, or last 4 digits'} aria-label="Search clients" className="h-10 w-full rounded-full border px-4 text-[15px] sm:w-72" style={{ borderColor: 'var(--line, #e7e2dc)', background: 'var(--card, #fff)' }} />
         <div className="-mx-1 flex max-w-full gap-1.5 overflow-x-auto px-1" role="tablist" aria-label="Show">
           {[...segs.filter((s) => !s.money || showMoney), { k: 'archived' as Seg, l: 'Archived', f: () => true }].map((s) => { const n = segRows(s.k).length; if (n === 0 && !['all', seg].includes(s.k)) return null;
             return <button key={s.k} type="button" role="tab" aria-selected={seg === s.k} onClick={() => { setSeg(s.k); setSel(new Set()); setLimit(50); }} className="h-9 shrink-0 rounded-full border px-3.5 text-[13px] font-semibold" style={seg === s.k ? { background: 'var(--ink, #1c1917)', color: '#fff', borderColor: 'var(--ink, #1c1917)' } : { background: 'var(--card, #fff)', borderColor: 'var(--line, #e7e2dc)' }}>{s.l} <span style={seg === s.k ? { color: '#d6d3d1' } : muted}>{n}</span></button>; })}
