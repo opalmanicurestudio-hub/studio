@@ -1784,7 +1784,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     try {
       // Corrected address? Save it to the client record too, so every
       // FUTURE reminder and follow-up uses the fixed one.
-      if (firestore && client?.id) {
+      if (firestore && client?.id && !(client as any).contactHidden) {
         const fixes: any = {};
         if (resendEmail.trim() && resendEmail.trim() !== (client.email || '')) fixes.email = resendEmail.trim();
         if (resendPhone.trim() && resendPhone.trim() !== (client.phone || '')) fixes.phone = resendPhone.trim();
