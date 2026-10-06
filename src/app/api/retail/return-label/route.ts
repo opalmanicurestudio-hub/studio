@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { limitPublic } from '@/lib/rate-limit';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
 // ─── /api/retail/return-label/route.ts ────────────────────────────────────────
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const tenantId = String(body.tenantId || '').trim();
+  { const limited = await limitPublic(req, 'return-label', String(tenantId || ''), { perHour: 10, perDay: 200 }); if (limited) return limited; }
   const orderId = String(body.orderId || '').trim();
   const returnId = String(body.returnId || '').trim();
   const qrToken = String(body.qrToken || '').trim();
