@@ -14,6 +14,7 @@
  * debt the business has already decided not to keep pursuing.
  */
 
+import { requireRole } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 
 function getAdmin() {
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
   if (!tenantId || !clientId || !amount || amount <= 0 || !reason || !staffId) {
     return NextResponse.json({ ok: false, error: 'Missing required fields' }, { status: 400 });
   }
+  { const g = await requireRole(req, String(tenantId || ''), 'manager'); if (g.deny) return g.deny; }
 
   const { db, FieldValue } = getAdmin();
   const now = new Date().toISOString();
