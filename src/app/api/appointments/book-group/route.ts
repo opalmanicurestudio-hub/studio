@@ -8,6 +8,8 @@
 // Business rules (Settings → Group bookings): on/off · most guests · who pays the deposits (the organiser, or each guest
 // who gave contact details) · "another service" side by side or straight after. Renters' services can't be part of a
 // group (their money is their own), and every part must be at the same location.
+import { limitPublic } from '@/lib/rate-limit';
+import { createHmac } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { internalOrigin } from '@/lib/message-policy';
@@ -15,8 +17,13 @@ import { groupPolicy } from '@/lib/group-policy';
 export const dynamic = 'force-dynamic';
 const s = (v: any, n = 200) => String(v ?? '').trim().slice(0, n);
 
+/** Signs each per-guest call to the booking engine so it skips the per-visitor count (this route already counted the visitor). */
+function groupSigFor(tenantId: string) { return (p: any) => process.env.CRON_SECRET ? createHmac('sha256', process.env.CRON_SECRET).update(`${tenantId}|${s(p.serviceId, 120)}|${s(p.startTime, 40)}`).digest('hex') : ''; }
+
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = s(b.tenantId, 80);
+  { const limited = await limitPublic(req, 'book-group', String(tenantId || ''), { perHour: 6, perDay: 150 }); if (limited) return limited; }
+  const groupSig = groupSigFor(tenantId);
   const parts: any[] = Array.isArray(b.parts) ? b.parts.slice(0, 13) : [];
   if (!tenantId || parts.length < 2) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const tenant: any = (await db.doc(T).get()).data();
@@ -42,7 +49,7 @@ export async function POST(req: NextRequest) {
     if (p.guest && !g!.name) { await undo(); return NextResponse.json({ ok: false, error: `Guest ${i} needs a name.` }, { status: 400 }); }
     const client = g ? { name: g.name, ...(g.email ? { email: g.email } : {}), ...(g.phone ? { phone: g.phone } : {}) } : { ...organizer, smsConsent: b.organizer?.smsConsent === true, smsConsentText: b.organizer?.smsConsentText || null };
     let r: any = null;
-    try { const res = await fetch(`${origin}/api/appointments/book`, { method: 'POST', headers: { 'Content-Type': 'application/json' },   // NO staff or internal credentials: a public booking
+    try { const res = await fetch(`${origin}/api/appointments/book`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(groupSig(p) ? { 'x-cf-group-sig': groupSig(p) } : {}) },   // NO staff or internal credentials: a public booking
         body: JSON.stringify({ tenantId, source: 'booking-page', channel: s(b.channel, 24) || undefined, serviceId: s(p.serviceId, 120), addOnIds: Array.isArray(p.addOnIds) ? p.addOnIds.slice(0, 8) : [], staffId: s(p.staffId, 120) || 'any', startTime: s(p.startTime, 40),
           client, notes: i === 0 ? s(b.notes, 1000) : (g ? `Guest of ${organizer.name}` : `Part of ${organizer.name}’s visit`), signedForms: i === 0 && Array.isArray(b.signedForms) ? b.signedForms : [], groupRequest: true, quiet: i > 0 }) });
       r = { status: res.status, data: await res.json().catch(() => ({})) }; } catch { r = { status: 0, data: { error: 'Couldn’t reach the booking system.' } }; }
