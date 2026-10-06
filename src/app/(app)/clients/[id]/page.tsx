@@ -1,6 +1,6 @@
 'use client';
 
-import { canSeeClientContact } from '@/lib/privacy';
+import { canSeeClientContact, canMessageClients, stripHiddenContact } from '@/lib/privacy';
 import { ClientTimeline, ClientMessages, ClientFormsNeeded, ClientPhotos, ClientNotes, useClientMessages } from '@/components/clients/ClientTabs';
 import { ClientHeader, NextVisitCard, ClientRail, ClientQuickFacts, clientFacts } from '@/components/clients/ClientProfileParts';
 import { SettingsStyle } from '@/components/settings/settings-style';
@@ -289,7 +289,8 @@ export default function ClientDetailPage() {
   const allStaffList: any[] = ((useInventory() as any).staff) || [];
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
-  const seesContact = canSeeClientContact(selectedTenant, role);   // Settings → privacy: who may see client phone numbers and emails
+  const seesContact = canSeeClientContact(selectedTenant, role);
+  const mayMessage = canMessageClients(selectedTenant, role);   // …and whether they may text or email through the business without seeing it   // Settings → privacy: who may see client phone numbers and emails
 
   const router = useRouter();
   const clientDocRef = useMemoFirebase(() => !firestore || !clientId || !tenantId ? null : doc(firestore, `tenants/${tenantId}/clients`, clientId), [firestore, tenantId, clientId]);
@@ -571,7 +572,7 @@ export default function ClientDetailPage() {
                 fallbackClassName="bg-[var(--soft)] text-[var(--ink)]"
               />}
           onBook={() => setBookOpen(true)} onPay={showFinancials ? () => { void handleQuickSettle(); } : undefined} extraFlags={isHighRisk && selectedTenant?.guardianProtocolEnabled !== false ? [['Stricter booking rules (cancellation history)', 'warn']] : []} onEdit={isOwnerOrAdmin ? () => setIsEditClientOpen(true) : undefined}
-          onMessage={seesContact && (client.phone || client.email) ? () => { window.location.href = client.phone ? `sms:${String(client.phone).replace(/[^\d+]/g, '')}` : `mailto:${client.email}`; } : undefined} />
+          onMessage={!seesContact && mayMessage ? () => setTab('messages') : seesContact && (client.phone || client.email) ? () => { window.location.href = client.phone ? `sms:${String(client.phone).replace(/[^\d+]/g, '')}` : `mailto:${client.email}`; } : undefined} />
         <ClientQuickFacts facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} />
 
         <ClientIntelBanner client={client} />
@@ -1117,7 +1118,7 @@ export default function ClientDetailPage() {
                 {tenantId && <ClientNotes tenantId={tenantId} client={client} />}
               </TabsContent>
               <TabsContent value="messages" className="m-0 space-y-6 text-left">
-                {tenantId && <ClientMessages tenantId={tenantId} client={client} msgs={msgs} canSeeContact={seesContact} />}
+                {tenantId && <ClientMessages tenantId={tenantId} client={client} msgs={msgs} canSeeContact={seesContact} canMessage={mayMessage} />}
               </TabsContent>
             </Tabs>
           </div>
@@ -1140,12 +1141,12 @@ export default function ClientDetailPage() {
         if (!firestore || !tenantId) return;
         // Consent to marketing texts was given for a NUMBER. If the number
         // changes, the yes doesn't carry over — cleared, logged, and said.
-        const oldDigits = String((client as any).phone || '').replace(/\D/g, '');
+        const oldDigits = String((client as any).phone || '').replace(/\D/g, '');   // (a record loaded with contact hidden never resets: its number isn't changed)
         const newDigits = String((data as any)?.phone ?? (client as any).phone ?? '').replace(/\D/g, '');
-        const reset = oldDigits !== newDigits && (client as any).smsMarketingOptIn === true;
+        const reset = !(client as any).contactHidden && oldDigits !== newDigits && (client as any).smsMarketingOptIn === true;
         const nowIso = new Date().toISOString();
         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), {
-          ...data,
+          ...stripHiddenContact(client as any, data as any),
           ...(reset ? { smsMarketingOptIn: false, smsMarketingOptOutAt: nowIso,
             consentLog: arrayUnion({ at: nowIso, kind: 'sms_marketing', value: false, source: 'staff', method: 'number_changed', by: String(currentUser?.displayName || currentUser?.email || 'Staff'), byUid: currentUser?.uid || null, phone: (client as any).phone || null, note: `Number changed to ${(data as any)?.phone || '(none)'} — ask again` }) } : {}),
         });
