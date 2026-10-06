@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { staffOrServer } from '@/lib/route-guard';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
     let body: any = {};
     try { body = await req.json(); } catch { body = {}; }
     const tenantId = str(body?.tenantId, 120);
+    if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
     const returnId = str(body?.returnId, 200);
     if (!tenantId || !returnId) {
       return NextResponse.json({ ok: false, error: 'Missing tenant or return.' }, { status: 400 });
