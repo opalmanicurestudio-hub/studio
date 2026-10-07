@@ -6,6 +6,7 @@ import * as React from 'react';
 import { collection, doc, query, where } from 'firebase/firestore';
 import { useDoc } from '@/firebase/firestore/use-doc';
 import { Housekeeping } from '@/components/pos/desk/Housekeeping';
+import { AskForHelp } from '@/components/pos/desk/AssistQueue';
 import { attendantIds } from '@/lib/attendant';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { Stations } from '@/components/pos/desk/Stations';
@@ -35,11 +36,20 @@ export function PortalHousekeeping({ tenantId, staffId, myAppts, services, staff
   // Housekeeping people need everyone's visits from today, not only their own.
   const since = React.useMemo(() => new Date(Date.now() - 18 * 3600000).toISOString(), []);
   const aq = useMemoFirebase(() => (firestore && tenantId && isAttendant ? query(collection(firestore, 'tenants', tenantId, 'appointments'), where('startTime', '>=', since)) : null), [firestore, tenantId, isAttendant, since]);
-  const { data: all } = useCollection<any>(aq);
-  if (!isAttendant) return <MyTurnovers tenantId={tenantId} staffId={staffId} appts={myAppts} services={services} staff={staff} />;
+  const { data: all } = useCollection<any>(aq); const [asking, setAsking] = React.useState(false);
+  // The visit this person is in right now gives the request its station and client.
+  const live: any = (myAppts || []).find((a: any) => String(a.status) === 'servicing' || (a.actualStartTime && !['completed', 'cancelled', 'no_show'].includes(String(a.status))));
+  const ask = (
+    <div className="rounded-2xl border bg-card p-3">
+      {asking ? <AskForHelp tenantId={tenantId} context={live ? { visitId: live.id, clientName: live.clientName || null, resourceId: (live.requiredResourceIds || [])[0], stationName: live.stationName || undefined } : undefined} onDone={() => setAsking(false)} />
+        : <button type="button" onClick={() => setAsking(true)} className="h-11 w-full rounded-full border text-sm font-semibold">Need something at your station?</button>}
+      {asking && <button type="button" onClick={() => setAsking(false)} className="mt-2 h-9 px-2 text-sm text-muted-foreground">Close</button>}
+    </div>);
+  if (!isAttendant) return <div className="space-y-3">{ask}<MyTurnovers tenantId={tenantId} staffId={staffId} appts={myAppts} services={services} staff={staff} /></div>;
   const today = (all || []).filter((a: any) => String(a.startTime || '') <= new Date(Date.now() + 18 * 3600000).toISOString());
   return (
     <section aria-label="Housekeeping" className="space-y-3">
+      {ask}
       <p className="text-sm font-semibold">Housekeeping</p>
       <Housekeeping tenantId={tenantId} tenant={tenant} appts={today} services={services} staff={staff} manager={false} />
       <MyTurnovers everyone tenantId={tenantId} staffId={staffId} appts={today} services={services} staff={staff} />

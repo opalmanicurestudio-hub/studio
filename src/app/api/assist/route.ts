@@ -7,6 +7,7 @@
 //   decide-sub  { tenantId, id, approve } — …and only the requester approves or declines it
 // A student's request goes to the instructors (managers if there are none). Unaccepted requests escalate to managers
 // (lib/assist escalateAt; the 5-minute task in /api/cron/no-shows sends the alert).
+import { logAuditAdmin } from '@/lib/audit';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
       status: 'open', requestedById: me.uid || null, requestedByName: me.name, routedTo: student ? 'instructor' : 'team', createdAt: now };
     rec.escalateAt = escalateAt(rec);
     const ref = db.collection(`${T}/assistRequests`).doc(); rec.id = ref.id; await ref.set(rec);
+    await logAuditAdmin(db, tenantId, { action: 'assist.asked', targetType: 'assistRequest', targetId: ref.id, actor: { type: 'user', id: me.uid, name: me.name, role: me.role }, summary: `${me.name} asked for ${rec.label.toLowerCase()}${rec.stationName ? ` at ${rec.stationName}` : ''}${rec.clientName ? ` (client: ${rec.clientName})` : ''}` });
     const msg = `${me.name.split(' ')[0]} needs ${rec.label.toLowerCase()}${rec.stationName ? ` at ${rec.stationName}` : ''}${urgency === 'now' ? ' — now' : neededBy ? ` by ${new Date(neededBy).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}`;
     if (student) {   // students → their instructors (managers when there are none)
       const staff = (await db.collection(`${T}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
@@ -67,6 +69,8 @@ export async function POST(req: NextRequest) {
       });
       if (out?.notifyRequester && out.r?.requestedById) await notify({ userId: out.r.requestedById, type: 'assist', priority: 'normal', message: out.notifyRequester, assistId: str(b.id, 80) });
       if (out?.notifyRunner) await notify({ userId: out.notifyRunner.id, type: 'assist', priority: 'normal', message: out.notifyRunner.text, assistId: str(b.id, 80) });
+      { const verb: Record<string, string> = { accept: 'accepted', deliver: 'delivered', cancel: 'cancelled', 'propose-sub': 'offered a swap for', 'decide-sub': b.approve ? 'approved the swap for' : 'declined the swap for' };
+        await logAuditAdmin(db, tenantId, { action: `assist.${String(b.action).replace('-', '_')}`, targetType: 'assistRequest', targetId: str(b.id, 80), actor: { type: 'user', id: me.uid, name: me.name, role: me.role }, summary: `${me.name} ${verb[b.action] || b.action} the request: ${String(out?.r?.label || 'request').toLowerCase()}${out?.r?.stationName ? ` at ${out.r.stationName}` : ''}${out?.r?.requestedByName ? ` (asked by ${out.r.requestedByName})` : ''}` }); }
       return NextResponse.json({ ok: true });
     } catch (e: any) { return NextResponse.json({ ok: false, error: String(e?.message || 'That didn’t work.') }, { status: 409 }); }
   }

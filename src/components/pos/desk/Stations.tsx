@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { doc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { logAuditClient } from '@/lib/audit-client';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { stationReadiness, READINESS_LABEL, type Readiness, type StationRow } from '@/lib/readiness';
 
@@ -20,29 +21,37 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
   const [busy, setBusy] = React.useState<string | null>(null); const [err, setErr] = React.useState<string | null>(null);
   const [blocking, setBlocking] = React.useState<string | null>(null); const [reason, setReason] = React.useState(''); const [quarProto, setQuarProto] = React.useState('');
   const who = () => getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff';
-  const save = async (id: string, patch: any) => { setBusy(id); setErr(null);
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'resources', id), patch); } catch (e: any) { setErr('That didn’t save — try again.'); } setBusy(null); };
+  // Every station action goes on the audit log (who, when, what).
+  const save = async (id: string, patch: any, what?: { action: string; summary: string }) => { setBusy(id); setErr(null);
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'resources', id), patch);
+      if (what) void logAuditClient(firestore, tenantId, { action: what.action, targetType: 'station', targetId: id, actor: { type: 'user', id: getAuth().currentUser?.uid, name: who() }, summary: what.summary }); }
+    catch (e: any) { setErr('That didn’t save — try again.'); } setBusy(null); };
+  // Ticked steps are saved on the station, so a reset can be started by one person and finished by another.
+  const savedTicks = (r: StationRow): number[] => { const res: any = (resources || []).find((x: any) => x.id === r.id); const t = res?.readiness?.ticks; return t && t.visitId === (r.visitId || r.quarantine?.reason || 'q') && Array.isArray(t.done) ? t.done : []; };
+  const ticksOf = (r: StationRow) => ticked[r.id] ?? savedTicks(r);
+  const toggle = (r: StationRow, i: number) => { const cur = ticksOf(r); const next = cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i]; setTicked((t) => ({ ...t, [r.id]: next }));
+    void updateDoc(doc(firestore, 'tenants', tenantId, 'resources', r.id), { 'readiness.ticks': { visitId: r.visitId || r.quarantine?.reason || 'q', done: next, by: who().split(' ')[0], at: new Date().toISOString() } }).catch(() => undefined); };
   const act = {
     ready: async (r: StationRow) => {
       const at = new Date().toISOString();
-      await save(r.id, { readiness: { status: 'ready', at, by: who(), ...(r.checklist?.length ? { checklist: r.checklist } : {}) } });
+      await save(r.id, { readiness: { status: 'ready', at, by: who(), ...(r.checklist?.length ? { checklist: r.checklist } : {}) } }, { action: 'station.ready', summary: `${r.name} marked ready${r.clientName ? ` after ${r.clientName}` : ''}${r.overdueMin ? ` (${r.overdueMin} min late)` : ''}${r.checklist?.length ? ` — ${r.checklist.length} steps confirmed` : ''}` });
       // Proof of the turnover (who, when, which steps, how late) — kept for the owner's records.
       if (r.status === 'turnover') { try { await addDoc(collection(firestore, 'tenants', tenantId, 'turnoverLogs'), { resourceId: r.id, resourceName: r.name, visitId: r.visitId || null, clientName: r.clientName || null,
         steps: r.checklist || [], ownerName: r.ownerName || null, completedBy: who(), completedAt: at, readyBy: r.readyBy || null, minutesLate: r.overdueMin || 0,
         protocolId: r.protocolId || null, protocolName: r.protocolName || null, protocolVersion: r.protocolVersion || null }); } catch { /* the station is ready either way */ } }
       setTicked((t) => { const n = { ...t }; delete n[r.id]; return n; });
     },
-    claim: (r: StationRow) => save(r.id, { 'readiness.claimedFor': r.visitId || null, 'readiness.claimedById': getAuth().currentUser?.uid || null, 'readiness.claimedByName': who().split(' ')[0] }),
-    inspect: (r: StationRow) => save(r.id, { readiness: { status: 'inspect', at: new Date().toISOString(), by: who() } }),
+    claim: (r: StationRow) => save(r.id, { 'readiness.claimedFor': r.visitId || null, 'readiness.claimedById': getAuth().currentUser?.uid || null, 'readiness.claimedByName': who().split(' ')[0] }, { action: 'station.taken', summary: `${who()} took the reset of ${r.name}` }),
+    inspect: (r: StationRow) => save(r.id, { readiness: { status: 'inspect', at: new Date().toISOString(), by: who() } }, { action: 'station.inspect', summary: `${r.name} flagged for inspection` }),
     block: async (r: StationRow) => { const at = new Date().toISOString(); const q = quarProto ? { protocolId: quarProto === 'station' ? null : quarProto, reason: reason.trim() || null, at, by: who() } : null;
-      await save(r.id, { isOutOfService: true, maintenanceNotes: reason.trim() || (q ? 'Quarantined' : 'Blocked at the desk'), quarantine: q, readiness: { status: 'blocked', at, by: who(), note: reason.trim() || null } }); setBlocking(null); setReason(''); setQuarProto(''); },
+      await save(r.id, { isOutOfService: true, maintenanceNotes: reason.trim() || (q ? 'Quarantined' : 'Blocked at the desk'), quarantine: q, readiness: { status: 'blocked', at, by: who(), note: reason.trim() || null } }, { action: q ? 'station.quarantined' : 'station.blocked', summary: `${r.name} ${q ? 'quarantined' : 'blocked'}${reason.trim() ? ` — ${reason.trim()}` : ''}` }); setBlocking(null); setReason(''); setQuarProto(''); },
     // Quarantine release: only once its protocol is completed — logged as proof like a turnover.
     release: async (r: StationRow) => { const at = new Date().toISOString();
-      await save(r.id, { isOutOfService: false, quarantine: null, readiness: { status: 'ready', at, by: who() } });
+      await save(r.id, { isOutOfService: false, quarantine: null, readiness: { status: 'ready', at, by: who() } }, { action: 'station.released', summary: `${r.name} released from quarantine — ${r.quarantine?.steps.length || 0} steps confirmed` });
       try { await addDoc(collection(firestore, 'tenants', tenantId, 'turnoverLogs'), { kind: 'quarantine_release', resourceId: r.id, resourceName: r.name, reason: r.quarantine?.reason || null, steps: r.quarantine?.steps || [],
         protocolId: r.quarantine?.protocolId || null, protocolName: r.quarantine?.protocolName || null, protocolVersion: r.quarantine?.protocolVersion || null, completedBy: who(), completedAt: at }); } catch { /* released either way */ }
       setTicked((t) => { const n = { ...t }; delete n[r.id]; return n; }); },
-    unblock: (r: StationRow) => save(r.id, { isOutOfService: false, readiness: { status: 'ready', at: new Date().toISOString(), by: who() } }),
+    unblock: (r: StationRow) => save(r.id, { isOutOfService: false, readiness: { status: 'ready', at: new Date().toISOString(), by: who() } }, { action: 'station.unblocked', summary: `${r.name} unblocked` }),
   };
   if (mine && !rows.some((r) => !onlyRow || onlyRow(r))) return null;   // a provider's own list: nothing to do, nothing shown
   if (!rows.length) return <p className="text-[14px] text-muted-foreground">No rooms or equipment yet — add them under Resources, then link them to services.</p>;
@@ -84,19 +93,19 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
             ) : (
               <div className="mt-2 flex flex-wrap gap-2">
                 {r.status === 'turnover' && !!r.checklist?.length && (
-                  <ul className="w-full space-y-1 pb-1">{r.checklist.map((step, i) => { const on = (ticked[r.id] || []).includes(i); return (
-                    <li key={i}><label className="flex items-center gap-2 text-[14px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => setTicked((t) => { const cur = t[r.id] || []; return { ...t, [r.id]: on ? cur.filter((x) => x !== i) : [...cur, i] }; })} />{step}</label></li>); })}</ul>)}
-                {(r.status === 'turnover' || r.status === 'inspect') && (() => { const need = r.status === 'turnover' && r.needsConfirm && (ticked[r.id] || []).length < (r.checklist || []).length;
+                  <ul className="w-full space-y-1 pb-1">{r.checklist.map((step, i) => { const on = ticksOf(r).includes(i); return (
+                    <li key={i}><label className="flex items-center gap-2 text-[14px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => toggle(r, i)} />{step}</label></li>); })}</ul>)}
+                {(r.status === 'turnover' || r.status === 'inspect') && (() => { const need = r.status === 'turnover' && r.needsConfirm && ticksOf(r).length < (r.checklist || []).length;
                   return <button type="button" disabled={busy === r.id || need} onClick={() => act.ready(r)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{r.status === 'turnover' && r.needsConfirm ? 'Done — ready' : 'Mark ready'}</button>; })()}
                 {r.status === 'turnover' && !mine && <button type="button" disabled={busy === r.id} onClick={() => act.claim(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">I’ll do it</button>}
                 {(r.status === 'ready' || r.status === 'turnover') && <button type="button" disabled={busy === r.id} onClick={() => act.inspect(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">Needs inspection</button>}
                 {r.status === 'in_use' && onAsk && <button type="button" onClick={() => onAsk({ resourceId: r.id, stationName: r.name, visitId: r.visitId, clientName: r.clientName })} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Ask for help</button>}
                 {r.status === 'blocked' && r.quarantine && (
-                  <ul className="w-full space-y-1 pb-1">{r.quarantine.steps.map((step, i) => { const on = (ticked[r.id] || []).includes(i); return (
-                    <li key={i}><label className="flex items-center gap-2 text-[14px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => setTicked((t) => { const cur = t[r.id] || []; return { ...t, [r.id]: on ? cur.filter((x) => x !== i) : [...cur, i] }; })} />{step}</label></li>); })}</ul>)}
+                  <ul className="w-full space-y-1 pb-1">{r.quarantine.steps.map((step, i) => { const on = ticksOf(r).includes(i); return (
+                    <li key={i}><label className="flex items-center gap-2 text-[14px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => toggle(r, i)} />{step}</label></li>); })}</ul>)}
                 {r.status === 'blocked'
                   ? (r.quarantine
-                    ? <button type="button" disabled={busy === r.id || (ticked[r.id] || []).length < r.quarantine.steps.length} onClick={() => act.release(r)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Release from quarantine</button>
+                    ? <button type="button" disabled={busy === r.id || ticksOf(r).length < r.quarantine.steps.length} onClick={() => act.release(r)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Release from quarantine</button>
                     : <button type="button" disabled={busy === r.id} onClick={() => act.unblock(r)} className="h-9 rounded-full border px-3 text-[13px] font-semibold disabled:opacity-50">Unblock</button>)
                   : r.status !== 'in_use' && !mine && <button type="button" onClick={() => { setBlocking(r.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Block</button>}
               </div>

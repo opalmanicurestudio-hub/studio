@@ -11,12 +11,14 @@ import { stageOf } from '@/lib/visit';
 import { moveLinen, linenOutlook, linensNeeded, linenTotal, LINEN_MOVE_LABEL, BUNDLE_LABEL, BUNDLE_NEXT, findBundle, newBundleCode, type Linen, type LinenMove, type LinenBundle } from '@/lib/linens';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
-import { printCodeLabels } from '@/lib/print-labels';
+import { printCodeLabels, brandOf } from '@/lib/print-labels';
+import { useTenant } from '@/context/TenantContext';
 import { useNfc } from '@/lib/use-nfc';
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-export function Linens({ tenantId, services, appts = [], inventory = [], manager }: { tenantId: string; services: any[]; appts?: any[]; inventory?: any[]; manager: boolean }) {
+export function Linens({ tenantId, services, appts = [], inventory = [], manager, staff = [] }: { tenantId: string; services: any[]; appts?: any[]; inventory?: any[]; manager: boolean; staff?: any[] }) {
+  const { selectedTenant } = useTenant() as any; const [holderFor, setHolderFor] = React.useState<LinenBundle | null>(null);   // a bundle being taken out: who is it for?
   const { firestore } = useFirebase();
   const q = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'linens') : null), [firestore, tenantId]);
   const { data: linensRaw } = useCollection<any>(q);
@@ -52,10 +54,12 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); return ok; };
   // A bundle's tag was scanned (or its button tapped): the whole bundle moves on, and the type's counts with it.
-  const moveBundle = async (b: LinenBundle) => { const l = linens.find((x) => x.id === b.linenId); if (!l) { setMsg({ ok: false, text: 'That bundle’s linen type no longer exists.' }); return false; }
+  const moveBundle = async (b: LinenBundle, holder?: { id: string | null; name: string | null } | 'ask') => { if (b.status === 'clean' && holder === undefined && (staff || []).some((x: any) => x && x.active !== false && x.role !== 'renter')) { setHolderFor(b); return true; }
+    const h = holder && holder !== 'ask' ? holder : null; const l = linens.find((x) => x.id === b.linenId); if (!l) { setMsg({ ok: false, text: 'That bundle’s linen type no longer exists.' }); return false; }
     const next = BUNDLE_NEXT[b.status]; if (!(await apply(l, next.move, b.qty, next.move !== 'issue'))) return false;
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who() }); } catch { /* counts moved; tap again to fix the tag */ }
-    setMsg({ ok: true, text: `${b.name} ${b.code} (${b.qty}) — ${BUNDLE_LABEL[next.to].toLowerCase()}` }); return true; };
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who(), holderId: next.to === 'in_use' ? h?.id || null : null, holderName: next.to === 'in_use' ? h?.name || null : null }); } catch { /* counts moved; tap again to fix the tag */ }
+    void logAuditClient(firestore, tenantId, { action: `bundle.${next.to}`, targetType: 'linenBundle', targetId: b.id, actor: actor(), before: { status: b.status }, after: { status: next.to, holderId: h?.id || null }, summary: `${b.name} bundle ${b.code} (${b.qty}): ${BUNDLE_LABEL[b.status]} → ${BUNDLE_LABEL[next.to]}${next.to === 'in_use' && h?.name ? ` with ${h.name}` : ''}` });
+    setHolderFor(null); setMsg({ ok: true, text: `${b.name} ${b.code} (${b.qty}) — ${BUNDLE_LABEL[next.to].toLowerCase()}${next.to === 'in_use' && h?.name ? ` with ${String(h.name).split(' ')[0]}` : ''}` }); return true; };
   const handleCode = async (raw: string) => { const b = findBundle(bundles, raw); if (!b) { scanFeedback(false); setMsg({ ok: false, text: 'No bundle with that tag.' }); return; } scanFeedback(await moveBundle(b)); };
   codeRef.current = (v) => { void handleCode(v); };
   const makeBundles = async (l: Linen) => { const size = Math.max(1, Math.round(bSize) || 1), n = Math.max(1, Math.min(30, Math.round(bCount) || 1)); setBusy(l.id);
@@ -68,7 +72,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
       setBundling(null); setMsg({ ok: true, text: `Made ${n} bundle${n === 1 ? '' : 's'} of ${size}. Print their tags.` }); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); };
-  const printTags = async (l: Linen) => { if (!(await printCodeLabels(bundles.filter((b) => b.linenId === l.id).map((b) => ({ title: b.name, sub: `Bundle of ${b.qty}`, code: b.code })), 'Linen bundle tags'))) setMsg({ ok: false, text: 'Allow pop-ups to print tags.' }); };
+  const printTags = async (l: Linen) => { if (!(await printCodeLabels(bundles.filter((b) => b.linenId === l.id).map((b) => ({ title: b.name, sub: `Bundle of ${b.qty}`, code: b.code })), 'Linen bundle tags', brandOf(selectedTenant)))) setMsg({ ok: false, text: 'Allow pop-ups to print tags.' }); };
   const add = async () => { const nm = name.trim().slice(0, 60); if (!nm) return; setBusy('add'); const inv: any = supplies.find((i: any) => i.id === invId) || null;
     try { const ref = doc(collection(firestore, 'tenants', tenantId, 'linens')); const at = new Date().toISOString(); const c = Math.max(0, Math.round(count) || 0);
       await setDoc(ref, { id: ref.id, name: nm, clean: c, dirty: 0, washing: 0, par: Math.max(0, Math.round(par) || 0) || null, inUse: 0, washMinutes: Math.max(0, Math.round(washMin) || 0) || null, inventoryItemId: inv?.id || null, inventoryName: inv?.name || null, by: who(), at, createdAt: at });
@@ -88,6 +92,15 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
         {cam && <ScanGate onScan={(v) => { void handleCode(v); }} label="Point the camera at a bundle tag" />}
         {nfc.supported && <button type="button" onClick={() => (nfc.on ? nfc.end() : nfc.start())} className="h-10 w-full rounded-xl border text-[13px] font-semibold">{nfc.on ? 'Stop reading NFC — ready, hold a tag to the phone' : 'Tap NFC tags with this phone'}</button>}
       </>)}
+      {holderFor && (
+        <div className="space-y-2 rounded-2xl border-2 bg-card p-3" role="dialog" aria-label="Who is this bundle for?">
+          <p className="text-[14px] font-semibold">Who is {holderFor.name} {holderFor.code} for?</p>
+          <div className="flex flex-wrap gap-2">
+            {(staff || []).filter((x: any) => x && x.id && x.active !== false && x.role !== 'renter').map((x: any) => <button key={x.id} type="button" onClick={() => moveBundle(holderFor, { id: x.id, name: x.name || null })} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background">{String(x.name || 'Team member').split(' ')[0]}</button>)}
+            <button type="button" onClick={() => moveBundle(holderFor, { id: null, name: null })} className="h-10 rounded-full border px-4 text-[13px]">Shared / no one</button>
+            <button type="button" onClick={() => setHolderFor(null)} className="h-10 rounded-full px-3 text-[13px]">Cancel</button>
+          </div>
+        </div>)}
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
       {!linens.length && <p className="text-[14px] text-muted-foreground">No linens yet. {manager ? 'Add towels, capes or robes and the desk will tell you if there are enough clean ones for the rest of the day.' : 'A manager can add them here.'}</p>}
       {linens.map((l) => { const o = outlook.find((x) => x.id === l.id); const own = l.inventoryItemId ? Number((inventory || []).find((i: any) => i.id === l.inventoryItemId)?.totalStock) : NaN; return (
@@ -103,7 +116,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
           {(() => { const mine = bundles.filter((b) => b.linenId === l.id).sort((a, b) => a.code.localeCompare(b.code)); if (!mine.length) return null; return (
             <ul className="mt-2 space-y-1 border-t pt-2">{mine.map((b) => (
               <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
-                <span><span className="font-mono font-semibold tracking-wider">{b.code}</span> · {b.qty} · {BUNDLE_LABEL[b.status]}{b.status === 'washing' ? <> · <LiveTimer since={b.at} minutes={l.washMinutes || 0} doneLabel="should be done" /></> : b.status === 'in_use' ? <> · <LiveTimer since={b.at} /></> : null}</span>
+                <span><span className="font-mono font-semibold tracking-wider">{b.code}</span> · {b.qty} · {BUNDLE_LABEL[b.status]}{b.status === 'in_use' && (b as any).holderName ? ` with ${String((b as any).holderName).split(' ')[0]}` : ''}{b.status === 'washing' ? <> · <LiveTimer since={b.at} minutes={l.washMinutes || 0} doneLabel="should be done" /></> : b.status === 'in_use' ? <> · <LiveTimer since={b.at} /></> : null}</span>
                 <button type="button" disabled={busy === l.id} onClick={() => moveBundle(b)} className="h-8 rounded-full border px-3 text-[12px] font-semibold disabled:opacity-40">{BUNDLE_NEXT[b.status].label}</button>
               </li>))}</ul>); })()}
           {bundling === l.id && (

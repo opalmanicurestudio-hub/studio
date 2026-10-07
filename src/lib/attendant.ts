@@ -7,14 +7,16 @@ import type { StationRow } from '@/lib/readiness';
 import { typeOf, secondsLeft, kitSupply, type Kit, type KitType } from '@/lib/kits';
 import type { Linen, LinenOutlook } from '@/lib/linens';
 
-export type TaskKind = 'station' | 'inspect' | 'kit_clean' | 'kit_finish' | 'kit_decide' | 'wash_start' | 'wash_done';
-export interface OpsTask { id: string; kind: TaskKind; title: string; detail: string; score: number; dueAt: string | null; ownerName?: string | null; claimed?: boolean; refId: string; goTo: 'stations' | 'kits' | 'linens'; managerOnly?: boolean }
+export type TaskKind = 'station' | 'inspect' | 'kit_clean' | 'kit_finish' | 'kit_decide' | 'wash_start' | 'wash_done' | 'request' | 'prep';
+export interface OpsTask { id: string; kind: TaskKind; title: string; detail: string; score: number; dueAt: string | null; ownerName?: string | null; claimed?: boolean; refId: string; goTo: 'stations' | 'kits' | 'linens' | 'assist'; managerOnly?: boolean;
+  /** A station request (O4): who asked, and whether someone is already on it. */ request?: { source: 'assist' | 'lounge' | 'restock'; status: string; acceptedBy?: string | null; requester?: string | null };
+  /** Who has said they're doing it, and any note left by the last person who had it. */ claimedBy?: string | null; claimedById?: string | null; handover?: { from: string; note: string; at: string } | null }
 export const housekeepingMode = (tenant: any): 'providers' | 'attendants' => (tenant?.ops?.housekeeping === 'attendants' && Array.isArray(tenant?.ops?.attendantIds) && tenant.ops.attendantIds.length ? 'attendants' : 'providers');
 export const attendantIds = (tenant: any): string[] => (housekeepingMode(tenant) === 'attendants' ? tenant.ops.attendantIds.map(String) : []);
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** Higher score = do it sooner. Roughly: something a client is about to need > overdue > running low > routine. */
-export function attendantQueue(input: { stations: StationRow[]; kits: Kit[]; kitTypes: KitType[]; linens: Linen[]; outlook: LinenOutlook[]; now?: number }): OpsTask[] {
+export function attendantQueue(input: { stations: StationRow[]; kits: Kit[]; kitTypes: KitType[]; linens: Linen[]; outlook: LinenOutlook[]; requests?: any[]; claims?: any[]; prep?: OpsTask[]; now?: number }): OpsTask[] {
   const now = input.now ?? Date.now(); const out: OpsTask[] = [];
   for (const r of input.stations || []) {
     const nextIn = r.next ? (Date.parse(r.next.at) - now) / 60000 : Infinity; const nextBit = r.next && nextIn < 90 ? ` · next client ${clock(r.next.at)}` : '';
@@ -37,5 +39,28 @@ export function attendantQueue(input: { stations: StationRow[]; kits: Kit[]; kit
     if (Number(l.dirty) > 0 && (short || o?.belowPar || Number(l.dirty) >= 6))
       out.push({ id: `ws:${l.id}`, kind: 'wash_start', refId: l.id, goTo: 'linens', title: `Wash ${String(l.name).toLowerCase()} (${l.dirty} dirty)`, dueAt: o?.runsOutAt || null, detail: short ? `Short by ${o!.short} for today${o?.runsOutAt ? ` — needed by the ${clock(o.runsOutAt)} visit` : ''}` : o?.belowPar ? `Below your usual ${l.par} clean` : `${l.clean} clean left`, score: short ? 78 : o?.belowPar ? 38 : 22 });
   }
+  // What providers have asked for from their stations (and lounge orders, restock requests) — same list, so nothing is missed.
+  for (const r of input.requests || []) { if (r.status !== 'open' && r.status !== 'accepted') continue;
+    const byIn = r.neededBy ? (Date.parse(r.neededBy) - now) / 60000 : Infinity;
+    out.push({ id: `rq:${r.source}:${r.id}`, kind: 'request', refId: r.id, goTo: 'assist', title: `${r.title}${r.where ? ` — ${r.where}` : ''}`, dueAt: r.neededBy || null,
+      detail: `${r.requester ? `${String(r.requester).split(' ')[0]} asked` : 'Asked'}${r.forClient ? ` for ${r.forClient}` : ''} · ${r.ageMin < 1 ? 'just now' : `${r.ageMin} min ago`}${r.status === 'accepted' && r.acceptedBy ? ` · ${String(r.acceptedBy).split(' ')[0]} is on it` : ''}${r.detail ? ` · ${r.detail}` : ''}`,
+      request: { source: r.source, status: r.status, acceptedBy: r.acceptedBy || null, requester: r.requester || null }, claimed: r.status === 'accepted', claimedBy: r.acceptedBy || null,
+      score: r.status === 'accepted' ? 42 : r.escalated ? 100 : r.urgency === 'now' ? 95 : r.urgency === 'by' ? (byIn <= 10 ? 90 : byIn <= 30 ? 60 : 35) : 65 }); }
+  for (const p of input.prep || []) out.push(p);
+  // Who's on what (kits, linens and prep jobs; stations and requests carry their own).
+  const fresh = (input.claims || []).filter((c) => c && now - (Date.parse(String(c.at || '')) || 0) < 12 * 3600000);
+  for (const t of out) { const c = fresh.find((x) => x.taskId === t.id); if (!c) continue;
+    if (c.byId) { t.claimed = true; t.claimedBy = c.byName || null; t.claimedById = c.byId; }
+    if (c.handover?.note || c.handover?.from) t.handover = c.handover; }
+  for (const t of out) if (t.kind === 'station' && t.claimed && !t.claimedBy) t.claimedBy = t.ownerName || null;
   return out.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+/** How many jobs one person may hold at once (the business can change it; 3 unless set). */
+export const taskLimit = (tenant: any) => Math.max(1, Math.min(10, Math.round(Number(tenant?.ops?.maxTasksEach) || 3)));
+/** Jobs this person has said they're doing. */
+export const tasksHeldBy = (tasks: OpsTask[], uid: string | null | undefined, name?: string | null) => tasks.filter((t) => t.claimed && ((uid && t.claimedById === uid) || (!t.claimedById && name && t.claimedBy && String(t.claimedBy).split(' ')[0] === String(name).split(' ')[0])));
+/** The people doing housekeeping right now: named, active, and not on a break. */
+export function attendantsOnNow(tenant: any, staff: any[]): { on: any[]; onBreak: any[] } {
+  const ids = attendantIds(tenant); const mine = (staff || []).filter((s) => s && ids.includes(String(s.id)) && s.active !== false);
+  return { on: mine.filter((s) => !s.onBreak), onBreak: mine.filter((s) => s.onBreak) };
 }

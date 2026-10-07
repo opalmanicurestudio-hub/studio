@@ -26,7 +26,7 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
       for (const n of turnoverNotices(stationReadiness(resources, appts, await services(), now, staff, protocols), resources, now, tenant?.timezone || tenant?.timeZone)) {
         const managers = staff.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && m.active !== false).map((m: any) => m.id);
         // Where the business has named housekeeping people, the first reminder goes to them rather than the provider.
-        const att = attendantIds(tenant).filter((id) => staff.some((m: any) => m.id === id && m.active !== false));
+        const att = attendantIds(tenant).filter((id) => staff.some((m: any) => m.id === id && m.active !== false && !m.onBreak));   // not someone on a break
         const to: string[] = n.level === 1 ? (att.length ? att : n.ownerId ? [n.ownerId] : []) : Array.from(new Set([...managers, ...(n.ownerId ? [n.ownerId] : [])]));
         const b = db.batch(); b.update(db.doc(`${T}/resources/${n.resourceId}`), { 'readiness.notice': { visitId: n.visitId, level: n.level, at: nowIso } });
         for (const uid of to) { const ref = db.collection(`${T}/notifications`).doc(); b.set(ref, { id: ref.id, userId: uid, type: n.level === 1 ? 'turnover_due' : 'turnover_escalation', priority: n.level === 1 ? 'high' : 'urgent', link: n.level === 1 ? '/staff-portal/' + tenantId : '/pos', resourceId: n.resourceId, appointmentId: n.visitId, message: n.message, createdAt: nowIso, read: false }); }

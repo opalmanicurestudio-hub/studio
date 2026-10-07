@@ -10,7 +10,8 @@ import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { TagPairing } from '@/components/pos/desk/TagPairing';
 import { useNfc } from '@/lib/use-nfc';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
-import { printCodeLabels } from '@/lib/print-labels';
+import { printCodeLabels, brandOf } from '@/lib/print-labels';
+import { useTenant } from '@/context/TenantContext';
 import { Linens } from '@/components/pos/desk/Linens';
 import { stageOf } from '@/lib/visit';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
@@ -18,7 +19,8 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 const TONE: Record<KitStatus, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', dirty: 'bg-amber-100 text-amber-900', cleaning: 'bg-violet-100 text-violet-900', out: 'bg-red-100 text-red-800', retired: 'bg-muted text-muted-foreground' };
 const ORDER: KitStatus[] = ['out', 'dirty', 'cleaning', 'in_use', 'ready'];
 
-export function Kits({ firestore, tenantId, kits, services, manager, appts = [], inventory = [] }: { firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean; appts?: any[]; inventory?: any[] }) {
+export function Kits({ firestore, tenantId, kits, services, manager, appts = [], inventory = [], staff = [], resources = [] }: { firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean; appts?: any[]; inventory?: any[]; staff?: any[]; resources?: any[] }) {
+  const { selectedTenant } = useTenant() as any;
   const [invId, setInvId] = React.useState('');   // the inventory item the new kits are units of
   const equipment = React.useMemo(() => (inventory || []).filter((i: any) => i?.type === 'equipment' && i.archived !== true).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [inventory]);
   const syncNow = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, only: 'kits' }) }).catch(() => undefined); };
@@ -44,16 +46,20 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
     if (c.length > 1) { setAskFor({ kit: k, who: c }); return; }
     await move(k, 'in_use', undefined, c[0] || null); };
   const move = async (k: Kit, to: KitStatus, note?: string, forVisit?: { id: string; clientName: string } | null) => {
-    const res = moveKit(k, to, who(), { note, visitId: forVisit?.id, clientName: forVisit?.clientName });
+    // Who it's with: the visit's provider and station are kept on the kit while it's in use.
+    const visit: any = forVisit ? (appts || []).find((a: any) => a.id === forVisit.id) : null;
+    const prov: any = visit ? (staff || []).find((x: any) => x.id === visit.staffId) : null; const station: any = visit && Array.isArray(visit.requiredResourceIds) ? (resources || []).find((r: any) => visit.requiredResourceIds.includes(r.id)) : null;
+    const held = to === 'in_use' ? { staffId: visit?.staffId || null, staffName: prov?.name || visit?.staffName || null } : { staffId: null, staffName: null };
+    const res = moveKit(k, to, who(), { note, visitId: forVisit?.id, clientName: forVisit?.clientName, stationName: station?.name || null });
     if ('error' in res) { setMsg({ ok: false, text: res.error }); return false; }
     setBusy(k.id);
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), { ...(res.patch as any), byId: getAuth().currentUser?.uid || null });
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), { ...(res.patch as any), ...held, byId: getAuth().currentUser?.uid || null });
       if (to === 'out' || to === 'retired' || k.status === 'out') syncNow();   // usable kits changed → booking and stock follow straight away
       // The visit remembers which kit was used on this client (for the record, and so they aren't offered a second one).
       if (to === 'in_use' && forVisit) { try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', forVisit.id), { kits: arrayUnion({ id: k.id, name: k.name, code: k.code, at: new Date().toISOString(), by: who().name }) }); } catch { /* the kit is still marked in use */ } }
       // Every move is on the business's audit log (who, when, from → to, why, for whom).
       void logAuditClient(firestore, tenantId, { action: `kit.${to}`, targetType: 'kit', targetId: k.id, actor: actor(), before: { status: k.status }, after: { status: to, visitId: forVisit?.id || null, inventoryItemId: (k as any).inventoryItemId || null },
-        summary: `${k.name} ${k.code}: ${KIT_LABEL[k.status]} → ${KIT_LABEL[to]}${forVisit ? ` for ${forVisit.clientName}` : ''}${note ? ` — ${String(note).trim()}` : to === 'retired' && k.note ? ` — ${k.note}` : ''}` });
+        summary: `${k.name} ${k.code}: ${KIT_LABEL[k.status]} → ${KIT_LABEL[to]}${forVisit ? ` for ${forVisit.clientName}` : ''}${held.staffName ? ` with ${held.staffName}` : ''}${to === 'in_use' && station?.name ? ` at ${station.name}` : ''}${note ? ` — ${String(note).trim()}` : to === 'retired' && k.note ? ` — ${k.note}` : ''}` });
       // A retired kit leaves inventory: one fewer owned, with a stock movement saying why.
       if (to === 'retired' && (k as any).inventoryItemId) { try { await runTransaction(firestore, async (txn: any) => { const ref = doc(firestore, 'tenants', tenantId, 'inventory', (k as any).inventoryItemId); const snap = await txn.get(ref); if (!snap.exists()) return;
           const have = Number(snap.data()?.totalStock) || 0; txn.update(ref, { totalStock: Math.max(0, have - 1) });
@@ -97,7 +103,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
       setMsg({ ok: true, text: `Added ${n} × ${name}. Print their labels below.` }); setAdding(false); setNewName(''); setHowMany(1); setInvId(''); syncNow(); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); };
-  const printLabels = async () => { if (!(await printCodeLabels(live.map((k) => ({ title: k.name, code: k.code })), 'Kit labels'))) setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); };
+  const printLabels = async () => { if (!(await printCodeLabels(live.map((k) => ({ title: k.name, code: k.code })), 'Kit labels', brandOf(selectedTenant)))) setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); };
 
   return (
     <div className="space-y-3">
@@ -155,6 +161,12 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
           </div>
         </div>)}
       {!live.length && <p className="text-[14px] text-muted-foreground">No kits yet. {manager ? 'Add the sets of tools you rotate between clients, and the desk will show when a clean one is waiting.' : 'A manager can add them here.'}</p>}
+      {(() => { const out = live.filter((k) => k.status === 'in_use'); if (!out.length) return null;
+        const by = new Map<string, Kit[]>(); for (const k of out) { const key = String((k as any).staffName || 'No provider recorded'); by.set(key, [...(by.get(key) || []), k]); }
+        return (<div className="space-y-1 rounded-2xl border bg-card p-3 text-[13px]">
+          <p className="font-semibold">Who has what</p>
+          {[...by.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, ks]) => <p key={name}><b>{name.split(' ')[0] === 'No' ? name : name.split(' ')[0]}</b> — {ks.map((k) => `${k.name} ${k.code}${k.clientName ? ` (${k.clientName}${k.stationName ? `, ${k.stationName}` : ''})` : ''}`).join(' · ')}</p>)}
+        </div>); })()}
       {supply.length > 0 && (
         <div className="space-y-1 rounded-2xl border bg-card p-3">
           {supply.map((s) => (
@@ -181,7 +193,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="truncate text-[15px] font-semibold">{k.name} <span className="font-mono text-[13px] font-normal tracking-wider text-muted-foreground">{k.code}</span>{k.tagIds?.length ? <span className="ml-2 rounded-full border px-2 py-0.5 text-[11px] font-normal text-muted-foreground">tag paired</span> : null}</p>
-              <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' && k.clientName ? `With ${k.clientName} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
+              <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' ? `${[k.clientName ? `Client: ${k.clientName}` : null, (k as any).staffName ? `Provider: ${String((k as any).staffName).split(' ')[0]}` : null, k.stationName || null].filter(Boolean).join(' · ') || 'Not tied to a client'} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
               {k.status === 'cleaning' && <p className="text-[13px]">Cleaning: <LiveTimer since={k.at} minutes={typeOf(types, k.name)?.cleanMinutes || 0} doneLabel="Cleaning time is up" />{kitHours(k) >= 3 ? <span className="font-semibold text-amber-800"> — is it done?</span> : null}</p>}
               {k.status === 'in_use' && <p className="text-[12px] text-muted-foreground">In use <LiveTimer since={k.at} /></p>}
               {k.lastCheck && <p className="text-[12px] text-muted-foreground">Contents {k.lastCheck.ok ? 'checked' : 'incomplete'} · {new Date(k.lastCheck.at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {k.lastCheck.by}</p>}
