@@ -18,7 +18,8 @@ import { useNfc } from '@/lib/use-nfc';
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 export function Linens({ tenantId, services, appts = [], inventory = [], manager, staff = [] }: { tenantId: string; services: any[]; appts?: any[]; inventory?: any[]; manager: boolean; staff?: any[] }) {
-  const { selectedTenant } = useTenant() as any; const [fmt, setFmt] = React.useState<LabelFormat>('band');   // bundles default to a wrap band const [holderFor, setHolderFor] = React.useState<LinenBundle | null>(null);   // a bundle being taken out: who is it for?
+  const { selectedTenant } = useTenant() as any; const [fmt, setFmt] = React.useState<LabelFormat>('band');   // bundles default to a wrap band
+  const [holderFor, setHolderFor] = React.useState<LinenBundle | null>(null);   // a bundle being taken out: who is it for?
   const { firestore } = useFirebase();
   const q = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'linens') : null), [firestore, tenantId]);
   const { data: linensRaw } = useCollection<any>(q);
