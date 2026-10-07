@@ -55,3 +55,13 @@ export function kitsShort(service: any, kits: Kit[]): string[] {
   const supply = kitSupply(kits);
   return kitsNeeded(service).filter((n) => { const s = supply.find((x) => sameKitType(x.name, n.name)); return !!s && s.ready < n.qty; }).map((n) => n.name);
 }
+/** Who a kit being taken is most likely for: today's guests in service or waiting whose service needs this kit type and
+ *  who don't have one of that type yet. In-service guests first. `stage` is the visit's stage ('in_service', 'waiting', 'arrived'…). */
+export function kitCandidates(kit: Kit, visits: { id: string; clientName?: string | null; serviceId?: string | null; stage: string; kits?: any[] }[], services: any[]): { id: string; clientName: string; stage: string }[] {
+  const rank = (st: string) => (st === 'in_service' ? 0 : st === 'waiting' || st === 'arrived' ? 1 : 9);
+  return (visits || []).filter((v) => rank(v.stage) < 9)
+    .filter((v) => kitsNeeded((services || []).find((x: any) => x.id === v.serviceId)).some((n) => sameKitType(n.name, kit.name)))
+    .filter((v) => !(v.kits || []).some((k: any) => sameKitType(k?.name, kit.name)))
+    .sort((a, b) => rank(a.stage) - rank(b.stage))
+    .map((v) => ({ id: v.id, clientName: String(v.clientName || 'Guest'), stage: v.stage }));
+}

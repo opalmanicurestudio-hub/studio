@@ -2,15 +2,17 @@
 // src/components/pos/desk/Kits.tsx — KITS at the desk (O5): how many of each kit are clean, in use, waiting to be cleaned
 // or pulled out; type or scan a label to move one along; pull one out with a reason (a manager decides what happens next).
 import * as React from 'react';
-import { doc, updateDoc, setDoc, collection } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, collection, arrayUnion } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeeded, type Kit, type KitStatus } from '@/lib/kits';
+import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeeded, kitCandidates, type Kit, type KitStatus } from '@/lib/kits';
+import { stageOf } from '@/lib/visit';
 
 const TONE: Record<KitStatus, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', dirty: 'bg-amber-100 text-amber-900', cleaning: 'bg-violet-100 text-violet-900', out: 'bg-red-100 text-red-800', retired: 'bg-muted text-muted-foreground' };
 const ORDER: KitStatus[] = ['out', 'dirty', 'cleaning', 'in_use', 'ready'];
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
-export function Kits({ firestore, tenantId, kits, services, manager }: { firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean }) {
+export function Kits({ firestore, tenantId, kits, services, manager, appts = [] }: { firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean; appts?: any[] }) {
+  const [askFor, setAskFor] = React.useState<{ kit: Kit; who: { id: string; clientName: string; stage: string }[] } | null>(null);   // more than one guest it could be for
   const [typed, setTyped] = React.useState(''); const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null); const [pulling, setPulling] = React.useState<string | null>(null); const [reason, setReason] = React.useState('');
   const [adding, setAdding] = React.useState(false); const [newName, setNewName] = React.useState(''); const [howMany, setHowMany] = React.useState(1);
@@ -20,18 +22,26 @@ export function Kits({ firestore, tenantId, kits, services, manager }: { firesto
   const typeNames = React.useMemo(() => Array.from(new Set([...supply.map((s) => s.name), ...(services || []).flatMap((s: any) => kitsNeeded(s).map((n) => n.name))])).sort(), [supply, services]);
   const who = () => ({ name: (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0], manager });
 
-  const move = async (k: Kit, to: KitStatus, note?: string) => {
-    const res = moveKit(k, to, who(), { note });
+  // Taking a clean kit ties it to the client it's for (one likely guest → tied straight away; several → ask; none → not tied).
+  const take = async (k: Kit) => {
+    const c = kitCandidates(k, (appts || []).map((a: any) => ({ id: a.id, clientName: a.clientName, serviceId: a.serviceId, stage: stageOf(a), kits: a.kits })), services);
+    if (c.length > 1) { setAskFor({ kit: k, who: c }); return; }
+    await move(k, 'in_use', undefined, c[0] || null); };
+  const move = async (k: Kit, to: KitStatus, note?: string, forVisit?: { id: string; clientName: string } | null) => {
+    const res = moveKit(k, to, who(), { note, visitId: forVisit?.id, clientName: forVisit?.clientName });
     if ('error' in res) { setMsg({ ok: false, text: res.error }); return false; }
     setBusy(k.id);
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), res.patch as any); setMsg({ ok: true, text: `${k.name} ${k.code} — ${KIT_LABEL[to].toLowerCase()}` }); setBusy(null); return true; }
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), res.patch as any);
+      // The visit remembers which kit was used on this client (for the record, and so they aren't offered a second one).
+      if (to === 'in_use' && forVisit) { try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', forVisit.id), { kits: arrayUnion({ id: k.id, name: k.name, code: k.code, at: new Date().toISOString(), by: who().name }) }); } catch { /* the kit is still marked in use */ } }
+      setMsg({ ok: true, text: `${k.name} ${k.code} — ${KIT_LABEL[to].toLowerCase()}${to === 'in_use' ? (forVisit ? ` for ${forVisit.clientName}` : ' (not tied to a client)') : ''}` }); setAskFor(null); setBusy(null); return true; }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); setBusy(null); return false; }
   };
   const onScan = async (ev: React.FormEvent) => { ev.preventDefault();
     const k = findKit(live, typed); setTyped('');
     if (!k) { setMsg({ ok: false, text: 'No kit with that code.' }); return; }
     const next = KIT_NEXT[k.status]; if (!next) { setMsg({ ok: false, text: `${k.name} ${k.code} is pulled out — a manager decides what happens next.` }); return; }
-    await move(k, next.to); };
+    if (next.to === 'in_use') await take(k); else await move(k, next.to); };
   const add = async () => { const name = newName.trim().slice(0, 60); const n = Math.max(1, Math.min(30, Math.round(howMany) || 1)); if (!name) return;
     setBusy('add'); const taken = (kits || []).map((k) => k.code); const at = new Date().toISOString();
     try { for (let i = 0; i < n; i++) { const code = newKitCode(taken); taken.push(code); const ref = doc(collection(firestore, 'tenants', tenantId, 'kits'));
@@ -55,6 +65,15 @@ export function Kits({ firestore, tenantId, kits, services, manager }: { firesto
         <button type="submit" disabled={!typed.trim()} className="h-11 rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background disabled:opacity-40">Move it on</button>
       </form>
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
+      {askFor && (
+        <div className="space-y-2 rounded-2xl border-2 bg-card p-3" role="dialog" aria-label="Who is this kit for?">
+          <p className="text-[14px] font-semibold">Who is {askFor.kit.name} {askFor.kit.code} for?</p>
+          <div className="flex flex-wrap gap-2">
+            {askFor.who.map((v) => <button key={v.id} type="button" disabled={busy === askFor.kit.id} onClick={() => move(askFor.kit, 'in_use', undefined, v)} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background disabled:opacity-40">{v.clientName}{v.stage === 'in_service' ? ' · in service' : ' · waiting'}</button>)}
+            <button type="button" onClick={() => move(askFor.kit, 'in_use')} className="h-10 rounded-full border px-4 text-[13px]">No client</button>
+            <button type="button" onClick={() => setAskFor(null)} className="h-10 rounded-full px-3 text-[13px]">Cancel</button>
+          </div>
+        </div>)}
       {!live.length && <p className="text-[14px] text-muted-foreground">No kits yet. {manager ? 'Add the sets of tools you rotate between clients, and the desk will show when a clean one is waiting.' : 'A manager can add them here.'}</p>}
       {supply.length > 0 && (
         <div className="space-y-1 rounded-2xl border bg-card p-3">
@@ -79,7 +98,7 @@ export function Kits({ firestore, tenantId, kits, services, manager }: { firesto
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {next && <button type="button" disabled={busy === k.id} onClick={() => move(k, next.to)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{next.label}</button>}
+              {next && <button type="button" disabled={busy === k.id} onClick={() => (next.to === 'in_use' ? take(k) : move(k, next.to))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{next.label}</button>}
               {k.status !== 'out' && <button type="button" onClick={() => { setPulling(k.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Something’s wrong</button>}
               {k.status === 'out' && (manager ? <>
                 <button type="button" disabled={busy === k.id} onClick={() => move(k, 'dirty')} className="h-9 rounded-full border px-3 text-[13px] font-semibold disabled:opacity-50">Fixed — clean it</button>
