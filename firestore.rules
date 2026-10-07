@@ -192,6 +192,16 @@ service cloud.firestore {
           && request.resource.data.name == resource.data.name && request.resource.data.code == resource.data.code)
       );
     }
+    // What's in each kit type and how long it takes to clean: managers decide; the team reads it.
+    match /tenants/{tenantId}/kitTypes/{typeId} {
+      allow read: if isStaff(tenantId);
+      allow write: if isManager(tenantId);
+    }
+    // Tagged linen bundles: the team scans them along; only a manager makes or deletes one.
+    match /tenants/{tenantId}/linenBundles/{bundleId} {
+      allow read, update: if isStaff(tenantId);
+      allow create, delete: if isManager(tenantId);
+    }
     // Linens: the team records washing and use; only a manager adds or deletes a type.
     match /tenants/{tenantId}/linens/{linenId} {
       allow read, update: if isStaff(tenantId);
@@ -348,7 +358,7 @@ service cloud.firestore {
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
           'depositCredits',
           'inventoryExceptions',
-          'kits', 'linens',
+          'kits', 'linens', 'kitTypes', 'linenBundles',
           'assetUnits',
           'assetScanEvents',
           'stationAllocations',

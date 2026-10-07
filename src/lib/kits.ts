@@ -10,7 +10,7 @@ export const KIT_LABEL: Record<KitStatus, string> = { ready: 'Clean & ready', in
 export const KIT_NEXT: Partial<Record<KitStatus, { to: KitStatus; label: string }>> = {
   ready: { to: 'in_use', label: 'Take for a client' }, in_use: { to: 'dirty', label: 'Finished — needs cleaning' },
   dirty: { to: 'cleaning', label: 'Start cleaning' }, cleaning: { to: 'ready', label: 'Clean — ready' } };
-export interface Kit { id: string; name: string; code: string; status: KitStatus; by?: string | null; at?: string | null; visitId?: string | null; clientName?: string | null; stationName?: string | null; note?: string | null; cycles?: number; history?: { at: string; by: string; from: KitStatus; to: KitStatus; note?: string | null }[] }
+export interface Kit { id: string; name: string; code: string; status: KitStatus; by?: string | null; at?: string | null; visitId?: string | null; clientName?: string | null; stationName?: string | null; note?: string | null; cycles?: number; inventoryItemId?: string | null; inventoryName?: string | null; lastCheck?: { at: string; by: string; ok: boolean; missing: string[]; version?: number } | null; history?: { at: string; by: string; from: KitStatus; to: KitStatus; note?: string | null }[] }
 
 const norm = (s: any) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 export const sameKitType = (a: any, b: any) => norm(a) === norm(b) && norm(a) !== '';
@@ -74,3 +74,40 @@ export function kitsLeftOut(kits: Kit[], visitStage: (visitId: string) => string
 }
 /** Hours a kit has sat in its current state (for "being cleaned for 5 h"). */
 export const kitHours = (k: Kit, now = Date.now()) => Math.max(0, Math.floor((now - (Date.parse(String(k.at || '')) || now)) / 3600000));
+
+// ── What's IN a kit, cleaning time, and capacity for booking ────────────────────────────────────────────────────────────
+//   tenants/{t}/kitTypes/{key} = { name, items: [{ inventoryItemId, name, sku, qty }], cleanMinutes, version, updatedAt, by }
+// One record per kit TYPE: every "Manicure kit" holds the same things and takes the same time to clean.
+export interface KitItem { inventoryItemId: string | null; name: string; sku?: string | null; qty: number }
+export interface KitType { id: string; name: string; items: KitItem[]; cleanMinutes?: number | null; version?: number; updatedAt?: string; by?: string }
+export const kitKey = (name: any) => norm(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'kit';
+export const typeOf = (types: KitType[], name: any) => (types || []).find((t) => sameKitType(t.name, name)) || null;
+
+/** The inventory item a scanned or typed code means: its SKU or barcode, else its id, else an exact name. */
+export function matchInventory(inventory: any[], scanned: string): any | null {
+  const t = String(scanned || '').trim().toLowerCase(); if (!t) return null;
+  const eq = (v: any) => String(v ?? '').trim().toLowerCase() === t;
+  return (inventory || []).find((i) => eq(i?.sku) || eq(i?.barcode) || eq(i?.upc)) || (inventory || []).find((i) => eq(i?.id)) || (inventory || []).find((i) => eq(i?.name)) || null;
+}
+/** Add one of an item to a contents list (scanning the same thing again raises its quantity). */
+export function addKitItem(items: KitItem[], inv: any, qty = 1): KitItem[] {
+  const i = (items || []).findIndex((x) => x.inventoryItemId && x.inventoryItemId === inv?.id);
+  if (i >= 0) return items.map((x, j) => (j === i ? { ...x, qty: x.qty + qty } : x));
+  return [...(items || []), { inventoryItemId: inv?.id || null, name: String(inv?.name || 'Item').slice(0, 80), sku: inv?.sku || inv?.barcode || null, qty: Math.max(1, qty) }].slice(0, 40);
+}
+/** Is everything there? `have` = how many of each line were scanned or ticked (by position in `items`). */
+export function contentsCheck(items: KitItem[], have: number[]): { complete: boolean; missing: string[] } {
+  const missing = (items || []).map((it, i) => ({ it, short: Math.max(0, it.qty - (Number(have?.[i]) || 0)) })).filter((x) => x.short > 0).map((x) => (x.it.qty > 1 ? `${x.it.name} × ${x.short}` : x.it.name));
+  return { complete: missing.length === 0, missing };
+}
+/** Seconds left on a timer that started at `since` and runs `minutes` (negative once it's over). */
+export const secondsLeft = (since: any, minutes: number, now = Date.now()) => Math.round(((Date.parse(String(since || '')) || now) + Math.max(0, Number(minutes) || 0) * 60000 - now) / 1000);
+/** Kit capacity for booking, kept on the business record so every booking screen has it without loading kits:
+ *  tenant.kitCapacity = { [kitKey]: { name, usable, cleanMinutes } } — usable = every kit that isn't pulled out or retired. */
+export function kitCapacityOf(kits: Kit[], types: KitType[] = []): Record<string, { name: string; usable: number; cleanMinutes: number }> {
+  const out: Record<string, { name: string; usable: number; cleanMinutes: number }> = {};
+  for (const k of kits || []) { if (!k || k.status === 'retired' || !norm(k.name)) continue; const key = kitKey(k.name);
+    const row = out[key] || { name: String(k.name).trim(), usable: 0, cleanMinutes: Math.max(0, Math.round(Number(typeOf(types, k.name)?.cleanMinutes) || 0)) };
+    if (k.status !== 'out') row.usable++; out[key] = row; }
+  return out;
+}

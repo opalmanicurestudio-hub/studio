@@ -66,52 +66,11 @@ export async function GET(req: NextRequest) {
       }
     } catch (e) { console.error('[cron/no-shows]', t.id, e); }
   }
-  // Turnover notices (O3): a station that still needs resetting — its owner first, then the managers. Once each per visit.
-  let turnoverNudges = 0;
-  for (const t of tenants) { try {
-    const tenant: any = t.data() || {}; const T = `tenants/${t.id}`;
-    if (!automationOn(tenant, 'turnover-notices')) continue;
-    const resources = (await db.collection(`${T}/resources`).limit(200).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-    if (!resources.length) continue;
-    const appts = (await db.collection(`${T}/appointments`).where('startTime', '>=', new Date(now - 12 * 3600000).toISOString()).where('startTime', '<=', new Date(now + 6 * 3600000).toISOString()).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-    const { serviceEndedAt, stationReadiness } = await import('@/lib/readiness');
-    // Nothing finished on a station in the last few hours → nothing to chase (and nothing more to read).
-    if (!appts.some((a: any) => Array.isArray(a.requiredResourceIds) && a.requiredResourceIds.length && serviceEndedAt(a) > now - 4 * 3600000)) continue;
-    const [services, staff, protocols] = await Promise.all(['services', 'staff', 'protocols'].map(async (c) => (await db.collection(`${T}/${c}`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))));
-    const { turnoverNotices } = await import('@/lib/turnover-notices');
-    const due = turnoverNotices(stationReadiness(resources, appts, services, now, staff, protocols), resources, now, tenant.timezone || tenant.timeZone);
-    for (const n of due) {
-      const to: string[] = n.level === 1 ? (n.ownerId ? [n.ownerId] : []) : Array.from(new Set([...staff.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && m.active !== false).map((m: any) => m.id), ...(n.ownerId ? [n.ownerId] : [])]));
-      const b = db.batch(); b.update(db.doc(`${T}/resources/${n.resourceId}`), { 'readiness.notice': { visitId: n.visitId, level: n.level, at: nowIso } });
-      for (const uid of to) { const ref = db.collection(`${T}/notifications`).doc(); b.set(ref, { id: ref.id, userId: uid, type: n.level === 1 ? 'turnover_due' : 'turnover_escalation', priority: n.level === 1 ? 'high' : 'urgent', link: n.level === 1 ? '/staff-portal/' + t.id : '/pos', resourceId: n.resourceId, appointmentId: n.visitId, message: n.message, createdAt: nowIso, read: false }); }
-      await b.commit(); if (to.length) { turnoverNudges++; await noteAutomation(db, t.id, 'turnover-notices'); }
-    }
-  } catch (e) { console.error('[cron/no-shows] turnover', t.id, e); } }
-  // Closing out finished visits (O5/O6): a kit nobody scanned back goes to "needs cleaning", and the linens the visit
-  // used move from clean to dirty — once per visit. Keeps the counts true without anyone remembering to tap.
-  let kitsReleased = 0, linenVisits = 0;
-  for (const t of tenants) { try {
-    const T = `tenants/${t.id}`;
-    const [kitDocs, linenDocs] = await Promise.all([db.collection(`${T}/kits`).where('status', '==', 'in_use').limit(200).get(), db.collection(`${T}/linens`).limit(100).get()]);
-    if (kitDocs.empty && linenDocs.empty) continue;
-    const appts = (await db.collection(`${T}/appointments`).where('startTime', '>=', new Date(now - 18 * 3600000).toISOString()).where('startTime', '<=', nowIso).get()).docs.map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() || {}) }));
-    const stage = (a: any) => (['cancelled', 'no_show', 'declined'].includes(String(a.status)) ? 'cancelled' : stageOf(a));
-    if (!kitDocs.empty) { const { kitsLeftOut, KIT_LABEL } = await import('@/lib/kits'); const { logAuditAdmin } = await import('@/lib/audit');
-      const kits = kitDocs.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-      for (const k of kitsLeftOut(kits as any, (id) => { const a = appts.find((x: any) => x.id === id); return a ? stage(a) : null; }, now)) {
-        await db.doc(`${T}/kits/${k.id}`).update({ status: 'dirty', by: 'System', at: nowIso, visitId: null, clientName: null, stationName: null, history: [...((k as any).history || []), { at: nowIso, by: 'System', from: 'in_use', to: 'dirty', note: 'Visit finished' }].slice(-40) });
-        await logAuditAdmin(db, t.id, { action: 'kit.dirty', targetType: 'kit', targetId: k.id, actor: { type: 'system', name: 'visit close-out' }, before: { status: 'in_use' }, after: { status: 'dirty' }, summary: `${k.name} ${k.code}: ${KIT_LABEL.in_use} → ${KIT_LABEL.dirty} — visit finished${k.clientName ? ` (${k.clientName})` : ''}` });
-        kitsReleased++; } }
-    if (!linenDocs.empty) { const { linensForVisit, moveLinen, sameLinen } = await import('@/lib/linens');
-      const linens: any[] = linenDocs.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })); const touched = new Set<string>();
-      const done = appts.filter((a: any) => !a.linensCounted && ['ready_to_pay', 'complete'].includes(stage(a)));
-      if (done.length) { const services = (await db.collection(`${T}/services`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })); const b = db.batch(); let any = false;
-        for (const a of done) { const needs = linensForVisit(a, services).filter((n) => linens.some((l) => sameLinen(l.name, n.name))); if (!needs.length) continue;
-          for (const n of needs) { const l = linens.find((x) => sameLinen(x.name, n.name)); const r = moveLinen(l, 'use', n.qty); l.clean = r.clean; l.dirty = r.dirty; touched.add(l.id); }
-          b.set(a.ref, { linensCounted: true }, { merge: true }); any = true; linenVisits++; }
-        for (const l of linens) if (touched.has(l.id)) b.update(db.doc(`${T}/linens/${l.id}`), { clean: l.clean, dirty: l.dirty, by: 'System', at: nowIso });
-        if (any) await b.commit(); } }
-  } catch (e) { console.error('[cron/no-shows] close-out', t.id, e); } }
+  // Stations, kits and linens (O3/O5/O6): reminders to reset a station, and closing out finished visits. The same
+  // step also runs from an open front desk (/api/desk/tick), so it doesn't depend on this schedule alone.
+  let turnoverNudges = 0, kitsReleased = 0, linenVisits = 0;
+  { const { opsTick } = await import('@/lib/ops-tick');
+    for (const t of tenants) { try { const r = await opsTick(db, t.id, t.data() || {}, now); turnoverNudges += r.turnoverNudges; kitsReleased += r.kitsReleased; linenVisits += r.linenVisits; } catch (e) { console.error('[cron/no-shows] ops', t.id, e); } } }
   // Station Assist: requests nobody accepted in time → alert the managers once.
   let assistEscalated = 0;
   for (const t of tenants) { try {

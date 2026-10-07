@@ -99,6 +99,7 @@
 // invents a restriction from missing data — the only thing missing data
 // produces is a warning.
 
+import { kitsNeeded, kitKey } from '@/lib/kits';
 import {
   addMinutes,
   areIntervalsOverlapping,
@@ -965,6 +966,25 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
 
       resourceLedgers.push({ resourceId: rid, name: label, capacity, taken, downReason });
     }
+  }
+
+  // ── Kits this service needs (O11). A kit is a shared thing like a station: each visit that needs one holds it for the
+  // visit plus its cleaning time. Capacity comes from the business record (tenant.kitCapacity, kept by the housekeeping
+  // step); a kit type the business doesn't track is not checked.
+  const kitCap: Record<string, any> = (!input.ignoreResources && input.tenant?.kitCapacity) || {};
+  if (Object.keys(kitCap).length) for (const need of kitsNeeded(service)) {
+    const key = kitKey(need.name); const cap = kitCap[key]; if (!cap) continue;
+    const clean = Math.max(0, num(cap.cleanMinutes, 0));
+    const taken: Window[] = [];
+    for (const apt of dayAppointments) {
+      if (!blocksTime(apt, now)) continue;
+      const q = kitsNeeded(servicesById[apt?.serviceId]).find((n) => kitKey(n.name) === key)?.qty || 0; if (!q) continue;
+      const start = safeDate(apt?.startTime); if (!start) continue;
+      const end = safeDate(apt?.endTime) ?? addMinutes(start, num(servicesById[apt?.serviceId]?.duration, 60));
+      for (let i = 0; i < q; i++) taken.push({ start, end: addMinutes(end, clean) });
+    }
+    const usable = Math.max(0, Math.floor(num(cap.usable, 0)));
+    resourceLedgers.push({ resourceId: `kit:${key}`, name: cap.name || need.name, capacity: Math.max(0, usable - (need.qty - 1)), taken, downReason: usable < need.qty ? `No ${String(cap.name || need.name).toLowerCase()} is available` : undefined });
   }
 
   const staffDays: StaffDay[] = [];

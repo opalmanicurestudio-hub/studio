@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { doc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { stationReadiness, READINESS_LABEL, type Readiness, type StationRow } from '@/lib/readiness';
 
 const TONE: Record<Readiness, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', turnover: 'bg-amber-100 text-amber-900', inspect: 'bg-violet-100 text-violet-900', blocked: 'bg-red-100 text-red-800' };
@@ -58,8 +59,8 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
               <div className="min-w-0">
                 <p className="truncate text-[15px] font-semibold">{r.name}</p>
                 <p className="text-[13px] text-muted-foreground">
-                  {r.status === 'in_use' && <>With {r.clientName || 'a client'}{r.since ? ` since ${time(r.since)}` : ''}</>}
-                  {r.status === 'turnover' && (r.overdueMin ? <span className="font-semibold text-red-700">Overdue {r.overdueMin} min{r.clientName ? ` · after ${r.clientName}` : ''}</span> : <>Ready by {time(r.readyBy)} · {mins} min{r.clientName ? ` · after ${r.clientName}` : ''}</>)}
+                  {r.status === 'in_use' && <>With {r.clientName || 'a client'}{r.since ? <> since {time(r.since)} · <LiveTimer since={r.since} /></> : ''}</>}
+                  {r.status === 'turnover' && (r.overdueMin ? <span className="font-semibold text-red-700">Overdue {r.overdueMin} min{r.clientName ? ` · after ${r.clientName}` : ''}</span> : <>Ready by {time(r.readyBy)} · <LiveTimer until={r.readyBy} doneLabel="Time’s up" />{r.clientName ? ` · after ${r.clientName}` : ''}</>)}
                   {r.quarantine ? <span className="font-semibold text-red-700">Quarantined{r.quarantine.reason ? ` — ${r.quarantine.reason}` : ''}{r.quarantine.protocolName ? ` · ${r.quarantine.protocolName}` : ''}</span>
                     : (r.status === 'blocked' || r.status === 'inspect') && (r.note || (r.status === 'inspect' ? 'Check it before the next client' : 'Out of service'))}
                   {r.status === 'ready' && 'Ready for the next client'}

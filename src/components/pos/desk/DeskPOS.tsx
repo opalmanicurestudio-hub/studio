@@ -148,6 +148,10 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const kitsQ = useMemoFirebase(() => (e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'kits') : null), [e.firestore, e.tenantId]);
   const { data: kits } = useCollection<any>(kitsQ);   // kits (O5)
   const isMgr = ['owner', 'admin', 'manager'].includes(String(e.role || ''));
+  // Housekeeping for stations, kits and linens (reminders, closing out finished visits) — asked for by this open desk
+  // every few minutes, so it happens even where the scheduled job runs rarely. The server ignores repeats.
+  useEffect(() => { if (!e.tenantId) return; const run = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: e.tenantId }) }).catch(() => undefined); };
+    const first = setTimeout(run, 8000); const every = setInterval(run, 5 * 60000); return () => { clearTimeout(first); clearInterval(every); }; }, [e.tenantId]);
   const kitsToClean = (kits || []).filter((k: any) => k.status === 'dirty' || k.status === 'out').length;
   const assistItems = useAssistQueue(e.firestore, e.tenantId || null);   // Station Assist (O4): station requests + lounge orders + restocks
   const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);

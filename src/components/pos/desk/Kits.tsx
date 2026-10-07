@@ -5,19 +5,26 @@ import * as React from 'react';
 import { doc, updateDoc, setDoc, collection, arrayUnion, runTransaction } from 'firebase/firestore';
 import { logAuditClient } from '@/lib/audit-client';
 import { getAuth } from 'firebase/auth';
-import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeeded, kitCandidates, kitsLeftOut, kitHours, sameKitType, type Kit, type KitStatus } from '@/lib/kits';
+import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeeded, kitCandidates, kitsLeftOut, kitHours, sameKitType, kitKey, typeOf, matchInventory, addKitItem, contentsCheck, type Kit, type KitStatus, type KitType, type KitItem } from '@/lib/kits';
+import { LiveTimer } from '@/components/pos/desk/LiveTimer';
+import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
+import { printCodeLabels } from '@/lib/print-labels';
 import { Linens } from '@/components/pos/desk/Linens';
 import { stageOf } from '@/lib/visit';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 
 const TONE: Record<KitStatus, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', dirty: 'bg-amber-100 text-amber-900', cleaning: 'bg-violet-100 text-violet-900', out: 'bg-red-100 text-red-800', retired: 'bg-muted text-muted-foreground' };
 const ORDER: KitStatus[] = ['out', 'dirty', 'cleaning', 'in_use', 'ready'];
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
 export function Kits({ firestore, tenantId, kits, services, manager, appts = [], inventory = [] }: { firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean; appts?: any[]; inventory?: any[] }) {
   const [invId, setInvId] = React.useState('');   // the inventory item the new kits are units of
   const equipment = React.useMemo(() => (inventory || []).filter((i: any) => i?.type === 'equipment' && i.archived !== true).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [inventory]);
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who().name, role: manager ? 'manager' : 'staff' });
+  const typesQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'kitTypes') : null), [firestore, tenantId]);
+  const { data: typesRaw } = useCollection<any>(typesQ); const types: KitType[] = typesRaw || [];
+  const [cam, setCam] = React.useState(false);   // phone or tablet camera as the scanner
+  const [editType, setEditType] = React.useState<{ name: string; items: KitItem[]; cleanMinutes: number } | null>(null);   // a kit type's contents being edited
+  const [checking, setChecking] = React.useState<{ kit: Kit; items: KitItem[]; have: number[]; version: number } | null>(null);   // "is everything in it?"
   const [askFor, setAskFor] = React.useState<{ kit: Kit; who: { id: string; clientName: string; stage: string }[] } | null>(null);   // more than one guest it could be for
   const [typed, setTyped] = React.useState(''); const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null); const [pulling, setPulling] = React.useState<string | null>(null); const [reason, setReason] = React.useState('');
@@ -50,11 +57,32 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
       setMsg({ ok: true, text: `${k.name} ${k.code} — ${KIT_LABEL[to].toLowerCase()}${to === 'in_use' ? (forVisit ? ` for ${forVisit.clientName}` : ' (not tied to a client)') : ''}` }); setAskFor(null); setBusy(null); return true; }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); setBusy(null); return false; }
   };
-  const onScan = async (ev: React.FormEvent) => { ev.preventDefault();
-    const k = findKit(live, typed); setTyped('');
-    if (!k) { setMsg({ ok: false, text: 'No kit with that code.' }); return; }
-    const next = KIT_NEXT[k.status]; if (!next) { setMsg({ ok: false, text: `${k.name} ${k.code} is pulled out — a manager decides what happens next.` }); return; }
-    if (next.to === 'in_use') await take(k); else await move(k, next.to); };
+  // "Clean — ready" for a kit type that has a contents list goes through the contents check first.
+  const toReady = (k: Kit) => { const t = typeOf(types, k.name); if (t?.items?.length) { setChecking({ kit: k, items: t.items, have: t.items.map(() => 0), version: t.version || 1 }); return; } return move(k, 'ready'); };
+  const finishCheck = async () => { if (!checking) return; const res = contentsCheck(checking.items, checking.have); const k = checking.kit; const at = new Date().toISOString();
+    const lastCheck = { at, by: who().name, ok: res.complete, missing: res.missing, version: checking.version };
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), { lastCheck }); } catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); return; }
+    void logAuditClient(firestore, tenantId, { action: res.complete ? 'kit.checked' : 'kit.incomplete', targetType: 'kit', targetId: k.id, actor: actor(), after: lastCheck, summary: `${k.name} ${k.code}: contents ${res.complete ? 'all there' : `missing ${res.missing.join(', ')}`}` });
+    setChecking(null);
+    if (res.complete) { if (k.status === 'cleaning') await move({ ...k, lastCheck } as Kit, 'ready'); else setMsg({ ok: true, text: `${k.name} ${k.code} — everything is there.` }); }
+    else await move(k, 'out', `Missing: ${res.missing.join(', ')}`); };
+  // One place for whatever was scanned or typed, by scanner, camera or keyboard.
+  const handleCode = async (raw: string) => {
+    if (editType) { const it = matchInventory(inventory, raw); if (!it) { scanFeedback(false); setMsg({ ok: false, text: `Nothing in inventory matches “${raw.trim().slice(0, 30)}”.` }); return; } scanFeedback(true); setEditType({ ...editType, items: addKitItem(editType.items, it) }); setMsg({ ok: true, text: `Added ${it.name}.` }); return; }
+    if (checking) { const it = matchInventory(inventory, raw); const i = it ? checking.items.findIndex((x, j) => x.inventoryItemId === it.id && checking.have[j] < x.qty) : -1;
+      if (i < 0) { scanFeedback(false); setMsg({ ok: false, text: it ? `${it.name} isn’t needed (or is already counted).` : 'That isn’t part of this kit.' }); return; }
+      scanFeedback(true); setChecking({ ...checking, have: checking.have.map((n, j) => (j === i ? n + 1 : n)) }); setMsg(null); return; }
+    const k = findKit(live, raw);
+    if (!k) { scanFeedback(false); setMsg({ ok: false, text: 'No kit with that code.' }); return; }
+    const next = KIT_NEXT[k.status]; if (!next) { scanFeedback(false); setMsg({ ok: false, text: `${k.name} ${k.code} is pulled out — a manager decides what happens next.` }); return; }
+    scanFeedback(true);
+    if (next.to === 'in_use') await take(k); else if (next.to === 'ready') await toReady(k); else await move(k, next.to); };
+  const saveType = async () => { if (!editType) return; const key = kitKey(editType.name); const prev = typeOf(types, editType.name); const version = (prev?.version || 0) + 1;
+    try { await setDoc(doc(firestore, 'tenants', tenantId, 'kitTypes', prev?.id || key), { id: prev?.id || key, name: editType.name, items: editType.items, cleanMinutes: Math.max(0, Math.round(editType.cleanMinutes) || 0), version, updatedAt: new Date().toISOString(), by: who().name });
+      void logAuditClient(firestore, tenantId, { action: 'kit.contents', targetType: 'kitType', targetId: prev?.id || key, actor: actor(), before: { items: prev?.items || [], cleanMinutes: prev?.cleanMinutes || 0 }, after: { items: editType.items, cleanMinutes: editType.cleanMinutes }, summary: `${editType.name}: contents v${version} — ${editType.items.length} item${editType.items.length === 1 ? '' : 's'}, ${editType.cleanMinutes || 0} min to clean` });
+      setMsg({ ok: true, text: `${editType.name} contents saved (version ${version}).` }); setEditType(null); }
+    catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
+  const onScan = async (ev: React.FormEvent) => { ev.preventDefault(); const v = typed; setTyped(''); if (v.trim()) await handleCode(v); };
   const add = async () => { const name = newName.trim().slice(0, 60); const n = Math.max(1, Math.min(30, Math.round(howMany) || 1)); if (!name) return;
     const inv: any = equipment.find((i: any) => i.id === invId) || null;
     setBusy('add'); const taken = (kits || []).map((k) => k.code); const at = new Date().toISOString();
@@ -64,22 +92,52 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
       setMsg({ ok: true, text: `Added ${n} × ${name}. Print their labels below.` }); setAdding(false); setNewName(''); setHowMany(1); setInvId(''); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); };
-  const printLabels = async () => {
-    const QRCode = (await import('qrcode')).default; const JsBarcode = (await import('jsbarcode')).default;
-    // Each label carries both: a barcode (any handheld scanner) and a square code (a phone or tablet camera).
-    const bar = (code: string) => { try { const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); JsBarcode(svg, code, { format: 'CODE128', displayValue: false, height: 34, width: 1.6, margin: 0 }); return svg.outerHTML; } catch { return ''; } };
-    const cells = await Promise.all(live.map(async (k) => `<div class="l"><img src="${await QRCode.toDataURL(k.code, { margin: 1, width: 160 })}" alt=""/><div><b>${esc(k.name)}</b>${bar(k.code)}<span>${esc(k.code)}</span></div></div>`));
-    const w = window.open('', '_blank'); if (!w) { setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); return; }
-    w.document.write(`<!doctype html><title>Kit labels</title><style>body{font-family:system-ui,sans-serif;margin:12px}.g{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.l{display:flex;align-items:center;gap:10px;border:1px solid #999;border-radius:8px;padding:8px;break-inside:avoid}.l img{width:64px;height:64px}.l b{display:block;font-size:13px;margin-bottom:4px}.l svg{display:block;max-width:100%}.l span{font:700 15px ui-monospace,monospace;letter-spacing:3px}</style><div class="g">${cells.join('')}</div><script>onload=()=>print()<\/script>`);
-    w.document.close(); };
+  const printLabels = async () => { if (!(await printCodeLabels(live.map((k) => ({ title: k.name, code: k.code })), 'Kit labels'))) setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); };
 
   return (
     <div className="space-y-3">
       <form onSubmit={onScan} className="flex gap-2">
-        <input autoFocus value={typed} onChange={(e) => setTyped(e.target.value.slice(0, 80))} placeholder="Scan or type a kit’s code" aria-label="Kit code" autoCapitalize="characters" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[15px] uppercase tracking-wider" />
-        <button type="submit" disabled={!typed.trim()} className="h-11 rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background disabled:opacity-40">Move it on</button>
+        <input autoFocus value={typed} onChange={(e) => setTyped(e.target.value.slice(0, 80))} placeholder={editType ? "Scan or type a product’s SKU" : checking ? "Scan or type an item" : "Scan or type a kit’s code"} aria-label="Code" autoCapitalize="characters" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[15px] uppercase tracking-wider" />
+        <button type="submit" disabled={!typed.trim()} className="h-11 rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background disabled:opacity-40">{editType ? "Add" : checking ? "Count it" : "Move it on"}</button>
       </form>
+      <button type="button" onClick={() => setCam((c) => !c)} className="h-10 w-full rounded-xl border text-[13px] font-semibold">{cam ? 'Close the camera' : 'Scan with this device’s camera'}</button>
+      {cam && <ScanGate onScan={(v) => { void handleCode(v); }} label={editType ? 'Scan each product that belongs in the kit' : checking ? 'Scan each item as you put it in' : 'Point the camera at a kit label'} />}
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
+      {checking && (() => { const res = contentsCheck(checking.items, checking.have); return (
+        <div className="space-y-2 rounded-2xl border-2 bg-card p-3" role="dialog" aria-label="Check the kit’s contents">
+          <p className="text-[14px] font-semibold">Is everything in {checking.kit.name} {checking.kit.code}?</p>
+          <p className="text-[12px] text-muted-foreground">Scan each item as it goes in, or tap it.</p>
+          <ul className="space-y-1">{checking.items.map((it, i) => { const done = checking.have[i] >= it.qty; return (
+            <li key={i}><button type="button" onClick={() => setChecking({ ...checking, have: checking.have.map((n, j) => (j === i ? (done ? 0 : it.qty) : n)) })} className="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-[14px]">
+              <span aria-hidden className={`flex h-5 w-5 items-center justify-center rounded border text-[12px] ${done ? 'border-emerald-600 bg-emerald-600 text-white' : ''}`}>{done ? '✓' : ''}</span>
+              <span className={done ? 'text-muted-foreground' : 'font-medium'}>{it.name}</span><span className="text-muted-foreground">{checking.have[i]}/{it.qty}</span></button></li>); })}</ul>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={!res.complete} onClick={finishCheck} className="h-10 rounded-full bg-emerald-600 px-4 text-[13px] font-semibold text-white disabled:opacity-40">All there{checking.kit.status === 'cleaning' ? ' — ready' : ''}</button>
+            {!res.complete && <button type="button" onClick={finishCheck} className="h-10 rounded-full border px-4 text-[13px] text-red-700">Something’s missing — pull it out</button>}
+            <button type="button" onClick={() => setChecking(null)} className="h-10 rounded-full px-3 text-[13px]">Cancel</button>
+          </div>
+        </div>); })()}
+      {editType && (
+        <div className="space-y-2 rounded-2xl border-2 bg-card p-3" role="dialog" aria-label="What’s in this kit">
+          <p className="text-[14px] font-semibold">What’s in every {editType.name}?</p>
+          <p className="text-[12px] text-muted-foreground">Scan each product’s barcode (scanner or camera), type its SKU in the box at the top, or pick it below.</p>
+          {editType.items.length === 0 && <p className="text-[13px] text-muted-foreground">Nothing added yet.</p>}
+          <ul className="space-y-1">{editType.items.map((it, i) => { const n = live.filter((k) => sameKitType(k.name, editType.name)).length; const inv: any = (inventory || []).find((x: any) => x.id === it.inventoryItemId); const own = inv ? Number(inv.totalStock) || 0 : null; return (
+            <li key={i} className="flex flex-wrap items-center gap-2 text-[14px]"><span className="min-w-0 flex-1 truncate font-medium">{it.name}</span>
+              <input type="number" min={1} value={it.qty} aria-label={`How many ${it.name}`} onChange={(e) => setEditType({ ...editType, items: editType.items.map((x, j) => (j === i ? { ...x, qty: Math.max(1, Math.round(Number(e.target.value)) || 1) } : x)) })} className="h-9 w-16 rounded-lg border bg-background px-2 text-[14px]" />
+              <button type="button" aria-label={`Remove ${it.name}`} onClick={() => setEditType({ ...editType, items: editType.items.filter((_, j) => j !== i) })} className="h-9 rounded-lg px-2 text-[13px] text-red-700">Remove</button>
+              {own !== null && n > 0 && <span className={`w-full text-[12px] ${own < n * it.qty ? 'font-semibold text-amber-800' : 'text-muted-foreground'}`}>{n} kit{n === 1 ? '' : 's'} × {it.qty} = {n * it.qty} needed · inventory has {own}</span>}
+            </li>); })}</ul>
+          <select value="" aria-label="Add from inventory" onChange={(e) => { const it: any = (inventory || []).find((x: any) => x.id === e.target.value); if (it) setEditType({ ...editType, items: addKitItem(editType.items, it) }); }} className="h-10 w-full rounded-xl border bg-background px-2 text-[14px]">
+            <option value="">Pick from inventory…</option>
+            {[...(inventory || [])].filter((x: any) => x && x.archived !== true).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))).map((x: any) => <option key={x.id} value={x.id}>{x.name}{x.sku ? ` · ${x.sku}` : ''}</option>)}
+          </select>
+          <label className="block text-[13px]">Minutes to clean one <input type="number" min={0} value={editType.cleanMinutes} onChange={(e) => setEditType({ ...editType, cleanMinutes: Number(e.target.value) })} className="ml-1 h-9 w-20 rounded-lg border bg-background px-2 text-[14px]" /> <span className="text-muted-foreground">(sets the countdown, and how long a kit is held when booking)</span></label>
+          <div className="flex gap-2">
+            <button type="button" onClick={saveType} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background">Save contents</button>
+            <button type="button" onClick={() => setEditType(null)} className="h-10 rounded-full px-3 text-[13px]">Cancel</button>
+          </div>
+        </div>)}
       {askFor && (
         <div className="space-y-2 rounded-2xl border-2 bg-card p-3" role="dialog" aria-label="Who is this kit for?">
           <p className="text-[14px] font-semibold">Who is {askFor.kit.name} {askFor.kit.code} for?</p>
@@ -94,7 +152,9 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
         <div className="space-y-1 rounded-2xl border bg-card p-3">
           {supply.map((s) => (
             <p key={s.name} className="flex flex-wrap items-baseline justify-between gap-x-3 text-[14px]"><span className="font-semibold">{s.name}</span>
-              <span className={s.ready ? 'text-muted-foreground' : 'font-semibold text-red-700'}>{s.ready} clean of {s.total}{s.dirty ? ` · ${s.dirty} to clean` : ''}{s.cleaning ? ` · ${s.cleaning} being cleaned` : ''}{s.in_use ? ` · ${s.in_use} in use` : ''}{s.out ? ` · ${s.out} pulled out` : ''}</span></p>))}
+              <span className={s.ready ? 'text-muted-foreground' : 'font-semibold text-red-700'}>{s.ready} clean of {s.total}{s.dirty ? ` · ${s.dirty} to clean` : ''}{s.cleaning ? ` · ${s.cleaning} being cleaned` : ''}{s.in_use ? ` · ${s.in_use} in use` : ''}{s.out ? ` · ${s.out} pulled out` : ''}</span>
+              {(() => { const t = typeOf(types, s.name); return <span className="flex w-full items-center justify-between gap-2 text-[12px] text-muted-foreground"><span>{t?.items?.length ? `${t.items.length} item${t.items.length === 1 ? '' : 's'} in each` : 'No contents list yet'}{t?.cleanMinutes ? ` · ${t.cleanMinutes} min to clean` : ''}</span>
+                {manager && <button type="button" onClick={() => setEditType({ name: t?.name || s.name, items: t?.items || [], cleanMinutes: Number(t?.cleanMinutes) || 0 })} className="h-8 rounded-full border px-3 text-[12px] font-semibold text-foreground">{t?.items?.length ? 'Edit contents' : 'Set contents'}</button>}</span>; })()}</p>))}
         </div>)}
       {(() => { const left = kitsLeftOut(live, (id) => { const a = (appts || []).find((x: any) => x.id === id); return a ? (['cancelled', 'no_show'].includes(String(a.status)) ? 'cancelled' : stageOf(a)) : null; });
         if (!left.length) return null;
@@ -115,7 +175,9 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <div className="min-w-0">
               <p className="truncate text-[15px] font-semibold">{k.name} <span className="font-mono text-[13px] font-normal tracking-wider text-muted-foreground">{k.code}</span></p>
               <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' && k.clientName ? `With ${k.clientName} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
-              {k.status === 'cleaning' && kitHours(k) >= 3 && <p className="text-[12px] font-semibold text-amber-800">Being cleaned for {kitHours(k)} h — is it done?</p>}
+              {k.status === 'cleaning' && <p className="text-[13px]">Cleaning: <LiveTimer since={k.at} minutes={typeOf(types, k.name)?.cleanMinutes || 0} doneLabel="Cleaning time is up" />{kitHours(k) >= 3 ? <span className="font-semibold text-amber-800"> — is it done?</span> : null}</p>}
+              {k.status === 'in_use' && <p className="text-[12px] text-muted-foreground">In use <LiveTimer since={k.at} /></p>}
+              {k.lastCheck && <p className="text-[12px] text-muted-foreground">Contents {k.lastCheck.ok ? 'checked' : 'incomplete'} · {new Date(k.lastCheck.at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {k.lastCheck.by}</p>}
               {(k as any).inventoryName && <p className="text-[12px] text-muted-foreground">Inventory: {(k as any).inventoryName}</p>}
               {manager && !(k as any).inventoryItemId && equipment.length > 0 && (
                 <select value="" aria-label="Link to inventory" onChange={async (e) => { const it: any = equipment.find((i: any) => i.id === e.target.value); if (!it) return;
@@ -137,7 +199,8 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {next && <button type="button" disabled={busy === k.id} onClick={() => (next.to === 'in_use' ? take(k) : move(k, next.to))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{next.label}</button>}
+              {next && <button type="button" disabled={busy === k.id} onClick={() => (next.to === 'in_use' ? take(k) : next.to === 'ready' ? toReady(k) : move(k, next.to))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{next.label}</button>}
+              {(() => { const t = typeOf(types, k.name); return t?.items?.length && k.status !== 'out' && k.status !== 'cleaning' ? <button type="button" onClick={() => setChecking({ kit: k, items: t.items, have: t.items.map(() => 0), version: t.version || 1 })} className="h-9 rounded-full border px-3 text-[13px]">Check contents</button> : null; })()}
               {k.status !== 'out' && <button type="button" onClick={() => { setPulling(k.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Something’s wrong</button>}
               {k.status === 'out' && (manager ? <>
                 <button type="button" disabled={busy === k.id} onClick={() => move(k, 'dirty')} className="h-9 rounded-full border px-3 text-[13px] font-semibold disabled:opacity-50">Fixed — clean it</button>
