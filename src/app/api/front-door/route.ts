@@ -6,10 +6,17 @@
 //            → records the arrival (frontDoor/{id}, shown live on the desk), alerts the team in-app, texts the renter
 //              for a renter visit, and for an order pickup verifies the order (number + last 4 of the phone on it)
 //              and marks the customer as here (Arrived on the fulfilment board when the order is ready).
+import { linkOrigin } from '@/lib/app-origin';
+import { createHash, randomBytes } from 'crypto';
+import { findStaffByPin, pinLocked, recordPinAttempt, validPin } from '@/lib/pin';
+import { moduleEnabled } from '@/lib/modules';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { kioskOptionsShown, kioskOptionsAll } from '@/lib/kiosk-options';
 export const dynamic = 'force-dynamic';
+const hashKey = (k: string) => createHash('sha256').update(String(k)).digest('hex');
+/** Which doors this business's kiosk shows besides clients: staff clock-in (default on) and students (when the Academy is on). */
+function kioskDoors(t: any) { const d = t?.kioskDoors || {}; let academy = false; try { academy = moduleEnabled(t, 'academy' as any); } catch { /* off */ } return { team: d.team !== false, students: academy && (d.students === true || (d.students !== false && !!t?.academy)) }; }   // students: on by default only for a business that runs an Academy
 
 const str = (v: any, n: number) => String(v ?? '').trim().slice(0, n);
 const digits = (v: any) => String(v ?? '').replace(/\D/g, '');
@@ -24,13 +31,35 @@ export async function POST(req: NextRequest) {
   if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing business.' }, { status: 400 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = (await db.doc(T).get()).data(); if (!tenant) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
-  if (b.action === 'options') return NextResponse.json({ ok: true, options: kioskOptionsShown(tenant) });
+  if (b.action === 'options') return NextResponse.json({ ok: true, options: kioskOptionsShown(tenant), doors: kioskDoors(tenant) });
   if (b.action === 'renters') {
     const leases = (await db.collection(`${T}/leases`).where('status', '==', 'active').limit(200).get()).docs.map((d: any) => d.data()?.renterId).filter(Boolean);
     const ids = Array.from(new Set(leases)).slice(0, 60) as string[];
     const rows = (await Promise.all(ids.map((id) => db.doc(`${T}/renters/${id}`).get().catch(() => null)))).filter((s: any) => s?.exists).map((s: any) => { const r: any = s.data();
       return { id: s.id, name: str(r.firstName || String(r.name || '').split(' ')[0] || 'Renter', 30), business: str(r.businessName || '', 60) }; });
     return NextResponse.json({ ok: true, renters: rows.sort((a: any, c: any) => a.name.localeCompare(c.name)) });
+  }
+  // ── THIS DEVICE (one iPad for everything) ─────────────────────────────────────────────────────────────────────
+  // A manager turns a kiosk device on once by typing their PIN on it; the device keeps a random key (stored here only as
+  // a hash). An enabled device can show the students' rotating sign-in code without anyone being signed into the app.
+  if (b.action === 'device-enable') {
+    const pin = String(b.pin || ''); if (!validPin(pin)) return NextResponse.json({ ok: false, error: 'Enter a 4-digit PIN.' }, { status: 400 });
+    if (await pinLocked(db, tenantId)) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — wait 15 minutes.' }, { status: 423 });
+    const hit = await findStaffByPin(db, tenantId, pin); await recordPinAttempt(db, tenantId, !!hit);
+    const isMgr = !!hit && (['owner', 'admin', 'manager'].includes(String(hit.role).toLowerCase()) || tenant.userId === hit.id);
+    if (!isMgr) return NextResponse.json({ ok: false, error: hit ? 'Only a manager can turn this on.' : 'That PIN isn’t right.' }, { status: 403 });
+    const key = randomBytes(24).toString('base64url'); const id = randomBytes(6).toString('hex');
+    await db.doc(`${T}/private/kioskDevices`).set({ [id]: { hash: hashKey(key), label: str(b.label, 40) || 'Front door', enabledBy: hit!.name, at: new Date().toISOString() } }, { merge: true });
+    return NextResponse.json({ ok: true, deviceKey: `${id}.${key}`, enabledBy: hit!.name });
+  }
+  if (b.action === 'student-code') {
+    if (!kioskDoors(tenant).students) return NextResponse.json({ ok: false, error: 'Student sign-in isn’t on for this business.' }, { status: 400 });
+    const [id, key] = String(b.deviceKey || '').split('.');
+    const devs: any = ((await db.doc(`${T}/private/kioskDevices`).get()).data() as any) || {};
+    if (!id || !key || !devs[id] || devs[id].revokedAt || devs[id].hash !== hashKey(key)) return NextResponse.json({ ok: false, code: 'not_enabled', error: 'This device isn’t set up for student sign-in.' }, { status: 403 });
+    const { qrWindow, qrCode, QR_WINDOW_SEC } = await import('@/lib/academy-compliance');
+    const w = qrWindow(); const origin = linkOrigin(tenant, req.nextUrl.origin);
+    return NextResponse.json({ ok: true, name: str(tenant.academy?.name || tenant.name, 80), url: `${origin}/learn/${tenantId}/attend?c=${qrCode(tenantId, w)}&w=${w}`, refreshInSec: QR_WINDOW_SEC - (Math.floor(Date.now() / 1000) % QR_WINDOW_SEC) });
   }
   if (b.action !== 'arrive') return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   if (!(await rateLimit(db, tenantId, 60))) return NextResponse.json({ ok: false, error: 'Lots of check-ins right now — please ask at the desk.' }, { status: 429 });

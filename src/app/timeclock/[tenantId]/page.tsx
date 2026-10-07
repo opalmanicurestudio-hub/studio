@@ -33,6 +33,9 @@ export default function TimeClockPage() {
   const searchParams = useSearchParams();
   const tenantId = params.tenantId as string;
   const locationParam = searchParams?.get('location') || '';
+  // Opened from the front-door kiosk (one iPad for everything): offer "Back", and go back there after each punch.
+  const fromKiosk = searchParams?.get('from') === 'kiosk';
+  const backToKiosk = () => { if (typeof window !== 'undefined') window.location.replace(`/walk-in/${tenantId}`); };
   const { firestore } = useFirebase();
   const { toast } = useToast();
 
@@ -360,6 +363,7 @@ export default function TimeClockPage() {
       } catch { /* audit failures are non-fatal */ }
       setStep('success');
       setTimeout(() => {
+        if (fromKiosk) { backToKiosk(); return; }
         setStep('idle');
         setPin('');
         setSelectedStaff(null);
@@ -374,6 +378,9 @@ export default function TimeClockPage() {
       setIsProcessing(false);
     }
   };
+
+  // From the kiosk, an untouched time clock goes back to the welcome screen after a minute.
+  useEffect(() => { if (!fromKiosk) return; const t = window.setTimeout(backToKiosk, 60000); return () => window.clearTimeout(t); }, [fromKiosk, step, pin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startAction = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
     setPendingAction(action);
@@ -429,6 +436,9 @@ export default function TimeClockPage() {
       <AnimatePresence mode="wait">
 
         {/* IDLE */}
+        {step === 'idle' && fromKiosk && (
+          <button type="button" onClick={backToKiosk} className="fixed left-4 top-4 z-20 h-11 rounded-full bg-white/90 px-5 text-[15px] font-semibold text-slate-700 shadow">← Back</button>
+        )}
         {step === 'idle' && (
           <motion.div key="idle" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full max-w-md space-y-6 z-10">
             <div className="grid grid-cols-2 gap-4">

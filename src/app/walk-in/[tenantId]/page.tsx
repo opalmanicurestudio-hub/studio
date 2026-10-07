@@ -76,6 +76,7 @@ import {
 } from 'lucide-react';
 
 type Step =
+  | 'students'
   | 'eventPick'
   | 'welcome'
   | 'phone'
@@ -473,7 +474,26 @@ export default function WalkInKioskPage() {
   const [doorRenters, setDoorRenters] = useState<any[] | null>(null); const [doorRenterId, setDoorRenterId] = useState('');
   const [doorBusy, setDoorBusy] = useState(false); const [doorErr, setDoorErr] = useState(''); const [doorReply, setDoorReply] = useState('');
   const frontDoor = useCallback(async (payload: any) => { const r = await fetch('/api/front-door', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...payload }) }); return r.json().catch(() => ({ ok: false })); }, [tenantId]);
-  useEffect(() => { frontDoor({ action: 'options' }).then((d) => setDoorOptions(d?.ok ? d.options : [])).catch(() => setDoorOptions([])); }, [frontDoor]);
+  // One iPad for everything: besides clients, the business can show a discreet "Team" door (staff clock in with their PIN)
+  // and a "Students" door (the rotating class sign-in code, on a device a manager has turned on).
+  const [doors, setDoors] = useState<{ team: boolean; students: boolean }>({ team: false, students: false });
+  useEffect(() => { frontDoor({ action: 'options' }).then((d) => { setDoorOptions(d?.ok ? d.options : []); if (d?.doors) setDoors(d.doors); }).catch(() => setDoorOptions([])); }, [frontDoor]);
+  const deviceKeyName = `cf-kiosk-device-${tenantId}`;
+  const readDeviceKey = () => { try { return window.localStorage.getItem(deviceKeyName) || ''; } catch { return ''; } };
+  const [studentQr, setStudentQr] = useState<{ svg: string; name: string } | null>(null); const [studentErr, setStudentErr] = useState(''); const [needsEnable, setNeedsEnable] = useState(false);
+  const [mgrPin, setMgrPin] = useState(''); const [enableErr, setEnableErr] = useState('');
+  useEffect(() => {
+    if (step !== 'students') return; let alive = true; let t: any = null;
+    const refresh = async () => { const key = readDeviceKey(); if (!key) { setNeedsEnable(true); return; }
+      const d = await frontDoor({ action: 'student-code', deviceKey: key }).catch(() => null); if (!alive) return;
+      if (d?.ok) { setNeedsEnable(false); setStudentErr(''); setStudentQr({ svg: qrSvg(d.url, 420), name: d.name || '' }); t = setTimeout(refresh, Math.max(3, Number(d.refreshInSec) + 1) * 1000); }
+      else if (d?.code === 'not_enabled') { setNeedsEnable(true); }
+      else { setStudentErr(d?.error || 'The sign-in code couldn’t load.'); t = setTimeout(refresh, 10000); } };
+    void refresh(); return () => { alive = false; if (t) clearTimeout(t); };
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  const enableDevice = async () => { setEnableErr(''); const d = await frontDoor({ action: 'device-enable', pin: mgrPin, label: 'Front door' }).catch(() => null); setMgrPin('');
+    if (d?.ok && d.deviceKey) { try { window.localStorage.setItem(deviceKeyName, d.deviceKey); } catch { /* private mode */ } setNeedsEnable(false); setStep('welcome'); setTimeout(() => setStep('students'), 0); }
+    else setEnableErr(d?.error || 'That didn’t work.'); };
   const pickDoor = (o: any) => {
     setDoor(o); setDoorErr('');
     if (['appointment', 'walkin', 'class'].includes(o.intent)) { setStep('phone'); return; }
@@ -513,7 +533,7 @@ export default function WalkInKioskPage() {
     // the desk and has nothing left to decide, so it clears on the short window
     // rather than holding the kiosk for ninety seconds behind them.
     const settled = step === 'success' || step === 'announced' || step === 'doorDone' || (step === 'full' && waitState === 'joined');
-    const reading = step === 'consent' || step === 'patch';
+    const reading = step === 'consent' || step === 'students' || step === 'patch';
     const ms = settled ? SUCCESS_RESET_MS : reading ? CONSENT_IDLE_RESET_MS : IDLE_RESET_MS;
     clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(reset, ms);
@@ -1275,7 +1295,29 @@ export default function WalkInKioskPage() {
                   <span><span className="block text-xl font-semibold">{o.label}</span>{o.hint && <span className="block text-sm text-slate-500">{o.hint}</span>}</span>
                   <ArrowRight className="h-6 w-6 shrink-0 text-slate-400" />
                 </button>))}
+              {doors.students && <button type="button" onClick={() => setStep('students')} className="flex min-h-[72px] w-full items-center justify-between gap-4 rounded-3xl border-2 border-slate-200 bg-white px-6 text-left">
+                <span><span className="block text-xl font-semibold">Students: sign in for class</span><span className="block text-sm text-slate-500">Scan with your own phone</span></span><ArrowRight className="h-6 w-6 shrink-0 text-slate-400" /></button>}
             </div>
+          </div>
+        )}
+        {!kioskOff && step === 'welcome' && doors.team && (
+          <a href={`/timeclock/${tenantId}?from=kiosk`} className="fixed bottom-4 right-4 z-20 rounded-full px-4 py-2 text-[13px] font-semibold text-slate-400 hover:text-slate-600" aria-label="Team clock-in">Team</a>
+        )}
+        {step === 'students' && (
+          <div className="w-full space-y-5 text-center">
+            {needsEnable ? (<>
+              <h1 className="text-3xl font-semibold tracking-tight">Student sign-in isn’t on for this device</h1>
+              <p className="text-slate-500">A manager can turn it on once with their PIN.</p>
+              <input value={mgrPin} onChange={(e) => setMgrPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" type="password" aria-label="Manager PIN" placeholder="••••" className="mx-auto block h-16 w-48 rounded-2xl border-2 border-slate-200 text-center text-3xl tracking-[0.5em]" />
+              {enableErr && <p className="text-sm text-rose-600">{enableErr}</p>}
+              <div className="flex justify-center gap-2"><button type="button" disabled={mgrPin.length !== 4} onClick={() => void enableDevice()} className="h-12 rounded-full bg-slate-900 px-6 text-[15px] font-semibold text-white disabled:opacity-40">Turn on</button>
+                <button type="button" onClick={() => { setMgrPin(''); setEnableErr(''); setStep('welcome'); }} className="h-12 rounded-full px-4 text-[15px] text-slate-500">Back</button></div>
+            </>) : (<>
+              <h1 className="text-3xl font-semibold tracking-tight">{studentQr?.name ? `${studentQr.name} — ` : ''}sign in for class</h1>
+              <div className="mx-auto w-fit rounded-[2rem] bg-white p-5 shadow">{studentQr ? <div aria-label="Scan to clock in or out" dangerouslySetInnerHTML={{ __html: studentQr.svg }} /> : <div className="flex h-72 w-72 items-center justify-center text-slate-400">{studentErr || 'Loading…'}</div>}</div>
+              <p className="text-lg text-slate-600">Scan with your own phone, signed in with the email you enrolled with. The code changes every 30 seconds.</p>
+              <button type="button" onClick={() => setStep('welcome')} className="h-12 rounded-full border-2 border-slate-200 px-6 text-[15px] font-semibold">Done</button>
+            </>)}
           </div>
         )}
 

@@ -2,6 +2,7 @@
 // src/components/settings/KioskOptionsCard.tsx — FRONT DOOR (K1): what the kiosk's "What brings you in?" screen offers.
 // Rename (title + the small line under it), move up / down, hide, and add your own (a custom option simply lets the
 // team know who's arrived and why). Options for tools the business doesn't use never appear. Saved as kioskOptions.
+import { moduleEnabled } from '@/lib/modules';
 import * as React from 'react';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
@@ -10,12 +11,14 @@ import { kioskOptionsAll, cleanKioskOptions, INTENT_LABEL, type KioskOption } fr
 export function KioskOptionsCard({ tenantId, tenant, canEdit }: { tenantId: string; tenant: any; canEdit: boolean }) {
   const { firestore } = useFirebase() as any;
   const [list, setList] = React.useState<KioskOption[]>(() => kioskOptionsAll(tenant));
+  const [doorsState, setDoorsState] = React.useState<Record<string, boolean>>(() => ({ team: tenant?.kioskDoors?.team !== false, students: tenant?.kioskDoors?.students === true || (tenant?.kioskDoors?.students !== false && !!tenant?.academy) }));
+  const academyOn = (() => { try { return moduleEnabled(tenant, 'academy' as any); } catch { return false; } })();
   const [dirty, setDirty] = React.useState(false); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState(''); const [editing, setEditing] = React.useState<string | null>(null);
   React.useEffect(() => { if (!dirty) setList(kioskOptionsAll(tenant)); }, [tenant]); // eslint-disable-line react-hooks/exhaustive-deps
   const edit = (i: number, patch: Partial<KioskOption>) => { setList((l) => l.map((o, j) => (j === i ? { ...o, ...patch } : o))); setDirty(true); setMsg(''); };
   const move = (i: number, d: number) => { setList((l) => { const n = [...l]; const j = i + d; if (j < 0 || j >= n.length) return l; [n[i], n[j]] = [n[j], n[i]]; return n; }); setDirty(true); };
   const add = () => { setList((l) => [...l, { id: `custom-${Date.now().toString(36)}`, intent: 'custom', label: 'Something else', hint: 'We’ll let the team know you’re here' }]); setDirty(true); };
-  const save = async () => { setBusy(true); try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { kioskOptions: cleanKioskOptions(list) }); setDirty(false); setMsg('Saved — the kiosk shows this now.'); } catch { setMsg('That didn’t save — only the owner can change this.'); } setBusy(false); };
+  const save = async () => { setBusy(true); try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { kioskOptions: cleanKioskOptions(list), kioskDoors: { team: doorsState.team !== false, students: doorsState.students === true } }); setDirty(false); setMsg('Saved — the kiosk shows this now.'); } catch { setMsg('That didn’t save — only the owner can change this.'); } setBusy(false); };
   const shown = list.filter((o) => !o.hidden).length;
   return (
     <section className="space-y-4">
@@ -45,6 +48,16 @@ export function KioskOptionsCard({ tenantId, tenant, canEdit }: { tenantId: stri
                 </div>
               </div>)}
           </div>); })}
+      </div>
+      <div className="cf-sheet">
+        <p className="px-4 pt-3 text-[13px] font-semibold cf-muted">ONE IPAD FOR EVERYTHING</p>
+        {([['team', 'Team clock-in', 'A small “Team” button in the corner — staff clock in and out with their PIN, then the kiosk goes back to the welcome screen.', true],
+          ...(academyOn ? [['students', 'Students: sign in for class', 'Shows the rotating class sign-in code; students scan it with their own phone. A manager turns it on once on each device with their PIN.', true]] : [])] as [string, string, string, boolean][]).map(([k, label, help]) => (
+          <label key={k} className="flex items-start gap-3 px-4 py-3">
+            <input type="checkbox" disabled={!canEdit} checked={doorsState[k] !== false} onChange={(e) => { setDoorsState((d) => ({ ...d, [k]: e.target.checked })); setDirty(true); }} className="mt-1 h-5 w-5" />
+            <span><span className="block text-[15px] font-medium">{label}</span><span className="block text-[13px] cf-muted">{help}</span></span>
+          </label>))}
+        <p className="px-4 pb-3 text-[12px] cf-muted">Have more than one device? The time clock and the student screen still have their own links.</p>
       </div>
       {canEdit && <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={add} className="h-10 rounded-full border-2 px-4 text-sm font-semibold">+ Add your own</button>
