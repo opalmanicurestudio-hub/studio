@@ -1,5 +1,6 @@
 'use client';
 
+import { VisitProfit } from '@/components/reports/VisitProfit';
 import { RebookingReport } from '@/components/reports/RebookingReport';
 import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -290,6 +291,8 @@ export default function ReportsPage() {
             <Printer className="mr-2 h-4 w-4" /> Export Report
           </Button>
         </div>
+
+        <VisitProfit />
 
         {/* Period selector */}
         <div className="p-6 rounded-[2.5rem] bg-muted/30 border-2 border-dashed border-border/50">
