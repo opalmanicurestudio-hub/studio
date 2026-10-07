@@ -4,7 +4,8 @@
 // needs doing before they can begin (forms, deposit, a balance, a provider) and whose move it is. No amounts and no
 // contact details — only that something is owed, so it's safe on a desk screen anyone can glance at.
 
-export type Outstanding = { key: 'help' | 'forms' | 'deposit' | 'balance' | 'provider' | 'pickup' | 'renter' | 'extra' | 'first'; label: string; tone: 'alert' | 'warn' | 'info' };
+import { kitsShort } from '@/lib/kits';
+export type Outstanding = { key: 'help' | 'forms' | 'deposit' | 'balance' | 'provider' | 'pickup' | 'renter' | 'extra' | 'first' | 'kit'; label: string; tone: 'alert' | 'warn' | 'info' };
 export type HereRow = { key: string; kind: 'guest' | 'door'; name: string; what: string; since: Date | null; waitMin: number; owner: string; outstanding: Outstanding[]; appointmentId?: string | null; doorId?: string | null; intent?: string | null; urgent: boolean };
 
 const ms = (v: any) => { const t = Date.parse(String(v?.toDate ? v.toDate().toISOString() : v || '')); return Number.isFinite(t) ? t : 0; };
@@ -18,7 +19,7 @@ export function formsDue(a: any, services: any[], client: any, signedOnFile: str
   return [...need].filter((x) => !signed.has(x)).length;
 }
 
-export function buildHereNow(input: { guests: { appt?: any; walkIn?: any; name: string; service: string; staffName: string | null; stage: string }[]; door: any[]; clients: any[]; services: any[]; now: Date; extraMinutesFor?: (c: any, sid: string) => number }): HereRow[] {
+export function buildHereNow(input: { guests: { appt?: any; walkIn?: any; name: string; service: string; staffName: string | null; stage: string }[]; door: any[]; clients: any[]; services: any[]; now: Date; extraMinutesFor?: (c: any, sid: string) => number; kits?: any[] }): HereRow[] {
   const { now } = input; const rows: HereRow[] = [];
   for (const g of input.guests) {
     if (g.stage !== 'waiting') continue;
@@ -31,6 +32,7 @@ export function buildHereNow(input: { guests: { appt?: any; walkIn?: any; name: 
     if (st === 'deposit_pending' || st === 'pending_payment') out.push({ key: 'deposit', label: 'Deposit not paid', tone: 'warn' });
     if (Number(c?.outstandingBalance) > 0 || Number(a.balanceDueCents) > 0) out.push({ key: 'balance', label: 'Has a balance', tone: 'warn' });
     if (!g.staffName) out.push({ key: 'provider', label: 'Needs a provider', tone: 'alert' });
+    if (input.kits?.length) { const short = kitsShort(input.services.find((s) => s.id === (a.serviceId || w.serviceId)), input.kits); if (short.length) out.push({ key: 'kit', label: `No clean ${short[0].toLowerCase()}`, tone: 'warn' }); }
     const ex = Number(a.clientExtraMinutes) || (c && input.extraMinutesFor ? input.extraMinutesFor(c, a.serviceId) : 0); if (ex > 0) out.push({ key: 'extra', label: `Usually +${ex} min`, tone: 'info' });
     if (c && (c.totalVisits === 0 || c.visitCount === 0 || c.isNew === true)) out.push({ key: 'first', label: 'First visit', tone: 'info' });
     const deskFirst = out.some((o) => ['forms', 'deposit', 'balance', 'provider'].includes(o.key));

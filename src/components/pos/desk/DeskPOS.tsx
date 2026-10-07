@@ -21,6 +21,7 @@ import { AssistQueue, AskForHelp, useAssistQueue } from '@/components/pos/desk/A
 import { openCount } from '@/lib/assist';
 import { useInventory } from '@/context/InventoryContext';
 import { Stations } from '@/components/pos/desk/Stations';
+import { Kits } from '@/components/pos/desk/Kits';
 import { stationReadiness, needsAttention } from '@/lib/readiness';
 import { CollectTuition } from '@/components/pos/desk/CollectTuition';
 import { CollectRent } from '@/components/pos/desk/CollectRent';
@@ -97,7 +98,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   // Any screen can open it for a person: window.dispatchEvent(new CustomEvent('cf:take-payment', { detail: { clientId } }))
   useEffect(() => { const on = (ev: any) => { setTakeFor(ev?.detail || null); setPayOpen(true); }; window.addEventListener('cf:take-payment', on); return () => window.removeEventListener('cf:take-payment', on); }, []);
   const [rentOpen, setRentOpen] = useState(false); const [tuitionOpen, setTuitionOpen] = useState(false);
-  const [stationsOpen, setStationsOpen] = useState(false); const [assistOpen, setAssistOpen] = useState(false);
+  const [stationsOpen, setStationsOpen] = useState(false); const [kitsOpen, setKitsOpen] = useState(false); const [assistOpen, setAssistOpen] = useState(false);
   const [askFor, setAskFor] = useState<any>(null);   // "Ask for help" from a busy station
   const { resources: allResources, inventory: allInventory } = useInventory() as any;
   const [pickupOpen, setPickupOpen] = useState(false); const [pickupScan, setPickupScan] = useState<string | null>(null);
@@ -143,6 +144,10 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const { data: doorWaiting } = useCollection<any>(doorQ);
   const protoQ = useMemoFirebase(() => (e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'protocols') : null), [e.firestore, e.tenantId]);
   const { data: protocols } = useCollection<any>(protoQ);   // cleaning protocols (O7) — turnover checklists + quarantine
+  const kitsQ = useMemoFirebase(() => (e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'kits') : null), [e.firestore, e.tenantId]);
+  const { data: kits } = useCollection<any>(kitsQ);   // kits (O5)
+  const isMgr = ['owner', 'admin', 'manager'].includes(String(e.role || ''));
+  const kitsToClean = (kits || []).filter((k: any) => k.status === 'dirty' || k.status === 'out').length;
   const assistItems = useAssistQueue(e.firestore, e.tenantId || null);   // Station Assist (O4): station requests + lounge orders + restocks
   const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);
   const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');
@@ -211,7 +216,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
 
   const active = guests.filter((g) => g.stage !== 'done');
   // K7: who's here and what's outstanding — checked-in guests not yet started + people at the front door, one list.
-  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, extraMinutesFor }), [guests, doorWaiting, e.clients, e.services, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, extraMinutesFor, kits: kits || [] }), [guests, doorWaiting, e.clients, e.services, now, kits]); // eslint-disable-line react-hooks/exhaustive-deps
   const requests = (e.appointmentsFromInventory || []).filter((a: any) => a.status === 'requested').length;
   // ── At-a-glance facts ────────────────────────────────────────────────
   const staffOf = (id: string | null) => (id ? (e.staff || []).find((s: any) => s.id === id) : null);
@@ -408,6 +413,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <Btn quiet onClick={() => setWalkInOpen(true)}>+ Walk-in</Btn>
           <Btn quiet onClick={() => setAssistOpen(true)}>Assist{openCount(assistItems) ? ` · ${openCount(assistItems)}` : ''}</Btn>
           {(allResources || []).length > 0 && <Btn quiet onClick={() => setStationsOpen(true)}>Stations{needsAttention(stationRows) ? ` · ${needsAttention(stationRows)}` : ''}</Btn>}
+          {((kits || []).length > 0 || isMgr) && <Btn quiet onClick={() => setKitsOpen(true)}>Kits{kitsToClean ? ` · ${kitsToClean}` : ''}</Btn>}
           {retailOn && <Btn quiet onClick={() => { setPickupScan(null); setPickupOpen(true); }}>Pickups</Btn>}
           <Btn quiet onClick={() => { setTakeFor(null); setPayOpen(true); }}>Take a payment</Btn>
           {moduleEnabled(tenant, 'booth_rental') && <Btn quiet onClick={() => setRentOpen(true)}>Collect rent</Btn>}
@@ -478,6 +484,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         screen={clientScreen.connected ? { connected: true, name: clientScreen.name, ask: clientScreen.ask, response: clientScreen.response } : null} /></Drawer>
       <Drawer accent={accent} open={tuitionOpen} onClose={() => setTuitionOpen(false)} title="Tuition"><CollectTuition tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addTuitionToCart?.({ planId: x.planId, name: x.name, program: x.program, amount: x.amount }); setTuitionOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>
       <Drawer accent={accent} open={stationsOpen} onClose={() => setStationsOpen(false)} title="Stations"><Stations firestore={e.firestore} tenantId={e.tenantId} resources={allResources || []} appts={todaysAppts} services={e.services || []} staff={e.staff || []} protocols={protocols || []} onAsk={(ctx: any) => { setStationsOpen(false); setAskFor(ctx); }} /></Drawer>
+      <Drawer accent={accent} open={kitsOpen} onClose={() => setKitsOpen(false)} title="Kits"><Kits firestore={e.firestore} tenantId={e.tenantId} kits={kits || []} services={e.services || []} manager={isMgr} /></Drawer>
       <Drawer accent={accent} open={assistOpen} onClose={() => setAssistOpen(false)} title="Assist"><AssistQueue firestore={e.firestore} tenantId={e.tenantId} inventory={allInventory || []} user={getAuth().currentUser} /></Drawer>
       <Drawer accent={accent} open={!!askFor} onClose={() => setAskFor(null)} title="Ask for help">{askFor && <AskForHelp tenantId={e.tenantId} context={askFor} onDone={() => setAskFor(null)} />}</Drawer>
       <Drawer accent={accent} open={payOpen} onClose={() => setPayOpen(false)} title="Take a payment">{payOpen && <TakePayment e={e} preselect={takeFor} onDone={() => { setPayOpen(false); setTakeFor(null); }} />}</Drawer>
