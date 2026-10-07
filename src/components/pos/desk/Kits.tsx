@@ -10,7 +10,7 @@ import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { TagPairing } from '@/components/pos/desk/TagPairing';
 import { useNfc } from '@/lib/use-nfc';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
-import { printCodeLabels, brandOf } from '@/lib/print-labels';
+import { printCodeLabels, brandOf, LABEL_FORMATS, KIT_STEPS, type LabelFormat } from '@/lib/print-labels';
 import { useTenant } from '@/context/TenantContext';
 import { Linens } from '@/components/pos/desk/Linens';
 import { stageOf } from '@/lib/visit';
@@ -20,7 +20,7 @@ const TONE: Record<KitStatus, string> = { ready: 'bg-emerald-100 text-emerald-80
 const ORDER: KitStatus[] = ['out', 'dirty', 'cleaning', 'in_use', 'ready'];
 
 export function Kits({ firestore, tenantId, kits, services, manager, appts = [], inventory = [], staff = [], resources = [] }: { firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean; appts?: any[]; inventory?: any[]; staff?: any[]; resources?: any[] }) {
-  const { selectedTenant } = useTenant() as any;
+  const { selectedTenant } = useTenant() as any; const [fmt, setFmt] = React.useState<LabelFormat>('sticker');   // sticker, tie-on tag or wrap band
   const [invId, setInvId] = React.useState('');   // the inventory item the new kits are units of
   const equipment = React.useMemo(() => (inventory || []).filter((i: any) => i?.type === 'equipment' && i.archived !== true).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [inventory]);
   const syncNow = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, only: 'kits' }) }).catch(() => undefined); };
@@ -103,7 +103,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
       setMsg({ ok: true, text: `Added ${n} × ${name}. Print their labels below.` }); setAdding(false); setNewName(''); setHowMany(1); setInvId(''); syncNow(); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); };
-  const printLabels = async () => { if (!(await printCodeLabels(live.map((k) => ({ title: k.name, code: k.code })), 'Kit labels', brandOf(selectedTenant)))) setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); };
+  const printLabels = async () => { if (!(await printCodeLabels(live.map((k) => ({ title: k.name, code: k.code, steps: KIT_STEPS })), 'Kit labels', brandOf(selectedTenant), fmt))) setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); };
 
   return (
     <div className="space-y-3">
@@ -247,7 +247,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
       ) : (
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setAdding(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">+ Add kits</button>
-          {live.length > 0 && <button type="button" onClick={printLabels} className="h-10 rounded-full border px-4 text-[13px]">Print labels</button>}
+          {live.length > 0 && <span className="flex items-center gap-1"><select value={fmt} onChange={(e) => setFmt(e.target.value as LabelFormat)} aria-label="Label shape" title={LABEL_FORMATS.find((f) => f.id === fmt)?.hint} className="h-10 rounded-full border bg-background px-3 text-[13px]">{LABEL_FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select><button type="button" onClick={printLabels} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Print</button></span>}
         </div>))}
     </div>);
 }

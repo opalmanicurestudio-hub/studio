@@ -11,14 +11,14 @@ import { stageOf } from '@/lib/visit';
 import { moveLinen, linenOutlook, linensNeeded, linenTotal, LINEN_MOVE_LABEL, BUNDLE_LABEL, BUNDLE_NEXT, findBundle, newBundleCode, type Linen, type LinenMove, type LinenBundle } from '@/lib/linens';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
-import { printCodeLabels, brandOf } from '@/lib/print-labels';
+import { printCodeLabels, brandOf, LABEL_FORMATS, BUNDLE_STEPS, type LabelFormat } from '@/lib/print-labels';
 import { useTenant } from '@/context/TenantContext';
 import { useNfc } from '@/lib/use-nfc';
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 export function Linens({ tenantId, services, appts = [], inventory = [], manager, staff = [] }: { tenantId: string; services: any[]; appts?: any[]; inventory?: any[]; manager: boolean; staff?: any[] }) {
-  const { selectedTenant } = useTenant() as any; const [holderFor, setHolderFor] = React.useState<LinenBundle | null>(null);   // a bundle being taken out: who is it for?
+  const { selectedTenant } = useTenant() as any; const [fmt, setFmt] = React.useState<LabelFormat>('band');   // bundles default to a wrap band const [holderFor, setHolderFor] = React.useState<LinenBundle | null>(null);   // a bundle being taken out: who is it for?
   const { firestore } = useFirebase();
   const q = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'linens') : null), [firestore, tenantId]);
   const { data: linensRaw } = useCollection<any>(q);
@@ -72,7 +72,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
       setBundling(null); setMsg({ ok: true, text: `Made ${n} bundle${n === 1 ? '' : 's'} of ${size}. Print their tags.` }); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); };
-  const printTags = async (l: Linen) => { if (!(await printCodeLabels(bundles.filter((b) => b.linenId === l.id).map((b) => ({ title: b.name, sub: `Bundle of ${b.qty}`, code: b.code })), 'Linen bundle tags', brandOf(selectedTenant)))) setMsg({ ok: false, text: 'Allow pop-ups to print tags.' }); };
+  const printTags = async (l: Linen) => { if (!(await printCodeLabels(bundles.filter((b) => b.linenId === l.id).map((b) => ({ title: b.name, sub: `Bundle of ${b.qty}`, code: b.code, steps: BUNDLE_STEPS })), 'Linen bundle tags', brandOf(selectedTenant), fmt))) setMsg({ ok: false, text: 'Allow pop-ups to print tags.' }); };
   const add = async () => { const nm = name.trim().slice(0, 60); if (!nm) return; setBusy('add'); const inv: any = supplies.find((i: any) => i.id === invId) || null;
     try { const ref = doc(collection(firestore, 'tenants', tenantId, 'linens')); const at = new Date().toISOString(); const c = Math.max(0, Math.round(count) || 0);
       await setDoc(ref, { id: ref.id, name: nm, clean: c, dirty: 0, washing: 0, par: Math.max(0, Math.round(par) || 0) || null, inUse: 0, washMinutes: Math.max(0, Math.round(washMin) || 0) || null, inventoryItemId: inv?.id || null, inventoryName: inv?.name || null, by: who(), at, createdAt: at });
@@ -142,7 +142,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
               {l.washing > 0 && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'washed', l.washing)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Load finished ({l.washing})</button>}
               <button type="button" onClick={() => { setOther(l.id); setQty(1); setWhat('use'); }} className="h-9 rounded-full border px-3 text-[13px]">Something else</button>
               {manager && bundling !== l.id && <button type="button" onClick={() => setBundling(l.id)} className="h-9 rounded-full border px-3 text-[13px]">Make tagged bundles</button>}
-              {bundles.some((b) => b.linenId === l.id) && <button type="button" onClick={() => printTags(l)} className="h-9 rounded-full border px-3 text-[13px]">Print tags</button>}
+              {bundles.some((b) => b.linenId === l.id) && <span className="flex items-center gap-1"><select value={fmt} onChange={(e) => setFmt(e.target.value as LabelFormat)} aria-label="Tag shape" title={LABEL_FORMATS.find((f) => f.id === fmt)?.hint} className="h-9 rounded-full border bg-background px-2 text-[13px]">{LABEL_FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select><button type="button" onClick={() => printTags(l)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Print</button></span>}
             </div>)}
         </div>); })}
       {manager && (adding ? (

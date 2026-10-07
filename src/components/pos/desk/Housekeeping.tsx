@@ -13,6 +13,7 @@ import { moveKit, KIT_LABEL } from '@/lib/kits';
 import { moveLinen, linenOutlook } from '@/lib/linens';
 import { attendantQueue, housekeepingMode, taskLimit, tasksHeldBy, attendantsOnNow, type OpsTask } from '@/lib/attendant';
 import { dayPrep } from '@/lib/day-prep';
+import { forecastVisits, paceRunway, walkInMode } from '@/lib/demand';
 import { useAssistQueue } from '@/components/pos/desk/AssistQueue';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 
@@ -31,7 +32,12 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const tasks = React.useMemo(() => {
     const stations = stationReadiness(resources || [], appts || [], services || [], now, staff || [], protocols || []);
     const ahead = (appts || []).filter((a: any) => ['booked', 'waiting', 'in_service'].includes(stageOf(a)) && !a.linensCounted).map((a: any) => ({ ...a, startTime: typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate ? a.startTime.toDate().toISOString() : new Date(a.startTime).toISOString() }));
-    return attendantQueue({ stations, kits: (kits || []).filter((k: any) => k.status !== 'retired'), kitTypes: kitTypes || [], linens: linens || [], outlook: linenOutlook(linens || [], ahead, services || []), requests, claims: claims || [], now });
+    // The pace right now (the last hour): clean kits or linens that will run out soon become jobs, bookings or not.
+    const prep: OpsTask[] = paceRunway({ visits: appts || [], services: services || [], kits: kits || [], linens: linens || [], now }).filter((r) => r.minutesLeft < 60).map((r) => ({
+      id: `pace:${r.kind}:${r.id}`, kind: 'prep' as const, refId: r.id, goTo: r.kind === 'kit' ? 'kits' as const : 'linens' as const, dueAt: new Date(now + r.minutesLeft * 60000).toISOString(),
+      title: r.kind === 'kit' ? `Get more ${String(r.name).toLowerCase()}s clean` : `Get more ${String(r.name).toLowerCase()}s clean`,
+      detail: r.clean === 0 ? `None clean, and ${r.perHour} an hour are being used` : `${r.clean} clean · using ${r.perHour} an hour · about ${r.minutesLeft} min left at this pace`, score: r.minutesLeft <= 15 ? 92 : r.minutesLeft <= 30 ? 82 : 55 }));
+    return attendantQueue({ stations, kits: (kits || []).filter((k: any) => k.status !== 'retired'), kitTypes: kitTypes || [], linens: linens || [], outlook: linenOutlook(linens || [], ahead, services || []), requests, claims: claims || [], prep, now });
   }, [resources, protocols, kits, kitTypes, linens, appts, services, staff, now, requests, claims]);
   return { tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], firestore };
 }
@@ -58,10 +64,10 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
   // The latest shift note that hasn't been acknowledged (so the next person starts knowing what was left).
   const handover = [...handovers].filter((h: any) => !h.ackAt && h.byId !== me).sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)))[0] || null;
   // Ready for the day: the chosen day's bookings (+ walk-in allowance) against kits and linens.
-  const prep = React.useMemo(() => { const d = new Date(); if (prepDay === 'tomorrow') d.setDate(d.getDate() + 1); const key = dayKey(d);
-    const src = (allAppts && allAppts.length ? allAppts : appts) || []; const visits = src.filter((a: any) => { const t = toDate(a.startTime); return !isNaN(t.getTime()) && dayKey(t) === key; })
-      .filter((a: any) => prepDay === 'tomorrow' || ['booked', 'waiting'].includes(stageOf(a))).map((a: any) => ({ ...a, startTime: toDate(a.startTime).toISOString(), endTime: a.endTime ? toDate(a.endTime).toISOString() : null }));
-    return dayPrep({ visits, services, kits: kits as any, kitTypes: kitTypes as any, linens: linens as any, walkIns: tenant?.ops?.walkIns || null }); }, [prepDay, allAppts, appts, services, kits, kitTypes, linens, tenant?.ops?.walkIns]);
+  const wiMode = walkInMode(tenant);
+  const fc = React.useMemo(() => { const d = new Date(); if (prepDay === 'tomorrow') d.setDate(d.getDate() + 1);
+    return forecastVisits({ appts: (allAppts && allAppts.length ? allAppts : appts) || [], target: d.getTime(), mode: wiMode }); }, [prepDay, allAppts, appts, wiMode]);
+  const prep = React.useMemo(() => dayPrep({ visits: fc.visits, services, kits: kits as any, kitTypes: kitTypes as any, linens: linens as any, walkIns: wiMode === 'fixed' ? tenant?.ops?.walkIns || null : null }), [fc, services, kits, kitTypes, linens, wiMode, tenant?.ops?.walkIns]);
   const take = async (t: OpsTask) => { if (mine.length >= limit) { setMsg(`You already have ${mine.length} job${mine.length === 1 ? '' : 's'} — finish one or hand it over first.`); return false; }
     try { await setDoc(doc(firestore, 'tenants', tenantId, 'opsClaims', claimId(t.id)), { taskId: t.id, title: t.title, byId: me, byName: who().split(' ')[0], at: new Date().toISOString(), handover: null }); audit('housekeeping.taken', `${who()} took: ${t.title}`, t.id); return true; } catch { setMsg('That didn’t save — try again.'); return false; } };
   const handOver = async (t: OpsTask, text: string) => { const at = new Date().toISOString(); const ho = { from: who().split(' ')[0], note: text.trim().slice(0, 200), at };
@@ -112,7 +118,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
           <p className="text-[14px] font-semibold">Ready for {prepDay}? <span className={`ml-1 rounded-full px-2 py-0.5 text-[12px] ${prep.ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{prep.ready ? 'Yes' : `${prep.todo.length} to do`}</span></p>
           <div className="flex overflow-hidden rounded-full border text-[12px] font-semibold">{(['today', 'tomorrow'] as const).map((d) => <button key={d} type="button" aria-pressed={prepDay === d} onClick={() => setPrepDay(d)} className={`h-8 px-3 capitalize ${prepDay === d ? 'bg-foreground text-background' : ''}`}>{d}</button>)}</div>
         </div>
-        <p className="mt-1 text-[12px] text-muted-foreground">{prep.visits} booked{prepDay === 'today' ? ' still to come' : ''}{prep.walkIns ? ` + allowing for ${prep.walkIns} walk-in${prep.walkIns === 1 ? '' : 's'}` : ''}.</p>
+        <p className="mt-1 text-[12px] text-muted-foreground">{fc.booked} booked{prepDay === 'today' ? ' still to come' : ''}{prep.walkIns ? ` + allowing for ${prep.walkIns} walk-in${prep.walkIns === 1 ? '' : 's'}` : ''}{fc.expectedWalkIns ? ` + about ${fc.expectedWalkIns} walk-ins expected` : ''}.{fc.basis ? ` ${fc.basis}` : ''}</p>
         {prep.todo.length > 0 && <ul className="mt-2 space-y-1">{prep.todo.map((t, i) => <li key={i} className="flex gap-2 text-[13px]"><span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600" />{t}</li>)}</ul>}
         {(prep.kits.length > 0 || prep.linens.length > 0) && <p className="mt-2 text-[12px] text-muted-foreground">{[...prep.kits.map((k) => `${k.name}: up to ${k.peak} at once, ${k.usable} usable, ${k.readyNow} clean now`), ...prep.linens.map((l) => `${l.name}: ${l.needed} needed, ${l.clean} clean now`)].join(' · ')}</p>}
         {!prep.kits.length && !prep.linens.length && <p className="mt-1 text-[12px] text-muted-foreground">Nothing booked that day uses a tracked kit or linen.</p>}
@@ -120,7 +126,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
       {msg && <p className="text-[13px] font-medium" role="status">{msg}</p>}
       {mine.length > 0 && <p className="text-[13px] text-muted-foreground">You have {mine.length} of {limit} jobs.</p>}
       {!visible.length && <p className="rounded-2xl border bg-card p-4 text-[14px] text-muted-foreground">Nothing waiting — stations, kits, linens and requests are all in hand.</p>}
-      {visible.map((t, i) => { const isMine = mine.some((x) => x.id === t.id); const ql = quickLabel(t); const takeable = !t.claimed && (t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'inspect'); return (
+      {visible.map((t, i) => { const isMine = mine.some((x) => x.id === t.id); const ql = quickLabel(t); const takeable = !t.claimed && (t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'inspect' || t.kind === 'prep'); return (
         <div key={t.id} className="rounded-2xl border bg-card p-3" style={t.score >= 75 ? { borderColor: 'var(--danger, #fca5a5)' } : undefined}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
@@ -133,7 +139,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
             <div className="flex flex-wrap gap-2">
               {ql && !(t.kind === 'station' && t.claimed) && !(t.kind === 'request' && t.claimed && !isMine && t.request?.status === 'accepted' && false) && <button type="button" disabled={busy === t.id} onClick={async () => { if ((t.kind === 'kit_clean' || t.kind === 'wash_start') && !t.claimed && !(await take(t))) return; await quick(t); }} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{ql}</button>}
               {takeable && <button type="button" onClick={() => take(t)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white">I’ll take it</button>}
-              {onGo && (t.kind === 'station' || t.kind === 'inspect' || t.kind === 'kit_finish' || t.kind === 'kit_decide' || (t.kind === 'request' && t.request?.source !== 'assist')) && <button type="button" onClick={() => onGo(t.goTo)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">{t.kind === 'station' ? 'Open steps' : 'Open'}</button>}
+              {onGo && (t.kind === 'station' || t.kind === 'inspect' || t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'prep' || (t.kind === 'request' && t.request?.source !== 'assist')) && <button type="button" onClick={() => onGo(t.goTo)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">{t.kind === 'station' ? 'Open steps' : 'Open'}</button>}
               {isMine && t.kind !== 'request' && noteFor !== t.id && <button type="button" onClick={() => { setNoteFor(t.id); setNote(''); }} className="h-9 rounded-full border px-3 text-[13px]">Hand over</button>}
             </div>
           </div>
@@ -162,11 +168,13 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
           <p className="text-[12px] text-muted-foreground">With named people, reset reminders go to them instead of the provider, and this list shows on their own Today screen.</p>
           <label className="block">Jobs one person can hold at once <input type="number" min={1} max={10} defaultValue={limit} onBlur={(e) => saveSetup({ maxTasksEach: Math.max(1, Math.min(10, Math.round(Number(e.target.value)) || 3)) })} className="ml-1 h-9 w-16 rounded-lg border bg-background px-2" /></label>
           <p className="pt-1 font-semibold">Walk-ins</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <label>Allow for <input type="number" min={0} max={50} defaultValue={Number(tenant?.ops?.walkIns?.perDay) || 0} onBlur={(e) => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), perDay: Math.max(0, Math.min(50, Math.round(Number(e.target.value)) || 0)) } })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" /> a day, usually for</label>
+          {([['none', 'We don’t take walk-ins — plan on bookings only'], ['history', 'Learn from past days — plan for our busiest recent same weekday (best for walk-in salons)'], ['fixed', 'Allow for a set number a day']] as const).map(([m, label]) => (
+            <label key={m} className="flex items-start gap-2"><input type="radio" name="wi" className="mt-1" checked={wiMode === m} onChange={() => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), mode: m, ...(m === 'fixed' && !Number(tenant?.ops?.walkIns?.perDay) ? { perDay: 4 } : {}) } })} /> {label}</label>))}
+          {wiMode === 'fixed' && <div className="flex flex-wrap items-center gap-2 pl-6">
+            <label>Allow for <input type="number" min={0} max={200} defaultValue={Number(tenant?.ops?.walkIns?.perDay) || 0} onBlur={(e) => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), mode: 'fixed', perDay: Math.max(0, Math.min(200, Math.round(Number(e.target.value)) || 0)) } })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" /> a day, usually for</label>
             <select defaultValue={tenant?.ops?.walkIns?.serviceId || ''} onChange={(e) => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), serviceId: e.target.value || null } })} aria-label="Usual walk-in service" className="h-9 rounded-lg border bg-background px-2 text-[13px]"><option value="">Choose a service…</option>{(services || []).filter((x: any) => x && x.type !== 'addon').map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
-          </div>
-          <p className="text-[12px] text-muted-foreground">Leave it at 0 if you don’t take walk-ins. The “Ready for the day” check adds that many visits’ linens and keeps a spare kit aside.</p>
+          </div>}
+          <p className="text-[12px] text-muted-foreground">Whatever you choose, the queue also watches the pace of the last hour and warns when clean kits or linens will run out soon.</p>
           <button type="button" onClick={() => setSetup(false)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Done</button>
         </div>
       ) : <button type="button" onClick={() => setSetup(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Who does housekeeping: {mode === 'attendants' ? `${picked.length} named` : 'each provider'}</button>)}
