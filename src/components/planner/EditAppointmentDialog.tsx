@@ -1,5 +1,6 @@
 'use client';
 
+import { minusFree, providerFreeOffsets } from '@/lib/availability';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -263,7 +264,12 @@ const EditAppointmentForm = ({
         const clashApt = appointments.find(apt => {
             if (apt.id === appointment.id) return false;
             if (selectedStaffId && apt.staffId !== selectedStaffId) return false;
-            return areIntervalsOverlapping(newInterval, { start: safeDate(apt.startTime), end: safeDate(apt.endTime) }, { inclusive: false });
+            // Processing time (service blueprints): the provider is free in the middle of either visit — only the
+            // hands-on parts can clash.
+            const theirStart = safeDate(apt.startTime); const theirSvc = services.find((x: any) => x.id === apt.serviceId);
+            const mine = minusFree(newInterval, startDateTime, providerFreeOffsets(selectedService));
+            const theirs = minusFree({ start: theirStart, end: safeDate(apt.endTime) }, theirStart, providerFreeOffsets(theirSvc));
+            return mine.some((m) => theirs.some((t) => areIntervalsOverlapping(m, t, { inclusive: false })));
         });
 
         if (clashApt) {

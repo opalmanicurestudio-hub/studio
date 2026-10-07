@@ -361,6 +361,39 @@ export function totalServiceMinutes(service: any, addOns: any[] = []): number {
  * The window that must be free of other appointments — the service plus its
  * buffers. See the convention note at the top of this file.
  */
+/**
+ * PROCESSING TIME (service blueprints): stretches of a visit when the PROVIDER isn't needed — colour developing, a mask
+ * setting — as minute offsets from the service's start. Only "processing" phases the owner marked "provider not needed"
+ * count; set-up and turnover stay with the existing buffers. The client and the station stay busy throughout; only the
+ * provider is free to take someone else. No blueprint, or none marked → [] (the whole visit is busy, as before).
+ */
+export function providerFreeOffsets(service: any): [number, number][] {
+  const phases: any[] = Array.isArray(service?.blueprint?.phases) ? service.blueprint.phases : [];
+  const out: [number, number][] = []; let at = 0;
+  for (const ph of phases) {
+    if (ph?.kind !== 'active' && ph?.kind !== 'processing') continue;
+    const m = Math.max(0, Math.round(Number(ph.minutes) || 0));
+    if (ph.kind === 'processing' && ph.providerNeeded === false && m >= 5) out.push([at, at + m]);
+    at += m;
+  }
+  return out;
+}
+
+/** A busy window with the provider-free stretches cut out of it (offsets measured from `serviceStart`). */
+export function minusFree(w: Window, serviceStart: Date, free: [number, number][]): Window[] {
+  let parts: Window[] = [w];
+  for (const [a, b] of free) {
+    const fs = addMinutes(serviceStart, a), fe = addMinutes(serviceStart, b); const next: Window[] = [];
+    for (const p of parts) {
+      if (fe <= p.start || fs >= p.end) { next.push(p); continue; }
+      if (fs > p.start) next.push({ start: p.start, end: fs });
+      if (fe < p.end) next.push({ start: fe, end: p.end });
+    }
+    parts = next;
+  }
+  return parts.filter((p) => p.end > p.start);
+}
+
 export function protectedWindow(
   start: Date,
   serviceMinutes: number,
@@ -1021,7 +1054,9 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
       load += 1;
       const pad = paddingFor(apt, servicesById);
       const w = { start: subMinutes(start, pad.before), end: addMinutes(end, pad.after) };
-      if (w.end > w.start) busy.push(w);
+      // Processing time on this visit's service: the provider is free in the middle (client and station still busy).
+      const free = providerFreeOffsets(servicesById[apt?.serviceId]);
+      if (w.end > w.start) busy.push(...(free.length ? minusFree(w, start, free) : [w]));
     }
 
     for (const evt of dayEvents) {
@@ -1201,12 +1236,14 @@ export function isStaffFree(
   minutes: number,
   padBefore: number,
   padAfter: number,
+  free: [number, number][] = [],
 ): boolean {
   const serviceEnd = addMinutes(start, minutes);
   if (start < day.open) return false;
   if (serviceEnd > day.close) return false;
   const guard = protectedWindow(start, minutes, padBefore, padAfter);
-  return !day.busy.some((b) => overlaps(guard, b));
+  const parts = free.length ? minusFree(guard, start, free) : [guard];
+  return !day.busy.some((b) => parts.some((g) => overlaps(g, b)));
 }
 
 /** Free minutes between this booking's protected end and the next commitment. */
@@ -1432,7 +1469,7 @@ export function pickStaffForSlot(input: AvailabilityInput & { time: string }): S
   }
 
   const candidates = ctx.staffDays.filter((d) =>
-    isStaffFree(d, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter),
+    isStaffFree(d, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service)),
   );
 
   if (candidates.length === 0) {
@@ -1737,7 +1774,7 @@ export function computePartyAvailability(
       if (!resourceFreeWith(ctx, start, claimed)) return null;
 
       const candidates = ctx.staffDays.filter((d) => {
-        if (!isStaffFree(d, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter)) return false;
+        if (!isStaffFree(d, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) return false;
         const mine = taken[d.staff.id] || [];
         const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
         return !mine.some((w) => overlaps(guard, w));
@@ -1871,7 +1908,7 @@ export function verifyBookable(
     if (!ctx || !start || !day) {
       return { ok: false, error: 'That professional is not available on this day.' };
     }
-    if (!isStaffFree(day, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter)) {
+    if (!isStaffFree(day, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) {
       return { ok: false, error: 'That professional is no longer free at that time.' };
     }
     return { ok: true, staffId: day.staff.id, staffName: day.staff.name ?? day.staff.id };

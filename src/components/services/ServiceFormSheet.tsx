@@ -1089,7 +1089,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                           <span className="text-xs text-muted-foreground">min</span>
                         </div>
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={p.providerNeeded} onChange={(e) => setPhase(i, { providerNeeded: e.target.checked })} /> Provider needed</label>
+                          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={p.providerNeeded} onChange={(e) => setPhase(i, { providerNeeded: e.target.checked })} /> Provider needed{p.kind === 'processing' && !p.providerNeeded && Number(p.minutes) >= 5 ? <span className="text-muted-foreground"> · they can take another client during this time</span> : null}</label>
                           <span className="flex gap-1">
                             <button type="button" onClick={() => movePhase(i, -1)} disabled={i === 0} className="h-8 w-8 rounded-lg border text-sm disabled:opacity-30" aria-label="Move up">↑</button>
                             <button type="button" onClick={() => movePhase(i, 1)} disabled={i === bpPhases.length - 1} className="h-8 w-8 rounded-lg border text-sm disabled:opacity-30" aria-label="Move down">↓</button>
