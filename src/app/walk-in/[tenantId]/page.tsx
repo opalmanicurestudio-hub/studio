@@ -76,6 +76,7 @@ import {
 } from 'lucide-react';
 
 type Step =
+  | 'eventPick'
   | 'welcome'
   | 'phone'
   | 'looking'
@@ -296,6 +297,16 @@ export default function WalkInKioskPage() {
   // allowed to be empty — the trouble screen has a safe generic fallback, and
   // a server error string is only shown when it is actually useful to a guest.
   const [announceNote, setAnnounceNote] = useState('');
+  // A class, workshop or event: the guest list is checked by phone; if they're on more than one today, they pick by title.
+  const [eventChoices, setEventChoices] = useState<{ eventId: string; title: string; time: string }[]>([]);
+  const timeLabel = (t: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); if (!m) return ''; const h = Number(m[1]); return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`; };
+  const arriveEvent = async (eventId?: string) => {
+    setLoading(true);
+    try { const d = await post({ action: 'event', phone, ...(eventId ? { eventId } : {}) });
+      if (d?.ok) { const at = timeLabel(d.time); setAnnounceNote(d.alreadyArrived ? `You’re already checked in for ${d.title}.` : `Welcome${d.firstName ? `, ${d.firstName}` : ''} — you’re checked in for ${d.title}${at ? ` at ${at}` : ''}.`); setStep('announced'); return; }
+      if (d?.code === 'choose' && Array.isArray(d.choices)) { setEventChoices(d.choices); setStep('eventPick'); return; }
+      setStep('noBooking');
+    } catch { setStep('noBooking'); } finally { setLoading(false); } };
   const [troubleNote, setTroubleNote] = useState('');
   const [closingWarning, setClosingWarning] = useState<string | null>(null);
   const [failMessage, setFailMessage] = useState('');
@@ -479,7 +490,7 @@ export default function WalkInKioskPage() {
   // ── Idle auto-reset — a kiosk must never be left mid-flow for the next guest ──
   const reset = useCallback(() => {
     setStep('welcome');
-    setPhone(''); setName(''); setEmail(''); setLookup(null); setCodeMode(false); setBookingCode(''); setCodeErr(''); setScanning(false); setScanToken('');
+    setPhone(''); setName(''); setEmail(''); setLookup(null); setEventChoices([]); setCodeMode(false); setBookingCode(''); setCodeErr(''); setScanning(false); setScanToken('');
     setService(null); setOptions(null); setChosen(null);
     setPreferredStaffId(''); setWaitForPreferred(false); setGroupSize(1); setGuests([]);
     setForms([]); setAnswers({}); setAccepted({}); setGuardians({});
@@ -572,8 +583,10 @@ export default function WalkInKioskPage() {
 
       if (d.appointmentToday?.appointmentId) { setStep('checkin'); return; }
       if (d.boothToday?.reservationId) { setStep('booth'); return; }
-      // They said "I have an appointment" (or a class) but nothing is booked today under this number.
-      if (door && (door.intent === 'appointment' || door.intent === 'class')) { setStep('noBooking'); return; }
+      // A class or event: look for them on today's guest lists.
+      if (door && door.intent === 'class') { await arriveEvent(); return; }
+      // They said "I have an appointment" but nothing is booked today under this number.
+      if (door && door.intent === 'appointment') { setStep('noBooking'); return; }
 
       if (d.found) { setStep(d.usual?.serviceId ? 'recognize' : 'service'); return; }
       setStep('service');
@@ -2296,6 +2309,15 @@ export default function WalkInKioskPage() {
             <button onClick={reset} className="w-full min-h-[44px] text-sm text-slate-400 py-1">
               Not you? Start over
             </button>
+          </div>
+        )}
+
+        {!kioskOff && step === 'eventPick' && (
+          <div className="w-full space-y-6 text-center">
+            <h1 className="text-3xl font-semibold tracking-tight">Which are you here for?</h1>
+            <div className="grid gap-3">{eventChoices.map((c) => (
+              <button key={c.eventId} type="button" disabled={loading} onClick={() => void arriveEvent(c.eventId)} className="flex min-h-[72px] w-full items-center justify-between gap-4 rounded-3xl border-2 border-slate-200 bg-white px-6 text-left disabled:opacity-50">
+                <span className="text-xl font-semibold">{c.title}</span><span className="text-slate-500">{timeLabel(c.time)}</span></button>))}</div>
           </div>
         )}
 

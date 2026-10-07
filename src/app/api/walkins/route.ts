@@ -1047,7 +1047,7 @@ export async function POST(req: NextRequest) {
     if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing studio.' }, { status: 400 });
     // 'checkin' (a booked client at the kiosk) and 'booth-arrived' have handlers below but were missing here, so both
     // always failed with "Unknown action" — the kiosk couldn't check in anyone with an appointment.
-    if (!['join', 'lookup', 'options', 'complete', 'notify', 'checkin', 'booth-arrived', 'code'].includes(action)) {
+    if (!['join', 'lookup', 'options', 'complete', 'notify', 'checkin', 'booth-arrived', 'code', 'event'].includes(action)) {
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     }
 
@@ -1077,6 +1077,7 @@ export async function POST(req: NextRequest) {
     if (action === 'lookup') return await handleLookup(db, tenantId, body);
     if (action === 'checkin') return await handleCheckIn(db, tenantId, { ...body, __origin: req.nextUrl.origin });
     if (action === 'code') return await handleCode(db, tenantId, body);
+    if (action === 'event') return await handleEventArrival(db, tenantId, body);
     if (action === 'booth-arrived') return await handleBoothArrived(db, tenantId, body);
     if (action === 'options') return await handleOptions(db, tenantId, body);
     return await handleJoin(db, tenantId, tenant, body, publicOrigin(tenant, req));
@@ -2987,4 +2988,35 @@ async function handleCode(db: any, tenantId: string, body: any) {
     alreadyArrived: ['arrived', 'checked_in', 'checkedIn'].includes(st),
     checkInOpen: minutesUntil <= EARLY_CHECKIN_MIN && minutesUntil >= -LATE_CHECKIN_MIN,
     earlyByMin: minutesUntil > EARLY_CHECKIN_MIN ? minutesUntil - EARLY_CHECKIN_MIN : 0, lateByMin: minutesUntil < 0 ? Math.abs(minutesUntil) : 0 } });
+}
+
+
+// A CLASS, WORKSHOP OR EVENT — the guest gives their phone number; we look for TODAY's events (in the business's own time
+// zone) where they're on the guest list (matched by phone, or by the client that number belongs to) and check them in.
+// The kiosk never lists today's events — a private party's name can identify a client — and learns only the first name,
+// the event's title and its time. More than one match today → the guest picks by title; otherwise the front desk helps.
+async function handleEventArrival(db: any, tenantId: string, body: any) {
+  const phone = str(body?.phone, 40).trim(); const digits = phone.replace(/\D/g, '').slice(-10);
+  const pickEventId = str(body?.eventId, 120).trim();
+  if (digits.length < 7) return NextResponse.json({ ok: false, error: 'Please enter your mobile number.' }, { status: 200 });
+  if (!(await rateLimit(db, tenantId, 'walkInLookupRate', 60))) return NextResponse.json({ ok: false, error: 'Too many attempts. Please try again shortly.' }, { status: 429 });
+  const tenant: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+  const { tenantTimeZone } = await import('@/lib/tenant-time');
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: tenantTimeZone(tenant) });
+  const events = (await db.collection(`tenants/${tenantId}/studioEvents`).where('date', '==', today).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+    .filter((e: any) => !['cancelled', 'canceled', 'draft'].includes(String(e.status || '').toLowerCase()));
+  if (!events.length) return NextResponse.json({ ok: false, code: 'none', error: 'We couldn’t find a class or event for you today — please see the front desk.' }, { status: 200 });
+  const found = await findClient(db, tenantId, phone, '').catch(() => null) || await findClient(db, tenantId, digits, '').catch(() => null);
+  const matches: { e: any; g: any }[] = [];
+  for (const e of events) {
+    const guests = (await db.collection(`tenants/${tenantId}/eventGuests`).where('eventId', '==', e.id).get()).docs.map((d: any) => ({ _ref: d.ref, ...(d.data() || {}) }));
+    const g = guests.find((x: any) => (found && x.clientId && String(x.clientId) === String(found.id)) || (String(x.phone || '').replace(/\D/g, '').slice(-10) === digits));
+    if (g) matches.push({ e, g });
+  }
+  const pick = pickEventId ? matches.filter((m) => m.e.id === pickEventId) : matches;
+  if (!pick.length) return NextResponse.json({ ok: false, code: 'none', error: 'We couldn’t find you on today’s guest list — please see the front desk.' }, { status: 200 });
+  if (pick.length > 1) return NextResponse.json({ ok: false, code: 'choose', choices: pick.map((m) => ({ eventId: m.e.id, title: str(m.e.title || m.e.name || 'Event', 80), time: str(m.e.time, 10) })) }, { status: 200 });
+  const { e, g } = pick[0]; const already = g.checkedIn === true;
+  if (!already) await g._ref.set({ checkedIn: true, checkedInAt: new Date().toISOString(), checkedInVia: 'kiosk' }, { merge: true });
+  return NextResponse.json({ ok: true, firstName: firstName(g.name || found?.data?.name), title: str(e.title || e.name || 'your event', 80), time: str(e.time, 10), alreadyArrived: already });
 }
