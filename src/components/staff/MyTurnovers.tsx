@@ -51,7 +51,6 @@ export function PortalHousekeeping({ tenantId, staffId, myAppts, services, staff
     <section aria-label="Housekeeping" className="space-y-3">
       {ask}
       <p className="text-sm font-semibold">Housekeeping</p>
-      <Housekeeping tenantId={tenantId} tenant={tenant} appts={today} services={services} staff={staff} manager={false} />
-      <MyTurnovers everyone tenantId={tenantId} staffId={staffId} appts={today} services={services} staff={staff} />
+      <Housekeeping view="focus" tenantId={tenantId} tenant={tenant} appts={today} services={services} staff={staff} manager={false} />
     </section>);
 }

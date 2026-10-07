@@ -13,6 +13,7 @@ export interface OpsTask { id: string; kind: TaskKind; title: string; detail: st
   /** Who has said they're doing it, and any note left by the last person who had it. */ claimedBy?: string | null; claimedById?: string | null; handover?: { from: string; note: string; at: string } | null }
 export const housekeepingMode = (tenant: any): 'providers' | 'attendants' => (tenant?.ops?.housekeeping === 'attendants' && Array.isArray(tenant?.ops?.attendantIds) && tenant.ops.attendantIds.length ? 'attendants' : 'providers');
 export const attendantIds = (tenant: any): string[] => (housekeepingMode(tenant) === 'attendants' ? tenant.ops.attendantIds.map(String) : []);
+const many = (name: any) => { const n = String(name || '').trim().toLowerCase(); return /s$/.test(n) ? n : `${n}s`; };
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** Higher score = do it sooner. Roughly: something a client is about to need > overdue > running low > routine. */
@@ -22,7 +23,7 @@ export function attendantQueue(input: { stations: StationRow[]; kits: Kit[]; kit
     const nextIn = r.next ? (Date.parse(r.next.at) - now) / 60000 : Infinity; const nextBit = r.next && nextIn < 90 ? ` · next client ${clock(r.next.at)}` : '';
     if (r.status === 'turnover') { const over = r.overdueMin || 0;
       out.push({ id: `st:${r.id}`, kind: 'station', refId: r.id, goTo: 'stations', title: `Reset ${r.name}`, ownerName: r.ownerName || null, claimed: !!r.claimed, dueAt: r.readyBy || null,
-        detail: `${over ? `Overdue ${over} min` : r.readyBy ? `Ready by ${clock(r.readyBy)}` : 'After the last client'}${nextBit}${r.checklist?.length ? ` · ${r.checklist.length} steps` : ''}`,
+        detail: `${over ? `Overdue ${over} min` : r.readyBy ? `Ready by ${clock(r.readyBy)}` : 'After the last client'}${nextBit}${r.checklist?.length ? ` · ${r.checklist.length} step${r.checklist.length === 1 ? '' : 's'}` : ''}`,
         score: 50 + Math.min(40, over * 2) + (nextIn <= 10 ? 60 : nextIn <= 30 ? 25 : 0) }); }
     else if (r.status === 'inspect') out.push({ id: `in:${r.id}`, kind: 'inspect', refId: r.id, goTo: 'stations', title: `Check ${r.name}`, dueAt: null, detail: `${r.note || 'Flagged for inspection'}${nextBit}`, score: 45 + (nextIn <= 30 ? 40 : 0) });
   }
@@ -35,9 +36,9 @@ export function attendantQueue(input: { stations: StationRow[]; kits: Kit[]; kit
   }
   for (const l of input.linens || []) { const o = (input.outlook || []).find((x) => x.id === l.id); const short = (o?.short || 0) > 0;
     if (Number(l.washing) > 0 && l.washStartedAt && (Number(l.washMinutes) > 0 ? secondsLeft(l.washStartedAt, Number(l.washMinutes), now) <= 0 : true))
-      out.push({ id: `wd:${l.id}`, kind: 'wash_done', refId: l.id, goTo: 'linens', title: `Put away ${String(l.name).toLowerCase()} (${l.washing})`, dueAt: null, detail: `The wash load should be done${short ? ` · short by ${o!.short} for today` : ''}`, score: short ? 75 : 35 });
+      out.push({ id: `wd:${l.id}`, kind: 'wash_done', refId: l.id, goTo: 'linens', title: `Put away ${many(l.name)} (${l.washing})`, dueAt: null, detail: `The wash load should be done${short ? ` · short by ${o!.short} for today` : ''}`, score: short ? 75 : 35 });
     if (Number(l.dirty) > 0 && (short || o?.belowPar || Number(l.dirty) >= 6))
-      out.push({ id: `ws:${l.id}`, kind: 'wash_start', refId: l.id, goTo: 'linens', title: `Wash ${String(l.name).toLowerCase()} (${l.dirty} dirty)`, dueAt: o?.runsOutAt || null, detail: short ? `Short by ${o!.short} for today${o?.runsOutAt ? ` — needed by the ${clock(o.runsOutAt)} visit` : ''}` : o?.belowPar ? `Below your usual ${l.par} clean` : `${l.clean} clean left`, score: short ? 78 : o?.belowPar ? 38 : 22 });
+      out.push({ id: `ws:${l.id}`, kind: 'wash_start', refId: l.id, goTo: 'linens', title: `Wash ${many(l.name)} (${l.dirty} dirty)`, dueAt: o?.runsOutAt || null, detail: short ? `Short by ${o!.short} for today${o?.runsOutAt ? ` — needed by the ${clock(o.runsOutAt)} visit` : ''}` : o?.belowPar ? `Below your usual ${l.par} clean` : `${l.clean} clean left`, score: short ? 78 : o?.belowPar ? 38 : 22 });
   }
   // What providers have asked for from their stations (and lounge orders, restock requests) — same list, so nothing is missed.
   for (const r of input.requests || []) { if (r.status !== 'open' && r.status !== 'accepted') continue;

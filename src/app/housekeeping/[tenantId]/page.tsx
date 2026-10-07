@@ -8,7 +8,8 @@ import { collection, doc, query, where } from 'firebase/firestore';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
 import { useDoc } from '@/firebase/firestore/use-doc';
 import { Housekeeping, useHousekeeping } from '@/components/pos/desk/Housekeeping';
-import { MyTurnovers } from '@/components/staff/MyTurnovers';
+import { Sterilisation } from '@/components/pos/desk/Sterilisation';
+import { StationTiles } from '@/components/pos/desk/StationTiles';
 import { attendantsOnNow, housekeepingMode } from '@/lib/attendant';
 
 function Clock() { const [now, setNow] = React.useState(() => new Date()); React.useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
@@ -32,6 +33,8 @@ export default function HousekeepingWall() {
     void go(); const vis = () => { if (document.visibilityState === 'visible') void go(); }; document.addEventListener('visibilitychange', vis); return () => { document.removeEventListener('visibilitychange', vis); try { lock?.release(); } catch { /* gone already */ } }; }, []);
   const accent = /^#[0-9a-fA-F]{3,8}$/.test(String(tenant?.bookingPageSettings?.cfPageConfig?.accentColor || '')) ? tenant.bookingPageSettings.cfPageConfig.accentColor : '#16171a';
   const crew = attendantsOnNow(tenant, staff || []);
+  // A wide screen gets the board (lanes + tiles); a phone gets one job at a time.
+  const [wide, setWide] = React.useState(true); React.useEffect(() => { const m = window.matchMedia('(min-width: 1024px)'); const f = () => setWide(m.matches); f(); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, []);
 
   if (isUserLoading) return <main className="grid min-h-screen place-items-center text-lg text-muted-foreground">Loading…</main>;
   if (!user) return (
@@ -42,23 +45,29 @@ export default function HousekeepingWall() {
     </main>);
   const urgent = hk.tasks.filter((t) => t.score >= 75).length;
   return (
-    <main className="min-h-screen bg-background" style={{ ['--accent' as any]: accent }}>
-      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4" style={{ borderTop: `6px solid ${accent}` }}>
-        <div><p className="text-sm font-semibold uppercase tracking-widest" style={{ color: accent }}>{tenant?.name || tenant?.businessName || 'Housekeeping'}</p>
-          <h1 className="text-3xl font-bold md:text-4xl">Housekeeping</h1></div>
+    <main className="min-h-screen bg-[#F6F3EE]" style={{ ['--accent' as any]: accent }}>
+      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 bg-[#17181A] px-6 py-4 text-white" style={{ borderBottom: `5px solid ${accent}` }}>
+        <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[#D9C3A5]">{tenant?.name || tenant?.businessName || 'Housekeeping'}</p>
+          <h1 className="text-3xl !font-[700] md:text-4xl">Housekeeping</h1></div>
         <div className="flex items-center gap-6 text-right">
-          {housekeepingMode(tenant) === 'attendants' && <p className="hidden text-base text-muted-foreground md:block">On now: <b className="text-foreground">{crew.on.map((s: any) => String(s.name || '').split(' ')[0]).join(', ') || 'nobody'}</b></p>}
-          <p className="text-base"><b className={`text-3xl tabular-nums md:text-4xl ${urgent ? 'text-red-700' : ''}`}>{hk.tasks.length}</b> <span className="text-muted-foreground">waiting{urgent ? ` · ${urgent} urgent` : ''}</span></p>
-          <p className="text-3xl font-bold md:text-4xl"><Clock /></p>
+          {housekeepingMode(tenant) === 'attendants' && <p className="hidden text-base text-[#CFCBC4] md:block">On now: <b className="text-white">{crew.on.map((s: any) => String(s.name || '').split(' ')[0]).join(', ') || 'nobody'}</b></p>}
+          <p className="text-base"><b className={`text-3xl font-[800] tabular-nums md:text-4xl ${urgent ? 'text-[#FFB4A8]' : ''}`}>{hk.tasks.length}</b> <span className="text-[#CFCBC4]">waiting{urgent ? ` · ${urgent} urgent` : ''}</span></p>
+          <p className="text-3xl font-[800] md:text-4xl"><Clock /></p>
         </div>
       </header>
-      <div className="mx-auto grid max-w-[1600px] gap-6 p-6 lg:grid-cols-[3fr_2fr]" style={{ zoom: 1.2 } as any}>
-        <section aria-label="What to do next"><Housekeeping tenantId={tenantId} tenant={tenant} appts={today} allAppts={apptsRaw || []} services={services || []} staff={staff || []} manager={false} /></section>
-        <section aria-label="Station steps" className="space-y-3">
-          <p className="text-[15px] font-semibold">Stations to reset</p>
-          <MyTurnovers everyone tenantId={tenantId} staffId={user.uid} appts={today} services={services || []} staff={staff || []} />
-          <p className="text-[13px] text-muted-foreground">Kits and linens are scanned at the front desk or on a phone: open Kits &amp; linens there.</p>
-        </section>
-      </div>
+      {wide ? (
+        <div className="mx-auto grid max-w-[1800px] gap-7 p-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <section aria-label="What to do next"><Housekeeping view="lanes" tenantId={tenantId} tenant={tenant} appts={today} allAppts={apptsRaw || []} services={services || []} staff={staff || []} manager={false} /></section>
+          <div className="space-y-7">
+            <section aria-label="Sterilisers" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Sterilisers</h2><Sterilisation tenantId={tenantId} tenant={tenant} kits={hk.kits as any} manager={false} /></section>
+            <section aria-label="Stations" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Stations</h2><StationTiles tenantId={tenantId} appts={today} services={services || []} staff={staff || []} /></section>
+          </div>
+        </div>
+      ) : (
+        <div className="mx-auto max-w-xl space-y-7 p-4">
+          <Housekeeping view="focus" tenantId={tenantId} tenant={tenant} appts={today} allAppts={apptsRaw || []} services={services || []} staff={staff || []} manager={false} />
+          <section aria-label="Stations" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Stations</h2><StationTiles tenantId={tenantId} appts={today} services={services || []} staff={staff || []} /></section>
+          <section aria-label="Sterilisers" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Sterilisers</h2><Sterilisation tenantId={tenantId} tenant={tenant} kits={hk.kits as any} manager={false} /></section>
+        </div>)}
     </main>);
 }

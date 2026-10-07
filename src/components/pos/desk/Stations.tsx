@@ -93,16 +93,16 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
             ) : (
               <div className="mt-2 flex flex-wrap gap-2">
                 {r.status === 'turnover' && !!r.checklist?.length && (
-                  <ul className="w-full space-y-1 pb-1">{r.checklist.map((step, i) => { const on = ticksOf(r).includes(i); return (
-                    <li key={i}><label className="flex items-center gap-2 text-[14px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => toggle(r, i)} />{step}</label></li>); })}</ul>)}
+                  <ul className="w-full space-y-2 pb-1">{r.checklist.map((step, i) => { const on = ticksOf(r).includes(i); return (
+                    <li key={i}><button type="button" aria-pressed={on} onClick={() => toggle(r, i)} className={`flex min-h-[52px] w-full items-center gap-3 rounded-2xl border-[1.5px] px-3 text-left text-[15px] font-semibold ${on ? 'border-emerald-700 bg-emerald-50' : 'bg-card'}`}><span aria-hidden className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[15px] ${on ? 'bg-emerald-700 text-white' : 'border-2 border-stone-400'}`}>{on ? '✓' : ''}</span>{step}</button></li>); })}</ul>)}
                 {(r.status === 'turnover' || r.status === 'inspect') && (() => { const need = r.status === 'turnover' && r.needsConfirm && ticksOf(r).length < (r.checklist || []).length;
                   return <button type="button" disabled={busy === r.id || need} onClick={() => act.ready(r)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{r.status === 'turnover' && r.needsConfirm ? 'Done — ready' : 'Mark ready'}</button>; })()}
                 {r.status === 'turnover' && !mine && <button type="button" disabled={busy === r.id} onClick={() => act.claim(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">I’ll do it</button>}
                 {(r.status === 'ready' || r.status === 'turnover') && <button type="button" disabled={busy === r.id} onClick={() => act.inspect(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">Needs inspection</button>}
                 {r.status === 'in_use' && onAsk && <button type="button" onClick={() => onAsk({ resourceId: r.id, stationName: r.name, visitId: r.visitId, clientName: r.clientName })} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Ask for help</button>}
                 {r.status === 'blocked' && r.quarantine && (
-                  <ul className="w-full space-y-1 pb-1">{r.quarantine.steps.map((step, i) => { const on = ticksOf(r).includes(i); return (
-                    <li key={i}><label className="flex items-center gap-2 text-[14px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => toggle(r, i)} />{step}</label></li>); })}</ul>)}
+                  <ul className="w-full space-y-2 pb-1">{r.quarantine.steps.map((step, i) => { const on = ticksOf(r).includes(i); return (
+                    <li key={i}><button type="button" aria-pressed={on} onClick={() => toggle(r, i)} className={`flex min-h-[52px] w-full items-center gap-3 rounded-2xl border-[1.5px] px-3 text-left text-[15px] font-semibold ${on ? 'border-emerald-700 bg-emerald-50' : 'bg-card'}`}><span aria-hidden className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[15px] ${on ? 'bg-emerald-700 text-white' : 'border-2 border-stone-400'}`}>{on ? '✓' : ''}</span>{step}</button></li>); })}</ul>)}
                 {r.status === 'blocked'
                   ? (r.quarantine
                     ? <button type="button" disabled={busy === r.id || ticksOf(r).length < r.quarantine.steps.length} onClick={() => act.release(r)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Release from quarantine</button>

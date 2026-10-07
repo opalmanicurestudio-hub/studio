@@ -16,6 +16,8 @@ import { dayPrep } from '@/lib/day-prep';
 import { forecastVisits, paceRunway, walkInMode } from '@/lib/demand';
 import { useAssistQueue } from '@/components/pos/desk/AssistQueue';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
+import { TypeBadge, Initials } from '@/components/pos/desk/hk-ui';
+import { Stations } from '@/components/pos/desk/Stations';
 
 /** How many housekeeping jobs are waiting (for a button's badge). Loads the same records as the queue. */
 export function useHousekeeping(tenantId: string | null | undefined, appts: any[], services: any[], staff: any[]) {
@@ -35,11 +37,11 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
     // The pace right now (the last hour): clean kits or linens that will run out soon become jobs, bookings or not.
     const prep: OpsTask[] = paceRunway({ visits: appts || [], services: services || [], kits: kits || [], linens: linens || [], now }).filter((r) => r.minutesLeft < 60).map((r) => ({
       id: `pace:${r.kind}:${r.id}`, kind: 'prep' as const, refId: r.id, goTo: r.kind === 'kit' ? 'kits' as const : 'linens' as const, dueAt: new Date(now + r.minutesLeft * 60000).toISOString(),
-      title: r.kind === 'kit' ? `Get more ${String(r.name).toLowerCase()}s clean` : `Get more ${String(r.name).toLowerCase()}s clean`,
+      title: `Get more ${/s$/i.test(String(r.name)) ? String(r.name).toLowerCase() : String(r.name).toLowerCase() + 's'} clean`,
       detail: r.clean === 0 ? `None clean, and ${r.perHour} an hour are being used` : `${r.clean} clean · using ${r.perHour} an hour · about ${r.minutesLeft} min left at this pace`, score: r.minutesLeft <= 15 ? 92 : r.minutesLeft <= 30 ? 82 : 55 }));
     return attendantQueue({ stations, kits: (kits || []).filter((k: any) => k.status !== 'retired'), kitTypes: kitTypes || [], linens: linens || [], outlook: linenOutlook(linens || [], ahead, services || []), requests, claims: claims || [], prep, now });
   }, [resources, protocols, kits, kitTypes, linens, appts, services, staff, now, requests, claims]);
-  return { tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], firestore };
+  return { tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], resources: resources || [], protocols: protocols || [], firestore };
 }
 
 const claimId = (taskId: string) => taskId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120);
@@ -49,8 +51,8 @@ async function assistApi(body: any) { const tk = await getAuth().currentUser?.ge
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const toDate = (v: any) => new Date(typeof v === 'string' ? v : v?.toDate ? v.toDate() : v?.seconds ? v.seconds * 1000 : v);
 
-export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[] }) {
-  const { tasks, kits, kitTypes, linens, handovers, firestore } = useHousekeeping(tenantId, appts, services, staff);
+export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' }) {
+  const { tasks, kits, kitTypes, linens, handovers, resources, protocols, firestore } = useHousekeeping(tenantId, appts, services, staff); const [at, setAt] = React.useState(0);   // which job the focus view is on
   const [noteFor, setNoteFor] = React.useState<string | null>(null); const [note, setNote] = React.useState(''); const [ending, setEnding] = React.useState(false);
   const [prepDay, setPrepDay] = React.useState<'today' | 'tomorrow'>('tomorrow');
   const me = getAuth().currentUser?.uid || null;
@@ -103,8 +105,46 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
   const saveSetup = async (patch: any) => { try { await updateDoc(doc(firestore, 'tenants', tenantId), { ops: { ...(tenant?.ops || {}), ...patch } }); audit('housekeeping.settings', `Housekeeping settings changed: ${Object.keys(patch).join(', ')}`, undefined, { after: patch }); } catch { setMsg('That didn’t save — try again.'); } };
 
   if (!firestore) return null;
-  return (
-    <div className="space-y-2">
+  const first = (n?: string | null) => String(n || 'Someone').split(' ')[0];
+  // One card, used by every layout. `big` = the single job in the focus view.
+  const card = (t: OpsTask, big = false) => { const isMine = mine.some((x) => x.id === t.id); const ql = quickLabel(t); const urgent = t.score >= 75 && !t.claimed;
+    const takeable = !t.claimed && (t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'inspect' || t.kind === 'prep');
+    const primary = ql && !(t.kind === 'station' && t.claimed) ? { label: ql, run: async () => { if ((t.kind === 'kit_clean' || t.kind === 'wash_start') && !t.claimed && !(await take(t))) return; await quick(t); } } : takeable ? { label: 'I’ll take it', run: async () => { await take(t); } } : null;
+    const canOpen = !!onGo && (t.kind === 'station' || t.kind === 'inspect' || t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'prep' || (t.kind === 'request' && t.request?.source !== 'assist'));
+    const steps = big && (t.kind === 'station' || t.kind === 'inspect');   // the focus view shows a station's steps right on the card
+    return (
+      <div key={t.id} className={`flex flex-col rounded-[20px] bg-card ${big ? 'gap-4 p-5' : 'gap-2.5 p-4'} ${urgent ? 'border-[2px] border-red-700' : 'border'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <TypeBadge task={t} big={big} />
+          <span className={`shrink-0 font-[800] tabular-nums ${big ? 'text-[34px]' : 'text-[18px]'} ${urgent ? 'text-red-700' : ''}`}>{t.kind === 'request' && !t.dueAt && t.score >= 90 ? 'Now' : t.dueAt ? <LiveTimer short until={t.dueAt} doneLabel="Now" className={`!font-[800] ${urgent ? '!text-red-700' : ''}`} /> : null}</span>
+        </div>
+        <p className={`font-[700] leading-tight ${big ? 'text-[30px]' : 'text-[18px]'}`}>{t.title}</p>
+        <p className={`${big ? 'text-[16px]' : 'text-[14px]'} ${urgent ? 'font-semibold text-red-700' : 'text-muted-foreground'}`}>{t.detail}</p>
+        {t.claimed ? <p className="flex items-center gap-2 text-[14px] font-bold"><Initials name={isMine ? who() : t.claimedBy} dark={!isMine} size={28} />{isMine ? 'You have this' : `${first(t.claimedBy)} has it`}</p>
+          : t.kind === 'station' && t.ownerName ? <p className="text-[13px] text-muted-foreground">{mode === 'attendants' ? 'For housekeeping' : `${first(t.ownerName)}’s to reset`}</p> : null}
+        {t.handover && !t.claimed && <p className="rounded-xl bg-amber-50 px-3 py-2 text-[13px] text-amber-900">Handed over by {t.handover.from}{t.handover.note ? `: “${t.handover.note}”` : ''}</p>}
+        {steps && <Stations mine firestore={firestore} tenantId={tenantId} resources={resources} appts={appts} services={services} staff={staff} protocols={protocols} onlyRow={(r) => r.id === t.refId} />}
+        {noteFor === t.id ? (
+          <div className="flex flex-wrap gap-2">
+            <input autoFocus value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="What’s done and what’s left?" className="h-12 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[15px]" />
+            <button type="button" onClick={() => handOver(t, note)} className="h-12 rounded-xl bg-foreground px-4 text-[14px] font-bold text-background">Hand over</button>
+            <button type="button" onClick={() => setNoteFor(null)} className="h-12 px-2 text-[14px]">Cancel</button>
+          </div>
+        ) : (primary || canOpen || isMine) && (
+          <div className="mt-auto flex flex-wrap gap-2">
+            {primary && !steps && <button type="button" disabled={busy === t.id} onClick={primary.run} className={`flex-1 rounded-[14px] font-[700] disabled:opacity-40 ${big ? 'h-[60px] text-[19px]' : 'h-12 text-[15px]'} ${urgent || big ? 'bg-foreground text-background' : 'border-[1.5px] border-foreground bg-card'}`}>{primary.label}</button>}
+            {canOpen && !steps && <button type="button" onClick={() => onGo!(t.goTo)} className={`rounded-[14px] border-[1.5px] font-bold ${primary ? 'px-4' : 'flex-1'} ${big ? 'h-[60px] text-[17px]' : 'h-12 text-[15px]'}`}>{t.kind === 'station' ? 'Open steps' : 'Open'}</button>}
+            {isMine && t.kind !== 'request' && <button type="button" onClick={() => { setNoteFor(t.id); setNote(''); }} className={`rounded-[14px] border px-4 font-semibold ${big ? 'h-[60px] flex-1 text-[16px]' : 'h-12 text-[14px]'}`}>Hand over</button>}
+          </div>)}
+      </div>); };
+  const doNow = visible.filter((t) => !t.claimed && t.score >= 75), nextUp = visible.filter((t) => !t.claimed && t.score < 75), inProgress = visible.filter((t) => t.claimed);
+  const lane = (title: string, items: OpsTask[], tone: 'urgent' | 'plain') => (
+    <section aria-label={title} className="flex min-w-0 flex-col gap-3">
+      <div className="flex items-center justify-between"><h3 className={`text-[18px] !font-[700] ${tone === 'urgent' && items.length ? 'text-red-700' : ''}`}>{title}</h3>
+        <span className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-[14px] font-extrabold ${tone === 'urgent' && items.length ? 'bg-red-700 text-white' : 'bg-muted'}`}>{items.length}</span></div>
+      {items.length ? items.map((t) => card(t)) : <p className="rounded-[20px] border border-dashed p-4 text-[14px] text-muted-foreground">{tone === 'urgent' ? 'Nothing urgent.' : 'Nothing here.'}</p>}
+    </section>);
+  const topBits = (<>
       {housekeepingMode(tenant) === 'attendants' && <p className="text-[13px] text-muted-foreground">On housekeeping now: <b className="text-foreground">{crew.on.map((x: any) => String(x.name || '').split(' ')[0]).join(', ') || 'nobody'}</b>{crew.onBreak.length ? ` · on a break: ${crew.onBreak.map((x: any) => String(x.name || '').split(' ')[0]).join(', ')}` : ''}{!crew.on.length ? ' — reminders go to the providers and managers meanwhile' : ''}</p>}
       {handover && (
         <div className="space-y-1 rounded-2xl border-2 bg-card p-3" role="note">
@@ -123,33 +163,8 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
         {(prep.kits.length > 0 || prep.linens.length > 0) && <p className="mt-2 text-[12px] text-muted-foreground">{[...prep.kits.map((k) => `${k.name}: up to ${k.peak} at once, ${k.usable} usable, ${k.readyNow} clean now`), ...prep.linens.map((l) => `${l.name}: ${l.needed} needed, ${l.clean} clean now`)].join(' · ')}</p>}
         {!prep.kits.length && !prep.linens.length && <p className="mt-1 text-[12px] text-muted-foreground">Nothing booked that day uses a tracked kit or linen.</p>}
       </div>
-      {msg && <p className="text-[13px] font-medium" role="status">{msg}</p>}
-      {mine.length > 0 && <p className="text-[13px] text-muted-foreground">You have {mine.length} of {limit} jobs.</p>}
-      {!visible.length && <p className="rounded-2xl border bg-card p-4 text-[14px] text-muted-foreground">Nothing waiting — stations, kits, linens and requests are all in hand.</p>}
-      {visible.map((t, i) => { const isMine = mine.some((x) => x.id === t.id); const ql = quickLabel(t); const takeable = !t.claimed && (t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'inspect' || t.kind === 'prep'); return (
-        <div key={t.id} className="rounded-2xl border bg-card p-3" style={t.score >= 75 ? { borderColor: 'var(--danger, #fca5a5)' } : undefined}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[15px] font-semibold"><span className="mr-2 text-muted-foreground tabular-nums">{i + 1}</span>{t.title}</p>
-              <p className={`text-[13px] ${t.score >= 75 ? 'font-semibold text-red-700' : 'text-muted-foreground'}`}>{t.detail}{(t.kind === 'station' || t.kind === 'request') && t.dueAt ? <> · <LiveTimer until={t.dueAt} doneLabel="time’s up" /></> : null}</p>
-              {t.claimed ? <p className="text-[12px] font-semibold">{isMine ? 'Yours' : `${String(t.claimedBy || 'Someone').split(' ')[0]} has it`}</p>
-                : t.kind === 'station' && t.ownerName ? <p className="text-[12px] text-muted-foreground">{mode === 'attendants' ? 'For housekeeping' : `${t.ownerName}’s to reset`}</p> : null}
-              {t.handover && !t.claimed && <p className="text-[12px] text-amber-800">Handed over by {t.handover.from}{t.handover.note ? `: “${t.handover.note}”` : ''}</p>}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {ql && !(t.kind === 'station' && t.claimed) && !(t.kind === 'request' && t.claimed && !isMine && t.request?.status === 'accepted' && false) && <button type="button" disabled={busy === t.id} onClick={async () => { if ((t.kind === 'kit_clean' || t.kind === 'wash_start') && !t.claimed && !(await take(t))) return; await quick(t); }} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{ql}</button>}
-              {takeable && <button type="button" onClick={() => take(t)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white">I’ll take it</button>}
-              {onGo && (t.kind === 'station' || t.kind === 'inspect' || t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'prep' || (t.kind === 'request' && t.request?.source !== 'assist')) && <button type="button" onClick={() => onGo(t.goTo)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">{t.kind === 'station' ? 'Open steps' : 'Open'}</button>}
-              {isMine && t.kind !== 'request' && noteFor !== t.id && <button type="button" onClick={() => { setNoteFor(t.id); setNote(''); }} className="h-9 rounded-full border px-3 text-[13px]">Hand over</button>}
-            </div>
-          </div>
-          {noteFor === t.id && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <input autoFocus value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="What’s done and what’s left? (e.g. wiped down, tools still to do)" className="h-10 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[14px]" />
-              <button type="button" onClick={() => handOver(t, note)} className="h-10 rounded-xl bg-foreground px-3 text-[13px] font-semibold text-background">Hand over</button>
-              <button type="button" onClick={() => setNoteFor(null)} className="h-10 px-2 text-[13px]">Cancel</button>
-            </div>)}
-        </div>); })}
+  </>);
+  const shiftBits = (<>
       {ending ? (
         <div className="space-y-2 rounded-2xl border bg-card p-3">
           <p className="text-[14px] font-semibold">End your housekeeping shift</p>
@@ -158,6 +173,8 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
           <div className="flex gap-2"><button type="button" onClick={endShift} className="h-10 rounded-xl bg-foreground px-4 text-[13px] font-semibold text-background">Save and end shift</button><button type="button" onClick={() => setEnding(false)} className="h-10 px-2 text-[13px]">Cancel</button></div>
         </div>
       ) : <button type="button" onClick={() => { setEnding(true); setNote(''); setNoteFor(null); }} className="h-10 rounded-full border px-4 text-[13px]">End my shift / leave a note</button>}
+  </>);
+  const settingsBits = (<>
       {manager && (setup ? (
         <div className="space-y-2 rounded-2xl border bg-card p-3 text-[14px]">
           <p className="font-semibold">Who does housekeeping?</p>
@@ -178,5 +195,40 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
           <button type="button" onClick={() => setSetup(false)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Done</button>
         </div>
       ) : <div className="flex flex-wrap gap-2"><a href={`/housekeeping/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full border px-4 text-[13px] font-semibold">Open the wall screen</a><button type="button" onClick={() => setSetup(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Who does housekeeping: {mode === 'attendants' ? `${picked.length} named` : 'each provider'}</button></div>)}
+  </>);
+  const status = (<>
+      {msg && <p className="text-[14px] font-semibold" role="status">{msg}</p>}
+      {mine.length > 0 && view !== 'focus' && <p className="text-[13px] text-muted-foreground">You have {mine.length} of {limit} jobs.</p>}
+  </>);
+  const allClear = <p className="rounded-[20px] border bg-card p-6 text-center text-[16px] font-semibold text-emerald-800">All clear — stations, kits, linens and requests are in hand.</p>;
+
+  // FOCUS: one job at a time (phones, and anyone working alone). Your own jobs first, then the most urgent unclaimed.
+  if (view === 'focus') { const list = [...visible.filter((t) => mine.some((x) => x.id === t.id)), ...visible.filter((t) => !t.claimed)]; const cur = list.length ? list[Math.min(at, list.length - 1)] : null; const rest = list.filter((t) => t !== cur);
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between"><p className="text-[20px] font-[700]">{cur ? `Job ${Math.min(at, list.length - 1) + 1} of ${list.length}` : 'Housekeeping'}</p>
+          {doNow.length > 0 && <span className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-[14px] font-bold"><span aria-hidden className="h-2 w-2 rounded-full bg-red-700" />{doNow.length} urgent</span>}</div>
+        {status}
+        {cur ? card(cur, true) : allClear}
+        {rest.length > 0 && (<div className="space-y-2"><p className="text-[12px] font-bold uppercase tracking-widest text-muted-foreground">Up next</p>
+          <div className="flex gap-2">{rest.slice(0, 2).map((t) => <button key={t.id} type="button" onClick={() => setAt(list.indexOf(t))} className={`min-w-0 flex-1 rounded-2xl bg-card p-3 text-left ${t.score >= 75 ? 'border-2 border-red-700' : 'border'}`}><span className="block truncate text-[12px] font-bold text-muted-foreground">{t.detail}</span><span className="block text-[15px] font-extrabold leading-tight">{t.title}</span></button>)}
+            {rest.length > 2 && <button type="button" onClick={() => setAt((Math.min(at, list.length - 1) + 1) % list.length)} aria-label="Next job" className="w-14 shrink-0 rounded-2xl border bg-card text-[15px] font-extrabold text-muted-foreground">+{rest.length - 2}</button>}</div></div>)}
+        {handover && topBits}
+        {shiftBits}
+      </div>); }
+  // LANES: the wall board — do now, next up, in progress, side by side.
+  if (view === 'lanes') return (
+    <div className="space-y-4">
+      {topBits}{status}
+      {visible.length ? <div className="grid gap-5 lg:grid-cols-3">{lane('Do now', doNow, 'urgent')}{lane('Next up', nextUp, 'plain')}{lane('In progress', inProgress, 'plain')}</div> : allClear}
+      {shiftBits}
+    </div>);
+  // LIST (the desk drawer): the same three groups, stacked.
+  return (
+    <div className="space-y-4">
+      {topBits}{status}
+      {!visible.length ? allClear : <>{doNow.length > 0 && lane('Do now', doNow, 'urgent')}{nextUp.length > 0 && lane('Next up', nextUp, 'plain')}{inProgress.length > 0 && lane('In progress', inProgress, 'plain')}</>}
+      {shiftBits}
+      {settingsBits}
     </div>);
 }

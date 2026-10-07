@@ -10,7 +10,8 @@ import { logAuditClient } from '@/lib/audit-client';
 import { moveKit, findKit, type Kit } from '@/lib/kits';
 import { nextCycleNumber, cycleProblem, sporeStatus, logRows, type Cycle } from '@/lib/sterilisation';
 import { brandOf } from '@/lib/print-labels';
-import { LiveTimer } from '@/components/pos/desk/LiveTimer';
+import { useSeconds } from '@/components/pos/desk/LiveTimer';
+import { Ring } from '@/components/pos/desk/hk-ui';
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
@@ -23,6 +24,7 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
   const [open, setOpen] = React.useState<'start' | 'spore' | null>(null); const [device, setDevice] = React.useState(devices[0]); const [minutes, setMinutes] = React.useState(String(ops.cycleMinutes || '')); const [temp, setTemp] = React.useState(String(ops.cycleTemp || '')); const [unit, setUnit] = React.useState<'F' | 'C'>(ops.cycleTempUnit === 'C' ? 'C' : 'F');
   const [load, setLoad] = React.useState<string[]>([]); const [typed, setTyped] = React.useState(''); const [note, setNote] = React.useState(''); const [lab, setLab] = React.useState(''); const [finishing, setFinishing] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null); const [busy, setBusy] = React.useState(false); const [newDevice, setNewDevice] = React.useState('');
+  const now = useSeconds();   // the rings count down live
   const who = () => (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0];
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who(), role: manager ? 'manager' : 'staff' });
   const running = cycles.filter((c) => c.type === 'cycle' && c.status === 'running'); const inRunning = new Set(running.flatMap((c) => c.kits.map((k) => k.id)));
@@ -66,22 +68,27 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
     <div className="space-y-3">
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
       {spore.due && <p className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3 text-[13px] font-semibold text-amber-900">{spore.last ? `Last spore test was ${spore.daysSince} days ago` : 'No spore test on record'} — one is due (every {ops.sporeTestDays} days).</p>}
-      {running.map((c) => (
-        <div key={c.id} className="rounded-2xl border-2 bg-card p-3">
-          <p className="text-[15px] font-semibold">Cycle {c.number} · {c.device} <span className="font-normal text-muted-foreground">· <LiveTimer since={c.startedAt} minutes={c.minutes || 0} doneLabel="Cycle time is up" /></span></p>
-          <p className="text-[13px] text-muted-foreground">{c.kits.map((k) => `${k.name} ${k.code}`).join(' · ')} · started by {c.startedBy}{c.temp ? ` · ${c.minutes} min at ${c.temp}°${c.tempUnit}` : ` · ${c.minutes} min`}</p>
-          {finishing === c.id ? (
-            <div className="mt-2 space-y-2">
-              <p className="text-[14px] font-semibold">Did the indicator show a pass?</p>
-              <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="Note (needed if it failed)" className="h-10 w-full rounded-xl border bg-background px-3 text-[14px]" />
-              <div className="flex flex-wrap gap-2">
-                <button type="button" disabled={busy} onClick={() => finish(c, true)} className="h-10 rounded-full bg-emerald-600 px-4 text-[13px] font-semibold text-white disabled:opacity-40">Pass</button>
-                <button type="button" disabled={busy} onClick={() => finish(c, false)} className="h-10 rounded-full bg-red-600 px-4 text-[13px] font-semibold text-white disabled:opacity-40">Fail — run them again</button>
-                <button type="button" onClick={() => setFinishing(null)} className="h-10 px-2 text-[13px]">Cancel</button>
+      {running.map((c) => { const total = Math.max(1, Number(c.minutes) || 0) * 60; const gone = Math.max(0, (now - (Date.parse(c.startedAt) || now)) / 1000); const done = gone >= total; const left = Math.max(0, Math.round(total - gone)); return (
+        <div key={c.id} className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-[24px] p-4 ${done ? 'border-2 border-emerald-700 bg-emerald-50' : 'border bg-card'}`}>
+          <Ring value={gone / total} done={done} size={124}>{done ? <><span aria-hidden className="text-[34px] font-extrabold leading-none text-emerald-800">✓</span><span className="text-[12px] font-bold text-emerald-800">Time’s up</span></>
+            : <><span className="text-[26px] font-[800] leading-none tabular-nums">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</span><span className="mt-1 text-[12px] text-muted-foreground">left</span></>}</Ring>
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3"><p className="text-[20px] font-[700]">{c.device}</p><p className={`text-[13px] font-bold ${done ? 'text-emerald-800' : ''}`}>{done ? 'Finished' : 'Running'} · cycle {c.number}</p></div>
+            <p className="text-[13px] text-muted-foreground">{c.minutes} min{c.temp ? ` at ${c.temp}°${c.tempUnit}` : ''} · started by {c.startedBy} at {new Date(c.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>
+            <div className="flex flex-wrap gap-1.5">{c.kits.map((k) => <span key={k.id} title={k.name} className={`rounded-lg px-2 py-1 font-mono text-[12px] font-bold tracking-wider ${done ? 'bg-white' : 'bg-muted'}`}>{k.code}</span>)}</div>
+            {finishing === c.id ? (
+              <div className="space-y-2">
+                <input autoFocus value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="What happened? (e.g. the indicator didn’t change)" className="h-11 w-full rounded-xl border bg-background px-3 text-[14px]" />
+                <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => finish(c, false)} className="h-11 flex-1 rounded-xl bg-red-700 text-[14px] font-bold text-white disabled:opacity-40">Record the fail</button><button type="button" onClick={() => setFinishing(null)} className="h-11 px-3 text-[14px]">Cancel</button></div>
               </div>
-            </div>
-          ) : <button type="button" onClick={() => { setFinishing(c.id); setNote(''); }} className="mt-2 h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white">Record the result</button>}
-        </div>))}
+            ) : (<>
+              <p className="text-[14px] font-semibold">{done ? 'Did the indicator show a pass?' : 'Record the result when it ends.'}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" disabled={busy} onClick={() => { setNote(''); void finish(c, true); }} className={`h-12 rounded-[14px] text-[16px] font-bold disabled:opacity-40 ${done ? 'bg-emerald-700 text-white' : 'border-[1.5px] bg-card'}`}>Pass</button>
+                <button type="button" onClick={() => { setFinishing(c.id); setNote(''); }} className="h-12 rounded-[14px] border-2 border-red-700 bg-card text-[16px] font-bold text-red-700">Fail</button>
+              </div></>)}
+          </div>
+        </div>); })}
       {open === 'start' && (
         <div className="space-y-2 rounded-2xl border-2 bg-card p-3">
           <p className="text-[14px] font-semibold">Start a cycle</p>
