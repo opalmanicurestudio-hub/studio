@@ -7,6 +7,8 @@ import { logAuditClient } from '@/lib/audit-client';
 import { getAuth } from 'firebase/auth';
 import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeeded, kitCandidates, kitsLeftOut, kitHours, sameKitType, kitKey, typeOf, matchInventory, addKitItem, contentsCheck, type Kit, type KitStatus, type KitType, type KitItem } from '@/lib/kits';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
+import { TagPairing } from '@/components/pos/desk/TagPairing';
+import { useNfc } from '@/lib/use-nfc';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { printCodeLabels } from '@/lib/print-labels';
 import { Linens } from '@/components/pos/desk/Linens';
@@ -84,6 +86,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
       void logAuditClient(firestore, tenantId, { action: 'kit.contents', targetType: 'kitType', targetId: prev?.id || key, actor: actor(), before: { items: prev?.items || [], cleanMinutes: prev?.cleanMinutes || 0 }, after: { items: editType.items, cleanMinutes: editType.cleanMinutes }, summary: `${editType.name}: contents v${version} — ${editType.items.length} item${editType.items.length === 1 ? '' : 's'}, ${editType.cleanMinutes || 0} min to clean` });
       setMsg({ ok: true, text: `${editType.name} contents saved (version ${version}). The products inside the kits are now held as “in kits” in Inventory.` }); setEditType(null); syncNow(); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
+  const nfc = useNfc((id) => { void handleCode(id); });
   const onScan = async (ev: React.FormEvent) => { ev.preventDefault(); const v = typed; setTyped(''); if (v.trim()) await handleCode(v); };
   const add = async () => { const name = newName.trim().slice(0, 60); const n = Math.max(1, Math.min(30, Math.round(howMany) || 1)); if (!name) return;
     const inv: any = equipment.find((i: any) => i.id === invId) || null;
@@ -103,6 +106,8 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
         <button type="submit" disabled={!typed.trim()} className="h-11 rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background disabled:opacity-40">{editType ? "Add" : checking ? "Count it" : "Move it on"}</button>
       </form>
       <button type="button" onClick={() => setCam((c) => !c)} className="h-10 w-full rounded-xl border text-[13px] font-semibold">{cam ? 'Close the camera' : 'Scan with this device’s camera'}</button>
+      {nfc.supported && <button type="button" onClick={() => (nfc.on ? nfc.end() : nfc.start())} className="h-10 w-full rounded-xl border text-[13px] font-semibold">{nfc.on ? 'Stop reading NFC — ready, hold a tag to the phone' : 'Tap NFC tags with this phone'}</button>}
+      {nfc.error && <p className="text-[13px] text-red-700" role="alert">{nfc.error}</p>}
       {cam && <ScanGate onScan={(v) => { void handleCode(v); }} label={editType ? 'Scan each product that belongs in the kit' : checking ? 'Scan each item as you put it in' : 'Point the camera at a kit label'} />}
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
       {checking && (() => { const res = contentsCheck(checking.items, checking.have); return (
@@ -175,7 +180,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
         <div key={k.id} className="rounded-2xl border bg-card p-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-[15px] font-semibold">{k.name} <span className="font-mono text-[13px] font-normal tracking-wider text-muted-foreground">{k.code}</span></p>
+              <p className="truncate text-[15px] font-semibold">{k.name} <span className="font-mono text-[13px] font-normal tracking-wider text-muted-foreground">{k.code}</span>{k.tagIds?.length ? <span className="ml-2 rounded-full border px-2 py-0.5 text-[11px] font-normal text-muted-foreground">tag paired</span> : null}</p>
               <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' && k.clientName ? `With ${k.clientName} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
               {k.status === 'cleaning' && <p className="text-[13px]">Cleaning: <LiveTimer since={k.at} minutes={typeOf(types, k.name)?.cleanMinutes || 0} doneLabel="Cleaning time is up" />{kitHours(k) >= 3 ? <span className="font-semibold text-amber-800"> — is it done?</span> : null}</p>}
               {k.status === 'in_use' && <p className="text-[12px] text-muted-foreground">In use <LiveTimer since={k.at} /></p>}
@@ -244,5 +249,6 @@ export function KitsManager({ tenantId, services, inventory, manager }: { tenant
   return (<div className="space-y-8">
     <section><h3 className="mb-2 text-[15px] font-semibold">Kits</h3><Kits firestore={firestore} tenantId={tenantId} kits={kits || []} services={services} inventory={inventory} manager={manager} /></section>
     <section><h3 className="mb-2 text-[15px] font-semibold">Linens & laundry</h3><Linens tenantId={tenantId} services={services} inventory={inventory} manager={manager} /></section>
+    {manager && <section><h3 className="mb-2 text-[15px] font-semibold">RFID & NFC tags</h3><TagPairing tenantId={tenantId} inventory={inventory} /></section>}
   </div>);
 }

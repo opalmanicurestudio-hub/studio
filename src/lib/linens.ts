@@ -3,6 +3,7 @@
 // `name` matches the "Linens" line on a service's blueprint (case doesn't matter), which is how a visit knows what it uses.
 // Life: clean → (used on a visit) → dirty → washing → clean. Damaged ones leave the count (and inventory, when linked).
 // Used linens move to dirty on their own when a visit finishes; the team only starts and finishes wash loads.
+import { hasTag } from '@/lib/tags';
 export interface Linen { id: string; name: string; clean: number; dirty: number; washing: number; inUse?: number; washMinutes?: number | null; washStartedAt?: string | null; byBundle?: boolean; par?: number | null; inventoryItemId?: string | null; inventoryName?: string | null; by?: string | null; at?: string | null }
 export type LinenMove = 'issue' | 'return' | 'unissue' | 'use' | 'wash' | 'washed' | 'add' | 'damaged_clean' | 'damaged_dirty';
 export const LINEN_MOVE_LABEL: Record<LinenMove, string> = { issue: 'Taken out', return: 'Came back dirty', unissue: 'Unused — put back', use: 'Used', wash: 'Wash load started', washed: 'Wash load finished', add: 'Added', damaged_clean: 'Damaged (from clean)', damaged_dirty: 'Damaged (from dirty)' };
@@ -54,7 +55,7 @@ export function linenOutlook(linens: Linen[], visits: any[], services: any[]): L
 // visit finishes, its linens come off the floor (then off clean stock). A scan never moves more than is really there, so
 // the two together can't count anything twice, and the total owned never changes.
 export type BundleStatus = 'clean' | 'in_use' | 'dirty' | 'washing';
-export interface LinenBundle { id: string; linenId: string; name: string; qty: number; code: string; status: BundleStatus; at?: string | null; by?: string | null }
+export interface LinenBundle { id: string; linenId: string; name: string; qty: number; code: string; status: BundleStatus; tagIds?: string[]; at?: string | null; by?: string | null }
 export const BUNDLE_LABEL: Record<BundleStatus, string> = { clean: 'Clean', in_use: 'Out on the floor', dirty: 'Dirty', washing: 'In the wash' };
 export const BUNDLE_NEXT: Record<BundleStatus, { to: BundleStatus; move: LinenMove; label: string }> = {
   clean: { to: 'in_use', move: 'issue', label: 'Take out' }, in_use: { to: 'dirty', move: 'return', label: 'Back — dirty' },
@@ -66,5 +67,5 @@ export function newBundleCode(taken: string[] = []): string {
 }
 export function findBundle(bundles: LinenBundle[], typed: string): LinenBundle | null {
   const t = String(typed || '').trim().toUpperCase().split(/[/=#]/).pop() || ''; if (!t) return null;
-  return (bundles || []).find((b) => String(b.code || '').toUpperCase() === t) || null;
+  return (bundles || []).find((b) => String(b.code || '').toUpperCase() === t) || (bundles || []).find((b) => hasTag(b, typed)) || null;
 }

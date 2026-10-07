@@ -5,12 +5,13 @@
 // a service knows which kits it can use. `code` is what's printed on the label and typed or scanned to move it along.
 // Life: ready → in use → dirty → being cleaned → ready. Anything can be pulled out ("out") with a reason; only a manager
 // puts it back into service or retires it.
+import { hasTag } from '@/lib/tags';
 export type KitStatus = 'ready' | 'in_use' | 'dirty' | 'cleaning' | 'out' | 'retired';
 export const KIT_LABEL: Record<KitStatus, string> = { ready: 'Clean & ready', in_use: 'In use', dirty: 'Needs cleaning', cleaning: 'Being cleaned', out: 'Pulled out', retired: 'Retired' };
 export const KIT_NEXT: Partial<Record<KitStatus, { to: KitStatus; label: string }>> = {
   ready: { to: 'in_use', label: 'Take for a client' }, in_use: { to: 'dirty', label: 'Finished — needs cleaning' },
   dirty: { to: 'cleaning', label: 'Start cleaning' }, cleaning: { to: 'ready', label: 'Clean — ready' } };
-export interface Kit { id: string; name: string; code: string; status: KitStatus; by?: string | null; at?: string | null; visitId?: string | null; clientName?: string | null; stationName?: string | null; note?: string | null; cycles?: number; inventoryItemId?: string | null; inventoryName?: string | null; lastCheck?: { at: string; by: string; ok: boolean; missing: string[]; version?: number } | null; history?: { at: string; by: string; from: KitStatus; to: KitStatus; note?: string | null }[] }
+export interface Kit { id: string; name: string; code: string; status: KitStatus; by?: string | null; at?: string | null; visitId?: string | null; clientName?: string | null; stationName?: string | null; note?: string | null; cycles?: number; tagIds?: string[]; inventoryItemId?: string | null; inventoryName?: string | null; lastCheck?: { at: string; by: string; ok: boolean; missing: string[]; version?: number } | null; history?: { at: string; by: string; from: KitStatus; to: KitStatus; note?: string | null }[] }
 
 const norm = (s: any) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 export const sameKitType = (a: any, b: any) => norm(a) === norm(b) && norm(a) !== '';
@@ -23,7 +24,7 @@ export function newKitCode(taken: string[] = []): string {
 /** What a scanner or a person typed → the kit it means (the label's code; a scanned link ending in the code also works). */
 export function findKit(kits: Kit[], typed: string): Kit | null {
   const t = String(typed || '').trim().toUpperCase().split(/[/=#]/).pop() || ''; if (!t) return null;
-  return kits.find((k) => String(k.code || '').toUpperCase() === t && k.status !== 'retired') || null;
+  return kits.find((k) => String(k.code || '').toUpperCase() === t && k.status !== 'retired') || kits.find((k) => k.status !== 'retired' && hasTag(k, typed)) || null;   // its printed code, or an RFID/NFC tag paired to it
 }
 /** The change to save when a kit moves on. Returns an error message instead when the move isn't allowed. */
 export function moveKit(kit: Kit, to: KitStatus, who: { name: string; manager: boolean }, extra: { note?: string | null; visitId?: string | null; clientName?: string | null; stationName?: string | null } = {}, at = new Date().toISOString()): { patch: Partial<Kit> } | { error: string } {
@@ -87,7 +88,7 @@ export const typeOf = (types: KitType[], name: any) => (types || []).find((t) =>
 export function matchInventory(inventory: any[], scanned: string): any | null {
   const t = String(scanned || '').trim().toLowerCase(); if (!t) return null;
   const eq = (v: any) => String(v ?? '').trim().toLowerCase() === t;
-  return (inventory || []).find((i) => eq(i?.sku) || eq(i?.barcode) || eq(i?.upc)) || (inventory || []).find((i) => eq(i?.id)) || (inventory || []).find((i) => eq(i?.name)) || null;
+  return (inventory || []).find((i) => eq(i?.sku) || eq(i?.barcode) || eq(i?.upc)) || (inventory || []).find((i) => hasTag(i, scanned)) || (inventory || []).find((i) => eq(i?.id)) || (inventory || []).find((i) => eq(i?.name)) || null;
 }
 /** Add one of an item to a contents list (scanning the same thing again raises its quantity). */
 export function addKitItem(items: KitItem[], inv: any, qty = 1): KitItem[] {

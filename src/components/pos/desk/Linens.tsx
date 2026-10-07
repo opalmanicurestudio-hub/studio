@@ -12,6 +12,7 @@ import { moveLinen, linenOutlook, linensNeeded, linenTotal, LINEN_MOVE_LABEL, BU
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { printCodeLabels } from '@/lib/print-labels';
+import { useNfc } from '@/lib/use-nfc';
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -34,6 +35,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
   const supplies = React.useMemo(() => (inventory || []).filter((i: any) => i && i.archived !== true && (i.type === 'equipment' || i.type === 'overhead' || i.type === 'professional')).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [inventory]);
   const who = () => (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0];
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who(), role: manager ? 'manager' : 'staff' });
+  const codeRef = React.useRef<(v: string) => void>(() => undefined); const nfc = useNfc((id) => codeRef.current(id));   // NFC taps go to the same handler as scans
   if (!firestore) return null;
 
   const apply = async (l: Linen, move: LinenMove, n: number, quiet = false): Promise<boolean> => {
@@ -55,6 +57,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
     try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who() }); } catch { /* counts moved; tap again to fix the tag */ }
     setMsg({ ok: true, text: `${b.name} ${b.code} (${b.qty}) — ${BUNDLE_LABEL[next.to].toLowerCase()}` }); return true; };
   const handleCode = async (raw: string) => { const b = findBundle(bundles, raw); if (!b) { scanFeedback(false); setMsg({ ok: false, text: 'No bundle with that tag.' }); return; } scanFeedback(await moveBundle(b)); };
+  codeRef.current = (v) => { void handleCode(v); };
   const makeBundles = async (l: Linen) => { const size = Math.max(1, Math.round(bSize) || 1), n = Math.max(1, Math.min(30, Math.round(bCount) || 1)); setBusy(l.id);
     const taken = bundles.map((b) => b.code); const at = new Date().toISOString();
     try { for (let i = 0; i < n; i++) { const code = newBundleCode(taken); taken.push(code); const ref = doc(collection(firestore, 'tenants', tenantId, 'linenBundles')); await setDoc(ref, { id: ref.id, linenId: l.id, name: l.name, qty: size, code, status: 'clean', at, by: who(), createdAt: at }); }
@@ -83,6 +86,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
         </form>
         <button type="button" onClick={() => setCam((c) => !c)} className="h-10 w-full rounded-xl border text-[13px] font-semibold">{cam ? 'Close the camera' : 'Scan with this device’s camera'}</button>
         {cam && <ScanGate onScan={(v) => { void handleCode(v); }} label="Point the camera at a bundle tag" />}
+        {nfc.supported && <button type="button" onClick={() => (nfc.on ? nfc.end() : nfc.start())} className="h-10 w-full rounded-xl border text-[13px] font-semibold">{nfc.on ? 'Stop reading NFC — ready, hold a tag to the phone' : 'Tap NFC tags with this phone'}</button>}
       </>)}
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
       {!linens.length && <p className="text-[14px] text-muted-foreground">No linens yet. {manager ? 'Add towels, capes or robes and the desk will tell you if there are enough clean ones for the rest of the day.' : 'A manager can add them here.'}</p>}
