@@ -65,7 +65,8 @@ import { getFirestore, doc, getDoc, getDocs, updateDoc, collection } from 'fireb
 import { cn } from '@/lib/utils';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
 import { printAppointmentTicket } from '@/lib/appointment-ticket';
-import { qrSvg } from '@/lib/scan-codes';
+import { qrSvg, parseScan } from '@/lib/scan-codes';
+import { QRScanner } from '@/components/pos/QRScanner';
 import {
   Sparkles, ArrowRight, ArrowLeft, Loader, CheckCircle2,
   Phone, User, Clock, Scissors, RotateCcw, Frown, BellRing,
@@ -249,6 +250,15 @@ export default function WalkInKioskPage() {
   const [name, setName] = useState('');
   // A booking made with someone else's number (a parent, a group organiser): find it by its confirmation code instead.
   const [codeMode, setCodeMode] = useState(false); const [bookingCode, setBookingCode] = useState(''); const [codeErr, setCodeErr] = useState('');
+  // …or by scanning the QR on their confirmation: it holds the visit's secret check-in link, which proves the booking.
+  const [scanning, setScanning] = useState(false); const [scanToken, setScanToken] = useState('');
+  const findBooking = async (q: { code?: string; token?: string }) => { setLoading(true); setCodeErr('');
+    try { const d = await post({ action: 'code', ...q }); if (d?.ok) { if (q.token) setScanToken(q.token); setLookup({ appointmentToday: d.appointmentToday, firstName: d.firstName }); if (d.firstName) setName(d.firstName); setStep('checkin'); }
+      else { setCodeMode(true); setCodeErr(d?.error || 'We couldn’t find that booking.'); } }
+    catch { setCodeMode(true); setCodeErr('That didn’t go through — please ask at the desk.'); } finally { setLoading(false); } };
+  const onScanned = (raw: string) => { setScanning(false); const p = parseScan(raw);
+    if (p.kind === 'token') void findBooking({ token: p.value }); else if (p.kind === 'code') { setBookingCode(p.value.toUpperCase().slice(0, 10)); void findBooking({ code: p.value }); }
+    else { setCodeMode(true); setCodeErr('That code didn’t scan — try again, or type the code.'); } };
   // Email. /api/walkins has ALWAYS been able to store this — it dedupes a client
   // on email as well as phone, stamps clientEmail on the check-in record and on
   // bookingCompletions — and this screen never asked for it, so every one of
@@ -469,7 +479,7 @@ export default function WalkInKioskPage() {
   // ── Idle auto-reset — a kiosk must never be left mid-flow for the next guest ──
   const reset = useCallback(() => {
     setStep('welcome');
-    setPhone(''); setName(''); setEmail(''); setLookup(null); setCodeMode(false); setBookingCode(''); setCodeErr('');
+    setPhone(''); setName(''); setEmail(''); setLookup(null); setCodeMode(false); setBookingCode(''); setCodeErr(''); setScanning(false); setScanToken('');
     setService(null); setOptions(null); setChosen(null);
     setPreferredStaffId(''); setWaitForPreferred(false); setGroupSize(1); setGuests([]);
     setForms([]); setAnswers({}); setAccepted({}); setGuardians({});
@@ -586,7 +596,7 @@ export default function WalkInKioskPage() {
     if (!apt?.appointmentId) return;
     setLoading(true);
     try {
-      const d = await post({ action: 'checkin', ...(codeMode && bookingCode ? { code: bookingCode } : { phone }), appointmentId: apt.appointmentId });
+      const d = await post({ action: 'checkin', ...(scanToken ? { token: scanToken } : codeMode && bookingCode ? { code: bookingCode } : { phone }), appointmentId: apt.appointmentId });
       if (!d?.ok) {
         setTroubleNote(d?.error || '');
         setStep('trouble');
@@ -1354,6 +1364,7 @@ export default function WalkInKioskPage() {
             </div>
             {door?.intent === 'appointment' && (
               <div className="space-y-3 rounded-3xl bg-slate-50 p-4 text-center">
+                <button type="button" onClick={() => { setCodeErr(''); setScanning(true); }} disabled={loading} className="h-12 w-full rounded-full border-2 border-slate-300 bg-white text-[16px] font-semibold text-slate-800">Scan the QR on your confirmation</button>
                 {!codeMode ? (
                   <button type="button" onClick={() => { setCodeMode(true); setCodeErr(''); }} className="text-[15px] font-semibold text-slate-700 underline underline-offset-4">Booked with a different number? Use your confirmation code</button>
                 ) : (<>
@@ -1362,9 +1373,7 @@ export default function WalkInKioskPage() {
                     className="h-14 w-full rounded-2xl border-2 border-slate-200 bg-white text-center text-2xl font-semibold tracking-[0.3em]" />
                   {codeErr && <p className="text-sm text-rose-600">{codeErr}</p>}
                   <div className="flex justify-center gap-2">
-                    <button type="button" disabled={loading || bookingCode.length < 4} onClick={async () => { setLoading(true); setCodeErr('');
-                        try { const d = await post({ action: 'code', code: bookingCode }); if (d?.ok) { setLookup({ appointmentToday: d.appointmentToday, firstName: d.firstName }); if (d.firstName) setName(d.firstName); setStep('checkin'); } else setCodeErr(d?.error || 'We couldn’t find that code.'); }
-                        catch { setCodeErr('That didn’t go through — please ask at the desk.'); } finally { setLoading(false); } }}
+                    <button type="button" disabled={loading || bookingCode.length < 4} onClick={() => void findBooking({ code: bookingCode })}
                       className="h-12 rounded-full bg-slate-900 px-6 text-[15px] font-semibold text-white disabled:opacity-40">Find my booking</button>
                     <button type="button" onClick={() => { setCodeMode(false); setBookingCode(''); setCodeErr(''); }} className="h-12 rounded-full px-4 text-[15px] text-slate-500">Use my number</button>
                   </div>
@@ -2422,6 +2431,7 @@ export default function WalkInKioskPage() {
       <footer className="pb-6 text-center">
         <p className="text-[10px] text-slate-300">Walk-in kiosk · powered by ClarityFlow</p>
       </footer>
-    </div>
+    {scanning && <QRScanner onScan={onScanned} onClose={() => setScanning(false)} />}
+      </div>
   );
 }

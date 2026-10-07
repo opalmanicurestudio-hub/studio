@@ -1379,8 +1379,9 @@ async function handleLookup(db: any, tenantId: string, body: any) {
 async function handleCheckIn(db: any, tenantId: string, body: any) {
   const phone = str(body?.phone, 40).trim();
   const code = str(body?.code, 12).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const token = str(body?.token, 64).replace(/[^A-Za-z0-9_-]/g, '');
   const appointmentId = str(body?.appointmentId, 120).trim();
-  if ((!phone && !code) || !appointmentId) {
+  if ((!phone && !code && token.length < 12) || !appointmentId) {
     return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 200 });
   }
   if (!(await rateLimit(db, tenantId, 'walkInLookupRate', 60))) {
@@ -1401,7 +1402,9 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
   const a: any = (snap.data() as any) || {};
 
   // THE guard. Everything else here is politeness.
-  if (phone ? String(a.clientId || '') !== String(found!.id) : (!code || String(a.shortCode || '').toUpperCase() !== code)) {
+  if (phone ? String(a.clientId || '') !== String(found!.id)
+    : token.length >= 12 ? String(a.checkInToken || '') !== token
+    : (!code || String(a.shortCode || '').toUpperCase() !== code)) {
     return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
   }
   if (!['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase())) {
@@ -2970,14 +2973,16 @@ async function handleNotify(db: any, tenantId: string, tenant: any, body: any, b
 // check-in (the same answer shape as a phone lookup: a first name and the time, never a provider or anything private).
 async function handleCode(db: any, tenantId: string, body: any) {
   const code = str(body?.code, 12).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (code.length < 4) return NextResponse.json({ ok: false, error: 'Please check the code and try again.' }, { status: 200 });
+  // The ticket's QR holds the visit's secret check-in link; its token finds (and proves) the booking just like the code.
+  const token = str(body?.token, 64).replace(/[^A-Za-z0-9_-]/g, '');
+  if (token.length < 12 && code.length < 4) return NextResponse.json({ ok: false, error: 'Please check the code and try again.' }, { status: 200 });
   if (!(await rateLimit(db, tenantId, 'walkInLookupRate', 60))) return NextResponse.json({ ok: false, error: 'Too many attempts. Please try again shortly.' }, { status: 429 });
   const nowMs = Date.now(); const toMs = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
-  const hits = (await db.collection(`tenants/${tenantId}/appointments`).where('shortCode', '==', code).limit(5).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+  const hits = (await db.collection(`tenants/${tenantId}/appointments`).where(token.length >= 12 ? 'checkInToken' : 'shortCode', '==', token.length >= 12 ? token : code).limit(5).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((a: any) => ['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase()) && Math.abs(toMs(a.startTime) - nowMs) < 16 * 3600000);
   const a: any = hits[0]; if (!a) return NextResponse.json({ ok: false, error: 'We couldn’t find a booking for today with that code — please see the front desk.' }, { status: 200 });
   const startMs = toMs(a.startTime); const minutesUntil = startMs ? Math.round((startMs - nowMs) / 60000) : 0; const st = String(a.checkInStatus || 'pending');
-  return NextResponse.json({ ok: true, firstName: firstName(a.clientName), appointmentToday: {
+  return NextResponse.json({ ok: true, firstName: firstName(a.clientName), proof: token.length >= 12 ? 'token' : 'code', appointmentToday: {
     appointmentId: String(a.id), startTime: startMs ? new Date(startMs).toISOString() : null, minutesUntil,
     alreadyArrived: ['arrived', 'checked_in', 'checkedIn'].includes(st),
     checkInOpen: minutesUntil <= EARLY_CHECKIN_MIN && minutesUntil >= -LATE_CHECKIN_MIN,
