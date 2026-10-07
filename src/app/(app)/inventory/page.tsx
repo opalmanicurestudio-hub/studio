@@ -1,5 +1,6 @@
 'use client';
 
+import { KitsManager } from '@/components/pos/desk/Kits';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -744,12 +745,13 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
+    services,
     isLoading: isInventoryLoading
   } = useInventory();
   
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: useTenantRole } = useTenant() as any;
   const tenantId = selectedTenant?.id;
   
   const [activeView, setActiveView] = useState('products');
@@ -1550,10 +1552,11 @@ export default function InventoryPage() {
                     </Sheet>
                 </div>
                 <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="products">Products</TabsTrigger>
                     <TabsTrigger value="orders">Orders</TabsTrigger>
                     <TabsTrigger value="locations">Locations</TabsTrigger>
+                    <TabsTrigger value="kits">Kits</TabsTrigger>
                 </TabsList>
                 <TabsContent value="products" className="mt-6">
                     <Card>
@@ -1736,6 +1739,9 @@ export default function InventoryPage() {
                     <OrdersTab 
                         inventory={inventory || []}
                     />
+                </TabsContent>
+                <TabsContent value="kits" className="mt-6">
+                    {tenantId && <div className="mx-auto max-w-2xl"><KitsManager tenantId={tenantId} services={(services as any) || []} inventory={(inventory as any) || []} manager={['owner', 'admin', 'manager'].includes(String((useTenantRole as any) || ''))} /></div>}
                 </TabsContent>
                 <TabsContent value="locations" className="mt-6">
                         <Locations 
