@@ -24,6 +24,7 @@ import { Stations } from '@/components/pos/desk/Stations';
 import { Kits } from '@/components/pos/desk/Kits';
 import { kitKey, secondsLeft } from '@/lib/kits';
 import { Linens } from '@/components/pos/desk/Linens';
+import { Housekeeping, useHousekeeping } from '@/components/pos/desk/Housekeeping';
 import { stationReadiness, needsAttention } from '@/lib/readiness';
 import { CollectTuition } from '@/components/pos/desk/CollectTuition';
 import { CollectRent } from '@/components/pos/desk/CollectRent';
@@ -100,7 +101,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   // Any screen can open it for a person: window.dispatchEvent(new CustomEvent('cf:take-payment', { detail: { clientId } }))
   useEffect(() => { const on = (ev: any) => { setTakeFor(ev?.detail || null); setPayOpen(true); }; window.addEventListener('cf:take-payment', on); return () => window.removeEventListener('cf:take-payment', on); }, []);
   const [rentOpen, setRentOpen] = useState(false); const [tuitionOpen, setTuitionOpen] = useState(false);
-  const [stationsOpen, setStationsOpen] = useState(false); const [kitsOpen, setKitsOpen] = useState(false); const [assistOpen, setAssistOpen] = useState(false);
+  const [stationsOpen, setStationsOpen] = useState(false); const [kitsOpen, setKitsOpen] = useState(false); const [hkOpen, setHkOpen] = useState(false); const [assistOpen, setAssistOpen] = useState(false);
   const [askFor, setAskFor] = useState<any>(null);   // "Ask for help" from a busy station
   const { resources: allResources, inventory: allInventory } = useInventory() as any;
   const [pickupOpen, setPickupOpen] = useState(false); const [pickupScan, setPickupScan] = useState<string | null>(null);
@@ -153,6 +154,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   // every few minutes, so it happens even where the scheduled job runs rarely. The server ignores repeats.
   useEffect(() => { if (!e.tenantId) return; const run = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: e.tenantId }) }).catch(() => undefined); };
     const first = setTimeout(run, 8000); const every = setInterval(run, 5 * 60000); return () => { clearTimeout(first); clearInterval(every); }; }, [e.tenantId]);
+  const hk = useHousekeeping(e.tenantId || null, todaysAppts, e.services || [], e.staff || []);   // the housekeeping queue (badge)
   const kitsToClean = (kits || []).filter((k: any) => k.status === 'dirty' || k.status === 'out' || (k.status === 'cleaning' && Number(e.selectedTenant?.kitCapacity?.[kitKey(k.name)]?.cleanMinutes) > 0 && secondsLeft(k.at, Number(e.selectedTenant.kitCapacity[kitKey(k.name)].cleanMinutes), now.getTime()) <= 0)).length;   // to clean, pulled out, or cleaning time is up
   const assistItems = useAssistQueue(e.firestore, e.tenantId || null);   // Station Assist (O4): station requests + lounge orders + restocks
   const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);
@@ -418,6 +420,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <Btn quiet onClick={() => setLogCallOpen(true)}>Log a call</Btn>
           <Btn quiet onClick={() => setWalkInOpen(true)}>+ Walk-in</Btn>
           <Btn quiet onClick={() => setAssistOpen(true)}>Assist{openCount(assistItems) ? ` · ${openCount(assistItems)}` : ''}</Btn>
+          <Btn quiet onClick={() => setHkOpen(true)}>Housekeeping{hk.tasks.length ? ` · ${hk.tasks.length}` : ''}</Btn>
           {(allResources || []).length > 0 && <Btn quiet onClick={() => setStationsOpen(true)}>Stations{needsAttention(stationRows) ? ` · ${needsAttention(stationRows)}` : ''}</Btn>}
           {<Btn quiet onClick={() => setKitsOpen(true)}>Kits & linens{kitsToClean ? ` · ${kitsToClean}` : ''}</Btn>}
           {retailOn && <Btn quiet onClick={() => { setPickupScan(null); setPickupOpen(true); }}>Pickups</Btn>}
@@ -491,6 +494,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={tuitionOpen} onClose={() => setTuitionOpen(false)} title="Tuition"><CollectTuition tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addTuitionToCart?.({ planId: x.planId, name: x.name, program: x.program, amount: x.amount }); setTuitionOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>
       <Drawer accent={accent} open={stationsOpen} onClose={() => setStationsOpen(false)} title="Stations"><Stations firestore={e.firestore} tenantId={e.tenantId} resources={allResources || []} appts={todaysAppts} services={e.services || []} staff={e.staff || []} protocols={protocols || []} onAsk={(ctx: any) => { setStationsOpen(false); setAskFor(ctx); }} /></Drawer>
       <Drawer accent={accent} open={kitsOpen} onClose={() => setKitsOpen(false)} title="Kits & linens"><div className="space-y-8"><Kits firestore={e.firestore} tenantId={e.tenantId} kits={kits || []} services={e.services || []} manager={isMgr} appts={todaysAppts} inventory={allInventory || []} /><section><p className="mb-2 text-[15px] font-semibold">Linens & laundry</p><Linens tenantId={e.tenantId} services={e.services || []} appts={todaysAppts} inventory={allInventory || []} manager={isMgr} /></section></div></Drawer>
+      <Drawer accent={accent} open={hkOpen} onClose={() => setHkOpen(false)} title="Housekeeping"><Housekeeping tenantId={e.tenantId} tenant={e.selectedTenant} appts={todaysAppts} services={e.services || []} staff={e.staff || []} manager={isMgr} onGo={(w) => { setHkOpen(false); if (w === 'stations') setStationsOpen(true); else setKitsOpen(true); }} /></Drawer>
       <Drawer accent={accent} open={assistOpen} onClose={() => setAssistOpen(false)} title="Assist"><AssistQueue firestore={e.firestore} tenantId={e.tenantId} inventory={allInventory || []} user={getAuth().currentUser} /></Drawer>
       <Drawer accent={accent} open={!!askFor} onClose={() => setAskFor(null)} title="Ask for help">{askFor && <AskForHelp tenantId={e.tenantId} context={askFor} onDone={() => setAskFor(null)} />}</Drawer>
       <Drawer accent={accent} open={payOpen} onClose={() => setPayOpen(false)} title="Take a payment">{payOpen && <TakePayment e={e} preselect={takeFor} onDone={() => { setPayOpen(false); setTakeFor(null); }} />}</Drawer>

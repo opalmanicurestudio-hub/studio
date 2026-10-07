@@ -3,11 +3,14 @@
 // station, so the task shows on their own screen (not only at the front desk): the steps to tick, when it's due, who's
 // next. Nothing shows when there's nothing to do. Same list and the same proof-of-turnover record as the desk.
 import * as React from 'react';
-import { collection } from 'firebase/firestore';
+import { collection, doc, query, where } from 'firebase/firestore';
+import { useDoc } from '@/firebase/firestore/use-doc';
+import { Housekeeping } from '@/components/pos/desk/Housekeeping';
+import { attendantIds } from '@/lib/attendant';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { Stations } from '@/components/pos/desk/Stations';
 
-export function MyTurnovers({ tenantId, staffId, appts, services, staff }: { tenantId: string; staffId: string; appts: any[]; services: any[]; staff: any[] }) {
+export function MyTurnovers({ tenantId, staffId, appts, services, staff, everyone = false }: { tenantId: string; staffId: string; appts: any[]; services: any[]; staff: any[]; everyone?: boolean }) {
   const { firestore } = useFirebase();
   const resQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
   const protoQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/protocols`), [firestore, tenantId]);
@@ -18,6 +21,27 @@ export function MyTurnovers({ tenantId, staffId, appts, services, staff }: { ten
   return (
     <section aria-label="Your stations to reset">
       <Stations mine firestore={firestore} tenantId={tenantId} resources={resources} appts={recent} services={services || []} staff={staff || []} protocols={protocols || []}
-        onlyRow={(r) => r.status === 'turnover' && r.ownerId === staffId} />
+        onlyRow={(r) => (r.status === 'turnover' || (everyone && r.status === 'inspect')) && (everyone || r.ownerId === staffId)} />
+    </section>);
+}
+
+/** On a team member's own Today screen: their own station resets — or, for someone named as housekeeping, the whole
+ *  housekeeping queue and every station waiting to be reset. */
+export function PortalHousekeeping({ tenantId, staffId, myAppts, services, staff }: { tenantId: string; staffId: string; myAppts: any[]; services: any[]; staff: any[] }) {
+  const { firestore } = useFirebase();
+  const tRef = useMemoFirebase(() => (firestore && tenantId ? doc(firestore, 'tenants', tenantId) : null), [firestore, tenantId]);
+  const { data: tenant } = useDoc<any>(tRef as any);
+  const isAttendant = attendantIds(tenant).includes(staffId);
+  // Housekeeping people need everyone's visits from today, not only their own.
+  const since = React.useMemo(() => new Date(Date.now() - 18 * 3600000).toISOString(), []);
+  const aq = useMemoFirebase(() => (firestore && tenantId && isAttendant ? query(collection(firestore, 'tenants', tenantId, 'appointments'), where('startTime', '>=', since)) : null), [firestore, tenantId, isAttendant, since]);
+  const { data: all } = useCollection<any>(aq);
+  if (!isAttendant) return <MyTurnovers tenantId={tenantId} staffId={staffId} appts={myAppts} services={services} staff={staff} />;
+  const today = (all || []).filter((a: any) => String(a.startTime || '') <= new Date(Date.now() + 18 * 3600000).toISOString());
+  return (
+    <section aria-label="Housekeeping" className="space-y-3">
+      <p className="text-sm font-semibold">Housekeeping</p>
+      <Housekeeping tenantId={tenantId} tenant={tenant} appts={today} services={services} staff={staff} manager={false} />
+      <MyTurnovers everyone tenantId={tenantId} staffId={staffId} appts={today} services={services} staff={staff} />
     </section>);
 }
