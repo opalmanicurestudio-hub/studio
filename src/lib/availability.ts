@@ -984,6 +984,9 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
       for (let i = 0; i < q; i++) taken.push({ start, end: addMinutes(end, clean) });
     }
     const usable = Math.max(0, Math.floor(num(cap.usable, 0)));
+    // None usable (all pulled out): that pauses today and tomorrow only — managers are told, and it's expected to be
+    // fixed before bookings further out, so those aren't turned away over a blunt nipper.
+    if (usable < need.qty && dateObj.getTime() - now.getTime() > 36 * 3600000) continue;
     resourceLedgers.push({ resourceId: `kit:${key}`, name: cap.name || need.name, capacity: Math.max(0, usable - (need.qty - 1)), taken, downReason: usable < need.qty ? `No ${String(cap.name || need.name).toLowerCase()} is available` : undefined });
   }
 

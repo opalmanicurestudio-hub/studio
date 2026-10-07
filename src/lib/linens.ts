@@ -4,8 +4,8 @@
 // Life: clean → (used on a visit) → dirty → washing → clean. Damaged ones leave the count (and inventory, when linked).
 // Used linens move to dirty on their own when a visit finishes; the team only starts and finishes wash loads.
 export interface Linen { id: string; name: string; clean: number; dirty: number; washing: number; inUse?: number; washMinutes?: number | null; washStartedAt?: string | null; byBundle?: boolean; par?: number | null; inventoryItemId?: string | null; inventoryName?: string | null; by?: string | null; at?: string | null }
-export type LinenMove = 'issue' | 'return' | 'use' | 'wash' | 'washed' | 'add' | 'damaged_clean' | 'damaged_dirty';
-export const LINEN_MOVE_LABEL: Record<LinenMove, string> = { issue: 'Taken out', return: 'Came back dirty', use: 'Used', wash: 'Wash load started', washed: 'Wash load finished', add: 'Added', damaged_clean: 'Damaged (from clean)', damaged_dirty: 'Damaged (from dirty)' };
+export type LinenMove = 'issue' | 'return' | 'unissue' | 'use' | 'wash' | 'washed' | 'add' | 'damaged_clean' | 'damaged_dirty';
+export const LINEN_MOVE_LABEL: Record<LinenMove, string> = { issue: 'Taken out', return: 'Came back dirty', unissue: 'Unused — put back', use: 'Used', wash: 'Wash load started', washed: 'Wash load finished', add: 'Added', damaged_clean: 'Damaged (from clean)', damaged_dirty: 'Damaged (from dirty)' };
 
 const norm = (s: any) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const n0 = (v: any) => Math.max(0, Math.round(Number(v) || 0));
@@ -16,6 +16,7 @@ export const linenTotal = (l: Linen) => n0(l.clean) + n0(l.dirty) + n0(l.washing
 export function moveLinen(l: Linen, move: LinenMove, qty: number): { clean: number; dirty: number; washing: number; inUse: number; moved: number } {
   let clean = n0(l.clean), dirty = n0(l.dirty), washing = n0(l.washing), inUse = n0(l.inUse); const q = n0(qty); let moved = q;
   if (move === 'issue') { moved = Math.min(q, clean); clean -= moved; inUse += moved; }
+  else if (move === 'unissue') { moved = Math.min(q, inUse); inUse -= moved; clean += moved; }
   else if (move === 'return') { moved = Math.min(q, inUse); inUse -= moved; dirty += moved; }
   else if (move === 'use') { moved = Math.min(q, clean); clean -= moved; dirty += moved; }
   else if (move === 'wash') { moved = Math.min(q, dirty); dirty -= moved; washing += moved; }
@@ -49,8 +50,9 @@ export function linenOutlook(linens: Linen[], visits: any[], services: any[]): L
 
 // ── Bundles: a tagged stack or bag of one linen type (say 6 towels) that is scanned through its life ───────────────────
 //   tenants/{t}/linenBundles/{id} = { linenId, name, qty, code, status, at, by }
-// Scanning the tag moves the whole bundle on and the type's counts with it. A type that has bundles is counted by its
-// scans only (the automatic count when a visit finishes is skipped for it, so nothing is counted twice).
+// Scanning the tag moves the whole bundle on and the type's counts with it. Automatic counting carries on as well: when a
+// visit finishes, its linens come off the floor (then off clean stock). A scan never moves more than is really there, so
+// the two together can't count anything twice, and the total owned never changes.
 export type BundleStatus = 'clean' | 'in_use' | 'dirty' | 'washing';
 export interface LinenBundle { id: string; linenId: string; name: string; qty: number; code: string; status: BundleStatus; at?: string | null; by?: string | null }
 export const BUNDLE_LABEL: Record<BundleStatus, string> = { clean: 'Clean', in_use: 'Out on the floor', dirty: 'Dirty', washing: 'In the wash' };

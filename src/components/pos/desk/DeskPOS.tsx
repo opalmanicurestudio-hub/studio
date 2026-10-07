@@ -22,6 +22,7 @@ import { openCount } from '@/lib/assist';
 import { useInventory } from '@/context/InventoryContext';
 import { Stations } from '@/components/pos/desk/Stations';
 import { Kits } from '@/components/pos/desk/Kits';
+import { kitKey, secondsLeft } from '@/lib/kits';
 import { Linens } from '@/components/pos/desk/Linens';
 import { stationReadiness, needsAttention } from '@/lib/readiness';
 import { CollectTuition } from '@/components/pos/desk/CollectTuition';
@@ -152,7 +153,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   // every few minutes, so it happens even where the scheduled job runs rarely. The server ignores repeats.
   useEffect(() => { if (!e.tenantId) return; const run = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: e.tenantId }) }).catch(() => undefined); };
     const first = setTimeout(run, 8000); const every = setInterval(run, 5 * 60000); return () => { clearTimeout(first); clearInterval(every); }; }, [e.tenantId]);
-  const kitsToClean = (kits || []).filter((k: any) => k.status === 'dirty' || k.status === 'out').length;
+  const kitsToClean = (kits || []).filter((k: any) => k.status === 'dirty' || k.status === 'out' || (k.status === 'cleaning' && Number(e.selectedTenant?.kitCapacity?.[kitKey(k.name)]?.cleanMinutes) > 0 && secondsLeft(k.at, Number(e.selectedTenant.kitCapacity[kitKey(k.name)].cleanMinutes), now.getTime()) <= 0)).length;   // to clean, pulled out, or cleaning time is up
   const assistItems = useAssistQueue(e.firestore, e.tenantId || null);   // Station Assist (O4): station requests + lounge orders + restocks
   const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);
   const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');

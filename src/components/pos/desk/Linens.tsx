@@ -36,10 +36,11 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who(), role: manager ? 'manager' : 'staff' });
   if (!firestore) return null;
 
-  const apply = async (l: Linen, move: LinenMove, n: number): Promise<boolean> => {
-    const res = moveLinen(l, move, n); if (!res.moved) { setMsg({ ok: false, text: move === 'issue' ? `There aren’t ${n} clean ${l.name.toLowerCase()} to take.` : 'Nothing to move.' }); return false; }
+  const apply = async (l: Linen, move: LinenMove, n: number, quiet = false): Promise<boolean> => {
+    const res = moveLinen(l, move, n); if (!res.moved && quiet) return true;   // a bundle whose linens were already counted (by finished visits): only its tag moves
+    if (!res.moved) { setMsg({ ok: false, text: move === 'issue' ? `There aren’t ${n} clean ${l.name.toLowerCase()} to take.` : 'Nothing to move.' }); return false; }
     setBusy(l.id); let ok = false;
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), { clean: res.clean, dirty: res.dirty, washing: res.washing, inUse: res.inUse, by: who(), at: new Date().toISOString(), ...(move === 'wash' ? { washStartedAt: new Date().toISOString() } : {}), ...(move === 'washed' && res.washing === 0 ? { washStartedAt: null } : {}) }); ok = true;
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), { clean: res.clean, dirty: res.dirty, washing: res.washing, inUse: res.inUse, by: who(), at: new Date().toISOString(), ...(move === 'wash' ? { washStartedAt: new Date().toISOString(), washById: getAuth().currentUser?.uid || null } : {}), ...(move === 'washed' && res.washing === 0 ? { washStartedAt: null } : {}) }); ok = true;
       void logAuditClient(firestore, tenantId, { action: `linen.${move}`, targetType: 'linen', targetId: l.id, actor: actor(), before: { clean: l.clean, dirty: l.dirty, washing: l.washing }, after: { clean: res.clean, dirty: res.dirty, washing: res.washing }, summary: `${l.name}: ${LINEN_MOVE_LABEL[move]} × ${res.moved}` });
       // Damaged linens come off inventory, with a stock movement.
       if ((move === 'damaged_clean' || move === 'damaged_dirty') && l.inventoryItemId) { try { await runTransaction(firestore, async (txn: any) => { const ref = doc(firestore, 'tenants', tenantId, 'inventory', l.inventoryItemId as string); const snap = await txn.get(ref); if (!snap.exists()) return;
@@ -50,7 +51,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
     setBusy(null); return ok; };
   // A bundle's tag was scanned (or its button tapped): the whole bundle moves on, and the type's counts with it.
   const moveBundle = async (b: LinenBundle) => { const l = linens.find((x) => x.id === b.linenId); if (!l) { setMsg({ ok: false, text: 'That bundle’s linen type no longer exists.' }); return false; }
-    const next = BUNDLE_NEXT[b.status]; if (!(await apply(l, next.move, b.qty))) return false;
+    const next = BUNDLE_NEXT[b.status]; if (!(await apply(l, next.move, b.qty, next.move !== 'issue'))) return false;
     try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who() }); } catch { /* counts moved; tap again to fix the tag */ }
     setMsg({ ok: true, text: `${b.name} ${b.code} (${b.qty}) — ${BUNDLE_LABEL[next.to].toLowerCase()}` }); return true; };
   const handleCode = async (raw: string) => { const b = findBundle(bundles, raw); if (!b) { scanFeedback(false); setMsg({ ok: false, text: 'No bundle with that tag.' }); return; } scanFeedback(await moveBundle(b)); };
@@ -107,12 +108,12 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
               <label>How many bundles <input type="number" min={1} max={30} value={bCount} onChange={(e) => setBCount(Number(e.target.value))} className="ml-1 h-9 w-16 rounded-lg border bg-background px-2" /></label>
               <button type="button" disabled={busy === l.id} onClick={() => makeBundles(l)} className="h-9 rounded-lg bg-foreground px-3 font-semibold text-background disabled:opacity-40">Make</button>
               <button type="button" onClick={() => setBundling(null)} className="h-9 px-2">Cancel</button>
-              <p className="w-full text-[12px] text-muted-foreground">Once a type has tagged bundles, it’s counted by scanning the tags — not automatically when a visit finishes.</p>
+              <p className="w-full text-[12px] text-muted-foreground">Scan a tag when a bundle goes out, comes back, is washed and is clean again. Linens used on a finished visit are still counted on their own.</p>
             </div>)}
           {other === l.id ? (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <select value={what} onChange={(e) => setWhat(e.target.value as LinenMove)} aria-label="What happened" className="h-10 rounded-xl border bg-background px-2 text-[13px]">
-                <option value="use">Used (clean → dirty)</option><option value="damaged_clean">Damaged — was clean</option><option value="damaged_dirty">Damaged — was dirty</option>{manager && <option value="add">Bought more</option>}
+                <option value="use">Used (clean → dirty)</option><option value="unissue">Unused — back to clean</option><option value="damaged_clean">Damaged — was clean</option><option value="damaged_dirty">Damaged — was dirty</option>{manager && <option value="add">Bought more</option>}
               </select>
               <input type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} aria-label="How many" className="h-10 w-20 rounded-xl border bg-background px-2 text-[14px]" />
               <button type="button" disabled={busy === l.id} onClick={() => apply(l, what, qty)} className="h-10 rounded-xl bg-foreground px-3 text-[13px] font-semibold text-background disabled:opacity-40">Save</button>
@@ -120,8 +121,8 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {!l.byBundle && l.dirty > 0 && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'wash', l.dirty)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Start a wash load ({l.dirty})</button>}
-              {!l.byBundle && l.washing > 0 && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'washed', l.washing)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Load finished ({l.washing})</button>}
+              {l.dirty > 0 && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'wash', l.dirty)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Start a wash load ({l.dirty})</button>}
+              {l.washing > 0 && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'washed', l.washing)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Load finished ({l.washing})</button>}
               <button type="button" onClick={() => { setOther(l.id); setQty(1); setWhat('use'); }} className="h-9 rounded-full border px-3 text-[13px]">Something else</button>
               {manager && bundling !== l.id && <button type="button" onClick={() => setBundling(l.id)} className="h-9 rounded-full border px-3 text-[13px]">Make tagged bundles</button>}
               {bundles.some((b) => b.linenId === l.id) && <button type="button" onClick={() => printTags(l)} className="h-9 rounded-full border px-3 text-[13px]">Print tags</button>}

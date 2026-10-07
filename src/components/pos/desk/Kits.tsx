@@ -19,6 +19,7 @@ const ORDER: KitStatus[] = ['out', 'dirty', 'cleaning', 'in_use', 'ready'];
 export function Kits({ firestore, tenantId, kits, services, manager, appts = [], inventory = [] }: { firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean; appts?: any[]; inventory?: any[] }) {
   const [invId, setInvId] = React.useState('');   // the inventory item the new kits are units of
   const equipment = React.useMemo(() => (inventory || []).filter((i: any) => i?.type === 'equipment' && i.archived !== true).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [inventory]);
+  const syncNow = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, only: 'kits' }) }).catch(() => undefined); };
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who().name, role: manager ? 'manager' : 'staff' });
   const typesQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'kitTypes') : null), [firestore, tenantId]);
   const { data: typesRaw } = useCollection<any>(typesQ); const types: KitType[] = typesRaw || [];
@@ -44,7 +45,8 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
     const res = moveKit(k, to, who(), { note, visitId: forVisit?.id, clientName: forVisit?.clientName });
     if ('error' in res) { setMsg({ ok: false, text: res.error }); return false; }
     setBusy(k.id);
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), res.patch as any);
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), { ...(res.patch as any), byId: getAuth().currentUser?.uid || null });
+      if (to === 'out' || to === 'retired' || k.status === 'out') syncNow();   // usable kits changed → booking and stock follow straight away
       // The visit remembers which kit was used on this client (for the record, and so they aren't offered a second one).
       if (to === 'in_use' && forVisit) { try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', forVisit.id), { kits: arrayUnion({ id: k.id, name: k.name, code: k.code, at: new Date().toISOString(), by: who().name }) }); } catch { /* the kit is still marked in use */ } }
       // Every move is on the business's audit log (who, when, from → to, why, for whom).
@@ -80,7 +82,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
   const saveType = async () => { if (!editType) return; const key = kitKey(editType.name); const prev = typeOf(types, editType.name); const version = (prev?.version || 0) + 1;
     try { await setDoc(doc(firestore, 'tenants', tenantId, 'kitTypes', prev?.id || key), { id: prev?.id || key, name: editType.name, items: editType.items, cleanMinutes: Math.max(0, Math.round(editType.cleanMinutes) || 0), version, updatedAt: new Date().toISOString(), by: who().name });
       void logAuditClient(firestore, tenantId, { action: 'kit.contents', targetType: 'kitType', targetId: prev?.id || key, actor: actor(), before: { items: prev?.items || [], cleanMinutes: prev?.cleanMinutes || 0 }, after: { items: editType.items, cleanMinutes: editType.cleanMinutes }, summary: `${editType.name}: contents v${version} — ${editType.items.length} item${editType.items.length === 1 ? '' : 's'}, ${editType.cleanMinutes || 0} min to clean` });
-      setMsg({ ok: true, text: `${editType.name} contents saved (version ${version}).` }); setEditType(null); }
+      setMsg({ ok: true, text: `${editType.name} contents saved (version ${version}). The products inside the kits are now held as “in kits” in Inventory.` }); setEditType(null); syncNow(); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
   const onScan = async (ev: React.FormEvent) => { ev.preventDefault(); const v = typed; setTyped(''); if (v.trim()) await handleCode(v); };
   const add = async () => { const name = newName.trim().slice(0, 60); const n = Math.max(1, Math.min(30, Math.round(howMany) || 1)); if (!name) return;
@@ -89,7 +91,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
     try { for (let i = 0; i < n; i++) { const code = newKitCode(taken); taken.push(code); const ref = doc(collection(firestore, 'tenants', tenantId, 'kits'));
         await setDoc(ref, { id: ref.id, name, code, status: 'ready', by: who().name, at, cycles: 0, history: [], createdAt: at, inventoryItemId: inv?.id || null, inventoryName: inv?.name || null });
         void logAuditClient(firestore, tenantId, { action: 'kit.added', targetType: 'kit', targetId: ref.id, actor: actor(), after: { status: 'ready', inventoryItemId: inv?.id || null }, summary: `Added ${name} ${code}${inv ? ` (inventory: ${inv.name})` : ' (not linked to inventory)'}` }); }
-      setMsg({ ok: true, text: `Added ${n} × ${name}. Print their labels below.` }); setAdding(false); setNewName(''); setHowMany(1); setInvId(''); }
+      setMsg({ ok: true, text: `Added ${n} × ${name}. Print their labels below.` }); setAdding(false); setNewName(''); setHowMany(1); setInvId(''); syncNow(); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); };
   const printLabels = async () => { if (!(await printCodeLabels(live.map((k) => ({ title: k.name, code: k.code })), 'Kit labels'))) setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); };
@@ -126,7 +128,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <li key={i} className="flex flex-wrap items-center gap-2 text-[14px]"><span className="min-w-0 flex-1 truncate font-medium">{it.name}</span>
               <input type="number" min={1} value={it.qty} aria-label={`How many ${it.name}`} onChange={(e) => setEditType({ ...editType, items: editType.items.map((x, j) => (j === i ? { ...x, qty: Math.max(1, Math.round(Number(e.target.value)) || 1) } : x)) })} className="h-9 w-16 rounded-lg border bg-background px-2 text-[14px]" />
               <button type="button" aria-label={`Remove ${it.name}`} onClick={() => setEditType({ ...editType, items: editType.items.filter((_, j) => j !== i) })} className="h-9 rounded-lg px-2 text-[13px] text-red-700">Remove</button>
-              {own !== null && n > 0 && <span className={`w-full text-[12px] ${own < n * it.qty ? 'font-semibold text-amber-800' : 'text-muted-foreground'}`}>{n} kit{n === 1 ? '' : 's'} × {it.qty} = {n * it.qty} needed · inventory has {own}</span>}
+              {own !== null && n > 0 && <span className={`w-full text-[12px] ${own < n * it.qty ? 'font-semibold text-amber-800' : 'text-muted-foreground'}`}>{n} kit{n === 1 ? '' : 's'} × {it.qty} = {n * it.qty} held in kits · you own {own}{own < n * it.qty ? ` — ${n * it.qty - own} short` : ` · ${own - n * it.qty} spare`}</span>}
             </li>); })}</ul>
           <select value="" aria-label="Add from inventory" onChange={(e) => { const it: any = (inventory || []).find((x: any) => x.id === e.target.value); if (it) setEditType({ ...editType, items: addKitItem(editType.items, it) }); }} className="h-10 w-full rounded-xl border bg-background px-2 text-[14px]">
             <option value="">Pick from inventory…</option>
