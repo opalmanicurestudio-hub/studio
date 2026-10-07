@@ -5,7 +5,8 @@ import * as React from 'react';
 import { doc, updateDoc, setDoc, collection, arrayUnion, runTransaction } from 'firebase/firestore';
 import { logAuditClient } from '@/lib/audit-client';
 import { getAuth } from 'firebase/auth';
-import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeeded, kitCandidates, type Kit, type KitStatus } from '@/lib/kits';
+import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeeded, kitCandidates, kitsLeftOut, kitHours, sameKitType, type Kit, type KitStatus } from '@/lib/kits';
+import { Linens } from '@/components/pos/desk/Linens';
 import { stageOf } from '@/lib/visit';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 
@@ -95,6 +96,12 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <p key={s.name} className="flex flex-wrap items-baseline justify-between gap-x-3 text-[14px]"><span className="font-semibold">{s.name}</span>
               <span className={s.ready ? 'text-muted-foreground' : 'font-semibold text-red-700'}>{s.ready} clean of {s.total}{s.dirty ? ` · ${s.dirty} to clean` : ''}{s.cleaning ? ` · ${s.cleaning} being cleaned` : ''}{s.in_use ? ` · ${s.in_use} in use` : ''}{s.out ? ` · ${s.out} pulled out` : ''}</span></p>))}
         </div>)}
+      {(() => { const left = kitsLeftOut(live, (id) => { const a = (appts || []).find((x: any) => x.id === id); return a ? (['cancelled', 'no_show'].includes(String(a.status)) ? 'cancelled' : stageOf(a)) : null; });
+        if (!left.length) return null;
+        return (<div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border-2 border-amber-300 bg-amber-50 p-3 text-[13px]">
+          <p className="font-semibold text-amber-900">{left.length} kit{left.length === 1 ? ' is' : 's are'} still marked in use after the visit finished.</p>
+          <button type="button" disabled={!!busy} onClick={async () => { for (const k of left) await move(k, 'dirty'); }} className="h-9 rounded-full bg-amber-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Send to cleaning</button>
+        </div>); })()}
       {(() => { const rows = equipment.map((i: any) => ({ i, n: live.filter((k: any) => k.inventoryItemId === i.id).length })).filter((r) => r.n > 0); const loose = live.filter((k: any) => !k.inventoryItemId).length;
         if (!rows.length && !loose) return null;
         return (<div className="space-y-1 rounded-2xl border bg-card p-3 text-[13px]">
@@ -108,6 +115,17 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <div className="min-w-0">
               <p className="truncate text-[15px] font-semibold">{k.name} <span className="font-mono text-[13px] font-normal tracking-wider text-muted-foreground">{k.code}</span></p>
               <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' && k.clientName ? `With ${k.clientName} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
+              {k.status === 'cleaning' && kitHours(k) >= 3 && <p className="text-[12px] font-semibold text-amber-800">Being cleaned for {kitHours(k)} h — is it done?</p>}
+              {(k as any).inventoryName && <p className="text-[12px] text-muted-foreground">Inventory: {(k as any).inventoryName}</p>}
+              {manager && !(k as any).inventoryItemId && equipment.length > 0 && (
+                <select value="" aria-label="Link to inventory" onChange={async (e) => { const it: any = equipment.find((i: any) => i.id === e.target.value); if (!it) return;
+                  // Links every unlinked kit of this type in one go.
+                  for (const x of live.filter((y: any) => !y.inventoryItemId && sameKitType(y.name, k.name))) { try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', x.id), { inventoryItemId: it.id, inventoryName: it.name }); } catch { /* try again from the list */ } }
+                  void logAuditClient(firestore, tenantId, { action: 'kit.linked', targetType: 'kit', targetId: k.id, actor: actor(), after: { inventoryItemId: it.id }, summary: `Linked all ${k.name} kits to inventory item ${it.name}` });
+                  setMsg({ ok: true, text: `All ${k.name} kits linked to ${it.name}.` }); }} className="mt-1 h-8 rounded-lg border bg-background px-2 text-[12px]">
+                  <option value="">Link to an inventory item…</option>
+                  {equipment.map((i: any) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                </select>)}
             </div>
             <span className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold ${TONE[k.status]}`}>{KIT_LABEL[k.status]}</span>
           </div>
@@ -158,5 +176,8 @@ export function KitsManager({ tenantId, services, inventory, manager }: { tenant
   const q = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'kits') : null), [firestore, tenantId]);
   const { data: kits } = useCollection<any>(q);
   if (!firestore) return null;
-  return <Kits firestore={firestore} tenantId={tenantId} kits={kits || []} services={services} inventory={inventory} manager={manager} />;
+  return (<div className="space-y-8">
+    <section><h3 className="mb-2 text-[15px] font-semibold">Kits</h3><Kits firestore={firestore} tenantId={tenantId} kits={kits || []} services={services} inventory={inventory} manager={manager} /></section>
+    <section><h3 className="mb-2 text-[15px] font-semibold">Linens & laundry</h3><Linens tenantId={tenantId} services={services} inventory={inventory} manager={manager} /></section>
+  </div>);
 }

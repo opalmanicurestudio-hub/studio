@@ -1,5 +1,6 @@
 'use client';
 
+import { minusFree, providerFreeOffsets } from '@/lib/availability';
 import { hasRealCard } from '@/lib/card-on-file';
 import { getAuth } from 'firebase/auth';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -244,7 +245,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             const aptService = services.find(s => s.id === apt.serviceId);
             const bStart = safeDate(apt.startTime), bEnd = safeDate(apt.endTime);
             if (bStart > bEnd) return; // malformed window — never crash the grid over it
-            busyIntervals.push({ start: bStart, end: bEnd, padBefore: aptService?.padBefore || 0, padAfter: aptService?.padAfter || 0 });
+            // Processing time the provider isn't needed for doesn't block them (same rule as online booking).
+            minusFree({ start: subMinutes(bStart, aptService?.padBefore || 0), end: addMinutes(bEnd, aptService?.padAfter || 0) }, bStart, providerFreeOffsets(aptService))
+              .forEach((part) => busyIntervals.push({ start: part.start, end: part.end, padBefore: 0, padAfter: 0 }));
         });
 
         (eventsFromDB || []).filter(evt => isSameDay(safeDate(evt.startTime), watchDate) && evt.type === 'blocked' && (!evt.staffIds || evt.staffIds.includes('all') || evt.staffIds.includes(staffMember.id))).forEach(evt => {
@@ -267,14 +270,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             const potentialEnd = addMinutes(currentTime, totalServiceDuration);
             if (potentialEnd > dayEndWithBusinessHours) break;
 
+            const mineParts = minusFree({ start: currentTime, end: potentialEnd }, addMinutes(currentTime, selectedService.padBefore || 0), providerFreeOffsets(selectedService));
             const isOverlapping = busyIntervals.some((interval) => {
                 const intervalStartWithPad = subMinutes(interval.start, interval.padBefore);
                 const intervalEndWithPad = addMinutes(interval.end, interval.padAfter);
-                return areIntervalsOverlapping(
-                    { start: currentTime, end: potentialEnd }, 
-                    { start: intervalStartWithPad, end: intervalEndWithPad }, 
-                    { inclusive: false }
-                );
+                return mineParts.some((mine) => areIntervalsOverlapping(mine, { start: intervalStartWithPad, end: intervalEndWithPad }, { inclusive: false }));
             });
 
             if (!isOverlapping && (watchOverride || (!isToday(watchDate) || (staffMember.active && !staffMember.onBreak)))) {

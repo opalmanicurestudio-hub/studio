@@ -1556,7 +1556,7 @@ export default function InventoryPage() {
                     <TabsTrigger value="products">Products</TabsTrigger>
                     <TabsTrigger value="orders">Orders</TabsTrigger>
                     <TabsTrigger value="locations">Locations</TabsTrigger>
-                    <TabsTrigger value="kits">Kits</TabsTrigger>
+                    <TabsTrigger value="kits">Kits & linens</TabsTrigger>
                 </TabsList>
                 <TabsContent value="products" className="mt-6">
                     <Card>

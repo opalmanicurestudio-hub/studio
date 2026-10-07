@@ -1594,7 +1594,7 @@ export function computeChainAvailability(
       }
 
       const candidates = ctx.staffDays.filter((d) => {
-        if (!isStaffFree(d, cursor, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter)) return false;
+        if (!isStaffFree(d, cursor, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) return false;
         // A provider already working an earlier leg of this same visit cannot
         // also take this one at an overlapping time.
         const mine = taken[d.staff.id] || [];

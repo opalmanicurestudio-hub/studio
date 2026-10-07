@@ -181,6 +181,22 @@ service cloud.firestore {
     match /tenants/{tenantId}/assetUnits/{unitId} {
       allow read, write: if isStaff(tenantId);
     }
+    // Kits (sets of tools): the team moves them along; only a manager adds or deletes one, puts a pulled-out kit
+    // back into service, or retires it.
+    match /tenants/{tenantId}/kits/{kitId} {
+      allow read: if isStaff(tenantId);
+      allow create, delete: if isManager(tenantId);
+      allow update: if isStaff(tenantId) && (
+        isManager(tenantId) ||
+        (resource.data.status != 'out' && request.resource.data.status != 'retired'
+          && request.resource.data.name == resource.data.name && request.resource.data.code == resource.data.code)
+      );
+    }
+    // Linens: the team records washing and use; only a manager adds or deletes a type.
+    match /tenants/{tenantId}/linens/{linenId} {
+      allow read, update: if isStaff(tenantId);
+      allow create, delete: if isManager(tenantId);
+    }
     match /tenants/{tenantId}/assetScanEvents/{eventId} {
       allow read, create: if isStaff(tenantId);
       allow update, delete: if false;
@@ -332,6 +348,7 @@ service cloud.firestore {
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
           'depositCredits',
           'inventoryExceptions',
+          'kits', 'linens',
           'assetUnits',
           'assetScanEvents',
           'stationAllocations',

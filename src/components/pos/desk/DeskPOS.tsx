@@ -22,6 +22,7 @@ import { openCount } from '@/lib/assist';
 import { useInventory } from '@/context/InventoryContext';
 import { Stations } from '@/components/pos/desk/Stations';
 import { Kits } from '@/components/pos/desk/Kits';
+import { Linens } from '@/components/pos/desk/Linens';
 import { stationReadiness, needsAttention } from '@/lib/readiness';
 import { CollectTuition } from '@/components/pos/desk/CollectTuition';
 import { CollectRent } from '@/components/pos/desk/CollectRent';
@@ -413,7 +414,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <Btn quiet onClick={() => setWalkInOpen(true)}>+ Walk-in</Btn>
           <Btn quiet onClick={() => setAssistOpen(true)}>Assist{openCount(assistItems) ? ` · ${openCount(assistItems)}` : ''}</Btn>
           {(allResources || []).length > 0 && <Btn quiet onClick={() => setStationsOpen(true)}>Stations{needsAttention(stationRows) ? ` · ${needsAttention(stationRows)}` : ''}</Btn>}
-          {((kits || []).length > 0 || isMgr) && <Btn quiet onClick={() => setKitsOpen(true)}>Kits{kitsToClean ? ` · ${kitsToClean}` : ''}</Btn>}
+          {<Btn quiet onClick={() => setKitsOpen(true)}>Kits & linens{kitsToClean ? ` · ${kitsToClean}` : ''}</Btn>}
           {retailOn && <Btn quiet onClick={() => { setPickupScan(null); setPickupOpen(true); }}>Pickups</Btn>}
           <Btn quiet onClick={() => { setTakeFor(null); setPayOpen(true); }}>Take a payment</Btn>
           {moduleEnabled(tenant, 'booth_rental') && <Btn quiet onClick={() => setRentOpen(true)}>Collect rent</Btn>}
@@ -484,7 +485,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         screen={clientScreen.connected ? { connected: true, name: clientScreen.name, ask: clientScreen.ask, response: clientScreen.response } : null} /></Drawer>
       <Drawer accent={accent} open={tuitionOpen} onClose={() => setTuitionOpen(false)} title="Tuition"><CollectTuition tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addTuitionToCart?.({ planId: x.planId, name: x.name, program: x.program, amount: x.amount }); setTuitionOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>
       <Drawer accent={accent} open={stationsOpen} onClose={() => setStationsOpen(false)} title="Stations"><Stations firestore={e.firestore} tenantId={e.tenantId} resources={allResources || []} appts={todaysAppts} services={e.services || []} staff={e.staff || []} protocols={protocols || []} onAsk={(ctx: any) => { setStationsOpen(false); setAskFor(ctx); }} /></Drawer>
-      <Drawer accent={accent} open={kitsOpen} onClose={() => setKitsOpen(false)} title="Kits"><Kits firestore={e.firestore} tenantId={e.tenantId} kits={kits || []} services={e.services || []} manager={isMgr} appts={todaysAppts} inventory={allInventory || []} /></Drawer>
+      <Drawer accent={accent} open={kitsOpen} onClose={() => setKitsOpen(false)} title="Kits & linens"><div className="space-y-8"><Kits firestore={e.firestore} tenantId={e.tenantId} kits={kits || []} services={e.services || []} manager={isMgr} appts={todaysAppts} inventory={allInventory || []} /><section><p className="mb-2 text-[15px] font-semibold">Linens & laundry</p><Linens tenantId={e.tenantId} services={e.services || []} appts={todaysAppts} inventory={allInventory || []} manager={isMgr} /></section></div></Drawer>
       <Drawer accent={accent} open={assistOpen} onClose={() => setAssistOpen(false)} title="Assist"><AssistQueue firestore={e.firestore} tenantId={e.tenantId} inventory={allInventory || []} user={getAuth().currentUser} /></Drawer>
       <Drawer accent={accent} open={!!askFor} onClose={() => setAskFor(null)} title="Ask for help">{askFor && <AskForHelp tenantId={e.tenantId} context={askFor} onDone={() => setAskFor(null)} />}</Drawer>
       <Drawer accent={accent} open={payOpen} onClose={() => setPayOpen(false)} title="Take a payment">{payOpen && <TakePayment e={e} preselect={takeFor} onDone={() => { setPayOpen(false); setTakeFor(null); }} />}</Drawer>

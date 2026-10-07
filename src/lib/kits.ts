@@ -65,3 +65,12 @@ export function kitCandidates(kit: Kit, visits: { id: string; clientName?: strin
     .sort((a, b) => rank(a.stage) - rank(b.stage))
     .map((v) => ({ id: v.id, clientName: String(v.clientName || 'Guest'), stage: v.stage }));
 }
+/** Kits still marked "in use" although their visit has finished (nobody scanned them back) — or taken with no client
+ *  more than `staleHours` ago. These are the ones that quietly make "no clean kit" appear. */
+export function kitsLeftOut(kits: Kit[], visitStage: (visitId: string) => string | null, now = Date.now(), staleHours = 14): Kit[] {
+  return (kits || []).filter((k) => { if (k.status !== 'in_use') return false; const age = now - (Date.parse(String(k.at || '')) || now);
+    if (k.visitId) { const st = visitStage(k.visitId); return st === 'complete' || st === 'ready_to_pay' || st === 'cancelled' || (st === null && age > staleHours * 3600000); }
+    return age > staleHours * 3600000; });
+}
+/** Hours a kit has sat in its current state (for "being cleaned for 5 h"). */
+export const kitHours = (k: Kit, now = Date.now()) => Math.max(0, Math.floor((now - (Date.parse(String(k.at || '')) || now)) / 3600000));
