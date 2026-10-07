@@ -13,6 +13,9 @@
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { HereNow } from '@/components/pos/desk/HereNow';
+import { buildHereNow } from '@/lib/here-now';
+import { extraMinutesFor } from '@/lib/client-timing';
 import { TakePayment } from '@/components/pos/desk/TakePayment';
 import { AssistQueue, AskForHelp, useAssistQueue } from '@/components/pos/desk/AssistQueue';
 import { openCount } from '@/lib/assist';
@@ -207,6 +210,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   }, [e.appointmentsFromInventory, e.walkIns, e.services, e.staff, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = guests.filter((g) => g.stage !== 'done');
+  // K7: who's here and what's outstanding — checked-in guests not yet started + people at the front door, one list.
+  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, extraMinutesFor }), [guests, doorWaiting, e.clients, e.services, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const requests = (e.appointmentsFromInventory || []).filter((a: any) => a.status === 'requested').length;
   // ── At-a-glance facts ────────────────────────────────────────────────
   const staffOf = (id: string | null) => (id ? (e.staff || []).find((s: any) => s.id === id) : null);
@@ -416,24 +421,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         </div>
       </div>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 md:px-8">
-        {(doorWaiting || []).length > 0 && (
-          <section aria-label="At the door" className="mb-4 space-y-2">
-            <p className="text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>At the door</p>
-            {[...(doorWaiting || [])].sort((a: any, b: any) => String(a.createdAt).localeCompare(String(b.createdAt))).map((d: any) => {
-              const mins = Math.max(0, Math.round((now.getTime() - Date.parse(d.createdAt || '')) / 60000));
-              return (
-                <div key={d.id} className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border p-3 ${d.intent === 'help' ? 'border-red-300 bg-red-50' : 'bg-white/70'}`}>
-                  <div className="min-w-0">
-                    <p className="text-[15px] font-semibold">{d.name || 'Someone'} · {d.label}{d.orderNumber ? ` · #${d.orderNumber}` : ''}{d.renterName ? ` · ${d.renterName}` : ''}</p>
-                    <p className="text-[12px]" style={{ color: 'var(--muted)' }}>{mins < 1 ? 'Just now' : `${mins} min ago`}{d.note ? ` · “${d.note}”` : ''}{d.renterName ? (d.renterTexted ? ` · ${d.renterName} was texted` : ` · tell ${d.renterName}`) : ''}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    {d.intent === 'pickup' && <Btn quiet onClick={() => { setPickupScan(null); setPickupOpen(true); }}>Open pickups</Btn>}
-                    <Btn onClick={() => updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'frontDoor', d.id), { status: 'handled', handledAt: new Date().toISOString(), handledBy: (e as any).currentUserName || (e as any).currentStaffName || 'Front desk' })}>Got it</Btn>
-                  </div>
-                </div>);
-            })}
-          </section>)}
+        <HereNow rows={hereNow} onOpenVisit={(id: string) => openVisit(id)} onOpenPickups={() => { setPickupScan(null); setPickupOpen(true); }}
+          onDoorDone={(id: string) => updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'frontDoor', id), { status: 'handled', handledAt: new Date().toISOString(), handledBy: (e as any).currentUserName || (e as any).currentStaffName || 'Front desk' })} />
         {mode === 'desk' && <section aria-label="Today" className="mb-4">
           <button type="button" onClick={toggleToday} aria-expanded={todayOpen} className="mb-2 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>Today {todayOpen ? '▴' : '▾'}</button>
           {todayOpen && <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{([
