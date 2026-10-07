@@ -8,6 +8,8 @@ import { getAuth } from 'firebase/auth';
 import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeeded, kitCandidates, kitsLeftOut, kitHours, sameKitType, kitKey, typeOf, matchInventory, addKitItem, contentsCheck, type Kit, type KitStatus, type KitType, type KitItem } from '@/lib/kits';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { TagPairing } from '@/components/pos/desk/TagPairing';
+import { Sterilisation } from '@/components/pos/desk/Sterilisation';
+import { sterilisedSinceUse } from '@/lib/sterilisation';
 import { useNfc } from '@/lib/use-nfc';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { printCodeLabels, brandOf, LABEL_FORMATS, KIT_STEPS, type LabelFormat } from '@/lib/print-labels';
@@ -68,7 +70,8 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); setBusy(null); return false; }
   };
   // "Clean — ready" for a kit type that has a contents list goes through the contents check first.
-  const toReady = (k: Kit) => { const t = typeOf(types, k.name); if (t?.items?.length) { setChecking({ kit: k, items: t.items, have: t.items.map(() => 0), version: t.version || 1 }); return; } return move(k, 'ready'); };
+  const toReady = (k: Kit) => { if (selectedTenant?.ops?.requireSterilisation && !sterilisedSinceUse(k)) { scanFeedback(false); setMsg({ ok: false, text: `${k.name} ${k.code} hasn’t passed a recorded sterilisation cycle since it was used — run it through one first.` }); return; }
+    const t = typeOf(types, k.name); if (t?.items?.length) { setChecking({ kit: k, items: t.items, have: t.items.map(() => 0), version: t.version || 1 }); return; } return move(k, 'ready'); };
   const finishCheck = async () => { if (!checking) return; const res = contentsCheck(checking.items, checking.have); const k = checking.kit; const at = new Date().toISOString();
     const lastCheck = { at, by: who().name, ok: res.complete, missing: res.missing, version: checking.version };
     try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), { lastCheck }); } catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); return; }
@@ -196,6 +199,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
               <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' ? `${[k.clientName ? `Client: ${k.clientName}` : null, (k as any).staffName ? `Provider: ${String((k as any).staffName).split(' ')[0]}` : null, k.stationName || null].filter(Boolean).join(' · ') || 'Not tied to a client'} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
               {k.status === 'cleaning' && <p className="text-[13px]">Cleaning: <LiveTimer since={k.at} minutes={typeOf(types, k.name)?.cleanMinutes || 0} doneLabel="Cleaning time is up" />{kitHours(k) >= 3 ? <span className="font-semibold text-amber-800"> — is it done?</span> : null}</p>}
               {k.status === 'in_use' && <p className="text-[12px] text-muted-foreground">In use <LiveTimer since={k.at} /></p>}
+              {k.lastSterilised?.passed && <p className="text-[12px] text-muted-foreground">Sterilised {new Date(k.lastSterilised.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{k.lastSterilised.device ? ` · ${k.lastSterilised.device}` : ''} · {k.lastSterilised.by}</p>}
               {k.lastCheck && <p className="text-[12px] text-muted-foreground">Contents {k.lastCheck.ok ? 'checked' : 'incomplete'} · {new Date(k.lastCheck.at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {k.lastCheck.by}</p>}
               {(k as any).inventoryName && <p className="text-[12px] text-muted-foreground">Inventory: {(k as any).inventoryName}</p>}
               {manager && !(k as any).inventoryItemId && equipment.length > 0 && (
@@ -256,10 +260,11 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
 export function KitsManager({ tenantId, services, inventory, manager }: { tenantId: string; services: any[]; inventory: any[]; manager: boolean }) {
   const { firestore } = useFirebase();
   const q = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'kits') : null), [firestore, tenantId]);
-  const { data: kits } = useCollection<any>(q);
+  const { data: kits } = useCollection<any>(q); const { selectedTenant: tenantForRecords } = useTenant() as any;
   if (!firestore) return null;
   return (<div className="space-y-8">
     <section><h3 className="mb-2 text-[15px] font-semibold">Kits</h3><Kits firestore={firestore} tenantId={tenantId} kits={kits || []} services={services} inventory={inventory} manager={manager} /></section>
+    <section><h3 className="mb-2 text-[15px] font-semibold">Sterilisation records</h3><Sterilisation tenantId={tenantId} tenant={tenantForRecords} kits={kits || []} manager={manager} /></section>
     <section><h3 className="mb-2 text-[15px] font-semibold">Linens & laundry</h3><Linens tenantId={tenantId} services={services} inventory={inventory} manager={manager} /></section>
     {manager && <section><h3 className="mb-2 text-[15px] font-semibold">RFID & NFC tags</h3><TagPairing tenantId={tenantId} inventory={inventory} /></section>}
   </div>);

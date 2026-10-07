@@ -202,6 +202,12 @@ service cloud.firestore {
       allow read, update: if isStaff(tenantId);
       allow create, delete: if isManager(tenantId);
     }
+    // Sterilisation records: the team writes them and records the result; nobody can delete one.
+    match /tenants/{tenantId}/sterilisationCycles/{cycleId} {
+      allow read, create: if isStaff(tenantId);
+      allow update: if isStaff(tenantId) && resource.data.status == 'running';
+      allow delete: if false;
+    }
     // Linens: the team records washing and use; only a manager adds or deletes a type.
     match /tenants/{tenantId}/linens/{linenId} {
       allow read, update: if isStaff(tenantId);
@@ -358,7 +364,7 @@ service cloud.firestore {
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
           'depositCredits',
           'inventoryExceptions',
-          'kits', 'linens', 'kitTypes', 'linenBundles',
+          'kits', 'linens', 'kitTypes', 'linenBundles', 'sterilisationCycles',
           'assetUnits',
           'assetScanEvents',
           'stationAllocations',

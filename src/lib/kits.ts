@@ -11,7 +11,7 @@ export const KIT_LABEL: Record<KitStatus, string> = { ready: 'Clean & ready', in
 export const KIT_NEXT: Partial<Record<KitStatus, { to: KitStatus; label: string }>> = {
   ready: { to: 'in_use', label: 'Take for a client' }, in_use: { to: 'dirty', label: 'Finished — needs cleaning' },
   dirty: { to: 'cleaning', label: 'Start cleaning' }, cleaning: { to: 'ready', label: 'Clean — ready' } };
-export interface Kit { id: string; name: string; code: string; status: KitStatus; by?: string | null; at?: string | null; visitId?: string | null; clientName?: string | null; stationName?: string | null; note?: string | null; cycles?: number; tagIds?: string[]; inventoryItemId?: string | null; inventoryName?: string | null; lastCheck?: { at: string; by: string; ok: boolean; missing: string[]; version?: number } | null; history?: { at: string; by: string; from: KitStatus; to: KitStatus; note?: string | null }[] }
+export interface Kit { id: string; name: string; code: string; status: KitStatus; by?: string | null; at?: string | null; visitId?: string | null; clientName?: string | null; stationName?: string | null; note?: string | null; cycles?: number; tagIds?: string[]; cycleId?: string | null; lastSterilised?: { cycleId: string; at: string; by: string; passed: boolean; device?: string } | null; inventoryItemId?: string | null; inventoryName?: string | null; lastCheck?: { at: string; by: string; ok: boolean; missing: string[]; version?: number } | null; history?: { at: string; by: string; from: KitStatus; to: KitStatus; note?: string | null }[] }
 
 const norm = (s: any) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 export const sameKitType = (a: any, b: any) => norm(a) === norm(b) && norm(a) !== '';
@@ -33,6 +33,7 @@ export function moveKit(kit: Kit, to: KitStatus, who: { name: string; manager: b
   if (from === 'retired') return { error: 'That kit has been retired.' };
   if (to === 'out') { if (!String(extra.note || '').trim()) return { error: 'Say what’s wrong with it.' }; }
   else if (from === 'out' || to === 'retired') { if (!who.manager) return { error: 'A manager decides what happens to a kit that’s been pulled out.' }; if (from === 'out' && to !== 'ready' && to !== 'retired' && to !== 'dirty') return { error: 'A pulled-out kit goes back as needing cleaning, ready, or retired.' }; }
+  else if (from === 'cleaning' && to === 'dirty' && String(extra.note || '').trim()) { /* a failed cycle sends it round again, with the reason */ }
   else if (KIT_NEXT[from]?.to !== to) return { error: `A kit that’s ${KIT_LABEL[from].toLowerCase()} can’t go straight to ${KIT_LABEL[to].toLowerCase()}.` };
   const history = [...(kit.history || []), { at, by: who.name, from, to, note: extra.note?.trim() || null }].slice(-40);
   return { patch: { status: to, by: who.name, at, note: to === 'out' ? String(extra.note).trim().slice(0, 200) : null, history,

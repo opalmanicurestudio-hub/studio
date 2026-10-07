@@ -177,6 +177,6 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
           <p className="text-[12px] text-muted-foreground">Whatever you choose, the queue also watches the pace of the last hour and warns when clean kits or linens will run out soon.</p>
           <button type="button" onClick={() => setSetup(false)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Done</button>
         </div>
-      ) : <button type="button" onClick={() => setSetup(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Who does housekeeping: {mode === 'attendants' ? `${picked.length} named` : 'each provider'}</button>)}
+      ) : <div className="flex flex-wrap gap-2"><a href={`/housekeeping/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full border px-4 text-[13px] font-semibold">Open the wall screen</a><button type="button" onClick={() => setSetup(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Who does housekeeping: {mode === 'attendants' ? `${picked.length} named` : 'each provider'}</button></div>)}
     </div>);
 }
