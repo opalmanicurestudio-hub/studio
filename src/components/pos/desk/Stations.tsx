@@ -11,7 +11,7 @@ import { stationReadiness, READINESS_LABEL, type Readiness, type StationRow } fr
 const TONE: Record<Readiness, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', turnover: 'bg-amber-100 text-amber-900', inspect: 'bg-violet-100 text-violet-900', blocked: 'bg-red-100 text-red-800' };
 const time = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
 
-export function Stations({ firestore, tenantId, resources, appts, services, staff = [], protocols = [], onAsk }: { firestore: any; tenantId: string; resources: any[]; appts: any[]; services: any[]; staff?: any[]; protocols?: any[]; onAsk?: (ctx: { resourceId: string; stationName: string; visitId?: string | null; clientName?: string | null }) => void }) {
+export function Stations({ firestore, tenantId, resources, appts, services, staff = [], protocols = [], onAsk, onlyRow, mine = false }: { onlyRow?: (r: StationRow) => boolean; mine?: boolean; firestore: any; tenantId: string; resources: any[]; appts: any[]; services: any[]; staff?: any[]; protocols?: any[]; onAsk?: (ctx: { resourceId: string; stationName: string; visitId?: string | null; clientName?: string | null }) => void }) {
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   const rows = React.useMemo(() => stationReadiness(resources, appts, services, now, staff, protocols), [resources, appts, services, now, staff, protocols]);
@@ -43,9 +43,10 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
       setTicked((t) => { const n = { ...t }; delete n[r.id]; return n; }); },
     unblock: (r: StationRow) => save(r.id, { isOutOfService: false, readiness: { status: 'ready', at: new Date().toISOString(), by: who() } }),
   };
+  if (mine && !rows.some((r) => !onlyRow || onlyRow(r))) return null;   // a provider's own list: nothing to do, nothing shown
   if (!rows.length) return <p className="text-[14px] text-muted-foreground">No rooms or equipment yet — add them under Resources, then link them to services.</p>;
   const order: Readiness[] = ['turnover', 'inspect', 'blocked', 'in_use', 'ready'];
-  const sorted = [...rows].sort((a, b) => (b.overdueMin || 0) - (a.overdueMin || 0) || order.indexOf(a.status) - order.indexOf(b.status) || a.name.localeCompare(b.name));
+  const sorted = [...rows].filter((r) => !onlyRow || onlyRow(r)).sort((a, b) => (b.overdueMin || 0) - (a.overdueMin || 0) || order.indexOf(a.status) - order.indexOf(b.status) || a.name.localeCompare(b.name));
   return (
     <div className="space-y-2">
       {err && <p className="text-[13px] font-medium text-red-700" role="alert">{err}</p>}
@@ -86,7 +87,7 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
                     <li key={i}><label className="flex items-center gap-2 text-[14px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => setTicked((t) => { const cur = t[r.id] || []; return { ...t, [r.id]: on ? cur.filter((x) => x !== i) : [...cur, i] }; })} />{step}</label></li>); })}</ul>)}
                 {(r.status === 'turnover' || r.status === 'inspect') && (() => { const need = r.status === 'turnover' && r.needsConfirm && (ticked[r.id] || []).length < (r.checklist || []).length;
                   return <button type="button" disabled={busy === r.id || need} onClick={() => act.ready(r)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{r.status === 'turnover' && r.needsConfirm ? 'Done — ready' : 'Mark ready'}</button>; })()}
-                {r.status === 'turnover' && <button type="button" disabled={busy === r.id} onClick={() => act.claim(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">I’ll do it</button>}
+                {r.status === 'turnover' && !mine && <button type="button" disabled={busy === r.id} onClick={() => act.claim(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">I’ll do it</button>}
                 {(r.status === 'ready' || r.status === 'turnover') && <button type="button" disabled={busy === r.id} onClick={() => act.inspect(r)} className="h-9 rounded-full border px-3 text-[13px] disabled:opacity-50">Needs inspection</button>}
                 {r.status === 'in_use' && onAsk && <button type="button" onClick={() => onAsk({ resourceId: r.id, stationName: r.name, visitId: r.visitId, clientName: r.clientName })} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Ask for help</button>}
                 {r.status === 'blocked' && r.quarantine && (
@@ -96,7 +97,7 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
                   ? (r.quarantine
                     ? <button type="button" disabled={busy === r.id || (ticked[r.id] || []).length < r.quarantine.steps.length} onClick={() => act.release(r)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Release from quarantine</button>
                     : <button type="button" disabled={busy === r.id} onClick={() => act.unblock(r)} className="h-9 rounded-full border px-3 text-[13px] font-semibold disabled:opacity-50">Unblock</button>)
-                  : r.status !== 'in_use' && <button type="button" onClick={() => { setBlocking(r.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Block</button>}
+                  : r.status !== 'in_use' && !mine && <button type="button" onClick={() => { setBlocking(r.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Block</button>}
               </div>
             )}
           </div>);

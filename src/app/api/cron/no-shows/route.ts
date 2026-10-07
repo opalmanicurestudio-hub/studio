@@ -66,6 +66,27 @@ export async function GET(req: NextRequest) {
       }
     } catch (e) { console.error('[cron/no-shows]', t.id, e); }
   }
+  // Turnover notices (O3): a station that still needs resetting — its owner first, then the managers. Once each per visit.
+  let turnoverNudges = 0;
+  for (const t of tenants) { try {
+    const tenant: any = t.data() || {}; const T = `tenants/${t.id}`;
+    if (!automationOn(tenant, 'turnover-notices')) continue;
+    const resources = (await db.collection(`${T}/resources`).limit(200).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+    if (!resources.length) continue;
+    const appts = (await db.collection(`${T}/appointments`).where('startTime', '>=', new Date(now - 12 * 3600000).toISOString()).where('startTime', '<=', new Date(now + 6 * 3600000).toISOString()).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+    const { serviceEndedAt, stationReadiness } = await import('@/lib/readiness');
+    // Nothing finished on a station in the last few hours → nothing to chase (and nothing more to read).
+    if (!appts.some((a: any) => Array.isArray(a.requiredResourceIds) && a.requiredResourceIds.length && serviceEndedAt(a) > now - 4 * 3600000)) continue;
+    const [services, staff, protocols] = await Promise.all(['services', 'staff', 'protocols'].map(async (c) => (await db.collection(`${T}/${c}`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))));
+    const { turnoverNotices } = await import('@/lib/turnover-notices');
+    const due = turnoverNotices(stationReadiness(resources, appts, services, now, staff, protocols), resources, now, tenant.timezone || tenant.timeZone);
+    for (const n of due) {
+      const to: string[] = n.level === 1 ? (n.ownerId ? [n.ownerId] : []) : Array.from(new Set([...staff.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && m.active !== false).map((m: any) => m.id), ...(n.ownerId ? [n.ownerId] : [])]));
+      const b = db.batch(); b.update(db.doc(`${T}/resources/${n.resourceId}`), { 'readiness.notice': { visitId: n.visitId, level: n.level, at: nowIso } });
+      for (const uid of to) { const ref = db.collection(`${T}/notifications`).doc(); b.set(ref, { id: ref.id, userId: uid, type: n.level === 1 ? 'turnover_due' : 'turnover_escalation', priority: n.level === 1 ? 'high' : 'urgent', link: n.level === 1 ? '/staff-portal/' + t.id : '/pos', resourceId: n.resourceId, appointmentId: n.visitId, message: n.message, createdAt: nowIso, read: false }); }
+      await b.commit(); if (to.length) { turnoverNudges++; await noteAutomation(db, t.id, 'turnover-notices'); }
+    }
+  } catch (e) { console.error('[cron/no-shows] turnover', t.id, e); } }
   // Station Assist: requests nobody accepted in time → alert the managers once.
   let assistEscalated = 0;
   for (const t of tenants) { try {
@@ -79,5 +100,5 @@ export async function GET(req: NextRequest) {
       await b.commit(); assistEscalated++; }
   } catch (e) { console.error('[cron/no-shows] assist', t.id, e); } }
   await heartbeat(db, 'no-shows');   // HQ's account check uses this to spot a stopped task
-  return NextResponse.json({ ok: true, flagged, escalated, assistEscalated });
+  return NextResponse.json({ ok: true, flagged, escalated, assistEscalated, turnoverNudges });
 }

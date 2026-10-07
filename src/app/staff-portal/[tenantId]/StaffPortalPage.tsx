@@ -98,6 +98,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
 import { useDoc } from '@/firebase/firestore/use-doc';
+import { MyTurnovers } from '@/components/staff/MyTurnovers';
 import { PortalDecisionBar } from '@/components/staff-portal/PortalDecisionBar';
 import { isDeadAppointment } from '@/lib/booking-approval';
 import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy } from 'firebase/firestore';
@@ -5018,6 +5019,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               <div className="space-y-4">
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={() => setActiveTab('documents')} />
 <TasksForYou tenantId={tenantId} staffMember={staffMember} />
+<MyTurnovers tenantId={tenantId} staffId={staffMember.id} appts={myApptsRaw || []} services={services || []} staff={allStaff || []} />
 {stuckApts.length > 0 && (
                   <div className="rounded-[2rem] border-2 border-amber-300 bg-amber-50 overflow-hidden">
                     <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2 bg-amber-100/60">
