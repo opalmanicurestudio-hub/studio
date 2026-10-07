@@ -1034,6 +1034,10 @@ export async function GET(req: NextRequest) {
 
 // ─── POST ────────────────────────────────────────────────────────────────────
 
+// When a booked guest can check in at the kiosk: up to 45 minutes early, up to 30 minutes late. Used by both lookups.
+const EARLY_CHECKIN_MIN = 45;
+const LATE_CHECKIN_MIN = 30;
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({} as any));
@@ -1043,7 +1047,7 @@ export async function POST(req: NextRequest) {
     if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing studio.' }, { status: 400 });
     // 'checkin' (a booked client at the kiosk) and 'booth-arrived' have handlers below but were missing here, so both
     // always failed with "Unknown action" — the kiosk couldn't check in anyone with an appointment.
-    if (!['join', 'lookup', 'options', 'complete', 'notify', 'checkin', 'booth-arrived'].includes(action)) {
+    if (!['join', 'lookup', 'options', 'complete', 'notify', 'checkin', 'booth-arrived', 'code'].includes(action)) {
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     }
 
@@ -1071,7 +1075,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'lookup') return await handleLookup(db, tenantId, body);
-    if (action === 'checkin') return await handleCheckIn(db, tenantId, body);
+    if (action === 'checkin') return await handleCheckIn(db, tenantId, { ...body, __origin: req.nextUrl.origin });
+    if (action === 'code') return await handleCode(db, tenantId, body);
     if (action === 'booth-arrived') return await handleBoothArrived(db, tenantId, body);
     if (action === 'options') return await handleOptions(db, tenantId, body);
     return await handleJoin(db, tenantId, tenant, body, publicOrigin(tenant, req));
@@ -1229,8 +1234,7 @@ async function handleLookup(db: any, tenantId: string, body: any) {
   //     privilege escalation. The kiosk performs check-in by posting the
   //     appointmentId back with the phone number, and the server re-verifies
   //     the pair.
-  const EARLY_CHECKIN_MIN = 45;
-  const LATE_CHECKIN_MIN = 30;
+  // (shared with the confirmation-code lookup below — one rule for both)
   const localDayOf = (v: any): string => {
     const ms = toMs(v);
     if (!ms) return '';
@@ -1374,16 +1378,18 @@ async function handleLookup(db: any, tenantId: string, body: any) {
 
 async function handleCheckIn(db: any, tenantId: string, body: any) {
   const phone = str(body?.phone, 40).trim();
+  const code = str(body?.code, 12).toUpperCase().replace(/[^A-Z0-9]/g, '');
   const appointmentId = str(body?.appointmentId, 120).trim();
-  if (!phone || !appointmentId) {
+  if ((!phone && !code) || !appointmentId) {
     return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 200 });
   }
   if (!(await rateLimit(db, tenantId, 'walkInLookupRate', 60))) {
     return NextResponse.json({ ok: false, error: 'Too many attempts. Please try again shortly.' }, { status: 429 });
   }
 
-  const found = await findClient(db, tenantId, phone, '');
-  if (!found) {
+  // Proof it's theirs: the phone number on the client, or this booking's own confirmation code.
+  const found = phone ? await findClient(db, tenantId, phone, '') : null;
+  if (phone && !found) {
     return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
   }
 
@@ -1395,7 +1401,7 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
   const a: any = (snap.data() as any) || {};
 
   // THE guard. Everything else here is politeness.
-  if (String(a.clientId || '') !== String(found.id)) {
+  if (phone ? String(a.clientId || '') !== String(found!.id) : (!code || String(a.shortCode || '').toUpperCase() !== code)) {
     return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
   }
   if (!['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase())) {
@@ -1413,6 +1419,29 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
       await syncVisitCopies(db, tenantId, { ...a, checkInStatus: 'arrived', timeline: [...tl, entry] }, tn); } catch { /* best-effort */ }
   }
 
+  // WHAT STILL NEEDS DOING, without showing anything private on a shared screen: forms still to sign go as a link to the
+  // contact details ON FILE (never to the kiosk), and money owed is only "please stop at the front desk" (no amounts).
+  let formsDue = 0, formsSent = false, seeDesk = false;
+  try {
+    const cid = String(a.clientId || ''); const c: any = cid ? ((await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() || {}) : {};
+    const ids = [a.serviceId, ...(Array.isArray(a.addOnIds) ? a.addOnIds : [])].filter(Boolean);
+    const need = new Set<string>(); for (const sid of ids) { const sv: any = ((await db.doc(`tenants/${tenantId}/services/${sid}`).get()).data() || {}); (sv.requiredFormIds || []).forEach((x: string) => need.add(String(x))); }
+    (a.requiredFormIds || []).forEach((x: string) => need.add(String(x)));
+    const signed = new Set<string>((a.signedForms || []).map((x: any) => String(x?.formId || '')));
+    if (cid && need.size) (await db.collection(`tenants/${tenantId}/clients/${cid}/signedConsents`).get()).docs.forEach((d: any) => { const x: any = d.data() || {}; if (!x.revokedAt && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now())) signed.add(String(x.formId || x.consentFormId || '')); });
+    formsDue = [...need].filter((x) => !signed.has(x)).length;
+    if (formsDue > 0 && a.checkInToken) {
+      const origin = String(body?.__origin || '').replace(/\/$/, ''); const link = `${origin}/check-in/${a.checkInToken}`;
+      const toPhone = String(c.phone || a.clientPhone || ''), toEmail = String(c.email || a.clientEmail || '');
+      const channel: 'sms' | 'email' | null = toPhone && c.smsConsent !== false && c.smsOptOut !== true ? 'sms' : toEmail ? 'email' : null;
+      if (channel) { const r: any = await sendNotification(db, { tenantId, channel, to: channel === 'sms' ? toPhone : toEmail, text: `Before your visit today, please complete ${formsDue === 1 ? 'your form' : `your ${formsDue} forms`}: ${link}`,
+        ...(channel === 'email' ? { subject: 'Your form for today', html: `<p>Before your visit today, please complete ${formsDue === 1 ? 'your form' : `your ${formsDue} forms`}:</p><p><a href="${link}">${link}</a></p>` } : {}),
+        kind: 'checkin_link', clientId: cid || null, clientName: c.name || a.clientName || null, appointmentId: appointmentId } as any).catch(() => null);
+        formsSent = !!r && !['failed', 'skipped_no_provider', 'skipped_by_policy'].includes(String(r.status)); }
+    }
+    seeDesk = String(a.status || '').toLowerCase() === 'deposit_pending' || Number(a.balanceDueCents) > 0 || Number(c.outstandingBalance) > 0;
+  } catch { /* the check-in stands */ }
+
   let staffFirstName = '';
   let serviceName = '';
   try {
@@ -1429,9 +1458,10 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
 
   return NextResponse.json({
     ok: true,
+    formsDue, formsSent, seeDesk,
     checkedIn: true,
     alreadyArrived: already,
-    firstName: firstName(found.data?.name),
+    firstName: firstName(found?.data?.name || a.clientName),
     startTime: a.startTime ? new Date(toMs(a.startTime)).toISOString() : null,
     staffFirstName,
     serviceName,
@@ -2932,4 +2962,24 @@ async function handleNotify(db: any, tenantId: string, tenant: any, body: any, b
       ? (r.sentSms ? 'Texted them.' : 'Emailed them.')
       : 'Marked as called, but we could not reach them — please tell them in person.',
   });
+}
+
+
+// THE CONFIRMATION CODE — for a guest whose booking was made with someone else's number (a parent, a group organiser) or
+// who'd rather use the code from their confirmation. Finds TODAY's booking with that code; the code then proves the
+// check-in (the same answer shape as a phone lookup: a first name and the time, never a provider or anything private).
+async function handleCode(db: any, tenantId: string, body: any) {
+  const code = str(body?.code, 12).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length < 4) return NextResponse.json({ ok: false, error: 'Please check the code and try again.' }, { status: 200 });
+  if (!(await rateLimit(db, tenantId, 'walkInLookupRate', 60))) return NextResponse.json({ ok: false, error: 'Too many attempts. Please try again shortly.' }, { status: 429 });
+  const nowMs = Date.now(); const toMs = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
+  const hits = (await db.collection(`tenants/${tenantId}/appointments`).where('shortCode', '==', code).limit(5).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+    .filter((a: any) => ['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase()) && Math.abs(toMs(a.startTime) - nowMs) < 16 * 3600000);
+  const a: any = hits[0]; if (!a) return NextResponse.json({ ok: false, error: 'We couldn’t find a booking for today with that code — please see the front desk.' }, { status: 200 });
+  const startMs = toMs(a.startTime); const minutesUntil = startMs ? Math.round((startMs - nowMs) / 60000) : 0; const st = String(a.checkInStatus || 'pending');
+  return NextResponse.json({ ok: true, firstName: firstName(a.clientName), appointmentToday: {
+    appointmentId: String(a.id), startTime: startMs ? new Date(startMs).toISOString() : null, minutesUntil,
+    alreadyArrived: ['arrived', 'checked_in', 'checkedIn'].includes(st),
+    checkInOpen: minutesUntil <= EARLY_CHECKIN_MIN && minutesUntil >= -LATE_CHECKIN_MIN,
+    earlyByMin: minutesUntil > EARLY_CHECKIN_MIN ? minutesUntil - EARLY_CHECKIN_MIN : 0, lateByMin: minutesUntil < 0 ? Math.abs(minutesUntil) : 0 } });
 }
