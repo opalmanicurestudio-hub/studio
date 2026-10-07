@@ -624,12 +624,12 @@ export default function WalkInKioskPage() {
   // the number to a client and requires the appointment's own clientId to match
   // before it writes anything — neither half is a credential on its own, which
   // is why the lookup was willing to name a time but not a provider.
-  const confirmCheckIn = async () => {
+  const confirmCheckIn = async (withParty = false) => {
     const apt = lookup?.appointmentToday;
     if (!apt?.appointmentId) return;
     setLoading(true);
     try {
-      const d = await post({ action: 'checkin', ...(scanToken ? { token: scanToken } : codeMode && bookingCode ? { code: bookingCode } : { phone }), appointmentId: apt.appointmentId });
+      const d = await post({ action: 'checkin', ...(scanToken ? { token: scanToken } : codeMode && bookingCode ? { code: bookingCode } : { phone }), appointmentId: apt.appointmentId, ...(withParty ? { party: true } : {}) });
       if (!d?.ok) {
         setTroubleNote(d?.error || '');
         setStep('trouble');
@@ -639,7 +639,11 @@ export default function WalkInKioskPage() {
       // What still needs doing — told without anything private on the screen: the form link went to their own phone or email.
       const forms = Number(d.formsDue) > 0 ? (d.formsSent ? ` You have ${Number(d.formsDue) === 1 ? 'a form' : `${d.formsDue} forms`} to complete — we've just sent the link to your phone.` : ` You have ${Number(d.formsDue) === 1 ? 'a form' : 'forms'} to complete — the front desk will help.`) : '';
       const desk = d.seeDesk ? ' Please stop at the front desk before your visit.' : '';
-      setAnnounceNote(`You're checked in${d.serviceName ? ` for your ${d.serviceName}` : ''}.${who}${forms}${desk}`);
+      // The rest of the party: who's checked in, and who still has a form (sent to their phone, or to yours for a guest without one).
+      const mates: any[] = Array.isArray(d.party) ? d.party : [];
+      const partyLine = mates.length ? ` ${mates.map((m) => m.firstName || 'Your guest').join(', ')} ${mates.length === 1 ? 'is' : 'are'} checked in too.` + (mates.some((m) => Number(m.formsDue) > 0) ? ` ${mates.filter((m) => Number(m.formsDue) > 0).map((m) => m.firstName || 'A guest').join(', ')} still ${mates.filter((m) => Number(m.formsDue) > 0).length === 1 ? 'has a form' : 'have forms'} to complete — we've sent the link${mates.some((m) => Number(m.formsDue) > 0 && !m.formsSent) ? ' where we could; the front desk will help with the rest' : ''}.` : '') : '';
+      const deskAny = d.seeDesk || mates.some((m) => m.seeDesk);
+      setAnnounceNote(`You're checked in${d.serviceName ? ` for your ${d.serviceName}` : ''}.${who}${forms}${partyLine}${deskAny && !desk ? ' Please stop at the front desk before your visits.' : desk}`);
       setStep('announced');
     } catch {
       setTroubleNote('');
@@ -2298,13 +2302,18 @@ export default function WalkInKioskPage() {
             </div>
 
             {lookup.appointmentToday.checkInOpen && !lookup.appointmentToday.alreadyArrived && (
+              <>{Number(lookup.appointmentToday.partyOthers) > 0 && (
+              <button onClick={() => void confirmCheckIn(true)} disabled={loading}
+                className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15">
+                Check in all {Number(lookup.appointmentToday.partyOthers) + 1} of us
+              </button>)}
               <button
-                onClick={confirmCheckIn}
+                onClick={() => void confirmCheckIn(false)}
                 disabled={loading}
-                className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-60"
+                className={Number(lookup.appointmentToday.partyOthers) > 0 ? "w-full h-14 min-h-[44px] rounded-2xl border-2 border-slate-200 bg-white text-base font-semibold text-slate-700 flex items-center justify-center gap-2" : "w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-60"}
               >
-                {loading ? <Loader className="w-5 h-5 animate-spin" /> : <>Check in <ArrowRight className="w-5 h-5" /></>}
-              </button>
+                {loading ? <Loader className="w-5 h-5 animate-spin" /> : <>{Number(lookup.appointmentToday.partyOthers) > 0 ? 'Just me' : 'Check in'} <ArrowRight className="w-5 h-5" /></>}
+              </button></>
             )}
 
             <button

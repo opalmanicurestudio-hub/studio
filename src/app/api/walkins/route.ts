@@ -1297,6 +1297,7 @@ async function handleLookup(db: any, tenantId: string, body: any) {
       const minutesUntil = startMs ? Math.round((startMs - nowMs) / 60000) : 0;
       const checkInStatus = String(candidate.checkInStatus || 'pending');
       appointmentToday = {
+        partyOthers: await partyOthers(db, tenantId, candidate),
         appointmentId: String(candidate.id),
         startTime: startMs ? new Date(startMs).toISOString() : null,
         minutesUntil,
@@ -1377,6 +1378,53 @@ async function handleLookup(db: any, tenantId: string, body: any) {
 // bare time. Having now demonstrated possession of the number AND matched the
 // booking, they can be told who they are seeing.
 
+/** Mark one visit arrived (timeline + synced copies) and handle what's still needed: unsigned forms are sent as a link to
+ *  the client's own phone or email — or, for a guest with neither, to the person checking them in (`fallback`) — and a
+ *  balance or unpaid deposit only sets `seeDesk`. Never returns contact details or amounts. */
+async function arriveOne(db: any, tenantId: string, ref: any, a: any, origin: string, fallback: { phone: string; email: string; smsOk: boolean } | null) {
+  const nowIso = new Date().toISOString();
+  const already = ['arrived', 'checked_in', 'checkedIn'].includes(String(a.checkInStatus || ''));
+  if (!already) {
+    const tl: any[] = Array.isArray(a.timeline) ? a.timeline : [];
+    const entry = { at: nowIso, kind: 'stage', stage: 'arrived', text: fallback ? 'Arrived — checked in with their party (kiosk)' : 'Arrived — checked in (kiosk)', by: a.clientName || 'Client', via: 'kiosk' };
+    await ref.set({ checkInStatus: 'arrived', arrivedAt: nowIso, updatedAt: nowIso, timeline: [...tl, entry].slice(-60) }, { merge: true });
+    try { const { syncVisitCopies } = await import('@/lib/visit-sync'); const tn: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      await syncVisitCopies(db, tenantId, { ...a, checkInStatus: 'arrived', timeline: [...tl, entry] }, tn); } catch { /* best-effort */ }
+  }
+  let formsDue = 0, formsSent = false, seeDesk = false;
+  try {
+    const cid = String(a.clientId || ''); const c: any = cid ? ((await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() || {}) : {};
+    const ids = [a.serviceId, ...(Array.isArray(a.addOnIds) ? a.addOnIds : [])].filter(Boolean);
+    const need = new Set<string>(); for (const sid of ids) { const sv: any = ((await db.doc(`tenants/${tenantId}/services/${sid}`).get()).data() || {}); (sv.requiredFormIds || []).forEach((x: string) => need.add(String(x))); }
+    (a.requiredFormIds || []).forEach((x: string) => need.add(String(x)));
+    const signed = new Set<string>((a.signedForms || []).map((x: any) => String(x?.formId || '')));
+    if (cid && need.size) (await db.collection(`tenants/${tenantId}/clients/${cid}/signedConsents`).get()).docs.forEach((d: any) => { const x: any = d.data() || {}; if (!x.revokedAt && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now())) signed.add(String(x.formId || x.consentFormId || '')); });
+    formsDue = [...need].filter((x) => !signed.has(x)).length;
+    if (formsDue > 0 && a.checkInToken) {
+      const link = `${origin}/check-in/${a.checkInToken}`;
+      let toPhone = String(c.phone || a.clientPhone || ''), toEmail = String(c.email || a.clientEmail || ''); let smsOk = c.smsConsent !== false && c.smsOptOut !== true; let forWhom = '';
+      if (!toPhone && !toEmail && fallback) { toPhone = fallback.phone; toEmail = fallback.email; smsOk = fallback.smsOk; forWhom = firstName(a.clientName) || 'your guest'; }
+      const what = `${formsDue === 1 ? 'form' : `${formsDue} forms`}`;
+      const text = forWhom ? `Before ${forWhom}'s visit today, please complete their ${what}: ${link}` : `Before your visit today, please complete your ${what}: ${link}`;
+      const channel: 'sms' | 'email' | null = toPhone && smsOk ? 'sms' : toEmail ? 'email' : null;
+      if (channel) { const r: any = await sendNotification(db, { tenantId, channel, to: channel === 'sms' ? toPhone : toEmail, text,
+        ...(channel === 'email' ? { subject: forWhom ? `${forWhom}'s form for today` : 'Your form for today', html: `<p>${text.replace(`: ${link}`, ':')}</p><p><a href="${link}">${link}</a></p>` } : {}),
+        kind: 'checkin_link', clientId: cid || null, clientName: c.name || a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
+        formsSent = !!r && !['failed', 'skipped_no_provider', 'skipped_by_policy'].includes(String(r.status)); }
+    }
+    seeDesk = String(a.status || '').toLowerCase() === 'deposit_pending' || Number(a.balanceDueCents) > 0 || Number(c.outstandingBalance) > 0;
+  } catch { /* the check-in stands */ }
+  return { already, formsDue, formsSent, seeDesk };
+}
+
+/** How many others in this visit's group are booked today and not yet cancelled (a number only). */
+async function partyOthers(db: any, tenantId: string, a: any): Promise<number> {
+  if (!a?.groupId) return 0;
+  try { const t = Date.parse(String(a.startTime || '')) || Date.now();
+    return (await db.collection(`tenants/${tenantId}/appointments`).where('groupId', '==', String(a.groupId)).limit(20).get()).docs
+      .filter((d: any) => { const x: any = d.data() || {}; return d.id !== a.id && ['confirmed', 'deposit_pending'].includes(String(x.status || '').toLowerCase()) && Math.abs((Date.parse(String(x.startTime || '')) || 0) - t) < 12 * 3600000; }).length;
+  } catch { return 0; }
+}
 async function handleCheckIn(db: any, tenantId: string, body: any) {
   const phone = str(body?.phone, 40).trim();
   const code = str(body?.code, 12).toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -1412,39 +1460,24 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
     return NextResponse.json({ ok: false, error: 'Please see the front desk about this booking.' }, { status: 200 });
   }
 
-  const nowIso = new Date().toISOString();
-  const already = ['arrived', 'checked_in', 'checkedIn'].includes(String(a.checkInStatus || ''));
-  if (!already) {
-    // THE VISIT TICKET: the kiosk arrival goes on the timeline and the client's link, like every other check-in.
-    const tl: any[] = Array.isArray(a.timeline) ? a.timeline : [];
-    const entry = { at: nowIso, kind: 'stage', stage: 'arrived', text: 'Arrived — checked in (kiosk)', by: a.clientName || 'Client', via: 'kiosk' };
-    await ref.set({ checkInStatus: 'arrived', arrivedAt: nowIso, updatedAt: nowIso, timeline: [...tl, entry].slice(-60) }, { merge: true });
-    try { const { syncVisitCopies } = await import('@/lib/visit-sync'); const tn: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-      await syncVisitCopies(db, tenantId, { ...a, checkInStatus: 'arrived', timeline: [...tl, entry] }, tn); } catch { /* best-effort */ }
-  }
+  const origin = String(body?.__origin || '').replace(/\/$/, '');
+  const me = await arriveOne(db, tenantId, ref, { ...a, id: appointmentId }, origin, null);
+  const { already, formsDue, formsSent, seeDesk } = me;
 
-  // WHAT STILL NEEDS DOING, without showing anything private on a shared screen: forms still to sign go as a link to the
-  // contact details ON FILE (never to the kiosk), and money owed is only "please stop at the front desk" (no amounts).
-  let formsDue = 0, formsSent = false, seeDesk = false;
-  try {
-    const cid = String(a.clientId || ''); const c: any = cid ? ((await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() || {}) : {};
-    const ids = [a.serviceId, ...(Array.isArray(a.addOnIds) ? a.addOnIds : [])].filter(Boolean);
-    const need = new Set<string>(); for (const sid of ids) { const sv: any = ((await db.doc(`tenants/${tenantId}/services/${sid}`).get()).data() || {}); (sv.requiredFormIds || []).forEach((x: string) => need.add(String(x))); }
-    (a.requiredFormIds || []).forEach((x: string) => need.add(String(x)));
-    const signed = new Set<string>((a.signedForms || []).map((x: any) => String(x?.formId || '')));
-    if (cid && need.size) (await db.collection(`tenants/${tenantId}/clients/${cid}/signedConsents`).get()).docs.forEach((d: any) => { const x: any = d.data() || {}; if (!x.revokedAt && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now())) signed.add(String(x.formId || x.consentFormId || '')); });
-    formsDue = [...need].filter((x) => !signed.has(x)).length;
-    if (formsDue > 0 && a.checkInToken) {
-      const origin = String(body?.__origin || '').replace(/\/$/, ''); const link = `${origin}/check-in/${a.checkInToken}`;
-      const toPhone = String(c.phone || a.clientPhone || ''), toEmail = String(c.email || a.clientEmail || '');
-      const channel: 'sms' | 'email' | null = toPhone && c.smsConsent !== false && c.smsOptOut !== true ? 'sms' : toEmail ? 'email' : null;
-      if (channel) { const r: any = await sendNotification(db, { tenantId, channel, to: channel === 'sms' ? toPhone : toEmail, text: `Before your visit today, please complete ${formsDue === 1 ? 'your form' : `your ${formsDue} forms`}: ${link}`,
-        ...(channel === 'email' ? { subject: 'Your form for today', html: `<p>Before your visit today, please complete ${formsDue === 1 ? 'your form' : `your ${formsDue} forms`}:</p><p><a href="${link}">${link}</a></p>` } : {}),
-        kind: 'checkin_link', clientId: cid || null, clientName: c.name || a.clientName || null, appointmentId: appointmentId } as any).catch(() => null);
-        formsSent = !!r && !['failed', 'skipped_no_provider', 'skipped_by_policy'].includes(String(r.status)); }
-    }
-    seeDesk = String(a.status || '').toLowerCase() === 'deposit_pending' || Number(a.balanceDueCents) > 0 || Number(c.outstandingBalance) > 0;
-  } catch { /* the check-in stands */ }
+  // A GROUP: check in everyone else in the party too, when asked. Each guest's forms go to their own phone or email; a
+  // guest with no contact details (a child, a name-only guest) has theirs sent to the person checking in.
+  const party: any[] = [];
+  if (body?.party === true && a.groupId) {
+    try {
+      const c0: any = a.clientId ? ((await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).get()).data() || {}) : {};
+      const fallback = { phone: String(c0.phone || a.clientPhone || ''), email: String(c0.email || a.clientEmail || ''), smsOk: c0.smsConsent !== false && c0.smsOptOut !== true };
+      const day = toMs(a.startTime);
+      const mates = (await db.collection(`tenants/${tenantId}/appointments`).where('groupId', '==', String(a.groupId)).limit(20).get()).docs
+        .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() || {}) }))
+        .filter((x: any) => x.id !== appointmentId && ['confirmed', 'deposit_pending'].includes(String(x.status || '').toLowerCase()) && Math.abs(toMs(x.startTime) - day) < 12 * 3600000);
+      for (const m of mates) { const r = await arriveOne(db, tenantId, m.ref, m, origin, fallback); party.push({ firstName: firstName(m.clientName), ...r }); }
+    } catch { /* the main check-in stands */ }
+  }
 
   let staffFirstName = '';
   let serviceName = '';
@@ -1462,7 +1495,7 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
 
   return NextResponse.json({
     ok: true,
-    formsDue, formsSent, seeDesk,
+    formsDue, formsSent, seeDesk, party,
     checkedIn: true,
     alreadyArrived: already,
     firstName: firstName(found?.data?.name || a.clientName),
@@ -2983,7 +3016,7 @@ async function handleCode(db: any, tenantId: string, body: any) {
     .filter((a: any) => ['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase()) && Math.abs(toMs(a.startTime) - nowMs) < 16 * 3600000);
   const a: any = hits[0]; if (!a) return NextResponse.json({ ok: false, error: 'We couldn’t find a booking for today with that code — please see the front desk.' }, { status: 200 });
   const startMs = toMs(a.startTime); const minutesUntil = startMs ? Math.round((startMs - nowMs) / 60000) : 0; const st = String(a.checkInStatus || 'pending');
-  return NextResponse.json({ ok: true, firstName: firstName(a.clientName), proof: token.length >= 12 ? 'token' : 'code', appointmentToday: {
+  return NextResponse.json({ ok: true, firstName: firstName(a.clientName), proof: token.length >= 12 ? 'token' : 'code', appointmentToday: { partyOthers: await partyOthers(db, tenantId, a),
     appointmentId: String(a.id), startTime: startMs ? new Date(startMs).toISOString() : null, minutesUntil,
     alreadyArrived: ['arrived', 'checked_in', 'checkedIn'].includes(st),
     checkInOpen: minutesUntil <= EARLY_CHECKIN_MIN && minutesUntil >= -LATE_CHECKIN_MIN,
