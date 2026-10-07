@@ -9,6 +9,7 @@ import { KIT_LABEL, KIT_NEXT, findKit, kitSupply, moveKit, newKitCode, kitsNeede
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { TagPairing } from '@/components/pos/desk/TagPairing';
 import { Sterilisation } from '@/components/pos/desk/Sterilisation';
+import { Disinfection } from '@/components/pos/desk/Disinfection';
 import { sterilisedSinceUse } from '@/lib/sterilisation';
 import { useNfc } from '@/lib/use-nfc';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
@@ -265,6 +266,7 @@ export function KitsManager({ tenantId, services, inventory, manager }: { tenant
   return (<div className="space-y-8">
     <section><h3 className="mb-2 text-[15px] font-semibold">Kits</h3><Kits firestore={firestore} tenantId={tenantId} kits={kits || []} services={services} inventory={inventory} manager={manager} /></section>
     <section><h3 className="mb-2 text-[15px] font-semibold">Sterilisation records</h3><Sterilisation tenantId={tenantId} tenant={tenantForRecords} kits={kits || []} manager={manager} /></section>
+    <section><h3 className="mb-2 text-[15px] font-semibold">Disinfection guide</h3><Disinfection tenantId={tenantId} tenant={tenantForRecords} manager={manager} /></section>
     <section><h3 className="mb-2 text-[15px] font-semibold">Linens & laundry</h3><Linens tenantId={tenantId} services={services} inventory={inventory} manager={manager} /></section>
     {manager && <section><h3 className="mb-2 text-[15px] font-semibold">RFID & NFC tags</h3><TagPairing tenantId={tenantId} inventory={inventory} /></section>}
   </div>);

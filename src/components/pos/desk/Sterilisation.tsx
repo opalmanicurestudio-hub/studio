@@ -9,7 +9,8 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { logAuditClient } from '@/lib/audit-client';
 import { moveKit, findKit, type Kit } from '@/lib/kits';
 import { nextCycleNumber, cycleProblem, sporeStatus, logRows, type Cycle } from '@/lib/sterilisation';
-import { brandOf } from '@/lib/print-labels';
+import { brandOf, printCodeLabels } from '@/lib/print-labels';
+import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { useSeconds } from '@/components/pos/desk/LiveTimer';
 import { Ring } from '@/components/pos/desk/hk-ui';
 
@@ -23,7 +24,7 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
   const ops = tenant?.ops || {}; const devices: string[] = Array.isArray(ops.sterilisers) && ops.sterilisers.length ? ops.sterilisers : ['Autoclave'];
   const [open, setOpen] = React.useState<'start' | 'spore' | null>(null); const [device, setDevice] = React.useState(devices[0]); const [minutes, setMinutes] = React.useState(String(ops.cycleMinutes || '')); const [temp, setTemp] = React.useState(String(ops.cycleTemp || '')); const [unit, setUnit] = React.useState<'F' | 'C'>(ops.cycleTempUnit === 'C' ? 'C' : 'F');
   const [load, setLoad] = React.useState<string[]>([]); const [typed, setTyped] = React.useState(''); const [note, setNote] = React.useState(''); const [lab, setLab] = React.useState(''); const [finishing, setFinishing] = React.useState<string | null>(null);
-  const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null); const [busy, setBusy] = React.useState(false); const [newDevice, setNewDevice] = React.useState('');
+  const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null); const [busy, setBusy] = React.useState(false); const [newDevice, setNewDevice] = React.useState(''); const [scanText, setScanText] = React.useState(''); const [cam, setCam] = React.useState(false);
   const now = useSeconds();   // the rings count down live
   const who = () => (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0];
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who(), role: manager ? 'manager' : 'staff' });
@@ -58,6 +59,14 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
       setMsg({ ok: passed, text: passed ? 'Spore test recorded: pass.' : 'Spore test recorded: FAIL. Stop using that machine and follow your board’s steps.' }); setOpen(null); setNote(''); setLab(''); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(false); };
+  // Each machine has a label too: scan it to start a load on it, or to record its result when one is running.
+  const machineCode = (d: string) => `M${d.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 14)}`;
+  const handleScan = (raw: string) => { const t = String(raw || '').trim().toUpperCase().split(/[/=#]/).pop() || ''; const dev = devices.find((d) => machineCode(d) === t);
+    if (dev) { const c = running.find((x) => x.device.trim().toLowerCase() === dev.trim().toLowerCase()); scanFeedback(true);
+      if (c) { setOpen(null); setMsg({ ok: true, text: `${dev}: cycle ${c.number} is on its tile below — tap Pass or Fail.` }); } else { setDevice(dev); if (open !== 'start') { setOpen('start'); setLoad([]); } setMsg({ ok: true, text: `${dev} — now scan each kit going in.` }); } return; }
+    const k = findKit(loadable, raw);
+    if (!k) { scanFeedback(false); const other = findKit(kits || [], raw); setMsg({ ok: false, text: other ? `${other.name} ${other.code} isn’t waiting to be cleaned.` : 'That isn’t a kit or a machine label.' }); return; }
+    scanFeedback(true); if (open !== 'start') { setOpen('start'); setLoad([k.id]); } else setLoad((l) => (l.includes(k.id) ? l : [...l, k.id])); setMsg({ ok: true, text: `${k.name} ${k.code} added to the load.` }); };
   const saveOps = async (patch: any) => { try { await updateDoc(doc(firestore, 'tenants', tenantId), { ops: { ...(tenant?.ops || {}), ...patch } }); void logAuditClient(firestore, tenantId, { action: 'sterilisation.settings', targetType: 'tenant', actor: actor(), after: patch, summary: `Sterilisation settings changed: ${Object.keys(patch).join(', ')}` }); } catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
   const printLog = (days: number) => { const brand = brandOf(tenant); const rows = logRows(cycles, Date.now() - days * 86400000); const w = window.open('', '_blank'); if (!w) { setMsg({ ok: false, text: 'Allow pop-ups to print the log.' }); return; }
     w.document.write(`<!doctype html><meta charset="utf-8"><title>Sterilisation log</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet"><style>@page{margin:12mm}body{font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:#16171a;font-size:9pt}h1{font-size:15pt;margin:0}p{margin:2px 0 10px;color:#6b6760}table{width:100%;border-collapse:collapse}th{text-align:left;font-size:7.5pt;letter-spacing:.08em;text-transform:uppercase;color:#6b6760;border-bottom:1.5px solid #16171a;padding:5px 6px}td{border-bottom:1px solid #ddd;padding:5px 6px;vertical-align:top}.f{font-weight:700}tr{break-inside:avoid}</style>
@@ -67,6 +76,11 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
   return (
     <div className="space-y-3">
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
+      <form onSubmit={(e) => { e.preventDefault(); const v = scanText; setScanText(''); if (v.trim()) handleScan(v); }} className="flex gap-2">
+        <input value={scanText} onChange={(e) => setScanText(e.target.value.slice(0, 80))} placeholder="Scan a machine or a kit" aria-label="Scan a machine or a kit" autoCapitalize="characters" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[15px] uppercase tracking-wider" />
+        <button type="button" onClick={() => setCam((c) => !c)} className="h-11 rounded-xl border px-3 text-[13px] font-semibold">{cam ? 'Close camera' : 'Camera'}</button>
+      </form>
+      {cam && <ScanGate onScan={handleScan} label="Scan the machine’s label, then each kit" />}
       {spore.due && <p className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3 text-[13px] font-semibold text-amber-900">{spore.last ? `Last spore test was ${spore.daysSince} days ago` : 'No spore test on record'} — one is due (every {ops.sporeTestDays} days).</p>}
       {running.map((c) => { const total = Math.max(1, Number(c.minutes) || 0) * 60; const gone = Math.max(0, (now - (Date.parse(c.startedAt) || now)) / 1000); const done = gone >= total; const left = Math.max(0, Math.round(total - gone)); return (
         <div key={c.id} className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-[24px] p-4 ${done ? 'border-2 border-emerald-700 bg-emerald-50' : 'border bg-card'}`}>
@@ -130,7 +144,7 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
             <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={!!ops.requireSterilisation} onChange={(e) => saveOps({ requireSterilisation: e.target.checked })} /> A kit can only be marked clean after a passed, recorded cycle</label>
             <label className="block">Spore test every <input type="number" min={0} max={90} defaultValue={Number(ops.sporeTestDays) || 0} onBlur={(e) => saveOps({ sporeTestDays: Math.max(0, Math.min(90, Math.round(Number(e.target.value)) || 0)) })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" /> days (0 = don’t remind)</label>
             <label className="block">Usual cycle: <input type="number" min={0} defaultValue={Number(ops.cycleMinutes) || ''} onBlur={(e) => saveOps({ cycleMinutes: Math.max(0, Math.round(Number(e.target.value)) || 0) || null })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" /> min</label>
-            <div><p>Machines: {devices.join(' · ')}</p>
+            <div><p>Machines: {devices.join(' · ')} <button type="button" onClick={async () => { if (!(await printCodeLabels(devices.map((d) => ({ title: d, sub: 'Steriliser', code: machineCode(d), steps: ['Scan this label', 'Scan each kit going in', 'Start the cycle', 'Scan again to record the result'] })), 'Steriliser labels', brandOf(tenant), 'sticker'))) setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); }} className="ml-2 underline">Print their labels</button></p>
               <form onSubmit={(e) => { e.preventDefault(); const d = newDevice.trim().slice(0, 40); if (!d) return; saveOps({ sterilisers: Array.from(new Set([...(Array.isArray(ops.sterilisers) ? ops.sterilisers : []), d])).slice(0, 8) }); setNewDevice(''); }} className="mt-1 flex gap-2"><input value={newDevice} onChange={(e) => setNewDevice(e.target.value)} placeholder="Add a machine (e.g. Autoclave 2)" className="h-9 min-w-0 flex-1 rounded-lg border bg-background px-2" /><button type="submit" className="h-9 rounded-lg border px-3 font-semibold">Add</button></form></div>
           </div>
         </details>)}

@@ -10,6 +10,7 @@ import { useDoc } from '@/firebase/firestore/use-doc';
 import { Housekeeping, useHousekeeping } from '@/components/pos/desk/Housekeeping';
 import { Sterilisation } from '@/components/pos/desk/Sterilisation';
 import { StationTiles } from '@/components/pos/desk/StationTiles';
+import { Disinfection } from '@/components/pos/desk/Disinfection';
 import { attendantsOnNow, housekeepingMode } from '@/lib/attendant';
 
 function Clock() { const [now, setNow] = React.useState(() => new Date()); React.useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
@@ -61,12 +62,14 @@ export default function HousekeepingWall() {
           <div className="space-y-7">
             <section aria-label="Sterilisers" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Sterilisers</h2><Sterilisation tenantId={tenantId} tenant={tenant} kits={hk.kits as any} manager={false} /></section>
             <section aria-label="Stations" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Stations</h2><StationTiles tenantId={tenantId} appts={today} services={services || []} staff={staff || []} /></section>
+            <section aria-label="Disinfection" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Disinfection</h2><Disinfection tenantId={tenantId} tenant={tenant} manager={false} /></section>
           </div>
         </div>
       ) : (
         <div className="mx-auto max-w-xl space-y-7 p-4">
           <Housekeeping view="focus" tenantId={tenantId} tenant={tenant} appts={today} allAppts={apptsRaw || []} services={services || []} staff={staff || []} manager={false} />
           <section aria-label="Stations" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Stations</h2><StationTiles tenantId={tenantId} appts={today} services={services || []} staff={staff || []} /></section>
+          <section aria-label="Disinfection" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Disinfection</h2><Disinfection tenantId={tenantId} tenant={tenant} manager={false} /></section>
           <section aria-label="Sterilisers" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Sterilisers</h2><Sterilisation tenantId={tenantId} tenant={tenant} kits={hk.kits as any} manager={false} /></section>
         </div>)}
     </main>);
