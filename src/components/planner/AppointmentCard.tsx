@@ -20,6 +20,7 @@
 // to find that spot.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { StepEdge } from '@/components/planner/StepTimeline';
 import { extraMinutesFor } from '@/lib/client-timing';
 import { opsStatus } from '@/lib/appointment-ops';
 import React, { useState, useMemo, useEffect } from 'react';
@@ -405,6 +406,7 @@ export function AppointmentCard({
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetails(); }
           }}
         >
+          <StepEdge service={service} appointment={appointment} />
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
             <div className="min-w-0 flex-1 text-left">
                 <div className={cn(

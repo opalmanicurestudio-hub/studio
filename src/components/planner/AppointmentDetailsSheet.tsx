@@ -1,5 +1,6 @@
 'use client';
 
+import { StepTimeline } from '@/components/planner/StepTimeline';
 import { stateOf, elapsedLabel, useNow } from '@/components/planner/AgendaView';
 import { LastFormula, PartsPlan, AddAsYouGo, ThisVisitFormula, VisitCharges, HandoffLog, recipeFormula, addToFormula } from '@/components/visit/VisitWork';
 import { ProductsUsed } from '@/components/visit/ProductsUsed';
@@ -2445,6 +2446,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
         {!['cancelled', 'declined'].includes(String(appointment?.status)) && <div className="space-y-3">
+          <StepTimeline service={service} appointment={appointment} extraMinutes={Number((appointment as any)?.clientExtraMinutes) || 0} />
           {appointment.status !== 'completed' && <LastFormula appointment={appointment} client={client} allAppointments={allAppointments || []} onUse={(items) => writeFormula(items)} />}
           {(() => { const sg: any = (client as any)?.timingSuggestions?.[String(appointment?.serviceId || '')]; if (!sg || sg.dismissedAt || !Number(sg.extra)) return null;
             return <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--accent) 9%, transparent)' }}>{String(client?.name || 'They').split(' ')[0]}’s {String(service?.name || 'visits').toLowerCase()} usually take{Number(sg.extra) > 0 ? 's' : 's'} about {Math.abs(Number(sg.extra))} min {Number(sg.extra) > 0 ? 'longer' : 'less'} than booked. <a href={`/clients/${client?.id}`} className="font-semibold underline underline-offset-2">Review on their profile</a></p>; })()}

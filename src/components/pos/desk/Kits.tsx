@@ -40,10 +40,12 @@ export function Kits({ firestore, tenantId, kits, services, manager }: { firesto
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); };
   const printLabels = async () => {
-    const QRCode = (await import('qrcode')).default;
-    const cells = await Promise.all(live.map(async (k) => `<div class="l"><img src="${await QRCode.toDataURL(k.code, { margin: 1, width: 160 })}" alt=""/><div><b>${esc(k.name)}</b><span>${esc(k.code)}</span></div></div>`));
+    const QRCode = (await import('qrcode')).default; const JsBarcode = (await import('jsbarcode')).default;
+    // Each label carries both: a barcode (any handheld scanner) and a square code (a phone or tablet camera).
+    const bar = (code: string) => { try { const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); JsBarcode(svg, code, { format: 'CODE128', displayValue: false, height: 34, width: 1.6, margin: 0 }); return svg.outerHTML; } catch { return ''; } };
+    const cells = await Promise.all(live.map(async (k) => `<div class="l"><img src="${await QRCode.toDataURL(k.code, { margin: 1, width: 160 })}" alt=""/><div><b>${esc(k.name)}</b>${bar(k.code)}<span>${esc(k.code)}</span></div></div>`));
     const w = window.open('', '_blank'); if (!w) { setMsg({ ok: false, text: 'Allow pop-ups to print labels.' }); return; }
-    w.document.write(`<!doctype html><title>Kit labels</title><style>body{font-family:system-ui,sans-serif;margin:12px}.g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.l{display:flex;align-items:center;gap:8px;border:1px solid #999;border-radius:8px;padding:6px;break-inside:avoid}.l img{width:72px;height:72px}.l b{display:block;font-size:13px}.l span{font:700 18px ui-monospace,monospace;letter-spacing:2px}</style><div class="g">${cells.join('')}</div><script>onload=()=>print()<\/script>`);
+    w.document.write(`<!doctype html><title>Kit labels</title><style>body{font-family:system-ui,sans-serif;margin:12px}.g{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.l{display:flex;align-items:center;gap:10px;border:1px solid #999;border-radius:8px;padding:8px;break-inside:avoid}.l img{width:64px;height:64px}.l b{display:block;font-size:13px;margin-bottom:4px}.l svg{display:block;max-width:100%}.l span{font:700 15px ui-monospace,monospace;letter-spacing:3px}</style><div class="g">${cells.join('')}</div><script>onload=()=>print()<\/script>`);
     w.document.close(); };
 
   return (
