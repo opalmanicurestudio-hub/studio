@@ -126,9 +126,17 @@ async function kitTimers(db: any, tenantId: string, kits: any[], now: number): P
 /** A wash load's time is up → tell whoever started it (else the managers). Once per load. */
 async function washTimers(db: any, tenantId: string, linens: any[], now: number): Promise<void> {
   const T = `tenants/${tenantId}`; const { secondsLeft } = await import('@/lib/kits');
-  const due = linens.filter((l) => Number(l.washing) > 0 && l.washStartedAt && Number(l.washMinutes) > 0 && l.washToldFor !== l.washStartedAt && secondsLeft(l.washStartedAt, Number(l.washMinutes), now) <= 0); if (!due.length) return;
+  const many = (n: any) => { const x = String(n || '').toLowerCase(); return /s$/.test(x) ? x : `${x}s`; };
+  const wash = linens.filter((l) => Number(l.washing) > 0 && l.washStartedAt && Number(l.washMinutes) > 0 && l.washToldFor !== l.washStartedAt && secondsLeft(l.washStartedAt, Number(l.washMinutes), now) <= 0);
+  const dry = linens.filter((l) => Number(l.drying) > 0 && l.dryStartedAt && Number(l.dryMinutes) > 0 && l.dryToldFor !== l.dryStartedAt && secondsLeft(l.dryStartedAt, Number(l.dryMinutes), now) <= 0);
+  if (!wash.length && !dry.length) return;
   let mgrs: string[] | null = null; const b = db.batch(); const at = new Date(now).toISOString();
-  for (const l of due) { const to = l.washById ? [l.washById] : (mgrs ||= await managerIds(db, T)); for (const uid of to) notify(db, b, T, uid, { type: 'linen_timer', at, message: `The ${String(l.name).toLowerCase()} wash load should be done — ${l.washing} to put back as clean.` }); b.update(db.doc(`${T}/linens/${l.id}`), { washToldFor: l.washStartedAt }); }
+  for (const l of wash) { const to = l.washById ? [l.washById] : (mgrs ||= await managerIds(db, T));
+    for (const uid of to) notify(db, b, T, uid, { type: 'linen_timer', at, message: Number(l.dryMinutes) > 0 ? `The ${String(l.name).toLowerCase()} wash is done — ${l.washing} ready for the dryer.` : `The ${String(l.name).toLowerCase()} wash is done — ${l.washing} ${many(l.name)} to fold.` });
+    b.update(db.doc(`${T}/linens/${l.id}`), { washToldFor: l.washStartedAt }); }
+  for (const l of dry) { const to = l.dryById ? [l.dryById] : (mgrs ||= await managerIds(db, T));
+    for (const uid of to) notify(db, b, T, uid, { type: 'linen_timer', at, message: `The ${String(l.name).toLowerCase()} are dry — ${l.drying} to fold and put away.` });
+    b.update(db.doc(`${T}/linens/${l.id}`), { dryToldFor: l.dryStartedAt }); }
   await b.commit();
 }
 

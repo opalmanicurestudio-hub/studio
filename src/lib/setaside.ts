@@ -50,10 +50,13 @@ export function planSetAside(input: { visits: any[]; services: any[]; kits: Kit[
   // Bundles: clean now, or after the wash when the linen has a wash time
   const linens = input.linens || []; const bundleFree = new Map<string, number>();
   for (const b of input.bundles || []) {
-    const ln = linens.find((l) => l.id === b.linenId); const wash = Number(ln?.washMinutes) || 0;
-    if (b.status === 'clean') bundleFree.set(b.id, now);
-    else if (b.status === 'washing' && wash) bundleFree.set(b.id, Math.max(now, (ms(b.at) || now) + wash * 60000));
-    else if (b.status === 'dirty' && wash) bundleFree.set(b.id, now + (wash + 15) * 60000);
+    const ln = linens.find((l) => l.id === b.linenId); const wash = Number(ln?.washMinutes) || 0; const dry = Number(ln?.dryMinutes) || 0; const FOLD = 15;
+    const st = String(b.status);
+    if (st === 'clean') bundleFree.set(b.id, now);
+    else if (st === 'folding') bundleFree.set(b.id, now + FOLD * 60000);
+    else if (st === 'drying' && dry) bundleFree.set(b.id, Math.max(now, (ms(b.at) || now) + dry * 60000) + FOLD * 60000);
+    else if (st === 'washing' && wash) bundleFree.set(b.id, Math.max(now, (ms(b.at) || now) + wash * 60000) + (dry + FOLD) * 60000);
+    else if (st === 'dirty' && wash) bundleFree.set(b.id, now + (wash + dry + FOLD + 15) * 60000);
   }
   const upcoming = (input.visits || []).filter((a) => !closed(a) && !started(a)).map((a) => ({ a, startMs: ms(a.expectedStartAt) > ms(a.startTime) ? ms(a.expectedStartAt) : ms(a.startTime) }))
     .filter((x) => x.startMs > now - 2 * 3600000 && x.startMs < horizon).sort((x, y) => x.startMs - y.startMs);
@@ -80,8 +83,8 @@ export function planSetAside(input: { visits: any[]; services: any[]; kits: Kit[
       const ln = linens.find((l) => sameLinen(l.name, need.name)); if (!ln) continue;
       const pool = (input.bundles || []).filter((b) => b.linenId === ln.id && Number(b.qty) >= need.qty).map((b) => ({ id: b.id, code: b.code, pinned: (b as any).setFor === a.id }));
       if (!(input.bundles || []).some((b) => b.linenId === ln.id)) continue;   // this linen isn't bundled — counted by the linen outlook instead
-      const wash = Number(ln.washMinutes) || 0;   // a used bundle comes back after a wash when the wash time is known; otherwise it's gone for the day
-      pick('bundle', `${need.name}${need.qty > 1 ? ` ×${need.qty}` : ''}`, pool, bundleFree, wash ? end + (wash + 15) * 60000 : end + 48 * 3600000);
+      const wash = Number(ln.washMinutes) || 0, dry = Number(ln.dryMinutes) || 0;   // a used bundle comes back after wash, dry and fold when the times are known; otherwise it's gone for the day
+      pick('bundle', `${need.name}${need.qty > 1 ? ` ×${need.qty}` : ''}`, pool, bundleFree, wash ? end + (wash + dry + 30) * 60000 : end + 48 * 3600000);
     }
     const ok = items.every((i) => i.state === 'ready' || i.state === 'in_time');
     out.push({ visitId: a.id, clientName: String(a.clientName || 'Client'), staffId: a.staffId || null, startMs, items, ok });

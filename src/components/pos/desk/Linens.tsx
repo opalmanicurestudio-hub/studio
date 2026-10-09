@@ -8,7 +8,7 @@ import { getAuth } from 'firebase/auth';
 import { logAuditClient } from '@/lib/audit-client';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { stageOf } from '@/lib/visit';
-import { moveLinen, linenOutlook, linensNeeded, linenTotal, LINEN_MOVE_LABEL, BUNDLE_LABEL, BUNDLE_NEXT, findBundle, newBundleCode, type Linen, type LinenMove, type LinenBundle } from '@/lib/linens';
+import { moveLinen, linenOutlook, linensNeeded, linenTotal, linenUpdate, afterWash, loadDecision, bundleNext, LINEN_MOVE_LABEL, BUNDLE_LABEL, findBundle, newBundleCode, type Linen, type LinenMove, type LinenBundle } from '@/lib/linens';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { printCodeLabels, brandOf, LABEL_FORMATS, BUNDLE_STEPS, type LabelFormat } from '@/lib/print-labels';
@@ -27,7 +27,8 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
   const bq = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'linenBundles') : null), [firestore, tenantId]);
   const { data: bundlesRaw } = useCollection<any>(bq); const bundles: LinenBundle[] = bundlesRaw || [];
   const [typed, setTyped] = React.useState(''); const [cam, setCam] = React.useState(false);
-  const [bundling, setBundling] = React.useState<string | null>(null); const [bSize, setBSize] = React.useState(6); const [bCount, setBCount] = React.useState(2); const [washMin, setWashMin] = React.useState(60);
+  const [bundling, setBundling] = React.useState<string | null>(null); const [bSize, setBSize] = React.useState(6); const [bCount, setBCount] = React.useState(2); const [washMin, setWashMin] = React.useState(''); const [dryMin, setDryMin] = React.useState(''); const [loadSz, setLoadSz] = React.useState('');
+  const [settingsFor, setSettingsFor] = React.useState<string | null>(null); const [tagCheck, setTagCheck] = React.useState<LinenBundle | null>(null);   // laundry settings being edited; a bundle being folded back
   const [busy, setBusy] = React.useState<string | null>(null); const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [other, setOther] = React.useState<string | null>(null); const [qty, setQty] = React.useState(1); const [what, setWhat] = React.useState<LinenMove>('use');
   const [adding, setAdding] = React.useState(false); const [name, setName] = React.useState(''); const [count, setCount] = React.useState(12); const [par, setPar] = React.useState(0); const [invId, setInvId] = React.useState('');
@@ -45,8 +46,8 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
     const res = moveLinen(l, move, n); if (!res.moved && quiet) return true;   // a bundle whose linens were already counted (by finished visits): only its tag moves
     if (!res.moved) { setMsg({ ok: false, text: move === 'issue' ? `There aren’t ${n} clean ${l.name.toLowerCase()} to take.` : 'Nothing to move.' }); return false; }
     setBusy(l.id); let ok = false;
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), { clean: res.clean, dirty: res.dirty, washing: res.washing, inUse: res.inUse, by: who(), at: new Date().toISOString(), ...(move === 'wash' ? { washStartedAt: new Date().toISOString(), washById: getAuth().currentUser?.uid || null } : {}), ...(move === 'washed' && res.washing === 0 ? { washStartedAt: null } : {}) }); ok = true;
-      void logAuditClient(firestore, tenantId, { action: `linen.${move}`, targetType: 'linen', targetId: l.id, actor: actor(), before: { clean: l.clean, dirty: l.dirty, washing: l.washing }, after: { clean: res.clean, dirty: res.dirty, washing: res.washing }, summary: `${l.name}: ${LINEN_MOVE_LABEL[move]} × ${res.moved}` });
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), linenUpdate(l, move, res, { name: who(), uid: getAuth().currentUser?.uid || null })); ok = true;
+      void logAuditClient(firestore, tenantId, { action: `linen.${move}`, targetType: 'linen', targetId: l.id, actor: actor(), before: { clean: l.clean, dirty: l.dirty, washing: l.washing, drying: l.drying || 0, folding: l.folding || 0 }, after: { clean: res.clean, dirty: res.dirty, washing: res.washing, drying: res.drying, folding: res.folding }, summary: `${l.name}: ${LINEN_MOVE_LABEL[move]} × ${res.moved}` });
       // Damaged linens come off inventory, with a stock movement.
       if ((move === 'damaged_clean' || move === 'damaged_dirty') && l.inventoryItemId) { try { await runTransaction(firestore, async (txn: any) => { const ref = doc(firestore, 'tenants', tenantId, 'inventory', l.inventoryItemId as string); const snap = await txn.get(ref); if (!snap.exists()) return;
           txn.update(ref, { totalStock: Math.max(0, (Number(snap.data()?.totalStock) || 0) - res.moved) });
@@ -55,12 +56,15 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); return ok; };
   // A bundle's tag was scanned (or its button tapped): the whole bundle moves on, and the type's counts with it.
-  const moveBundle = async (b: LinenBundle, holder?: { id: string | null; name: string | null } | 'ask') => { if (b.status === 'clean' && holder === undefined && (staff || []).some((x: any) => x && x.active !== false && x.role !== 'renter')) { setHolderFor(b); return true; }
+  const moveBundle = async (b: LinenBundle, holder?: { id: string | null; name: string | null } | 'ask', tagOk = false) => {
+    // Folding a bundle back onto the shelf: count it and check its tag first (a worn tag is reprinted).
+    if (b.status === 'folding' && !tagOk) { setTagCheck(b); return true; }
+    if (b.status === 'clean' && holder === undefined && (staff || []).some((x: any) => x && x.active !== false && x.role !== 'renter')) { setHolderFor(b); return true; }
     const h = holder && holder !== 'ask' ? holder : null; const l = linens.find((x) => x.id === b.linenId); if (!l) { setMsg({ ok: false, text: 'That bundle’s linen type no longer exists.' }); return false; }
-    const next = BUNDLE_NEXT[b.status]; if (!(await apply(l, next.move, b.qty, next.move !== 'issue'))) return false;
+    const next = bundleNext(b, l); if (!(await apply(l, next.move, b.qty, next.move !== 'issue'))) return false;
     try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who(), holderId: next.to === 'in_use' ? h?.id || null : null, holderName: next.to === 'in_use' ? h?.name || null : null }); } catch { /* counts moved; tap again to fix the tag */ }
     void logAuditClient(firestore, tenantId, { action: `bundle.${next.to}`, targetType: 'linenBundle', targetId: b.id, actor: actor(), before: { status: b.status }, after: { status: next.to, holderId: h?.id || null }, summary: `${b.name} bundle ${b.code} (${b.qty}): ${BUNDLE_LABEL[b.status]} → ${BUNDLE_LABEL[next.to]}${next.to === 'in_use' && h?.name ? ` with ${h.name}` : ''}` });
-    setHolderFor(null); setMsg({ ok: true, text: `${b.name} ${b.code} (${b.qty}) — ${BUNDLE_LABEL[next.to].toLowerCase()}${next.to === 'in_use' && h?.name ? ` with ${String(h.name).split(' ')[0]}` : ''}` }); return true; };
+    setHolderFor(null); setTagCheck(null); setMsg({ ok: true, text: `${b.name} ${b.code} (${b.qty}) — ${BUNDLE_LABEL[next.to].toLowerCase()}${next.to === 'in_use' && h?.name ? ` with ${String(h.name).split(' ')[0]}` : ''}` }); return true; };
   const handleCode = async (raw: string) => { const b = findBundle(bundles, raw); if (!b) { scanFeedback(false); setMsg({ ok: false, text: 'No bundle with that tag.' }); return; } scanFeedback(await moveBundle(b)); };
   codeRef.current = (v) => { void handleCode(v); };
   const makeBundles = async (l: Linen) => { const size = Math.max(1, Math.round(bSize) || 1), n = Math.max(1, Math.min(30, Math.round(bCount) || 1)); setBusy(l.id);
@@ -76,9 +80,9 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
   const printTags = async (l: Linen) => { if (!(await printCodeLabels(bundles.filter((b) => b.linenId === l.id).map((b) => ({ title: b.name, sub: `Bundle of ${b.qty}`, code: b.code, steps: BUNDLE_STEPS })), 'Linen bundle tags', brandOf(selectedTenant), fmt))) setMsg({ ok: false, text: 'Allow pop-ups to print tags.' }); };
   const add = async () => { const nm = name.trim().slice(0, 60); if (!nm) return; setBusy('add'); const inv: any = supplies.find((i: any) => i.id === invId) || null;
     try { const ref = doc(collection(firestore, 'tenants', tenantId, 'linens')); const at = new Date().toISOString(); const c = Math.max(0, Math.round(count) || 0);
-      await setDoc(ref, { id: ref.id, name: nm, clean: c, dirty: 0, washing: 0, par: Math.max(0, Math.round(par) || 0) || null, inUse: 0, washMinutes: Math.max(0, Math.round(washMin) || 0) || null, inventoryItemId: inv?.id || null, inventoryName: inv?.name || null, by: who(), at, createdAt: at });
+      await setDoc(ref, { id: ref.id, name: nm, clean: c, dirty: 0, washing: 0, par: Math.max(0, Math.round(par) || 0) || null, inUse: 0, washMinutes: Math.max(0, Math.round(Number(washMin)) || 0) || null, dryMinutes: Math.max(0, Math.round(Number(dryMin)) || 0) || null, loadSize: Math.max(0, Math.round(Number(loadSz)) || 0) || null, drying: 0, folding: 0, inventoryItemId: inv?.id || null, inventoryName: inv?.name || null, by: who(), at, createdAt: at });
       void logAuditClient(firestore, tenantId, { action: 'linen.added', targetType: 'linen', targetId: ref.id, actor: actor(), after: { clean: c }, summary: `Added linen type ${nm} × ${c}${inv ? ` (inventory: ${inv.name})` : ''}` });
-      setAdding(false); setName(''); setCount(12); setPar(0); setInvId(''); setMsg({ ok: true, text: `Added ${nm}.` }); }
+      setAdding(false); setName(''); setCount(12); setPar(0); setInvId(''); setWashMin(''); setDryMin(''); setLoadSz(''); setMsg({ ok: true, text: `Added ${nm}.` }); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); };
 
@@ -107,8 +111,14 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
       {linens.map((l) => { const o = outlook.find((x) => x.id === l.id); const own = l.inventoryItemId ? Number((inventory || []).find((i: any) => i.id === l.inventoryItemId)?.totalStock) : NaN; return (
         <div key={l.id} className="rounded-2xl border bg-card p-3">
           <p className="text-[15px] font-semibold">{l.name}</p>
-          <p className="text-[13px] text-muted-foreground"><b className="text-foreground">{l.clean} clean</b>{l.inUse ? ` · ${l.inUse} out on the floor` : ''} · {l.dirty} dirty · {l.washing} in the wash</p>
-          {l.washing > 0 && l.washStartedAt && <p className="text-[13px]">Wash load: <LiveTimer since={l.washStartedAt} minutes={l.washMinutes || 0} doneLabel="Load should be done" /></p>}
+          {/* The loop at a glance: bin → wash → dryer → fold → clean */}
+          <div className="mt-1.5 grid grid-cols-5 gap-1 text-center text-[12px]" aria-label={`${l.name} laundry`}>
+            {([['In the bin', l.dirty], ['Washing', l.washing], ['Drying', l.drying || 0], ['To fold', l.folding || 0], ['Clean', l.clean]] as [string, number][]).map(([lab, n], i) => (
+              <div key={lab} className="rounded-xl py-1.5" style={{ background: i === 4 ? '#e3f3e7' : n ? '#f6f1ea' : '#faf8f5', color: i === 4 ? '#1f6b3a' : n ? '#17181a' : '#a39d93' }}><div className="text-[17px] font-[800] tabular-nums">{n}</div><div>{lab}</div></div>))}
+          </div>
+          <p className="mt-1 text-[12px] text-muted-foreground">{l.inUse ? `${l.inUse} out on the floor · ` : ''}{(() => { const d = loadDecision(l, outlook.find((x) => x.id === l.id)?.short || 0); return d.needsSetup ? (manager ? 'Set the load size and wash time below' : 'Load size and wash time not set yet') : d.reason; })()}</p>
+          {l.washing > 0 && l.washStartedAt && <p className="text-[13px]">Wash: <LiveTimer since={l.washStartedAt} minutes={l.washMinutes || 0} doneLabel={Number(l.dryMinutes) > 0 ? 'Done — into the dryer' : 'Done — to fold'} /></p>}
+          {(l.drying || 0) > 0 && l.dryStartedAt && <p className="text-[13px]">Dryer: <LiveTimer since={l.dryStartedAt} minutes={l.dryMinutes || 0} doneLabel="Dry — to fold" /></p>}
           {o && (o.short > 0
             ? <p className="text-[13px] font-semibold text-red-700">Short by {o.short} for the rest of today{o.runsOutAt ? ` — runs out at the ${clock(o.runsOutAt)} visit` : ''}{l.dirty + l.washing > 0 ? '. Wash a load before then.' : '.'}</p>
             : o.needed > 0 ? <p className="text-[13px] text-emerald-700">Enough for the rest of today (needs {o.needed}).</p> : null)}
@@ -118,8 +128,28 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
             <ul className="mt-2 space-y-1 border-t pt-2">{mine.map((b) => (
               <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
                 <span><span className="font-mono font-semibold tracking-wider">{b.code}</span> · {b.qty} · {BUNDLE_LABEL[b.status]}{b.status === 'in_use' && (b as any).holderName ? ` with ${String((b as any).holderName).split(' ')[0]}` : ''}{b.status === 'washing' ? <> · <LiveTimer since={b.at} minutes={l.washMinutes || 0} doneLabel="should be done" /></> : b.status === 'in_use' ? <> · <LiveTimer since={b.at} /></> : null}</span>
-                <button type="button" disabled={busy === l.id} onClick={() => moveBundle(b)} className="h-8 rounded-full border px-3 text-[12px] font-semibold disabled:opacity-40">{BUNDLE_NEXT[b.status].label}</button>
+                <button type="button" disabled={busy === l.id} onClick={() => moveBundle(b)} className="h-8 rounded-full border px-3 text-[12px] font-semibold disabled:opacity-40">{bundleNext(b, l).label}</button>
               </li>))}</ul>); })()}
+          {settingsFor === l.id && (
+            <form className="mt-2 flex flex-wrap items-end gap-2 rounded-xl bg-muted/40 p-2.5 text-[13px]" onSubmit={async (e) => { e.preventDefault(); const f = new FormData(e.currentTarget); const num = (k: string) => Math.max(0, Math.round(Number(f.get(k))) || 0) || null;
+              const patch = { loadSize: num('load'), washMinutes: num('wash'), dryMinutes: num('dry'), par: num('par') };
+              try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), patch); void logAuditClient(firestore, tenantId, { action: 'linen.settings', targetType: 'linen', targetId: l.id, actor: actor(), before: { loadSize: l.loadSize || null, washMinutes: l.washMinutes || null, dryMinutes: l.dryMinutes || null, par: l.par || null }, after: patch, summary: `${l.name}: laundry settings changed` }); setSettingsFor(null); setMsg({ ok: true, text: `${l.name}: laundry settings saved.` }); }
+              catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } }}>
+              <label className="flex flex-col">A load is<input name="load" type="number" min={1} defaultValue={l.loadSize || ''} placeholder="?" className="h-9 w-20 rounded-lg border bg-background px-2" /></label>
+              <label className="flex flex-col">Wash (min)<input name="wash" type="number" min={0} defaultValue={l.washMinutes || ''} placeholder="?" className="h-9 w-20 rounded-lg border bg-background px-2" /></label>
+              <label className="flex flex-col">Dry (min)<input name="dry" type="number" min={0} defaultValue={l.dryMinutes || ''} placeholder="none" className="h-9 w-20 rounded-lg border bg-background px-2" /></label>
+              <label className="flex flex-col">Keep clean<input name="par" type="number" min={0} defaultValue={l.par || ''} className="h-9 w-20 rounded-lg border bg-background px-2" /></label>
+              <button type="submit" className="h-9 rounded-lg bg-foreground px-3 font-semibold text-background">Save</button>
+            </form>)}
+          {tagCheck && tagCheck.linenId === l.id && (
+            <div className="mt-2 space-y-2 rounded-xl border p-2.5 text-[13px]" role="dialog" aria-label="Fold and check the bundle">
+              <p className="font-semibold">{tagCheck.name} {tagCheck.code}: fold {tagCheck.qty} and check the tag</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => moveBundle(tagCheck, undefined, true)} className="h-9 rounded-full bg-emerald-600 px-3 font-semibold text-white">All {tagCheck.qty} there — tag is good</button>
+                <button type="button" onClick={async () => { await printCodeLabels([{ title: tagCheck.name, sub: `Bundle of ${tagCheck.qty}`, code: tagCheck.code, steps: BUNDLE_STEPS }], 'Replacement tag', brandOf(selectedTenant), fmt); void logAuditClient(firestore, tenantId, { action: 'bundle.retagged', targetType: 'linenBundle', targetId: tagCheck.id, actor: actor(), summary: `${tagCheck.name} bundle ${tagCheck.code}: new tag printed` }); await moveBundle(tagCheck, undefined, true); }} className="h-9 rounded-full border px-3 font-semibold">Tag is worn — print a new one</button>
+                <button type="button" onClick={() => setTagCheck(null)} className="h-9 rounded-full px-2">Cancel</button>
+              </div>
+            </div>)}
           {bundling === l.id && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
               <label>In each bundle <input type="number" min={1} value={bSize} onChange={(e) => setBSize(Number(e.target.value))} className="ml-1 h-9 w-16 rounded-lg border bg-background px-2" /></label>
@@ -139,8 +169,11 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {l.dirty > 0 && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'wash', l.dirty)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Start a wash load ({l.dirty})</button>}
-              {l.washing > 0 && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'washed', l.washing)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Load finished ({l.washing})</button>}
+              {l.dirty > 0 && (() => { const d = loadDecision(l, outlook.find((x) => x.id === l.id)?.short || 0); const n = d.due ? d.qty : l.dirty; return <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'wash', n)} className={`h-9 rounded-full px-3 text-[13px] font-semibold disabled:opacity-40 ${d.due ? 'bg-emerald-600 text-white' : 'border'}`}>Start a load ({n})</button>; })()}
+              {l.washing > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => apply(l, afterWash(l), l.washing)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{Number(l.dryMinutes) > 0 ? 'Into the dryer' : 'Washed — to fold'} ({l.washing})</button>}
+              {(l.drying || 0) > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'dried', l.drying || 0)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Dry — to fold ({l.drying})</button>}
+              {(l.folding || 0) > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'folded', l.folding || 0)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Folded — put away ({l.folding})</button>}
+              {manager && <button type="button" onClick={() => setSettingsFor(settingsFor === l.id ? null : l.id)} className="h-9 rounded-full border px-3 text-[13px]">Laundry settings</button>}
               <button type="button" onClick={() => { setOther(l.id); setQty(1); setWhat('use'); }} className="h-9 rounded-full border px-3 text-[13px]">Something else</button>
               {manager && bundling !== l.id && <button type="button" onClick={() => setBundling(l.id)} className="h-9 rounded-full border px-3 text-[13px]">Make tagged bundles</button>}
               {bundles.some((b) => b.linenId === l.id) && <span className="flex items-center gap-1"><select value={fmt} onChange={(e) => setFmt(e.target.value as LabelFormat)} aria-label="Tag shape" title={LABEL_FORMATS.find((f) => f.id === fmt)?.hint} className="h-9 rounded-full border bg-background px-2 text-[13px]">{LABEL_FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select><button type="button" onClick={() => printTags(l)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Print</button></span>}
@@ -150,10 +183,12 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
         <div className="space-y-2 rounded-2xl border bg-card p-3">
           <input list="linen-types" value={name} onChange={(e) => setName(e.target.value)} placeholder="Linen type (e.g. Towel)" aria-label="Linen type" className="h-10 w-full rounded-xl border bg-background px-3 text-[14px]" />
           <datalist id="linen-types">{typeNames.map((n) => <option key={n} value={n} />)}</datalist>
-          <p className="text-[12px] text-muted-foreground">Use the same name as the “Linens” line on the service, so used ones are counted when a visit finishes.</p>
+          <p className="text-[12px] text-muted-foreground">Use the same name as the “Linens” line on the service, so used ones are counted when a visit finishes. Enter your own load size and machine times (leave dry blank if they air-dry or go straight to folding) — the queue uses them to say when a load is due and done.</p>
           <div className="flex flex-wrap items-center gap-3 text-[13px]">
             <label>How many clean now <input type="number" min={0} value={count} onChange={(e) => setCount(Number(e.target.value))} className="ml-1 h-10 w-20 rounded-xl border bg-background px-2 text-[14px]" /></label>
-            <label>Wash + dry takes <input type="number" min={0} value={washMin} onChange={(e) => setWashMin(Number(e.target.value))} className="ml-1 h-10 w-20 rounded-xl border bg-background px-2 text-[14px]" /> min</label>
+            <label>A load is <input type="number" min={1} value={loadSz} onChange={(e) => setLoadSz(e.target.value)} placeholder="?" className="ml-1 h-10 w-20 rounded-xl border bg-background px-2 text-[14px]" /> of these</label>
+            <label>Wash takes <input type="number" min={0} value={washMin} onChange={(e) => setWashMin(e.target.value)} placeholder="?" className="ml-1 h-10 w-20 rounded-xl border bg-background px-2 text-[14px]" /> min</label>
+            <label>Dry takes <input type="number" min={0} value={dryMin} onChange={(e) => setDryMin(e.target.value)} placeholder="none" className="ml-1 h-10 w-20 rounded-xl border bg-background px-2 text-[14px]" /> min</label>
             <label>Keep at least <input type="number" min={0} value={par} onChange={(e) => setPar(Number(e.target.value))} className="ml-1 h-10 w-20 rounded-xl border bg-background px-2 text-[14px]" /> clean</label>
           </div>
           <select value={invId} onChange={(e) => setInvId(e.target.value)} aria-label="Inventory item" className="h-10 w-full rounded-xl border bg-background px-2 text-[14px]">

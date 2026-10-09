@@ -57,9 +57,9 @@ export default function HousekeepingWall() {
         </div>
       </header>
       {wide ? (
-        <div className="mx-auto grid max-w-[1800px] gap-7 p-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <section aria-label="What to do next"><Housekeeping view="lanes" tenantId={tenantId} tenant={tenant} appts={today} allAppts={apptsRaw || []} services={services || []} staff={staff || []} manager={false} /></section>
-          <div className="space-y-7">
+        <div className="mx-auto grid max-w-[1900px] gap-7 p-6">
+          <section aria-label="Production board"><Housekeeping view="board" tenantId={tenantId} tenant={tenant} appts={today} allAppts={apptsRaw || []} services={services || []} staff={staff || []} manager={false} /></section>
+          <div className="grid gap-7 xl:grid-cols-3">
             <section aria-label="Sterilisers" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Sterilisers</h2><Sterilisation tenantId={tenantId} tenant={tenant} kits={hk.kits as any} manager={false} /></section>
             <section aria-label="Stations" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Stations</h2><StationTiles tenantId={tenantId} appts={today} services={services || []} staff={staff || []} /></section>
             <section aria-label="Disinfection" className="space-y-3"><h2 className="text-[13px] font-bold uppercase tracking-widest text-muted-foreground">Disinfection</h2><Disinfection tenantId={tenantId} tenant={tenant} manager={false} /></section>

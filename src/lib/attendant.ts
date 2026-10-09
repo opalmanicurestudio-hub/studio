@@ -6,9 +6,10 @@
 import type { StationRow } from '@/lib/readiness';
 import { typeOf, secondsLeft, kitSupply, type Kit, type KitType } from '@/lib/kits';
 import { cleanseState } from '@/lib/cleanse';
+import { loadDecision } from '@/lib/linens';
 import type { Linen, LinenOutlook } from '@/lib/linens';
 
-export type TaskKind = 'station' | 'inspect' | 'kit_clean' | 'kit_finish' | 'kit_decide' | 'wash_start' | 'wash_done' | 'request' | 'prep';
+export type TaskKind = 'station' | 'inspect' | 'kit_clean' | 'kit_finish' | 'kit_decide' | 'wash_start' | 'wash_done' | 'dry_done' | 'fold' | 'laundry_setup' | 'request' | 'prep';
 export interface OpsTask { id: string; kind: TaskKind; title: string; detail: string; score: number; dueAt: string | null; ownerName?: string | null; claimed?: boolean; refId: string; goTo: 'stations' | 'kits' | 'linens' | 'assist'; managerOnly?: boolean;
   /** A station request (O4): who asked, and whether someone is already on it. */ request?: { source: 'assist' | 'lounge' | 'restock'; status: string; acceptedBy?: string | null; requester?: string | null };
   /** Who has said they're doing it, and any note left by the last person who had it. */ claimedBy?: string | null; claimedById?: string | null; handover?: { from: string; note: string; at: string } | null }
@@ -18,6 +19,7 @@ const many = (name: any) => { const n = String(name || '').trim().toLowerCase();
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** Higher score = do it sooner. Roughly: something a client is about to need > overdue > running low > routine. */
+const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
 export function attendantQueue(input: { stations: StationRow[]; kits: Kit[]; kitTypes: KitType[]; linens: Linen[]; outlook: LinenOutlook[]; requests?: any[]; claims?: any[]; prep?: OpsTask[]; now?: number }): OpsTask[] {
   const now = input.now ?? Date.now(); const out: OpsTask[] = [];
   for (const r of input.stations || []) {
@@ -35,11 +37,17 @@ export function attendantQueue(input: { stations: StationRow[]; kits: Kit[]; kit
       out.push({ id: `kf:${k.id}`, kind: 'kit_finish', refId: k.id, goTo: 'kits', title: `Sterilise or check ${k.name} ${k.code}`, dueAt: null, detail: (k as any).cleanse ? 'Cleanse complete — into the steriliser, or check its contents and mark it ready' : `${m > 0 ? 'Cleaning time is up' : 'Being cleaned'} — check its contents and mark it ready`, score: none ? 85 : 40 }); }
     else if (k.status === 'out') out.push({ id: `kd:${k.id}`, kind: 'kit_decide', refId: k.id, goTo: 'kits', managerOnly: true, title: `Decide on ${k.name} ${k.code}`, dueAt: null, detail: k.note ? `Pulled out — ${k.note}` : 'Pulled out', score: none ? 70 : 20 });
   }
+  // Laundry, following each business's own loop: bin → load → (dryer) → fold → clean.
   for (const l of input.linens || []) { const o = (input.outlook || []).find((x) => x.id === l.id); const short = (o?.short || 0) > 0;
+    const dec = loadDecision(l, o?.short || 0); const dryer = Number(l.dryMinutes) > 0;
     if (Number(l.washing) > 0 && l.washStartedAt && (Number(l.washMinutes) > 0 ? secondsLeft(l.washStartedAt, Number(l.washMinutes), now) <= 0 : true))
-      out.push({ id: `wd:${l.id}`, kind: 'wash_done', refId: l.id, goTo: 'linens', title: `Put away ${many(l.name)} (${l.washing})`, dueAt: null, detail: `The wash load should be done${short ? ` · short by ${o!.short} for today` : ''}`, score: short ? 75 : 35 });
-    if (Number(l.dirty) > 0 && (short || o?.belowPar || Number(l.dirty) >= 6))
-      out.push({ id: `ws:${l.id}`, kind: 'wash_start', refId: l.id, goTo: 'linens', title: `Wash ${many(l.name)} (${l.dirty} dirty)`, dueAt: o?.runsOutAt || null, detail: short ? `Short by ${o!.short} for today${o?.runsOutAt ? ` — needed by the ${clock(o.runsOutAt)} visit` : ''}` : o?.belowPar ? `Below your usual ${l.par} clean` : `${l.clean} clean left`, score: short ? 78 : o?.belowPar ? 38 : 22 });
+      out.push({ id: `wd:${l.id}`, kind: 'wash_done', refId: l.id, goTo: 'linens', title: dryer ? `Move ${many(l.name)} to the dryer (${l.washing})` : `${cap(many(l.name))} washed — to fold (${l.washing})`, dueAt: null, detail: `The wash is done${short ? ` · short by ${o!.short} for today` : ''}`, score: short ? 80 : 45 });
+    if (Number(l.drying) > 0 && l.dryStartedAt && (dryer ? secondsLeft(l.dryStartedAt, Number(l.dryMinutes), now) <= 0 : true))
+      out.push({ id: `dd:${l.id}`, kind: 'dry_done', refId: l.id, goTo: 'linens', title: `${cap(many(l.name))} dry — to fold (${l.drying})`, dueAt: null, detail: `Out of the dryer${short ? ` · short by ${o!.short} for today` : ''}`, score: short ? 80 : 42 });
+    if (Number(l.folding) > 0)
+      out.push({ id: `fo:${l.id}`, kind: 'fold', refId: l.id, goTo: 'linens', title: `Fold and put away ${many(l.name)} (${l.folding})`, dueAt: null, detail: l.byBundle ? 'Re-bundle and check each tag as it goes back on the shelf' : short ? `Short by ${o!.short} for today — these make up the gap` : 'Back on the shelf as clean', score: short ? 82 : 36 });
+    if (dec.due) out.push({ id: `ws:${l.id}`, kind: 'wash_start', refId: l.id, goTo: 'linens', title: `Start a ${String(l.name).toLowerCase()} load (${dec.qty})`, dueAt: o?.runsOutAt || null, detail: dec.reason, score: short ? 78 : 30 });
+    if (dec.needsSetup && Number(l.dirty) > 0) out.push({ id: `ls:${l.id}`, kind: 'laundry_setup', refId: l.id, goTo: 'linens', managerOnly: true, title: `Set the laundry for ${many(l.name)}`, dueAt: null, detail: 'How many make a load, and how long the wash and dry take — the queue then knows when a load is due and done', score: 15 });
   }
   // What providers have asked for from their stations (and lounge orders, restock requests) — same list, so nothing is missed.
   for (const r of input.requests || []) { if (r.status !== 'open' && r.status !== 'accepted') continue;

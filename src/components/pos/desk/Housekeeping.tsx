@@ -14,8 +14,9 @@ import { cleansePlan } from '@/lib/cleanse';
 import { delaySettings } from '@/lib/delay';
 import { planSetAside } from '@/lib/setaside';
 import { PrepPlan } from '@/components/pos/desk/PrepPlan';
+import { ProductionBoard, type Running } from '@/components/pos/desk/ProductionBoard';
 import { startCleanse } from '@/lib/cleanse-client';
-import { moveLinen, linenOutlook } from '@/lib/linens';
+import { moveLinen, linenOutlook, linenUpdate, afterWash, loadDecision, LINEN_MOVE_LABEL, type LinenMove } from '@/lib/linens';
 import { attendantQueue, housekeepingMode, taskLimit, tasksHeldBy, attendantsOnNow, type OpsTask } from '@/lib/attendant';
 import { dayPrep } from '@/lib/day-prep';
 import { forecastVisits, paceRunway, walkInMode } from '@/lib/demand';
@@ -33,6 +34,9 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const kq = useMemoFirebase(() => q('kits'), [firestore, tenantId]); const dq = useMemoFirebase(() => q('disinfectants'), [firestore, tenantId]); const { data: disinfectants } = useCollection<any>(dq); const tq = useMemoFirebase(() => q('kitTypes'), [firestore, tenantId]); const lq = useMemoFirebase(() => q('linens'), [firestore, tenantId]);
   const cq = useMemoFirebase(() => q('opsClaims'), [firestore, tenantId]); const { data: claims } = useCollection<any>(cq);
   const bq = useMemoFirebase(() => q('linenBundles'), [firestore, tenantId]); const { data: bundles } = useCollection<any>(bq);
+  // Timers for the production board: steriliser cycles running and contact timers still open.
+  const cyq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'sterilisationCycles'), where('status', '==', 'running')) : null), [firestore, tenantId]); const { data: cycles } = useCollection<any>(cyq);
+  const ctq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'contactTimers'), where('doneAt', '==', null)) : null), [firestore, tenantId]); const { data: contacts } = useCollection<any>(ctq);
   const hSince = React.useMemo(() => new Date(Date.now() - 16 * 3600000).toISOString(), []);
   const hq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'opsHandovers'), where('at', '>=', hSince)) : null), [firestore, tenantId, hSince]); const { data: handovers } = useCollection<any>(hq);
   const requests = useAssistQueue(firestore, tenantId || null);   // what providers asked for from their stations, lounge orders, restocks
@@ -54,7 +58,14 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
         title: `${sh.type} needed for ${sh.clientName.split(' ')[0]} at ${fmt(sh.startMs)}`, detail: sh.state === 'none' ? `None available — get one cleansed or swap the service` : `Nothing free until ~${fmt(sh.freeAt!)} — speed one up, or move the visit`, score: left <= 30 ? 95 : left <= 60 ? 88 : 70 }); }
     return attendantQueue({ stations, kits: (kits || []).filter((k: any) => k.status !== 'retired'), kitTypes: kitTypes || [], linens: linens || [], outlook: linenOutlook(linens || [], ahead, services || []), requests, claims: claims || [], prep, now });
   }, [resources, protocols, kits, kitTypes, linens, appts, services, staff, now, requests, claims, plan]);
-  return { plan, bundles: bundles || [], tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], resources: resources || [], protocols: protocols || [], disinfectants: disinfectants || [], firestore };
+  const running = React.useMemo((): Running[] => { const ms = (v: any) => Date.parse(String(v || '')) || 0; const out: Running[] = [];
+    for (const k of (kits || []) as any[]) if (k.status === 'cleaning' && k.cleanse?.startedAt && !k.cleansedAt) out.push({ id: `c:${k.id}`, kind: 'cleanse', title: `${k.name} ${k.code}`, sub: `${k.cleanse.method === 'wipe' ? 'Wipe' : 'Soak'} · ${k.cleanse.name}`, startMs: ms(k.cleanse.startedAt), minutes: Number(k.cleanse.minutes) || 0 });
+    for (const c of (cycles || []) as any[]) out.push({ id: `y:${c.id}`, kind: 'cycle', title: c.device || 'Steriliser', sub: [Array.isArray(c.kits) ? `${c.kits.length} kit${c.kits.length === 1 ? '' : 's'}` : null, c.number ? `cycle ${c.number}` : null].filter(Boolean).join(' · ') || 'Running', startMs: ms(c.startedAt), minutes: Number(c.minutes) || 0 });
+    for (const l of (linens || []) as any[]) { if (Number(l.washing) > 0 && l.washStartedAt && Number(l.washMinutes) > 0) out.push({ id: `w:${l.id}`, kind: 'wash', title: `${l.name} × ${l.washing}`, sub: 'In the washer', startMs: ms(l.washStartedAt), minutes: Number(l.washMinutes) });
+      if (Number(l.drying) > 0 && l.dryStartedAt && Number(l.dryMinutes) > 0) out.push({ id: `d:${l.id}`, kind: 'dry', title: `${l.name} × ${l.drying}`, sub: 'In the dryer', startMs: ms(l.dryStartedAt), minutes: Number(l.dryMinutes) }); }
+    for (const t of (contacts || []) as any[]) if (!t.kitId && ms(t.startedAt) > Date.now() - 6 * 3600000) out.push({ id: `t:${t.id}`, kind: 'contact', title: t.what || 'Surface', sub: t.name || 'Disinfectant', startMs: ms(t.startedAt), minutes: Number(t.minutes) || 0 });
+    return out; }, [kits, cycles, linens, contacts]);
+  return { running, plan, bundles: bundles || [], tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], resources: resources || [], protocols: protocols || [], disinfectants: disinfectants || [], firestore };
 }
 
 const claimId = (taskId: string) => taskId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120);
@@ -64,8 +75,8 @@ async function assistApi(body: any) { const tk = await getAuth().currentUser?.ge
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const toDate = (v: any) => new Date(typeof v === 'string' ? v : v?.toDate ? v.toDate() : v?.seconds ? v.seconds * 1000 : v);
 
-export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' }) {
-  const { plan, tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff); const [at, setAt] = React.useState(0);   // which job the focus view is on
+export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' | 'board' }) {
+  const { running, plan, tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff); const [at, setAt] = React.useState(0);   // which job the focus view is on
   const [noteFor, setNoteFor] = React.useState<string | null>(null); const [note, setNote] = React.useState(''); const [ending, setEnding] = React.useState(false);
   const [prepDay, setPrepDay] = React.useState<'today' | 'tomorrow'>('tomorrow');
   const me = getAuth().currentUser?.uid || null;
@@ -107,14 +118,19 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
       else if (t.kind === 'kit_clean') { const k = kits.find((x: any) => x.id === t.refId); const plan = k ? cleansePlan(k, kitTypes as any, disinfectants) : null;
         if (!k) setMsg('That kit is gone.'); else if (!plan) { setMsg(`Set how ${String(k.name).toLowerCase()}s are cleansed (in Kits, Set contents) — then start it.`); onGo?.('kits'); }
         else { const r = await startCleanse(firestore, tenantId, k, plan, { manager }); setMsg('error' in r ? r.error : `${k.name} ${k.code}: cleanse started — ${plan.disinfectant.contactMinutes} min. You’ll be told when it’s done.`); } }
-      else if (t.kind === 'wash_start' || t.kind === 'wash_done') { const l = linens.find((x: any) => x.id === t.refId); if (l) { const move = t.kind === 'wash_start' ? 'wash' : 'washed'; const r = moveLinen(l, move, t.kind === 'wash_start' ? l.dirty : l.washing); const at = new Date().toISOString();
-          await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), { clean: r.clean, dirty: r.dirty, washing: r.washing, inUse: r.inUse, by: who(), at, ...(move === 'wash' ? { washStartedAt: at, washById: getAuth().currentUser?.uid || null } : r.washing === 0 ? { washStartedAt: null } : {}) });
-          void logAuditClient(firestore, tenantId, { action: `linen.${move}`, targetType: 'linen', targetId: l.id, actor: actor(), before: { clean: l.clean, dirty: l.dirty, washing: l.washing }, after: { clean: r.clean, dirty: r.dirty, washing: r.washing }, summary: `${l.name}: ${move === 'wash' ? 'Wash load started' : 'Wash load finished'} × ${r.moved}` }); } }
+      else if (['wash_start', 'wash_done', 'dry_done', 'fold'].includes(t.kind)) { const l: any = linens.find((x: any) => x.id === t.refId); if (l) {
+          // Bundled linens are folded and checked tag by tag on the Linens screen; everything else is one tap here.
+          if (t.kind === 'fold' && l.byBundle) { onGo?.('linens'); return; }
+          const move: LinenMove = t.kind === 'wash_start' ? 'wash' : t.kind === 'wash_done' ? afterWash(l) : t.kind === 'dry_done' ? 'dried' : 'folded';
+          const qty = t.kind === 'wash_start' ? loadDecision(l, linenOutlook([l], [], services || [])[0]?.short || 0).qty || l.dirty : t.kind === 'wash_done' ? l.washing : t.kind === 'dry_done' ? l.drying : l.folding;
+          const r = moveLinen(l, move, qty);
+          await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), linenUpdate(l, move, r, { name: who(), uid: getAuth().currentUser?.uid || null }));
+          void logAuditClient(firestore, tenantId, { action: `linen.${move}`, targetType: 'linen', targetId: l.id, actor: actor(), before: { clean: l.clean, dirty: l.dirty, washing: l.washing, drying: l.drying || 0, folding: l.folding || 0 }, after: { clean: r.clean, dirty: r.dirty, washing: r.washing, drying: r.drying, folding: r.folding }, summary: `${l.name}: ${LINEN_MOVE_LABEL[move]} × ${r.moved}` }); } }
     } catch { setMsg('That didn’t save — try again.'); }
     setBusy(null); };
   // The visit a station's turnover belongs to (needed to mark "I'll take it" for that turnover only).
   const stationVisit = (t: OpsTask) => { const res = (appts || []).filter((a: any) => Array.isArray(a.requiredResourceIds) && a.requiredResourceIds.includes(t.refId) && ['ready_to_pay', 'complete'].includes(stageOf(a))); return res.sort((a: any, b: any) => String(b.actualEndTime || b.startTime).localeCompare(String(a.actualEndTime || a.startTime)))[0]?.id; };
-  const quickLabel = (t: OpsTask): string | null => t.kind === 'request' ? (t.request?.source !== 'assist' ? null : t.request?.status === 'accepted' ? 'Delivered' : 'I’m on it') : ({ station: 'I’ll take it', kit_clean: 'Start cleanse', wash_start: 'Start the load', wash_done: 'Done — clean' } as any)[t.kind] || null;
+  const quickLabel = (t: OpsTask): string | null => t.kind === 'request' ? (t.request?.source !== 'assist' ? null : t.request?.status === 'accepted' ? 'Delivered' : 'I’m on it') : ({ station: 'I’ll take it', kit_clean: 'Start cleanse', wash_start: 'Start the load', wash_done: Number((linens.find((x: any) => x.id === t.refId) as any)?.dryMinutes) > 0 ? 'Into the dryer' : 'To fold', dry_done: 'To fold', fold: (linens.find((x: any) => x.id === t.refId) as any)?.byBundle ? 'Fold & tag-check' : 'Folded' } as any)[t.kind] || null;
   const saveSetup = async (patch: any) => { try { await updateDoc(doc(firestore, 'tenants', tenantId), { ops: { ...(tenant?.ops || {}), ...patch } }); audit('housekeeping.settings', `Housekeeping settings changed: ${Object.keys(patch).join(', ')}`, undefined, { after: patch }); } catch { setMsg('That didn’t save — try again.'); } };
 
   if (!firestore) return null;
@@ -123,7 +139,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
   const card = (t: OpsTask, big = false) => { const isMine = mine.some((x) => x.id === t.id); const ql = quickLabel(t); const urgent = t.score >= 75 && !t.claimed;
     const takeable = !t.claimed && (t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'inspect' || t.kind === 'prep');
     const primary = ql && !(t.kind === 'station' && t.claimed) ? { label: ql, run: async () => { if ((t.kind === 'kit_clean' || t.kind === 'wash_start') && !t.claimed && !(await take(t))) return; await quick(t); } } : takeable ? { label: 'I’ll take it', run: async () => { await take(t); } } : null;
-    const canOpen = !!onGo && (t.kind === 'station' || t.kind === 'inspect' || t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'prep' || (t.kind === 'request' && t.request?.source !== 'assist'));
+    const canOpen = !!onGo && (t.kind === 'station' || t.kind === 'inspect' || t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'prep' || t.kind === 'laundry_setup' || (t.kind === 'request' && t.request?.source !== 'assist'));
     const steps = big && (t.kind === 'station' || t.kind === 'inspect');   // the focus view shows a station's steps right on the card
     return (
       <div key={t.id} className={`flex flex-col rounded-[20px] bg-card ${big ? 'gap-4 p-5' : 'gap-2.5 p-4'} ${urgent ? 'border-[2px] border-red-700' : 'border'}`}>
@@ -238,6 +254,16 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
         {shiftBits}
       </div>); }
   // LANES: the wall board — do now, next up, in progress, side by side.
+  // BOARD: the production board — Now · Prepare · In process · Restock.
+  if (view === 'board') { const RESTOCK = ['fold', 'kit_finish', 'kit_decide', 'laundry_setup'];
+    const nowL = visible.filter((t) => !RESTOCK.includes(t.kind)).sort((a, b) => Number(!!a.claimed) - Number(!!b.claimed) || b.score - a.score);   // most urgent first, jobs already taken last
+    const rest = visible.filter((t) => RESTOCK.includes(t.kind)).sort((a, b) => b.score - a.score);
+    return (
+      <div className="space-y-4">
+        {topBits}{status}
+        <ProductionBoard now={nowL} restock={rest} plan={plan} running={running} card={(t) => card(t)} staff={staff || []} />
+        {shiftBits}
+      </div>); }
   if (view === 'lanes') return (
     <div className="space-y-4">
       {topBits}{status}
