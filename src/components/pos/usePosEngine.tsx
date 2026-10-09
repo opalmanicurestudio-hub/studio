@@ -8,7 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
-import { rateFor } from '@/lib/commission';
+import { rateFor, payForService } from '@/lib/commission';
 import { openVisit } from '@/lib/visit-client';
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
@@ -154,6 +154,7 @@ export const computeServiceCost = (service: any, apt: any, staffMember: any, inv
   const overhead = (duration / 60) * (tmhr || 0);
   let labor = 0;
   if (staffMember?.payStructure === 'commission') labor = (service.price || 0) * (rateFor(staffMember, service, 40) / 100);
+  else if (staffMember?.payStructure === 'per_service') labor = payForService(staffMember, service, duration);
   else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) labor = (duration / 60) * staffMember.hourlyRate;
   return { overhead, materials, labor, total: Number((overhead + materials + labor).toFixed(2)) };
 };

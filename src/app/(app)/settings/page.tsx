@@ -710,6 +710,17 @@ function SettingsPageImpl() {
                       {mode === 'pool' && <div className="flex flex-wrap items-center gap-2"><span>Split</span><select value={['hours', 'weighted', 'equal'].includes(t.split) ? t.split : 'hours'} onChange={(e) => set({ split: e.target.value })} aria-label="Split" className="h-11 rounded-xl border px-3" style={ipt}><option value="hours">by hours worked</option><option value="weighted">by hours × role weight (provider 1 · assistant 0.5 · front desk 0.3)</option><option value="equal">equally among everyone who worked</option></select></div>}
                     </div>); })()}
                 </Row>
+                <Row label="Extra pay for providers" help="On top of commission or per service pay. A bonus for selling a membership or package goes to whoever sold it at checkout. A share of no-show and late-cancellation fees goes to the provider the visit was booked with — only fees actually collected count. Both go into payroll as commission.">
+                  {(() => { const x: any = (tenantData as any).payExtras || {}; const ms: any = x.membershipSale || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payExtras: { ...((prev as any).payExtras || {}), ...patch } })); const ipt = { borderColor: 'var(--line, #e7e2dc)' } as any;
+                    return (<div className="space-y-2 text-[15px]">
+                      <div className="flex flex-wrap items-center gap-2"><span>Selling a membership or package pays</span>
+                        <input type="number" min={0} step={0.01} value={ms.amount ?? ''} placeholder="0" onChange={(e) => set({ membershipSale: { ...ms, amount: Math.max(0, parseFloat(e.target.value) || 0) } })} aria-label="Membership sale bonus" className="h-11 w-24 rounded-xl border px-3 text-right" style={ipt} />
+                        <select value={ms.mode === 'pct' ? 'pct' : 'flat'} onChange={(e) => set({ membershipSale: { ...ms, mode: e.target.value } })} aria-label="Bonus type" className="h-11 rounded-xl border px-3" style={ipt}><option value="flat">dollars each</option><option value="pct">% of the first payment</option></select></div>
+                      <div className="flex flex-wrap items-center gap-2"><span>Providers get</span>
+                        <input type="number" min={0} max={100} value={x.noShowPct ?? ''} placeholder="0" onChange={(e) => set({ noShowPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })} aria-label="Share of no-show fees" className="h-11 w-20 rounded-xl border px-3 text-right" style={ipt} />
+                        <span>% of no-show and late-cancellation fees collected</span></div>
+                    </div>); })()}
+                </Row>
                 <Row label="Restocking fund" help="Every finished service sets aside its product cost plus this markup into a fund in Money, so buying stock never eats into profit. Uses what was actually used when “Products used” was recorded, else the recipe. Renters’ services are never included.">
                   {(() => { const r: any = (tenantData as any).restocking || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, restocking: { ...((prev as any).restocking || {}), ...patch } }));
                     return (<div className="flex flex-wrap items-center gap-3 text-[15px]">

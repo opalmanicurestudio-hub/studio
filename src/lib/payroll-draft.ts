@@ -14,7 +14,7 @@
 // the cron may submit to Gusto without a tap. Flip it only after months
 // of boringly-accurate Level 2 drafts.
 
-import { serviceCommission, earnsCommission } from './commission';
+import { serviceCommission, earnsCommission, paidPerService, perServicePay, payExtras } from './commission';
 import { getStateProfile, estimateEmployerPayrollTax, GENERIC_US_PROFILE } from './state-tax-profiles';
 
 export type DraftLine = {
@@ -23,7 +23,9 @@ export type DraftLine = {
   name: string;
   payStructure: string;
   regularHours: number;
-  commission: number;
+  commission: number;      // everything earned from services and sales (commission, per service pay, bonuses) — what payroll pays as commission
+  servicePay?: number;     // per service pay (part of commission)
+  extras?: number;         // membership sale bonus + share of no-show fees (part of commission)
   tips: number;
   total: number;
 };
@@ -94,6 +96,11 @@ export async function buildPayrollDraft(
       return ts >= periodStart && ts <= periodEnd;
     });
 
+  // No-show / late-cancel fees name the visit, not always the provider: look the provider up once.
+  const feeAppts = [...new Set(txns.filter((t: any) => !t.staffId && t.appointmentId && ['No-Show Revenue', 'Cancellation Fee', 'Cancellation Fees'].includes(String(t.category))).map((t: any) => String(t.appointmentId)))].slice(0, 500);
+  const apptStaff: Record<string, string> = {};
+  if (feeAppts.length && (tenant.payExtras?.noShowPct || 0) > 0) for (const s of await Promise.all(feeAppts.map((id) => db.doc(`tenants/${tenantId}/appointments/${id}`).get()))) { const a: any = s?.exists ? s.data() : null; if (a?.staffId) apptStaff[s.id] = String(a.staffId); }
+  const allIncome = txns.filter((t: any) => t.type === 'income');
   // ── Same per-staff math as the Payday tab ──
   const lines: DraftLine[] = staff.map((member: any) => {
     const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income');
@@ -101,11 +108,12 @@ export async function buildPayrollDraft(
     const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
 
     // Commission per service (lib/commission): a person's own rate for a service, then the service's, then their usual one.
-    let commission = 0, regularHours = 0;
-    if (earnsCommission(member)) {
-      commission = serviceCommission(member, mine, services, 40).total +
-                   (member.retailCommissionRate ? (retailSales * (member.retailCommissionRate / 100)) : 0);
-    }
+    // Per service pay: a set amount (or rate per service hour) for each service performed — members' visits included.
+    let commission = 0, regularHours = 0, servicePay = 0;
+    if (earnsCommission(member)) commission = serviceCommission(member, mine, services, 40).total;
+    if (paidPerService(member)) { servicePay = perServicePay(member, mine, services).total; commission += servicePay; }
+    if ((earnsCommission(member) || paidPerService(member)) && member.retailCommissionRate) commission += retailSales * (member.retailCommissionRate / 100);
+    const ex = payExtras(member, allIncome, tenant, apptStaff); const extras = ex.saleBonus + ex.noShow; commission += extras;
     if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
       const minutes = logs.filter((l: any) => l.staffId === member.id)
         .reduce((s: number, l: any) => s + (l.durationMinutes || 0), 0);
@@ -121,6 +129,8 @@ export async function buildPayrollDraft(
       payStructure: member.payStructure || 'commission',
       regularHours: Number(regularHours.toFixed(2)),
       commission: Number(commission.toFixed(2)),
+      ...(servicePay ? { servicePay: Number(servicePay.toFixed(2)) } : {}),
+      ...(extras ? { extras: Number(extras.toFixed(2)) } : {}),
       tips: Number(tips.toFixed(2)),
       total: Number(total.toFixed(2)),
     };

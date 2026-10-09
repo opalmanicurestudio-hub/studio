@@ -21,7 +21,7 @@ export interface CalcInput {
   skipMemberDiscount?: boolean;  // "don't apply their member discount this time"
   momentReward?: { pct: number; label: string; key: string } | null;   // birthday / milestone treat (lib/moments)
 }
-export interface VisitCalc { appointmentId: string; mainStaffId: string; mainPrice: number; mainRedeemed: boolean; addOns: { addon: any; staffId: string; price: number; redeemed: boolean }[];
+export interface VisitCalc { appointmentId: string; mainStaffId: string; mainPrice: number; mainRedeemed: boolean; mainList: number; addOns: { addon: any; staffId: string; price: number; redeemed: boolean; list: number }[];
   rescheduleFee: number; timeOverage: number; materialOverage: number; additionalCharge: number; refreshments: { name: string; qty: number; price: number }[]; waived: boolean;
   /** A renter's visit: THEIR sale — their price, no studio tax, no studio discounts (the desk only collects it). */
   renter: boolean; renterStaffId: string | null }
@@ -41,7 +41,7 @@ export function computeCheckout(i: CalcInput) {
     const isMember = !!(i.client?.activeMembershipId || i.client?.subscription?.membershipId);
     const listPrice = num(getServicePrice(v.service, staffById(mainStaffId)));
     const mainPrice = mainRedeemed ? 0 : renter && a.renterServicePrice != null ? num(a.renterServicePrice) : isMember && num(v.service?.memberPrice) > 0 ? Math.min(listPrice, num(v.service.memberPrice)) : listPrice;
-    const addOns = (v.addOnServices || []).map((ad: any) => { const sid = overrides[ad.id] || a.staffId; const redeemed = i.redeemedOffer?.itemId === ad.id; return { addon: ad, staffId: sid, redeemed, price: redeemed ? 0 : num(getServicePrice(ad, staffById(sid))) }; });
+    const addOns = (v.addOnServices || []).map((ad: any) => { const sid = overrides[ad.id] || a.staffId; const redeemed = i.redeemedOffer?.itemId === ad.id; const list = num(getServicePrice(ad, staffById(sid))); return { addon: ad, staffId: sid, redeemed, list, price: redeemed ? 0 : list }; });
     const waived = (i.waivedIds || []).includes(a.id);
     const adj = cs.adjustments;
     const rescheduleFee = !waived && adj ? num(adj.rescheduleFee) : 0, timeOverage = !waived && adj ? num(adj.timeOverage) : 0, materialOverage = !waived && adj ? num(adj.materialOverage) : 0;
@@ -55,7 +55,7 @@ export function computeCheckout(i: CalcInput) {
     const taxedMain = renter || v.service?.taxExempt === true ? 0 : mainPrice;
     const taxedAddOns = renter ? 0 : addOns.reduce((s: number, x: any) => s + (x.addon?.taxExempt === true ? 0 : x.price), 0);
     taxableServices += taxedMain + taxedAddOns + (v.service?.taxExempt === true ? 0 : timeOverage + materialOverage) + additionalCharge + refreshSum;   // not the reschedule fee
-    visits.push({ appointmentId: a.id, mainStaffId, mainPrice, mainRedeemed, addOns, rescheduleFee, timeOverage, materialOverage, additionalCharge, refreshments, waived, renter, renterStaffId: renter ? (renterStaff?.id || a.renterProviderId || mainStaffId) : null });
+    visits.push({ appointmentId: a.id, mainStaffId, mainPrice, mainRedeemed, mainList: listPrice, addOns, rescheduleFee, timeOverage, materialOverage, additionalCharge, refreshments, waived, renter, renterStaffId: renter ? (renterStaff?.id || a.renterProviderId || mainStaffId) : null });
   }
   const retailSub = (i.items || []).reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
   const taxableProducts = (i.items || []).filter((it) => it.type === 'product').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);

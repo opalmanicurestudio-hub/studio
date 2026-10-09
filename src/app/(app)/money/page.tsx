@@ -1,6 +1,6 @@
 'use client';
 
-import { serviceCommission, earnsCommission, rateFor } from '@/lib/commission';
+import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras } from '@/lib/commission';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
@@ -1538,7 +1538,7 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
 type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 const PaydayTab = () => {
-  const { billDefinitions, billInstances, transactions, staff, activityLogs, isLoading, services } = useInventory();
+  const { billDefinitions, billInstances, transactions, staff, activityLogs, isLoading, services, appointments } = useInventory();
   const auditActor = useAuditActor();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -1609,6 +1609,7 @@ const PaydayTab = () => {
       return Math.max(0, income - expenses);
   }, [filteredTransactions]);
 
+  const apptStaff = useMemo(() => Object.fromEntries((appointments || []).filter((a: any) => a?.id && a.staffId).map((a: any) => [a.id, String(a.staffId)])) as Record<string, string>, [appointments]);
   const staffObligations = useMemo(() => {
     if (!staff || !filteredTransactions || !activityLogs) return [];
 
@@ -1628,10 +1629,11 @@ const PaydayTab = () => {
 
         let earnings = 0;
         let hoursWorked = 0;
-        if (earnsCommission(member)) {   // commission per service (lib/commission)
-            earnings = serviceCommission(member, staffTransactions, services || [], 40).total +
-                       (member.retailCommissionRate ? (retailSales * (member.retailCommissionRate / 100)) : 0);
-        }
+        // Services: commission per service, or per service pay (lib/commission); then retail commission and extras.
+        earnings = serviceEarnings(member, staffTransactions, services || [], 40);
+        if ((earnsCommission(member) || paidPerService(member)) && member.retailCommissionRate) earnings += retailSales * (member.retailCommissionRate / 100);
+        const ex = payExtras(member, filteredTransactions, selectedTenant, apptStaff); earnings += ex.saleBonus + ex.noShow;
+        const commissionPay = earnings;   // services, retail, extras — sent to payroll as commission
         if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
             const logs = activityLogs.filter(l =>
                 l.staffId === member.id &&
@@ -1652,13 +1654,14 @@ const PaydayTab = () => {
             amount: totalOwed,
             // v60 — broken out for the Gusto payroll draft
             earnings,
+            commissionPay,
             tips,
             hours: hoursWorked,
             payStructure: member.payStructure,
-            details: `${member.payStructure === 'commission' ? 'Comm' : member.payStructure === 'hourly_plus_commission' ? 'Hr + Comm' : 'Hr'} + Tips`
+            details: `${member.payStructure === 'commission' ? 'Comm' : member.payStructure === 'hourly_plus_commission' ? 'Hr + Comm' : member.payStructure === 'per_service' ? 'Per service' : 'Hr'} + Tips`
         };
     }).filter(o => o.amount > 0);
-  }, [staff, filteredTransactions, activityLogs, dateRange, services]);
+  }, [staff, filteredTransactions, activityLogs, dateRange, services, apptStaff, selectedTenant]);
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
 
@@ -1835,9 +1838,9 @@ const PaydayTab = () => {
             lines: staffObligations.map(o => ({
                 staffId: o.id,
                 name: o.name,
-                regularHours: o.payStructure === 'hourly' ? Number((o.hours || 0).toFixed(2)) : 0,
+                regularHours: o.payStructure === 'hourly' || o.payStructure === 'hourly_plus_commission' ? Number((o.hours || 0).toFixed(2)) : 0,
                 overtimeHours: 0,
-                commission: o.payStructure === 'commission' ? Number((o.earnings || 0).toFixed(2)) : 0,
+                commission: Number(((o as any).commissionPay || 0).toFixed(2)),   // commission, per service pay and extras (hours are paid from regularHours)
                 tips: Number((o.tips || 0).toFixed(2)),
                 bonus: 0,
                 reimbursements: 0,
@@ -2560,7 +2563,7 @@ type HubTab = 'overview' | 'ledger' | 'payday' | 'bills' | 'activity';
 type OverviewPreset = '7days' | '30days' | 'thisMonth';
 
 const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
-  const { billDefinitions, billInstances, transactions: rawTransactions, staff, activityLogs, isLoading, services } = useInventory();
+  const { billDefinitions, billInstances, transactions: rawTransactions, staff, activityLogs, isLoading, services, appointments } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
@@ -2616,17 +2619,17 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
   }, [periodTxns, range]);
 
   // ── Staff owed this period (same math as Payday tab) ──
+  const apptStaff = useMemo(() => Object.fromEntries((appointments || []).filter((a: any) => a?.id && a.staffId).map((a: any) => [a.id, String(a.staffId)])) as Record<string, string>, [appointments]);
   const staffTotalOwed = useMemo(() => {
     if (!staff) return 0;
-    return staff.reduce((total: number, member: any) => {
+    return staff.filter((m: any) => m.isRenter !== true).reduce((total: number, member: any) => {
       const staffTxns = periodTxns.filter((t: any) => t.staffId === member.id && t.type === 'income');
       const retailSales    = staffTxns.filter((t: any) => t.category === 'Retail').reduce((s: number, t: any) => s + t.amount, 0);
       const tips           = staffTxns.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
       let earnings = 0;
-      if (earnsCommission(member)) {
-        earnings = serviceCommission(member, staffTxns, services || [], 40).total +
-                   (member.retailCommissionRate ? (retailSales * (member.retailCommissionRate / 100)) : 0);
-      }
+      earnings = serviceEarnings(member, staffTxns, services || [], 40);
+      if ((earnsCommission(member) || paidPerService(member)) && member.retailCommissionRate) earnings += retailSales * (member.retailCommissionRate / 100);
+      const ex = payExtras(member, periodTxns, selectedTenant, apptStaff); earnings += ex.saleBonus + ex.noShow;
       if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
         const logs = (activityLogs || []).filter((l: any) =>
           l.staffId === member.id && safeDate(l.timestamp) >= range.from && safeDate(l.timestamp) <= range.to);
@@ -2635,7 +2638,7 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
       }
       return total + earnings + tips;
     }, 0);
-  }, [staff, periodTxns, activityLogs, range, services]);
+  }, [staff, periodTxns, activityLogs, range, services, apptStaff, selectedTenant]);
 
   // ── Bills snapshot (all unpaid, not just this period) ──
   const billsSnapshot = useMemo(() => {

@@ -87,7 +87,8 @@ const editStaffSchema = z.object({
   tipRole: z.enum(['provider', 'assistant', 'front_desk']).optional(),
   tipPoolEligible: z.boolean().optional(),
   pricingTierId: z.string().optional(),
-  payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission']),
+  payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission', 'per_service']),
+  serviceHourRate: z.coerce.number().min(0).optional(),   // per service pay: $ for each hour of service performed
   employmentModel: z.enum(['unset', 'employee', 'commission', 'contractor', 'renter']).optional(),
   showProfitability: z.boolean().optional(),
   decisionAuthority: z.enum(['default', 'none', 'limited', 'request_approval', 'full']).optional(),
@@ -551,6 +552,7 @@ const EditStaffFormInternal = ({
                     <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION</SelectItem>
                     <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
                     <SelectItem value="hourly_plus_commission" className="font-bold uppercase text-[10px] tracking-widest">HOURLY + COMMISSION</SelectItem>
+                    <SelectItem value="per_service" className="font-bold uppercase text-[10px] tracking-widest">PER SERVICE</SelectItem>
                     <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">SALARY</SelectItem>
                   </SelectContent>
                 </Select>
@@ -635,7 +637,7 @@ const EditStaffFormInternal = ({
               )} />
             </div>
 
-            {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
+            {(payStructure === 'commission' || payStructure === 'hourly_plus_commission' || payStructure === 'per_service') && (
               <div className="space-y-2 text-left">
                 <Label className="ml-1 text-[13px] font-semibold text-foreground">How often they’re paid</Label>
                 <Controller name="payoutFrequency" control={control} render={({ field }) => (
@@ -672,6 +674,25 @@ const EditStaffFormInternal = ({
             </div>
           )}
 
+          {payStructure === 'per_service' && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="serviceHourRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Per hour of service ($)</Label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                  <Input id="serviceHourRate-edit" type="number" step="0.01" placeholder="30.00" {...register('serviceHourRate' as any)} className="h-12 pl-9 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="retailCommissionRate-ps-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail %</Label>
+                <div className="relative">
+                  <Input id="retailCommissionRate-ps-edit" type="number" placeholder="0" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
+                  <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                </div>
+              </div>
+              <p className="col-span-2 ml-1 text-[13px] text-muted-foreground">Paid for each service they perform — the same for members, packages, gift cards and full-price visits. A 60-minute service at $30 an hour pays $30. Set amounts for particular services on the service, or on their profile.</p>
+            </div>
+          )}
           {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
             <div className="space-y-2 animate-in slide-in-from-top-2">
               <Label htmlFor="hourlyRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly rate</Label>

@@ -13,7 +13,7 @@
 // No call sites change — same function name, same signature, same return shape.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { rateFor } from '@/lib/commission';
+import { rateFor, payForService } from '@/lib/commission';
 export interface ServiceCostBreakdown {
   overhead: number;
   materials: number;
@@ -71,6 +71,8 @@ export function computeServiceCost(
   let labor = 0;
   if (staffMember?.payStructure === 'commission') {
     labor = (service.price || 0) * (rateFor(staffMember, service, 40) / 100);   // commission per service
+  } else if (staffMember?.payStructure === 'per_service') {
+    labor = payForService(staffMember, service, duration);
   } else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) {
     labor = (duration / 60) * staffMember.hourlyRate;
   }

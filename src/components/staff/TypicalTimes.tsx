@@ -67,7 +67,7 @@ export function TypicalTimes({ tenantId, staffId, staffMember, services = [] }: 
         {ownIds.map((id) => { const v = draft[id] ?? String(own[id]); const diff = Number(own[id]) - svcLen(id);
           return (
           <div key={id} className="flex flex-wrap items-center gap-2 text-[14px]">
-            <span className="min-w-0 flex-1"><b className="font-[700]">{svcName(id)}</b> <span style={{ color: 'var(--muted, #78716c)' }}>· service is {svcLen(id)} min{diff ? ` · ${diff > 0 ? '+' : ''}${diff}` : ''}</span></span>
+            <span className="min-w-0 basis-full sm:basis-auto sm:flex-1"><b className="font-[700]">{svcName(id)}</b> <span style={{ color: 'var(--muted, #78716c)' }}>· service is {svcLen(id)} min{diff ? ` · ${diff > 0 ? '+' : ''}${diff}` : ''}</span></span>
             <input aria-label={`${svcName(id)} minutes for ${first}`} inputMode="numeric" value={v} onChange={(e) => setDraft((x) => ({ ...x, [id]: e.target.value.replace(/\D/g, '').slice(0, 3) }))}
               className="h-10 w-20 rounded-xl border px-3 text-right tabular-nums" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
             <span>min</span>

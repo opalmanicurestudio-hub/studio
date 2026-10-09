@@ -1,6 +1,6 @@
 'use client';
 
-import { rateFor } from '@/lib/commission';
+import { rateFor, payForService } from '@/lib/commission';
 import { bookingLink } from '@/lib/share-links';
 import { ServiceMenuBoard } from '@/components/services/ServiceMenuBoard';
 import { QuickAddService } from '@/components/services/QuickAddService';
@@ -97,6 +97,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         let laborCost = 0;
         if (member.payStructure === 'hourly' && member.hourlyRate) laborCost = (duration / 60) * member.hourlyRate;
         else if (member.payStructure === 'hourly_plus_commission' && member.hourlyRate) laborCost = ((duration / 60) * member.hourlyRate) + (price * (rateFor(member, service, 40) / 100));
+        else if ((member as any).payStructure === 'per_service') laborCost = payForService(member, service, duration);
         else laborCost = price * (rateFor(member, service, 40) / 100);   // commission per service
         const burdenedLabor = laborCost * (1 + (taxBurden / 100));
         const studioNet = price - materialCost - timeCost - burdenedLabor;

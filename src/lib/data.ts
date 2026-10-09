@@ -73,7 +73,9 @@ export type Staff = {
   pinUpdatedAt?: string;
   pricingTierId?: string;
   avatarUrl: string;
-  payStructure: 'commission' | 'hourly' | 'salary' | 'hourly_plus_commission';
+  payStructure: 'commission' | 'hourly' | 'salary' | 'hourly_plus_commission' | 'per_service';
+  /** Per service pay ($ for each hour of service performed) and per-service overrides (lib/commission). */
+  serviceHourRate?: number; servicePay?: Record<string, number>; serviceCommission?: Record<string, number>; serviceMinutes?: Record<string, number>;
   /* How someone is PAID and what they ARE are different questions. A salon
    * may pay a renter on commission for retail and still have no authority to
    * assign them appointments. Left unset, nothing changes: authority falls

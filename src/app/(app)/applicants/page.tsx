@@ -501,7 +501,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                 <div>
                   <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pay structure</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {[['commission', 'Commission'], ['hourly', 'Hourly'], ['salary', 'Salary'], ['hourly_plus_commission', 'Hourly + commission']].map(([v, l]) => (
+                    {[['commission', 'Commission'], ['hourly', 'Hourly'], ['salary', 'Salary'], ['hourly_plus_commission', 'Hourly + commission'], ['per_service', 'Per service']].map(([v, l]) => (
                       <button key={v} type="button" aria-pressed={payStructure === v} onClick={() => setPayStructure(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', payStructure === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
                         {l}
                       </button>

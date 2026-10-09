@@ -53,7 +53,8 @@ const addStaffSchema = z.object({
   portfolioUrl: z.string().optional(),
   role: z.enum(['admin', 'staff']),
   pricingTierId: z.string().optional(),
-  payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission']),
+  payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission', 'per_service']),
+  serviceHourRate: z.coerce.number().min(0).optional(),   // per service pay: $ for each hour of service performed
   payoutFrequency: z.enum(['weekly', 'bi-weekly']).optional(),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -88,6 +89,9 @@ const addStaffSchema = z.object({
     (data.hourlyRate === undefined || data.hourlyRate === null)
   ) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Hourly rate is required.', path: ['hourlyRate'] });
+  }
+  if (data.payStructure === 'per_service' && !(Number(data.serviceHourRate) > 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Pay per hour of service is required.', path: ['serviceHourRate'] });
   }
 });
 
@@ -409,12 +413,13 @@ const Step3 = () => {
                     <SelectItem value="commission" className="font-bold uppercase text-[10px] tracking-widest">COMMISSION</SelectItem>
                     <SelectItem value="hourly" className="font-bold uppercase text-[10px] tracking-widest">HOURLY WAGE</SelectItem>
                     <SelectItem value="hourly_plus_commission" className="font-bold uppercase text-[10px] tracking-widest">HOURLY + COMMISSION</SelectItem>
+                    <SelectItem value="per_service" className="font-bold uppercase text-[10px] tracking-widest">PER SERVICE</SelectItem>
                     <SelectItem value="salary" className="font-bold uppercase text-[10px] tracking-widest">SALARY</SelectItem>
                   </SelectContent>
                 </Select>
               )} />
             </div>
-            {(payStructure === 'commission' || payStructure === 'hourly_plus_commission') && (
+            {(payStructure === 'commission' || payStructure === 'hourly_plus_commission' || payStructure === 'per_service') && (
               <div className="space-y-2 text-left">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Payout Cadence</Label>
                 <Controller name="payoutFrequency" control={control} render={({ field }) => (
@@ -459,6 +464,25 @@ const Step3 = () => {
             </div>
           )}
 
+          {payStructure === 'per_service' && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="serviceHourRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Per hour of service ($)</Label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                  <Input id="serviceHourRate" type="number" step="0.01" placeholder="30.00" {...register('serviceHourRate' as any)} className="h-12 pl-9 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="retailCommissionRate-ps" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Retail %</Label>
+                <div className="relative">
+                  <Input id="retailCommissionRate-ps" type="number" placeholder="0" {...register('retailCommissionRate')} className="h-12 pr-8 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
+                  <Percent className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                </div>
+              </div>
+              <p className="col-span-2 ml-1 text-[13px] text-muted-foreground">Paid for each service they perform — the same for members, packages, gift cards and full-price visits. A 60-minute service at $30 an hour pays $30. Set amounts for particular services on the service, or on their profile.</p>
+            </div>
+          )}
           {(payStructure === 'hourly' || payStructure === 'hourly_plus_commission') && (
             <div className="space-y-2">
               <Label htmlFor="hourlyRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly Base Rate</Label>

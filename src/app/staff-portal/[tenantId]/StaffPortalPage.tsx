@@ -1,6 +1,6 @@
 'use client';
 
-import { serviceCommission } from '@/lib/commission';
+import { serviceCommission, perServicePay } from '@/lib/commission';
 import { handoffEntry } from '@/lib/handoff-log';
 import { StaffOverruns } from '@/components/visit/StaffOverruns';
 import { MyTimes } from '@/components/visit/MyTimes';
@@ -4716,6 +4716,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     if      (ps==='hourly')                estimatedPay = weekHours * (staffMember.hourlyRate||0);
     else if (ps==='commission')            estimatedPay = svcCommission;
     else if (ps==='hourly_plus_commission') estimatedPay = (staffMember.hourlyRate||0)*weekHours + svcCommission;
+    else if (ps==='per_service')            estimatedPay = perServicePay(staffMember, weekTx, services || []).total;
     else if (ps==='salary')               estimatedPay = staffMember.salaryWeekly || 0;
     return { estimatedPay, weekHours, tipTotal, serviceRevenue, apptCount };
   }, [myShiftsRaw, transactions, myApptsRaw, staffMember, services]);

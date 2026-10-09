@@ -7,7 +7,7 @@
 //   linens & kits — a per-use handling cost the business sets (laundering one linen, cleaning one kit).
 // Every expense lands in exactly one of those buckets, so nothing is counted twice. Pure functions — the report and the
 // visit screen both use them.
-import { rateFor } from '@/lib/commission';
+import { rateFor, payForService } from '@/lib/commission';
 import { deriveTimings, phasesFromService } from '@/lib/blueprint';
 import { linensForVisit } from '@/lib/linens';
 import { kitsNeeded } from '@/lib/kits';
@@ -35,6 +35,7 @@ export function actualVisitCost(input: { visit: any; service: any; addOns?: any[
   // Labour
   const s = input.staffMember; let labor = 0;
   if (s?.payStructure === 'commission') labor = revenue * rateFor(s, service, 40) / 100;   // commission per service
+  else if (s?.payStructure === 'per_service') labor = payForService(s, service, n(t.duration)) + addOns.reduce((a, x) => a + payForService(s, x), 0);
   else if (s?.payStructure === 'hourly' && n(s.hourlyRate) > 0) { const free = Math.min(n(t.providerFreeMinutes), actualMin); labor = ((actualMin - free + n(t.padBefore)) / 60) * n(s.hourlyRate); }
   // Overhead: the station is tied up for set-up + the visit + turnover.
   const overhead = ((actualMin + n(t.padBefore) + n(t.padAfter)) / 60) * tmhr;
