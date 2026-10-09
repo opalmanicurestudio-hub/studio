@@ -19,7 +19,7 @@ import { useNfc } from '@/lib/use-nfc';
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-export function Linens({ tenantId, services, appts = [], inventory = [], manager, staff = [] }: { tenantId: string; services: any[]; appts?: any[]; inventory?: any[]; manager: boolean; staff?: any[] }) {
+export function Linens({ tenantId, services, appts = [], inventory = [], manager, staff = [], incoming = null, focusLinenId = null, hideScan = false }: { tenantId: string; services: any[]; appts?: any[]; inventory?: any[]; manager: boolean; staff?: any[]; incoming?: { code: string; n: number } | null; focusLinenId?: string | null; hideScan?: boolean }) {
   const { selectedTenant } = useTenant() as any; const [fmt, setFmt] = React.useState<LabelFormat>('band');   // bundles default to a wrap band
   const [holderFor, setHolderFor] = React.useState<LinenBundle | null>(null);   // a bundle being taken out: who is it for?
   const { firestore } = useFirebase();
@@ -48,6 +48,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
   const who = () => (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0];
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who(), role: manager ? 'manager' : 'staff' });
   const codeRef = React.useRef<(v: string) => void>(() => undefined); const nfc = useNfc((id) => codeRef.current(id));   // NFC taps go to the same handler as scans
+  React.useEffect(() => { if (incoming?.code) codeRef.current(incoming.code); }, [incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps   // a scan from the one-scanner sheet
   if (!firestore) return null;
 
   const apply = async (l: Linen, move: LinenMove, n: number, quiet = false): Promise<boolean> => {
@@ -71,7 +72,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
     const h = holder && holder !== 'ask' ? holder : null; const l = linens.find((x) => x.id === b.linenId); if (!l) { setMsg({ ok: false, text: 'That bundle’s linen type no longer exists.' }); return false; }
     const next = bundleNext(b, l); if (!(await apply(l, next.move, b.qty, next.move !== 'issue'))) return false;
     const v = next.to === 'in_use' ? h?.visit || null : null;
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who(), holderId: next.to === 'in_use' ? h?.id || null : null, holderName: next.to === 'in_use' ? h?.name || null : null, visitId: v?.id || null, clientName: v?.clientName || null }); } catch { /* counts moved; tap again to fix the tag */ }
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who(), holderId: next.to === 'in_use' ? h?.id || null : null, holderName: next.to === 'in_use' ? h?.name || null : null, visitId: v?.id || null, clientName: v?.clientName || null, setFor: null, setForName: null, setOutAt: null, setOutStation: null }); } catch { /* counts moved; tap again to fix the tag */ }
     // The visit remembers which bundle was used on this client (rentals have no visit record to write to).
     if (v && !String(v.id).startsWith('res:')) { try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', v.id), { bundles: arrayUnion({ id: b.id, code: b.code, name: b.name, qty: b.qty, at: new Date().toISOString(), by: who() }) }); } catch { /* the bundle is still marked out */ } }
     void logAuditClient(firestore, tenantId, { action: `bundle.${next.to}`, targetType: 'linenBundle', targetId: b.id, actor: actor(), before: { status: b.status }, after: { status: next.to, holderId: h?.id || null, visitId: v?.id || null }, summary: `${b.name} bundle ${b.code} (${b.qty}): ${BUNDLE_LABEL[b.status]} → ${BUNDLE_LABEL[next.to]}${v ? ` for ${v.clientName}` : ''}${next.to === 'in_use' && h?.name ? ` with ${h.name}` : ''}` });
@@ -99,7 +100,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
 
   return (
     <div className="space-y-3">
-      {bundles.length > 0 && (<>
+      {bundles.length > 0 && !hideScan && (<>
         <form onSubmit={(e) => { e.preventDefault(); const v = typed; setTyped(''); if (v.trim()) void handleCode(v); }} className="flex gap-2">
           <input value={typed} onChange={(e) => setTyped(e.target.value.slice(0, 80))} placeholder="Scan or type a bundle’s tag" aria-label="Bundle tag" autoCapitalize="characters" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[15px] uppercase tracking-wider" />
           <button type="submit" disabled={!typed.trim()} className="h-11 rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background disabled:opacity-40">Move it on</button>
@@ -111,7 +112,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
       {holderFor && (
         <div className="space-y-2 rounded-2xl border-2 bg-card p-3" role="dialog" aria-label="Who is this bundle for?">
           <p className="text-[14px] font-semibold">Who is {holderFor.name} {holderFor.code} for?</p>
-          {(() => { const plannedId = bundleFor[holderFor.id]?.visitId; const vs = visitsFor(holderFor); const planned = plannedId ? (vs.find((a: any) => a.id === plannedId) || (appts || []).find((a: any) => a.id === plannedId) || (String(plannedId).startsWith('res:') ? { id: plannedId, clientName: bundleFor[holderFor.id].clientName, staffId: null } : null)) : null;
+          {(() => { const plannedId = (holderFor as any).setFor || bundleFor[holderFor.id]?.visitId; const vs = visitsFor(holderFor); const planned = plannedId ? (vs.find((a: any) => a.id === plannedId) || (appts || []).find((a: any) => a.id === plannedId) || (String(plannedId).startsWith('res:') ? { id: plannedId, clientName: bundleFor[holderFor.id].clientName, staffId: null } : null)) : null;
             const list = [...(planned ? [planned] : []), ...vs.filter((a: any) => a.id !== plannedId)];
             const t = (a: any) => { const d = new Date(String(a.startTime || '')); return Number.isFinite(d.getTime()) ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; };
             return list.length ? <div className="flex flex-wrap gap-2">{list.map((a: any, i: number) => { const p: any = (staff || []).find((x: any) => x.id === a.staffId);
@@ -125,7 +126,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
         </div>)}
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
       {!linens.length && <p className="text-[14px] text-muted-foreground">No linens yet. {manager ? 'Add towels, capes or robes and the desk will tell you if there are enough clean ones for the rest of the day.' : 'A manager can add them here.'}</p>}
-      {linens.map((l) => { const o = outlook.find((x) => x.id === l.id); const own = l.inventoryItemId ? Number((inventory || []).find((i: any) => i.id === l.inventoryItemId)?.totalStock) : NaN; return (
+      {linens.filter((l) => !focusLinenId || l.id === focusLinenId).map((l) => { const o = outlook.find((x) => x.id === l.id); const own = l.inventoryItemId ? Number((inventory || []).find((i: any) => i.id === l.inventoryItemId)?.totalStock) : NaN; return (
         <div key={l.id} className="rounded-2xl border bg-card p-3">
           <p className="text-[15px] font-semibold">{l.name}</p>
           {/* The loop at a glance: bin → wash → dryer → fold → clean */}
@@ -196,7 +197,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
               {bundles.some((b) => b.linenId === l.id) && <span className="flex items-center gap-1"><select value={fmt} onChange={(e) => setFmt(e.target.value as LabelFormat)} aria-label="Tag shape" title={LABEL_FORMATS.find((f) => f.id === fmt)?.hint} className="h-9 rounded-full border bg-background px-2 text-[13px]">{LABEL_FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select><button type="button" onClick={() => printTags(l)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Print</button></span>}
             </div>)}
         </div>); })}
-      {manager && (adding ? (
+      {manager && !focusLinenId && (adding ? (
         <div className="space-y-2 rounded-2xl border bg-card p-3">
           <input list="linen-types" value={name} onChange={(e) => setName(e.target.value)} placeholder="Linen type (e.g. Towel)" aria-label="Linen type" className="h-10 w-full rounded-xl border bg-background px-3 text-[14px]" />
           <datalist id="linen-types">{typeNames.map((n) => <option key={n} value={n} />)}</datalist>

@@ -11,7 +11,7 @@ const LOOK: Record<SetItem['state'], { bg: string; fg: string; dot: string }> = 
   ready: { bg: '#e3f3e7', fg: '#1f6b3a', dot: '#1f6b3a' }, in_time: { bg: '#fdf1dc', fg: '#7a4a00', dot: '#c47f00' },
   late: { bg: '#fbeae8', fg: '#b42318', dot: '#b42318' }, none: { bg: '#fbeae8', fg: '#b42318', dot: '#b42318' } };
 
-export function PrepPlan({ plan, staff, staffId, perProvider = 4, title = 'Prep by provider' }: { plan: { visits: SetVisit[] }; staff: any[]; staffId?: string | null; perProvider?: number; title?: string }) {
+export function PrepPlan({ plan, staff, staffId, perProvider = 4, title = 'Prep by provider', onSetOut, setOut = {} }: { plan: { visits: SetVisit[] }; staff: any[]; staffId?: string | null; perProvider?: number; title?: string; onSetOut?: (item: SetItem, visit: SetVisit) => void; setOut?: Record<string, string> }) {
   const rows = plan.visits.filter((v) => v.items.length && (!staffId || v.staffId === staffId));
   if (!rows.length) return null;
   const groups = new Map<string, SetVisit[]>();
@@ -33,12 +33,14 @@ export function PrepPlan({ plan, staff, staffId, perProvider = 4, title = 'Prep 
                 <li key={v.visitId} className="rounded-2xl p-2.5" style={{ background: v.ok ? '#faf8f5' : '#fdf3f2' }}>
                   <p className="text-[14px]"><b className="font-[800] tabular-nums">{clock(v.startMs)}</b> <span className="font-[600]">{v.clientName.split(' ')[0]}</span></p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {v.items.map((it, i) => { const L = LOOK[it.state]; return (
-                      <span key={i} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-[600]" style={{ background: L.bg, color: L.fg }} title={it.note}>
-                        <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: L.dot }} />
+                    {v.items.map((it, i) => { const L = LOOK[it.state]; const isOut = !!(it.refId && setOut[it.refId] === v.visitId); const canSet = !!onSetOut && it.state === 'ready' && !!it.refId && !isOut;
+                      const inner = <>
+                        <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: isOut ? '#17181A' : L.dot }} />
                         {it.type}{it.code ? <span className="font-[800] tracking-[0.04em]">{it.code}</span> : null}
-                        <span className="font-[500] opacity-80">{it.state === 'ready' ? '' : `· ${it.note.replace(/^Ready /, '').replace(/^Not before /, 'after ').replace(/\s?[AP]M\b/gi, '')}`}</span>
-                      </span>); })}
+                        <span className="font-[500] opacity-80">{isOut ? '· set out ✓' : canSet ? '· set out' : it.state === 'ready' ? '' : `· ${it.note.replace(/^Ready /, '').replace(/^Not before /, 'after ').replace(/\s?[AP]M\b/gi, '')}`}</span></>;
+                      return canSet
+                        ? <button key={i} type="button" onClick={() => onSetOut!(it, v)} className="inline-flex min-h-[32px] items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-[600]" style={{ background: L.bg, color: L.fg, border: `1px dashed ${L.dot}` }} title="Tap when it's set out at the station">{inner}</button>
+                        : <span key={i} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-[600]" style={{ background: isOut ? '#EDE8E1' : L.bg, color: isOut ? '#17181A' : L.fg }} title={it.note}>{inner}</span>; })}
                   </div>
                 </li>))}
             </ol>

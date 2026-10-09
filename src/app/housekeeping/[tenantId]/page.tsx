@@ -11,6 +11,7 @@ import { Housekeeping, useHousekeeping } from '@/components/pos/desk/Housekeepin
 import { Sterilisation } from '@/components/pos/desk/Sterilisation';
 import { StationTiles } from '@/components/pos/desk/StationTiles';
 import { Disinfection } from '@/components/pos/desk/Disinfection';
+import { ScanSheet, useScanSheet } from '@/components/pos/desk/ScanSheet';
 import { attendantsOnNow, housekeepingMode } from '@/lib/attendant';
 
 function Clock() { const [now, setNow] = React.useState(() => new Date()); React.useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
@@ -28,6 +29,7 @@ export default function HousekeepingWall() {
   const { data: apptsRaw } = useCollection<any>(aq); const { data: services } = useCollection<any>(sq); const { data: staff } = useCollection<any>(fq);
   // Today's visits for the live queue; everything loaded (a day back, and what's booked ahead) for the readiness check.
   const today = React.useMemo(() => { const d = new Date().toDateString(); return (apptsRaw || []).filter((a: any) => { const t = new Date(typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate?.() || a.startTime); return t.toDateString() === d; }); }, [apptsRaw]);
+  const scanner = useScanSheet();   // a USB / Bluetooth scanner by the wall screen works straight away
   const hk = useHousekeeping(user ? tenantId : null, today, services || [], staff || []);
   // Keep the screen awake where the browser allows it.
   React.useEffect(() => { let lock: any = null; const go = async () => { try { lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* not supported — the device's own setting applies */ } };
@@ -53,9 +55,11 @@ export default function HousekeepingWall() {
         <div className="flex items-center gap-6 text-right">
           {housekeepingMode(tenant) === 'attendants' && <p className="hidden text-base text-[#CFCBC4] md:block">On now: <b className="text-white">{crew.on.map((s: any) => String(s.name || '').split(' ')[0]).join(', ') || 'nobody'}</b></p>}
           <p className="text-base"><b className={`text-3xl font-[800] tabular-nums md:text-4xl ${urgent ? 'text-[#FFB4A8]' : ''}`}>{hk.tasks.length}</b> <span className="text-[#CFCBC4]">waiting{urgent ? ` · ${urgent} urgent` : ''}</span></p>
+          <button type="button" onClick={scanner.show} className="h-12 rounded-full bg-white px-6 text-[16px] font-[800] text-[#17181A]">Scan</button>
           <p className="text-3xl font-[800] md:text-4xl"><Clock /></p>
         </div>
       </header>
+      <ScanSheet open={scanner.open} onClose={scanner.hide} pending={scanner.pending} tenantId={tenantId} tenant={tenant} appts={today} services={services || []} staff={staff || []} manager={false} />
       {wide ? (
         <div className="mx-auto grid max-w-[1900px] gap-7 p-6">
           <section aria-label="Production board"><Housekeeping view="board" tenantId={tenantId} tenant={tenant} appts={today} allAppts={apptsRaw || []} services={services || []} staff={staff || []} manager={false} /></section>

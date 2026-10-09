@@ -82,6 +82,8 @@ export function ScanGate({
   const [cameraError, setCameraError] = useState('');
   const [manualOpen, setManualOpen] = useState(false);
   const [manualValue, setManualValue] = useState('');
+  // Torch (phone flashlight) for dim back rooms and laundry areas, where the phone supports it.
+  const qrRef = useRef<any>(null); const [torch, setTorch] = useState<{ can: boolean; on: boolean }>({ can: false, on: false });
 
   useEffect(() => { onScanRef.current = onScan; }, [onScan]);
 
@@ -127,7 +129,7 @@ export function ScanGate({
           onScanRef.current(raw);
         },
         () => {}
-      ).catch(() => {
+      ).then(() => { qrRef.current = qr; try { const caps: any = (qr as any).getRunningTrackCapabilities?.() || {}; if (!cancelled && caps.torch) setTorch({ can: true, on: false }); } catch { /* no torch */ } }).catch(() => {
         if (!cancelled) setCameraError('Camera unavailable — check permissions or close other camera apps.');
       });
     }, 200);
@@ -143,6 +145,8 @@ export function ScanGate({
     <div className={cn('space-y-2', className)}>
       <div className="relative rounded-2xl border-2 overflow-hidden bg-black min-h-[220px]">
         <div id={idRef.current} className="w-full" />
+        {torch.can && <button type="button" aria-pressed={torch.on} aria-label={torch.on ? 'Turn the light off' : 'Turn the light on'} onClick={async () => { const on = !torch.on; try { await qrRef.current?.applyVideoConstraints({ advanced: [{ torch: on }] } as any); setTorch({ can: true, on }); } catch { setTorch({ can: false, on: false }); } }}
+          className="absolute right-3 top-3 z-10 h-11 rounded-full px-4 text-[13px] font-semibold shadow" style={{ background: torch.on ? '#FDE68A' : 'rgba(255,255,255,0.9)', color: '#17181A' }}>{torch.on ? 'Light on' : 'Light'}</button>}
         {cameraError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center bg-black/80">
             <Camera className="w-6 h-6 text-white/40" />

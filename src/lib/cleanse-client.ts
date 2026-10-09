@@ -12,7 +12,8 @@ export async function startCleanse(firestore: any, tenantId: string, kit: Kit, p
   // A kit coming back from a client goes in use → needs cleaning → cleansing in one step.
   let k: Kit = kit; const patch: any = {};
   if (k.status === 'in_use') { const r = moveKit(k, 'dirty', { name: who, manager: opts.manager }); if ('error' in r) return r; Object.assign(patch, r.patch); k = { ...k, ...r.patch } as Kit; }
-  const r2 = moveKit(k, 'cleaning', { name: who, manager: opts.manager }); if ('error' in r2) return r2; Object.assign(patch, r2.patch);
+  // A kit already marked cleansing but with no cleanse on record (older kits) just gets its cleanse and timer.
+  if (k.status !== 'cleaning') { const r2 = moveKit(k, 'cleaning', { name: who, manager: opts.manager }); if ('error' in r2) return r2; Object.assign(patch, r2.patch); }
   const at = new Date().toISOString(); const d = plan.disinfectant; const timerRef = doc(collection(firestore, 'tenants', tenantId, 'contactTimers'));
   const b = writeBatch(firestore);
   b.update(doc(firestore, 'tenants', tenantId, 'kits', kit.id), { ...patch, byId: uid, staffId: null, staffName: null, cleansedAt: null, cycleId: null,

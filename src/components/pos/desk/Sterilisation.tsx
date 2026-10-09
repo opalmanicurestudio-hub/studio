@@ -17,7 +17,7 @@ import { Ring } from '@/components/pos/desk/hk-ui';
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
-export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: string; tenant: any; kits: Kit[]; manager: boolean }) {
+export function Sterilisation({ tenantId, tenant, kits, manager, incoming = null, hideScan = false }: { tenantId: string; tenant: any; kits: Kit[]; manager: boolean; incoming?: { code: string; n: number } | null; hideScan?: boolean }) {
   const { firestore } = useFirebase();
   const since = React.useMemo(() => new Date(Date.now() - 120 * 86400000).toISOString(), []);
   const cq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'sterilisationCycles'), where('startedAt', '>=', since)) : null), [firestore, tenantId, since]);
@@ -35,6 +35,8 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
   const loadable = (kits || []).filter((k) => readyForNextStep(k).ok && !inRunning.has(k.id));
   const notYet = (kits || []).filter((k) => (k.status === 'dirty' || k.status === 'cleaning') && !readyForNextStep(k).ok && !inRunning.has(k.id));
   const spore = sporeStatus(cycles, Math.max(0, Number(ops.sporeTestDays) || 0));
+  const scanRef = React.useRef<(v: string) => void>(() => undefined);
+  React.useEffect(() => { if (incoming?.code) scanRef.current(incoming.code); }, [incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps   // a scan from the one-scanner sheet
   if (!firestore) return null;
 
   const start = async () => { const problem = cycleProblem({ device, kitIds: load, minutes, running }); if (problem) { setMsg({ ok: false, text: problem }); return; }
@@ -70,6 +72,7 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
     const k = findKit(loadable, raw);
     if (!k) { scanFeedback(false); const other = findKit(kits || [], raw); setMsg({ ok: false, text: other ? `${other.name} ${other.code}: ${readyForNextStep(other).reason || 'it isn’t waiting to be sterilised.'}` : 'That isn’t a kit or a machine label.' }); return; }
     scanFeedback(true); if (open !== 'start') { setOpen('start'); setLoad([k.id]); } else setLoad((l) => (l.includes(k.id) ? l : [...l, k.id])); setMsg({ ok: true, text: `${k.name} ${k.code} added to the load.` }); };
+  scanRef.current = handleScan;
   const saveOps = async (patch: any) => { try { await updateDoc(doc(firestore, 'tenants', tenantId), { ops: { ...(tenant?.ops || {}), ...patch } }); void logAuditClient(firestore, tenantId, { action: 'sterilisation.settings', targetType: 'tenant', actor: actor(), after: patch, summary: `Sterilisation settings changed: ${Object.keys(patch).join(', ')}` }); } catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
   const printLog = (days: number) => { const brand = brandOf(tenant); const rows = logRows(cycles, Date.now() - days * 86400000); const w = window.open('', '_blank'); if (!w) { setMsg({ ok: false, text: 'Allow pop-ups to print the log.' }); return; }
     w.document.write(`<!doctype html><meta charset="utf-8"><title>Sterilisation log</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet"><style>@page{margin:12mm}body{font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:#16171a;font-size:9pt}h1{font-size:15pt;margin:0}p{margin:2px 0 10px;color:#6b6760}table{width:100%;border-collapse:collapse}th{text-align:left;font-size:7.5pt;letter-spacing:.08em;text-transform:uppercase;color:#6b6760;border-bottom:1.5px solid #16171a;padding:5px 6px}td{border-bottom:1px solid #ddd;padding:5px 6px;vertical-align:top}.f{font-weight:700}tr{break-inside:avoid}</style>
@@ -79,11 +82,11 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
   return (
     <div className="space-y-3">
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
-      <form onSubmit={(e) => { e.preventDefault(); const v = scanText; setScanText(''); if (v.trim()) handleScan(v); }} className="flex gap-2">
+      {!hideScan && <form onSubmit={(e) => { e.preventDefault(); const v = scanText; setScanText(''); if (v.trim()) handleScan(v); }} className="flex gap-2">
         <input value={scanText} onChange={(e) => setScanText(e.target.value.slice(0, 80))} placeholder="Scan a machine or a kit" aria-label="Scan a machine or a kit" autoCapitalize="characters" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[15px] uppercase tracking-wider" />
         <button type="button" onClick={() => setCam((c) => !c)} className="h-11 rounded-xl border px-3 text-[13px] font-semibold">{cam ? 'Close camera' : 'Camera'}</button>
-      </form>
-      {cam && <ScanGate onScan={handleScan} label="Scan the machine’s label, then each kit" />}
+      </form>}
+      {cam && !hideScan && <ScanGate onScan={handleScan} label="Scan the machine’s label, then each kit" />}
       {spore.due && <p className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3 text-[13px] font-semibold text-amber-900">{spore.last ? `Last spore test was ${spore.daysSince} days ago` : 'No spore test on record'} — one is due (every {ops.sporeTestDays} days).</p>}
       {running.map((c) => { const total = Math.max(1, Number(c.minutes) || 0) * 60; const gone = Math.max(0, (now - (Date.parse(c.startedAt) || now)) / 1000); const done = gone >= total; const left = Math.max(0, Math.round(total - gone)); return (
         <div key={c.id} className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-[24px] p-4 ${done ? 'border-2 border-emerald-700 bg-emerald-50' : 'border bg-card'}`}>

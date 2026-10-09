@@ -16,6 +16,7 @@
 import { HereNow } from '@/components/pos/desk/HereNow';
 import { buildHereNow } from '@/lib/here-now';
 import { RunningBehind, useDelays } from '@/components/pos/desk/RunningBehind';
+import { ScanSheet, useScanSheet } from '@/components/pos/desk/ScanSheet';
 import { delaySettings } from '@/lib/delay';
 import { extraMinutesFor } from '@/lib/client-timing';
 import { TakePayment } from '@/components/pos/desk/TakePayment';
@@ -228,6 +229,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
 
   const active = guests.filter((g) => g.stage !== 'done');
   // K7: who's here and what's outstanding — checked-in guests not yet started + people at the front door, one list.
+  const scanner = useScanSheet();   // one scanner for kits, bundles, sterilisers and stations (USB scanners open it too)
   const delays = useDelays(todaysAppts, e.services || [], e.selectedTenant || tenant);
   const delayMargin = delaySettings(e.selectedTenant || tenant).marginMin;
   const pushedBack = (id: string) => { let m = 0; for (const d of delays) for (const k of d.next) if (k.id === id && k.lateMin > m) m = k.lateMin; return m >= delayMargin ? m : 0; };
@@ -427,6 +429,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <Btn quiet onClick={() => setLogCallOpen(true)}>Log a call</Btn>
           <Btn quiet onClick={() => setWalkInOpen(true)}>+ Walk-in</Btn>
           <Btn quiet onClick={() => setAssistOpen(true)}>Assist{openCount(assistItems) ? ` · ${openCount(assistItems)}` : ''}</Btn>
+          <Btn quiet onClick={scanner.show}>Scan</Btn>
           <Btn quiet onClick={() => setHkOpen(true)}>Housekeeping{hk.tasks.length ? ` · ${hk.tasks.length}` : ''}</Btn>
           {(allResources || []).length > 0 && <Btn quiet onClick={() => setStationsOpen(true)}>Stations{needsAttention(stationRows) ? ` · ${needsAttention(stationRows)}` : ''}</Btn>}
           {<Btn quiet onClick={() => setKitsOpen(true)}>Kits & linens{kitsToClean ? ` · ${kitsToClean}` : ''}</Btn>}
@@ -502,6 +505,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={tuitionOpen} onClose={() => setTuitionOpen(false)} title="Tuition"><CollectTuition tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addTuitionToCart?.({ planId: x.planId, name: x.name, program: x.program, amount: x.amount }); setTuitionOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>
       <Drawer accent={accent} open={stationsOpen} onClose={() => setStationsOpen(false)} title="Stations"><Stations firestore={e.firestore} tenantId={e.tenantId} resources={allResources || []} appts={todaysAppts} services={e.services || []} staff={e.staff || []} protocols={protocols || []} onAsk={(ctx: any) => { setStationsOpen(false); setAskFor(ctx); }} /></Drawer>
       <Drawer accent={accent} open={kitsOpen} onClose={() => setKitsOpen(false)} title="Kits & linens"><div className="space-y-8"><Kits firestore={e.firestore} tenantId={e.tenantId} kits={kits || []} services={e.services || []} manager={isMgr} appts={todaysAppts} inventory={allInventory || []} staff={e.staff || []} resources={allResources || []} /><section><p className="mb-2 text-[15px] font-semibold">Sterilisation records</p><Sterilisation tenantId={e.tenantId} tenant={e.selectedTenant} kits={(kits || []) as any} manager={isMgr} /></section><section><p className="mb-2 text-[15px] font-semibold">Disinfection guide</p><Disinfection tenantId={e.tenantId} tenant={e.selectedTenant} manager={isMgr} /></section><section><p className="mb-2 text-[15px] font-semibold">Linens & laundry</p><Linens tenantId={e.tenantId} services={e.services || []} appts={todaysAppts} inventory={allInventory || []} manager={isMgr} staff={e.staff || []} /></section></div></Drawer>
+      <ScanSheet open={scanner.open} onClose={scanner.hide} pending={scanner.pending} tenantId={e.tenantId} tenant={e.selectedTenant || tenant} appts={todaysAppts} services={e.services || []} staff={e.staff || []} manager={isMgr} inventory={e.inventory || []} />
       <Drawer accent={accent} open={hkOpen} onClose={() => setHkOpen(false)} title="Housekeeping"><Housekeeping tenantId={e.tenantId} tenant={e.selectedTenant} appts={todaysAppts} services={e.services || []} staff={e.staff || []} manager={isMgr} allAppts={e.appointmentsFromInventory || []} onGo={(w) => { setHkOpen(false); if (w === 'stations') setStationsOpen(true); else if (w === 'assist') setAssistOpen(true); else setKitsOpen(true); }} /></Drawer>
       <Drawer accent={accent} open={assistOpen} onClose={() => setAssistOpen(false)} title="Assist"><AssistQueue firestore={e.firestore} tenantId={e.tenantId} inventory={allInventory || []} user={getAuth().currentUser} /></Drawer>
       <Drawer accent={accent} open={!!askFor} onClose={() => setAskFor(null)} title="Ask for help">{askFor && <AskForHelp tenantId={e.tenantId} context={askFor} onDone={() => setAskFor(null)} />}</Drawer>

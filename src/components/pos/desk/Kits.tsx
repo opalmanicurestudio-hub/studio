@@ -25,7 +25,7 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 const TONE: Record<KitStatus, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', dirty: 'bg-amber-100 text-amber-900', cleaning: 'bg-violet-100 text-violet-900', out: 'bg-red-100 text-red-800', retired: 'bg-muted text-muted-foreground' };
 const ORDER: KitStatus[] = ['out', 'dirty', 'cleaning', 'in_use', 'ready'];
 
-export function Kits({ firestore, tenantId, kits, services, manager, appts = [], inventory = [], staff = [], resources = [] }: { firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean; appts?: any[]; inventory?: any[]; staff?: any[]; resources?: any[] }) {
+export function Kits({ firestore, tenantId, kits, services, manager, appts = [], inventory = [], staff = [], resources = [], incoming = null, focusId = null, hideScan = false }: { incoming?: { code: string; n: number } | null; focusId?: string | null; hideScan?: boolean; firestore: any; tenantId: string; kits: Kit[]; services: any[]; manager: boolean; appts?: any[]; inventory?: any[]; staff?: any[]; resources?: any[] }) {
   const { selectedTenant } = useTenant() as any; const [fmt, setFmt] = React.useState<LabelFormat>('sticker');   // sticker, tie-on tag or wrap band
   const [invId, setInvId] = React.useState('');   // the inventory item the new kits are units of
   const equipment = React.useMemo(() => (inventory || []).filter((i: any) => i?.type === 'equipment' && i.archived !== true).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [inventory]);
@@ -77,7 +77,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
     const res = moveKit(k, to, who(), { note, visitId: forVisit?.id, clientName: forVisit?.clientName, stationName: station?.name || null });
     if ('error' in res) { setMsg({ ok: false, text: res.error }); return false; }
     setBusy(k.id);
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), { ...(res.patch as any), ...held, byId: getAuth().currentUser?.uid || null });
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), { ...(res.patch as any), ...held, byId: getAuth().currentUser?.uid || null, ...(to !== 'ready' ? { setFor: null, setForName: null, setOutAt: null, setOutStation: null } : {}) });
       if (to === 'out' || to === 'retired' || k.status === 'out') syncNow();   // usable kits changed → booking and stock follow straight away
       // The visit remembers which kit was used on this client (for the record, and so they aren't offered a second one).
       if (to === 'in_use' && forVisit) { try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', forVisit.id), { kits: arrayUnion({ id: k.id, name: k.name, code: k.code, at: new Date().toISOString(), by: who().name }) }); } catch { /* the kit is still marked in use */ } }
@@ -118,13 +118,17 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
     if (!k) { scanFeedback(false); setMsg({ ok: false, text: 'No kit with that code.' }); return; }
     const next = KIT_NEXT[k.status]; if (!next) { scanFeedback(false); setMsg({ ok: false, text: `${k.name} ${k.code} is pulled out — a manager decides what happens next.` }); return; }
     scanFeedback(true);
-    if (next.to === 'in_use') await take(k); else if (next.to === 'ready') await toReady(k); else if (k.status === 'in_use' || k.status === 'dirty') await cleanse(k); else await move(k, next.to); };
+    const noCleanse = k.status === 'cleaning' && !(k as any).cleanse;
+    if (noCleanse) await cleanse(k); else if (next.to === 'in_use') await take(k); else if (next.to === 'ready') await toReady(k); else if (k.status === 'in_use' || k.status === 'dirty') await cleanse(k); else await move(k, next.to); };
   const saveType = async () => { if (!editType) return; const key = kitKey(editType.name); const prev = typeOf(types, editType.name); const version = (prev?.version || 0) + 1;
     try { await setDoc(doc(firestore, 'tenants', tenantId, 'kitTypes', prev?.id || key), { id: prev?.id || key, name: editType.name, items: editType.items, cleanMinutes: Math.max(0, Math.round(editType.cleanMinutes) || 0), cleanse: editType.cleanse?.disinfectantId ? editType.cleanse : null, version, updatedAt: new Date().toISOString(), by: who().name });
       void logAuditClient(firestore, tenantId, { action: 'kit.contents', targetType: 'kitType', targetId: prev?.id || key, actor: actor(), before: { items: prev?.items || [], cleanMinutes: prev?.cleanMinutes || 0 }, after: { items: editType.items, cleanMinutes: editType.cleanMinutes }, summary: `${editType.name}: contents v${version} — ${editType.items.length} item${editType.items.length === 1 ? '' : 's'}, ${editType.cleanMinutes || 0} min to clean` });
       setMsg({ ok: true, text: `${editType.name} contents saved (version ${version}). The products inside the kits are now held as “in kits” in Inventory.` }); setEditType(null); syncNow(); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
   const nfc = useNfc((id) => { void handleCode(id); });
+  // A code scanned somewhere else (the one-scanner sheet, a USB scanner on the desk) arrives here and is handled the same way.
+  const inRef = React.useRef(handleCode); inRef.current = handleCode;
+  React.useEffect(() => { if (incoming?.code) void inRef.current(incoming.code); }, [incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const onScan = async (ev: React.FormEvent) => { ev.preventDefault(); const v = typed; setTyped(''); if (v.trim()) await handleCode(v); };
   const add = async () => { const name = newName.trim().slice(0, 60); const n = Math.max(1, Math.min(30, Math.round(howMany) || 1)); if (!name) return;
     const inv: any = equipment.find((i: any) => i.id === invId) || null;
@@ -139,6 +143,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
 
   return (
     <div className="space-y-3">
+      {!hideScan && <>
       <form onSubmit={onScan} className="flex gap-2">
         <input autoFocus value={typed} onChange={(e) => setTyped(e.target.value.slice(0, 80))} placeholder={editType ? "Scan or type a product’s SKU" : checking ? "Scan or type an item" : "Scan or type a kit’s code"} aria-label="Code" autoCapitalize="characters" className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[15px] uppercase tracking-wider" />
         <button type="submit" disabled={!typed.trim()} className="h-11 rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background disabled:opacity-40">{editType ? "Add" : checking ? "Count it" : "Move it on"}</button>
@@ -147,6 +152,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
       {nfc.supported && <button type="button" onClick={() => (nfc.on ? nfc.end() : nfc.start())} className="h-10 w-full rounded-xl border text-[13px] font-semibold">{nfc.on ? 'Stop reading NFC — ready, hold a tag to the phone' : 'Tap NFC tags with this phone'}</button>}
       {nfc.error && <p className="text-[13px] text-red-700" role="alert">{nfc.error}</p>}
       {cam && <ScanGate onScan={(v) => { void handleCode(v); }} label={editType ? 'Scan each product that belongs in the kit' : checking ? 'Scan each item as you put it in' : 'Point the camera at a kit label'} />}
+      </>}
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
       {checking && (() => { const res = contentsCheck(checking.items, checking.have); return (
         <div className="space-y-2 rounded-2xl border-2 bg-card p-3" role="dialog" aria-label="Check the kit’s contents">
@@ -200,14 +206,14 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <button type="button" onClick={() => setAskFor(null)} className="h-10 rounded-full px-3 text-[13px]">Cancel</button>
           </div>
         </div>)}
-      {!live.length && <p className="text-[14px] text-muted-foreground">No kits yet. {manager ? 'Add the sets of tools you rotate between clients, and the desk will show when a clean one is waiting.' : 'A manager can add them here.'}</p>}
-      {(() => { const out = live.filter((k) => k.status === 'in_use'); if (!out.length) return null;
+      {!focusId && !live.length && <p className="text-[14px] text-muted-foreground">No kits yet. {manager ? 'Add the sets of tools you rotate between clients, and the desk will show when a clean one is waiting.' : 'A manager can add them here.'}</p>}
+      {!focusId && (() => { const out = live.filter((k) => k.status === 'in_use'); if (!out.length) return null;
         const by = new Map<string, Kit[]>(); for (const k of out) { const key = String((k as any).staffName || 'No provider recorded'); by.set(key, [...(by.get(key) || []), k]); }
         return (<div className="space-y-1 rounded-2xl border bg-card p-3 text-[13px]">
           <p className="font-semibold">Who has what</p>
           {[...by.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, ks]) => <p key={name}><b>{name.split(' ')[0] === 'No' ? name : name.split(' ')[0]}</b> — {ks.map((k) => `${k.name} ${k.code}${k.clientName ? ` (${k.clientName}${k.stationName ? `, ${k.stationName}` : ''})` : ''}`).join(' · ')}</p>)}
         </div>); })()}
-      {supply.length > 0 && (
+      {!focusId && supply.length > 0 && (
         <div className="space-y-1 rounded-2xl border bg-card p-3">
           {supply.map((s) => (
             <p key={s.name} className="flex flex-wrap items-baseline justify-between gap-x-3 text-[14px]"><span className="font-semibold">{s.name}</span>
@@ -215,20 +221,20 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
               {(() => { const t = typeOf(types, s.name); return <span className="flex w-full items-center justify-between gap-2 text-[12px] text-muted-foreground"><span>{t?.items?.length ? `${t.items.length} item${t.items.length === 1 ? '' : 's'} in each` : 'No contents list yet'}{t?.cleanMinutes ? ` · ${t.cleanMinutes} min to clean` : ''}</span>
                 {manager && <button type="button" onClick={() => setEditType({ name: t?.name || s.name, items: t?.items || [], cleanMinutes: Number(t?.cleanMinutes) || 0, cleanse: (t as any)?.cleanse || null })} className="h-8 rounded-full border px-3 text-[12px] font-semibold text-foreground">{t?.items?.length ? 'Edit contents' : 'Set contents'}</button>}</span>; })()}</p>))}
         </div>)}
-      {(() => { const left = kitsLeftOut(live, (id) => { const a = (appts || []).find((x: any) => x.id === id); return a ? (['cancelled', 'no_show'].includes(String(a.status)) ? 'cancelled' : stageOf(a)) : null; });
+      {!focusId && (() => { const left = kitsLeftOut(live, (id) => { const a = (appts || []).find((x: any) => x.id === id); return a ? (['cancelled', 'no_show'].includes(String(a.status)) ? 'cancelled' : stageOf(a)) : null; });
         if (!left.length) return null;
         return (<div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border-2 border-amber-300 bg-amber-50 p-3 text-[13px]">
           <p className="font-semibold text-amber-900">{left.length} kit{left.length === 1 ? ' is' : 's are'} still marked in use after the visit finished.</p>
           <button type="button" disabled={!!busy} onClick={async () => { for (const k of left) await move(k, 'dirty'); }} className="h-9 rounded-full bg-amber-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Send to cleaning</button>
         </div>); })()}
-      {(() => { const rows = equipment.map((i: any) => ({ i, n: live.filter((k: any) => k.inventoryItemId === i.id).length })).filter((r) => r.n > 0); const loose = live.filter((k: any) => !k.inventoryItemId).length;
+      {!focusId && (() => { const rows = equipment.map((i: any) => ({ i, n: live.filter((k: any) => k.inventoryItemId === i.id).length })).filter((r) => r.n > 0); const loose = live.filter((k: any) => !k.inventoryItemId).length;
         if (!rows.length && !loose) return null;
         return (<div className="space-y-1 rounded-2xl border bg-card p-3 text-[13px]">
           <p className="font-semibold">Against inventory</p>
           {rows.map(({ i, n }) => { const own = Number(i.totalStock) || 0; return <p key={i.id} className={own === n ? 'text-muted-foreground' : 'font-semibold text-amber-800'}>{i.name}: {own} owned · {n} labelled{own > n ? ` — ${own - n} not labelled yet` : own < n ? ` — ${n - own} more labelled than owned` : ''}</p>; })}
           {loose > 0 && <p className="text-amber-800">{loose} kit{loose === 1 ? ' isn’t' : 's aren’t'} linked to an inventory item.</p>}
         </div>); })()}
-      {[...live].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || a.name.localeCompare(b.name) || a.code.localeCompare(b.code)).map((k) => { const next = KIT_NEXT[k.status]; return (
+      {[...live].filter((k) => !focusId || k.id === focusId).sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || a.name.localeCompare(b.name) || a.code.localeCompare(b.code)).map((k) => { const next = KIT_NEXT[k.status]; return (
         <div key={k.id} className="rounded-2xl border bg-card p-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -236,7 +242,8 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
               <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' ? `${[k.clientName ? `Client: ${k.clientName}` : null, (k as any).staffName ? `Provider: ${String((k as any).staffName).split(' ')[0]}` : null, k.stationName || null].filter(Boolean).join(' · ') || 'Not tied to a client'} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
               {k.status === 'cleaning' && (() => { const c = cleanseState(k); const cl: any = (k as any).cleanse; return cl ? <p className={`text-[13px] ${c.done ? 'font-semibold text-emerald-800' : ''}`}>{c.done ? `Cleansed (${cl.name}) — ready for the steriliser or its check` : <>{METHOD_LABEL[cl.method as 'wipe' | 'soak'] || 'Cleanse'} with {cl.name} · <LiveTimer since={cl.startedAt} minutes={cl.minutes} doneLabel="Cleansed" /></>}</p> : <p className="text-[13px] font-semibold text-amber-800">No cleanse recorded — start its cleanse before it goes on.</p>; })()}
               {k.status === 'in_use' && <p className="text-[12px] text-muted-foreground">In use <LiveTimer since={k.at} /></p>}
-              {setFor[k.id] && k.status !== 'in_use' && <p className="text-[12px] font-semibold" style={{ color: '#7A5C3A' }}>Set aside for {setFor[k.id].clientName.split(' ')[0]} · {hm(setFor[k.id].startMs)}{(() => { const p: any = (staff || []).find((x: any) => x.id === setFor[k.id].staffId); return p?.name ? ` with ${String(p.name).split(' ')[0]}` : ''; })()}</p>}
+              {(k as any).setFor && k.status === 'ready' && <p className="text-[12px] font-semibold" style={{ color: '#17181A' }}>Set out for {String((k as any).setForName || 'a visit').split(' ')[0]}{(k as any).setOutStation ? ` at ${(k as any).setOutStation}` : ''} · ties to them when the visit starts</p>}
+              {setFor[k.id] && k.status !== 'in_use' && !(k as any).setFor && <p className="text-[12px] font-semibold" style={{ color: '#7A5C3A' }}>Set aside for {setFor[k.id].clientName.split(' ')[0]} · {hm(setFor[k.id].startMs)}{(() => { const p: any = (staff || []).find((x: any) => x.id === setFor[k.id].staffId); return p?.name ? ` with ${String(p.name).split(' ')[0]}` : ''; })()}</p>}
               {k.lastSterilised?.passed && <p className="text-[12px] text-muted-foreground">Sterilised {new Date(k.lastSterilised.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{k.lastSterilised.device ? ` · ${k.lastSterilised.device}` : ''} · {k.lastSterilised.by}</p>}
               {k.lastCheck && <p className="text-[12px] text-muted-foreground">Contents {k.lastCheck.ok ? 'checked' : 'incomplete'} · {new Date(k.lastCheck.at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {k.lastCheck.by}</p>}
               {(k as any).inventoryName && <p className="text-[12px] text-muted-foreground">Inventory: {(k as any).inventoryName}</p>}
@@ -266,7 +273,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {next && <button type="button" disabled={busy === k.id} onClick={() => (next.to === 'in_use' ? take(k) : next.to === 'ready' ? toReady(k) : k.status === 'in_use' || k.status === 'dirty' ? cleanse(k) : move(k, next.to))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{next.label}</button>}
+              {next && <button type="button" disabled={busy === k.id} onClick={() => (k.status === 'cleaning' && !(k as any).cleanse ? cleanse(k) : next.to === 'in_use' ? take(k) : next.to === 'ready' ? toReady(k) : k.status === 'in_use' || k.status === 'dirty' ? cleanse(k) : move(k, next.to))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{k.status === 'cleaning' && !(k as any).cleanse ? 'Start cleanse' : next.label}</button>}
               {(() => { const t = typeOf(types, k.name); return t?.items?.length && k.status !== 'out' && k.status !== 'cleaning' ? <button type="button" onClick={() => setChecking({ kit: k, items: t.items, have: t.items.map(() => 0), version: t.version || 1 })} className="h-9 rounded-full border px-3 text-[13px]">Check contents</button> : null; })()}
               {k.status === 'in_use' && <button type="button" onClick={() => { setSwapping(k.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Swap at the chair</button>}
               {k.status !== 'out' && <button type="button" onClick={() => { setPulling(k.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Something’s wrong</button>}
@@ -277,7 +284,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
               </> : <span className="self-center text-[12px] text-muted-foreground">Waiting for a manager</span>)}
             </div>)}
         </div>); })}
-      {manager && (adding ? (
+      {manager && !focusId && (adding ? (
         <div className="space-y-2 rounded-2xl border bg-card p-3">
           <input list="kit-types" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Kit type (e.g. Manicure kit)" aria-label="Kit type" className="h-10 w-full rounded-xl border bg-background px-3 text-[14px]" />
           <datalist id="kit-types">{typeNames.map((n) => <option key={n} value={n} />)}</datalist>

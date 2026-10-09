@@ -38,6 +38,8 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
       } }
   } catch (e) { console.error('[ops-tick] turnover', tenantId, e); } }
 
+  // 2-) Set out at the station and the visit has started → tied to the client by itself
+  try { await autoTie(db, tenantId, appts, kitsAll, linens, nowIso); } catch (e) { console.error('[ops-tick] set out', tenantId, e); }
   // 2a) Kits left "in use" after their visit
   if (kitsAll.length) { try {
     const { kitsLeftOut, KIT_LABEL } = await import('@/lib/kits'); const { logAuditAdmin } = await import('@/lib/audit');
@@ -49,7 +51,7 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
     await kitTimers(db, tenantId, kitsAll, now);
     // 2c) Shortages ahead: a visit in the next hour whose kit or linen bundle won't be ready in time — told once per visit and type.
     try { const { planSetAside } = await import('@/lib/setaside');
-      const [types, bundles, rentals] = await Promise.all([db.collection(`${T}/kitTypes`).get().then(rows), db.collection(`${T}/linenBundles`).limit(400).get().then(rows), db.collection(`${T}/boothReservations`).where('startTime', '>=', new Date(now - 12 * 3600000).toISOString()).limit(200).get().then(rows).catch(() => [])]);
+      const [types, bundles, rentals] = await Promise.all([db.collection(`${T}/kitTypes`).get().then(rows), db.collection(`${T}/linenBundles`).limit(400).get().then(rows), db.collection(`${T}/boothReservations`).where('startDate', '>=', new Date(now - 36 * 3600000).toISOString().slice(0, 10)).limit(200).get().then(rows).catch(() => [])]);
       const plan = planSetAside({ visits: appts, services: await services(), kits: kitsAll as any, kitTypes: types as any, bundles: bundles as any, linens: linens as any, resources, reservations: rentals as any, now, horizonHours: 1.5 });
       const soon = plan.shortages.filter((x) => x.startMs - now <= 60 * 60000 && !(appts.find((a: any) => a.id === x.visitId)?.shortTold || {})[x.type.replace(/[.\s/]+/g, '_')]);
       if (soon.length) { const staffRows = rows(await db.collection(`${T}/staff`).get());
@@ -75,6 +77,16 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
         b.set(a.ref, { linensCounted: true }, { merge: true }); any = true; out.linenVisits++; }
       for (const l of auto) if (touched.has(l.id)) b.update(db.doc(`${T}/linens/${l.id}`), { clean: l.clean, dirty: l.dirty, inUse: Math.max(0, Number(l.inUse) || 0), by: 'System', at: nowIso });
       if (any) await b.commit(); }
+    // Rentals of a room / station: once checked out, the linens that room needs for every booking move to dirty, once.
+    if (resources.some((r: any) => Array.isArray(r.needs) && r.needs.some((n: any) => n?.kind === 'linen'))) {
+      const { resourceNeeds } = await import('@/lib/linens');
+      const rs = rows(await db.collection(`${T}/boothReservations`).where('startDate', '>=', new Date(now - 36 * 3600000).toISOString().slice(0, 10)).limit(200).get()).filter((r: any) => String(r.status) === 'completed' && !r.linensCounted);
+      if (rs.length) { const b = db.batch(); const touched = new Set<string>(); let any = false;
+        for (const r of rs) { const m = /^space_(.+)_\d+$/.exec(String(r.boothId || '')); const needs = m ? resourceNeeds({ requiredResourceIds: [m[1]] }, resources, 'linen') : [];
+          for (const n of needs) { const l: any = auto.find((x: any) => sameLinen(x.name, n.name)); if (!l) continue; const back = moveLinen(l, 'return', n.qty); l.inUse = back.inUse; l.dirty = back.dirty; if (back.moved < n.qty) { const u = moveLinen(l, 'use', n.qty - back.moved); l.clean = u.clean; l.dirty = u.dirty; } touched.add(l.id); }
+          b.set(db.doc(`${T}/boothReservations/${r.id}`), { linensCounted: true }, { merge: true }); any = true; }
+        for (const l of auto) if (touched.has(l.id)) b.update(db.doc(`${T}/linens/${l.id}`), { clean: l.clean, dirty: l.dirty, inUse: Math.max(0, Number(l.inUse) || 0), by: 'System', at: nowIso });
+        if (any) await b.commit(); } }
     await washTimers(db, tenantId, linens, now);
   } catch (e) { console.error('[ops-tick] linens', tenantId, e); } }
   return out;
@@ -124,6 +136,27 @@ async function kitTimers(db: any, tenantId: string, kits: any[], now: number): P
   await b.commit();
 }
 /** A wash load's time is up → tell whoever started it (else the managers). Once per load. */
+/** Set out at the station, and the visit has started: the kit / bundle is tied to that client by itself (no scan at the chair). */
+async function autoTie(db: any, tenantId: string, appts: any[], kitsAll: any[], linens: any[], nowIso: string): Promise<void> {
+  const T = `tenants/${tenantId}`; const live = new Map(appts.filter((a: any) => String(a.status) === 'servicing' || (a.actualStartTime && !['completed', 'cancelled', 'no_show'].includes(String(a.status)))).map((a: any) => [a.id, a]));
+  if (!live.size) return;
+  const { logAuditAdmin } = await import('@/lib/audit');
+  for (const k of kitsAll.filter((x: any) => x.status === 'ready' && x.setFor && live.has(x.setFor))) { const a: any = live.get(k.setFor);
+    await db.doc(`${T}/kits/${k.id}`).update({ status: 'in_use', by: 'System', at: nowIso, visitId: a.id, clientName: a.clientName || null, staffId: a.staffId || null, stationName: k.setOutStation || null, setFor: null, setForName: null, setOutAt: null, setOutStation: null,
+      history: [...(k.history || []), { at: nowIso, by: 'System', from: 'ready', to: 'in_use', note: 'Set out — visit started' }].slice(-40) });
+    await db.doc(`${T}/appointments/${a.id}`).set({ kits: [...(Array.isArray(a.kits) ? a.kits : []), { id: k.id, name: k.name, code: k.code, at: nowIso, by: 'System' }] }, { merge: true });
+    k.status = 'in_use'; k.visitId = a.id;
+    await logAuditAdmin(db, tenantId, { action: 'kit.in_use', targetType: 'kit', targetId: k.id, actor: { type: 'system', name: 'set out' }, before: { status: 'ready' }, after: { status: 'in_use', visitId: a.id }, summary: `${k.name} ${k.code}: set out → in use for ${a.clientName || 'the client'} (visit started)` }).catch(() => {}); }
+  const bSnap = await db.collection(`${T}/linenBundles`).where('status', '==', 'clean').limit(300).get();
+  for (const d of bSnap.docs) { const b: any = { id: d.id, ...(d.data() || {}) }; if (!b.setFor || !live.has(b.setFor)) continue; const a: any = live.get(b.setFor);
+    const l: any = linens.find((x: any) => x.id === b.linenId); if (!l) continue;
+    const take = Math.min(Number(b.qty) || 0, Number(l.clean) || 0); l.clean = (Number(l.clean) || 0) - take; l.inUse = (Number(l.inUse) || 0) + take;
+    await db.doc(`${T}/linens/${l.id}`).update({ clean: l.clean, inUse: l.inUse, by: 'System', at: nowIso });
+    await d.ref.update({ status: 'in_use', at: nowIso, by: 'System', visitId: a.id, clientName: a.clientName || null, holderId: a.staffId || null, setFor: null, setForName: null, setOutAt: null, setOutStation: null });
+    await db.doc(`${T}/appointments/${a.id}`).set({ bundles: [...(Array.isArray(a.bundles) ? a.bundles : []), { id: b.id, code: b.code, name: b.name, qty: b.qty, at: nowIso, by: 'System' }] }, { merge: true });
+    await logAuditAdmin(db, tenantId, { action: 'bundle.in_use', targetType: 'linenBundle', targetId: b.id, actor: { type: 'system', name: 'set out' }, summary: `${b.name} bundle ${b.code} (${b.qty}): set out → out on the floor for ${a.clientName || 'the client'} (visit started)` }).catch(() => {}); }
+}
+
 async function washTimers(db: any, tenantId: string, linens: any[], now: number): Promise<void> {
   const T = `tenants/${tenantId}`; const { secondsLeft } = await import('@/lib/kits');
   const many = (n: any) => { const x = String(n || '').toLowerCase(); return /s$/.test(x) ? x : `${x}s`; };

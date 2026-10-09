@@ -14,7 +14,8 @@ import { cleansePlan } from '@/lib/cleanse';
 import { delaySettings } from '@/lib/delay';
 import { planSetAside } from '@/lib/setaside';
 import { PrepPlan } from '@/components/pos/desk/PrepPlan';
-import { ProductionBoard, type Running } from '@/components/pos/desk/ProductionBoard';
+import { setOutItem } from '@/lib/setout-client';
+import { ProductionBoard, TimerGrid, type Running } from '@/components/pos/desk/ProductionBoard';
 import { startCleanse } from '@/lib/cleanse-client';
 import { moveLinen, linenOutlook, linenUpdate, afterWash, loadDecision, LINEN_MOVE_LABEL, type LinenMove } from '@/lib/linens';
 import { attendantQueue, housekeepingMode, taskLimit, tasksHeldBy, attendantsOnNow, type OpsTask } from '@/lib/attendant';
@@ -36,8 +37,8 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const bq = useMemoFirebase(() => q('linenBundles'), [firestore, tenantId]); const { data: bundles } = useCollection<any>(bq);
   // Timers for the production board: steriliser cycles running and contact timers still open.
   // Rentals of rooms / stations today (booth reservations of a mirrored space) — they can need linens too.
-  const rSince = React.useMemo(() => new Date(Date.now() - 12 * 3600000).toISOString(), []);
-  const rvq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'boothReservations'), where('startTime', '>=', rSince)) : null), [firestore, tenantId, rSince]); const { data: rentals } = useCollection<any>(rvq);
+  const rSince = React.useMemo(() => { const d = new Date(Date.now() - 24 * 3600000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, []);
+  const rvq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'boothReservations'), where('startDate', '>=', rSince)) : null), [firestore, tenantId, rSince]); const { data: rentals } = useCollection<any>(rvq);
   const cyq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'sterilisationCycles'), where('status', '==', 'running')) : null), [firestore, tenantId]); const { data: cycles } = useCollection<any>(cyq);
   const ctq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'contactTimers'), where('doneAt', '==', null)) : null), [firestore, tenantId]); const { data: contacts } = useCollection<any>(ctq);
   const hSince = React.useMemo(() => new Date(Date.now() - 16 * 3600000).toISOString(), []);
@@ -78,10 +79,13 @@ async function assistApi(body: any) { const tk = await getAuth().currentUser?.ge
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const toDate = (v: any) => new Date(typeof v === 'string' ? v : v?.toDate ? v.toDate() : v?.seconds ? v.seconds * 1000 : v);
 
-export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' | 'board' }) {
-  const { running, plan, tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff); const [at, setAt] = React.useState(0);   // which job the focus view is on
+export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' | 'board' | 'timers' }) {
+  const { running, plan, bundles, tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff);
+  // Set out: which kits / bundles are already at their station for a visit, and the tap that marks one.
+  const setOut = React.useMemo(() => { const m: Record<string, string> = {}; for (const x of [...(kits || []), ...(bundles || [])] as any[]) if (x.setFor && (x.status === 'ready' || x.status === 'clean')) m[x.id] = x.setFor; return m; }, [kits, bundles]);
+  const onSetOut = async (it: any, v: any) => { const a: any = (appts || []).find((x: any) => x.id === v.visitId); const st: any = a && Array.isArray(a.requiredResourceIds) ? (resources || []).find((r: any) => a.requiredResourceIds.includes(r.id)) : null; const e = await setOutItem(firestore, tenantId, it, v, st?.name || null); setMsg(e || `${it.type} ${it.code || ''} set out for ${String(v.clientName).split(' ')[0]}${st?.name ? ` at ${st.name}` : ''}.`); }; const [at, setAt] = React.useState(0);   // which job the focus view is on
   const [noteFor, setNoteFor] = React.useState<string | null>(null); const [note, setNote] = React.useState(''); const [ending, setEnding] = React.useState(false);
-  const [prepDay, setPrepDay] = React.useState<'today' | 'tomorrow'>('tomorrow');
+  const [prepDay, setPrepDay] = React.useState<'today' | 'tomorrow'>('tomorrow'); const [closeOpen, setCloseOpen] = React.useState(false);
   const me = getAuth().currentUser?.uid || null;
   const [busy, setBusy] = React.useState<string | null>(null); const [msg, setMsg] = React.useState<string | null>(null); const [setup, setSetup] = React.useState(false);
   const mode = housekeepingMode(tenant); const picked: string[] = Array.isArray(tenant?.ops?.attendantIds) ? tenant.ops.attendantIds.map(String) : [];
@@ -234,7 +238,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
             <p className="text-[12px] text-muted-foreground">The desk, managers, the next provider and housekeeping are always told. A message goes again only if the delay grows by the same amount again.</p></>; })()}
           <button type="button" onClick={() => setSetup(false)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Done</button>
         </div>
-      ) : <div className="flex flex-wrap gap-2"><a href={`/housekeeping/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full border px-4 text-[13px] font-semibold">Open the wall screen</a><button type="button" onClick={() => setSetup(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Who does housekeeping: {mode === 'attendants' ? `${picked.length} named` : 'each provider'}</button></div>)}
+      ) : <div className="flex flex-wrap gap-2"><a href={`/housekeeping/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full border px-4 text-[13px] font-semibold">Open the wall screen</a><button type="button" onClick={() => setCloseOpen((x) => !x)} aria-pressed={closeOpen} className="h-10 rounded-full border px-4 text-[13px] font-semibold">{closeOpen ? 'Hide closing check' : 'Closing check'}</button><button type="button" onClick={() => setSetup(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Who does housekeeping: {mode === 'attendants' ? `${picked.length} named` : 'each provider'}</button></div>)}
   </>);
   const status = (<>
       {msg && <p className="text-[14px] font-semibold" role="status">{msg}</p>}
@@ -257,6 +261,30 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
         {shiftBits}
       </div>); }
   // LANES: the wall board — do now, next up, in progress, side by side.
+  // CLOSING UP: once today's last visit is done (or on demand), what still needs finishing before the lights go off.
+  const dayDone = (appts || []).length > 0 && (appts || []).every((a: any) => ['complete', 'cancelled', 'ready_to_pay'].includes(stageOf(a)) || ['completed', 'cancelled', 'no_show', 'declined'].includes(String(a.status)));
+  const closing = (() => { const k = (kits || []) as any[]; const l = (linens || []) as any[]; const lines: { label: string; n: number }[] = [
+      { label: 'Kits still marked in use', n: k.filter((x) => x.status === 'in_use').length },
+      { label: 'Kits waiting for their cleanse', n: k.filter((x) => x.status === 'dirty').length },
+      { label: 'Kits cleansing or waiting for the steriliser / check', n: k.filter((x) => x.status === 'cleaning').length },
+      { label: 'Steriliser cycles without a result', n: running.filter((r) => r.kind === 'cycle').length },
+      { label: 'Contact timers still open', n: running.filter((r) => r.kind === 'contact').length },
+      { label: 'Loads in the washer or dryer', n: l.filter((x) => Number(x.washing) > 0).length + l.filter((x) => Number(x.drying) > 0).length },
+      { label: 'Linens to fold and put away', n: l.reduce((a, x) => a + (Number(x.folding) || 0), 0) },
+      { label: 'Linens in the bin', n: l.reduce((a, x) => a + (Number(x.dirty) || 0), 0) },
+      { label: 'Stations to reset or check', n: visible.filter((t) => t.kind === 'station' || t.kind === 'inspect').length },
+      { label: 'Requests not yet done', n: visible.filter((t) => t.kind === 'request').length } ];
+    const left = lines.filter((x) => x.n > 0);
+    return (
+      <section aria-label="Closing up" className="rounded-[22px] bg-white p-4 shadow-[0_10px_24px_-18px_rgba(23,24,26,0.45)]" style={{ border: `1px solid ${left.length ? '#F0D9AE' : '#CDE7D4'}` }}>
+        <p className="text-[16px] font-[800]">{left.length ? `Closing up — ${left.length} thing${left.length === 1 ? '' : 's'} left` : 'Closing up — all done'}</p>
+        <ul className="mt-2 space-y-1">{lines.map((x) => <li key={x.label} className="flex items-center gap-2 text-[14px]"><span aria-hidden className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-[800]" style={{ background: x.n ? '#FDF1DC' : '#E3F3E7', color: x.n ? '#7A4A00' : '#1F6B3A' }}>{x.n ? x.n : '✓'}</span><span style={{ color: x.n ? '#17181A' : '#8A847A' }}>{x.label}</span></li>)}</ul>
+        <p className="mt-2 text-[12px] text-muted-foreground">Kits left in use after their visit move to “needs cleaning” by themselves; loads keep their timers overnight. Check tomorrow’s readiness in the card above.</p>
+      </section>); })();
+  const showClosing = dayDone || closeOpen;
+
+  // TIMERS: just the countdown rings (the phone's Timers tab).
+  if (view === 'timers') return <div className="space-y-3">{status}<TimerGrid running={running} /></div>;
   // BOARD: the production board — Now · Prepare · In process · Restock.
   if (view === 'board') { const RESTOCK = ['fold', 'kit_finish', 'kit_decide', 'laundry_setup'];
     const nowL = visible.filter((t) => !RESTOCK.includes(t.kind)).sort((a, b) => Number(!!a.claimed) - Number(!!b.claimed) || b.score - a.score);   // most urgent first, jobs already taken last
@@ -264,22 +292,24 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
     return (
       <div className="space-y-4">
         {topBits}{status}
-        <ProductionBoard now={nowL} restock={rest} plan={plan} running={running} card={(t) => card(t)} staff={staff || []} />
+        {showClosing && closing}
+        <ProductionBoard now={nowL} restock={rest} plan={plan} running={running} card={(t) => card(t)} staff={staff || []} onSetOut={onSetOut} setOut={setOut} />
         {shiftBits}
       </div>); }
   if (view === 'lanes') return (
     <div className="space-y-4">
       {topBits}{status}
       {visible.length ? <div className="grid gap-5 lg:grid-cols-3">{lane('Do now', doNow, 'urgent')}{lane('Next up', nextUp, 'plain')}{lane('In progress', inProgress, 'plain')}</div> : allClear}
-      <PrepPlan plan={plan} staff={staff || []} />
+      <PrepPlan plan={plan} staff={staff || []} onSetOut={onSetOut} setOut={setOut} />
       {shiftBits}
     </div>);
   // LIST (the desk drawer): the same three groups, stacked.
   return (
     <div className="space-y-4">
       {topBits}{status}
+      {showClosing && closing}
       {!visible.length ? allClear : <>{doNow.length > 0 && lane('Do now', doNow, 'urgent')}{nextUp.length > 0 && lane('Next up', nextUp, 'plain')}{inProgress.length > 0 && lane('In progress', inProgress, 'plain')}</>}
-      <PrepPlan plan={plan} staff={staff || []} />
+      <PrepPlan plan={plan} staff={staff || []} onSetOut={onSetOut} setOut={setOut} />
       {shiftBits}
       {settingsBits}
     </div>);

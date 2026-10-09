@@ -8,6 +8,9 @@ import { doc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { logAuditClient } from '@/lib/audit-client';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
+import { printCodeLabels, brandOf } from '@/lib/print-labels';
+import { stationCode } from '@/lib/scan-route';
+import { useTenant } from '@/context/TenantContext';
 import { stationReadiness, READINESS_LABEL, type Readiness, type StationRow } from '@/lib/readiness';
 
 const TONE: Record<Readiness, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', turnover: 'bg-amber-100 text-amber-900', inspect: 'bg-violet-100 text-violet-900', blocked: 'bg-red-100 text-red-800' };
@@ -56,12 +59,16 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
       setTicked((t) => { const n = { ...t }; delete n[r.id]; return n; }); },
     unblock: (r: StationRow) => save(r.id, { isOutOfService: false, readiness: { status: 'ready', at: new Date().toISOString(), by: who() } }, { action: 'station.unblocked', summary: `${r.name} unblocked` }),
   };
+  const { selectedTenant } = useTenant() as any;
   if (mine && !rows.some((r) => !onlyRow || onlyRow(r))) return null;   // a provider's own list: nothing to do, nothing shown
   if (!rows.length) return <p className="text-[14px] text-muted-foreground">No rooms or equipment yet — add them under Resources, then link them to services.</p>;
   const order: Readiness[] = ['turnover', 'inspect', 'blocked', 'in_use', 'ready'];
   const sorted = [...rows].filter((r) => !onlyRow || onlyRow(r)).sort((a, b) => (b.overdueMin || 0) - (a.overdueMin || 0) || order.indexOf(a.status) - order.indexOf(b.status) || a.name.localeCompare(b.name));
+  // Station labels: stick one on each chair / room; scanning it opens that station's reset checklist on any phone.
+  const printStationLabels = async () => { if (!(await printCodeLabels((resources || []).filter((r: any) => r && r.id).map((r: any) => ({ title: String(r.name || 'Station'), sub: 'Station', code: stationCode(r.id), steps: ['Scan to see this station’s reset', 'Tick each step — the last tick marks it ready'] })), 'Station labels', brandOf(selectedTenant), 'sticker'))) setErr('Allow pop-ups to print labels.'); };
   return (
     <div className="space-y-2">
+      {!onlyRow && !mine && <div className="flex justify-end"><button type="button" onClick={printStationLabels} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Print station labels</button></div>}
       {err && <p className="text-[13px] font-medium text-red-700" role="alert">{err}</p>}
       {sorted.map((r) => {
         const mins = r.readyBy ? Math.max(0, Math.ceil((Date.parse(r.readyBy) - now) / 60000)) : 0;

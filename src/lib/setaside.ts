@@ -33,8 +33,10 @@ function endOf(a: any, services: any[], startMs: number, now: number): number {
 
 /** Rentals of a room / station (booth reservations of a mirrored space) as bookings that can need linens and kits. */
 export function rentalsAsVisits(reservations: any[]): any[] {
-  return (reservations || []).filter((r) => r && r.startTime && r.endTime && !['cancelled', 'refunded', 'completed', 'cancel_requested'].includes(String(r.status || '')))
-    .map((r) => { const m = /^space_(.+)_\d+$/.exec(String(r.boothId || '')); return m ? { id: `res:${r.id}`, clientName: r.guestName || r.renterName || r.name || 'Rental', staffId: null, status: r.checkedInAt ? 'servicing' : 'confirmed', actualStartTime: r.checkedInAt || null, startTime: r.startTime, endTime: r.endTime, requiredResourceIds: [m[1]], isRental: true } : null; })
+  // Rentals keep a date plus "HH:mm" times (hourly); day bookings without times aren't planned here.
+  const at = (r: any, t: any) => { const v = String(t || ''); if (/^\d{1,2}:\d{2}/.test(v) && r.startDate) { const d = new Date(`${r.startDate}T${v.length === 4 ? '0' + v : v.slice(0, 5)}:00`); return Number.isFinite(d.getTime()) ? d.toISOString() : null; } return Date.parse(v) ? new Date(v).toISOString() : null; };
+  return (reservations || []).filter((r) => r && r.startTime && r.endTime && !['cancelled', 'refunded', 'completed', 'cancel_requested', 'no_show'].includes(String(r.status || '')))
+    .map((r) => { const m = /^space_(.+)_\d+$/.exec(String(r.boothId || '')); const st = at(r, r.startTime), en = at(r, r.endTime); return m && st && en ? { id: `res:${r.id}`, clientName: r.guestName || r.renterName || r.name || 'Rental', staffId: null, status: r.status === 'checked_in' ? 'servicing' : 'confirmed', actualStartTime: r.status === 'checked_in' ? (r.actualCheckIn || st) : null, startTime: st, endTime: en, requiredResourceIds: [m[1]], isRental: true } : null; })
     .filter(Boolean);
 }
 /** Everything a booking needs: its service and add-ons, plus what the rooms / stations it uses need for every booking. */
