@@ -33,3 +33,49 @@ export function stepNow(steps: Step[], startMs: number, now = Date.now()): { ind
   const i = steps.findIndex((s) => t >= s.from && t < s.to);
   return { index: i, leftMin: Math.max(1, Math.ceil(steps[i].to - t)), pct: ((t - first) / (last - first)) * 100, state: 'during' };
 }
+
+// ── Live timing: the plan, corrected by what has actually happened ─────────────────────────────────────────────────
+// A provider can tap "Next step" (recorded as stepStarts[i] = when step i began) and "More time" (stepExtra[i] = extra
+// minutes for step i). Without taps the steps follow the plan, and the last hands-on step stretches until the visit ends.
+export interface LiveStep extends Step { fromMs: number; toMs: number; plannedFromMs: number; plannedToMs: number; over: boolean; extra: number }
+export interface LiveTiming { steps: LiveStep[]; index: number; state: 'before' | 'during' | 'after'; leftMin: number; pct: number;
+  /** Minutes the client's part will finish later (+) or earlier (−) than booked. */ delayMin: number;
+  /** When the client's part is now expected to end, and when the station is expected to be free again. */ clientEndMs: number; freeMs: number; plannedClientEndMs: number; recorded: boolean }
+
+export function liveTiming(steps: Step[], appt: any, now = Date.now()): LiveTiming | null {
+  const startMs = clientStartMs(appt); if (!steps.length || !startMs) return null;
+  const bookedMs = ms(appt?.startTime) || startMs;
+  const starts: Record<string, any> = appt?.stepStarts || {}; const extras: Record<string, any> = appt?.stepExtra || {};
+  const at = (i: number) => ms(starts[String(i)]);
+  const finished = ['completed', 'checked_out'].includes(String(appt?.status)) ? ms(appt?.actualEndTime) || ms(appt?.completedAt) : 0;
+  const live = !finished && (['servicing', 'in_service'].includes(String(appt?.status)) || !!appt?.actualStartTime);
+  const client = steps.map((s, i) => i).filter((i) => steps[i].kind !== 'setup' && steps[i].kind !== 'turnover');
+  const lastClient = client[client.length - 1] ?? steps.length - 1;
+  const logged = client.filter((i) => at(i) > 0); const recorded = logged.length > 0;
+  // Which step is happening now
+  let cur = -1;
+  if (live || finished) {
+    if (recorded) cur = Math.max(...logged);
+    else { const t = ((finished || now) - startMs) / 60000; cur = client.find((i) => t < steps[i].to) ?? lastClient; }
+  }
+  const out: LiveStep[] = []; let t = startMs; let plannedT = bookedMs;
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i]; const extra = Math.max(0, Math.round(Number(extras[String(i)]) || 0)); const len = (s.minutes + extra) * 60000;
+    if (s.kind === 'setup') { out.push({ ...s, fromMs: startMs + s.from * 60000, toMs: startMs + s.to * 60000, plannedFromMs: bookedMs + s.from * 60000, plannedToMs: bookedMs + s.to * 60000, over: false, extra }); continue; }
+    const from = at(i) || t; const pFrom = plannedT; const pTo = plannedT + s.minutes * 60000; plannedT = pTo;
+    let to: number;
+    if (s.kind === 'turnover') to = from + len;
+    else if (cur >= 0 && i < cur) { const nx = client[client.indexOf(i) + 1]; to = (nx !== undefined && at(nx)) || from + len; }
+    else if (i === cur) to = finished ? Math.max(from, finished) : Math.max(from + len, live ? now : 0);
+    else if (finished && i > cur) to = from;   // finished before reaching this step
+    else to = from + len;
+    out.push({ ...s, fromMs: from, toMs: to, plannedFromMs: pFrom, plannedToMs: pTo, over: i === cur && !finished && live && now > from + len, extra });
+    t = to;
+  }
+  const lc = out[lastClient]; const clientEndMs = lc ? lc.toMs : t; const plannedClientEndMs = lc ? lc.plannedToMs : t;
+  const freeMs = out.length ? out[out.length - 1].toMs : clientEndMs;
+  const first = out[0].fromMs, last = freeMs, span = Math.max(1, last - first);
+  const state: LiveTiming['state'] = finished || (live && now >= last) ? 'after' : !live ? 'before' : 'during';
+  const ci = cur >= 0 ? cur : -1; const leftMin = ci >= 0 && state === 'during' ? Math.max(0, Math.ceil((out[ci].toMs - now) / 60000)) : 0;
+  return { steps: out, index: ci, state, leftMin, pct: Math.min(100, Math.max(0, ((Math.min(now, last) - first) / span) * 100)), delayMin: Math.round((clientEndMs - plannedClientEndMs) / 60000), clientEndMs, freeMs, plannedClientEndMs, recorded };
+}

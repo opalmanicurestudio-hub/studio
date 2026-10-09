@@ -2446,7 +2446,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
         {!['cancelled', 'declined'].includes(String(appointment?.status)) && <div className="space-y-3">
-          <StepTimeline service={service} appointment={appointment} extraMinutes={Number((appointment as any)?.clientExtraMinutes) || 0} />
+          <StepTimeline service={service} appointment={appointment} extraMinutes={Number((appointment as any)?.clientExtraMinutes) || 0} tenantId={tenantId}
+            next={(() => { const t0 = Date.parse(String(appointment?.startTime || '')) || 0; if (!t0) return null; const mineR: string[] = Array.isArray((appointment as any)?.requiredResourceIds) ? (appointment as any).requiredResourceIds : [];
+              const nx = (allAppointments || []).filter((x: any) => x.id !== appointment.id && !['cancelled', 'no_show', 'declined', 'completed'].includes(String(x.status)) && (Date.parse(String(x.startTime || '')) || 0) > t0 && (Date.parse(String(x.startTime || '')) || 0) < t0 + 10 * 3600000
+                && (x.staffId === appointment.staffId || (Array.isArray(x.requiredResourceIds) && x.requiredResourceIds.some((r: string) => mineR.includes(r))))).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))[0];
+              return nx ? { clientName: String(nx.clientName || '').split(' ')[0], startMs: Date.parse(String(nx.startTime)) } : null; })()} />
           {Array.isArray((appointment as any)?.kits) && (appointment as any).kits.length > 0 && <p className="text-[13px] text-muted-foreground">Kit used: {(appointment as any).kits.map((k: any) => `${k.name} ${k.code}`).join(' · ')}</p>}
           {appointment.status !== 'completed' && <LastFormula appointment={appointment} client={client} allAppointments={allAppointments || []} onUse={(items) => writeFormula(items)} />}
           {(() => { const sg: any = (client as any)?.timingSuggestions?.[String(appointment?.serviceId || '')]; if (!sg || sg.dismissedAt || !Number(sg.extra)) return null;
