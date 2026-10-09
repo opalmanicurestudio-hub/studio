@@ -30,6 +30,9 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
   const savedTicks = (r: StationRow): number[] => { const res: any = (resources || []).find((x: any) => x.id === r.id); const t = res?.readiness?.ticks; return t && t.visitId === (r.visitId || r.quarantine?.reason || 'q') && Array.isArray(t.done) ? t.done : []; };
   const ticksOf = (r: StationRow) => ticked[r.id] ?? savedTicks(r);
   const toggle = (r: StationRow, i: number) => { const cur = ticksOf(r); const next = cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i]; setTicked((t) => ({ ...t, [r.id]: next }));
+    // The first tick takes the reset; the last tick finishes it (no separate buttons to remember).
+    if (r.status === 'turnover' && !cur.length && next.length && !r.claimed) void act.claim(r);
+    if (r.status === 'turnover' && r.needsConfirm && next.length >= (r.checklist || []).length) { setTimeout(() => { void act.ready(r); }, 350); }
     void updateDoc(doc(firestore, 'tenants', tenantId, 'resources', r.id), { 'readiness.ticks': { visitId: r.visitId || r.quarantine?.reason || 'q', done: next, by: who().split(' ')[0], at: new Date().toISOString() } }).catch(() => undefined); };
   const act = {
     ready: async (r: StationRow) => {

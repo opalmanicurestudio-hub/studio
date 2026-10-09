@@ -5,6 +5,7 @@
 // or named team members ("attendants") do — then reminders go to them and the queue shows on their own screen.
 import type { StationRow } from '@/lib/readiness';
 import { typeOf, secondsLeft, kitSupply, type Kit, type KitType } from '@/lib/kits';
+import { cleanseState } from '@/lib/cleanse';
 import type { Linen, LinenOutlook } from '@/lib/linens';
 
 export type TaskKind = 'station' | 'inspect' | 'kit_clean' | 'kit_finish' | 'kit_decide' | 'wash_start' | 'wash_done' | 'request' | 'prep';
@@ -29,9 +30,9 @@ export function attendantQueue(input: { stations: StationRow[]; kits: Kit[]; kit
   }
   const supply = kitSupply(input.kits || []);
   for (const k of input.kits || []) { const s = supply.find((x) => x.name.toLowerCase() === String(k.name).trim().toLowerCase()); const none = !!s && s.ready === 0;
-    if (k.status === 'dirty') out.push({ id: `kc:${k.id}`, kind: 'kit_clean', refId: k.id, goTo: 'kits', title: `Clean ${k.name} ${k.code}`, dueAt: null, detail: none ? 'None of these are clean right now' : `${s?.ready ?? 0} clean of ${s?.total ?? 0}`, score: none ? 80 : 30 });
-    else if (k.status === 'cleaning') { const m = Number(typeOf(input.kitTypes || [], k.name)?.cleanMinutes) || 0; const left = m > 0 ? secondsLeft(k.at, m, now) : -1; if (left > 0) continue;
-      out.push({ id: `kf:${k.id}`, kind: 'kit_finish', refId: k.id, goTo: 'kits', title: `Finish ${k.name} ${k.code}`, dueAt: null, detail: `${m > 0 ? 'Cleaning time is up' : 'Being cleaned'} — check its contents and mark it ready`, score: none ? 85 : 40 }); }
+    if (k.status === 'dirty') out.push({ id: `kc:${k.id}`, kind: 'kit_clean', refId: k.id, goTo: 'kits', title: `Cleanse ${k.name} ${k.code}`, dueAt: null, detail: none ? 'None of these are clean right now' : `${s?.ready ?? 0} clean of ${s?.total ?? 0}`, score: none ? 80 : 30 });
+    else if (k.status === 'cleaning') { const cs = cleanseState(k, now); const m = Number(typeOf(input.kitTypes || [], k.name)?.cleanMinutes) || 0; const left = (k as any).cleanse ? (cs.done ? -1 : cs.secondsLeft) : m > 0 ? secondsLeft(k.at, m, now) : -1; if (left > 0) continue;
+      out.push({ id: `kf:${k.id}`, kind: 'kit_finish', refId: k.id, goTo: 'kits', title: `Sterilise or check ${k.name} ${k.code}`, dueAt: null, detail: (k as any).cleanse ? 'Cleanse complete — into the steriliser, or check its contents and mark it ready' : `${m > 0 ? 'Cleaning time is up' : 'Being cleaned'} — check its contents and mark it ready`, score: none ? 85 : 40 }); }
     else if (k.status === 'out') out.push({ id: `kd:${k.id}`, kind: 'kit_decide', refId: k.id, goTo: 'kits', managerOnly: true, title: `Decide on ${k.name} ${k.code}`, dueAt: null, detail: k.note ? `Pulled out — ${k.note}` : 'Pulled out', score: none ? 70 : 20 });
   }
   for (const l of input.linens || []) { const o = (input.outlook || []).find((x) => x.id === l.id); const short = (o?.short || 0) > 0;

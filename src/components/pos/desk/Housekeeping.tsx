@@ -10,6 +10,8 @@ import { logAuditClient } from '@/lib/audit-client';
 import { stationReadiness } from '@/lib/readiness';
 import { stageOf } from '@/lib/visit';
 import { moveKit, KIT_LABEL } from '@/lib/kits';
+import { cleansePlan } from '@/lib/cleanse';
+import { startCleanse } from '@/lib/cleanse-client';
 import { moveLinen, linenOutlook } from '@/lib/linens';
 import { attendantQueue, housekeepingMode, taskLimit, tasksHeldBy, attendantsOnNow, type OpsTask } from '@/lib/attendant';
 import { dayPrep } from '@/lib/day-prep';
@@ -25,7 +27,7 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   const q = (name: string) => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, name) : null);
   const rq = useMemoFirebase(() => q('resources'), [firestore, tenantId]); const pq = useMemoFirebase(() => q('protocols'), [firestore, tenantId]);
-  const kq = useMemoFirebase(() => q('kits'), [firestore, tenantId]); const tq = useMemoFirebase(() => q('kitTypes'), [firestore, tenantId]); const lq = useMemoFirebase(() => q('linens'), [firestore, tenantId]);
+  const kq = useMemoFirebase(() => q('kits'), [firestore, tenantId]); const dq = useMemoFirebase(() => q('disinfectants'), [firestore, tenantId]); const { data: disinfectants } = useCollection<any>(dq); const tq = useMemoFirebase(() => q('kitTypes'), [firestore, tenantId]); const lq = useMemoFirebase(() => q('linens'), [firestore, tenantId]);
   const cq = useMemoFirebase(() => q('opsClaims'), [firestore, tenantId]); const { data: claims } = useCollection<any>(cq);
   const hSince = React.useMemo(() => new Date(Date.now() - 16 * 3600000).toISOString(), []);
   const hq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'opsHandovers'), where('at', '>=', hSince)) : null), [firestore, tenantId, hSince]); const { data: handovers } = useCollection<any>(hq);
@@ -41,7 +43,7 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
       detail: r.clean === 0 ? `None clean, and ${r.perHour} an hour are being used` : `${r.clean} clean · using ${r.perHour} an hour · about ${r.minutesLeft} min left at this pace`, score: r.minutesLeft <= 15 ? 92 : r.minutesLeft <= 30 ? 82 : 55 }));
     return attendantQueue({ stations, kits: (kits || []).filter((k: any) => k.status !== 'retired'), kitTypes: kitTypes || [], linens: linens || [], outlook: linenOutlook(linens || [], ahead, services || []), requests, claims: claims || [], prep, now });
   }, [resources, protocols, kits, kitTypes, linens, appts, services, staff, now, requests, claims]);
-  return { tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], resources: resources || [], protocols: protocols || [], firestore };
+  return { tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], resources: resources || [], protocols: protocols || [], disinfectants: disinfectants || [], firestore };
 }
 
 const claimId = (taskId: string) => taskId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120);
@@ -52,7 +54,7 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const toDate = (v: any) => new Date(typeof v === 'string' ? v : v?.toDate ? v.toDate() : v?.seconds ? v.seconds * 1000 : v);
 
 export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' }) {
-  const { tasks, kits, kitTypes, linens, handovers, resources, protocols, firestore } = useHousekeeping(tenantId, appts, services, staff); const [at, setAt] = React.useState(0);   // which job the focus view is on
+  const { tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff); const [at, setAt] = React.useState(0);   // which job the focus view is on
   const [noteFor, setNoteFor] = React.useState<string | null>(null); const [note, setNote] = React.useState(''); const [ending, setEnding] = React.useState(false);
   const [prepDay, setPrepDay] = React.useState<'today' | 'tomorrow'>('tomorrow');
   const me = getAuth().currentUser?.uid || null;
@@ -91,9 +93,9 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
       if (t.kind === 'station' && mine.length >= limit) { setMsg(`You already have ${mine.length} jobs — finish one or hand it over first.`); setBusy(null); return; }
       if (t.kind === 'station') audit('housekeeping.taken', `${who()} took: ${t.title}`, t.id);
       if (t.kind === 'station') { await updateDoc(doc(firestore, 'tenants', tenantId, 'resources', t.refId), { 'readiness.claimedFor': (stationVisit(t) || null), 'readiness.claimedById': getAuth().currentUser?.uid || null, 'readiness.claimedByName': who().split(' ')[0] }); setMsg(`${t.title} — yours.`); }
-      else if (t.kind === 'kit_clean') { const k = kits.find((x: any) => x.id === t.refId); const res = k ? moveKit(k, 'cleaning', { name: who(), manager }) : { error: 'That kit is gone.' };
-        if ('error' in res) setMsg(res.error); else { await updateDoc(doc(firestore, 'tenants', tenantId, 'kits', k.id), { ...(res.patch as any), byId: getAuth().currentUser?.uid || null });
-          void logAuditClient(firestore, tenantId, { action: 'kit.cleaning', targetType: 'kit', targetId: k.id, actor: actor(), before: { status: 'dirty' }, after: { status: 'cleaning' }, summary: `${k.name} ${k.code}: ${KIT_LABEL.dirty} → ${KIT_LABEL.cleaning}` }); } }
+      else if (t.kind === 'kit_clean') { const k = kits.find((x: any) => x.id === t.refId); const plan = k ? cleansePlan(k, kitTypes as any, disinfectants) : null;
+        if (!k) setMsg('That kit is gone.'); else if (!plan) { setMsg(`Set how ${String(k.name).toLowerCase()}s are cleansed (in Kits, Set contents) — then start it.`); onGo?.('kits'); }
+        else { const r = await startCleanse(firestore, tenantId, k, plan, { manager }); setMsg('error' in r ? r.error : `${k.name} ${k.code}: cleanse started — ${plan.disinfectant.contactMinutes} min. You’ll be told when it’s done.`); } }
       else if (t.kind === 'wash_start' || t.kind === 'wash_done') { const l = linens.find((x: any) => x.id === t.refId); if (l) { const move = t.kind === 'wash_start' ? 'wash' : 'washed'; const r = moveLinen(l, move, t.kind === 'wash_start' ? l.dirty : l.washing); const at = new Date().toISOString();
           await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), { clean: r.clean, dirty: r.dirty, washing: r.washing, inUse: r.inUse, by: who(), at, ...(move === 'wash' ? { washStartedAt: at, washById: getAuth().currentUser?.uid || null } : r.washing === 0 ? { washStartedAt: null } : {}) });
           void logAuditClient(firestore, tenantId, { action: `linen.${move}`, targetType: 'linen', targetId: l.id, actor: actor(), before: { clean: l.clean, dirty: l.dirty, washing: l.washing }, after: { clean: r.clean, dirty: r.dirty, washing: r.washing }, summary: `${l.name}: ${move === 'wash' ? 'Wash load started' : 'Wash load finished'} × ${r.moved}` }); } }
@@ -101,7 +103,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
     setBusy(null); };
   // The visit a station's turnover belongs to (needed to mark "I'll take it" for that turnover only).
   const stationVisit = (t: OpsTask) => { const res = (appts || []).filter((a: any) => Array.isArray(a.requiredResourceIds) && a.requiredResourceIds.includes(t.refId) && ['ready_to_pay', 'complete'].includes(stageOf(a))); return res.sort((a: any, b: any) => String(b.actualEndTime || b.startTime).localeCompare(String(a.actualEndTime || a.startTime)))[0]?.id; };
-  const quickLabel = (t: OpsTask): string | null => t.kind === 'request' ? (t.request?.source !== 'assist' ? null : t.request?.status === 'accepted' ? 'Delivered' : 'I’m on it') : ({ station: 'I’ll take it', kit_clean: 'Start cleaning', wash_start: 'Start the load', wash_done: 'Done — clean' } as any)[t.kind] || null;
+  const quickLabel = (t: OpsTask): string | null => t.kind === 'request' ? (t.request?.source !== 'assist' ? null : t.request?.status === 'accepted' ? 'Delivered' : 'I’m on it') : ({ station: 'I’ll take it', kit_clean: 'Start cleanse', wash_start: 'Start the load', wash_done: 'Done — clean' } as any)[t.kind] || null;
   const saveSetup = async (patch: any) => { try { await updateDoc(doc(firestore, 'tenants', tenantId), { ops: { ...(tenant?.ops || {}), ...patch } }); audit('housekeeping.settings', `Housekeeping settings changed: ${Object.keys(patch).join(', ')}`, undefined, { after: patch }); } catch { setMsg('That didn’t save — try again.'); } };
 
   if (!firestore) return null;

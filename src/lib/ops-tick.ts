@@ -12,6 +12,8 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
   const T = `tenants/${tenantId}`; const nowIso = new Date(now).toISOString(); const out = { turnoverNudges: 0, kitsReleased: 0, linenVisits: 0 };
   const rows = (snap: any) => snap.docs.map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() || {}) }));
   const [resources, kitsAll, linens] = await Promise.all([db.collection(`${T}/resources`).limit(200).get().then(rows), db.collection(`${T}/kits`).limit(400).get().then(rows), db.collection(`${T}/linens`).limit(100).get().then(rows)]);
+  // Timers that move things on: contact times reached (a kit's cleanse completes itself) and steriliser cycles finished.
+  try { await finishTimers(db, tenantId, now); } catch (e) { console.error('[ops-tick] timers', tenantId, e); }
   if (!resources.length && !kitsAll.length && !linens.length) return out;   // this business uses none of it
   const appts: any[] = rows(await db.collection(`${T}/appointments`).where('startTime', '>=', new Date(now - 18 * 3600000).toISOString()).where('startTime', '<=', new Date(now + 6 * 3600000).toISOString()).get());
   const stage = (a: any) => (['cancelled', 'no_show', 'declined'].includes(String(a.status)) ? 'cancelled' : stageOf(a));
@@ -30,7 +32,7 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
         const to: string[] = n.level === 1 ? (att.length ? att : n.ownerId ? [n.ownerId] : []) : Array.from(new Set([...managers, ...(n.ownerId ? [n.ownerId] : [])]));
         const b = db.batch(); b.update(db.doc(`${T}/resources/${n.resourceId}`), { 'readiness.notice': { visitId: n.visitId, level: n.level, at: nowIso } });
         for (const uid of to) { const ref = db.collection(`${T}/notifications`).doc(); b.set(ref, { id: ref.id, userId: uid, type: n.level === 1 ? 'turnover_due' : 'turnover_escalation', priority: n.level === 1 ? 'high' : 'urgent', link: n.level === 1 ? '/staff-portal/' + tenantId : '/pos', resourceId: n.resourceId, appointmentId: n.visitId, message: n.message, createdAt: nowIso, read: false }); }
-        await b.commit(); if (to.length) { out.turnoverNudges++; await noteAutomation(db, tenantId, 'turnover-notices'); }
+        await b.commit(); if (to.length) { out.turnoverNudges++; await noteAutomation(db, tenantId, 'turnover-notices'); try { await (await import('@/lib/push')).pushNow(db, tenantId); } catch { /* the minute push job sends it */ } }
       } }
   } catch (e) { console.error('[ops-tick] turnover', tenantId, e); } }
 
@@ -112,4 +114,26 @@ async function washTimers(db: any, tenantId: string, linens: any[], now: number)
   let mgrs: string[] | null = null; const b = db.batch(); const at = new Date(now).toISOString();
   for (const l of due) { const to = l.washById ? [l.washById] : (mgrs ||= await managerIds(db, T)); for (const uid of to) notify(db, b, T, uid, { type: 'linen_timer', at, message: `The ${String(l.name).toLowerCase()} wash load should be done — ${l.washing} to put back as clean.` }); b.update(db.doc(`${T}/linens/${l.id}`), { washToldFor: l.washStartedAt }); }
   await b.commit();
+}
+
+/** Contact times reached and steriliser cycles finished. A kit's cleanse timer marks the kit cleansed and closes itself;
+ *  any other contact timer is left for the person to clear. Whoever started it is told once (else the managers). */
+async function finishTimers(db: any, tenantId: string, now: number): Promise<void> {
+  const T = `tenants/${tenantId}`; const at = new Date(now).toISOString();
+  const [timers, cycles] = await Promise.all([db.collection(`${T}/contactTimers`).where('doneAt', '==', null).limit(200).get(), db.collection(`${T}/sterilisationCycles`).where('status', '==', 'running').limit(50).get()]);
+  const dueT = timers.docs.map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() || {}) })).filter((t: any) => !t.toldAt && (Date.parse(t.startedAt) || 0) + (Number(t.minutes) || 0) * 60000 <= now && now - (Date.parse(t.startedAt) || 0) < 24 * 3600000);
+  const dueC = cycles.docs.map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() || {}) })).filter((c: any) => !c.toldDoneAt && (Date.parse(c.startedAt) || 0) + (Number(c.minutes) || 0) * 60000 <= now);
+  if (!dueT.length && !dueC.length) return;
+  let mgrs: string[] | null = null; const b = db.batch(); const { logAuditAdmin } = await import('@/lib/audit');
+  for (const t of dueT) { const to = t.byId ? [t.byId] : (mgrs ||= await managerIds(db, T));
+    if (t.kitId) { const kRef = db.doc(`${T}/kits/${t.kitId}`); const k = await kRef.get(); const kd: any = k.exists ? k.data() : null;
+      if (kd && kd.status === 'cleaning' && kd.cleanse?.timerId === t.id && !kd.cleansedAt) b.update(kRef, { cleansedAt: at });
+      b.update(t.ref, { toldAt: at, doneAt: at, reached: true, doneBy: 'System' });
+      for (const uid of to) notify(db, b, T, uid, { type: 'kit_cleansed', at, message: `${t.what || 'A kit'} has finished its cleanse (${t.name}, ${t.minutes} min) — ready for the steriliser or its check.` });
+      await logAuditAdmin(db, tenantId, { action: 'kit.cleansed', targetType: 'kit', targetId: t.kitId, actor: { type: 'system', name: 'contact timer' }, summary: `${t.what || 'Kit'}: cleanse complete — ${t.name}, ${t.minutes} min contact reached` }); }
+    else { b.update(t.ref, { toldAt: at }); for (const uid of to) notify(db, b, T, uid, { type: 'contact_reached', at, message: `Contact time reached: ${t.what ? `${t.what} — ` : ''}${t.name} (${t.minutes} min).` }); } }
+  for (const c of dueC) { const to = c.startedById ? [c.startedById] : (mgrs ||= await managerIds(db, T)); b.update(c.ref, { toldDoneAt: at });
+    for (const uid of to) notify(db, b, T, uid, { type: 'cycle_done', at, message: `${c.device} cycle ${c.number || ''} has finished — check the indicator and record Pass or Fail.` }); }
+  await b.commit();
+  try { await (await import('@/lib/push')).pushNow(db, tenantId); } catch { /* the minute push job sends it */ }
 }

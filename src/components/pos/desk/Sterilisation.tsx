@@ -8,6 +8,7 @@ import { getAuth } from 'firebase/auth';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { logAuditClient } from '@/lib/audit-client';
 import { moveKit, findKit, type Kit } from '@/lib/kits';
+import { readyForNextStep } from '@/lib/cleanse';
 import { nextCycleNumber, cycleProblem, sporeStatus, logRows, type Cycle } from '@/lib/sterilisation';
 import { brandOf, printCodeLabels } from '@/lib/print-labels';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
@@ -30,7 +31,9 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who(), role: manager ? 'manager' : 'staff' });
   const running = cycles.filter((c) => c.type === 'cycle' && c.status === 'running'); const inRunning = new Set(running.flatMap((c) => c.kits.map((k) => k.id)));
   // Kits that can go in a load: waiting to be cleaned, or being cleaned but not already in a running cycle.
-  const loadable = (kits || []).filter((k) => (k.status === 'dirty' || k.status === 'cleaning') && !inRunning.has(k.id));
+  // Only kits whose cleanse is complete can go in; the rest are shown greyed with what's left.
+  const loadable = (kits || []).filter((k) => readyForNextStep(k).ok && !inRunning.has(k.id));
+  const notYet = (kits || []).filter((k) => (k.status === 'dirty' || k.status === 'cleaning') && !readyForNextStep(k).ok && !inRunning.has(k.id));
   const spore = sporeStatus(cycles, Math.max(0, Number(ops.sporeTestDays) || 0));
   if (!firestore) return null;
 
@@ -65,7 +68,7 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
     if (dev) { const c = running.find((x) => x.device.trim().toLowerCase() === dev.trim().toLowerCase()); scanFeedback(true);
       if (c) { setOpen(null); setMsg({ ok: true, text: `${dev}: cycle ${c.number} is on its tile below — tap Pass or Fail.` }); } else { setDevice(dev); if (open !== 'start') { setOpen('start'); setLoad([]); } setMsg({ ok: true, text: `${dev} — now scan each kit going in.` }); } return; }
     const k = findKit(loadable, raw);
-    if (!k) { scanFeedback(false); const other = findKit(kits || [], raw); setMsg({ ok: false, text: other ? `${other.name} ${other.code} isn’t waiting to be cleaned.` : 'That isn’t a kit or a machine label.' }); return; }
+    if (!k) { scanFeedback(false); const other = findKit(kits || [], raw); setMsg({ ok: false, text: other ? `${other.name} ${other.code}: ${readyForNextStep(other).reason || 'it isn’t waiting to be sterilised.'}` : 'That isn’t a kit or a machine label.' }); return; }
     scanFeedback(true); if (open !== 'start') { setOpen('start'); setLoad([k.id]); } else setLoad((l) => (l.includes(k.id) ? l : [...l, k.id])); setMsg({ ok: true, text: `${k.name} ${k.code} added to the load.` }); };
   const saveOps = async (patch: any) => { try { await updateDoc(doc(firestore, 'tenants', tenantId), { ops: { ...(tenant?.ops || {}), ...patch } }); void logAuditClient(firestore, tenantId, { action: 'sterilisation.settings', targetType: 'tenant', actor: actor(), after: patch, summary: `Sterilisation settings changed: ${Object.keys(patch).join(', ')}` }); } catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
   const printLog = (days: number) => { const brand = brandOf(tenant); const rows = logRows(cycles, Date.now() - days * 86400000); const w = window.open('', '_blank'); if (!w) { setMsg({ ok: false, text: 'Allow pop-ups to print the log.' }); return; }
@@ -117,7 +120,8 @@ export function Sterilisation({ tenantId, tenant, kits, manager }: { tenantId: s
             <input value={typed} onChange={(e) => setTyped(e.target.value.slice(0, 80))} placeholder="Scan each kit as it goes in" aria-label="Kit code" autoCapitalize="characters" className="h-10 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[14px] uppercase tracking-wider" />
             <button type="submit" disabled={!typed.trim()} className="h-10 rounded-xl border px-3 text-[13px] font-semibold disabled:opacity-40">Add</button>
           </form>
-          {!loadable.length ? <p className="text-[13px] text-muted-foreground">No kits are waiting to be cleaned.</p> : (
+          {notYet.length > 0 && <p className="text-[12px] text-muted-foreground">Not yet — still cleansing or not started: {notYet.map((k) => k.code).join(', ')}</p>}
+          {!loadable.length ? <p className="text-[13px] text-muted-foreground">No cleansed kits are waiting to be sterilised.</p> : (
             <div className="flex flex-wrap gap-2">{loadable.map((k) => { const on = load.includes(k.id); return <button key={k.id} type="button" aria-pressed={on} onClick={() => setLoad((l) => (on ? l.filter((x) => x !== k.id) : [...l, k.id]))} className={`h-9 rounded-full border px-3 text-[13px] ${on ? 'bg-foreground text-background' : ''}`}>{k.name} <span className="font-mono">{k.code}</span></button>; })}
               <button type="button" onClick={() => setLoad(loadable.map((k) => k.id))} className="h-9 rounded-full px-2 text-[13px] underline">All</button></div>)}
           <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="Note (optional)" className="h-10 w-full rounded-xl border bg-background px-3 text-[14px]" />

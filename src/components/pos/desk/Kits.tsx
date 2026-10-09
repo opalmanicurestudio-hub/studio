@@ -11,6 +11,8 @@ import { TagPairing } from '@/components/pos/desk/TagPairing';
 import { Sterilisation } from '@/components/pos/desk/Sterilisation';
 import { Disinfection } from '@/components/pos/desk/Disinfection';
 import { sterilisedSinceUse } from '@/lib/sterilisation';
+import { cleansePlan, cleanseState, readyForNextStep, METHOD_LABEL } from '@/lib/cleanse';
+import { startCleanse } from '@/lib/cleanse-client';
 import { useNfc } from '@/lib/use-nfc';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { printCodeLabels, brandOf, LABEL_FORMATS, KIT_STEPS, type LabelFormat } from '@/lib/print-labels';
@@ -30,8 +32,10 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who().name, role: manager ? 'manager' : 'staff' });
   const typesQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'kitTypes') : null), [firestore, tenantId]);
   const { data: typesRaw } = useCollection<any>(typesQ); const types: KitType[] = typesRaw || [];
+  const disQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'disinfectants') : null), [firestore, tenantId]);
+  const { data: disinfectants } = useCollection<any>(disQ);   // the cleanse step uses the kit type's disinfectant
   const [cam, setCam] = React.useState(false);   // phone or tablet camera as the scanner
-  const [editType, setEditType] = React.useState<{ name: string; items: KitItem[]; cleanMinutes: number } | null>(null);   // a kit type's contents being edited
+  const [editType, setEditType] = React.useState<{ name: string; items: KitItem[]; cleanMinutes: number; cleanse?: { method: 'wipe' | 'soak'; disinfectantId: string } | null } | null>(null);   // a kit type's contents being edited
   const [checking, setChecking] = React.useState<{ kit: Kit; items: KitItem[]; have: number[]; version: number } | null>(null);   // "is everything in it?"
   const [askFor, setAskFor] = React.useState<{ kit: Kit; who: { id: string; clientName: string; stage: string }[] } | null>(null);   // more than one guest it could be for
   const [typed, setTyped] = React.useState(''); const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
@@ -71,7 +75,14 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); setBusy(null); return false; }
   };
   // "Clean — ready" for a kit type that has a contents list goes through the contents check first.
-  const toReady = (k: Kit) => { if (selectedTenant?.ops?.requireSterilisation && !sterilisedSinceUse(k)) { scanFeedback(false); setMsg({ ok: false, text: `${k.name} ${k.code} hasn’t passed a recorded sterilisation cycle since it was used — run it through one first.` }); return; }
+  // Returning a kit, or starting a dirty one: its cleanse (wipe or soak, timed) starts in the same tap.
+  const cleanse = async (k: Kit) => { const plan = cleansePlan(k, types, disinfectants || []);
+    if (!plan) { if (k.status === 'in_use') await move(k, 'dirty'); setMsg({ ok: false, text: `Set how ${k.name.toLowerCase()}s are cleansed (wipe or soak, and the disinfectant) under ${manager ? 'Set contents' : 'its contents — a manager does this'}, then start its cleanse.` }); return false; }
+    setBusy(k.id); const r = await startCleanse(firestore, tenantId, k, plan, { manager }); setBusy(null);
+    if ('error' in r) { setMsg({ ok: false, text: r.error }); return false; }
+    setMsg({ ok: true, text: `${k.name} ${k.code}: ${METHOD_LABEL[plan.method].toLowerCase()} with ${plan.disinfectant.name} — ${plan.disinfectant.contactMinutes} min. You’ll be told when it’s done.` }); return true; };
+  const toReady = (k: Kit) => { { const nx = readyForNextStep(k); if (!nx.ok) { scanFeedback(false); setMsg({ ok: false, text: `${k.name} ${k.code}: ${nx.reason}` }); return; } }
+    if (selectedTenant?.ops?.requireSterilisation && !sterilisedSinceUse(k)) { scanFeedback(false); setMsg({ ok: false, text: `${k.name} ${k.code} hasn’t passed a recorded sterilisation cycle since it was used — run it through one first.` }); return; }
     const t = typeOf(types, k.name); if (t?.items?.length) { setChecking({ kit: k, items: t.items, have: t.items.map(() => 0), version: t.version || 1 }); return; } return move(k, 'ready'); };
   const finishCheck = async () => { if (!checking) return; const res = contentsCheck(checking.items, checking.have); const k = checking.kit; const at = new Date().toISOString();
     const lastCheck = { at, by: who().name, ok: res.complete, missing: res.missing, version: checking.version };
@@ -90,9 +101,9 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
     if (!k) { scanFeedback(false); setMsg({ ok: false, text: 'No kit with that code.' }); return; }
     const next = KIT_NEXT[k.status]; if (!next) { scanFeedback(false); setMsg({ ok: false, text: `${k.name} ${k.code} is pulled out — a manager decides what happens next.` }); return; }
     scanFeedback(true);
-    if (next.to === 'in_use') await take(k); else if (next.to === 'ready') await toReady(k); else await move(k, next.to); };
+    if (next.to === 'in_use') await take(k); else if (next.to === 'ready') await toReady(k); else if (k.status === 'in_use' || k.status === 'dirty') await cleanse(k); else await move(k, next.to); };
   const saveType = async () => { if (!editType) return; const key = kitKey(editType.name); const prev = typeOf(types, editType.name); const version = (prev?.version || 0) + 1;
-    try { await setDoc(doc(firestore, 'tenants', tenantId, 'kitTypes', prev?.id || key), { id: prev?.id || key, name: editType.name, items: editType.items, cleanMinutes: Math.max(0, Math.round(editType.cleanMinutes) || 0), version, updatedAt: new Date().toISOString(), by: who().name });
+    try { await setDoc(doc(firestore, 'tenants', tenantId, 'kitTypes', prev?.id || key), { id: prev?.id || key, name: editType.name, items: editType.items, cleanMinutes: Math.max(0, Math.round(editType.cleanMinutes) || 0), cleanse: editType.cleanse?.disinfectantId ? editType.cleanse : null, version, updatedAt: new Date().toISOString(), by: who().name });
       void logAuditClient(firestore, tenantId, { action: 'kit.contents', targetType: 'kitType', targetId: prev?.id || key, actor: actor(), before: { items: prev?.items || [], cleanMinutes: prev?.cleanMinutes || 0 }, after: { items: editType.items, cleanMinutes: editType.cleanMinutes }, summary: `${editType.name}: contents v${version} — ${editType.items.length} item${editType.items.length === 1 ? '' : 's'}, ${editType.cleanMinutes || 0} min to clean` });
       setMsg({ ok: true, text: `${editType.name} contents saved (version ${version}). The products inside the kits are now held as “in kits” in Inventory.` }); setEditType(null); syncNow(); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
@@ -149,6 +160,14 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <option value="">Pick from inventory…</option>
             {[...(inventory || [])].filter((x: any) => x && x.archived !== true).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))).map((x: any) => <option key={x.id} value={x.id}>{x.name}{x.sku ? ` · ${x.sku}` : ''}</option>)}
           </select>
+          <div className="space-y-1 rounded-xl bg-muted/40 p-3 text-[13px]">
+            <p className="font-semibold">How it’s cleansed when it comes back</p>
+            <div className="flex flex-wrap gap-2">
+              <select value={editType.cleanse?.method || 'soak'} onChange={(e) => setEditType({ ...editType, cleanse: { method: e.target.value as 'wipe' | 'soak', disinfectantId: editType.cleanse?.disinfectantId || '' } })} aria-label="Cleanse method" className="h-10 rounded-xl border bg-background px-2 text-[14px]"><option value="soak">Soak</option><option value="wipe">Wipe down</option></select>
+              <select value={editType.cleanse?.disinfectantId || ''} onChange={(e) => setEditType({ ...editType, cleanse: { method: editType.cleanse?.method || 'soak', disinfectantId: e.target.value } })} aria-label="Disinfectant" className="h-10 min-w-0 flex-1 rounded-xl border bg-background px-2 text-[14px]"><option value="">Choose a disinfectant…</option>{(disinfectants || []).filter((d: any) => !d.archived).map((d: any) => <option key={d.id} value={d.id}>{d.name} · {d.contactMinutes} min</option>)}</select>
+            </div>
+            {!(disinfectants || []).length && <p className="text-muted-foreground">Add your disinfectants in the Disinfection guide first.</p>}
+          </div>
           <label className="block text-[13px]">Minutes to clean one <input type="number" min={0} value={editType.cleanMinutes} onChange={(e) => setEditType({ ...editType, cleanMinutes: Number(e.target.value) })} className="ml-1 h-9 w-20 rounded-lg border bg-background px-2 text-[14px]" /> <span className="text-muted-foreground">(sets the countdown, and how long a kit is held when booking)</span></label>
           <div className="flex gap-2">
             <button type="button" onClick={saveType} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background">Save contents</button>
@@ -177,7 +196,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <p key={s.name} className="flex flex-wrap items-baseline justify-between gap-x-3 text-[14px]"><span className="font-semibold">{s.name}</span>
               <span className={s.ready ? 'text-muted-foreground' : 'font-semibold text-red-700'}>{s.ready} clean of {s.total}{s.dirty ? ` · ${s.dirty} to clean` : ''}{s.cleaning ? ` · ${s.cleaning} being cleaned` : ''}{s.in_use ? ` · ${s.in_use} in use` : ''}{s.out ? ` · ${s.out} pulled out` : ''}</span>
               {(() => { const t = typeOf(types, s.name); return <span className="flex w-full items-center justify-between gap-2 text-[12px] text-muted-foreground"><span>{t?.items?.length ? `${t.items.length} item${t.items.length === 1 ? '' : 's'} in each` : 'No contents list yet'}{t?.cleanMinutes ? ` · ${t.cleanMinutes} min to clean` : ''}</span>
-                {manager && <button type="button" onClick={() => setEditType({ name: t?.name || s.name, items: t?.items || [], cleanMinutes: Number(t?.cleanMinutes) || 0 })} className="h-8 rounded-full border px-3 text-[12px] font-semibold text-foreground">{t?.items?.length ? 'Edit contents' : 'Set contents'}</button>}</span>; })()}</p>))}
+                {manager && <button type="button" onClick={() => setEditType({ name: t?.name || s.name, items: t?.items || [], cleanMinutes: Number(t?.cleanMinutes) || 0, cleanse: (t as any)?.cleanse || null })} className="h-8 rounded-full border px-3 text-[12px] font-semibold text-foreground">{t?.items?.length ? 'Edit contents' : 'Set contents'}</button>}</span>; })()}</p>))}
         </div>)}
       {(() => { const left = kitsLeftOut(live, (id) => { const a = (appts || []).find((x: any) => x.id === id); return a ? (['cancelled', 'no_show'].includes(String(a.status)) ? 'cancelled' : stageOf(a)) : null; });
         if (!left.length) return null;
@@ -198,7 +217,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <div className="min-w-0">
               <p className="truncate text-[15px] font-semibold">{k.name} <span className="font-mono text-[13px] font-normal tracking-wider text-muted-foreground">{k.code}</span>{k.tagIds?.length ? <span className="ml-2 rounded-full border px-2 py-0.5 text-[11px] font-normal text-muted-foreground">tag paired</span> : null}</p>
               <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' ? `${[k.clientName ? `Client: ${k.clientName}` : null, (k as any).staffName ? `Provider: ${String((k as any).staffName).split(' ')[0]}` : null, k.stationName || null].filter(Boolean).join(' · ') || 'Not tied to a client'} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
-              {k.status === 'cleaning' && <p className="text-[13px]">Cleaning: <LiveTimer since={k.at} minutes={typeOf(types, k.name)?.cleanMinutes || 0} doneLabel="Cleaning time is up" />{kitHours(k) >= 3 ? <span className="font-semibold text-amber-800"> — is it done?</span> : null}</p>}
+              {k.status === 'cleaning' && (() => { const c = cleanseState(k); const cl: any = (k as any).cleanse; return cl ? <p className={`text-[13px] ${c.done ? 'font-semibold text-emerald-800' : ''}`}>{c.done ? `Cleansed (${cl.name}) — ready for the steriliser or its check` : <>{METHOD_LABEL[cl.method as 'wipe' | 'soak'] || 'Cleanse'} with {cl.name} · <LiveTimer since={cl.startedAt} minutes={cl.minutes} doneLabel="Cleansed" /></>}</p> : <p className="text-[13px] font-semibold text-amber-800">No cleanse recorded — start its cleanse before it goes on.</p>; })()}
               {k.status === 'in_use' && <p className="text-[12px] text-muted-foreground">In use <LiveTimer since={k.at} /></p>}
               {k.lastSterilised?.passed && <p className="text-[12px] text-muted-foreground">Sterilised {new Date(k.lastSterilised.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{k.lastSterilised.device ? ` · ${k.lastSterilised.device}` : ''} · {k.lastSterilised.by}</p>}
               {k.lastCheck && <p className="text-[12px] text-muted-foreground">Contents {k.lastCheck.ok ? 'checked' : 'incomplete'} · {new Date(k.lastCheck.at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {k.lastCheck.by}</p>}
@@ -223,7 +242,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {next && <button type="button" disabled={busy === k.id} onClick={() => (next.to === 'in_use' ? take(k) : next.to === 'ready' ? toReady(k) : move(k, next.to))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{next.label}</button>}
+              {next && <button type="button" disabled={busy === k.id} onClick={() => (next.to === 'in_use' ? take(k) : next.to === 'ready' ? toReady(k) : k.status === 'in_use' || k.status === 'dirty' ? cleanse(k) : move(k, next.to))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{next.label}</button>}
               {(() => { const t = typeOf(types, k.name); return t?.items?.length && k.status !== 'out' && k.status !== 'cleaning' ? <button type="button" onClick={() => setChecking({ kit: k, items: t.items, have: t.items.map(() => 0), version: t.version || 1 })} className="h-9 rounded-full border px-3 text-[13px]">Check contents</button> : null; })()}
               {k.status !== 'out' && <button type="button" onClick={() => { setPulling(k.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Something’s wrong</button>}
               {k.status === 'out' && (manager ? <>
