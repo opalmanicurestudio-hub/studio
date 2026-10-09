@@ -11,6 +11,7 @@ import { stationReadiness } from '@/lib/readiness';
 import { stageOf } from '@/lib/visit';
 import { moveKit, KIT_LABEL } from '@/lib/kits';
 import { cleansePlan } from '@/lib/cleanse';
+import { delaySettings } from '@/lib/delay';
 import { startCleanse } from '@/lib/cleanse-client';
 import { moveLinen, linenOutlook } from '@/lib/linens';
 import { attendantQueue, housekeepingMode, taskLimit, tasksHeldBy, attendantsOnNow, type OpsTask } from '@/lib/attendant';
@@ -194,6 +195,14 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
             <select defaultValue={tenant?.ops?.walkIns?.serviceId || ''} onChange={(e) => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), serviceId: e.target.value || null } })} aria-label="Usual walk-in service" className="h-9 rounded-lg border bg-background px-2 text-[13px]"><option value="">Choose a service…</option>{(services || []).filter((x: any) => x && x.type !== 'addon').map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
           </div>}
           <p className="text-[12px] text-muted-foreground">Whatever you choose, the queue also watches the pace of the last hour and warns when clean kits or linens will run out soon.</p>
+          <p className="pt-1 font-semibold">When a visit runs behind</p>
+          {(() => { const dl = delaySettings(tenant); const put = (p: any) => saveSetup({ delay: { ...(tenant?.ops?.delay || {}), ...p } }); return <>
+            <label className="block">Count it as behind after <input type="number" min={1} max={30} defaultValue={dl.marginMin} onBlur={(e) => put({ marginMin: Math.max(1, Math.min(30, Math.round(Number(e.target.value)) || 5)) })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" aria-label="Minutes behind before anyone is told" /> min <span className="text-muted-foreground">(suggested: 5)</span></label>
+            {([['desk', 'The front desk confirms each message first (suggested)'], ['auto', 'Text clients automatically when their start moves'], ['off', 'Never message clients about delays']] as const).map(([m, l]) => (
+              <label key={m} className="flex items-start gap-2"><input type="radio" name="dl" className="mt-1" checked={dl.clientMessages === m} onChange={() => put({ clientMessages: m })} /> {l}</label>))}
+            {dl.clientMessages === 'auto' && <label className="block pl-6">Only automatically up to <input type="number" min={5} max={90} defaultValue={dl.autoMaxMin} onBlur={(e) => put({ autoMaxMin: Math.max(5, Math.min(90, Math.round(Number(e.target.value)) || 20)) })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" aria-label="Most minutes late to message automatically" /> min late — longer delays wait for the desk</label>}
+            <label className="block">Offer keep / reschedule / cancel (no fee) from <input type="number" min={5} max={120} defaultValue={dl.choiceFromMin} onBlur={(e) => put({ choiceFromMin: Math.max(5, Math.min(120, Math.round(Number(e.target.value)) || 15)) })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" aria-label="Minutes late before clients are offered a choice" /> min late <span className="text-muted-foreground">(suggested: 15)</span></label>
+            <p className="text-[12px] text-muted-foreground">The desk, managers, the next provider and housekeeping are always told. A message goes again only if the delay grows by the same amount again.</p></>; })()}
           <button type="button" onClick={() => setSetup(false)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Done</button>
         </div>
       ) : <div className="flex flex-wrap gap-2"><a href={`/housekeeping/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full border px-4 text-[13px] font-semibold">Open the wall screen</a><button type="button" onClick={() => setSetup(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Who does housekeeping: {mode === 'attendants' ? `${picked.length} named` : 'each provider'}</button></div>)}

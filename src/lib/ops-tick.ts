@@ -14,6 +14,8 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
   const [resources, kitsAll, linens] = await Promise.all([db.collection(`${T}/resources`).limit(200).get().then(rows), db.collection(`${T}/kits`).limit(400).get().then(rows), db.collection(`${T}/linens`).limit(100).get().then(rows)]);
   // Timers that move things on: contact times reached (a kit's cleanse completes itself) and steriliser cycles finished.
   try { await finishTimers(db, tenantId, now); } catch (e) { console.error('[ops-tick] timers', tenantId, e); }
+  // Visits running behind: who and what they push back, and who to tell.
+  try { const { delayTick } = await import('@/lib/delay-tick'); await delayTick(db, tenantId, tenant, now); } catch (e) { console.error('[ops-tick] delays', tenantId, e); }
   if (!resources.length && !kitsAll.length && !linens.length) return out;   // this business uses none of it
   const appts: any[] = rows(await db.collection(`${T}/appointments`).where('startTime', '>=', new Date(now - 18 * 3600000).toISOString()).where('startTime', '<=', new Date(now + 6 * 3600000).toISOString()).get());
   const stage = (a: any) => (['cancelled', 'no_show', 'declined'].includes(String(a.status)) ? 'cancelled' : stageOf(a));

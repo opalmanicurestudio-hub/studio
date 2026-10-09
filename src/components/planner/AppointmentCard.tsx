@@ -326,6 +326,9 @@ export function AppointmentCard({
     if (setupPending) push('prep', 'alert', AlertTriangle, 'Prep');
     if (profitTier === 'negative') push('cost', 'alert', TrendingDown, 'Below cost');
     if (appointment.status === 'servicing') push('live', 'live', Sparkles, overMinutes > 0 ? `${overMinutes} min over` : 'In the chair');
+    // Pushed back by a visit running behind (the delay check records when it is now expected to start).
+    { const ax: any = appointment; const exp = Date.parse(String(ax.expectedStartAt || '')) || 0, st0 = Date.parse(String(ax.startTime || '')) || 0;
+      if (exp > st0 + 60000 && !['servicing', 'completed', 'cancelled', 'no_show', 'declined'].includes(String(appointment.status)) && !ax.actualStartTime) push('behind', 'alert', Clock, `Starts ~${Math.round((exp - st0) / 60000)} min late${ax.delayTold?.at ? ' · told' : ''}`); }
     // What the desk needs to know at a glance — first visit, a form still to sign, add-ons, a group, a renter's client.
     const a1: any = appointment; const c1: any = client || {};
     if (c1.id && (c1.totalVisits === 0 || c1.visitCount === 0 || c1.isNew === true || (Array.isArray(c1.visitHistory) && c1.visitHistory.length === 0))) push('first', 'info', Sparkles, 'First visit');

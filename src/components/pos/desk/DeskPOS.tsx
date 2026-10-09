@@ -15,6 +15,8 @@
 
 import { HereNow } from '@/components/pos/desk/HereNow';
 import { buildHereNow } from '@/lib/here-now';
+import { RunningBehind, useDelays } from '@/components/pos/desk/RunningBehind';
+import { delaySettings } from '@/lib/delay';
 import { extraMinutesFor } from '@/lib/client-timing';
 import { TakePayment } from '@/components/pos/desk/TakePayment';
 import { AssistQueue, AskForHelp, useAssistQueue } from '@/components/pos/desk/AssistQueue';
@@ -226,7 +228,10 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
 
   const active = guests.filter((g) => g.stage !== 'done');
   // K7: who's here and what's outstanding — checked-in guests not yet started + people at the front door, one list.
-  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, extraMinutesFor, kits: kits || [] }), [guests, doorWaiting, e.clients, e.services, now, kits]); // eslint-disable-line react-hooks/exhaustive-deps
+  const delays = useDelays(todaysAppts, e.services || [], e.selectedTenant || tenant);
+  const delayMargin = delaySettings(e.selectedTenant || tenant).marginMin;
+  const pushedBack = (id: string) => { let m = 0; for (const d of delays) for (const k of d.next) if (k.id === id && k.lateMin > m) m = k.lateMin; return m >= delayMargin ? m : 0; };
+  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, extraMinutesFor, kits: kits || [], lateFor: pushedBack }), [delays, guests, doorWaiting, e.clients, e.services, now, kits]); // eslint-disable-line react-hooks/exhaustive-deps
   const requests = (e.appointmentsFromInventory || []).filter((a: any) => a.status === 'requested').length;
   // ── At-a-glance facts ────────────────────────────────────────────────
   const staffOf = (id: string | null) => (id ? (e.staff || []).find((s: any) => s.id === id) : null);
@@ -438,6 +443,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         </div>
       </div>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 md:px-8">
+        <RunningBehind tenantId={e.tenantId} margin={delayMargin} delays={delays} appts={todaysAppts} staff={e.staff || []} onOpenVisit={(id: string) => openVisit(id)} />
         <HereNow rows={hereNow} onOpenVisit={(id: string) => openVisit(id)} onOpenPickups={() => { setPickupScan(null); setPickupOpen(true); }}
           onDoorDone={(id: string) => updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'frontDoor', id), { status: 'handled', handledAt: new Date().toISOString(), handledBy: (e as any).currentUserName || (e as any).currentStaffName || 'Front desk' })} />
         {mode === 'desk' && <section aria-label="Today" className="mb-4">
