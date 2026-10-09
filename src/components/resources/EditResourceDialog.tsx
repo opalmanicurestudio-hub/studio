@@ -1,7 +1,9 @@
 'use client';
 
 import { useTenant } from '@/context/TenantContext';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { collection } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -95,6 +97,12 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
   const { control, handleSubmit, register, watch, reset, setValue, formState: { errors } } = methods;
   const { selectedTenant } = useTenant(); const tenantId = selectedTenant?.id || '';
 
+  // What every booking of this room / station needs, on top of the service's own needs (e.g. a sheet set for each
+  // treatment-room booking, two towels for each sauna rental). Picked from the business's kit types and linens.
+  const [needs, setNeeds] = useState<{ kind: 'kit' | 'linen'; name: string; qty: number }[]>([]);
+  const { firestore: fsN } = useFirebase();
+  const { data: kitTypeList } = useCollection<any>(useMemoFirebase(() => (fsN && tenantId ? collection(fsN, 'tenants', tenantId, 'kitTypes') : null), [fsN, tenantId]));
+  const { data: linenList } = useCollection<any>(useMemoFirebase(() => (fsN && tenantId ? collection(fsN, 'tenants', tenantId, 'linens') : null), [fsN, tenantId]));
   const resourceType = watch('type');
   const selectedInventoryItemId = watch('inventoryItemId');
 
@@ -110,6 +118,7 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
         amenities: resource.amenities?.join(', ') || '',
         maintenanceNotes: resource.maintenanceNotes || '',
       });
+      setNeeds(Array.isArray((resource as any).needs) ? (resource as any).needs : []);
     }
   }, [resource, open, reset]);
 
@@ -133,7 +142,8 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
       maintenanceNotes: data.maintenanceNotes,
       amenities: data.amenities ? data.amenities.split(',').map(s => s.trim()).filter(Boolean) : [],
       inventoryItemId: data.type === 'equipment' ? data.inventoryItemId : undefined,
-    });
+      needs: needs.filter((n) => String(n.name || '').trim()).map((n) => ({ kind: n.kind, name: String(n.name).trim(), qty: Math.max(1, Math.round(Number(n.qty) || 1)) })),
+    } as any);
     // Rentable → mirror into the rental engine (one space per unit) once the resource has saved.
     if (data.rentalEnabled || (resource as any)?.rental?.enabled) setTimeout(async () => { try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
       await fetch('/api/resources/rentable', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, resourceId: resource.id }) }); } catch { /* the next save retries */ } }, 1200);
@@ -227,6 +237,20 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
                     <Label htmlFor="amenities-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Zone Features (Amenities)</Label>
                     <Input id="amenities-edit" {...register('amenities')} placeholder="e.g., Natural Light, Sink, Power" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 ml-1">Comma separated list</p>
+                </div>
+
+                <div className="space-y-2 rounded-2xl border p-4">
+                    <p className="text-[14px] font-[700]">Every booking here needs</p>
+                    <p className="text-[12px] text-muted-foreground">Added to whatever the service needs — for appointments in this {resourceType === 'equipment' ? 'equipment' : 'room or station'} and for rentals of it. Housekeeping sets one aside for each booking.</p>
+                    {needs.map((n, i) => { const opts: string[] = n.kind === 'kit' ? (kitTypeList || []).map((t: any) => String(t.name)) : (linenList || []).map((l: any) => String(l.name));
+                      return (
+                      <div key={i} className="flex flex-wrap items-center gap-2">
+                        <select value={n.kind} onChange={(e) => setNeeds((xs) => xs.map((x, j) => (j === i ? { ...x, kind: e.target.value as 'kit' | 'linen', name: '' } : x)))} aria-label="Kind" className="h-10 rounded-xl border bg-background px-2 text-sm"><option value="linen">Linen</option><option value="kit">Kit</option></select>
+                        <select value={n.name} onChange={(e) => setNeeds((xs) => xs.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label="Which" className="h-10 min-w-0 flex-1 rounded-xl border bg-background px-2 text-sm"><option value="">{opts.length ? 'Choose…' : n.kind === 'kit' ? 'Add kit types under Kits first' : 'Add linens under Linens first'}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}</select>
+                        <input type="number" min={1} max={20} value={n.qty} onChange={(e) => setNeeds((xs) => xs.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x)))} aria-label="How many" className="h-10 w-16 rounded-xl border bg-background px-2 text-center text-sm" />
+                        <button type="button" onClick={() => setNeeds((xs) => xs.filter((_, j) => j !== i))} className="h-10 rounded-xl border px-2 text-xs">Remove</button>
+                      </div>); })}
+                    <button type="button" onClick={() => setNeeds((xs) => [...xs, { kind: 'linen', name: '', qty: 1 }])} className="h-9 rounded-full border px-3 text-xs font-semibold">+ Add a need</button>
                 </div>
 
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-4 border-destructive/10 bg-destructive/5 shadow-inner transition-all">

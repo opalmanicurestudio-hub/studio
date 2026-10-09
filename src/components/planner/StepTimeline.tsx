@@ -93,3 +93,41 @@ export function StepEdge({ service, appointment }: { service: any; appointment: 
       {live && at.state === 'during' && <div className="absolute left-0 right-0 h-[3px] bg-foreground" style={{ top: `calc(${at.pct}% - 1px)`, transition: 'top 30s linear' }} />}
     </div>);
 }
+
+/** The STEP RIBBON across the top of a planner card: the service's client steps as segments (hands-on solid, processing
+ *  striped, reset grey). Live: finished steps fade, a marker shows now, an overrun grows a red striped tail. Pushed back:
+ *  a pale red lead-in shows the wait before it can start. Services without steps show one plain bar. */
+export function StepRibbon({ service, appointment, height = 8, pushedMin = 0 }: { service: any; appointment: any; height?: number; pushedMin?: number }) {
+  const now = useNow(30000);
+  const steps = React.useMemo(() => (service ? visitSteps(service, Number(appointment?.clientExtraMinutes) || 0) : []).filter((s) => s.kind !== 'setup'), [service, appointment?.clientExtraMinutes]);
+  const done = ['completed', 'cancelled', 'no_show', 'declined'].includes(String(appointment?.status));
+  const live = !done && (String(appointment?.status) === 'servicing' || !!appointment?.actualStartTime);
+  const lt = React.useMemo(() => (steps.length ? liveTiming(steps, appointment, now) : null), [steps, appointment, now]);
+  const red = '#b42318';
+  if (!steps.length || !lt) return <div aria-hidden className="w-full rounded-full" style={{ height, background: done ? '#d8d1c6' : '#17181a', opacity: done ? 0.6 : 1 }} />;
+  const segs = lt.steps.filter((s) => s.kind !== 'setup');
+  const over = live && lt.index >= 0 && lt.steps[lt.index].over ? Math.max(0, now - (lt.steps[lt.index].fromMs + (lt.steps[lt.index].minutes + lt.steps[lt.index].extra) * 60000)) / 60000 : 0;
+  const plannedTotal = segs.reduce((n, s) => n + s.minutes + s.extra, 0) + over + (pushedMin > 0 ? pushedMin : 0);
+  const curIdx = live ? segs.indexOf(lt.steps[lt.index]) : -1;
+  return (
+    <div aria-hidden className="relative flex w-full gap-[3px]" style={{ height }}>
+      {pushedMin > 0 && <div className="rounded-full" style={{ flex: `${pushedMin} 0 0`, background: 'repeating-linear-gradient(-45deg, #f1c2bd 0 4px, #fbeae8 4px 8px)' }} />}
+      {segs.map((s, i) => { const w = s.minutes + s.extra; const past = live && curIdx >= 0 && i < curIdx;
+        const bg = s.kind === 'processing' ? 'repeating-linear-gradient(-45deg, #c47f00 0 4px, #efd9ae 4px 8px)' : s.kind === 'turnover' ? '#d8d1c6' : '#17181a';
+        return <div key={i} className="rounded-full" style={{ flex: `${w} 0 0`, background: bg, opacity: done ? 0.45 : past ? 0.32 : 1 }} />; })}
+      {over > 0 && <div className="rounded-full" style={{ flex: `${over} 0 0`, background: `repeating-linear-gradient(-45deg, ${red} 0 4px, #f1c2bd 4px 8px)` }} />}
+      {live && lt.state === 'during' && <div className="absolute rounded-full" style={{ top: -3, height: height + 6, width: 3, background: over > 0 ? red : '#17181a', left: `calc(${Math.min(100, ((((pushedMin > 0 ? pushedMin : 0) + segs.slice(0, Math.max(0, curIdx)).reduce((n, s) => n + s.minutes + s.extra, 0) + Math.max(0, (now - (lt.steps[lt.index]?.fromMs || now)) / 60000)) / Math.max(1, plannedTotal)) * 100))}% - 1px)`, transition: 'left 30s linear' }} />}
+    </div>);
+}
+
+/** The card header's live words for a visit: the step now and time left, minutes over, or how far behind it starts. */
+export function useStepStatus(service: any, appointment: any): { text: string; tone: 'ink' | 'red' | 'muted' } | null {
+  const now = useNow(30000);
+  const steps = React.useMemo(() => (service ? visitSteps(service, Number(appointment?.clientExtraMinutes) || 0) : []), [service, appointment?.clientExtraMinutes]);
+  if (String(appointment?.status) !== 'servicing' || !steps.length) return null;
+  const lt = liveTiming(steps, appointment, now); if (!lt || lt.index < 0) return null;
+  const s = lt.steps[lt.index];
+  if (s.over) return { text: `${Math.max(1, Math.round((now - (s.fromMs + (s.minutes + s.extra) * 60000)) / 60000))} min over`, tone: 'red' };
+  if (lt.state === 'after') return { text: 'All steps done', tone: 'ink' };
+  return { text: `${s.label} · ${lt.leftMin} min left`, tone: 'ink' };
+}

@@ -49,8 +49,8 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
     await kitTimers(db, tenantId, kitsAll, now);
     // 2c) Shortages ahead: a visit in the next hour whose kit or linen bundle won't be ready in time — told once per visit and type.
     try { const { planSetAside } = await import('@/lib/setaside');
-      const [types, bundles] = await Promise.all([db.collection(`${T}/kitTypes`).get().then(rows), db.collection(`${T}/linenBundles`).limit(400).get().then(rows)]);
-      const plan = planSetAside({ visits: appts, services: await services(), kits: kitsAll as any, kitTypes: types as any, bundles: bundles as any, linens: linens as any, now, horizonHours: 1.5 });
+      const [types, bundles, rentals] = await Promise.all([db.collection(`${T}/kitTypes`).get().then(rows), db.collection(`${T}/linenBundles`).limit(400).get().then(rows), db.collection(`${T}/boothReservations`).where('startTime', '>=', new Date(now - 12 * 3600000).toISOString()).limit(200).get().then(rows).catch(() => [])]);
+      const plan = planSetAside({ visits: appts, services: await services(), kits: kitsAll as any, kitTypes: types as any, bundles: bundles as any, linens: linens as any, resources, reservations: rentals as any, now, horizonHours: 1.5 });
       const soon = plan.shortages.filter((x) => x.startMs - now <= 60 * 60000 && !(appts.find((a: any) => a.id === x.visitId)?.shortTold || {})[x.type.replace(/[.\s/]+/g, '_')]);
       if (soon.length) { const staffRows = rows(await db.collection(`${T}/staff`).get());
         const att = attendantIds(tenant).filter((id) => staffRows.some((m: any) => m.id === id && m.active !== false && !m.onBreak));
@@ -70,7 +70,7 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
     const { linensForVisit, moveLinen, sameLinen } = await import('@/lib/linens');
     const done = appts.filter((a: any) => !a.linensCounted && ['ready_to_pay', 'complete'].includes(stage(a)));
     if (done.length) { const svc = await services(); const b = db.batch(); const touched = new Set<string>(); let any = false;
-      for (const a of done) { const needs = linensForVisit(a, svc).filter((n) => auto.some((l: any) => sameLinen(l.name, n.name))); if (!needs.length) continue;
+      for (const a of done) { const needs = linensForVisit(a, svc, resources).filter((n) => auto.some((l: any) => sameLinen(l.name, n.name))); if (!needs.length) continue;
         for (const n of needs) { const l: any = auto.find((x: any) => sameLinen(x.name, n.name)); const back = moveLinen(l, 'return', n.qty); l.inUse = back.inUse; l.dirty = back.dirty; if (back.moved < n.qty) { const r = moveLinen(l, 'use', n.qty - back.moved); l.clean = r.clean; l.dirty = r.dirty; } touched.add(l.id); }
         b.set(a.ref, { linensCounted: true }, { merge: true }); any = true; out.linenVisits++; }
       for (const l of auto) if (touched.has(l.id)) b.update(db.doc(`${T}/linens/${l.id}`), { clean: l.clean, dirty: l.dirty, inUse: Math.max(0, Number(l.inUse) || 0), by: 'System', at: nowIso });

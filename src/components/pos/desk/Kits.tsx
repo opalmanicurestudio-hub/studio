@@ -48,7 +48,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
   const typeNames = React.useMemo(() => Array.from(new Set([...supply.map((s) => s.name), ...(services || []).flatMap((s: any) => kitsNeeded(s).map((n) => n.name))])).sort(), [supply, services]);
   const who = () => ({ name: (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0], manager });
   // Which visit each kit is set aside for (re-planned live as visits run over and kits are scanned).
-  const setFor = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: live, kitTypes: types, now: Date.now() }).byKit, [appts, services, live, types]);
+  const setFor = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: live, kitTypes: types, resources: resources || [], now: Date.now() }).byKit, [appts, services, live, types, resources]);
   const [swapping, setSwapping] = React.useState<string | null>(null);
   const hm = (v: number) => new Date(v).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   // Swap at the chair (tools worn, dropped, missing): the kit in use is pulled out with the reason, a clean one of the same

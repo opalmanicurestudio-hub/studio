@@ -443,7 +443,7 @@ export const DayTimeline = ({
                     </div>
                 )}
                 <AppointmentCard
-                    appointment={item} client={client} service={service} style={{ height: '100%'}} heightPx={height}
+                    appointment={item} client={client} service={service} style={{ height: '100%'}} heightPx={height} expectedStartMs={pushedBy && pushedBy.min >= 1 ? pushedBy.expectedMs : undefined}
                     edgeColor={colourBy === 'provider' ? PROVIDER_COLOURS[Math.max(0, safeColumns.findIndex((c: any) => c.id === item.staffId)) % PROVIDER_COLOURS.length] : undefined}
                     onUpdateStatus={onUpdateStatus} onDelete={onDeleteAppointment}
                     onCompleteClick={onCompleteClick} onPrintReceipt={onPrintReceipt} onPrintTicket={onPrintTicket}
@@ -456,7 +456,7 @@ export const DayTimeline = ({
                     onResolveIssue={onResolveIssue} canResolveIssues={canResolveIssues}
                     resources={resources} transactions={allTransactions}
                 />
-                {shiftPx > 0 && <span title={`Booked ${format(startTime, 'h:mm a')} — now expected about ${format(new Date(pushedBy!.expectedMs), 'h:mm a')} because ${pushedBy!.byName} is running over`} className="pointer-events-none absolute bottom-1.5 right-3 z-20 rounded-full px-2 py-0.5 text-[11px] font-[700] tabular-nums text-white shadow-sm" style={{ background: '#b42318' }}>Starts ~{format(new Date(pushedBy!.expectedMs), 'h:mm')} · +{pushedBy!.min}</span>}
+                {/* the card's own header shows the new start ("~3:12", "Starts +12") */}
             </div>
             </React.Fragment>
         );

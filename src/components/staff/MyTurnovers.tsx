@@ -38,7 +38,8 @@ export function MyPrep({ tenantId, staffId, services, staff }: { tenantId: strin
   const { data: all } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'appointments'), where('startTime', '>=', since)) : null), [firestore, tenantId, since]));
   const { data: kits } = useCollection<any>(useMemoFirebase(() => c('kits'), [firestore, tenantId])); const { data: kitTypes } = useCollection<any>(useMemoFirebase(() => c('kitTypes'), [firestore, tenantId]));
   const { data: bundles } = useCollection<any>(useMemoFirebase(() => c('linenBundles'), [firestore, tenantId])); const { data: linens } = useCollection<any>(useMemoFirebase(() => c('linens'), [firestore, tenantId]));
-  const plan = React.useMemo(() => planSetAside({ visits: all || [], services: services || [], kits: kits || [], kitTypes: kitTypes || [], bundles: bundles || [], linens: linens || [], now, horizonHours: 10 }), [all, services, kits, kitTypes, bundles, linens, now]);
+  const { data: resources } = useCollection<any>(useMemoFirebase(() => c('resources'), [firestore, tenantId]));
+  const plan = React.useMemo(() => planSetAside({ visits: all || [], services: services || [], kits: kits || [], kitTypes: kitTypes || [], bundles: bundles || [], linens: linens || [], resources: resources || [], now, horizonHours: 10 }), [all, services, kits, kitTypes, bundles, linens, resources, now]);
   if (!kits?.length) return null;
   return <div className="rounded-2xl border bg-card p-3"><PrepPlan plan={plan} staff={staff || []} staffId={staffId} perProvider={5} title="Your next visits — set aside for you" /></div>;
 }

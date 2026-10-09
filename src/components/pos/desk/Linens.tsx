@@ -3,7 +3,9 @@
 // there are enough clean ones for the rest of today; start and finish wash loads. Used linens move to dirty on their own
 // when a visit finishes. Every change is on the audit log; damaged ones come off inventory when the type is linked.
 import * as React from 'react';
-import { doc, updateDoc, setDoc, collection, runTransaction } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, collection, runTransaction, arrayUnion } from 'firebase/firestore';
+import { planSetAside } from '@/lib/setaside';
+import { linensForVisit } from '@/lib/linens';
 import { getAuth } from 'firebase/auth';
 import { logAuditClient } from '@/lib/audit-client';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
@@ -35,6 +37,12 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
   // Visits still to come today or under way (their linens haven't been counted as used yet).
   const ahead = React.useMemo(() => (appts || []).filter((a: any) => ['booked', 'waiting', 'in_service'].includes(stageOf(a)) && !a.linensCounted).map((a: any) => ({ ...a, startTime: typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate ? a.startTime.toDate().toISOString() : new Date(a.startTime).toISOString() })), [appts]);
   const outlook = React.useMemo(() => linenOutlook(linens, ahead, services), [linens, ahead, services]);
+  // Which visit each clean bundle is set aside for (service needs + room needs), so taking it out ties it to that client.
+  const rq = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'resources') : null), [firestore, tenantId]);
+  const { data: resources } = useCollection<any>(rq);
+  const bundleFor = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: [], kitTypes: [], bundles, linens, resources: resources || [] }).byBundle, [appts, services, bundles, linens, resources]);
+  const visitsFor = (b: LinenBundle) => (appts || []).filter((a: any) => ['waiting', 'in_service', 'booked'].includes(stageOf(a)) && linensForVisit(a, services || [], resources || []).some((n) => String(n.name).trim().toLowerCase() === String(b.name).trim().toLowerCase()))
+    .sort((x: any, y: any) => String(x.startTime).localeCompare(String(y.startTime))).slice(0, 6);
   const typeNames = React.useMemo(() => Array.from(new Set((services || []).flatMap((s: any) => linensNeeded(s).map((n) => n.name)))).sort(), [services]);
   const supplies = React.useMemo(() => (inventory || []).filter((i: any) => i && i.archived !== true && (i.type === 'equipment' || i.type === 'overhead' || i.type === 'professional')).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [inventory]);
   const who = () => (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0];
@@ -56,15 +64,18 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); }
     setBusy(null); return ok; };
   // A bundle's tag was scanned (or its button tapped): the whole bundle moves on, and the type's counts with it.
-  const moveBundle = async (b: LinenBundle, holder?: { id: string | null; name: string | null } | 'ask', tagOk = false) => {
+  const moveBundle = async (b: LinenBundle, holder?: { id: string | null; name: string | null; visit?: { id: string; clientName: string } | null } | 'ask', tagOk = false) => {
     // Folding a bundle back onto the shelf: count it and check its tag first (a worn tag is reprinted).
     if (b.status === 'folding' && !tagOk) { setTagCheck(b); return true; }
-    if (b.status === 'clean' && holder === undefined && (staff || []).some((x: any) => x && x.active !== false && x.role !== 'renter')) { setHolderFor(b); return true; }
+    if (b.status === 'clean' && holder === undefined && (bundleFor[b.id] || visitsFor(b).length || (staff || []).some((x: any) => x && x.active !== false && x.role !== 'renter'))) { setHolderFor(b); return true; }
     const h = holder && holder !== 'ask' ? holder : null; const l = linens.find((x) => x.id === b.linenId); if (!l) { setMsg({ ok: false, text: 'That bundle’s linen type no longer exists.' }); return false; }
     const next = bundleNext(b, l); if (!(await apply(l, next.move, b.qty, next.move !== 'issue'))) return false;
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who(), holderId: next.to === 'in_use' ? h?.id || null : null, holderName: next.to === 'in_use' ? h?.name || null : null }); } catch { /* counts moved; tap again to fix the tag */ }
-    void logAuditClient(firestore, tenantId, { action: `bundle.${next.to}`, targetType: 'linenBundle', targetId: b.id, actor: actor(), before: { status: b.status }, after: { status: next.to, holderId: h?.id || null }, summary: `${b.name} bundle ${b.code} (${b.qty}): ${BUNDLE_LABEL[b.status]} → ${BUNDLE_LABEL[next.to]}${next.to === 'in_use' && h?.name ? ` with ${h.name}` : ''}` });
-    setHolderFor(null); setTagCheck(null); setMsg({ ok: true, text: `${b.name} ${b.code} (${b.qty}) — ${BUNDLE_LABEL[next.to].toLowerCase()}${next.to === 'in_use' && h?.name ? ` with ${String(h.name).split(' ')[0]}` : ''}` }); return true; };
+    const v = next.to === 'in_use' ? h?.visit || null : null;
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linenBundles', b.id), { status: next.to, at: new Date().toISOString(), by: who(), holderId: next.to === 'in_use' ? h?.id || null : null, holderName: next.to === 'in_use' ? h?.name || null : null, visitId: v?.id || null, clientName: v?.clientName || null }); } catch { /* counts moved; tap again to fix the tag */ }
+    // The visit remembers which bundle was used on this client (rentals have no visit record to write to).
+    if (v && !String(v.id).startsWith('res:')) { try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', v.id), { bundles: arrayUnion({ id: b.id, code: b.code, name: b.name, qty: b.qty, at: new Date().toISOString(), by: who() }) }); } catch { /* the bundle is still marked out */ } }
+    void logAuditClient(firestore, tenantId, { action: `bundle.${next.to}`, targetType: 'linenBundle', targetId: b.id, actor: actor(), before: { status: b.status }, after: { status: next.to, holderId: h?.id || null, visitId: v?.id || null }, summary: `${b.name} bundle ${b.code} (${b.qty}): ${BUNDLE_LABEL[b.status]} → ${BUNDLE_LABEL[next.to]}${v ? ` for ${v.clientName}` : ''}${next.to === 'in_use' && h?.name ? ` with ${h.name}` : ''}` });
+    setHolderFor(null); setTagCheck(null); setMsg({ ok: true, text: `${b.name} ${b.code} (${b.qty}) — ${BUNDLE_LABEL[next.to].toLowerCase()}${v ? ` for ${String(v.clientName).split(' ')[0]}` : ''}${next.to === 'in_use' && h?.name ? ` with ${String(h.name).split(' ')[0]}` : ''}` }); return true; };
   const handleCode = async (raw: string) => { const b = findBundle(bundles, raw); if (!b) { scanFeedback(false); setMsg({ ok: false, text: 'No bundle with that tag.' }); return; } scanFeedback(await moveBundle(b)); };
   codeRef.current = (v) => { void handleCode(v); };
   const makeBundles = async (l: Linen) => { const size = Math.max(1, Math.round(bSize) || 1), n = Math.max(1, Math.min(30, Math.round(bCount) || 1)); setBusy(l.id);
@@ -100,6 +111,12 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
       {holderFor && (
         <div className="space-y-2 rounded-2xl border-2 bg-card p-3" role="dialog" aria-label="Who is this bundle for?">
           <p className="text-[14px] font-semibold">Who is {holderFor.name} {holderFor.code} for?</p>
+          {(() => { const plannedId = bundleFor[holderFor.id]?.visitId; const vs = visitsFor(holderFor); const planned = plannedId ? (vs.find((a: any) => a.id === plannedId) || (appts || []).find((a: any) => a.id === plannedId) || (String(plannedId).startsWith('res:') ? { id: plannedId, clientName: bundleFor[holderFor.id].clientName, staffId: null } : null)) : null;
+            const list = [...(planned ? [planned] : []), ...vs.filter((a: any) => a.id !== plannedId)];
+            const t = (a: any) => { const d = new Date(String(a.startTime || '')); return Number.isFinite(d.getTime()) ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; };
+            return list.length ? <div className="flex flex-wrap gap-2">{list.map((a: any, i: number) => { const p: any = (staff || []).find((x: any) => x.id === a.staffId);
+              return <button key={a.id} type="button" onClick={() => moveBundle(holderFor, { id: a.staffId || null, name: p?.name || null, visit: { id: a.id, clientName: String(a.clientName || 'Client') } })} className={`h-11 rounded-full px-4 text-[13px] font-semibold ${i === 0 && planned ? 'bg-foreground text-background' : 'border'}`}>{String(a.clientName || 'Client').split(' ')[0]}{t(a) ? ` · ${t(a)}` : ''}{p?.name ? ` with ${String(p.name).split(' ')[0]}` : ''}{i === 0 && planned ? ' — set aside' : ''}</button>; })}</div> : null; })()}
+          <p className="text-[12px] text-muted-foreground">Or just the person taking it:</p>
           <div className="flex flex-wrap gap-2">
             {(staff || []).filter((x: any) => x && x.id && x.active !== false && x.role !== 'renter').map((x: any) => <button key={x.id} type="button" onClick={() => moveBundle(holderFor, { id: x.id, name: x.name || null })} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background">{String(x.name || 'Team member').split(' ')[0]}</button>)}
             <button type="button" onClick={() => moveBundle(holderFor, { id: null, name: null })} className="h-10 rounded-full border px-4 text-[13px]">Shared / no one</button>
@@ -127,7 +144,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
           {(() => { const mine = bundles.filter((b) => b.linenId === l.id).sort((a, b) => a.code.localeCompare(b.code)); if (!mine.length) return null; return (
             <ul className="mt-2 space-y-1 border-t pt-2">{mine.map((b) => (
               <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
-                <span><span className="font-mono font-semibold tracking-wider">{b.code}</span> · {b.qty} · {BUNDLE_LABEL[b.status]}{b.status === 'in_use' && (b as any).holderName ? ` with ${String((b as any).holderName).split(' ')[0]}` : ''}{b.status === 'washing' ? <> · <LiveTimer since={b.at} minutes={l.washMinutes || 0} doneLabel="should be done" /></> : b.status === 'in_use' ? <> · <LiveTimer since={b.at} /></> : null}</span>
+                <span><span className="font-mono font-semibold tracking-wider">{b.code}</span> · {b.qty} · {BUNDLE_LABEL[b.status]}{b.status === 'in_use' && (b as any).clientName ? ` for ${String((b as any).clientName).split(' ')[0]}` : ''}{b.status === 'in_use' && (b as any).holderName ? ` with ${String((b as any).holderName).split(' ')[0]}` : ''}{b.status === 'clean' && bundleFor[b.id] ? <b className="font-semibold" style={{ color: '#7A5C3A' }}> · set aside for {bundleFor[b.id].clientName.split(' ')[0]} {new Date(bundleFor[b.id].startMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</b> : null}{b.status === 'washing' ? <> · <LiveTimer since={b.at} minutes={l.washMinutes || 0} doneLabel="should be done" /></> : b.status === 'in_use' ? <> · <LiveTimer since={b.at} /></> : null}</span>
                 <button type="button" disabled={busy === l.id} onClick={() => moveBundle(b)} className="h-8 rounded-full border px-3 text-[12px] font-semibold disabled:opacity-40">{bundleNext(b, l).label}</button>
               </li>))}</ul>); })()}
           {settingsFor === l.id && (

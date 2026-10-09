@@ -58,19 +58,28 @@ export function linensNeeded(service: any): { name: string; qty: number }[] {
   return reqs.filter((r) => r?.kind === 'linen' && (r.mode || 'required') === 'required' && norm(r.name)).map((r) => ({ name: String(r.name).trim(), qty: Math.max(1, n0(r.qty) || 1) }));
 }
 /** A visit's linens including its add-ons. */
-export function linensForVisit(visit: any, services: any[]): { name: string; qty: number }[] {
-  const out: { name: string; qty: number }[] = [];
+export function linensForVisit(visit: any, services: any[], resources?: any[]): { name: string; qty: number }[] {
+  const out: { name: string; qty: number }[] = []; const addIn = (n: { name: string; qty: number }) => { const e = out.find((x) => sameLinen(x.name, n.name)); if (e) e.qty += n.qty; else out.push({ ...n }); };
   for (const id of [visit?.serviceId, ...(Array.isArray(visit?.addOnIds) ? visit.addOnIds : [])].filter(Boolean))
-    for (const n of linensNeeded((services || []).find((s: any) => s.id === id))) { const e = out.find((x) => sameLinen(x.name, n.name)); if (e) e.qty += n.qty; else out.push({ ...n }); }
+    for (const n of linensNeeded((services || []).find((s: any) => s.id === id))) addIn(n);
+  // What the room / station itself needs for every booking (Resources → "Every booking here needs").
+  for (const n of resourceNeeds(visit, resources, 'linen')) addIn(n);
+  return out;
+}
+/** Needs set on the rooms, stations or equipment a booking uses. */
+export function resourceNeeds(visit: any, resources: any[] | undefined, kind: 'kit' | 'linen'): { name: string; qty: number }[] {
+  if (!resources?.length) return []; const ids: string[] = Array.isArray(visit?.requiredResourceIds) ? visit.requiredResourceIds : [];
+  const out: { name: string; qty: number }[] = [];
+  for (const r of resources) if (ids.includes(r.id) && Array.isArray(r.needs)) for (const n of r.needs) if (n?.kind === kind && norm(n.name)) out.push({ name: String(n.name).trim(), qty: Math.max(1, n0(n.qty) || 1) });
   return out;
 }
 export interface LinenOutlook { id: string; name: string; clean: number; needed: number; short: number; runsOutAt: string | null; belowPar: boolean }
 /** "Enough clean towels this afternoon?" — what the rest of today's visits need against what's clean now.
  *  `visits`: today's visits still to come or under way ({ startTime ISO, serviceId, addOnIds }), i.e. not yet counted as used. */
-export function linenOutlook(linens: Linen[], visits: any[], services: any[]): LinenOutlook[] {
+export function linenOutlook(linens: Linen[], visits: any[], services: any[], resources?: any[]): LinenOutlook[] {
   const ordered = [...(visits || [])].sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
   return (linens || []).map((l) => { let left = n0(l.clean), needed = 0; let runsOutAt: string | null = null;
-    for (const v of ordered) { const q = linensForVisit(v, services).find((x) => sameLinen(x.name, l.name))?.qty || 0; if (!q) continue; needed += q; left -= q; if (left < 0 && !runsOutAt) runsOutAt = String(v.startTime); }
+    for (const v of ordered) { const q = linensForVisit(v, services, resources).find((x) => sameLinen(x.name, l.name))?.qty || 0; if (!q) continue; needed += q; left -= q; if (left < 0 && !runsOutAt) runsOutAt = String(v.startTime); }
     return { id: l.id, name: l.name, clean: n0(l.clean), needed, short: Math.max(0, needed - n0(l.clean)), runsOutAt, belowPar: !!l.par && n0(l.clean) < n0(l.par) }; });
 }
 

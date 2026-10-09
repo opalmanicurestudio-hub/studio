@@ -20,7 +20,7 @@
 // to find that spot.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { StepEdge } from '@/components/planner/StepTimeline';
+import { StepRibbon, useStepStatus } from '@/components/planner/StepTimeline';
 import { extraMinutesFor } from '@/lib/client-timing';
 import { opsStatus } from '@/lib/appointment-ops';
 import React, { useState, useMemo, useEffect } from 'react';
@@ -102,6 +102,7 @@ export function AppointmentCard({
   canDeclineDirectly,
   canResolveIssues,
   heightPx,
+  expectedStartMs,   // live new start when a visit before it is running over (from the planner's delay chain)
 }: any) {
   const { staff, inventory } = useInventory();
   const { selectedTenant } = useTenant();
@@ -286,12 +287,18 @@ export function AppointmentCard({
   const setupPending = appointment.completionStatus === 'pending' || (reqReadiness ? reqReadiness.confirmationBlocking > 0 : false);
   const awaitingReview = (reqReadiness?.awaitingReview || 0) > 0;
 
+  // Soft pills (step-ribbon card): tone by meaning, never shouting.
   const CHIP_TONES: Record<string, string> = {
-    alert: 'bg-destructive text-white',
-    live: 'bg-primary text-white',
-    good: 'bg-emerald-600 text-white',
-    info: 'bg-foreground/[0.08] text-foreground',
+    alert: 'bg-[#FBEAE8] text-[#B42318]',
+    live: 'bg-[#17181A] text-white',
+    good: 'bg-[#E3F3E7] text-[#1F6B3A]',
+    info: 'bg-[#F1ECE5] text-[#4A453E]',
   };
+  // The card's header words: what is happening with this visit right now, in one short phrase.
+  const stepStatus = useStepStatus(service, appointment);
+  const startMs0 = safeDate(appointment.startTime).getTime(); const expMs0 = Number(expectedStartMs) || Date.parse(String((appointment as any).expectedStartAt || '')) || 0;
+  const startedYet = appointment.status === 'servicing' || !!(appointment as any).actualStartTime || ['completed', 'ready_for_checkout'].includes(String(appointment.status));
+  const pushedMin = !startedYet && expMs0 > startMs0 + 60000 ? Math.round((expMs0 - startMs0) / 60000) : 0;
 
   const totalPadding = (service?.padBefore || 0) + (service?.padAfter || 0);
   /* ── A CARD MUST RENDER EVEN WHEN ITS SERVICE IS GONE ──────────────────
@@ -351,6 +358,18 @@ export function AppointmentCard({
   }, [appointment, client, service, setupPending, profitTier, awaitingReview, hasDeferredFee, isMember, hasPackage, hasInspiration, isBirthdayToday, estimatedArrival, tripFresh, overMinutes]);
 
 
+  const head: { text: string; color: string } = (() => {
+    const RED = '#B42318', INK = '#17181A', GREEN = '#1F6B3A', BLUE = '#164A86', MUTED = '#6A655D';
+    if (pushedMin > 0) return { text: `Starts +${pushedMin}`, color: RED };
+    if (appointment.status === 'servicing') return stepStatus ? { text: stepStatus.text, color: stepStatus.tone === 'red' ? RED : INK } : isRunningOver ? { text: `${overMinutes} min over`, color: RED } : { text: elapsedTime ? `In the chair · ${elapsedTime}` : 'In the chair', color: INK };
+    if (appointment.checkInStatus === 'arrived') return { text: 'Here', color: GREEN };
+    if (appointment.checkInStatus === 'running_late') return { text: estimatedArrival ? `Late · ~${estimatedArrival}` : 'Running late', color: RED };
+    if (appointment.checkInStatus === 'on_my_way') return { text: estimatedArrival ? `On the way · ~${estimatedArrival}` : 'On the way', color: BLUE };
+    if (appointment.status === 'ready_for_checkout') return { text: 'Ready to pay', color: BLUE };
+    return { text: currentStatus?.text || '', color: MUTED };
+  })();
+  const headKeys = new Set(['live', 'behind', 'late', 'here', 'otw']);   // already said in the header
+
   const involvedStaff = useMemo(() => {
     const ids = new Set<string>();
     if (appointment.staffId) ids.add(appointment.staffId);
@@ -394,35 +413,42 @@ export function AppointmentCard({
       <div style={{ height: `${(safeDuration / totalDuration) * 100}%` }} className="flex-1 min-h-0 overflow-hidden">
         <Card 
           className={cn(
-            'p-1.5 sm:p-2.5 border border-l-[3px] w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-r-xl overflow-hidden', 
-            currentStatus?.className,
-            (isRunningOver || appointment.isEscalated) && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10',
+            'px-2 py-1.5 sm:px-3 sm:py-2.5 border w-full h-full flex flex-col gap-1 sm:gap-1.5 transition-shadow duration-300 relative rounded-[16px] overflow-hidden bg-white border-[#ECE6DD] shadow-[0_10px_24px_-18px_rgba(23,24,26,0.45)] hover:shadow-[0_16px_32px_-16px_rgba(23,24,26,0.5)]',
+            (isRunningOver || appointment.isEscalated) && 'border-[#F0C9C4] shadow-[0_12px_28px_-16px_rgba(180,35,24,0.65)]',
+            pushedMin > 0 && 'border-dashed border-[#D9A39C]',
+            ['completed', 'cancelled', 'no_show', 'declined'].includes(String(appointment.status)) && 'opacity-70',
             awaitingDecision && 'bg-[repeating-linear-gradient(-45deg,transparent,transparent_5px,rgba(22,23,26,0.06)_5px,rgba(22,23,26,0.06)_7px)]',
             profitTier && profitStyles[profitTier].edgeClass
           )}
           role="button"
           tabIndex={0}
-          style={edgeColor ? { borderLeftColor: edgeColor, borderLeftWidth: 5 } : undefined}   // "colour by provider" (planner view settings)
+          // "colour by provider" (planner view settings) shows as a dot by the time
           aria-label={`Open details for ${client.name}`}
           onClick={openDetails}
           onKeyDown={(e: any) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetails(); }
           }}
         >
-          <StepEdge service={service} appointment={appointment} />
+          {tier !== 'compact' && (
+            <div className="flex min-w-0 items-center gap-2 text-[11px] sm:text-[12px] font-[700] tabular-nums leading-none text-[#6A655D]">
+              <span className="flex shrink-0 items-center gap-1.5">{edgeColor && <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: edgeColor }} />}{pushedMin > 0 ? <><s className="text-[#A39D93]">{format(safeDate(appointment.startTime), 'h:mm')}</s><span className="text-[#B42318]">~{format(new Date(expMs0), 'h:mm')}</span></> : format(safeDate(appointment.startTime), 'h:mm')}</span>
+              <span className="min-w-0 flex-1 truncate text-center" style={{ color: head.color }}>{head.text}</span>
+              <span className="shrink-0">{format(addMinutes(pushedMin > 0 ? new Date(expMs0) : safeDate(appointment.startTime), safeDuration), 'h:mm')}</span>
+            </div>)}
+          <StepRibbon service={service} appointment={appointment} height={tier === 'compact' ? 4 : 8} pushedMin={pushedMin} />
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
             <div className="min-w-0 flex-1 text-left">
                 <div className={cn(
                     "items-center gap-1 mb-0.5 sm:mb-1",
                     tier === 'compact' ? "hidden" : "flex flex-nowrap overflow-hidden",
                 )}>
-                    {chips.slice(0, chipCap).map(chip => {
+                    {chips.filter((c) => !headKeys.has(c.key)).slice(0, chipCap).map(chip => {
                       const ChipIcon = chip.Icon;
                       return (
                         <span
                           key={chip.key}
                           className={cn(
-                            "inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 h-5 text-[12px] font-semibold ",
+                            "inline-flex shrink-0 items-center gap-1 rounded-full px-2 h-5 text-[11px] sm:text-[12px] font-[600] ",
                             CHIP_TONES[chip.tone] || CHIP_TONES.info,
                             chip.key === 'live' && 'animate-pulse',
                           )}
@@ -432,17 +458,17 @@ export function AppointmentCard({
                         </span>
                       );
                     })}
-                    {chips.length > chipCap && (
-                      <span className="inline-flex shrink-0 items-center rounded-lg px-1.5 h-5 text-[12px] font-semibold bg-foreground/[0.08] text-foreground/70">
-                        +{chips.length - chipCap}
+                    {chips.filter((c) => !headKeys.has(c.key)).length > chipCap && (
+                      <span className="inline-flex shrink-0 items-center rounded-full px-2 h-5 text-[11px] sm:text-[12px] font-[600] bg-[#F1ECE5] text-[#4A453E]">
+                        +{chips.filter((c) => !headKeys.has(c.key)).length - chipCap}
                       </span>
                     )}
                 </div>
                 <div className="flex items-baseline gap-2 mb-1">
-                  <span className="shrink-0 tabular-nums font-semibold tracking-tight leading-none text-[11px] sm:text-[12px] text-foreground">
+                  {tier === 'compact' && <span className="shrink-0 tabular-nums font-[700] leading-none text-[11px] sm:text-[12px] text-[#6A655D]">
                     {format(safeDate(appointment.startTime), 'h:mm')}
-                  </span>
-                  <p className="font-semibold tracking-tight text-[13px] sm:text-[14px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
+                  </span>}
+                  <p className="font-[800] tracking-[-0.01em] text-[14px] sm:text-[15px] text-[#17181A] truncate leading-none flex-1 min-w-0">{client.name}</p>
                   {ticket !== null && tier !== 'compact' && appointment.status !== 'servicing' && (
                     <span className={cn(
                       'shrink-0 tabular-nums font-semibold tracking-tight leading-none text-[12px] sm:text-[13px]',
@@ -453,7 +479,7 @@ export function AppointmentCard({
                   )}
                 </div>
                 {tier !== 'compact' && (
-                  <p className="text-[11px] sm:text-[12px] font-bold text-muted-foreground truncate leading-snug">{service?.name || appointment.serviceName || 'Service'}</p>
+                  <p className="text-[12px] sm:text-[13px] font-[500] text-[#6A655D] truncate leading-snug">{service?.name || appointment.serviceName || 'Service'}</p>
                 )}
                 {holdReason && tier === 'full' && (
                   <p className="text-[12px] font-bold text-foreground/70 truncate">{holdReason}</p>
@@ -542,14 +568,14 @@ export function AppointmentCard({
             </div>
           </div>
 
-          {appointment.status === 'servicing' && elapsedTime && tier === 'full' && (
-            <div className="flex-1 flex items-center justify-center py-0.5 sm:py-1">
-                <p className={cn("text-lg sm:text-2xl font-semibold font-mono  leading-none", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
+          {appointment.status === 'servicing' && elapsedTime && tier === 'full' && !stepStatus && (
+            <div className="flex-1 flex items-center justify-center py-0.5">
+                <p className={cn("text-lg sm:text-xl font-[800] tabular-nums leading-none", isRunningOver ? "text-[#B42318]" : "text-[#17181A]")}>{elapsedTime}</p>
             </div>
           )}
 
           <div className="mt-auto pt-1 sm:pt-2 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 sm:gap-1.5">
+            <div className={cn("flex items-center gap-1.5 sm:gap-1.5", tier !== 'compact' && 'invisible')}>
                 <div className={cn("w-1.5 h-1.5 rounded-full shadow-sm", currentStatus?.dotColor)} />
                 <p className="text-[12px] font-semibold text-muted-foreground text-left">
                     {(appointment.checkInStatus === 'running_late' || appointment.checkInStatus === 'on_my_way') && estimatedArrival

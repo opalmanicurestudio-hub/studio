@@ -9,7 +9,7 @@
 // Pure — the same plan runs on the front desk, the housekeeping queue, the provider's phone and the server check, and it
 // re-plans itself whenever a visit runs over, a kit is scanned, or a booking changes. Nothing is written by it.
 import { kitsNeeded, typeOf, sameKitType, type Kit, type KitType } from '@/lib/kits';
-import { linensNeeded, sameLinen, type Linen, type LinenBundle } from '@/lib/linens';
+import { linensForVisit, resourceNeeds, sameLinen, type Linen, type LinenBundle } from '@/lib/linens';
 import { visitSteps, liveTiming } from '@/lib/phase-timeline';
 
 export type SetState = 'ready' | 'in_time' | 'late' | 'none';
@@ -31,11 +31,25 @@ function endOf(a: any, services: any[], startMs: number, now: number): number {
   return startMs + len;
 }
 
-export function planSetAside(input: { visits: any[]; services: any[]; kits: Kit[]; kitTypes: KitType[]; bundles?: LinenBundle[]; linens?: Linen[]; now?: number; horizonHours?: number }): { visits: SetVisit[]; shortages: Shortage[]; byKit: Record<string, { visitId: string; clientName: string; staffId: string | null; startMs: number }> } {
+/** Rentals of a room / station (booth reservations of a mirrored space) as bookings that can need linens and kits. */
+export function rentalsAsVisits(reservations: any[]): any[] {
+  return (reservations || []).filter((r) => r && r.startTime && r.endTime && !['cancelled', 'refunded', 'completed', 'cancel_requested'].includes(String(r.status || '')))
+    .map((r) => { const m = /^space_(.+)_\d+$/.exec(String(r.boothId || '')); return m ? { id: `res:${r.id}`, clientName: r.guestName || r.renterName || r.name || 'Rental', staffId: null, status: r.checkedInAt ? 'servicing' : 'confirmed', actualStartTime: r.checkedInAt || null, startTime: r.startTime, endTime: r.endTime, requiredResourceIds: [m[1]], isRental: true } : null; })
+    .filter(Boolean);
+}
+/** Everything a booking needs: its service and add-ons, plus what the rooms / stations it uses need for every booking. */
+export function needsFor(visit: any, services: any[], resources?: any[]): { kits: { name: string; qty: number }[]; linens: { name: string; qty: number }[] } {
+  const svc = services.find((s) => s.id === visit?.serviceId);
+  const kits = [...(svc ? kitsNeeded(svc) : [])]; for (const n of resourceNeeds(visit, resources, 'kit')) { const e = kits.find((k) => sameKitType(k.name, n.name)); if (e) e.qty += n.qty; else kits.push(n); }
+  return { kits, linens: linensForVisit(visit, services, resources) };
+}
+
+export function planSetAside(input: { visits: any[]; services: any[]; kits: Kit[]; kitTypes: KitType[]; bundles?: LinenBundle[]; linens?: Linen[]; resources?: any[]; reservations?: any[]; now?: number; horizonHours?: number }): { visits: SetVisit[]; shortages: Shortage[]; byKit: Record<string, { visitId: string; clientName: string; staffId: string | null; startMs: number }>; byBundle: Record<string, { visitId: string; clientName: string; staffId: string | null; startMs: number }> } {
   const now = input.now ?? Date.now(); const services = input.services || []; const types = input.kitTypes || [];
   const horizon = now + (input.horizonHours ?? 14) * 3600000;
+  const allVisits = [...(input.visits || []), ...rentalsAsVisits(input.reservations || [])];
   const visitEnd = new Map<string, number>();
-  for (const a of input.visits || []) if (started(a)) visitEnd.set(a.id, endOf(a, services, ms(a.actualStartTime) || ms(a.startTime), now));
+  for (const a of allVisits) if (started(a)) visitEnd.set(a.id, endOf(a, services, ms(a.actualStartTime) || ms(a.startTime), now));
   // Kits: when each one is next free
   const kitFree = new Map<string, number>();
   for (const k of input.kits || []) {
@@ -58,11 +72,11 @@ export function planSetAside(input: { visits: any[]; services: any[]; kits: Kit[
     else if (st === 'washing' && wash) bundleFree.set(b.id, Math.max(now, (ms(b.at) || now) + wash * 60000) + (dry + FOLD) * 60000);
     else if (st === 'dirty' && wash) bundleFree.set(b.id, now + (wash + dry + FOLD + 15) * 60000);
   }
-  const upcoming = (input.visits || []).filter((a) => !closed(a) && !started(a)).map((a) => ({ a, startMs: ms(a.expectedStartAt) > ms(a.startTime) ? ms(a.expectedStartAt) : ms(a.startTime) }))
+  const upcoming = allVisits.filter((a) => !closed(a) && !started(a)).map((a) => ({ a, startMs: ms(a.expectedStartAt) > ms(a.startTime) ? ms(a.expectedStartAt) : ms(a.startTime) }))
     .filter((x) => x.startMs > now - 2 * 3600000 && x.startMs < horizon).sort((x, y) => x.startMs - y.startMs);
-  const out: SetVisit[] = []; const shortages: Shortage[] = []; const byKit: Record<string, any> = {};
+  const out: SetVisit[] = []; const shortages: Shortage[] = []; const byKit: Record<string, any> = {}; const byBundle: Record<string, any> = {};
   for (const { a, startMs } of upcoming) {
-    const svc = services.find((s) => s.id === a.serviceId); if (!svc) continue;
+    const need = needsFor(a, services, input.resources); if (!need.kits.length && !need.linens.length) continue;
     const items: SetItem[] = []; const end = endOf(a, services, startMs, now);
     const pick = (kind: 'kit' | 'bundle', type: string, pool: { id: string; code: string; pinned: boolean }[], free: Map<string, number>, busyUntil: number) => {
       const cands = pool.filter((p) => free.has(p.id)).sort((x, y) => Number(y.pinned) - Number(x.pinned) || free.get(x.id)! - free.get(y.id)!);
@@ -73,23 +87,23 @@ export function planSetAside(input: { visits: any[]; services: any[]; kits: Kit[
       const state: SetState = f <= now ? 'ready' : f <= startMs ? 'in_time' : 'late';
       items.push({ kind, type, refId: best.id, code: best.code, state, freeAt: f, note: state === 'ready' ? 'Ready' : state === 'in_time' ? `Ready ~${clock(f)}` : `Not before ~${clock(f)}` });
       free.set(best.id, Math.max(f, startMs) + (busyUntil - startMs));
-      if (kind === 'kit') byKit[best.id] ||= { visitId: a.id, clientName: String(a.clientName || ''), staffId: a.staffId || null, startMs };
+      (kind === 'kit' ? byKit : byBundle)[best.id] ||= { visitId: a.id, clientName: String(a.clientName || ''), staffId: a.staffId || null, startMs };
     };
-    for (const need of kitsNeeded(svc)) for (let n = 0; n < Math.max(1, need.qty); n++) {
-      const pool = (input.kits || []).filter((k) => sameKitType(k.name, need.name)).map((k) => ({ id: k.id, code: k.code, pinned: (k as any).setFor === a.id }));
-      pick('kit', need.name, pool, kitFree, end + turnaroundOf(types, need.name) * 60000);
+    for (const nk of need.kits) for (let n = 0; n < Math.max(1, nk.qty); n++) {
+      const pool = (input.kits || []).filter((k) => sameKitType(k.name, nk.name)).map((k) => ({ id: k.id, code: k.code, pinned: (k as any).setFor === a.id }));
+      pick('kit', nk.name, pool, kitFree, end + turnaroundOf(types, nk.name) * 60000);
     }
-    for (const need of linensNeeded(svc)) {
-      const ln = linens.find((l) => sameLinen(l.name, need.name)); if (!ln) continue;
-      const pool = (input.bundles || []).filter((b) => b.linenId === ln.id && Number(b.qty) >= need.qty).map((b) => ({ id: b.id, code: b.code, pinned: (b as any).setFor === a.id }));
+    for (const nl of need.linens) {
+      const ln = linens.find((l) => sameLinen(l.name, nl.name)); if (!ln) continue;
+      const pool = (input.bundles || []).filter((b) => b.linenId === ln.id && Number(b.qty) >= nl.qty).map((b) => ({ id: b.id, code: b.code, pinned: (b as any).setFor === a.id }));
       if (!(input.bundles || []).some((b) => b.linenId === ln.id)) continue;   // this linen isn't bundled — counted by the linen outlook instead
       const wash = Number(ln.washMinutes) || 0, dry = Number(ln.dryMinutes) || 0;   // a used bundle comes back after wash, dry and fold when the times are known; otherwise it's gone for the day
-      pick('bundle', `${need.name}${need.qty > 1 ? ` ×${need.qty}` : ''}`, pool, bundleFree, wash ? end + (wash + dry + 30) * 60000 : end + 48 * 3600000);
+      pick('bundle', `${nl.name}${nl.qty > 1 ? ` ×${nl.qty}` : ''}`, pool, bundleFree, wash ? end + (wash + dry + 30) * 60000 : end + 48 * 3600000);
     }
     const ok = items.every((i) => i.state === 'ready' || i.state === 'in_time');
     out.push({ visitId: a.id, clientName: String(a.clientName || 'Client'), staffId: a.staffId || null, startMs, items, ok });
     for (const i of items) if (i.state === 'late' || i.state === 'none') shortages.push({ visitId: a.id, clientName: String(a.clientName || 'Client'), staffId: a.staffId || null, startMs, type: i.type, kind: i.kind, state: i.state, freeAt: i.freeAt,
       text: `${i.type} for ${String(a.clientName || 'the client').split(' ')[0]} at ${clock(startMs)} — ${i.state === 'none' ? 'none available' : `none free until ~${clock(i.freeAt!)}${i.code ? ` (${i.code})` : ''}`}` });
   }
-  return { visits: out, shortages, byKit };
+  return { visits: out, shortages, byKit, byBundle };
 }

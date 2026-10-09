@@ -35,6 +35,9 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const cq = useMemoFirebase(() => q('opsClaims'), [firestore, tenantId]); const { data: claims } = useCollection<any>(cq);
   const bq = useMemoFirebase(() => q('linenBundles'), [firestore, tenantId]); const { data: bundles } = useCollection<any>(bq);
   // Timers for the production board: steriliser cycles running and contact timers still open.
+  // Rentals of rooms / stations today (booth reservations of a mirrored space) — they can need linens too.
+  const rSince = React.useMemo(() => new Date(Date.now() - 12 * 3600000).toISOString(), []);
+  const rvq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'boothReservations'), where('startTime', '>=', rSince)) : null), [firestore, tenantId, rSince]); const { data: rentals } = useCollection<any>(rvq);
   const cyq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'sterilisationCycles'), where('status', '==', 'running')) : null), [firestore, tenantId]); const { data: cycles } = useCollection<any>(cyq);
   const ctq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'contactTimers'), where('doneAt', '==', null)) : null), [firestore, tenantId]); const { data: contacts } = useCollection<any>(ctq);
   const hSince = React.useMemo(() => new Date(Date.now() - 16 * 3600000).toISOString(), []);
@@ -42,7 +45,7 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const requests = useAssistQueue(firestore, tenantId || null);   // what providers asked for from their stations, lounge orders, restocks
   const { data: resources } = useCollection<any>(rq); const { data: protocols } = useCollection<any>(pq); const { data: kits } = useCollection<any>(kq); const { data: kitTypes } = useCollection<any>(tq); const { data: linens } = useCollection<any>(lq);
   // The production plan: one kit / bundle set aside for each visit ahead, re-planned live.
-  const plan = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: (kits || []) as any, kitTypes: (kitTypes || []) as any, bundles: (bundles || []) as any, linens: (linens || []) as any, now }), [appts, services, kits, kitTypes, bundles, linens, now]);
+  const plan = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: (kits || []) as any, kitTypes: (kitTypes || []) as any, bundles: (bundles || []) as any, linens: (linens || []) as any, resources: resources || [], reservations: rentals || [], now }), [appts, services, kits, kitTypes, bundles, linens, resources, rentals, now]);
   const tasks = React.useMemo(() => {
     const stations = stationReadiness(resources || [], appts || [], services || [], now, staff || [], protocols || []);
     const ahead = (appts || []).filter((a: any) => ['booked', 'waiting', 'in_service'].includes(stageOf(a)) && !a.linensCounted).map((a: any) => ({ ...a, startTime: typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate ? a.startTime.toDate().toISOString() : new Date(a.startTime).toISOString() }));
@@ -56,7 +59,7 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
     for (const sh of plan.shortages.filter((x) => x.startMs - now < 3 * 3600000)) { const left = Math.round((sh.startMs - now) / 60000);
       prep.push({ id: `short:${sh.visitId}:${sh.type}`, kind: 'prep', refId: sh.visitId, goTo: sh.kind === 'kit' ? 'kits' : 'linens', dueAt: new Date(sh.startMs).toISOString(),
         title: `${sh.type} needed for ${sh.clientName.split(' ')[0]} at ${fmt(sh.startMs)}`, detail: sh.state === 'none' ? `None available — get one cleansed or swap the service` : `Nothing free until ~${fmt(sh.freeAt!)} — speed one up, or move the visit`, score: left <= 30 ? 95 : left <= 60 ? 88 : 70 }); }
-    return attendantQueue({ stations, kits: (kits || []).filter((k: any) => k.status !== 'retired'), kitTypes: kitTypes || [], linens: linens || [], outlook: linenOutlook(linens || [], ahead, services || []), requests, claims: claims || [], prep, now });
+    return attendantQueue({ stations, kits: (kits || []).filter((k: any) => k.status !== 'retired'), kitTypes: kitTypes || [], linens: linens || [], outlook: linenOutlook(linens || [], ahead, services || [], resources || []), requests, claims: claims || [], prep, now });
   }, [resources, protocols, kits, kitTypes, linens, appts, services, staff, now, requests, claims, plan]);
   const running = React.useMemo((): Running[] => { const ms = (v: any) => Date.parse(String(v || '')) || 0; const out: Running[] = [];
     for (const k of (kits || []) as any[]) if (k.status === 'cleaning' && k.cleanse?.startedAt && !k.cleansedAt) out.push({ id: `c:${k.id}`, kind: 'cleanse', title: `${k.name} ${k.code}`, sub: `${k.cleanse.method === 'wipe' ? 'Wipe' : 'Soak'} · ${k.cleanse.name}`, startMs: ms(k.cleanse.startedAt), minutes: Number(k.cleanse.minutes) || 0 });
