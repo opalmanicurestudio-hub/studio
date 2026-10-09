@@ -228,7 +228,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
       return (
         <FormProvider {...methods}>
             <Sheet open={open} onOpenChange={onOpenChange}>
-                <SheetContent side="bottom" className="h-[90dvh] flex flex-col p-0">
+                <SheetContent side="bottom" className="cf-settings cf-legacy h-[90dvh] flex flex-col p-0">
                     <SheetHeader className="p-6 pb-0 text-left">
                         <SheetTitle>{title}</SheetTitle>
                         <SheetDescription>{description}</SheetDescription>
@@ -250,7 +250,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="cf-settings cf-legacy sm:max-w-md">
         <FormProvider {...methods}>
             <form id={formId} onSubmit={handleSubmit(handleFormSubmit)}>
                 <DialogHeader>

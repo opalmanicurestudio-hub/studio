@@ -104,7 +104,7 @@ export const WeeklyKpiSheet: React.FC<WeeklyKpiSheetProps> = ({ open, onOpenChan
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent 
         side={isMobile ? 'bottom' : 'right'} 
-        className={cn(
+        className={cn("cf-settings cf-legacy", 
             "p-0 border-none bg-background flex flex-col shadow-3xl",
             isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl"
         )}

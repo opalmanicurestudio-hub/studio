@@ -477,7 +477,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   } = useCancelDialog(props);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl flex flex-col h-[95dvh] max-h-[95dvh] bg-background">
+      <DialogContent className="cf-settings cf-legacy sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl flex flex-col h-[95dvh] max-h-[95dvh] bg-background">
         <DialogHeader className="p-8 pb-6 border-b bg-muted/5 shrink-0 text-left">
           <div className="flex items-center gap-3 mb-2">
             <Ban className="w-5 h-5 text-destructive" />

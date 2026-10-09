@@ -246,12 +246,12 @@ export const RescheduleAppointmentDialog: React.FC<Props> = (props) => {
     move, cells, dayTimes, groups, who, body, footer,
   } = useReschedule(props);
   if (isMobile) return (
-    <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="max-h-[94vh] overflow-y-auto rounded-t-[2rem] p-5">
+    <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="cf-settings cf-legacy max-h-[94vh] overflow-y-auto rounded-t-[2rem] p-5">
       <SheetHeader className="mb-3 text-left"><SheetTitle className="text-xl font-black">Reschedule {first}</SheetTitle></SheetHeader>{body}<SheetFooter className="sticky bottom-0 mt-5 bg-background pb-2 pt-3">{footer}</SheetFooter>
     </SheetContent></Sheet>
   );
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-[2rem] p-7 sm:max-w-lg">
+    <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="cf-settings cf-legacy max-h-[92vh] overflow-y-auto rounded-[2rem] p-7 sm:max-w-lg">
       <DialogHeader className="mb-1"><DialogTitle className="text-2xl font-black">Reschedule {first}</DialogTitle></DialogHeader>{body}<DialogFooter className="mt-5">{footer}</DialogFooter>
     </DialogContent></Dialog>
   );

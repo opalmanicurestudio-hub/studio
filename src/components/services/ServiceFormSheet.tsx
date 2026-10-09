@@ -233,7 +233,7 @@ const anchorId = (t: any) => `svc-${String(t).toLowerCase().replace(/[^a-z0-9]+/
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
   <p id={anchorId(children)} className="text-[15px] font-semibold px-1 mb-3 scroll-mt-20">{children}</p>
 );
-const FORM_STEPS: [string, string][] = [['Basics', 'Basics'], ['Products it uses', 'Products'], ['Price & deposit', 'Price'], ['Consent forms', 'Forms'], ['Policies & online booking', 'Policies']];
+const FORM_STEPS: [string, string][] = [['Basics', 'Basics'], ['Products it uses', 'Products'], ['Price & deposit', 'Price'], ['Steps & what it needs', 'Steps'], ['Consent forms', 'Forms'], ['Policies & online booking', 'Policies']];
 
 const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
   pricingTiers: PricingTier[]; values: any; tmhr: number; taxBurden: number; staff: Staff[];
@@ -919,6 +919,64 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
             {showAll && <Separator />}
 
             <section hidden={!showAll && step !== 3} className="space-y-3">
+              <SectionLabel>Steps & what it needs</SectionLabel>
+              <p className="text-[13px] text-muted-foreground">The steps of the visit (set-up, hands-on, processing, reset) and what each booking needs — kits, linens, equipment. This drives booking times, the step timeline, station resets and what housekeeping sets aside.</p>
+              <div className="space-y-3 p-4 rounded-2xl border">
+                <div className="flex items-start justify-between gap-3">
+                  <div><p className="font-semibold text-sm tracking-tight">How it’s delivered</p>
+                    <p className="text-[12px] font-bold text-muted-foreground opacity-60">Phases and what it needs — sets the timings for booking and station turnover</p></div>
+                  <button type="button" onClick={() => setBpOn((v) => !v)} aria-pressed={bpOn} className={`h-8 shrink-0 rounded-full px-3 text-[11px] font-semibold ${bpOn ? 'bg-primary text-primary-foreground' : 'border'}`}>{bpOn ? 'On' : 'Set up'}</button>
+                </div>
+                {bpOn && (<div className="space-y-4">
+                  <div className="space-y-2">
+                    {bpPhases.map((p, i) => (
+                      <div key={p.id} className="space-y-2 rounded-xl border p-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={p.kind} onChange={(e) => setPhase(i, { kind: e.target.value as PhaseKind, label: p.label === PHASE_LABEL[p.kind] ? PHASE_LABEL[e.target.value as PhaseKind] : p.label })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="Phase type">
+                            {(Object.keys(PHASE_LABEL) as PhaseKind[]).map((k) => <option key={k} value={k}>{PHASE_LABEL[k]}</option>)}
+                          </select>
+                          <Input value={p.label} onChange={(e) => setPhase(i, { label: e.target.value })} className="h-10 min-w-[8rem] flex-1 rounded-xl border" aria-label="Phase name" />
+                          <Input type="number" min={0} max={600} value={p.minutes} onChange={(e) => setPhase(i, { minutes: Number(e.target.value) })} className="h-10 w-20 rounded-xl border text-center" aria-label="Minutes" />
+                          <span className="text-xs text-muted-foreground">min</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={p.providerNeeded} onChange={(e) => setPhase(i, { providerNeeded: e.target.checked })} /> Provider needed{p.kind === 'processing' && !p.providerNeeded && Number(p.minutes) >= 5 ? <span className="text-muted-foreground"> · they can take another client during this time</span> : null}</label>
+                          <span className="flex gap-1">
+                            <button type="button" onClick={() => movePhase(i, -1)} disabled={i === 0} className="h-8 w-8 rounded-lg border text-sm disabled:opacity-30" aria-label="Move up">↑</button>
+                            <button type="button" onClick={() => movePhase(i, 1)} disabled={i === bpPhases.length - 1} className="h-8 w-8 rounded-lg border text-sm disabled:opacity-30" aria-label="Move down">↓</button>
+                            <button type="button" onClick={() => setBpPhases((ps) => ps.filter((_, j) => j !== i))} disabled={bpPhases.length <= 1} className="h-8 rounded-lg border px-2 text-xs disabled:opacity-30">Remove</button>
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">{PHASE_HINT[p.kind]}</p>
+                      </div>))}
+                    <div className="flex flex-wrap gap-2">{(Object.keys(PHASE_LABEL) as PhaseKind[]).map((k) => <button key={k} type="button" onClick={() => setBpPhases((ps) => [...ps, newPhase(k)])} className="h-9 rounded-full border px-3 text-xs font-semibold">+ {PHASE_LABEL[k]}</button>)}</div>
+                    <p className="rounded-xl bg-muted/60 p-2.5 text-xs">Client {bpT.clientMinutes} min · provider {bpT.providerMinutes} min{bpT.providerFreeMinutes ? ` (free ${bpT.providerFreeMinutes} min while processing)` : ''} · station busy {bpT.stationMinutes} min{bpT.padAfter ? ` incl. ${bpT.padAfter} min turnover` : ''}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold tracking-tight">What it needs</p>
+                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — tools and kits, linens, amenities, an extra person. Kits and linens are picked from your own lists, so each visit gets one set aside and housekeeping knows what to prepare.</p>
+                    {bpReqs.map((r, i) => (
+                      <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-2">
+                        <select value={r.kind} onChange={(e) => setReq(i, { kind: e.target.value as RequirementKind })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="Kind">{(Object.keys(REQ_LABEL) as RequirementKind[]).map((k) => <option key={k} value={k}>{REQ_LABEL[k]}</option>)}</select>
+                        {(() => { const opts: string[] = r.kind === 'kit' ? (kitTypeList || []).filter((t: any) => !t.archived).map((t: any) => String(t.name)) : r.kind === 'linen' ? (linenList || []).filter((l: any) => !l.archived).map((l: any) => String(l.name)) : [];
+                          const listed = opts.some((o) => o.toLowerCase() === String(r.name || '').trim().toLowerCase());
+                          return opts.length > 0 && (listed || !r.name) ? (
+                            <select value={opts.find((o) => o.toLowerCase() === String(r.name || '').trim().toLowerCase()) || ''} onChange={(e) => setReq(i, { name: e.target.value === '__other' ? ' ' : e.target.value })} className="h-10 min-w-[8rem] flex-1 rounded-xl border bg-background px-2 text-sm" aria-label={r.kind === 'kit' ? 'Kit type' : 'Linen type'}>
+                              <option value="">{r.kind === 'kit' ? 'Choose a kit type…' : 'Choose a linen…'}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}<option value="__other">Something not listed…</option></select>)
+                            : <Input value={r.name} onChange={(e) => setReq(i, { name: e.target.value })} placeholder={r.kind === 'linen' ? 'e.g. Towel' : 'e.g. Pedicure kit'} className="h-10 min-w-[8rem] flex-1 rounded-xl border" aria-label="Name" />; })()}
+                        <Input type="number" min={1} max={99} value={r.qty} onChange={(e) => setReq(i, { qty: Number(e.target.value) })} className="h-10 w-16 rounded-xl border text-center" aria-label="Quantity" />
+                        <select value={r.mode} onChange={(e) => setReq(i, { mode: e.target.value as RequirementMode })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="How strictly">{(Object.keys(MODE_LABEL) as RequirementMode[]).map((k) => <option key={k} value={k}>{MODE_LABEL[k]}</option>)}</select>
+                        <button type="button" onClick={() => setBpReqs((rs) => rs.filter((_, j) => j !== i))} className="h-10 rounded-xl border px-2 text-xs">Remove</button>
+                      </div>))}
+                    <button type="button" onClick={() => setBpReqs((rs) => [...rs, newRequirement()])} className="h-9 rounded-full border px-3 text-xs font-semibold">+ Add a requirement</button>
+                  </div>
+                  {(service as any)?.blueprint?.version ? <p className="text-[11px] text-muted-foreground">Version {(service as any).blueprint.version} · saving a change makes a new version; past bookings keep the one they were booked under.</p> : null}
+                </div>)}
+              </div>
+            </section>
+            {showAll && <Separator />}
+
+            <section hidden={!showAll && step !== 4} className="space-y-3">
               <SectionLabel>Consent forms</SectionLabel>
               <InlineSearchPanel
                 label="Consent Forms"
@@ -951,7 +1009,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             {showAll && <Separator />}
 
-            <section hidden={!showAll && step !== 4} className="space-y-4">
+            <section hidden={!showAll && step !== 5} className="space-y-4">
               <SectionLabel>Policies & online booking</SectionLabel>
 
               <div className="grid grid-cols-2 gap-3">
@@ -1000,13 +1058,13 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             {/* MORE OPTIONS — the parts most owners never touch, out of the way but one tap away. */}
             <details className="rounded-3xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
-              <summary className="cursor-pointer text-[15px] font-semibold">More options <span className="font-normal cf-muted">— the confirmation note, documents to sign, how it’s delivered, the return plan</span></summary>
+              <summary className="cursor-pointer text-[15px] font-semibold">More options <span className="font-normal cf-muted">— the confirmation note, documents to sign, the return plan</span></summary>
               <div className="space-y-6 pt-4">
               <div className="space-y-1.5">
                 <Label className="text-[12px] font-semibold text-muted-foreground">Extra note in the confirmation</Label>
                 <Textarea {...register('confirmationMessage')} placeholder="Post-booking instructions for the guest..." className="rounded-2xl border min-h-[80px]" />
               </div>
-            <section hidden={!showAll && step !== 3} className="space-y-3">
+            <section hidden={!showAll && step !== 4} className="space-y-3">
               <SectionLabel>Documents</SectionLabel>
               <div className="space-y-2">
                 {fileRequirements.length === 0 && (
@@ -1073,58 +1131,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 </Button>
               </div>
             </section>
-              <div className="space-y-3 p-4 rounded-2xl border">
-                <div className="flex items-start justify-between gap-3">
-                  <div><p className="font-semibold text-sm tracking-tight">How it’s delivered</p>
-                    <p className="text-[12px] font-bold text-muted-foreground opacity-60">Phases and what it needs — sets the timings for booking and station turnover</p></div>
-                  <button type="button" onClick={() => setBpOn((v) => !v)} aria-pressed={bpOn} className={`h-8 shrink-0 rounded-full px-3 text-[11px] font-semibold ${bpOn ? 'bg-primary text-primary-foreground' : 'border'}`}>{bpOn ? 'On' : 'Set up'}</button>
-                </div>
-                {bpOn && (<div className="space-y-4">
-                  <div className="space-y-2">
-                    {bpPhases.map((p, i) => (
-                      <div key={p.id} className="space-y-2 rounded-xl border p-2.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <select value={p.kind} onChange={(e) => setPhase(i, { kind: e.target.value as PhaseKind, label: p.label === PHASE_LABEL[p.kind] ? PHASE_LABEL[e.target.value as PhaseKind] : p.label })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="Phase type">
-                            {(Object.keys(PHASE_LABEL) as PhaseKind[]).map((k) => <option key={k} value={k}>{PHASE_LABEL[k]}</option>)}
-                          </select>
-                          <Input value={p.label} onChange={(e) => setPhase(i, { label: e.target.value })} className="h-10 min-w-[8rem] flex-1 rounded-xl border" aria-label="Phase name" />
-                          <Input type="number" min={0} max={600} value={p.minutes} onChange={(e) => setPhase(i, { minutes: Number(e.target.value) })} className="h-10 w-20 rounded-xl border text-center" aria-label="Minutes" />
-                          <span className="text-xs text-muted-foreground">min</span>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={p.providerNeeded} onChange={(e) => setPhase(i, { providerNeeded: e.target.checked })} /> Provider needed{p.kind === 'processing' && !p.providerNeeded && Number(p.minutes) >= 5 ? <span className="text-muted-foreground"> · they can take another client during this time</span> : null}</label>
-                          <span className="flex gap-1">
-                            <button type="button" onClick={() => movePhase(i, -1)} disabled={i === 0} className="h-8 w-8 rounded-lg border text-sm disabled:opacity-30" aria-label="Move up">↑</button>
-                            <button type="button" onClick={() => movePhase(i, 1)} disabled={i === bpPhases.length - 1} className="h-8 w-8 rounded-lg border text-sm disabled:opacity-30" aria-label="Move down">↓</button>
-                            <button type="button" onClick={() => setBpPhases((ps) => ps.filter((_, j) => j !== i))} disabled={bpPhases.length <= 1} className="h-8 rounded-lg border px-2 text-xs disabled:opacity-30">Remove</button>
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">{PHASE_HINT[p.kind]}</p>
-                      </div>))}
-                    <div className="flex flex-wrap gap-2">{(Object.keys(PHASE_LABEL) as PhaseKind[]).map((k) => <button key={k} type="button" onClick={() => setBpPhases((ps) => [...ps, newPhase(k)])} className="h-9 rounded-full border px-3 text-xs font-semibold">+ {PHASE_LABEL[k]}</button>)}</div>
-                    <p className="rounded-xl bg-muted/60 p-2.5 text-xs">Client {bpT.clientMinutes} min · provider {bpT.providerMinutes} min{bpT.providerFreeMinutes ? ` (free ${bpT.providerFreeMinutes} min while processing)` : ''} · station busy {bpT.stationMinutes} min{bpT.padAfter ? ` incl. ${bpT.padAfter} min turnover` : ''}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold tracking-tight">What it needs</p>
-                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — tools and kits, linens, amenities, an extra person. Kits and linens are picked from your own lists, so each visit gets one set aside and housekeeping knows what to prepare.</p>
-                    {bpReqs.map((r, i) => (
-                      <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-2">
-                        <select value={r.kind} onChange={(e) => setReq(i, { kind: e.target.value as RequirementKind })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="Kind">{(Object.keys(REQ_LABEL) as RequirementKind[]).map((k) => <option key={k} value={k}>{REQ_LABEL[k]}</option>)}</select>
-                        {(() => { const opts: string[] = r.kind === 'kit' ? (kitTypeList || []).filter((t: any) => !t.archived).map((t: any) => String(t.name)) : r.kind === 'linen' ? (linenList || []).filter((l: any) => !l.archived).map((l: any) => String(l.name)) : [];
-                          const listed = opts.some((o) => o.toLowerCase() === String(r.name || '').trim().toLowerCase());
-                          return opts.length > 0 && (listed || !r.name) ? (
-                            <select value={opts.find((o) => o.toLowerCase() === String(r.name || '').trim().toLowerCase()) || ''} onChange={(e) => setReq(i, { name: e.target.value === '__other' ? ' ' : e.target.value })} className="h-10 min-w-[8rem] flex-1 rounded-xl border bg-background px-2 text-sm" aria-label={r.kind === 'kit' ? 'Kit type' : 'Linen type'}>
-                              <option value="">{r.kind === 'kit' ? 'Choose a kit type…' : 'Choose a linen…'}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}<option value="__other">Something not listed…</option></select>)
-                            : <Input value={r.name} onChange={(e) => setReq(i, { name: e.target.value })} placeholder={r.kind === 'linen' ? 'e.g. Towel' : 'e.g. Pedicure kit'} className="h-10 min-w-[8rem] flex-1 rounded-xl border" aria-label="Name" />; })()}
-                        <Input type="number" min={1} max={99} value={r.qty} onChange={(e) => setReq(i, { qty: Number(e.target.value) })} className="h-10 w-16 rounded-xl border text-center" aria-label="Quantity" />
-                        <select value={r.mode} onChange={(e) => setReq(i, { mode: e.target.value as RequirementMode })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="How strictly">{(Object.keys(MODE_LABEL) as RequirementMode[]).map((k) => <option key={k} value={k}>{MODE_LABEL[k]}</option>)}</select>
-                        <button type="button" onClick={() => setBpReqs((rs) => rs.filter((_, j) => j !== i))} className="h-10 rounded-xl border px-2 text-xs">Remove</button>
-                      </div>))}
-                    <button type="button" onClick={() => setBpReqs((rs) => [...rs, newRequirement()])} className="h-9 rounded-full border px-3 text-xs font-semibold">+ Add a requirement</button>
-                  </div>
-                  {(service as any)?.blueprint?.version ? <p className="text-[11px] text-muted-foreground">Version {(service as any).blueprint.version} · saving a change makes a new version; past bookings keep the one they were booked under.</p> : null}
-                </div>)}
-              </div>
               <div className="space-y-3 p-4 rounded-2xl border">
                 <div><p className="font-semibold text-sm tracking-tight">Return plan</p>
                   <p className="text-[12px] font-bold text-muted-foreground opacity-60">What they book next, and when — used by “Book your next visit” on the client screen</p></div>

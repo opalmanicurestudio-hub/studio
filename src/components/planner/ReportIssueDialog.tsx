@@ -69,7 +69,7 @@ export function ReportIssueDialog({
         if (!v) { setCode(''); setNote(''); setTouched(false); }
       }}
     >
-      <DialogContent className="rounded-2xl border-2 sm:max-w-md">
+      <DialogContent className="cf-settings cf-legacy rounded-2xl border-2 sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base font-black tracking-tight">
             <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />

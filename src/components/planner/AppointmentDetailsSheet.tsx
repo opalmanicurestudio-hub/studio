@@ -1414,7 +1414,7 @@ const MidServiceHandoffDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-3xl border max-w-md">
+      <DialogContent className="cf-settings cf-legacy rounded-3xl border max-w-md">
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold tracking-tight flex items-center gap-2">
             <Repeat2 className="w-4 h-4 text-primary" /> Mid-Session Handoff

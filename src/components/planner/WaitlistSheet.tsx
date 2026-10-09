@@ -390,7 +390,7 @@ export function WaitlistSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side={isMobile ? 'bottom' : 'right'}
-        className={cn(
+        className={cn("cf-settings cf-legacy", 
           'flex flex-col p-0 border-none bg-background shadow-2xl overflow-hidden',
           isMobile ? 'h-[94dvh] rounded-t-[2.5rem] w-full' : 'sm:max-w-lg md:max-w-xl',
         )}

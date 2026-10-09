@@ -485,7 +485,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   return (
     <FormProvider {...methods}>
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[95dvh]")}>
+      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("cf-settings cf-legacy", "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[95dvh]")}>
         <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-4 pt-5" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2 text-left">
                 <Sparkles className="w-4 h-4 text-primary" />

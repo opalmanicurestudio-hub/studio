@@ -561,7 +561,7 @@ const EditAppointmentForm = ({
                 initialSelected={selectedAddOns}
             />
             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
-                <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
+                <AlertDialogContent className="cf-settings cf-legacy rounded-[3rem] border-4 shadow-3xl">
                     <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
                         <AlertDialogTitle className="font-black uppercase tracking-tighter text-xl md:text-2xl">Confirm Logic Violation</AlertDialogTitle>
                         <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">

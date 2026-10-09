@@ -108,7 +108,7 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="cf-settings cf-legacy sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Today's Picking List</DialogTitle>
           <DialogDescription>
