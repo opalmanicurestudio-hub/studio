@@ -51,3 +51,17 @@ export function paceRunway(input: { visits: any[]; services: any[]; kits: any[];
     const perHour = (n * 60) / win; const clean = Math.max(0, Number(l.clean) || 0); out.push({ kind: 'linen', id: l.id, name: l.name, perHour: Math.round(perHour * 10) / 10, clean, minutesLeft: Math.round((clean / perHour) * 60) }); }
   return out.sort((a, b) => a.minutesLeft - b.minutesLeft);
 }
+
+/** Walk-ins expected in the next stretch (default 90 min), so housekeeping keeps kits and linen bundles ready for them:
+ *  "learn from past days" replays the busiest recent same weekday; "a set number a day" spreads it over the open day
+ *  (10 hours unless the business says otherwise) with the usual walk-in service. Each is marked `expected`. */
+export function expectedWalkIns(input: { tenant: any; appts: any[]; now?: number; horizonMin?: number }): any[] {
+  const now = input.now ?? Date.now(); const horizon = now + (input.horizonMin ?? 90) * 60000; const mode = walkInMode(input.tenant);
+  if (mode === 'history') return forecastVisits({ appts: input.appts, target: now, mode, now }).visits.filter((v: any) => v.expected && ms(v.startTime) > now && ms(v.startTime) <= horizon)
+    .map((v: any) => ({ ...v, staffId: null, clientName: 'Walk-in (expected)' }));
+  if (mode === 'fixed') { const w = input.tenant?.ops?.walkIns || {}; const perDay = Math.max(0, Math.round(Number(w.perDay) || 0)); if (!perDay || !w.serviceId) return [];
+    const hours = Math.max(4, Math.min(16, Number(w.openHours) || 10)); const gap = (hours * 60) / perDay; const out: any[] = [];
+    for (let t = now + Math.min(30, gap) * 60000, i = 0; t <= horizon && i < 12; t += gap * 60000, i++) out.push({ id: `expected:fixed:${i}`, expected: true, status: 'expected', clientName: 'Walk-in (expected)', staffId: null, serviceId: w.serviceId, startTime: new Date(t).toISOString(), endTime: new Date(t + 60 * 60000).toISOString() });
+    return out; }
+  return [];
+}

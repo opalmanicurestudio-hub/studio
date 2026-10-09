@@ -159,7 +159,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   // every few minutes, so it happens even where the scheduled job runs rarely. The server ignores repeats.
   useEffect(() => { if (!e.tenantId) return; const run = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: e.tenantId }) }).catch(() => undefined); };
     const first = setTimeout(run, 8000); const every = setInterval(run, 5 * 60000); return () => { clearTimeout(first); clearInterval(every); }; }, [e.tenantId]);
-  const hk = useHousekeeping(e.tenantId || null, todaysAppts, e.services || [], e.staff || []);   // the housekeeping queue (badge)
+  const hk = useHousekeeping(e.tenantId || null, todaysAppts, e.services || [], e.staff || [], e.selectedTenant, e.appointmentsFromInventory || []);   // the housekeeping queue (badge)
   const kitsToClean = (kits || []).filter((k: any) => k.status === 'dirty' || k.status === 'out' || (k.status === 'cleaning' && Number(e.selectedTenant?.kitCapacity?.[kitKey(k.name)]?.cleanMinutes) > 0 && secondsLeft(k.at, Number(e.selectedTenant.kitCapacity[kitKey(k.name)].cleanMinutes), now.getTime()) <= 0)).length;   // to clean, pulled out, or cleaning time is up
   const assistItems = useAssistQueue(e.firestore, e.tenantId || null);   // Station Assist (O4): station requests + lounge orders + restocks
   const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);
@@ -233,7 +233,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const delays = useDelays(todaysAppts, e.services || [], e.selectedTenant || tenant);
   const delayMargin = delaySettings(e.selectedTenant || tenant).marginMin;
   const pushedBack = (id: string) => { let m = 0; for (const d of delays) for (const k of d.next) if (k.id === id && k.lateMin > m) m = k.lateMin; return m >= delayMargin ? m : 0; };
-  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, extraMinutesFor, kits: kits || [], lateFor: pushedBack }), [delays, guests, doorWaiting, e.clients, e.services, now, kits]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, extraMinutesFor, kits: kits || [], lateFor: pushedBack, setAsideFor: (id: string) => { const v = hk.plan?.visits.find((x: any) => x.visitId === id); const codes = (v?.items || []).filter((i: any) => i.code && (i.state === 'ready' || i.state === 'in_time')).map((i: any) => i.code); return codes.length ? `Set aside: ${codes.join(' · ')}` : null; } }), [hk.plan, delays, guests, doorWaiting, e.clients, e.services, now, kits]); // eslint-disable-line react-hooks/exhaustive-deps
   const requests = (e.appointmentsFromInventory || []).filter((a: any) => a.status === 'requested').length;
   // ── At-a-glance facts ────────────────────────────────────────────────
   const staffOf = (id: string | null) => (id ? (e.staff || []).find((s: any) => s.id === id) : null);

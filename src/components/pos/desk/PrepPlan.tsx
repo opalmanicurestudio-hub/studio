@@ -15,10 +15,12 @@ export function PrepPlan({ plan, staff, staffId, perProvider = 4, title = 'Prep 
   const rows = plan.visits.filter((v) => v.items.length && (!staffId || v.staffId === staffId));
   if (!rows.length) return null;
   const groups = new Map<string, SetVisit[]>();
-  for (const v of rows) { const k = v.staffId || '—'; if (!groups.has(k)) groups.set(k, []); if (groups.get(k)!.length < perProvider) groups.get(k)!.push(v); }
-  const solo = !staffId && groups.size === 1;   // one provider (a solo business): a simple list, no columns
-  const nameOf = (id: string) => staff.find((m: any) => m.id === id)?.name || 'Unassigned';
-  const issues = rows.filter((v) => !v.ok).length;
+  // Expected walk-ins (from the forecast) are shown together at the end as what's kept back for them.
+  for (const v of rows) { const k = v.expected ? '__walkins' : v.visitId.startsWith('res:') ? '__rentals' : v.staffId || '—'; if (!groups.has(k)) groups.set(k, []); if (groups.get(k)!.length < perProvider) groups.get(k)!.push(v); }
+  if (groups.has('__walkins')) { const w = groups.get('__walkins')!; groups.delete('__walkins'); groups.set('__walkins', w); }
+  const solo = !staffId && [...groups.keys()].filter((k) => k !== '__walkins').length <= 1 && !groups.has('—');   // one provider (a solo business): a simple list, no columns
+  const nameOf = (id: string) => (id === '__walkins' ? 'Kept for walk-ins' : id === '__rentals' ? 'Room rentals' : staff.find((m: any) => m.id === id)?.name || 'Walk-ins waiting');
+  const issues = rows.filter((v) => !v.ok && !v.expected).length;
   return (
     <section aria-label={title} className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
@@ -28,11 +30,11 @@ export function PrepPlan({ plan, staff, staffId, perProvider = 4, title = 'Prep 
       <div className={staffId || solo ? '' : 'flex snap-x gap-3 overflow-x-auto pb-1'}>
         {[...groups.entries()].map(([sid, list]) => (
           <div key={sid} className={`${staffId || solo ? '' : 'w-[290px] shrink-0 snap-start'} rounded-[20px] bg-white p-3 shadow-[0_1px_0_rgba(23,24,26,0.04),0_8px_22px_-14px_rgba(23,24,26,0.25)]`} style={{ border: '1px solid #ece6dd' }}>
-            {!staffId && !solo && <div className="mb-2 flex items-center gap-2"><Initials name={nameOf(sid)} size={30} /><p className="truncate text-[14px] font-[700]">{String(nameOf(sid)).split(' ')[0]}</p></div>}
+            {sid === '__walkins' ? <p className="mb-2 text-[14px] font-[700]">Kept for walk-ins <span className="font-[500] text-[#6A655D]">· expected in the next 90 min</span></p> : !staffId && !solo && <div className="mb-2 flex items-center gap-2"><Initials name={nameOf(sid)} size={30} /><p className="truncate text-[14px] font-[700]">{sid === '—' ? 'Walk-ins waiting' : sid === '__rentals' ? 'Room rentals' : String(nameOf(sid)).split(' ')[0]}</p></div>}
             <ol className="space-y-2">
               {list.map((v) => (
                 <li key={v.visitId} className="rounded-2xl p-2.5" style={{ background: v.ok ? '#faf8f5' : '#fdf3f2' }}>
-                  <p className="text-[14px]"><b className="font-[800] tabular-nums">{clock(v.startMs)}</b> <span className="font-[600]">{v.clientName.split(' ')[0]}</span></p>
+                  <p className="text-[14px]"><b className="font-[800] tabular-nums">{v.expected ? '~' : ''}{clock(v.startMs)}</b> <span className="font-[600]">{v.expected ? 'Walk-in' : v.clientName.split(' ')[0]}</span></p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {v.items.map((it, i) => { const L = LOOK[it.state]; const isOut = !!(it.refId && setOut[it.refId] === v.visitId); const canSet = !!onSetOut && it.state === 'ready' && !!it.refId && !isOut;
                       const inner = <>

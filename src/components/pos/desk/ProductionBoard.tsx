@@ -41,7 +41,7 @@ export function ProductionBoard({ now: nowList, restock, plan, running, card, st
       <Band title="Prepare" count={soon.length} tone="ink" hint="Set out for the next 90 minutes">
         {soon.length ? soon.map((v) => (
           <div key={v.visitId} className="rounded-[20px] bg-white p-3 shadow-[0_8px_22px_-16px_rgba(23,24,26,0.35)]" style={{ border: `1px solid ${v.ok ? '#ECE6DD' : '#F0C9C4'}` }}>
-            <p className="text-[15px]"><b className="font-[800] tabular-nums">{hm(v.startMs)}</b> <span className="font-[700]">{v.clientName.split(' ')[0]}</span><span style={{ color: '#6A655D' }}>{nameOf(v.staffId) ? ` · ${nameOf(v.staffId)}` : ''}</span></p>
+            <p className="text-[15px]"><b className="font-[800] tabular-nums">{v.expected ? '~' : ''}{hm(v.startMs)}</b> <span className="font-[700]">{v.expected ? 'Walk-in (expected)' : v.clientName.split(' ')[0]}</span><span style={{ color: '#6A655D' }}>{nameOf(v.staffId) ? ` · ${nameOf(v.staffId)}` : ''}</span></p>
             <div className="mt-2 flex flex-wrap gap-1.5">{v.items.map((it, i) => { const ok = it.state === 'ready' || it.state === 'in_time'; const isOut = !!(it.refId && setOut[it.refId] === v.visitId);
               const style = { background: isOut ? '#EDE8E1' : it.state === 'ready' ? '#E3F3E7' : ok ? '#FDF1DC' : '#FBEAE8', color: isOut ? '#17181A' : it.state === 'ready' ? '#1F6B3A' : ok ? '#7A4A00' : '#B42318' };
               const body = <>{it.code || it.type}{isOut ? <span className="font-[500]">· set out ✓</span> : it.state === 'ready' ? (onSetOut ? <span className="font-[500]">· set out</span> : null) : <span className="font-[500]">· {it.note.replace(/\s?[AP]M\b/gi, '')}</span>}</>;

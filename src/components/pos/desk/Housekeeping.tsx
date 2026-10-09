@@ -13,6 +13,7 @@ import { moveKit, KIT_LABEL } from '@/lib/kits';
 import { cleansePlan } from '@/lib/cleanse';
 import { delaySettings } from '@/lib/delay';
 import { planSetAside } from '@/lib/setaside';
+import { expectedWalkIns } from '@/lib/demand';
 import { PrepPlan } from '@/components/pos/desk/PrepPlan';
 import { setOutItem } from '@/lib/setout-client';
 import { useDeferred } from '@/components/pos/desk/Undo';
@@ -29,7 +30,7 @@ import { TypeBadge, Initials } from '@/components/pos/desk/hk-ui';
 import { Stations } from '@/components/pos/desk/Stations';
 
 /** How many housekeeping jobs are waiting (for a button's badge). Loads the same records as the queue. */
-export function useHousekeeping(tenantId: string | null | undefined, appts: any[], services: any[], staff: any[]) {
+export function useHousekeeping(tenantId: string | null | undefined, appts: any[], services: any[], staff: any[], tenant?: any, history?: any[]) {
   const { firestore } = useFirebase(); const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   const q = (name: string) => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, name) : null);
@@ -48,7 +49,9 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const requests = useAssistQueue(firestore, tenantId || null);   // what providers asked for from their stations, lounge orders, restocks
   const { data: resources } = useCollection<any>(rq); const { data: protocols } = useCollection<any>(pq); const { data: kits } = useCollection<any>(kq); const { data: kitTypes } = useCollection<any>(tq); const { data: linens } = useCollection<any>(lq);
   // The production plan: one kit / bundle set aside for each visit ahead, re-planned live.
-  const plan = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: (kits || []) as any, kitTypes: (kitTypes || []) as any, bundles: (bundles || []) as any, linens: (linens || []) as any, resources: resources || [], reservations: rentals || [], now }), [appts, services, kits, kitTypes, bundles, linens, resources, rentals, now]);
+  // Walk-ins the business expects in the next 90 minutes keep kits and bundles back for them (after booked clients).
+  const expected = React.useMemo(() => (tenant ? expectedWalkIns({ tenant, appts: history && history.length ? history : appts || [], now }) : []), [tenant, appts, history, now]);
+  const plan = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: (kits || []) as any, kitTypes: (kitTypes || []) as any, bundles: (bundles || []) as any, linens: (linens || []) as any, resources: resources || [], reservations: rentals || [], expected, now }), [appts, services, kits, kitTypes, bundles, linens, resources, rentals, expected, now]);
   const tasks = React.useMemo(() => {
     const stations = stationReadiness(resources || [], appts || [], services || [], now, staff || [], protocols || []);
     const ahead = (appts || []).filter((a: any) => ['booked', 'waiting', 'in_service'].includes(stageOf(a)) && !a.linensCounted).map((a: any) => ({ ...a, startTime: typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate ? a.startTime.toDate().toISOString() : new Date(a.startTime).toISOString() }));
@@ -82,7 +85,7 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const toDate = (v: any) => new Date(typeof v === 'string' ? v : v?.toDate ? v.toDate() : v?.seconds ? v.seconds * 1000 : v);
 
 export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' | 'board' | 'timers' }) {
-  const { running, plan, bundles, tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff);
+  const { running, plan, bundles, tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff, tenant, allAppts);
   const later = useDeferred(5000);   // one-tap jobs wait 5 seconds with an Undo bar
   // Set out: which kits / bundles are already at their station for a visit, and the tap that marks one.
   const setOut = React.useMemo(() => { const m: Record<string, string> = {}; for (const x of [...(kits || []), ...(bundles || [])] as any[]) if (x.setFor && (x.status === 'ready' || x.status === 'clean')) m[x.id] = x.setFor; return m; }, [kits, bundles]);
@@ -229,6 +232,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
             <label key={m} className="flex items-start gap-2"><input type="radio" name="wi" className="mt-1" checked={wiMode === m} onChange={() => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), mode: m, ...(m === 'fixed' && !Number(tenant?.ops?.walkIns?.perDay) ? { perDay: 4 } : {}) } })} /> {label}</label>))}
           {wiMode === 'fixed' && <div className="flex flex-wrap items-center gap-2 pl-6">
             <label>Allow for <input type="number" min={0} max={200} defaultValue={Number(tenant?.ops?.walkIns?.perDay) || 0} onBlur={(e) => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), mode: 'fixed', perDay: Math.max(0, Math.min(200, Math.round(Number(e.target.value)) || 0)) } })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" /> a day, usually for</label>
+            <label>over a <input type="number" min={4} max={16} defaultValue={Number(tenant?.ops?.walkIns?.openHours) || 10} onBlur={(e) => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), mode: 'fixed', openHours: Math.max(4, Math.min(16, Math.round(Number(e.target.value)) || 10)) } })} className="mx-1 h-9 w-16 rounded-lg border bg-background px-2" aria-label="Open hours a day" />-hour day</label>
             <select defaultValue={tenant?.ops?.walkIns?.serviceId || ''} onChange={(e) => saveSetup({ walkIns: { ...(tenant?.ops?.walkIns || {}), serviceId: e.target.value || null } })} aria-label="Usual walk-in service" className="h-9 rounded-lg border bg-background px-2 text-[13px]"><option value="">Choose a service…</option>{(services || []).filter((x: any) => x && x.type !== 'addon').map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
           </div>}
           <p className="text-[12px] text-muted-foreground">Whatever you choose, the queue also watches the pace of the last hour and warns when clean kits or linens will run out soon.</p>

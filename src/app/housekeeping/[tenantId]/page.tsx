@@ -30,7 +30,7 @@ export default function HousekeepingWall() {
   // Today's visits for the live queue; everything loaded (a day back, and what's booked ahead) for the readiness check.
   const today = React.useMemo(() => { const d = new Date().toDateString(); return (apptsRaw || []).filter((a: any) => { const t = new Date(typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate?.() || a.startTime); return t.toDateString() === d; }); }, [apptsRaw]);
   const scanner = useScanSheet();   // a USB / Bluetooth scanner by the wall screen works straight away
-  const hk = useHousekeeping(user ? tenantId : null, today, services || [], staff || []);
+  const hk = useHousekeeping(user ? tenantId : null, today, services || [], staff || [], tenant, apptsRaw || []);
   // Keep the screen awake where the browser allows it.
   React.useEffect(() => { let lock: any = null; const go = async () => { try { lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* not supported — the device's own setting applies */ } };
     void go(); const vis = () => { if (document.visibilityState === 'visible') void go(); }; document.addEventListener('visibilitychange', vis); return () => { document.removeEventListener('visibilitychange', vis); try { lock?.release(); } catch { /* gone already */ } }; }, []);
