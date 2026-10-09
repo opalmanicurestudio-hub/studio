@@ -11,6 +11,8 @@ import { Disinfection } from '@/components/pos/desk/Disinfection';
 import { attendantIds } from '@/lib/attendant';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { Stations } from '@/components/pos/desk/Stations';
+import { planSetAside } from '@/lib/setaside';
+import { PrepPlan } from '@/components/pos/desk/PrepPlan';
 
 export function MyTurnovers({ tenantId, staffId, appts, services, staff, everyone = false }: { tenantId: string; staffId: string; appts: any[]; services: any[]; staff: any[]; everyone?: boolean }) {
   const { firestore } = useFirebase();
@@ -25,6 +27,20 @@ export function MyTurnovers({ tenantId, staffId, appts, services, staff, everyon
       <Stations mine firestore={firestore} tenantId={tenantId} resources={resources} appts={recent} services={services || []} staff={staff || []} protocols={protocols || []}
         onlyRow={(r) => (r.status === 'turnover' || (everyone && r.status === 'inspect')) && (everyone || r.ownerId === staffId)} />
     </section>);
+}
+
+/** A provider's own next visits with the kit and linen bundle set aside for each (planned across the whole team). */
+export function MyPrep({ tenantId, staffId, services, staff }: { tenantId: string; staffId: string; services: any[]; staff: any[] }) {
+  const { firestore } = useFirebase(); const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(t); }, []);
+  const since = React.useMemo(() => new Date(Date.now() - 12 * 3600000).toISOString(), []);
+  const c = (n: string) => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, n) : null);
+  const { data: all } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'appointments'), where('startTime', '>=', since)) : null), [firestore, tenantId, since]));
+  const { data: kits } = useCollection<any>(useMemoFirebase(() => c('kits'), [firestore, tenantId])); const { data: kitTypes } = useCollection<any>(useMemoFirebase(() => c('kitTypes'), [firestore, tenantId]));
+  const { data: bundles } = useCollection<any>(useMemoFirebase(() => c('linenBundles'), [firestore, tenantId])); const { data: linens } = useCollection<any>(useMemoFirebase(() => c('linens'), [firestore, tenantId]));
+  const plan = React.useMemo(() => planSetAside({ visits: all || [], services: services || [], kits: kits || [], kitTypes: kitTypes || [], bundles: bundles || [], linens: linens || [], now, horizonHours: 10 }), [all, services, kits, kitTypes, bundles, linens, now]);
+  if (!kits?.length) return null;
+  return <div className="rounded-2xl border bg-card p-3"><PrepPlan plan={plan} staff={staff || []} staffId={staffId} perProvider={5} title="Your next visits — set aside for you" /></div>;
 }
 
 /** On a team member's own Today screen: their own station resets — or, for someone named as housekeeping, the whole
@@ -48,7 +64,7 @@ export function PortalHousekeeping({ tenantId, staffId, myAppts, services, staff
       <button type="button" aria-expanded={guide} onClick={() => setGuide((g) => !g)} className="mt-2 h-11 w-full rounded-full border text-sm font-semibold">{guide ? 'Close the disinfection guide' : 'Disinfection guide and contact timers'}</button>
       {guide && <div className="mt-3"><Disinfection tenantId={tenantId} tenant={tenant} manager={false} scan={false} /></div>}
     </div>);
-  if (!isAttendant) return <div className="space-y-3">{ask}<MyTurnovers tenantId={tenantId} staffId={staffId} appts={myAppts} services={services} staff={staff} /></div>;
+  if (!isAttendant) return <div className="space-y-3">{ask}<MyPrep tenantId={tenantId} staffId={staffId} services={services} staff={staff} /><MyTurnovers tenantId={tenantId} staffId={staffId} appts={myAppts} services={services} staff={staff} /></div>;
   const today = (all || []).filter((a: any) => String(a.startTime || '') <= new Date(Date.now() + 18 * 3600000).toISOString());
   return (
     <section aria-label="Housekeeping" className="space-y-3">

@@ -47,6 +47,20 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
       out.kitsReleased++; }
     await syncKits(db, tenantId, tenant, kitsAll, now);
     await kitTimers(db, tenantId, kitsAll, now);
+    // 2c) Shortages ahead: a visit in the next hour whose kit or linen bundle won't be ready in time — told once per visit and type.
+    try { const { planSetAside } = await import('@/lib/setaside');
+      const [types, bundles] = await Promise.all([db.collection(`${T}/kitTypes`).get().then(rows), db.collection(`${T}/linenBundles`).limit(400).get().then(rows)]);
+      const plan = planSetAside({ visits: appts, services: await services(), kits: kitsAll as any, kitTypes: types as any, bundles: bundles as any, linens: linens as any, now, horizonHours: 1.5 });
+      const soon = plan.shortages.filter((x) => x.startMs - now <= 60 * 60000 && !(appts.find((a: any) => a.id === x.visitId)?.shortTold || {})[x.type.replace(/[.\s/]+/g, '_')]);
+      if (soon.length) { const staffRows = rows(await db.collection(`${T}/staff`).get());
+        const att = attendantIds(tenant).filter((id) => staffRows.some((m: any) => m.id === id && m.active !== false && !m.onBreak));
+        const mgr = staffRows.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && m.active !== false).map((m: any) => m.id);
+        const b = db.batch();
+        for (const x of soon) { const to = Array.from(new Set([...(att.length ? att : mgr), ...(x.staffId ? [x.staffId] : [])]));
+          for (const uid of to) notify(db, b, T, uid, { type: 'kit_short', priority: 'urgent', at: nowIso, message: `Not ready in time: ${x.text}.` });
+          b.set(db.doc(`${T}/appointments/${x.visitId}`), { shortTold: { [x.type.replace(/[.\s/]+/g, '_')]: nowIso } }, { merge: true }); }
+        await b.commit(); try { await (await import('@/lib/push')).pushNow(db, tenantId); } catch { /* minute push job */ } }
+    } catch (e) { console.error('[ops-tick] shortages', tenantId, e); }
   } catch (e) { console.error('[ops-tick] kits', tenantId, e); } }
   else if (tenant?.kitCapacity && Object.keys(tenant.kitCapacity).length) { try { await db.doc(T).set({ kitCapacity: {} }, { mergeFields: ['kitCapacity'] }); } catch { /* next run */ } }
 

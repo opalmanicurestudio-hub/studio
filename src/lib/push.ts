@@ -22,7 +22,7 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   // Station Assist & lounge
   assist: 'now', assist_escalation: 'now', floor_assist: 'now',
   // Housekeeping — stations, kits, cleansing, sterilising, laundry, delays
-  turnover_due: 'now', turnover_escalation: 'now', kit_timer: 'now', kit_cleansed: 'now', contact_reached: 'now', cycle_done: 'now', linen_timer: 'now', kit_none_usable: 'now', visit_delay: 'now', delay_affects_you: 'now',
+  turnover_due: 'now', turnover_escalation: 'now', kit_timer: 'now', kit_cleansed: 'now', contact_reached: 'now', cycle_done: 'now', linen_timer: 'now', kit_none_usable: 'now', kit_short: 'now', visit_delay: 'now', delay_affects_you: 'now',
   // Clients reaching out
   sms: 'now', sms_escalation: 'now', sms_escalation_unassigned: 'now', call_message: 'now', call_reply: 'now',
   // The team

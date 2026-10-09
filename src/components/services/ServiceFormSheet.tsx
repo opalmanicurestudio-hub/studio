@@ -314,6 +314,9 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
   const { data: consentForms }   = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/consentForms`), [firestore, selectedTenant]));
   const { data: pricingTiers }   = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`), [firestore, selectedTenant]));
+  // What a service needs is picked from the business's own kit types and linen types, so set-aside and prep match exactly.
+  const { data: kitTypeList }    = useCollection<any>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/kitTypes`), [firestore, selectedTenant]));
+  const { data: linenList }      = useCollection<any>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/linens`), [firestore, selectedTenant]));
 
   // STEP BY STEP: one part of the service at a time (Back · Next), Save from any step, or "Show everything".
   const [step, setStep] = React.useState(0); const [showAll, setShowAll] = React.useState(false);
@@ -1103,11 +1106,16 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   </div>
                   <div className="space-y-2">
                     <p className="text-xs font-semibold tracking-tight">What it needs</p>
-                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — tools and kits, linens, amenities, an extra person.</p>
+                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — tools and kits, linens, amenities, an extra person. Kits and linens are picked from your own lists, so each visit gets one set aside and housekeeping knows what to prepare.</p>
                     {bpReqs.map((r, i) => (
                       <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-2">
                         <select value={r.kind} onChange={(e) => setReq(i, { kind: e.target.value as RequirementKind })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="Kind">{(Object.keys(REQ_LABEL) as RequirementKind[]).map((k) => <option key={k} value={k}>{REQ_LABEL[k]}</option>)}</select>
-                        <Input value={r.name} onChange={(e) => setReq(i, { name: e.target.value })} placeholder="e.g. Pedicure kit" className="h-10 min-w-[8rem] flex-1 rounded-xl border" aria-label="Name" />
+                        {(() => { const opts: string[] = r.kind === 'kit' ? (kitTypeList || []).filter((t: any) => !t.archived).map((t: any) => String(t.name)) : r.kind === 'linen' ? (linenList || []).filter((l: any) => !l.archived).map((l: any) => String(l.name)) : [];
+                          const listed = opts.some((o) => o.toLowerCase() === String(r.name || '').trim().toLowerCase());
+                          return opts.length > 0 && (listed || !r.name) ? (
+                            <select value={opts.find((o) => o.toLowerCase() === String(r.name || '').trim().toLowerCase()) || ''} onChange={(e) => setReq(i, { name: e.target.value === '__other' ? ' ' : e.target.value })} className="h-10 min-w-[8rem] flex-1 rounded-xl border bg-background px-2 text-sm" aria-label={r.kind === 'kit' ? 'Kit type' : 'Linen type'}>
+                              <option value="">{r.kind === 'kit' ? 'Choose a kit type…' : 'Choose a linen…'}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}<option value="__other">Something not listed…</option></select>)
+                            : <Input value={r.name} onChange={(e) => setReq(i, { name: e.target.value })} placeholder={r.kind === 'linen' ? 'e.g. Towel' : 'e.g. Pedicure kit'} className="h-10 min-w-[8rem] flex-1 rounded-xl border" aria-label="Name" />; })()}
                         <Input type="number" min={1} max={99} value={r.qty} onChange={(e) => setReq(i, { qty: Number(e.target.value) })} className="h-10 w-16 rounded-xl border text-center" aria-label="Quantity" />
                         <select value={r.mode} onChange={(e) => setReq(i, { mode: e.target.value as RequirementMode })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="How strictly">{(Object.keys(MODE_LABEL) as RequirementMode[]).map((k) => <option key={k} value={k}>{MODE_LABEL[k]}</option>)}</select>
                         <button type="button" onClick={() => setBpReqs((rs) => rs.filter((_, j) => j !== i))} className="h-10 rounded-xl border px-2 text-xs">Remove</button>

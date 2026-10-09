@@ -13,6 +13,7 @@ import { Disinfection } from '@/components/pos/desk/Disinfection';
 import { sterilisedSinceUse } from '@/lib/sterilisation';
 import { cleansePlan, cleanseState, readyForNextStep, METHOD_LABEL } from '@/lib/cleanse';
 import { startCleanse } from '@/lib/cleanse-client';
+import { planSetAside } from '@/lib/setaside';
 import { useNfc } from '@/lib/use-nfc';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { printCodeLabels, brandOf, LABEL_FORMATS, KIT_STEPS, type LabelFormat } from '@/lib/print-labels';
@@ -46,12 +47,28 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
   // Kit types named on services but not tracked yet — offered when adding.
   const typeNames = React.useMemo(() => Array.from(new Set([...supply.map((s) => s.name), ...(services || []).flatMap((s: any) => kitsNeeded(s).map((n) => n.name))])).sort(), [supply, services]);
   const who = () => ({ name: (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0], manager });
+  // Which visit each kit is set aside for (re-planned live as visits run over and kits are scanned).
+  const setFor = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: live, kitTypes: types, now: Date.now() }).byKit, [appts, services, live, types]);
+  const [swapping, setSwapping] = React.useState<string | null>(null);
+  const hm = (v: number) => new Date(v).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // Swap at the chair (tools worn, dropped, missing): the kit in use is pulled out with the reason, a clean one of the same
+  // type is tied to the same visit, and the swap is logged. The plan re-sets-aside for whoever that clean one was meant for.
+  const swap = async (k: Kit, why: string) => { const repl = live.find((x) => x.status === 'ready' && sameKitType(x.name, k.name) && x.id !== k.id && !setFor[x.id]) || live.find((x) => x.status === 'ready' && sameKitType(x.name, k.name) && x.id !== k.id);
+    if (!repl) { setMsg({ ok: false, text: `No clean ${k.name.toLowerCase()} to swap in — pull this one out and ask housekeeping.` }); return false; }
+    const forVisit = k.visitId ? { id: k.visitId, clientName: String(k.clientName || '') } : null;
+    if (!(await move(k, 'out', `Swapped at the chair — ${why}`))) return false;
+    await move(repl, 'in_use', undefined, forVisit);
+    void logAuditClient(firestore, tenantId, { action: 'kit.swapped', targetType: 'kit', targetId: k.id, actor: actor(), before: { kit: k.code }, after: { kit: repl.code, visitId: forVisit?.id || null }, summary: `${k.name}: ${k.code} swapped for ${repl.code}${forVisit?.clientName ? ` (${forVisit.clientName})` : ''} — ${why}` });
+    setMsg({ ok: true, text: `Swapped: use ${repl.name} ${repl.code}. ${k.code} is pulled out for a manager to look at.` }); return true; };
 
   // Taking a clean kit ties it to the client it's for (one likely guest → tied straight away; several → ask; none → not tied).
   const take = async (k: Kit) => {
     const c = kitCandidates(k, (appts || []).map((a: any) => ({ id: a.id, clientName: a.clientName, serviceId: a.serviceId, stage: stageOf(a), kits: a.kits })), services);
+    const planned = setFor[k.id]; const pref = planned ? c.find((x) => x.id === planned.visitId) : null;
+    if (pref) { await move(k, 'in_use', undefined, pref); return; }
     if (c.length > 1) { setAskFor({ kit: k, who: c }); return; }
-    await move(k, 'in_use', undefined, c[0] || null); };
+    const okd = await move(k, 'in_use', undefined, c[0] || null);
+    if (okd && planned && planned.visitId !== c[0]?.id) setMsg({ ok: true, text: `${k.name} ${k.code} taken${c[0] ? ` for ${c[0].clientName}` : ''}. It was set aside for ${planned.clientName.split(' ')[0]} at ${hm(planned.startMs)} — another is set aside for them now.` }); };
   const move = async (k: Kit, to: KitStatus, note?: string, forVisit?: { id: string; clientName: string } | null) => {
     // Who it's with: the visit's provider and station are kept on the kit while it's in use.
     const visit: any = forVisit ? (appts || []).find((a: any) => a.id === forVisit.id) : null;
@@ -219,6 +236,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
               <p className="text-[12px] text-muted-foreground">{k.status === 'out' && k.note ? `${k.note} · ` : ''}{k.status === 'in_use' ? `${[k.clientName ? `Client: ${k.clientName}` : null, (k as any).staffName ? `Provider: ${String((k as any).staffName).split(' ')[0]}` : null, k.stationName || null].filter(Boolean).join(' · ') || 'Not tied to a client'} · ` : ''}{k.by ? `${k.by}` : ''}{k.at ? ` · ${new Date(k.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}{k.cycles ? ` · cleaned ${k.cycles}×` : ''}</p>
               {k.status === 'cleaning' && (() => { const c = cleanseState(k); const cl: any = (k as any).cleanse; return cl ? <p className={`text-[13px] ${c.done ? 'font-semibold text-emerald-800' : ''}`}>{c.done ? `Cleansed (${cl.name}) — ready for the steriliser or its check` : <>{METHOD_LABEL[cl.method as 'wipe' | 'soak'] || 'Cleanse'} with {cl.name} · <LiveTimer since={cl.startedAt} minutes={cl.minutes} doneLabel="Cleansed" /></>}</p> : <p className="text-[13px] font-semibold text-amber-800">No cleanse recorded — start its cleanse before it goes on.</p>; })()}
               {k.status === 'in_use' && <p className="text-[12px] text-muted-foreground">In use <LiveTimer since={k.at} /></p>}
+              {setFor[k.id] && k.status !== 'in_use' && <p className="text-[12px] font-semibold" style={{ color: '#7A5C3A' }}>Set aside for {setFor[k.id].clientName.split(' ')[0]} · {hm(setFor[k.id].startMs)}{(() => { const p: any = (staff || []).find((x: any) => x.id === setFor[k.id].staffId); return p?.name ? ` with ${String(p.name).split(' ')[0]}` : ''; })()}</p>}
               {k.lastSterilised?.passed && <p className="text-[12px] text-muted-foreground">Sterilised {new Date(k.lastSterilised.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{k.lastSterilised.device ? ` · ${k.lastSterilised.device}` : ''} · {k.lastSterilised.by}</p>}
               {k.lastCheck && <p className="text-[12px] text-muted-foreground">Contents {k.lastCheck.ok ? 'checked' : 'incomplete'} · {new Date(k.lastCheck.at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {k.lastCheck.by}</p>}
               {(k as any).inventoryName && <p className="text-[12px] text-muted-foreground">Inventory: {(k as any).inventoryName}</p>}
@@ -234,7 +252,13 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             </div>
             <span className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold ${TONE[k.status]}`}>{KIT_LABEL[k.status]}</span>
           </div>
-          {pulling === k.id ? (
+          {swapping === k.id ? (
+            <div className="mt-2 flex gap-2">
+              <input autoFocus value={reason} onChange={(e) => setReason(e.target.value.slice(0, 200))} placeholder="Why swap? (e.g. nipper worn, dropped a pusher)" className="h-10 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[14px]" />
+              <button type="button" disabled={busy === k.id || !reason.trim()} onClick={async () => { if (await swap(k, reason.trim())) { setSwapping(null); setReason(''); } }} className="h-10 rounded-xl bg-foreground px-3 text-[13px] font-semibold text-background disabled:opacity-40">Swap it</button>
+              <button type="button" onClick={() => setSwapping(null)} className="h-10 rounded-xl px-2 text-[13px]">Cancel</button>
+            </div>
+          ) : pulling === k.id ? (
             <div className="mt-2 flex gap-2">
               <input autoFocus value={reason} onChange={(e) => setReason(e.target.value.slice(0, 200))} placeholder="What’s wrong? (e.g. nipper is blunt)" className="h-10 min-w-0 flex-1 rounded-xl border bg-background px-3 text-[14px]" />
               <button type="button" disabled={busy === k.id || !reason.trim()} onClick={async () => { if (await move(k, 'out', reason)) { setPulling(null); setReason(''); } }} className="h-10 rounded-xl bg-red-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Pull out</button>
@@ -244,6 +268,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
             <div className="mt-2 flex flex-wrap gap-2">
               {next && <button type="button" disabled={busy === k.id} onClick={() => (next.to === 'in_use' ? take(k) : next.to === 'ready' ? toReady(k) : k.status === 'in_use' || k.status === 'dirty' ? cleanse(k) : move(k, next.to))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{next.label}</button>}
               {(() => { const t = typeOf(types, k.name); return t?.items?.length && k.status !== 'out' && k.status !== 'cleaning' ? <button type="button" onClick={() => setChecking({ kit: k, items: t.items, have: t.items.map(() => 0), version: t.version || 1 })} className="h-9 rounded-full border px-3 text-[13px]">Check contents</button> : null; })()}
+              {k.status === 'in_use' && <button type="button" onClick={() => { setSwapping(k.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Swap at the chair</button>}
               {k.status !== 'out' && <button type="button" onClick={() => { setPulling(k.id); setReason(''); }} className="h-9 rounded-full border px-3 text-[13px] text-red-700">Something’s wrong</button>}
               {k.status === 'out' && (manager ? <>
                 <button type="button" disabled={busy === k.id} onClick={() => move(k, 'dirty')} className="h-9 rounded-full border px-3 text-[13px] font-semibold disabled:opacity-50">Fixed — clean it</button>

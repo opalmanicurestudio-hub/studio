@@ -1511,7 +1511,7 @@ function PlannerPageContent() {
           </div></div>}
         {(isMobile ? phoneView === 'grid' : plannerView === 'board') && <DayTimeline
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
-          startHour={prefs.startHour} colourBy={prefs.colourBy}
+          startHour={prefs.startHour} colourBy={prefs.colourBy} tenant={selectedTenant}
           density={density} onBookAt={(columnId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId: columns.find((c: any) => c.id === columnId && 'role' in c) ? columnId : undefined }); setIsAddAppointmentOpen(true); }}
           onMoveAppointment={(a: any, columnId: string, time: string) => { const col: any = columns.find((c: any) => c.id === columnId); const sid = col && 'role' in col ? columnId : a.staffId;
             const others = a.groupId ? (appointments || []).filter((x: any) => x.groupId === a.groupId && x.id !== a.id && !['cancelled', 'declined', 'completed'].includes(String(x.status))) : [];

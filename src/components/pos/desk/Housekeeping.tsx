@@ -12,6 +12,8 @@ import { stageOf } from '@/lib/visit';
 import { moveKit, KIT_LABEL } from '@/lib/kits';
 import { cleansePlan } from '@/lib/cleanse';
 import { delaySettings } from '@/lib/delay';
+import { planSetAside } from '@/lib/setaside';
+import { PrepPlan } from '@/components/pos/desk/PrepPlan';
 import { startCleanse } from '@/lib/cleanse-client';
 import { moveLinen, linenOutlook } from '@/lib/linens';
 import { attendantQueue, housekeepingMode, taskLimit, tasksHeldBy, attendantsOnNow, type OpsTask } from '@/lib/attendant';
@@ -30,10 +32,13 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const rq = useMemoFirebase(() => q('resources'), [firestore, tenantId]); const pq = useMemoFirebase(() => q('protocols'), [firestore, tenantId]);
   const kq = useMemoFirebase(() => q('kits'), [firestore, tenantId]); const dq = useMemoFirebase(() => q('disinfectants'), [firestore, tenantId]); const { data: disinfectants } = useCollection<any>(dq); const tq = useMemoFirebase(() => q('kitTypes'), [firestore, tenantId]); const lq = useMemoFirebase(() => q('linens'), [firestore, tenantId]);
   const cq = useMemoFirebase(() => q('opsClaims'), [firestore, tenantId]); const { data: claims } = useCollection<any>(cq);
+  const bq = useMemoFirebase(() => q('linenBundles'), [firestore, tenantId]); const { data: bundles } = useCollection<any>(bq);
   const hSince = React.useMemo(() => new Date(Date.now() - 16 * 3600000).toISOString(), []);
   const hq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'opsHandovers'), where('at', '>=', hSince)) : null), [firestore, tenantId, hSince]); const { data: handovers } = useCollection<any>(hq);
   const requests = useAssistQueue(firestore, tenantId || null);   // what providers asked for from their stations, lounge orders, restocks
   const { data: resources } = useCollection<any>(rq); const { data: protocols } = useCollection<any>(pq); const { data: kits } = useCollection<any>(kq); const { data: kitTypes } = useCollection<any>(tq); const { data: linens } = useCollection<any>(lq);
+  // The production plan: one kit / bundle set aside for each visit ahead, re-planned live.
+  const plan = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: (kits || []) as any, kitTypes: (kitTypes || []) as any, bundles: (bundles || []) as any, linens: (linens || []) as any, now }), [appts, services, kits, kitTypes, bundles, linens, now]);
   const tasks = React.useMemo(() => {
     const stations = stationReadiness(resources || [], appts || [], services || [], now, staff || [], protocols || []);
     const ahead = (appts || []).filter((a: any) => ['booked', 'waiting', 'in_service'].includes(stageOf(a)) && !a.linensCounted).map((a: any) => ({ ...a, startTime: typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate ? a.startTime.toDate().toISOString() : new Date(a.startTime).toISOString() }));
@@ -42,9 +47,14 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
       id: `pace:${r.kind}:${r.id}`, kind: 'prep' as const, refId: r.id, goTo: r.kind === 'kit' ? 'kits' as const : 'linens' as const, dueAt: new Date(now + r.minutesLeft * 60000).toISOString(),
       title: `Get more ${/s$/i.test(String(r.name)) ? String(r.name).toLowerCase() : String(r.name).toLowerCase() + 's'} clean`,
       detail: r.clean === 0 ? `None clean, and ${r.perHour} an hour are being used` : `${r.clean} clean · using ${r.perHour} an hour · about ${r.minutesLeft} min left at this pace`, score: r.minutesLeft <= 15 ? 92 : r.minutesLeft <= 30 ? 82 : 55 }));
+    // Shortages from the plan: a visit in the next 3 hours that won't have its kit or bundle in time.
+    const fmt = (v: number) => new Date(v).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    for (const sh of plan.shortages.filter((x) => x.startMs - now < 3 * 3600000)) { const left = Math.round((sh.startMs - now) / 60000);
+      prep.push({ id: `short:${sh.visitId}:${sh.type}`, kind: 'prep', refId: sh.visitId, goTo: sh.kind === 'kit' ? 'kits' : 'linens', dueAt: new Date(sh.startMs).toISOString(),
+        title: `${sh.type} needed for ${sh.clientName.split(' ')[0]} at ${fmt(sh.startMs)}`, detail: sh.state === 'none' ? `None available — get one cleansed or swap the service` : `Nothing free until ~${fmt(sh.freeAt!)} — speed one up, or move the visit`, score: left <= 30 ? 95 : left <= 60 ? 88 : 70 }); }
     return attendantQueue({ stations, kits: (kits || []).filter((k: any) => k.status !== 'retired'), kitTypes: kitTypes || [], linens: linens || [], outlook: linenOutlook(linens || [], ahead, services || []), requests, claims: claims || [], prep, now });
-  }, [resources, protocols, kits, kitTypes, linens, appts, services, staff, now, requests, claims]);
-  return { tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], resources: resources || [], protocols: protocols || [], disinfectants: disinfectants || [], firestore };
+  }, [resources, protocols, kits, kitTypes, linens, appts, services, staff, now, requests, claims, plan]);
+  return { plan, bundles: bundles || [], tasks, kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], claims: claims || [], handovers: handovers || [], resources: resources || [], protocols: protocols || [], disinfectants: disinfectants || [], firestore };
 }
 
 const claimId = (taskId: string) => taskId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120);
@@ -55,7 +65,7 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const toDate = (v: any) => new Date(typeof v === 'string' ? v : v?.toDate ? v.toDate() : v?.seconds ? v.seconds * 1000 : v);
 
 export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' }) {
-  const { tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff); const [at, setAt] = React.useState(0);   // which job the focus view is on
+  const { plan, tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff); const [at, setAt] = React.useState(0);   // which job the focus view is on
   const [noteFor, setNoteFor] = React.useState<string | null>(null); const [note, setNote] = React.useState(''); const [ending, setEnding] = React.useState(false);
   const [prepDay, setPrepDay] = React.useState<'today' | 'tomorrow'>('tomorrow');
   const me = getAuth().currentUser?.uid || null;
@@ -232,6 +242,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
     <div className="space-y-4">
       {topBits}{status}
       {visible.length ? <div className="grid gap-5 lg:grid-cols-3">{lane('Do now', doNow, 'urgent')}{lane('Next up', nextUp, 'plain')}{lane('In progress', inProgress, 'plain')}</div> : allClear}
+      <PrepPlan plan={plan} staff={staff || []} />
       {shiftBits}
     </div>);
   // LIST (the desk drawer): the same three groups, stacked.
@@ -239,6 +250,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
     <div className="space-y-4">
       {topBits}{status}
       {!visible.length ? allClear : <>{doNow.length > 0 && lane('Do now', doNow, 'urgent')}{nextUp.length > 0 && lane('Next up', nextUp, 'plain')}{inProgress.length > 0 && lane('In progress', inProgress, 'plain')}</>}
+      <PrepPlan plan={plan} staff={staff || []} />
       {shiftBits}
       {settingsBits}
     </div>);

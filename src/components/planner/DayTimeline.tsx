@@ -6,6 +6,7 @@ import { type Transaction, type BillInstance } from '@/lib/financial-data';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
+import { delayChain, delaySettings } from '@/lib/delay';
 import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -107,6 +108,7 @@ export const DayTimeline = ({
     density = 'roomy',   // 'roomy' | 'compact'
     startHour = null,    // a person's "start my day at" (earlier visits still show)
     colourBy = 'state',  // 'state' | 'provider'
+    tenant = null,       // for the business's delay margin
 }: any) => {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const safeColumns = columns || [];
@@ -327,6 +329,22 @@ export const DayTimeline = ({
         return out;
     }, [itemsByColumn]);
 
+    // Running behind, live: a visit in service that is over stretches past its booked end, and every visit it pushes
+    // back is drawn at its new expected start (with a faint outline where it was booked). Booking times are not changed.
+    const [liveNow, setLiveNow] = useState(() => Date.now());
+    useEffect(() => { if (!isToday(date)) return; const t = setInterval(() => setLiveNow(Date.now()), 30000); return () => clearInterval(t); }, [date]);
+    const delayView = useMemo(() => {
+        if (!isToday(date)) return null;
+        const seen = new Set<string>(); const appts: any[] = [];
+        for (const list of (itemsByColumn instanceof Map ? Array.from(itemsByColumn.values()) : Object.values(itemsByColumn || {})) as any[][]) for (const it of list || []) if (it && (!it.itemType || it.itemType === 'appointment') && it.startTime && !seen.has(it.id)) { seen.add(it.id); appts.push(it); }
+        const chain = delayChain({ appts, services: services || [], now: liveNow, settings: delaySettings(tenant) });
+        if (!chain.length) return null;
+        const late = new Map<string, { min: number; endMs: number }>(); const pushed = new Map<string, { min: number; expectedMs: number; byName: string }>();
+        for (const d of chain) { late.set(d.visitId, { min: d.delayMin, endMs: d.clientEndMs });
+            for (const k of d.next) { const cur = pushed.get(k.id); if (!cur || k.lateMin > cur.min) pushed.set(k.id, { min: k.lateMin, expectedMs: k.expectedMs, byName: String(d.clientName).split(' ')[0] }); } }
+        return { late, pushed };
+    }, [date, itemsByColumn, services, tenant, liveNow]);
+
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
         const startTime = safeDate(item.startTime);
@@ -381,18 +399,27 @@ export const DayTimeline = ({
         // tall enough to click.
         const totalDuration = Math.max(10, differenceInMinutes(endTime, startTime) + padBefore + padAfter);
         const MIN_CARD_PX = 44;
-        const top = minsFromTop * PX_PER_MIN;
+        const pushedBy = delayView?.pushed.get(item.id); const shiftPx = pushedBy && pushedBy.min >= 1 ? pushedBy.min * PX_PER_MIN : 0;
+        const bookedTop = minsFromTop * PX_PER_MIN; const top = bookedTop + shiftPx;
         const height = Math.max(MIN_CARD_PX, totalDuration * PX_PER_MIN);
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left };
        
         const group = visitIndex.get(item.id);
 
+        const lateBy = delayView?.late.get(item.id);
+        const overPx = lateBy ? Math.max(0, (lateBy.endMs - endTime.getTime()) / 60000) * PX_PER_MIN : 0;
+        const overTop = top + height - padAfter * PX_PER_MIN;
         return (
+            <React.Fragment key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}-f`}>
+            {shiftPx > 0 && <div aria-hidden className="pointer-events-none absolute z-[4] rounded-xl" style={{ top: `${bookedTop}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left, border: '1.5px dashed color-mix(in srgb, #b42318 45%, transparent)', background: 'color-mix(in srgb, #b42318 4%, transparent)' }}>
+                {shiftPx >= 18 && <span className="absolute left-2 top-0.5 text-[11px] font-[600]" style={{ color: '#b42318' }}>Booked {format(startTime, 'h:mm')}</span>}</div>}
+            {overPx > 2 && <div aria-hidden className="pointer-events-none absolute z-[11] flex items-end rounded-b-xl px-2 pb-1" style={{ top: `${overTop}px`, height: `${overPx}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left, background: 'repeating-linear-gradient(-45deg, color-mix(in srgb, #b42318 22%, transparent) 0 5px, color-mix(in srgb, #b42318 8%, transparent) 5px 10px)', borderLeft: '3px solid #b42318' }}>
+                {overPx > 14 && <span className="rounded-full bg-white/90 px-1.5 text-[11px] font-[700] tabular-nums" style={{ color: '#b42318' }}>+{lateBy!.min} min · ~{format(new Date(lateBy!.endMs), 'h:mm')}</span>}</div>}
             <div
                 key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`}
                 data-apt-id={item.id}
                 className={cn(
-                    "absolute pr-1 z-10 overflow-hidden rounded-xl",
+                    "absolute pr-1 z-10 overflow-hidden rounded-xl transition-[top] duration-700 ease-out",
                     item.isSecondary && "opacity-80",
                     focusId === item.id && "ring-4 ring-primary/60 z-20",
                 )}
@@ -429,7 +456,9 @@ export const DayTimeline = ({
                     onResolveIssue={onResolveIssue} canResolveIssues={canResolveIssues}
                     resources={resources} transactions={allTransactions}
                 />
+                {shiftPx > 0 && <span title={`Booked ${format(startTime, 'h:mm a')} — now expected about ${format(new Date(pushedBy!.expectedMs), 'h:mm a')} because ${pushedBy!.byName} is running over`} className="pointer-events-none absolute bottom-1.5 right-3 z-20 rounded-full px-2 py-0.5 text-[11px] font-[700] tabular-nums text-white shadow-sm" style={{ background: '#b42318' }}>Starts ~{format(new Date(pushedBy!.expectedMs), 'h:mm')} · +{pushedBy!.min}</span>}
             </div>
+            </React.Fragment>
         );
     };
 
