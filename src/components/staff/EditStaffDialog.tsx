@@ -1,5 +1,6 @@
 'use client';
 
+import { PayImpact } from '@/components/staff/PayImpact';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import React, { useEffect, useState, useMemo } from 'react';
 import { WeeklyHoursEditor, weekFrom, type WeekHours } from '@/components/staff/WeeklyHoursEditor';
@@ -702,6 +703,9 @@ const EditStaffFormInternal = ({
               </div>
             </div>
           )}
+
+          {/* The money behind the choice: what this pay leaves the business on their main services. */}
+          <PayImpact mode="person" staffMember={watch() as any} />
         </div>
       </div>
 

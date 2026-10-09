@@ -14,6 +14,7 @@
  */
 
 import { rateFor, payForService } from '@/lib/commission';
+import { PayImpact } from '@/components/staff/PayImpact';
 import { costGap } from '@/lib/product-cost';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
@@ -842,6 +843,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   <Input type="number" step="0.01" min={0} placeholder="By the hour" {...register('providerPay' as any)} className="h-12 rounded-xl border" /><p className="text-[11px] text-muted-foreground">For everyone paid per service: what one of these pays them, members’ visits included. Blank = their rate per hour of service × its length.</p></div>
               </div>
 
+              {/* The money behind the pay choice for this service: what each kind of visit leaves the business. */}
+              <PayImpact service={{ id: values.id, type: values.isAddon ? 'addon' : 'service', price: Number(values.price) || 0, memberPrice: (values as any).memberPrice, duration: Number(values.duration) || 60, padBefore: Number(values.padBefore) || 0, padAfter: Number(values.padAfter) || 0, products: values.products || [], commissionRate: (values as any).commissionRate, providerPay: (values as any).providerPay }} />
               <RecoveryMatrix
                 pricingTiers={pricingTiers || []}
                 values={values}
