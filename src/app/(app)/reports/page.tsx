@@ -1,5 +1,6 @@
 'use client';
 
+import { serviceCommission } from '@/lib/commission';
 import { VisitProfit } from '@/components/reports/VisitProfit';
 import { HousekeepingStats } from '@/components/reports/HousekeepingStats';
 import { RebookingReport } from '@/components/reports/RebookingReport';
@@ -190,9 +191,10 @@ export default function ReportsPage() {
         const yieldPerHour = totalHoursWorked > 0 ? (serviceRevenue + retailSales) / totalHoursWorked : 0;
 
         let wages = 0;
-        if (staffMember.payStructure === 'commission') wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+        const svcCommission = serviceCommission(staffMember, staffTransactions, services, 0).total;   // commission per service
+        if (staffMember.payStructure === 'commission') wages = svcCommission;
         else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) wages = totalHoursWorked * staffMember.hourlyRate;
-        else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) wages = (totalHoursWorked * staffMember.hourlyRate) + (serviceRevenue * ((staffMember.commissionRate || 0) / 100));
+        else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) wages = (totalHoursWorked * staffMember.hourlyRate) + svcCommission;
         const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
         const laborBase = wages + retailCommission;
         const laborBurden = laborBase * (1 + (taxBurden / 100));

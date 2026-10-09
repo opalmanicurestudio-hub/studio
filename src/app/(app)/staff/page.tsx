@@ -1,5 +1,6 @@
 'use client';
 
+import { serviceCommission } from '@/lib/commission';
 import { verifyPin, setPin as setStaffPinServer } from '@/lib/pin-client';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -739,10 +740,12 @@ export default function StaffPage() {
         
         let earnings = 0;
         if (staffMember.payStructure === 'commission') {
-            earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+            earnings = serviceCommission(staffMember, staffTransactions, services, 0).total;   // commission per service
         } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
             const hoursWorked = totalMinutesWorked / 60;
             earnings = hoursWorked * staffMember.hourlyRate;
+        } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
+            earnings = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + serviceCommission(staffMember, staffTransactions, services, 0).total;
         }
         
         const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);

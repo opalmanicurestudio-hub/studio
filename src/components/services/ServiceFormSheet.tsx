@@ -13,6 +13,7 @@
  *    Nothing is hidden behind a step wizard.
  */
 
+import { rateFor } from '@/lib/commission';
 import { costGap } from '@/lib/product-cost';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
@@ -70,7 +71,8 @@ const schema = z.object({
   taxExempt: z.boolean().optional(),                             // "not taxed" — some services are exempt where the business is
   priceIsFrom: z.boolean().optional(),
   noExtraTimeCharge: z.boolean().optional(),                       // clients' usual extra time is reserved but never charged on this service                             // shown as "from $X" — the final price is agreed at the visit
-  memberPrice: z.coerce.number().min(0).optional().nullable(),   // what members pay (blank = the normal price)
+  memberPrice: z.coerce.number().min(0).optional().nullable(),
+  commissionRate: z.any().optional(),                            // commission on this service for everyone (blank = each person's usual rate)   // what members pay (blank = the normal price)
   padBefore: z.coerce.number().optional(),
   padAfter: z.coerce.number().optional(),
   description: z.string().optional(),
@@ -261,7 +263,7 @@ const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
     const rs = staff.filter(s => s.pricingTierId === tier.id);
     const labor = rs.reduce((acc, s) => {
       let l = 0;
-      if (s.payStructure === 'commission') l = price * (s.commissionRate / 100);
+      if (s.payStructure === 'commission') l = price * (rateFor(s, { id: values.id, commissionRate: values.commissionRate }, 0) / 100);   // this service's rate when set
       else if (s.payStructure === 'hourly' && s.hourlyRate) l = (dur / 60) * s.hourlyRate;
       return acc + l * (1 + taxBurden / 100);
     }, 0) / (rs.length || 1);
@@ -345,7 +347,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         id: service.id, name: service.name, type: service.type,
         where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '', phoneWho: ((service as any).phoneWho || 'we_call') as any, clientChoosesPlace: (service as any).clientChoosesPlace === true, placeAlternatives: Array.isArray((service as any).placeAlternatives) ? (service as any).placeAlternatives : [],
         isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0, returnServiceId: (service as any).returnServiceId || '', returnMinWeeks: Number((service as any).returnMinWeeks) || 0, returnMaxWeeks: Number((service as any).returnMaxWeeks) || 0, lateServiceId: (service as any).lateServiceId || '',
-        category: service.category, duration: service.duration, timedBy: ((service as any).timedBy || 'provider') as any, taxExempt: !!(service as any).taxExempt, noExtraTimeCharge: (service as any).extraTimeCharge === false || !!(service as any).noExtraTimeCharge, priceIsFrom: !!(service as any).priceIsFrom, memberPrice: (service as any).memberPrice ?? null,
+        category: service.category, duration: service.duration, timedBy: ((service as any).timedBy || 'provider') as any, taxExempt: !!(service as any).taxExempt, noExtraTimeCharge: (service as any).extraTimeCharge === false || !!(service as any).noExtraTimeCharge, priceIsFrom: !!(service as any).priceIsFrom, memberPrice: (service as any).memberPrice ?? null, commissionRate: (service as any).commissionRate ?? '',
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
         description: service.description || '', imageUrl: service.imageUrl || '',
         price: service.price, serviceTiers: service.serviceTiers || [],
@@ -498,6 +500,14 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   const setPhase = (i: number, patch: Partial<Phase>) => setBpPhases((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const movePhase = (i: number, d: number) => setBpPhases((ps) => { const n = [...ps]; const j = i + d; if (j < 0 || j >= n.length) return ps; [n[i], n[j]] = [n[j], n[i]]; return n; });
   const setReq = (i: number, patch: Partial<Requirement>) => setBpReqs((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  // Steps on → the Basics timings ARE the steps (set-up step = buffer before, reset step = buffer after); keep the form in step
+  // so the price maths and the summary line use the same numbers that get saved.
+  useEffect(() => { if (!bpOn || !bpPhases.length) return;
+    if (Number(values.duration) !== bpT.duration && bpT.duration) setValue('duration', bpT.duration as any);
+    if (Number(values.padBefore || 0) !== bpT.padBefore) setValue('padBefore', bpT.padBefore as any);
+    if (Number(values.padAfter || 0) !== bpT.padAfter) setValue('padAfter', bpT.padAfter as any);
+  }, [bpOn, bpT.duration, bpT.padBefore, bpT.padAfter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const turnStepsOn = () => { if (!bpOn && !(service as any)?.blueprint?.phases?.length) setBpPhases(phasesFromService({ duration: values.duration, padBefore: values.padBefore, padAfter: values.padAfter })); setBpOn((v) => !v); };
   useEffect(() => {   // opening a different service resets the blueprint to that service's
     const bp = (service as any)?.blueprint; setBpOn(!!bp?.phases?.length);
     setBpPhases(bp?.phases?.length ? bp.phases : phasesFromService(service || {})); setBpReqs(bp?.requirements || []);
@@ -521,6 +531,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       returnMinWeeks: Math.max(0, Math.min(52, Number(data.returnMinWeeks) || 0)), returnMaxWeeks: Math.max(0, Math.min(52, Number(data.returnMaxWeeks) || 0)),
       // Blueprint on → its phases decide duration and the set-up / clean-up buffers (one source of truth for booking).
       ...(bpOn && bpPhases.length ? (() => { const bp = nextBlueprint((service as any)?.blueprint, bpPhases, bpReqs); const d = deriveTimings(bp.phases); return { blueprint: bp, duration: d.duration || data.duration, padBefore: d.padBefore, padAfter: d.padAfter }; })() : {}),
+      commissionRate: (() => { const v = (data as any).commissionRate; if (v === '' || v === null || v === undefined) return null; const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n * 10) / 10)) : null; })(),
       cost: breakEven,
       profit: finalPrice - breakEven,
       margin: finalPrice > 0 ? ((finalPrice - breakEven) / finalPrice) * 100 : 0,
@@ -611,6 +622,15 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 {errors.category && <p className="text-[12px] font-semibold text-destructive">{errors.category.message}</p>}
               </div>
 
+              {bpOn && bpPhases.length ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[14px] font-semibold">{bpT.duration} min with the client{bpT.padBefore ? ` · ${bpT.padBefore} min set-up before` : ''}{bpT.padAfter ? ` · ${bpT.padAfter} min turnover after` : ''}</p>
+                    <p className="text-[12px] text-muted-foreground">Set by this service’s steps — the Set-up and Turnover steps are its buffers, so there’s nothing separate to fill in here.</p>
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => { if (showAll) document.getElementById(anchorId(FORM_STEPS[3][0]))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); else setStep(3); }} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Change the steps</Button>
+                </div>
+              ) : (
               <div className="grid grid-cols-3 gap-3">
                 {[
                   { key: 'duration',  label: 'Duration (min)', placeholder: '60' },
@@ -629,6 +649,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
                 ))}
               </div>
+              )}
               {/* How it's timed — decides whether provider times, "why did it run over?" and overtime apply, or
                   overstay rules (rentals), or nothing (classes, events). */}
               <div className="space-y-1.5">
@@ -812,6 +833,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 <label className="flex items-center gap-3 rounded-2xl border p-3 text-[14px]"><input type="checkbox" {...register('taxExempt' as any)} className="h-5 w-5" /><span><b>Not taxed</b> — leave this out of sales tax</span></label>
                 <div className="space-y-1.5"><Label className="text-[12px] font-semibold text-muted-foreground">Member price ($)</Label>
                   <Input type="number" step="0.01" placeholder="Same as price" {...register('memberPrice' as any)} className="h-12 rounded-xl border" /><p className="text-[11px] text-muted-foreground">For clients with an active membership. Blank = the normal price.</p></div>
+                <div className="space-y-1.5"><Label className="text-[12px] font-semibold text-muted-foreground">Commission on this service (%)</Label>
+                  <Input type="number" step="1" min={0} max={100} placeholder="Each person’s usual rate" {...register('commissionRate' as any)} className="h-12 rounded-xl border" /><p className="text-[11px] text-muted-foreground">For everyone on commission. Blank = each person’s usual rate. A person’s own rate for this service (on their profile) comes first.</p></div>
               </div>
 
               <RecoveryMatrix
@@ -920,12 +943,12 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             <section hidden={!showAll && step !== 3} className="space-y-3">
               <SectionLabel>Steps & what it needs</SectionLabel>
-              <p className="text-[13px] text-muted-foreground">The steps of the visit (set-up, hands-on, processing, reset) and what each booking needs — kits, linens, equipment. This drives booking times, the step timeline, station resets and what housekeeping sets aside.</p>
+              <p className="text-[13px] text-muted-foreground">The steps of the visit (set-up, hands-on, processing, reset) and what each booking needs — kits, linens, equipment. This drives booking times, the step timeline, station resets and what housekeeping sets aside. The Set-up and Turnover steps are the buffers before and after — there are no separate buffer fields once steps are on.</p>
               <div className="space-y-3 p-4 rounded-2xl border">
                 <div className="flex items-start justify-between gap-3">
                   <div><p className="font-semibold text-sm tracking-tight">How it’s delivered</p>
                     <p className="text-[12px] font-bold text-muted-foreground opacity-60">Phases and what it needs — sets the timings for booking and station turnover</p></div>
-                  <button type="button" onClick={() => setBpOn((v) => !v)} aria-pressed={bpOn} className={`h-8 shrink-0 rounded-full px-3 text-[11px] font-semibold ${bpOn ? 'bg-primary text-primary-foreground' : 'border'}`}>{bpOn ? 'On' : 'Set up'}</button>
+                  <button type="button" onClick={turnStepsOn} aria-pressed={bpOn} className={`h-8 shrink-0 rounded-full px-3 text-[11px] font-semibold ${bpOn ? 'bg-primary text-primary-foreground' : 'border'}`}>{bpOn ? 'On' : 'Set up'}</button>
                 </div>
                 {bpOn && (<div className="space-y-4">
                   <div className="space-y-2">

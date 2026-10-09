@@ -14,6 +14,7 @@
 // the cron may submit to Gusto without a tap. Flip it only after months
 // of boringly-accurate Level 2 drafts.
 
+import { serviceCommission, earnsCommission } from './commission';
 import { getStateProfile, estimateEmployerPayrollTax, GENERIC_US_PROFILE } from './state-tax-profiles';
 
 export type DraftLine = {
@@ -54,14 +55,16 @@ const toDate = (val: any): Date => {
 export async function buildPayrollDraft(
   db: any, tenantId: string, periodStart: Date, periodEnd: Date,
 ): Promise<ServerPayrollDraft> {
-  const [tenantSnap, staffSnap, txnSnap, logsSnap] = await Promise.all([
+  const [tenantSnap, staffSnap, txnSnap, logsSnap, svcSnap] = await Promise.all([
     db.doc(`tenants/${tenantId}`).get(),
     db.collection(`tenants/${tenantId}/staff`).get(),
     db.collection(`tenants/${tenantId}/transactions`)
       .where('date', '>=', periodStart.toISOString())
       .where('date', '<=', periodEnd.toISOString()).get(),
     db.collection(`tenants/${tenantId}/activityLogs`).get(),
+    db.collection(`tenants/${tenantId}/services`).get(),
   ]);
+  const services = svcSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
 
   const tenant = (tenantSnap.data() as any) || {};
   // Tip sharing (tip-outs / pool): payroll pays each person's APPROVED share for the periods inside this pay period.
@@ -94,21 +97,21 @@ export async function buildPayrollDraft(
   // ── Same per-staff math as the Payday tab ──
   const lines: DraftLine[] = staff.map((member: any) => {
     const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income');
-    const serviceRevenue = mine.filter((t: any) => t.category === 'Service Revenue').reduce((s: number, t: any) => s + t.amount, 0);
     const retailSales = mine.filter((t: any) => t.category === 'Retail').reduce((s: number, t: any) => s + t.amount, 0);
     const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
 
+    // Commission per service (lib/commission): a person's own rate for a service, then the service's, then their usual one.
     let commission = 0, regularHours = 0;
-    if (member.payStructure === 'commission') {
-      commission = (serviceRevenue * ((member.commissionRate || 40) / 100)) +
+    if (earnsCommission(member)) {
+      commission = serviceCommission(member, mine, services, 40).total +
                    (member.retailCommissionRate ? (retailSales * (member.retailCommissionRate / 100)) : 0);
-    } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+    }
+    if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
       const minutes = logs.filter((l: any) => l.staffId === member.id)
         .reduce((s: number, l: any) => s + (l.durationMinutes || 0), 0);
       regularHours = minutes / 60;
-      commission = 0;
     }
-    const hourlyPay = member.payStructure === 'hourly' && member.hourlyRate ? regularHours * member.hourlyRate : 0;
+    const hourlyPay = (member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate ? regularHours * member.hourlyRate : 0;
     const total = commission + hourlyPay + tips;
 
     return {

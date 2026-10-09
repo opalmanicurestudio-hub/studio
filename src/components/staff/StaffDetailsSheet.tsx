@@ -1,6 +1,8 @@
 'use client';
 
+import { serviceCommission } from '@/lib/commission';
 import { TypicalTimes } from '@/components/staff/TypicalTimes';
+import { CommissionByService } from '@/components/staff/CommissionByService';
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   Sheet,
@@ -269,12 +271,12 @@ export const StaffDetailsSheet = ({
     
     let earnings = 0;
     if (staffMember.payStructure === 'commission') {
-        earnings = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+        earnings = serviceCommission(staffMember, staffTransactions, services, 0).total;   // commission per service
     } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
         const hoursWorked = totalMinutesWorked / 60;
         earnings = hoursWorked * staffMember.hourlyRate;
     } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
-        earnings = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + (serviceRevenue * ((staffMember.commissionRate || 40) / 100));
+        earnings = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + serviceCommission(staffMember, staffTransactions, services, 40).total;
     }
     
     const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
@@ -343,7 +345,7 @@ export const StaffDetailsSheet = ({
     <div className="space-y-8 md:space-y-10">
           {/* PAY AND TIPS — how they're paid and their part when tips are shared, at a glance (edit to change). */}
           {staffMember?.id && (() => { const m: any = staffMember; const ps = String(m.payStructure || '');
-            const pay = ps === 'commission' ? `${m.commissionRate ?? 0}% of services` : ps === 'hourly' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour` : ps === 'hourly_plus_commission' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour + ${m.commissionRate ?? 0}% of services` : ps === 'salary' ? 'Salary' : 'Not set';
+            const varies = Object.keys(m.serviceCommission || {}).length > 0 || (services || []).some((x: any) => x?.commissionRate != null && x.commissionRate !== '' && Number(x.commissionRate) !== Number(m.commissionRate ?? 0)); const pay = ps === 'commission' ? `${m.commissionRate ?? 0}% of services${varies ? ' (some differ)' : ''}` : ps === 'hourly' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour` : ps === 'hourly_plus_commission' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour + ${m.commissionRate ?? 0}% of services` : ps === 'salary' ? 'Salary' : 'Not set';
             const tipPart = m.role === 'renter' ? 'Renter — keeps their own tips' : ['owner', 'admin'].includes(String(m.role)) && m.tipPoolEligible !== true ? 'Can’t share in tips (owner / manager)' : ({ provider: 'Provider', assistant: 'Assistant', front_desk: 'Front desk' } as any)[m.tipRole || (m.isAssistant ? 'assistant' : 'provider')] || 'Provider';
             return (<section className="space-y-2 rounded-2xl border p-4" style={{ borderColor: 'var(--line, #e7e2dc)' }} aria-label="Pay and tips">
               <p className="text-[15px] font-semibold">Pay and tips</p>
@@ -354,6 +356,7 @@ export const StaffDetailsSheet = ({
                 <p><span className="text-muted-foreground">Sees money:</span> {m.showProfitability === true ? 'yes' : 'no'}</p>
               </div>
             </section>); })()}
+          {tenantId && staffMember?.id && <CommissionByService tenantId={tenantId} staffMember={staffMember} services={staffServices.length ? staffServices : (services || [])} />}
           {tenantId && staffMember?.id && <TypicalTimes tenantId={tenantId} staffId={staffMember.id} staffMember={staffMember} services={staffServices.length ? staffServices : (services || [])} />}
           <div className={cn("p-5 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50", isMobile && "mb-6")}>
               <div className="space-y-4">

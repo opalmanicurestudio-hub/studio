@@ -7,6 +7,7 @@
 //   linens & kits — a per-use handling cost the business sets (laundering one linen, cleaning one kit).
 // Every expense lands in exactly one of those buckets, so nothing is counted twice. Pure functions — the report and the
 // visit screen both use them.
+import { rateFor } from '@/lib/commission';
 import { deriveTimings, phasesFromService } from '@/lib/blueprint';
 import { linensForVisit } from '@/lib/linens';
 import { kitsNeeded } from '@/lib/kits';
@@ -33,7 +34,7 @@ export function actualVisitCost(input: { visit: any; service: any; addOns?: any[
   const revenue = n(visit?.revenue ?? visit?.price ?? service?.price);
   // Labour
   const s = input.staffMember; let labor = 0;
-  if (s?.payStructure === 'commission') labor = revenue * (n(s.commissionRate) || 40) / 100;
+  if (s?.payStructure === 'commission') labor = revenue * rateFor(s, service, 40) / 100;   // commission per service
   else if (s?.payStructure === 'hourly' && n(s.hourlyRate) > 0) { const free = Math.min(n(t.providerFreeMinutes), actualMin); labor = ((actualMin - free + n(t.padBefore)) / 60) * n(s.hourlyRate); }
   // Overhead: the station is tied up for set-up + the visit + turnover.
   const overhead = ((actualMin + n(t.padBefore) + n(t.padAfter)) / 60) * tmhr;
@@ -49,7 +50,7 @@ export function actualVisitCost(input: { visit: any; service: any; addOns?: any[
   const handling = linenN * Math.max(0, n(oc.linenEach)) + kitN * Math.max(0, n(oc.kitEach));
   const total = r2(labor + overhead + materials + handling); const profit = r2(revenue - total);
   // The biggest discount that still leaves the margin the business wants (commission shrinks with the price, so it's left out of the fixed part).
-  const floor = Math.max(0, Math.min(0.9, n(oc.minMarginPct) / 100)); const commission = s?.payStructure === 'commission' ? (n(s.commissionRate) || 40) / 100 : 0;
+  const floor = Math.max(0, Math.min(0.9, n(oc.minMarginPct) / 100)); const commission = s?.payStructure === 'commission' ? rateFor(s, service, 40) / 100 : 0;
   const fixed = total - (commission ? labor : 0); const keep = 1 - commission - floor;
   const lowest = keep > 0 ? fixed / keep : Infinity; const maxDiscountPct = revenue > 0 && lowest < revenue ? Math.floor(((revenue - lowest) / revenue) * 100) : 0;
   return { revenue: r2(revenue), labor: r2(labor), overhead: r2(overhead), materials: r2(materials), handling: r2(handling), total, profit, marginPct: revenue > 0 ? Math.round((profit / revenue) * 1000) / 10 : null,

@@ -1,5 +1,6 @@
 'use client';
 
+import { serviceCommission, earnsCommission, rateFor } from '@/lib/commission';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
@@ -656,7 +657,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
     const overhead = (actualDuration / 60) * tmhr;
     const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
     let labor = 0;
-    if (staffMember?.payStructure === 'commission') labor = transaction.amount * ((staffMember.commissionRate || 40) / 100);
+    if (earnsCommission(staffMember)) labor = transaction.amount * (Number(transaction.commissionPct) >= 0 && transaction.commissionPct != null ? Number(transaction.commissionPct) : rateFor(staffMember, svc, 40)) / 100;
     else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) labor = (actualDuration / 60) * staffMember.hourlyRate;
     return { overhead, materials, labor, staffMember };
   }, [transaction, services, appointments, tmhr, staff, inventory]);
@@ -1537,7 +1538,7 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
 type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 const PaydayTab = () => {
-  const { billDefinitions, billInstances, transactions, staff, activityLogs, isLoading } = useInventory();
+  const { billDefinitions, billInstances, transactions, staff, activityLogs, isLoading, services } = useInventory();
   const auditActor = useAuditActor();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -1617,10 +1618,6 @@ const PaydayTab = () => {
     return staff.filter((m: any) => m.isRenter !== true).map(member => {
         const staffTransactions = filteredTransactions.filter(t => t.staffId === member.id && t.type === 'income');
 
-        const serviceRevenue = staffTransactions
-            .filter(t => t.category === 'Service Revenue')
-            .reduce((acc, t) => acc + t.amount, 0);
-
         const retailSales = staffTransactions
             .filter(t => t.category === 'Retail')
             .reduce((acc, t) => acc + t.amount, 0);
@@ -1631,10 +1628,11 @@ const PaydayTab = () => {
 
         let earnings = 0;
         let hoursWorked = 0;
-        if (member.payStructure === 'commission') {
-            earnings = (serviceRevenue * ((member.commissionRate || 40) / 100)) +
+        if (earnsCommission(member)) {   // commission per service (lib/commission)
+            earnings = serviceCommission(member, staffTransactions, services || [], 40).total +
                        (member.retailCommissionRate ? (retailSales * (member.retailCommissionRate / 100)) : 0);
-        } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+        }
+        if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
             const logs = activityLogs.filter(l =>
                 l.staffId === member.id &&
                 safeDate(l.timestamp) >= dateRange.from &&
@@ -1642,7 +1640,7 @@ const PaydayTab = () => {
             );
             const totalMinutes = logs.reduce((acc, l) => acc + (l.durationMinutes || 0), 0);
             hoursWorked = totalMinutes / 60;
-            earnings = hoursWorked * member.hourlyRate;
+            earnings += hoursWorked * member.hourlyRate;
         }
 
         const totalOwed = earnings + tips;
@@ -1657,10 +1655,10 @@ const PaydayTab = () => {
             tips,
             hours: hoursWorked,
             payStructure: member.payStructure,
-            details: `${member.payStructure === 'commission' ? 'Comm' : 'Hr'} + Tips`
+            details: `${member.payStructure === 'commission' ? 'Comm' : member.payStructure === 'hourly_plus_commission' ? 'Hr + Comm' : 'Hr'} + Tips`
         };
     }).filter(o => o.amount > 0);
-  }, [staff, filteredTransactions, activityLogs, dateRange]);
+  }, [staff, filteredTransactions, activityLogs, dateRange, services]);
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
 
@@ -2562,7 +2560,7 @@ type HubTab = 'overview' | 'ledger' | 'payday' | 'bills' | 'activity';
 type OverviewPreset = '7days' | '30days' | 'thisMonth';
 
 const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
-  const { billDefinitions, billInstances, transactions: rawTransactions, staff, activityLogs, isLoading } = useInventory();
+  const { billDefinitions, billInstances, transactions: rawTransactions, staff, activityLogs, isLoading, services } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
@@ -2622,22 +2620,22 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
     if (!staff) return 0;
     return staff.reduce((total: number, member: any) => {
       const staffTxns = periodTxns.filter((t: any) => t.staffId === member.id && t.type === 'income');
-      const serviceRevenue = staffTxns.filter((t: any) => t.category === 'Service Revenue').reduce((s: number, t: any) => s + t.amount, 0);
       const retailSales    = staffTxns.filter((t: any) => t.category === 'Retail').reduce((s: number, t: any) => s + t.amount, 0);
       const tips           = staffTxns.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
       let earnings = 0;
-      if (member.payStructure === 'commission') {
-        earnings = (serviceRevenue * ((member.commissionRate || 40) / 100)) +
+      if (earnsCommission(member)) {
+        earnings = serviceCommission(member, staffTxns, services || [], 40).total +
                    (member.retailCommissionRate ? (retailSales * (member.retailCommissionRate / 100)) : 0);
-      } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+      }
+      if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
         const logs = (activityLogs || []).filter((l: any) =>
           l.staffId === member.id && safeDate(l.timestamp) >= range.from && safeDate(l.timestamp) <= range.to);
         const totalMinutes = logs.reduce((acc: number, l: any) => acc + (l.durationMinutes || 0), 0);
-        earnings = (totalMinutes / 60) * member.hourlyRate;
+        earnings += (totalMinutes / 60) * member.hourlyRate;
       }
       return total + earnings + tips;
     }, 0);
-  }, [staff, periodTxns, activityLogs, range]);
+  }, [staff, periodTxns, activityLogs, range, services]);
 
   // ── Bills snapshot (all unpaid, not just this period) ──
   const billsSnapshot = useMemo(() => {

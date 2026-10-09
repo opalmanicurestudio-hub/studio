@@ -16,7 +16,7 @@ const round5 = (n: number) => Math.max(5, Math.ceil(n / 5) * 5);
 export function TypicalTimes({ tenantId, staffId, staffMember, services = [] }: { tenantId: string; staffId: string; staffMember?: any; services?: any[] }) {
   const { firestore } = useFirebase();
   const [d, setD] = React.useState<any>(null);
-  const [own, setOwn] = React.useState<Record<string, number>>({});
+  const [own, setOwn] = React.useState<Record<string, number>>(() => ({ ...(staffMember?.serviceMinutes || {}) }));
   const [draft, setDraft] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState<string | null>(null); const [err, setErr] = React.useState('');
   const [adding, setAdding] = React.useState('');

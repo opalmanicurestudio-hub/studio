@@ -1,5 +1,6 @@
 'use client';
 
+import { serviceCommission } from '@/lib/commission';
 import { handoffEntry } from '@/lib/handoff-log';
 import { StaffOverruns } from '@/components/visit/StaffOverruns';
 import { MyTimes } from '@/components/visit/MyTimes';
@@ -4711,12 +4712,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     const apptCount      = (myApptsRaw||[]).filter((a: any) => { const d = safeDate(a.startTime); return d >= ws && d <= we && a.status==='completed'; }).length;
     const ps = staffMember.payStructure;
     let estimatedPay = 0;
+    const svcCommission = serviceCommission(staffMember, weekTx, services || [], 0).total;   // commission per service
     if      (ps==='hourly')                estimatedPay = weekHours * (staffMember.hourlyRate||0);
-    else if (ps==='commission')            estimatedPay = serviceRevenue * ((staffMember.commissionRate||0)/100);
-    else if (ps==='hourly_plus_commission') estimatedPay = (staffMember.hourlyRate||0)*weekHours + serviceRevenue*((staffMember.commissionRate||0)/100);
+    else if (ps==='commission')            estimatedPay = svcCommission;
+    else if (ps==='hourly_plus_commission') estimatedPay = (staffMember.hourlyRate||0)*weekHours + svcCommission;
     else if (ps==='salary')               estimatedPay = staffMember.salaryWeekly || 0;
     return { estimatedPay, weekHours, tipTotal, serviceRevenue, apptCount };
-  }, [myShiftsRaw, transactions, myApptsRaw, staffMember]);
+  }, [myShiftsRaw, transactions, myApptsRaw, staffMember, services]);
 
   const sortedNotifs   = useMemo(() => notifs ? [...notifs].sort((a,b) => new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime()) : [], [notifs]);
   const unreadCount    = useMemo(() => sortedNotifs.filter(n => !n.read).length, [sortedNotifs]);

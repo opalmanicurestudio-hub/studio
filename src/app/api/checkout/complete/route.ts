@@ -9,6 +9,7 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { saleStamp } from '@/lib/commission';
 import { tuitionAccount, applyTuitionPayment } from '@/lib/tuition-desk';
 import { renterAccount, applyRentPayment } from '@/lib/rent-desk';
 import { syncVisitCopies } from '@/lib/visit-sync';
@@ -271,12 +272,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const rStaff = vc.renter ? staff.find((s: any) => s.id === vc.renterStaffId) : null;
     const asRenter = vc.renter ? { category: 'Collected for renter', taxBucket: 'pass_through', renterId: String(rStaff?.renterId || a.renterId || '') || null, renterStaffId: vc.renterStaffId } : {};
     const tookOver = (sid: string) => (a.staffId && sid && sid !== a.staffId ? { bookedWithStaffId: a.staffId } : {});   // someone else stepped in
-    txn({ ...forHad, description: vc.mainRedeemed ? `Redemption: ${v.service.name}` : `Service: ${vc.renter && a.renterServiceName ? a.renterServiceName : v.service.name}`, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: vc.mainPrice, paymentMethod: method, staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: true, ...asRenter, ...tookOver(vc.mainStaffId) });
+    txn({ ...forHad, description: vc.mainRedeemed ? `Redemption: ${v.service.name}` : `Service: ${vc.renter && a.renterServiceName ? a.renterServiceName : v.service.name}`, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: vc.mainPrice, paymentMethod: method, staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: true, ...(vc.renter ? {} : saleStamp(mainStaff, v.service)), ...asRenter, ...tookOver(vc.mainStaffId) });
     if (vc.mainRedeemed) { const cost = computeServiceCost(v.service, a, mainStaff, inventory, tmhr); if (cost.total > 0) txn({ description: `Redemption Cost: ${v.service.name}`, type: 'expense', context: 'Business', category: 'Comp & Redemption Cost', taxBucket: 'operating_cost', amount: cost.total, paymentMethod: 'Internal', staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: false, notes: `Materials $${cost.materials.toFixed(2)} · Overhead $${cost.overhead.toFixed(2)} · Labor $${cost.labor.toFixed(2)}` }); }
     for (const ad of vc.addOns) {
       if (ad.redeemed) { const cost = computeServiceCost(ad.addon, a, staff.find((s: any) => s.id === ad.staffId), inventory, tmhr); if (cost.total > 0) txn({ description: `Redemption Cost: ${ad.addon.name}`, type: 'expense', context: 'Business', category: 'Comp & Redemption Cost', taxBucket: 'operating_cost', amount: cost.total, paymentMethod: 'Internal', staffId: ad.staffId, appointmentId: a.id, hasReceipt: false }); }
       add(ad.price);
-      txn({ ...forHad, description: `${ad.redeemed ? 'Redemption' : 'Add-on'}: ${ad.addon.name}`, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: ad.price, paymentMethod: method, staffId: ad.staffId, appointmentId: a.id, hasReceipt: true, ...asRenter, ...tookOver(ad.staffId) });
+      txn({ ...forHad, description: `${ad.redeemed ? 'Redemption' : 'Add-on'}: ${ad.addon.name}`, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: ad.price, paymentMethod: method, staffId: ad.staffId, appointmentId: a.id, hasReceipt: true, ...(vc.renter ? {} : saleStamp(staff.find((s: any) => s.id === ad.staffId), ad.addon)), ...asRenter, ...tookOver(ad.staffId) });
     }
     const fee = (amount: number, description: string, category: string) => { if (amount > 0) { add(amount); txn({ ...forHad, description, type: 'income', context: 'Business', category, taxBucket: 'adjustment', amount, paymentMethod: method, staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: false }); } };
     fee(vc.rescheduleFee, `Reschedule Recovery: ${v.service.name}`, 'Protocol Recovery');
