@@ -354,7 +354,7 @@ export const StaffDetailsSheet = ({
                 <p><span className="text-muted-foreground">Sees money:</span> {m.showProfitability === true ? 'yes' : 'no'}</p>
               </div>
             </section>); })()}
-          {tenantId && staffMember?.id && <TypicalTimes tenantId={tenantId} staffId={staffMember.id} />}
+          {tenantId && staffMember?.id && <TypicalTimes tenantId={tenantId} staffId={staffMember.id} staffMember={staffMember} services={staffServices.length ? staffServices : (services || [])} />}
           <div className={cn("p-5 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50", isMobile && "mb-6")}>
               <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row items-center gap-3">

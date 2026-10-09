@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const mine = (await db.collection(`${T}/timingStats`).where('staffId', '==', sid).get()).docs.map((d: any) => d.data() || {}).filter((x: any) => Number(x.count) >= 5);
     const team = await Promise.all(mine.map((x: any) => db.doc(`${T}/timingStats/all__${String(x.serviceKey).replace(/[\/]/g, '_').slice(0, 400)}`).get()));
     const rows = mine.map((x: any, i: number) => { const t: any = team[i]?.exists ? team[i].data() : null;
-      return { label: label(x.serviceKey), count: x.count, typical: x.typicalMinutes, low: x.rangeLow, high: x.rangeHigh, booked: x.bookedMinutes, onTime: x.onTimeRate, clientCaused: x.clientCausedOverruns, ranBehind: x.ranBehindOverruns,
+      return { serviceId: String(x.serviceKey).includes('+') ? null : x.serviceId || x.serviceKey, label: label(x.serviceKey), count: x.count, typical: x.typicalMinutes, low: x.rangeLow, high: x.rangeHigh, booked: x.bookedMinutes, onTime: x.onTimeRate, clientCaused: x.clientCausedOverruns, ranBehind: x.ranBehindOverruns,
         trend: x.recentTypical !== null && x.earlierTypical !== null ? x.recentTypical - x.earlierTypical : null, team: t && Number(t.count) >= 5 ? t.typicalMinutes : null }; }).sort((a: any, b2: any) => b2.count - a.count);
     return NextResponse.json({ ok: true, rows, isStudent: !!st.isStudent });
   }

@@ -129,7 +129,7 @@ async function callerTrust(req: NextRequest, tenantId: string, body: any): Promi
   }
   return null;
 }
-import { verifyBookable } from '@/lib/availability';
+import { verifyBookable, providerMinutes } from '@/lib/availability';
 import { graceHoursOf, resolveBookingPlan, shouldAutoApprove } from '@/lib/deposit-policy';
 
 export const runtime = 'nodejs';
@@ -644,7 +644,10 @@ export async function POST(req: NextRequest) {
         return { conflict: firstReason || 'No provider is free for that time — pick another slot.' };
       }
       const placedStart = new Date(placedStartMs);
-      const placedEnd = new Date(placedStartMs + duration * 60000);
+      // The chosen provider's own booking length for this service (set on their profile), unless staff set a length.
+      const ownMinutes = customLen == null ? providerMinutes(roster.find((m: any) => m.id === staffId), svc) : null;
+      const placedDuration = ownMinutes == null ? duration : Math.max(5, duration - (Number(svc.duration) || 60) + ownMinutes);
+      const placedEnd = new Date(placedStartMs + placedDuration * 60000);
 
       // ── Client: existing id, or match-by-contact, or create ──
       let clientId = String(body?.client?.id || '');
@@ -771,6 +774,7 @@ export async function POST(req: NextRequest) {
       const payload: any = {
         ...(overrideReason ? { conflictOverride: { reason: overrideReason, by: (body as any).__staffActor?.name || 'Manager', clash: firstReason || null, at: nowIso } } : {}),
         ...(customLen ? { durationMinutes: customLen, customLength: true } : {}),
+        ...(customLen == null && ownMinutes != null ? { providerMinutes: ownMinutes } : {}),
         ...(clientExtra > 0 ? { clientExtraMinutes: clientExtra } : {}),
         ...(clientExtraCents > 0 ? { checkoutState: { adjustments: { timeOverage: clientExtraCents / 100 }, extraTimeMinutes: clientExtra, extraTimeReason: 'Usual extra time, agreed when booking' } } : {}),
         ...(staffSet && typeof body.internalNotes === 'string' && body.internalNotes.trim() ? { internalNotes: body.internalNotes.trim().slice(0, 2000) } : {}),

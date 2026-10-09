@@ -242,6 +242,8 @@ type StaffDay = {
   hot: Date[];
   /** Count of that day's appointments — the fair-rotation tiebreak. */
   load: number;
+  /** How long this visit takes WITH THIS PROVIDER (their own booking length for the service, plus add-ons). */
+  minutes: number;
 };
 
 /**
@@ -353,6 +355,17 @@ const overlaps = (a: Window, b: Window): boolean =>
 // ─── Service maths ───────────────────────────────────────────────────────────
 
 /** Duration of the service plus any add-ons, in minutes. Excludes padding. */
+/** A provider's own booking length for a service (staff.serviceMinutes[serviceId], 5–600 min), or null to use the
+ *  service's. Add-ons keep their own lengths on top. */
+export function providerMinutes(staffMember: any, service: any): number | null {
+  const v = Math.round(Number(staffMember?.serviceMinutes?.[String(service?.id || '')]));
+  return Number.isFinite(v) && v >= 5 && v <= 600 ? v : null;
+}
+/** The visit's length with this provider: the service length swapped for theirs when they have one. */
+export function minutesWith(staffMember: any, service: any, serviceMinutes: number): number {
+  const own = providerMinutes(staffMember, service); return own == null ? serviceMinutes : Math.max(5, serviceMinutes - (num(service?.duration, 60) || 60) + own);
+}
+
 export function totalServiceMinutes(service: any, addOns: any[] = []): number {
   const base = num(service?.duration, 60) || 60;
   const extra = addOns.reduce((sum, a) => sum + num(a?.duration, 0), 0);
@@ -1118,7 +1131,7 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
 
     busy.sort((a, b) => a.start.getTime() - b.start.getTime());
 
-    const entry: StaffDay = { staff: staffMember, open, close, busy, hot, load };
+    const entry: StaffDay = { staff: staffMember, open, close, busy, hot, load, minutes: minutesWith(staffMember, service, serviceMinutes) };
     staffDays.push(entry);
     byId[staffMember.id] = entry;
   }
@@ -1153,9 +1166,10 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
 export function resourcesAvailable(
   ctx: DayContext,
   start: Date,
+  minutes: number = ctx.serviceMinutes,
 ): { ok: true } | { ok: false; reason: string } {
   if (ctx.resourceLedgers.length === 0) return { ok: true };
-  const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+  const guard = protectedWindow(start, minutes, ctx.padBefore, ctx.padAfter);
 
   for (const led of ctx.resourceLedgers) {
     if (led.capacity <= 0) {
@@ -1184,9 +1198,10 @@ function resourceFreeWith(
   ctx: DayContext,
   start: Date,
   claimed: Record<string, Window[]>,
+  minutes: number = ctx.serviceMinutes,
 ): boolean {
   if (ctx.resourceLedgers.length === 0) return true;
-  const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+  const guard = protectedWindow(start, minutes, ctx.padBefore, ctx.padAfter);
 
   for (const led of ctx.resourceLedgers) {
     if (led.capacity <= 0) return false;
@@ -1203,9 +1218,10 @@ function claimResources(
   ctx: DayContext,
   start: Date,
   claimed: Record<string, Window[]>,
+  minutes: number = ctx.serviceMinutes,
 ): void {
   if (ctx.resourceLedgers.length === 0) return;
-  const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+  const guard = protectedWindow(start, minutes, ctx.padBefore, ctx.padAfter);
   for (const led of ctx.resourceLedgers) {
     if (!claimed[led.resourceId]) claimed[led.resourceId] = [];
     claimed[led.resourceId].push(guard);
@@ -1313,7 +1329,7 @@ function heuristicsAllow(ctx: DayContext, day: StaffDay, start: Date, hot: boole
   if (ctx.morningAnchor && dayEmpty && !isFirstOfDay) return false;
 
   if (ctx.tightScheduling && !dayEmpty && !isFirstOfDay) {
-    const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+    const guard = protectedWindow(start, day.minutes, ctx.padBefore, ctx.padAfter);
     const butts = day.busy.some(
       (b) =>
         Math.abs(differenceInMinutes(guard.start, b.end)) < 1 ||
@@ -1371,17 +1387,17 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
     }
 
     while (cursor < day.close) {
-      const serviceEnd = addMinutes(cursor, ctx.serviceMinutes);
+      const serviceEnd = addMinutes(cursor, day.minutes);
       if (serviceEnd > day.close) break;
 
       const hot = isHotAt(day, cursor);
-      const guard = protectedWindow(cursor, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+      const guard = protectedWindow(cursor, day.minutes, ctx.padBefore, ctx.padAfter);
       const collides = day.busy.some((b) => overlaps(guard, b));
 
       let available = true;
       let reason: string | undefined;
 
-      const resourceCheck = collides ? null : resourcesAvailable(ctx, cursor);
+      const resourceCheck = collides ? null : resourcesAvailable(ctx, cursor, day.minutes);
 
       if (collides) {
         available = false;
@@ -1402,7 +1418,7 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
           label: toLabel(cursor),
           staffId: day.staff.id,
           staffName: day.staff.name ?? day.staff.id,
-          gapMinutesAfter: gapAfter(day, cursor, ctx.serviceMinutes, ctx.padAfter),
+          gapMinutesAfter: gapAfter(day, cursor, day.minutes, ctx.padAfter),
           available,
           isHotSlot: hot,
           reason,
@@ -1510,7 +1526,7 @@ export function pickStaffForSlot(input: AvailabilityInput & { time: string }): S
   }
 
   const candidates = ctx.staffDays.filter((d) =>
-    isStaffFree(d, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service)),
+    isStaffFree(d, start, d.minutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service)) && (d.minutes === ctx.serviceMinutes || resourcesAvailable(ctx, start, d.minutes).ok),
   );
 
   if (candidates.length === 0) {
@@ -1635,11 +1651,11 @@ export function computeChainAvailability(
       }
 
       const candidates = ctx.staffDays.filter((d) => {
-        if (!isStaffFree(d, cursor, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) return false;
+        if (!isStaffFree(d, cursor, d.minutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) return false;
         // A provider already working an earlier leg of this same visit cannot
         // also take this one at an overlapping time.
         const mine = taken[d.staff.id] || [];
-        const guard = protectedWindow(cursor, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+        const guard = protectedWindow(cursor, d.minutes, ctx.padBefore, ctx.padAfter);
         return !mine.some((w) => overlaps(guard, w));
       });
 
@@ -1662,7 +1678,7 @@ export function computeChainAvailability(
         break;
       }
 
-      const legEnd = addMinutes(cursor, ctx.serviceMinutes);
+      const legEnd = addMinutes(cursor, pick.minutes);
       const svc = servicesById[legs[i].serviceId];
       const processing = num(svc?.processingGapMinutes, 0);
 
@@ -1673,15 +1689,15 @@ export function computeChainAvailability(
         staffName: pick.staff.name ?? pick.staff.id,
         start: toHHmm(cursor),
         end: toHHmm(legEnd),
-        minutes: ctx.serviceMinutes,
+        minutes: pick.minutes,
         gapAfter: i === legs.length - 1 ? 0 : processing,
       });
 
       if (!taken[pick.staff.id]) taken[pick.staff.id] = [];
       taken[pick.staff.id].push(
-        protectedWindow(cursor, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter),
+        protectedWindow(cursor, pick.minutes, ctx.padBefore, ctx.padAfter),
       );
-      claimResources(ctx, cursor, claimed);
+      claimResources(ctx, cursor, claimed, pick.minutes);
 
       cursor = addMinutes(legEnd, i === legs.length - 1 ? 0 : processing);
     }
@@ -1815,9 +1831,9 @@ export function computePartyAvailability(
       if (!resourceFreeWith(ctx, start, claimed)) return null;
 
       const candidates = ctx.staffDays.filter((d) => {
-        if (!isStaffFree(d, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) return false;
+        if (!isStaffFree(d, start, d.minutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) return false;
         const mine = taken[d.staff.id] || [];
-        const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+        const guard = protectedWindow(start, d.minutes, ctx.padBefore, ctx.padAfter);
         return !mine.some((w) => overlaps(guard, w));
       });
 
@@ -1834,7 +1850,7 @@ export function computePartyAvailability(
       const pick = want === 'any' ? candidates[0] : candidates.find((c) => c.staff.id === want);
       if (!pick) return null;
 
-      const end = addMinutes(start, ctx.serviceMinutes);
+      const end = addMinutes(start, pick.minutes);
       placements.push({
         index: i,
         name: members[i].name,
@@ -1844,14 +1860,14 @@ export function computePartyAvailability(
         staffName: pick.staff.name ?? pick.staff.id,
         start: toHHmm(start),
         end: toHHmm(end),
-        minutes: ctx.serviceMinutes,
+        minutes: pick.minutes,
       });
 
       if (!taken[pick.staff.id]) taken[pick.staff.id] = [];
       taken[pick.staff.id].push(
-        protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter),
+        protectedWindow(start, pick.minutes, ctx.padBefore, ctx.padAfter),
       );
-      claimResources(ctx, start, claimed);
+      claimResources(ctx, start, claimed, pick.minutes);
     }
 
     return placements;
@@ -1949,9 +1965,11 @@ export function verifyBookable(
     if (!ctx || !start || !day) {
       return { ok: false, error: 'That professional is not available on this day.' };
     }
-    if (!isStaffFree(day, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) {
+    if (!isStaffFree(day, start, day.minutes, ctx.padBefore, ctx.padAfter, providerFreeOffsets(ctx.service))) {
       return { ok: false, error: 'That professional is no longer free at that time.' };
     }
+    // Their own booking length may be longer than the service's: the station has to be free for all of it.
+    if (day.minutes !== ctx.serviceMinutes) { const rc = resourcesAvailable(ctx, start, day.minutes); if (!rc.ok) return { ok: false, error: `That time is not available — ${rc.reason}.` }; }
     return { ok: true, staffId: day.staff.id, staffName: day.staff.name ?? day.staff.id };
   }
   return pick;
