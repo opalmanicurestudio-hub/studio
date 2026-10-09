@@ -142,7 +142,7 @@ async function autoTie(db: any, tenantId: string, appts: any[], kitsAll: any[], 
   if (!live.size) return;
   const { logAuditAdmin } = await import('@/lib/audit');
   for (const k of kitsAll.filter((x: any) => x.status === 'ready' && x.setFor && live.has(x.setFor))) { const a: any = live.get(k.setFor);
-    await db.doc(`${T}/kits/${k.id}`).update({ status: 'in_use', by: 'System', at: nowIso, visitId: a.id, clientName: a.clientName || null, staffId: a.staffId || null, stationName: k.setOutStation || null, setFor: null, setForName: null, setOutAt: null, setOutStation: null,
+    await db.doc(`${T}/kits/${k.id}`).update({ status: 'in_use', by: 'System', at: nowIso, visitId: a.id, clientName: a.clientName || null, staffId: a.staffId || null, stationName: k.setOutStation || null, setFor: null, setForName: null, setOutAt: null, setOutStation: null, usesSinceCheck: (Number(k.usesSinceCheck) || 0) + 1,
       history: [...(k.history || []), { at: nowIso, by: 'System', from: 'ready', to: 'in_use', note: 'Set out — visit started' }].slice(-40) });
     await db.doc(`${T}/appointments/${a.id}`).set({ kits: [...(Array.isArray(a.kits) ? a.kits : []), { id: k.id, name: k.name, code: k.code, at: nowIso, by: 'System' }] }, { merge: true });
     k.status = 'in_use'; k.visitId = a.id;

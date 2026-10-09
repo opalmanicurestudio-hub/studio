@@ -16,18 +16,19 @@ export function PrepPlan({ plan, staff, staffId, perProvider = 4, title = 'Prep 
   if (!rows.length) return null;
   const groups = new Map<string, SetVisit[]>();
   for (const v of rows) { const k = v.staffId || '—'; if (!groups.has(k)) groups.set(k, []); if (groups.get(k)!.length < perProvider) groups.get(k)!.push(v); }
+  const solo = !staffId && groups.size === 1;   // one provider (a solo business): a simple list, no columns
   const nameOf = (id: string) => staff.find((m: any) => m.id === id)?.name || 'Unassigned';
   const issues = rows.filter((v) => !v.ok).length;
   return (
     <section aria-label={title} className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-[13px] font-[700]">{title}</p>
+        <p className="text-[13px] font-[700]">{solo && title === 'Prep by provider' ? 'Your next visits' : title}</p>
         <p className="text-[12px]" style={{ color: issues ? '#b42318' : 'var(--muted, #6a655d)' }}>{issues ? `${issues} visit${issues === 1 ? '' : 's'} short` : 'Everything set aside'}</p>
       </div>
-      <div className={staffId ? '' : 'flex snap-x gap-3 overflow-x-auto pb-1'}>
+      <div className={staffId || solo ? '' : 'flex snap-x gap-3 overflow-x-auto pb-1'}>
         {[...groups.entries()].map(([sid, list]) => (
-          <div key={sid} className={`${staffId ? '' : 'w-[290px] shrink-0 snap-start'} rounded-[20px] bg-white p-3 shadow-[0_1px_0_rgba(23,24,26,0.04),0_8px_22px_-14px_rgba(23,24,26,0.25)]`} style={{ border: '1px solid #ece6dd' }}>
-            {!staffId && <div className="mb-2 flex items-center gap-2"><Initials name={nameOf(sid)} size={30} /><p className="truncate text-[14px] font-[700]">{String(nameOf(sid)).split(' ')[0]}</p></div>}
+          <div key={sid} className={`${staffId || solo ? '' : 'w-[290px] shrink-0 snap-start'} rounded-[20px] bg-white p-3 shadow-[0_1px_0_rgba(23,24,26,0.04),0_8px_22px_-14px_rgba(23,24,26,0.25)]`} style={{ border: '1px solid #ece6dd' }}>
+            {!staffId && !solo && <div className="mb-2 flex items-center gap-2"><Initials name={nameOf(sid)} size={30} /><p className="truncate text-[14px] font-[700]">{String(nameOf(sid)).split(' ')[0]}</p></div>}
             <ol className="space-y-2">
               {list.map((v) => (
                 <li key={v.visitId} className="rounded-2xl p-2.5" style={{ background: v.ok ? '#faf8f5' : '#fdf3f2' }}>

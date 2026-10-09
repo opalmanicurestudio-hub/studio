@@ -1,6 +1,7 @@
 'use client';
 
 import { VisitProfit } from '@/components/reports/VisitProfit';
+import { HousekeepingStats } from '@/components/reports/HousekeepingStats';
 import { RebookingReport } from '@/components/reports/RebookingReport';
 import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -293,6 +294,7 @@ export default function ReportsPage() {
         </div>
 
         <VisitProfit />
+        <HousekeepingStats />
 
         {/* Period selector */}
         <div className="p-6 rounded-[2.5rem] bg-muted/30 border-2 border-dashed border-border/50">

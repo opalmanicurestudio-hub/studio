@@ -11,6 +11,8 @@ import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { printCodeLabels, brandOf } from '@/lib/print-labels';
 import { stationCode } from '@/lib/scan-route';
 import { useTenant } from '@/context/TenantContext';
+import { useDeferred } from '@/components/pos/desk/Undo';
+import { settle } from '@/lib/offline';
 import { stationReadiness, READINESS_LABEL, type Readiness, type StationRow } from '@/lib/readiness';
 
 const TONE: Record<Readiness, string> = { ready: 'bg-emerald-100 text-emerald-800', in_use: 'bg-sky-100 text-sky-800', turnover: 'bg-amber-100 text-amber-900', inspect: 'bg-violet-100 text-violet-900', blocked: 'bg-red-100 text-red-800' };
@@ -26,16 +28,17 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
   const who = () => getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff';
   // Every station action goes on the audit log (who, when, what).
   const save = async (id: string, patch: any, what?: { action: string; summary: string }) => { setBusy(id); setErr(null);
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'resources', id), patch);
+    try { await settle(updateDoc(doc(firestore, 'tenants', tenantId, 'resources', id), patch));
       if (what) void logAuditClient(firestore, tenantId, { action: what.action, targetType: 'station', targetId: id, actor: { type: 'user', id: getAuth().currentUser?.uid, name: who() }, summary: what.summary }); }
     catch (e: any) { setErr('That didn’t save — try again.'); } setBusy(null); };
   // Ticked steps are saved on the station, so a reset can be started by one person and finished by another.
   const savedTicks = (r: StationRow): number[] => { const res: any = (resources || []).find((x: any) => x.id === r.id); const t = res?.readiness?.ticks; return t && t.visitId === (r.visitId || r.quarantine?.reason || 'q') && Array.isArray(t.done) ? t.done : []; };
+  const later = useDeferred(4000);   // the last tick marks the station ready after 4 seconds, with Undo
   const ticksOf = (r: StationRow) => ticked[r.id] ?? savedTicks(r);
   const toggle = (r: StationRow, i: number) => { const cur = ticksOf(r); const next = cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i]; setTicked((t) => ({ ...t, [r.id]: next }));
     // The first tick takes the reset; the last tick finishes it (no separate buttons to remember).
     if (r.status === 'turnover' && !cur.length && next.length && !r.claimed) void act.claim(r);
-    if (r.status === 'turnover' && r.needsConfirm && next.length >= (r.checklist || []).length) { setTimeout(() => { void act.ready(r); }, 350); }
+    if (r.status === 'turnover' && r.needsConfirm && next.length >= (r.checklist || []).length) later.defer(`${r.name} ready for the next client`, () => act.ready(r));
     void updateDoc(doc(firestore, 'tenants', tenantId, 'resources', r.id), { 'readiness.ticks': { visitId: r.visitId || r.quarantine?.reason || 'q', done: next, by: who().split(' ')[0], at: new Date().toISOString() } }).catch(() => undefined); };
   const act = {
     ready: async (r: StationRow) => {
@@ -68,6 +71,7 @@ export function Stations({ firestore, tenantId, resources, appts, services, staf
   const printStationLabels = async () => { if (!(await printCodeLabels((resources || []).filter((r: any) => r && r.id).map((r: any) => ({ title: String(r.name || 'Station'), sub: 'Station', code: stationCode(r.id), steps: ['Scan to see this station’s reset', 'Tick each step — the last tick marks it ready'] })), 'Station labels', brandOf(selectedTenant), 'sticker'))) setErr('Allow pop-ups to print labels.'); };
   return (
     <div className="space-y-2">
+      {later.bar}
       {!onlyRow && !mine && <div className="flex justify-end"><button type="button" onClick={printStationLabels} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Print station labels</button></div>}
       {err && <p className="text-[13px] font-medium text-red-700" role="alert">{err}</p>}
       {sorted.map((r) => {

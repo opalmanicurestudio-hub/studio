@@ -4,6 +4,7 @@
 import { doc, collection, writeBatch } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { logAuditClient } from '@/lib/audit-client';
+import { settle } from '@/lib/offline';
 import { moveKit, KIT_LABEL, type Kit } from '@/lib/kits';
 import { METHOD_LABEL, type CleanseMethod } from '@/lib/cleanse';
 
@@ -19,7 +20,7 @@ export async function startCleanse(firestore: any, tenantId: string, kit: Kit, p
   b.update(doc(firestore, 'tenants', tenantId, 'kits', kit.id), { ...patch, byId: uid, staffId: null, staffName: null, cleansedAt: null, cycleId: null,
     cleanse: { method: plan.method, disinfectantId: d.id, name: d.name, minutes: Number(d.contactMinutes), startedAt: at, timerId: timerRef.id } });
   b.set(timerRef, { id: timerRef.id, disinfectantId: d.id, name: d.name, what: `${kit.name} ${kit.code}`, kitId: kit.id, minutes: Number(d.contactMinutes), startedAt: at, byName: who, byId: uid, doneAt: null });
-  try { await b.commit(); } catch { return { error: 'That didn’t save — try again.' }; }
+  try { await settle(b.commit()); } catch { return { error: 'That didn’t save — try again.' }; }
   void logAuditClient(firestore, tenantId, { action: 'kit.cleanse_started', targetType: 'kit', targetId: kit.id, actor: { type: 'user', id: uid || undefined, name: who, role: opts.manager ? 'manager' : 'staff' },
     before: { status: kit.status }, after: { status: 'cleaning', disinfectant: d.name, minutes: d.contactMinutes, method: plan.method },
     summary: `${kit.name} ${kit.code}: ${kit.status === 'in_use' ? 'returned, ' : ''}${METHOD_LABEL[plan.method].toLowerCase()} with ${d.name} — ${d.contactMinutes} min contact (${KIT_LABEL[kit.status]} → cleansing)` });

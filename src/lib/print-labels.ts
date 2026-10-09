@@ -7,7 +7,9 @@
 //             so it can be scanned whichever way the bundle is stacked.
 // Every one has a barcode (handheld scanners), a square code (phone and tablet cameras) and the code in letters.
 // Codes stay black on white so they scan.
-export interface LabelBrand { name?: string | null; accent?: string | null; logoUrl?: string | null }
+export interface LabelBrand { name?: string | null; accent?: string | null; logoUrl?: string | null; sizes?: Partial<Record<LabelFormat, LabelSize>> | null }
+/** A label's size in millimetres. Wrap bands: w = the strip's length, h = its depth. Tie-on tags: w = open width (front + back). */
+export interface LabelSize { w: number; h: number }
 export type LabelFormat = 'sticker' | 'hang' | 'band';
 export const LABEL_FORMATS: { id: LabelFormat; label: string; hint: string }[] = [
   { id: 'sticker', label: 'Stickers', hint: 'Flat labels for trays, pouches and bottles' },
@@ -16,7 +18,25 @@ export const LABEL_FORMATS: { id: LabelFormat; label: string; hint: string }[] =
 export interface LabelData { title: string; code: string; sub?: string; steps?: string[] }
 export const KIT_STEPS = ['Scan when you take it for a client', 'Scan when the visit ends', 'Scan when cleaning starts', 'Check the contents, then scan: clean'];
 export const BUNDLE_STEPS = ['Scan when it goes out', 'Scan when it comes back', 'Scan into the wash', 'Scan when clean and folded'];
-export const brandOf = (tenant: any): LabelBrand => ({ name: tenant?.name || tenant?.businessName || null, accent: tenant?.bookingPageSettings?.cfPageConfig?.accentColor || tenant?.brandColor || null, logoUrl: tenant?.logoUrl || tenant?.bookingPageSettings?.logoUrl || null });
+export const brandOf = (tenant: any): LabelBrand => ({ sizes: tenant?.ops?.labelSizes || null, name: tenant?.name || tenant?.businessName || null, accent: tenant?.bookingPageSettings?.cfPageConfig?.accentColor || tenant?.brandColor || null, logoUrl: tenant?.logoUrl || tenant?.bookingPageSettings?.logoUrl || null });
+export const DEFAULT_SIZE: Record<LabelFormat, LabelSize> = { sticker: { w: 90, h: 34 }, hang: { w: 96, h: 86 }, band: { w: 190, h: 30 } };
+export const SIZE_LIMITS: Record<LabelFormat, { w: [number, number]; h: [number, number] }> = { sticker: { w: [40, 190], h: [18, 120] }, hang: { w: [50, 190], h: [50, 150] }, band: { w: [90, 277], h: [15, 60] } };
+export const SIZE_PRESETS: Record<LabelFormat, { label: string; w: number; h: number }[]> = {
+  sticker: [{ label: 'Standard (90 × 34 mm)', w: 90, h: 34 }, { label: '4 × 2 in shipping label (102 × 51 mm)', w: 102, h: 51 }, { label: '2.6 × 1 in address label (67 × 25 mm)', w: 67, h: 25 }, { label: 'Small square (50 × 50 mm)', w: 50, h: 50 }],
+  hang: [{ label: 'Standard tag (96 × 86 mm open)', w: 96, h: 86 }, { label: 'Small tag (70 × 60 mm open)', w: 70, h: 60 }, { label: 'Large tag (120 × 110 mm open)', w: 120, h: 110 }],
+  band: [{ label: 'Towel stack (190 × 30 mm)', w: 190, h: 30 }, { label: 'Thin band (190 × 20 mm)', w: 190, h: 20 }, { label: 'Short band (140 × 25 mm)', w: 140, h: 25 }, { label: 'Bag or bin (270 × 40 mm, landscape)', w: 270, h: 40 }] };
+const clampN = (v: any, [lo, hi]: [number, number], d: number) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(hi, Math.max(lo, n)) : d; };
+export const sizeOf = (brand: LabelBrand | null | undefined, f: LabelFormat): LabelSize => { const s: any = brand?.sizes?.[f]; return { w: clampN(s?.w, SIZE_LIMITS[f].w, DEFAULT_SIZE[f].w), h: clampN(s?.h, SIZE_LIMITS[f].h, DEFAULT_SIZE[f].h) }; };
+/** Size overrides for the sheet: the codes shrink with the label but never below what a phone can read. */
+function sizeCss(f: LabelFormat, z: LabelSize): string {
+  const cl = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
+  if (f === 'sticker') { const q = cl(z.h - 8, 12, 34); const small = z.h < 28 || z.w < 70;
+    return `.g.sticker{grid-template-columns:repeat(auto-fill,${z.w}mm)}.l{width:${z.w}mm;height:${z.h}mm;min-height:0;grid-template-columns:${q}mm 1fr;padding:${small ? 2 : 4}mm ${small ? 2 : 4}mm ${small ? 2 : 4}mm ${small ? 4 : 6}mm;gap:${small ? 2 : 4}mm}.l .q{width:${q}mm;height:${q}mm}${small ? '.l .bar,.l .s{display:none}.l .t{font-size:8.5pt}.l .c{font-size:8pt}' : ''}`; }
+  if (f === 'hang') { const half = z.w / 2; const q = cl(Math.min(half - 14, z.h - 52), 14, 40); const small = z.h < 75 || half < 42;
+    return `.h{grid-template-columns:${half}mm ${half}mm}.h .f{height:${z.h}mm;padding:${small ? 10 : 13}mm ${small ? 3 : 5}mm ${small ? 3 : 5}mm}.h .q{width:${q}mm;height:${q}mm;margin:${small ? 1.5 : 3}mm 0}${small ? '.h .bar,.h .ft{display:none}.h ol li{font-size:6.5pt}.h .t{font-size:9pt}' : ''}`; }
+  const q = cl(z.h - 8, 10, 30); const short = z.w < 160; const thin = z.h < 24;
+  return `${z.w > 190 ? '@page{size:landscape;margin:8mm}' : ''}.g.band{grid-template-columns:${z.w}mm}.w{width:${z.w}mm;height:${z.h}mm;grid-template-columns:${short ? `12mm ${q + 4}mm 1fr ${Math.max(22, q + 6)}mm` : `14mm ${q + 6}mm 1fr ${thin ? 34 : 44}mm ${Math.max(22, q + 4)}mm`}}.w .q{width:${q}mm;height:${q}mm}${short ? '.w ol,.w>div:nth-of-type(3){display:none}' : ''}${thin ? '.w ol{display:none}.w .t{font-size:9pt}.w .bar svg{height:6mm}' : ''}`;
+}
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 const safeColor = (c: any) => (/^#[0-9a-fA-F]{3,8}$/.test(String(c || '')) ? String(c) : '#16171a');
 
@@ -53,7 +73,7 @@ ol li:before{content:counter(n);flex:none;width:3.6mm;height:3.6mm;border-radius
 .w{display:grid;grid-template-columns:14mm 30mm 1fr 44mm 26mm;align-items:center;gap:4mm;height:30mm;border:.3mm dashed #b9b3a8;border-radius:3mm;padding:0 4mm 0 0;background:#fff;overflow:hidden;break-inside:avoid;border-top:1.2mm solid ${accent}}
 .w .tab{align-self:stretch;background:repeating-linear-gradient(-45deg,#ece8e1 0 1.2mm,#fff 1.2mm 2.4mm);display:flex;align-items:center;justify-content:center;font-size:5.5pt;color:#6b6760;writing-mode:vertical-rl;letter-spacing:.1em;text-transform:uppercase}
 .w .q{width:22mm;height:22mm}.w ol{display:grid;grid-template-columns:1fr 1fr;gap:1mm 4mm}.w ol li{font-size:6.8pt}.w .end{text-align:right}.w .end .c{font-size:12pt}
-</style></head><body>${how ? `<p class="how">${how}</p>` : ''}<div class="g ${format}">${cells.join('')}</div>${autoPrint ? '<script>document.fonts&&document.fonts.ready?document.fonts.ready.then(()=>setTimeout(()=>print(),150)):onload=()=>print()<\/script>' : ''}</body></html>`;
+${sizeCss(format, sizeOf(brand, format))}</style></head><body>${how ? `<p class="how">${how}</p>` : ''}<div class="g ${format}">${cells.join('')}</div>${autoPrint ? '<script>document.fonts&&document.fonts.ready?document.fonts.ready.then(()=>setTimeout(()=>print(),150)):onload=()=>print()<\/script>' : ''}</body></html>`;
 }
 export function labelCell(l: LabelData, qrDataUrl: string, barcodeSvg: string, brand: LabelBrand, format: LabelFormat = 'sticker'): string {
   const brandLine = brand.name || brand.logoUrl ? `<div class="b">${brand.logoUrl ? `<img src="${esc(brand.logoUrl)}" alt=""/>` : ''}${esc(brand.name || '')}</div>` : '';

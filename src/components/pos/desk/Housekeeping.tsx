@@ -15,6 +15,8 @@ import { delaySettings } from '@/lib/delay';
 import { planSetAside } from '@/lib/setaside';
 import { PrepPlan } from '@/components/pos/desk/PrepPlan';
 import { setOutItem } from '@/lib/setout-client';
+import { useDeferred } from '@/components/pos/desk/Undo';
+import { OfflineNote } from '@/lib/offline';
 import { ProductionBoard, TimerGrid, type Running } from '@/components/pos/desk/ProductionBoard';
 import { startCleanse } from '@/lib/cleanse-client';
 import { moveLinen, linenOutlook, linenUpdate, afterWash, loadDecision, LINEN_MOVE_LABEL, type LinenMove } from '@/lib/linens';
@@ -81,9 +83,11 @@ const toDate = (v: any) => new Date(typeof v === 'string' ? v : v?.toDate ? v.to
 
 export function Housekeeping({ tenantId, tenant, appts, services, staff, manager, onGo, allAppts, view = 'list' }: { tenantId: string; tenant: any; appts: any[]; services: any[]; staff: any[]; manager: boolean; onGo?: (where: OpsTask['goTo']) => void; allAppts?: any[]; view?: 'list' | 'lanes' | 'focus' | 'board' | 'timers' }) {
   const { running, plan, bundles, tasks, kits, kitTypes, linens, handovers, resources, protocols, disinfectants, firestore } = useHousekeeping(tenantId, appts, services, staff);
+  const later = useDeferred(5000);   // one-tap jobs wait 5 seconds with an Undo bar
   // Set out: which kits / bundles are already at their station for a visit, and the tap that marks one.
   const setOut = React.useMemo(() => { const m: Record<string, string> = {}; for (const x of [...(kits || []), ...(bundles || [])] as any[]) if (x.setFor && (x.status === 'ready' || x.status === 'clean')) m[x.id] = x.setFor; return m; }, [kits, bundles]);
-  const onSetOut = async (it: any, v: any) => { const a: any = (appts || []).find((x: any) => x.id === v.visitId); const st: any = a && Array.isArray(a.requiredResourceIds) ? (resources || []).find((r: any) => a.requiredResourceIds.includes(r.id)) : null; const e = await setOutItem(firestore, tenantId, it, v, st?.name || null); setMsg(e || `${it.type} ${it.code || ''} set out for ${String(v.clientName).split(' ')[0]}${st?.name ? ` at ${st.name}` : ''}.`); }; const [at, setAt] = React.useState(0);   // which job the focus view is on
+  const onSetOut = (it: any, v: any) => later.defer(`Set out ${it.code || it.type} for ${String(v.clientName).split(' ')[0]}`, () => setOutNow(it, v));
+  const setOutNow = async (it: any, v: any) => { const a: any = (appts || []).find((x: any) => x.id === v.visitId); const st: any = a && Array.isArray(a.requiredResourceIds) ? (resources || []).find((r: any) => a.requiredResourceIds.includes(r.id)) : null; const e = await setOutItem(firestore, tenantId, it, v, st?.name || null); setMsg(e || `${it.type} ${it.code || ''} set out for ${String(v.clientName).split(' ')[0]}${st?.name ? ` at ${st.name}` : ''}.`); }; const [at, setAt] = React.useState(0);   // which job the focus view is on
   const [noteFor, setNoteFor] = React.useState<string | null>(null); const [note, setNote] = React.useState(''); const [ending, setEnding] = React.useState(false);
   const [prepDay, setPrepDay] = React.useState<'today' | 'tomorrow'>('tomorrow'); const [closeOpen, setCloseOpen] = React.useState(false);
   const me = getAuth().currentUser?.uid || null;
@@ -145,7 +149,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
   // One card, used by every layout. `big` = the single job in the focus view.
   const card = (t: OpsTask, big = false) => { const isMine = mine.some((x) => x.id === t.id); const ql = quickLabel(t); const urgent = t.score >= 75 && !t.claimed;
     const takeable = !t.claimed && (t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'inspect' || t.kind === 'prep');
-    const primary = ql && !(t.kind === 'station' && t.claimed) ? { label: ql, run: async () => { if ((t.kind === 'kit_clean' || t.kind === 'wash_start') && !t.claimed && !(await take(t))) return; await quick(t); } } : takeable ? { label: 'I’ll take it', run: async () => { await take(t); } } : null;
+    const primary = ql && !(t.kind === 'station' && t.claimed) ? { label: ql, run: async () => { later.defer(`${ql} — ${t.title}`, async () => { if ((t.kind === 'kit_clean' || t.kind === 'wash_start') && !t.claimed && !(await take(t))) return; await quick(t); }); } } : takeable ? { label: 'I’ll take it', run: async () => { await take(t); } } : null;
     const canOpen = !!onGo && (t.kind === 'station' || t.kind === 'inspect' || t.kind === 'kit_finish' || t.kind === 'kit_decide' || t.kind === 'prep' || t.kind === 'laundry_setup' || (t.kind === 'request' && t.request?.source !== 'assist'));
     const steps = big && (t.kind === 'station' || t.kind === 'inspect');   // the focus view shows a station's steps right on the card
     return (
@@ -241,6 +245,8 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
       ) : <div className="flex flex-wrap gap-2"><a href={`/housekeeping/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full border px-4 text-[13px] font-semibold">Open the wall screen</a><button type="button" onClick={() => setCloseOpen((x) => !x)} aria-pressed={closeOpen} className="h-10 rounded-full border px-4 text-[13px] font-semibold">{closeOpen ? 'Hide closing check' : 'Closing check'}</button><button type="button" onClick={() => setSetup(true)} className="h-10 rounded-full border px-4 text-[13px] font-semibold">Who does housekeeping: {mode === 'attendants' ? `${picked.length} named` : 'each provider'}</button></div>)}
   </>);
   const status = (<>
+      {later.bar}
+      <OfflineNote />
       {msg && <p className="text-[14px] font-semibold" role="status">{msg}</p>}
       {mine.length > 0 && view !== 'focus' && <p className="text-[13px] text-muted-foreground">You have {mine.length} of {limit} jobs.</p>}
   </>);

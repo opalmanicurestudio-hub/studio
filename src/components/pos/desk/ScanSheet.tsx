@@ -12,6 +12,7 @@ import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { routeScan, LOAD_WINDOW_MS, type ScanRoute } from '@/lib/scan-route';
 import { useWedge } from '@/lib/use-wedge';
 import { useNfc } from '@/lib/use-nfc';
+import { OfflineNote } from '@/lib/offline';
 import { Kits } from '@/components/pos/desk/Kits';
 import { Linens } from '@/components/pos/desk/Linens';
 import { Sterilisation } from '@/components/pos/desk/Sterilisation';
@@ -63,6 +64,7 @@ export function ScanSheet({ open, onClose, tenantId, tenant, appts, services, st
           <button type="button" onClick={onClose} className="h-11 rounded-full bg-[#17181A] px-5 text-[15px] font-[700] text-white">Done</button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-[max(20px,env(safe-area-inset-bottom))]">
+          <OfflineNote />
           {cam ? <ScanGate onScan={scan} label="Hold a label in the box — it scans by itself" /> : null}
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setCam((x) => !x)} className="h-11 flex-1 rounded-full border bg-white px-4 text-[14px] font-[600]">{cam ? 'Hide the camera' : 'Show the camera'}</button>

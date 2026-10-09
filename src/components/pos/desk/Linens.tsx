@@ -13,6 +13,9 @@ import { stageOf } from '@/lib/visit';
 import { moveLinen, linenOutlook, linensNeeded, linenTotal, linenUpdate, afterWash, loadDecision, bundleNext, LINEN_MOVE_LABEL, BUNDLE_LABEL, findBundle, newBundleCode, type Linen, type LinenMove, type LinenBundle } from '@/lib/linens';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
+import { LabelSizes } from '@/components/pos/desk/LabelSizes';
+import { useDeferred } from '@/components/pos/desk/Undo';
+import { settle } from '@/lib/offline';
 import { printCodeLabels, brandOf, LABEL_FORMATS, BUNDLE_STEPS, type LabelFormat } from '@/lib/print-labels';
 import { useTenant } from '@/context/TenantContext';
 import { useNfc } from '@/lib/use-nfc';
@@ -48,6 +51,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
   const who = () => (getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Staff').split('@')[0];
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who(), role: manager ? 'manager' : 'staff' });
   const codeRef = React.useRef<(v: string) => void>(() => undefined); const nfc = useNfc((id) => codeRef.current(id));   // NFC taps go to the same handler as scans
+  const later = useDeferred(5000);   // bulk laundry taps wait 5 seconds with Undo
   React.useEffect(() => { if (incoming?.code) codeRef.current(incoming.code); }, [incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps   // a scan from the one-scanner sheet
   if (!firestore) return null;
 
@@ -55,7 +59,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
     const res = moveLinen(l, move, n); if (!res.moved && quiet) return true;   // a bundle whose linens were already counted (by finished visits): only its tag moves
     if (!res.moved) { setMsg({ ok: false, text: move === 'issue' ? `There aren’t ${n} clean ${l.name.toLowerCase()} to take.` : 'Nothing to move.' }); return false; }
     setBusy(l.id); let ok = false;
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), linenUpdate(l, move, res, { name: who(), uid: getAuth().currentUser?.uid || null })); ok = true;
+    try { await settle(updateDoc(doc(firestore, 'tenants', tenantId, 'linens', l.id), linenUpdate(l, move, res, { name: who(), uid: getAuth().currentUser?.uid || null }))); ok = true;
       void logAuditClient(firestore, tenantId, { action: `linen.${move}`, targetType: 'linen', targetId: l.id, actor: actor(), before: { clean: l.clean, dirty: l.dirty, washing: l.washing, drying: l.drying || 0, folding: l.folding || 0 }, after: { clean: res.clean, dirty: res.dirty, washing: res.washing, drying: res.drying, folding: res.folding }, summary: `${l.name}: ${LINEN_MOVE_LABEL[move]} × ${res.moved}` });
       // Damaged linens come off inventory, with a stock movement.
       if ((move === 'damaged_clean' || move === 'damaged_dirty') && l.inventoryItemId) { try { await runTransaction(firestore, async (txn: any) => { const ref = doc(firestore, 'tenants', tenantId, 'inventory', l.inventoryItemId as string); const snap = await txn.get(ref); if (!snap.exists()) return;
@@ -124,6 +128,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
             <button type="button" onClick={() => setHolderFor(null)} className="h-10 rounded-full px-3 text-[13px]">Cancel</button>
           </div>
         </div>)}
+      {later.bar}
       {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>}
       {!linens.length && <p className="text-[14px] text-muted-foreground">No linens yet. {manager ? 'Add towels, capes or robes and the desk will tell you if there are enough clean ones for the rest of the day.' : 'A manager can add them here.'}</p>}
       {linens.filter((l) => !focusLinenId || l.id === focusLinenId).map((l) => { const o = outlook.find((x) => x.id === l.id); const own = l.inventoryItemId ? Number((inventory || []).find((i: any) => i.id === l.inventoryItemId)?.totalStock) : NaN; return (
@@ -187,14 +192,15 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
-              {l.dirty > 0 && (() => { const d = loadDecision(l, outlook.find((x) => x.id === l.id)?.short || 0); const n = d.due ? d.qty : l.dirty; return <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'wash', n)} className={`h-9 rounded-full px-3 text-[13px] font-semibold disabled:opacity-40 ${d.due ? 'bg-emerald-600 text-white' : 'border'}`}>Start a load ({n})</button>; })()}
-              {l.washing > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => apply(l, afterWash(l), l.washing)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{Number(l.dryMinutes) > 0 ? 'Into the dryer' : 'Washed — to fold'} ({l.washing})</button>}
-              {(l.drying || 0) > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'dried', l.drying || 0)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Dry — to fold ({l.drying})</button>}
-              {(l.folding || 0) > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => apply(l, 'folded', l.folding || 0)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Folded — put away ({l.folding})</button>}
+              {l.dirty > 0 && (() => { const d = loadDecision(l, outlook.find((x) => x.id === l.id)?.short || 0); const n = d.due ? d.qty : l.dirty; return <button type="button" disabled={busy === l.id} onClick={() => later.defer(`Start a load of ${n} ${l.name.toLowerCase()}`, () => apply(l, 'wash', n))} className={`h-9 rounded-full px-3 text-[13px] font-semibold disabled:opacity-40 ${d.due ? 'bg-emerald-600 text-white' : 'border'}`}>Start a load ({n})</button>; })()}
+              {l.washing > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => later.defer(`${Number(l.dryMinutes) > 0 ? 'Into the dryer' : 'To fold'} — ${l.washing} ${l.name.toLowerCase()}`, () => apply(l, afterWash(l), l.washing))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">{Number(l.dryMinutes) > 0 ? 'Into the dryer' : 'Washed — to fold'} ({l.washing})</button>}
+              {(l.drying || 0) > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => later.defer(`Dry — to fold: ${l.drying} ${l.name.toLowerCase()}`, () => apply(l, 'dried', l.drying || 0))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Dry — to fold ({l.drying})</button>}
+              {(l.folding || 0) > 0 && !l.byBundle && <button type="button" disabled={busy === l.id} onClick={() => later.defer(`Folded — ${l.folding} ${l.name.toLowerCase()} back as clean`, () => apply(l, 'folded', l.folding || 0))} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white disabled:opacity-40">Folded — put away ({l.folding})</button>}
               {manager && <button type="button" onClick={() => setSettingsFor(settingsFor === l.id ? null : l.id)} className="h-9 rounded-full border px-3 text-[13px]">Laundry settings</button>}
               <button type="button" onClick={() => { setOther(l.id); setQty(1); setWhat('use'); }} className="h-9 rounded-full border px-3 text-[13px]">Something else</button>
               {manager && bundling !== l.id && <button type="button" onClick={() => setBundling(l.id)} className="h-9 rounded-full border px-3 text-[13px]">Make tagged bundles</button>}
               {bundles.some((b) => b.linenId === l.id) && <span className="flex items-center gap-1"><select value={fmt} onChange={(e) => setFmt(e.target.value as LabelFormat)} aria-label="Tag shape" title={LABEL_FORMATS.find((f) => f.id === fmt)?.hint} className="h-9 rounded-full border bg-background px-2 text-[13px]">{LABEL_FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select><button type="button" onClick={() => printTags(l)} className="h-9 rounded-full border px-3 text-[13px] font-semibold">Print</button></span>}
+              {bundles.some((b) => b.linenId === l.id) && <LabelSizes tenantId={tenantId} tenant={selectedTenant} format={fmt} manager={manager} />}
             </div>)}
         </div>); })}
       {manager && !focusLinenId && (adding ? (
