@@ -100,6 +100,7 @@
 // produces is a warning.
 
 import { kitsNeeded, kitKey } from '@/lib/kits';
+import { linensNeeded, linenKey } from '@/lib/linens';
 import {
   addMinutes,
   areIntervalsOverlapping,
@@ -988,6 +989,23 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
     // fixed before bookings further out, so those aren't turned away over a blunt nipper.
     if (usable < need.qty && dateObj.getTime() - now.getTime() > 36 * 3600000) continue;
     resourceLedgers.push({ resourceId: `kit:${key}`, name: cap.name || need.name, capacity: Math.max(0, usable - (need.qty - 1)), taken, downReason: usable < need.qty ? `No ${String(cap.name || need.name).toLowerCase()} is available` : undefined });
+  }
+
+  // ── Linens this service needs (O11): towels, sheets… are held from the visit until they've been washed, dried and
+  // folded again. Only types whose laundry is set up (tenant.linenCapacity, kept by the housekeeping step) are checked.
+  const linCap: Record<string, any> = (!input.ignoreResources && input.tenant?.linenCapacity) || {};
+  if (Object.keys(linCap).length) for (const need of linensNeeded(service)) {
+    const key = linenKey(need.name); const cap = linCap[key]; if (!cap) continue;
+    const turn = Math.max(0, num(cap.turnMinutes, 0)); const taken: Window[] = [];
+    for (const apt of dayAppointments) {
+      if (!blocksTime(apt, now)) continue;
+      const q = linensNeeded(servicesById[apt?.serviceId]).find((n) => linenKey(n.name) === key)?.qty || 0; if (!q) continue;
+      const start = safeDate(apt?.startTime); if (!start) continue;
+      const end = safeDate(apt?.endTime) ?? addMinutes(start, num(servicesById[apt?.serviceId]?.duration, 60));
+      for (let i = 0; i < q; i++) taken.push({ start, end: addMinutes(end, turn) });
+    }
+    const owned = Math.max(0, Math.floor(num(cap.owned, 0)));
+    resourceLedgers.push({ resourceId: `linen:${key}`, name: cap.name || need.name, capacity: Math.max(0, owned - (need.qty - 1)), taken, downReason: owned < need.qty ? `Not enough ${String(cap.name || need.name).toLowerCase()}s` : undefined });
   }
 
   const staffDays: StaffDay[] = [];

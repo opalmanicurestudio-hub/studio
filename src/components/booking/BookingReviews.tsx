@@ -1,4 +1,5 @@
 'use client';
+import { usePublicStaff } from '@/lib/use-public-staff';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -21,8 +22,7 @@ export const BookingReviews = () => {
   const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
   const { data: tenant } = useDoc<Tenant>(tenantDocRef);
 
-  const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
-  const { data: staff } = useCollection<Staff>(staffQuery);
+  const { all: staff } = usePublicStaff(tenantId);   // public cards only (names / photos), through the server
 
   const reviewsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;

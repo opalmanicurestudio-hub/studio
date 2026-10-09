@@ -58,7 +58,9 @@ service cloud.firestore {
       allow get, list: if true;
     }
     match /tenants/{tenantId}/staff/{staffId} {
-      allow get: if true;
+      // Team only (pay rates, phone, email live here). Each person can read their own record; public pages use the
+      // server's public cards (/api/public/staff: name, photo, title) instead.
+      allow get: if isStaff(tenantId) || (isSignedIn() && request.auth.uid == staffId);
       allow list: if isStaff(tenantId);
       allow create, delete: if isManager(tenantId);
       allow update: if isManager(tenantId)
@@ -126,7 +128,8 @@ service cloud.firestore {
       allow write: if isManager(tenantId);
     }
     match /tenants/{tenantId}/clients/{clientId} {
-      allow create: if true;
+      // New clients come from the team, the client portal, or the server (bookings, walk-ins, inquiries).
+      allow create: if isStaff(tenantId) || (isPortalMember(tenantId) && request.auth.uid == clientId);
       allow read, write: if isStaff(tenantId);
       match /signedConsents/{consentId} {
         allow read, write: if isStaff(tenantId);
@@ -175,7 +178,13 @@ service cloud.firestore {
       allow update: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/notifications/{notificationId} {
-      allow create: if true;
+      // The team and the portal can post; the public quote page can only post its own quote notices to the owner —
+      // short, unaddressed, and of those four kinds.
+      allow create: if isStaff(tenantId) || isPortalMember(tenantId)
+        || (request.resource.data.get('type', '') in ['quote_viewed', 'quote_accepted', 'quote_declined', 'quote_revision']
+            && !('userId' in request.resource.data)
+            && request.resource.data.get('message', '') is string && request.resource.data.get('message', '').size() <= 400
+            && request.resource.data.keys().hasOnly(['id', 'type', 'message', 'link', 'read', 'createdAt', 'quoteId', 'title', 'priority']));
       allow read, update, delete: if isStaff(tenantId) || isPortalMember(tenantId);
     }
     match /tenants/{tenantId}/assetUnits/{unitId} {

@@ -1,3 +1,4 @@
+import { jsonLd } from '@/lib/json-ld';
 import type { Metadata } from 'next';
 import React from 'react';
 
@@ -100,7 +101,7 @@ export default async function CatalogSeoLayout({
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(ld) }}
+        dangerouslySetInnerHTML={{ __html: jsonLd(ld) }}
       />
       {children}
     </>

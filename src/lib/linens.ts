@@ -106,3 +106,14 @@ export function findBundle(bundles: LinenBundle[], typed: string): LinenBundle |
   const t = String(typed || '').trim().toUpperCase().split(/[/=#]/).pop() || ''; if (!t) return null;
   return (bundles || []).find((b) => String(b.code || '').toUpperCase() === t) || (bundles || []).find((b) => hasTag(b, typed)) || null;
 }
+
+/** For booking (O11): each linen type whose laundry is set up (it has a wash time) — how many are owned and how long one
+ *  takes to come back clean after use (wash + dry + fold). Booking then won't promise more at once than can be turned
+ *  around. Types without a wash time aren't checked, so loosely counted linens never turn a client away. */
+export const linenKey = (name: any) => norm(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'linen';
+export function linenCapacityOf(linens: Linen[]): Record<string, { name: string; owned: number; turnMinutes: number }> {
+  const out: Record<string, { name: string; owned: number; turnMinutes: number }> = {};
+  for (const l of linens || []) { const wash = n0(l.washMinutes); if (!wash) continue; const owned = linenTotal(l); if (!owned) continue;
+    out[linenKey(l.name)] = { name: String(l.name).trim(), owned, turnMinutes: wash + n0(l.dryMinutes) + 30 }; }
+  return out;
+}

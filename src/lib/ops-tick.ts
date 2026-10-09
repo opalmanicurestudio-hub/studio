@@ -87,6 +87,9 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
           b.set(db.doc(`${T}/boothReservations/${r.id}`), { linensCounted: true }, { merge: true }); any = true; }
         for (const l of auto) if (touched.has(l.id)) b.update(db.doc(`${T}/linens/${l.id}`), { clean: l.clean, dirty: l.dirty, inUse: Math.max(0, Number(l.inUse) || 0), by: 'System', at: nowIso });
         if (any) await b.commit(); } }
+    // What booking may promise for each linen (owned and turnaround), kept on the business record like kit capacity.
+    { const { linenCapacityOf } = await import('@/lib/linens'); const cap = linenCapacityOf(linens as any);
+      if (JSON.stringify(cap) !== JSON.stringify(tenant?.linenCapacity || {})) await db.doc(T).set({ linenCapacity: cap }, { mergeFields: ['linenCapacity'] }); }
     await washTimers(db, tenantId, linens, now);
   } catch (e) { console.error('[ops-tick] linens', tenantId, e); } }
   return out;

@@ -1,4 +1,5 @@
 'use client';
+import { usePublicStaff } from '@/lib/use-public-staff';
 
 import { hasRealCard } from '@/lib/card-on-file';
 import { checkChange, chainAfterMove } from '@/lib/change-rules';
@@ -149,8 +150,8 @@ export default function ClientPortalPage() {
     const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
     const { data: services } = useCollection<Service>(servicesQuery);
 
-    const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
-    const { data: staff } = useCollection<Staff>(staffQuery);
+    const { all: staffCards } = usePublicStaff(tenantId);   // names and photos through the server (staff records are team-only)
+    const staff = staffCards as unknown as Staff[];
 
     const membershipsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/memberships`), [firestore, tenantId]);
     const { data: memberships } = useCollection<Membership>(membershipsQuery);

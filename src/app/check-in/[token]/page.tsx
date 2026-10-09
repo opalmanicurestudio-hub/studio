@@ -1,4 +1,5 @@
 'use client';
+import { usePublicStaff } from '@/lib/use-public-staff';
 
 /**
  * /check-in/[token] — v2
@@ -2446,8 +2447,9 @@ export default function CheckInPage() {
     const serviceDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.serviceId ? null : doc(firestore, `tenants/${tenantId}/services`, appointmentData.serviceId), [firestore, tenantId, appointmentData?.serviceId]);
     const { data: service, isLoading: serviceLoading } = useDoc<Service>(serviceDocRef);
     
-    const staffDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.staffId ? null : doc(firestore, `tenants/${tenantId}/staff`, appointmentData.staffId), [firestore, tenantId, appointmentData?.staffId]);
-    const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
+    // The provider's public card (name and photo) comes through the server; staff records themselves are team-only.
+    const { one: publicStaff } = usePublicStaff(tenantId || null, (appointmentData as any)?.staffId || null);
+    const assignedStaff: Staff | null = publicStaff ? ({ id: publicStaff.id, name: publicStaff.name, avatarUrl: publicStaff.avatarUrl } as any) : null; const staffLoading = false;
 
     // v2 -- NEW: completion record + its required consent forms, looked up
     // by the SAME token as everything else on this page. Both queries are
