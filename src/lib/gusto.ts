@@ -36,6 +36,7 @@ export type GustoPayrollLine = {
   name: string;
   regularHours: number;
   overtimeHours: number;
+  doubleOvertimeHours?: number;
   commission: number;
   tips: number;
   bonus: number;

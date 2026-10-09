@@ -25,11 +25,12 @@ export type DraftLine = {
   payStructure: string;
   regularHours: number;
   overtimeHours?: number;
+  doubleOvertimeHours?: number;
   commission: number;      // everything earned from services and sales (commission, per service pay, bonuses) — what payroll pays as commission
   servicePay?: number;     // per service pay (part of commission)
   extras?: number;         // membership sale bonus + share of no-show fees (part of commission)
   bonus?: number;          // overtime on commission / per service pay + minimum-wage top-ups
-  overtimePremium?: number; minWageTopUp?: number; salary?: number; hours?: number; missingClockOuts?: number;
+  overtimePremium?: number; minWageTopUp?: number; salary?: number; hours?: number; missingClockOuts?: number; unapprovedSessions?: number; noHours?: boolean;
   tips: number;
   total: number;
 };
@@ -118,12 +119,15 @@ export async function buildPayrollDraft(
       hours: l.hours,
       regularHours: f.regularHours,
       overtimeHours: f.overtimeHours,
+      ...(f.doubleOvertimeHours ? { doubleOvertimeHours: f.doubleOvertimeHours } : {}),
       commission: f.commission,
       ...(l.servicePay && member.payStructure === 'per_service' ? { servicePay: l.servicePay } : {}),
       ...(l.extras ? { extras: l.extras } : {}),
       ...(f.bonus ? { bonus: f.bonus, overtimePremium: l.overtimePremium, minWageTopUp: l.minWageTopUp } : {}),
       ...(l.salaryPay ? { salary: l.salaryPay } : {}),
       ...(l.missingClockOuts ? { missingClockOuts: l.missingClockOuts } : {}),
+      ...(l.unapprovedSessions ? { unapprovedSessions: l.unapprovedSessions } : {}),
+      ...(l.noHours ? { noHours: true } : {}),
       tips: l.tips,
       total: l.total,
     };

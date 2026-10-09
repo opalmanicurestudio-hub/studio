@@ -38,6 +38,7 @@ import {
   startOfMonth, endOfMonth, subMonths, differenceInMinutes,
   differenceInDays, eachDayOfInterval, isSameDay,
   addDays, addMonths,
+  startOfWeek, endOfWeek,
 } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import {
@@ -60,7 +61,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DateRange } from 'react-day-picker';
 import { cn, safeNumber } from '@/lib/utils';
-import { useFirebase, useUser, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useUser, addDocumentNonBlocking, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
@@ -1588,14 +1589,25 @@ const PaydayTab = () => {
   const handleCadenceChange = (newCadence: Cadence) => {
       setCadence(newCadence);
       const now = new Date();
+      // Weekly / bi-weekly: whole workweeks up to the end of this one, so overtime is counted per complete week.
+      const wso = ((selectedTenant as any)?.workweekStartsOn === 0 ? 0 : 1) as 0 | 1;
       if (newCadence === 'weekly') {
-          setDateRange({ from: startOfDay(subDays(now, 6)), to: endOfDay(now) });
+          setDateRange({ from: startOfWeek(now, { weekStartsOn: wso }), to: endOfDay(endOfWeek(now, { weekStartsOn: wso })) });
       } else if (newCadence === 'bi-weekly') {
-          setDateRange({ from: startOfDay(subDays(now, 13)), to: endOfDay(now) });
+          setDateRange({ from: startOfWeek(subDays(now, 7), { weekStartsOn: wso }), to: endOfDay(endOfWeek(now, { weekStartsOn: wso })) });
       } else if (newCadence === 'monthly') {
           setDateRange({ from: startOfMonth(now), to: endOfMonth(now) });
       }
   };
+  // The business's own pay cadence (saved with the payroll settings), not always bi-weekly.
+  const savedCadence = (selectedTenant as any)?.payroll?.cadence as Cadence | undefined;
+  useEffect(() => { if (savedCadence && ['weekly', 'bi-weekly', 'monthly'].includes(savedCadence)) handleCadenceChange(savedCadence); }, [savedCadence]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Shared tips: pay each person's APPROVED share (the same as the payroll draft), not the tips taken at their chair.
+  const tipMode = String((selectedTenant as any)?.tipSharing?.mode || 'direct');
+  const { data: tipRuns } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId && tipMode !== 'direct' ? query(collection(firestore, 'tenants', tenantId, 'tipShareRuns'), where('status', '==', 'approved')) : null), [firestore, tenantId, tipMode]));
+  const sharedTips = useMemo(() => { if (tipMode === 'direct') return null; const m = new Map<string, number>(); const a = dateRange.from.toISOString(), b = dateRange.to.toISOString();
+    for (const r of tipRuns || []) { if (String(r.start || '') < a || String(r.end || '') > b) continue; for (const x of r.rows || []) m.set(x.staffId, (m.get(x.staffId) || 0) + (Number(x.shareCents) || 0) / 100); } return m; }, [tipRuns, tipMode, dateRange]);
 
   const filteredTransactions = useMemo(() => {
       if (!transactions) return [];
@@ -1623,11 +1635,11 @@ const PaydayTab = () => {
     // own takings. Excluded here for the same reason the server draft
     // excludes them; if the two disagreed, the screen would be the lie.
     return staff.filter((m: any) => m.isRenter !== true).map(member => {
-        const l = periodPay({ member, from: dateRange.from, to: dateRange.to, incomeTxns: income, services: services || [], tenant: selectedTenant, sessions, apptStaff });
+        const l = periodPay({ member, from: dateRange.from, to: dateRange.to, incomeTxns: income, services: services || [], tenant: selectedTenant, sessions, apptStaff, ...(sharedTips ? { tips: sharedTips.get(member.id) || 0 } : {}) });
         const f = payrollFields(l);
         const ps = String(member.payStructure || 'commission');
         const parts = [ps === 'commission' ? 'Comm' : ps === 'hourly_plus_commission' ? 'Hr + Comm' : ps === 'per_service' ? 'Per service' : ps === 'salary' ? 'Salary' : 'Hr'];
-        if (l.overtimeHours) parts.push(`${l.overtimeHours}h OT`); if (l.minWageTopUp) parts.push('min. wage top-up'); parts.push('Tips');
+        if (l.overtimeHours) parts.push(`${l.overtimeHours}h OT`); if (l.doubleTimeHours) parts.push(`${l.doubleTimeHours}h double`); if (l.minWageTopUp) parts.push('min. wage top-up'); parts.push('Tips');
         return {
             id: member.id,
             name: member.name,
@@ -1639,15 +1651,18 @@ const PaydayTab = () => {
             bonus: f.bonus,
             regularHours: f.regularHours,
             overtimeHours: f.overtimeHours,
+            doubleOvertimeHours: f.doubleOvertimeHours,
             tips: l.tips,
             hours: l.hours,
             missingClockOuts: l.missingClockOuts,
+            unapprovedSessions: l.unapprovedSessions,
+            noHours: l.noHours,
             line: l,
             payStructure: member.payStructure,
             details: parts.join(' + '),
         };
     }).filter(o => o.amount > 0 || o.missingClockOuts > 0);
-  }, [staff, filteredTransactions, activityLogs, dateRange, services, apptStaff, selectedTenant]);
+  }, [staff, filteredTransactions, activityLogs, dateRange, services, apptStaff, selectedTenant, sharedTips]);
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
 
@@ -1827,6 +1842,7 @@ const PaydayTab = () => {
                 payStructure: o.payStructure,
                 regularHours: Number(((o as any).regularHours || 0).toFixed(2)),
                 overtimeHours: Number(((o as any).overtimeHours || 0).toFixed(2)),
+                doubleOvertimeHours: Number(((o as any).doubleOvertimeHours || 0).toFixed(2)),
                 commission: Number(((o as any).commissionPay || 0).toFixed(2)),   // commission, per service pay and extras (hours are paid from regularHours)
                 tips: Number((o.tips || 0).toFixed(2)),
                 bonus: Number(((o as any).bonus || 0).toFixed(2)),   // overtime on commission / per service pay + minimum-wage top-ups
@@ -2215,6 +2231,8 @@ const PaydayTab = () => {
                                                         <p className="text-[10px] font-black uppercase tracking-tight truncate">{owed.name}</p>
                                                         <p className="text-[8px] text-muted-foreground uppercase font-bold tracking-widest mt-0.5">{owed.details}</p>
                                                         {(owed as any).missingClockOuts > 0 && <a href="/timesheets" className="text-[11px] font-semibold text-destructive">{(owed as any).missingClockOuts} forgotten clock-out{(owed as any).missingClockOuts === 1 ? '' : 's'} — fix on Timesheets</a>}
+                                                        {(owed as any).unapprovedSessions > 0 && <a href="/timesheets" className="block text-[11px] font-semibold text-amber-700">{(owed as any).unapprovedSessions} shift{(owed as any).unapprovedSessions === 1 ? '' : 's'} waiting for approval — not paid yet</a>}
+                                                        {(owed as any).noHours && <p className="text-[11px] font-semibold text-amber-700">No hours on the clock — minimum wage and overtime can’t be checked</p>}
                                                     </div>
                                                 </div>
                                                 <span className="font-mono font-black text-xs md:text-sm ml-2">${owed.amount.toFixed(2)}</span>

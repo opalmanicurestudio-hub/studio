@@ -26,6 +26,7 @@ export type Session = {
   localDate: string;              // yyyy-MM-dd the session started, business time zone
   weekStart: string;              // yyyy-MM-dd of its workweek's first day, business time zone
   geoVerified?: boolean; geoWarnOnly?: boolean; note?: string; approvedBy?: string;
+  shiftNoteIn?: string | null; shiftNoteOut?: string | null;   // late / early / no shift, noted when the punch was made
 };
 export type ClockPolicy = { timeZone?: string; paidBreakMinutes?: number; autoClockOutHours?: number; weekStartsOn?: number; now?: number };
 
@@ -64,7 +65,8 @@ export function sessionsFrom(punches: Punch[], policy: ClockPolicy = {}): Sessio
       const day = localDay(cur.inT, tz);
       out.push({ staffId, inAt: new Date(cur.inT).toISOString(), outAt: outT == null ? null : new Date(outT).toISOString(), inId: cur.inId, outId: outP?.id,
         breakMinutes, paidBreakMinutes: paid, unpaidBreakMinutes: unpaid, workedMinutes: worked, open, missingOut, status, localDate: day, weekStart: weekOf(day, ws),
-        geoVerified: !!(outP?.geoVerified ?? cur.geo?.geoVerified), geoWarnOnly: !!cur.geo?.geoWarnOnly, note: outP?.reviewNote || '', approvedBy: outP?.approvedBy || '' });
+        geoVerified: !!(outP?.geoVerified ?? cur.geo?.geoVerified), geoWarnOnly: !!cur.geo?.geoWarnOnly, note: outP?.reviewNote || '', approvedBy: outP?.approvedBy || '',
+        shiftNoteIn: (cur.geo as any)?.shiftNote || null, shiftNoteOut: (outP as any)?.shiftNote || null });
       cur = null;
     };
     for (const p of list) {
@@ -93,14 +95,36 @@ export const sessionsIn = (sessions: Session[], from: any, to: any, staffId?: st
 /** Paid minutes for one person over [from, to]. */
 export const workedMinutes = (sessions: Session[], staffId: string, from: any, to: any) => sessionsIn(sessions, from, to, staffId).reduce((a, s) => a + s.workedMinutes, 0);
 
-export type WeekHours = { weekStart: string; minutes: number; regular: number; overtime: number };
-/** Per workweek: paid minutes split at the weekly overtime threshold (default 40 hours). */
-export function weeklyHours(sessions: Session[], staffId: string, from: any, to: any, thresholdHours = 40): WeekHours[] {
-  const m = new Map<string, number>(); for (const s of sessionsIn(sessions, from, to, staffId)) m.set(s.weekStart, (m.get(s.weekStart) || 0) + s.workedMinutes);
-  const cap = Math.max(0, Number(thresholdHours) || 40) * 60;
-  return [...m].sort().map(([weekStart, minutes]) => ({ weekStart, minutes, regular: Math.min(minutes, cap), overtime: Math.max(0, minutes - cap) }));
+export type WeekHours = { weekStart: string; minutes: number; regular: number; overtime: number; doubleTime: number };
+/**
+ * Per workweek: paid minutes split into regular, overtime and double time.
+ *   weekly overtime: regular minutes over `thresholdHours` (default 40);
+ *   daily overtime (optional, e.g. California): minutes over `daily.afterHours` in a day, and double time over
+ *   `daily.doubleAfterHours` — minutes already counted as daily overtime aren't counted again for the week.
+ */
+export function weeklyHours(sessions: Session[], staffId: string, from: any, to: any, thresholdHours = 40, daily: { afterHours?: number; doubleAfterHours?: number } = {}): WeekHours[] {
+  const byDay = new Map<string, { week: string; min: number }>();
+  for (const s of sessionsIn(sessions, from, to, staffId)) { const d = byDay.get(s.localDate) || { week: s.weekStart, min: 0 }; d.min += s.workedMinutes; byDay.set(s.localDate, d); }
+  const dCap = Number(daily.afterHours) > 0 ? Number(daily.afterHours) * 60 : Infinity; const dbl = Number(daily.doubleAfterHours) > 0 ? Number(daily.doubleAfterHours) * 60 : Infinity;
+  const weeks = new Map<string, WeekHours>(); const cap = Math.max(0, Number(thresholdHours) || 40) * 60;
+  for (const { week, min } of byDay.values()) {
+    const w = weeks.get(week) || { weekStart: week, minutes: 0, regular: 0, overtime: 0, doubleTime: 0 };
+    const double = Math.max(0, min - dbl); const dayOt = Math.max(0, Math.min(min, dbl) - dCap);
+    w.minutes += min; w.regular += min - double - dayOt; w.overtime += dayOt; w.doubleTime += double; weeks.set(week, w);
+  }
+  for (const w of weeks.values()) { const over = Math.max(0, w.regular - cap); w.regular -= over; w.overtime += over; }
+  return [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 }
 
 /** Policy from the tenant document. */
 export const clockPolicy = (tenant: any, now?: number): ClockPolicy => ({ timeZone: tenant?.timezone || 'America/New_York', paidBreakMinutes: Number(tenant?.paidBreakMinutes) || 0,
   autoClockOutHours: Number(tenant?.autoClockOutHours) || 12, weekStartsOn: Number.isInteger(tenant?.workweekStartsOn) ? tenant.workweekStartsOn : 1, now });
+
+/** The instant of a local wall-clock time ("2026-10-09", "09:30") in a time zone. */
+export function zonedEpoch(day: string, hhmm: string, timeZone = 'America/New_York'): number {
+  const [h, m] = String(hhmm || '00:00').split(':').map((x) => Number(x) || 0);
+  const guess = Date.parse(`${day}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00Z`);
+  const off = (t: number) => { try { const p = new Intl.DateTimeFormat('en-US', { timeZone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(t));
+    const g = (k: string) => Number(p.find((x) => x.type === k)?.value); return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second')) - t; } catch { return 0; } };
+  const first = guess - off(guess); return guess - off(first);   // second pass settles daylight-saving edges
+}

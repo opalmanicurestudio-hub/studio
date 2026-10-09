@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, query, where, deleteField, getDocs } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import { punchProblem } from '@/lib/punch';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -49,6 +50,7 @@ export default function TimeClockPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [errorDetail, setErrorDetail] = useState('');
+  const [successNote, setSuccessNote] = useState('');
 
   useEffect(() => {
     const t = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -171,16 +173,16 @@ export default function TimeClockPage() {
     setIsProcessing(true);
     let member: any = null;
     try {
-      const res = await fetch('/api/portal/auth', {
+      // The PIN is checked on the server, which also says where this person is (clocked in, on a break).
+      const res = await fetch('/api/timeclock/punch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'login', tenantId, pin }),
+        body: JSON.stringify({ action: 'state', tenantId, pin }),
       });
-      if (res.status === 404) throw new Error('__legacy__');
       const d = await res.json().catch(() => ({}));
-      if (res.ok && d?.staff?.id) {
-        // Pull the full doc (clock state, compliance fields) from the live subscription
-        member = (staff || []).find((s: any) => s.id === d.staff.id) || d.staff;
-      }
+      if (!res.ok || !d?.ok) { setIsProcessing(false); showError(res.status === 423 ? 'Clock locked' : 'PIN Not Recognized', d?.error || 'Check your PIN and try again.'); return; }
+      member = { ...((staff || []).find((s: any) => s.id === d.staff.id) || {}), ...d.staff };
+      const problem = punchProblem(pendingAction as any, d.state, String(member.name || 'You').split(' ')[0]);
+      if (problem) { setIsProcessing(false); showError('Can’t do that right now', problem); return; }
     } catch {
       // PINs are only ever checked on the server — never compared on this device.
       setIsProcessing(false); showError('No connection', 'Check the internet connection and try again.'); return;
@@ -210,33 +212,7 @@ export default function TimeClockPage() {
         }
       }
 
-      // 3. Early clock-in window
-      if (tenant?.earlyClockInMinutes != null && tenant.earlyClockInMinutes >= 0) {
-        try {
-          const aptsRef = collection(firestore!, `tenants/${tenantId}/appointments`);
-          const today = new Date();
-          const start = startOfDay(today).toISOString();
-          const end = endOfDay(today).toISOString();
-          const q = query(aptsRef,
-            where('staffId', '==', member.id),
-            where('startTime', '>=', start),
-            where('startTime', '<=', end),
-            where('status', 'in', ['confirmed', 'deposit_pending'])
-          );
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            const apts = snap.docs.map(d => d.data());
-            const firstApt = apts.sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0];
-            const firstStart = safeDate(firstApt.startTime);
-            const earliestAllowed = new Date(firstStart.getTime() - (tenant.earlyClockInMinutes * 60000));
-            if (new Date() < earliestAllowed) {
-              const minsUntil = Math.ceil((earliestAllowed.getTime() - Date.now()) / 60000);
-              showError('Too Early to Clock In', `Your first appointment is at ${format(firstStart, 'h:mm a')}. You can clock in ${tenant.earlyClockInMinutes} min before (in ${minsUntil} min).`);
-              return;
-            }
-          }
-        } catch { /* If query fails, allow clock-in */ }
-      }
+      // 3. Early clock-in: checked on the server against the person's published shift (lib/shift-check).
 
       // 4. Geo-fence check
       if (tenant?.geoFenceEnabled) {
@@ -264,103 +240,23 @@ export default function TimeClockPage() {
       }
     }
 
-    // clock_out minimum shift check
-    if (pendingAction === 'clock_out' && tenant?.minimumShiftMinutes && member.clockInTime) {
-      const minutesWorked = differenceInMinutes(new Date(), safeDate(member.clockInTime));
-      if (minutesWorked < tenant.minimumShiftMinutes) {
-        const remaining = tenant.minimumShiftMinutes - minutesWorked;
-        showError('Minimum Shift Not Met', `You need to work ${remaining} more minute${remaining !== 1 ? 's' : ''} before you can clock out.`);
-        return;
-      }
-    }
+    // Minimum shift length is checked on the server when the clock-out is recorded.
 
     setSelectedStaff(member);
     setStep('action_confirm');
   };
 
   const handleConfirmAction = async () => {
-    if (!selectedStaff || !pendingAction || !firestore) return;
+    if (!selectedStaff || !pendingAction) return;
     setIsProcessing(true);
-    const now = new Date().toISOString();
-    const activityLogsRef = collection(firestore, `tenants/${tenantId}/activityLogs`);
-    const staffDocRef = doc(firestore, `tenants/${tenantId}/staff`, selectedStaff.id);
-
-    // Determine if break is within paid limit
-    let isPaidBreak = false;
-    if (pendingAction === 'break_end' && selectedStaff.breakStartTime) {
-      const breakMins = differenceInMinutes(new Date(), safeDate(selectedStaff.breakStartTime));
-      isPaidBreak = (tenant?.paidBreakMinutes || 0) > 0 && breakMins <= (tenant.paidBreakMinutes || 0);
-    }
-
-    let staffUpdate: any = {};
-    let logEntry: any = {
-      staffId: selectedStaff.id,
-      type: pendingAction,
-      timestamp: now,
-      geoVerified: geoStatus === 'verified',
-      geoCoords: geoCoords || null,
-      timesheetStatus: 'pending',
-    };
-
-    switch (pendingAction) {
-      case 'clock_in':
-        staffUpdate = { active: true, clockInTime: now };
-        logEntry.clockInTime = now;
-        // Flag if geo warn (not verified but allowed through)
-        if (tenant?.geoFenceEnabled && geoStatus === 'failed') {
-          logEntry.geoWarnOnly = true;
-        }
-        break;
-      case 'clock_out':
-        staffUpdate = { active: false, onBreak: false, status: 'idle', clockInTime: deleteField() };
-        if (selectedStaff.clockInTime) {
-          const worked = differenceInMinutes(new Date(), safeDate(selectedStaff.clockInTime));
-          const dailyOtThreshold = (tenant?.dailyOvertimeHours || 8) * 60;
-          logEntry.workedMinutes = worked;
-          logEntry.overtimeMinutes = Math.max(0, worked - dailyOtThreshold);
-        }
-        break;
-      case 'break_start':
-        staffUpdate = { onBreak: true, breakStartTime: now };
-        break;
-      case 'break_end':
-        if (selectedStaff.breakStartTime) {
-          const dur = differenceInMinutes(new Date(), safeDate(selectedStaff.breakStartTime));
-          logEntry.durationMinutes = dur;
-          logEntry.isPaidBreak = isPaidBreak;
-          logEntry.paidMinutes = isPaidBreak ? Math.min(dur, tenant?.paidBreakMinutes || 0) : 0;
-          logEntry.unpaidMinutes = isPaidBreak ? Math.max(0, dur - (tenant?.paidBreakMinutes || 0)) : dur;
-          // Alert if break exceeded max
-          if (tenant?.maximumBreakMinutes && dur > tenant.maximumBreakMinutes) {
-            logEntry.breakOverage = true;
-            logEntry.breakOverageMinutes = dur - tenant.maximumBreakMinutes;
-          }
-        }
-        staffUpdate = { onBreak: false, breakStartTime: deleteField() };
-        break;
-    }
-
     try {
-      await addDocumentNonBlocking(activityLogsRef, logEntry);
-      await setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
-      // Owner-visible audit trail — must never block the punch itself
-      try {
-        const punchLabels: Record<string, string> = {
-          clock_in: 'clocked in', clock_out: 'clocked out',
-          break_start: 'started a break', break_end: 'ended a break',
-        };
-        const extra = logEntry.workedMinutes != null
-          ? ` (${Math.floor(logEntry.workedMinutes / 60)}h ${logEntry.workedMinutes % 60}m worked)`
-          : logEntry.durationMinutes != null ? ` (${logEntry.durationMinutes}m break)` : '';
-        await addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/auditLogs`), {
-          action: `timeclock.${pendingAction}`,
-          targetType: 'staff',
-          targetId: selectedStaff.id,
-          summary: `${selectedStaff.name || 'Staff member'} ${punchLabels[pendingAction] || pendingAction} via time clock${extra}`,
-          actor: { type: 'user', id: selectedStaff.id, name: selectedStaff.name || null, role: selectedStaff.role || 'staff', via: 'timeclock-kiosk' },
-          at: now,
-        });
-      } catch { /* audit failures are non-fatal */ }
+      // Recorded on the server (lib/punch) — the same for the kiosk, the staff page and the portal.
+      const res = await fetch('/api/timeclock/punch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, pin, staffId: selectedStaff.id, action: pendingAction, via: 'kiosk',
+          geo: tenant?.geoFenceEnabled ? { verified: geoStatus === 'verified', warnOnly: geoStatus === 'failed', coords: geoCoords || null } : undefined }) });
+      const d = await res.json().catch(() => ({ ok: false, error: 'No connection — try again.' }));
+      if (!d.ok) { showError('Not recorded', d.error || 'Please try again or contact a manager.'); return; }
+      setSuccessNote(d.note ? String(d.note).replace(/^\w+:\s*/, '') : '');
       setStep('success');
       setTimeout(() => {
         if (fromKiosk) { backToKiosk(); return; }
@@ -371,6 +267,7 @@ export default function TimeClockPage() {
         setGeoStatus(tenant?.geoFenceEnabled ? 'checking' : 'disabled');
         setGeoCoords(null);
         setErrorDetail('');
+        setSuccessNote('');
       }, 3000);
     } catch {
       showError('Something Went Wrong', 'Please try again or contact a manager.');
@@ -554,6 +451,7 @@ export default function TimeClockPage() {
               <h2 className="text-4xl font-black text-slate-900 uppercase tracking-tighter">Done!</h2>
               <p className="text-slate-500 font-black uppercase tracking-widest text-sm">{selectedStaff.name} -- {pendingAction ? actionLabel[pendingAction] : ''}</p>
               <p className="text-slate-300 font-bold uppercase tracking-widest text-[10px]">{format(currentTime, 'h:mm:ss a')}</p>
+              {successNote && <p className="mx-auto max-w-xs rounded-xl bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">Noted: {successNote}</p>}
             </div>
           </motion.div>
         )}
@@ -565,7 +463,7 @@ export default function TimeClockPage() {
               <XCircle className="w-12 h-12 text-red-400" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Access Denied</h2>
+              <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Not yet</h2>
               <p className="text-red-600 font-black uppercase text-sm">{errorMessage}</p>
               {errorDetail && <p className="text-slate-400 font-bold text-[10px] uppercase leading-relaxed max-w-xs mx-auto">{errorDetail}</p>}
             </div>

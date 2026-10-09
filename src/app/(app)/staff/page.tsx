@@ -1,5 +1,6 @@
 'use client';
 
+import { getAuth } from 'firebase/auth';
 import { periodPay } from '@/lib/pay-period';
 import { sessionsFrom, workedMinutes, clockPolicy } from '@/lib/timeclock';
 import { serviceCommission, perServicePay } from '@/lib/commission';
@@ -930,36 +931,6 @@ export default function StaffPage() {
     }
   };
   
-  const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-      if (!firestore || !staff || !tenantId) return;
-
-      const staffMember = staff.find(s => s.id === staffId);
-      if (!staffMember) return;
-      
-      const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
-      const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-      const now = new Date().toISOString();
-
-      let staffUpdate: Partial<Staff> = {};
-      let logEntry: Omit<ActivityLog, 'id'> = { staffId, type: action, timestamp: now };
-
-      switch (action) {
-          case 'clock_in': staffUpdate = { active: true }; break;
-          case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
-          case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
-          case 'break_end':
-              if (staffMember.breakStartTime) {
-                  const duration = differenceInMinutes(parseISO(now), parseISO(staffMember.breakStartTime));
-                  logEntry.durationMinutes = duration;
-              }
-              staffUpdate = { onBreak: false, breakStartTime: deleteField() as any }; 
-              break;
-      }
-      
-      addDocumentNonBlocking(activityLogsRef, logEntry);
-      setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
-  };
-  
   const handleStatusChangeWithAuth = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
       setPendingStatusAction({ staffId, action });
       setIsPinAuthOpen(true);
@@ -967,16 +938,17 @@ export default function StaffPage() {
 
   const handleVerifyPin = async () => {
     if (!pendingStatusAction || !staff) return;
-    // Checked on the server: the PIN must belong to this team member. No PINs are sent to this screen.
-    const pv = await verifyPin(selectedTenant?.id || '', authPin);
-    if (pv.ok && pv.staff.id === pendingStatusAction.staffId) {
-        handleStatusChange(pendingStatusAction.staffId, pendingStatusAction.action);
+    // Recorded on the server (one place for every clock screen): the PIN must belong to this team member, and the
+    // punch must make sense (no second clock-in, no break when not clocked in).
+    const r = await fetch('/api/timeclock/punch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId: selectedTenant?.id, pin: authPin, staffId: pendingStatusAction.staffId, action: pendingStatusAction.action, via: 'staff-page' }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
+    if (r.ok) {
         setIsPinAuthOpen(false);
         setAuthPin('');
         setPendingStatusAction(null);
-        uiToast({ title: "Authorized", description: "Status updated successfully." });
+        uiToast({ title: r.message || 'Done', description: r.note ? String(r.note).replace(/^\w+:\s*/, '') : undefined });
     } else {
-        uiToast({ variant: "destructive", title: "Invalid PIN", description: "The PIN entered is incorrect." });
+        uiToast({ variant: "destructive", title: "Not recorded", description: r.error || 'Try again.' });
     }
   };
 
@@ -1012,6 +984,9 @@ export default function StaffPage() {
 
   const handleArchiveToggle = (member: Staff) => {
     if (!firestore || !tenantId) return;
+    if (!(member as any).archived && (member as any).active) {   // still on the clock: clock them out first, recorded as done by this manager
+      void getAuth().currentUser?.getIdToken().then((tk) => fetch('/api/timeclock/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ tenantId, staffId: member.id, action: 'clock_out' }) })).catch(() => null);
+    }
     const ref = doc(firestore, 'tenants', tenantId, 'staff', member.id);
     const archiving = !(member as any).archived;
     setDocumentNonBlocking(ref, archiving

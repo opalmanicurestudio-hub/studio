@@ -360,6 +360,20 @@ service cloud.firestore {
       allow update: if isStaff(tenantId)
         && (request.resource.data.get('locationTypeId', '') == '') == (resource.data.get('locationTypeId', '') == '');
     }
+    // TIME CLOCK PUNCHES: recorded only by the server (/api/timeclock/punch, from every clock screen). The team can read
+    // them; a staff-portal sign-in reads only its own. Only managers may correct them (Timesheets) — nobody can edit or
+    // approve their own punches.
+    match /tenants/{tenantId}/activityLogs/{logId} {
+      allow read: if isStaff(tenantId)
+        || (isPortalMember(tenantId) && resource.data.staffId == request.auth.token.staffId);
+      allow create, update, delete: if isManager(tenantId);
+    }
+    // SHIFTS: the team reads and plans them as before; a staff-portal sign-in reads its own.
+    match /tenants/{tenantId}/shifts/{shiftId} {
+      allow read: if isStaff(tenantId)
+        || (isPortalMember(tenantId) && resource.data.staffId == request.auth.token.staffId);
+      allow write: if isStaff(tenantId);
+    }
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isStaff(tenantId) &&
         !(collection in [
@@ -373,6 +387,7 @@ service cloud.firestore {
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
           'depositCredits',
           'inventoryExceptions',
+          'activityLogs', 'shifts',
           'kits', 'linens', 'kitTypes', 'linenBundles', 'sterilisationCycles',
           'assetUnits',
           'assetScanEvents',

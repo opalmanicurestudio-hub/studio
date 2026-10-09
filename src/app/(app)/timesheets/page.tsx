@@ -24,11 +24,12 @@ import {
 } from 'date-fns';
 import { cn, safeNumber } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
+import { dayCompare } from '@/lib/shift-check';
 import { logAuditClient } from '@/lib/audit-client';
 import { getAuth } from 'firebase/auth';
 
@@ -54,7 +55,9 @@ export default function TimesheetsPage() {
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
+  const wso = ((selectedTenant as any)?.workweekStartsOn === 0 ? 0 : 1) as 0 | 1;   // the business's workweek (Settings)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  React.useEffect(() => { setWeekStart((w) => startOfWeek(w, { weekStartsOn: wso })); }, [wso]);
   const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [isReviewOpen, setIsReviewOpen] = useState(false);
@@ -64,10 +67,14 @@ export default function TimesheetsPage() {
   const [editClockIn, setEditClockIn] = useState('');
   const [editClockOut, setEditClockOut] = useState('');
 
-  const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(weekStart, { weekStartsOn: wso });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
   const overtimeThreshold = safeNumber(selectedTenant?.overtimeThresholdHours) || 40;
   const paidBreakMinutes = safeNumber(selectedTenant?.paidBreakMinutes) || 0;
+
+  // The published schedule for this week — compared with what was worked (lib/shift-check).
+  const wkFrom = format(weekStart, 'yyyy-MM-dd'), wkTo = format(weekEnd, 'yyyy-MM-dd');
+  const { data: weekShifts } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/shifts`), where('date', '>=', wkFrom), where('date', '<=', wkTo)) : null), [firestore, tenantId, wkFrom, wkTo]));
 
   const timesheets = useMemo(() => {
     if (!staff || !activityLogs) return [];
@@ -82,13 +89,20 @@ export default function TimesheetsPage() {
         const sessions = mine.filter((x) => x.localDate === key).map((x) => ({
           clockIn: new Date(x.inAt), clockOut: x.outAt ? new Date(x.outAt) : null, breakMinutes: x.breakMinutes, paidBreakMins: x.paidBreakMinutes,
           workedMinutes: x.workedMinutes, geoVerified: x.geoVerified, geoWarnOnly: x.geoWarnOnly, status: x.status, logId: x.outId || null, inId: x.inId || null,
-          missingOut: x.missingOut, isLatest: x.inAt === latestIn, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id,
+          missingOut: x.missingOut, isLatest: x.inAt === latestIn, shiftNoteIn: x.shiftNoteIn || null, shiftNoteOut: x.shiftNoteOut || null, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id,
         }));
         const totalMinutes = sessions.reduce((sum, s) => sum + s.workedMinutes, 0);
-        return { date: day, sessions, totalMinutes };
+        const cmp = dayCompare(key, (weekShifts || []).filter((x: any) => x.staffId === member.id), mine, selectedTenant);
+        return { date: day, sessions, totalMinutes, scheduledMinutes: cmp.scheduledMinutes, shiftLabel: cmp.shiftLabel, noShow: cmp.noShow };
       });
 
       const totalWeekMinutes = days.reduce((sum, d) => sum + d.totalMinutes, 0);
+      const scheduledWeekMinutes = days.reduce((sum, d: any) => sum + (d.scheduledMinutes || 0), 0);
+      // On track for overtime? What's been worked plus the shifts still to come this week.
+      const todayKey = format(new Date(), 'yyyy-MM-dd');
+      const projectedMinutes = totalWeekMinutes + days.filter((d: any) => format(d.date, 'yyyy-MM-dd') > todayKey).reduce((sum, d: any) => sum + (d.scheduledMinutes || 0), 0);
+      const projectedOvertime = Math.max(0, projectedMinutes - overtimeThreshold * 60);
+      const noShows = days.filter((d: any) => d.noShow).length;
       const overtimeMinutes = Math.max(0, totalWeekMinutes - overtimeThreshold * 60);
       const regularMinutes = totalWeekMinutes - overtimeMinutes;
       const multiplier = safeNumber(selectedTenant?.overtimeMultiplier) || 1.5;
@@ -107,10 +121,10 @@ export default function TimesheetsPage() {
         member, days, totalWeekMinutes,
         totalWeekHours: totalWeekMinutes / 60,
         overtimeMinutes, regularMinutes, estimatedPay,
-        hasUnapproved: pendingCount > 0, pendingCount, missingCount
+        hasUnapproved: pendingCount > 0, pendingCount, missingCount, scheduledWeekMinutes, projectedOvertime, noShows
       };
     });
-  }, [staff, activityLogs, weekStart, weekEnd, overtimeThreshold, paidBreakMinutes, selectedTenant]);
+  }, [staff, activityLogs, weekStart, weekEnd, overtimeThreshold, paidBreakMinutes, selectedTenant, weekShifts]);
 
   // Send notification to staff member
   const sendStaffNotification = useCallback(async (staffId: string, type: string, message: string, link: string) => {
@@ -365,7 +379,7 @@ export default function TimesheetsPage() {
             <p className="font-black text-sm uppercase tracking-tight">{format(weekStart, 'MMM d')} -- {format(weekEnd, 'MMM d, yyyy')}</p>
           </div>
           <Button variant="ghost" size="icon" onClick={() => setWeekStart(addWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl"><ChevronRight className="w-5 h-5" /></Button>
-          <Button variant="outline" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))} className="h-9 px-4 rounded-xl font-black uppercase text-[9px] border-2">This Week</Button>
+          <Button variant="outline" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: wso }))} className="h-9 px-4 rounded-xl font-black uppercase text-[9px] border-2">This Week</Button>
         </div>
 
         {/* KPI row */}
@@ -415,6 +429,20 @@ export default function TimesheetsPage() {
                       <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Week Total</p>
                       <p className="font-black text-lg font-mono text-primary">{formatDuration(ts.totalWeekMinutes)}</p>
                     </div>
+                    {(ts as any).scheduledWeekMinutes > 0 && (
+                      <div className="text-right">
+                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Scheduled</p>
+                        <p className="font-black text-lg font-mono text-slate-500">{formatDuration((ts as any).scheduledWeekMinutes)}</p>
+                      </div>
+                    )}
+                    {(ts as any).projectedOvertime > 0 && ts.overtimeMinutes === 0 && (
+                      <Badge className="bg-amber-50 text-amber-800 border-none text-[11px] font-semibold normal-case">
+                        <AlertTriangle className="w-3 h-3 mr-1" /> On track for {formatDuration((ts as any).projectedOvertime)} overtime this week
+                      </Badge>
+                    )}
+                    {(ts as any).noShows > 0 && (
+                      <Badge className="bg-destructive/10 text-destructive border-none text-[11px] font-semibold normal-case">{(ts as any).noShows} shift{(ts as any).noShows === 1 ? '' : 's'} with no clock-in</Badge>
+                    )}
                     {ts.overtimeMinutes > 0 && (
                       <Badge className="bg-amber-100 text-amber-700 border-none font-black text-[9px] uppercase">
                         <AlertTriangle className="w-3 h-3 mr-1" /> OT: {formatDuration(ts.overtimeMinutes)}
@@ -447,6 +475,7 @@ export default function TimesheetsPage() {
                       <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">{format(day.date, 'EEE')}</p>
                       <p className={cn("font-black text-sm", isSameDay(day.date, new Date()) ? "text-primary" : "text-slate-900")}>{format(day.date, 'd')}</p>
                       <p className="text-[10px] font-black font-mono text-primary mt-1">{day.totalMinutes > 0 ? formatDuration(day.totalMinutes) : '--'}</p>
+                      {(day as any).scheduledMinutes > 0 && <p className={cn("text-[10px] font-mono", (day as any).noShow ? "font-black text-destructive" : "text-muted-foreground")}>{(day as any).noShow ? 'no-show' : `of ${formatDuration((day as any).scheduledMinutes)}`}</p>}
                     </div>
                   ))}
                 </div>
@@ -472,6 +501,9 @@ export default function TimesheetsPage() {
                               {session.paidBreakMins > 0 && `, ${session.paidBreakMins}m paid`}
                               {session.breakMinutes > 0 && ')'}
                             </p>
+                            {(session.shiftNoteIn || session.shiftNoteOut) && (
+                              <p className="text-[11px] font-semibold text-amber-700">{[session.shiftNoteIn, session.shiftNoteOut].filter(Boolean).map((n: string) => n.replace(/^(\w+):\s*/, (_m: string, k: string) => ({ late: 'Late — ', early: 'Early — ', noshift: '', left_early: 'Left early — ', stayed: 'Stayed — ' } as any)[k] ?? '')).join(' · ')}</p>
+                            )}
                             {session.approvedBy && (
                               <p className="text-[8px] font-black uppercase text-primary/60">Approved by {session.approvedBy}</p>
                             )}

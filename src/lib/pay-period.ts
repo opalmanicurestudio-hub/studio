@@ -16,13 +16,15 @@ import { weeklyHours, sessionsIn, localDay, weekOf, type Session } from '@/lib/t
 
 export type PayLine = {
   staffId: string; name: string; payStructure: string;
-  hours: number; regularHours: number; overtimeHours: number;
+  hours: number; regularHours: number; overtimeHours: number; doubleTimeHours: number;
   hourlyPay: number; salaryPay: number; servicePay: number; retail: number; extras: number;
   overtimePremium: number;     // overtime owed beyond what hourly pay already covers (commission / per service / the commission part of hourly + commission)
   minWageTopUp: number;
   tips: number; total: number;
   missingClockOuts: number;    // sessions waiting for a manager — not paid until fixed
-  weeks: { weekStart: string; hours: number; overtimeHours: number; earned: number; topUp: number; premium: number }[];
+  unapprovedSessions: number;  // with "pay approved hours only": sessions still waiting for approval
+  noHours: boolean;            // earned from services but has no hours on the clock (minimum wage and overtime can't be checked)
+  weeks: { weekStart: string; hours: number; overtimeHours: number; doubleTimeHours: number; earned: number; topUp: number; premium: number }[];
 };
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -33,6 +35,8 @@ export function payRules(tenant: any) {
     minimumWage: Number(tenant?.payRules?.minimumWage) > 0 ? Number(tenant.payRules.minimumWage) : 7.25,
     overtimeHours: Number(tenant?.overtimeThresholdHours) > 0 ? Number(tenant.overtimeThresholdHours) : 40,
     multiplier: Number(tenant?.overtimeMultiplier) > 1 ? Number(tenant.overtimeMultiplier) : 1.5,
+    dailyOvertimeHours: Number(tenant?.dailyOvertimeHours) > 0 && tenant?.dailyOvertimeOn === true ? Number(tenant.dailyOvertimeHours) : 0,   // daily overtime only when switched on (e.g. California)
+    doubleTimeAfterHours: Number(tenant?.doubleTimeAfterHours) > 0 && tenant?.dailyOvertimeOn === true ? Number(tenant.doubleTimeAfterHours) : 0,
     timeZone: tenant?.timezone || 'America/New_York',
     weekStartsOn: Number.isInteger(tenant?.workweekStartsOn) ? tenant.workweekStartsOn : 1,
   };
@@ -53,10 +57,14 @@ export function periodPay(input: {
   const mine = (input.incomeTxns || []).filter((t) => t.staffId === m.id && (t.type || 'income') === 'income');
   const tips = input.tips ?? mine.filter((t) => t.category === 'Tips' || t.tipAmount).reduce((s, t) => s + (t.tipAmount || amt(t)), 0);
 
-  // Hours, per workweek
-  const weeks = weeklyHours(input.sessions, m.id, fromMs, toMs, rules.overtimeHours);
+  // Hours, per workweek. With "pay approved hours only" on, sessions a manager hasn't approved wait for the next run.
+  const approvedOnly = tenant?.payRules?.approvedHoursOnly === true;
+  const inRange = sessionsIn(input.sessions, fromMs, toMs, m.id);
+  const unapproved = approvedOnly ? inRange.filter((x) => !x.missingOut && x.status !== 'approved' && x.status !== 'rejected').length : 0;
+  const counted = approvedOnly ? input.sessions.filter((x) => x.staffId !== m.id || x.status === 'approved') : input.sessions;
+  const weeks = weeklyHours(counted, m.id, fromMs, toMs, rules.overtimeHours, { afterHours: rules.dailyOvertimeHours, doubleAfterHours: rules.doubleTimeAfterHours });
   const missingClockOuts = sessionsIn(input.sessions, fromMs, toMs, m.id).filter((s) => s.missingOut).length;
-  const hours = weeks.reduce((a, w) => a + w.minutes, 0) / 60; const otHours = weeks.reduce((a, w) => a + w.overtime, 0) / 60; const regHours = hours - otHours;
+  const hours = weeks.reduce((a, w) => a + w.minutes, 0) / 60; const otHours = weeks.reduce((a, w) => a + w.overtime, 0) / 60; const dtHours = weeks.reduce((a, w) => a + (w.doubleTime || 0), 0) / 60; const regHours = hours - otHours - dtHours;
 
   // Earnings from services and sales, per workweek (by the sale's local date)
   const weekOfTxn = (t: any) => weekOf(localDay(Date.parse(t.date) || Date.now(), rules.timeZone), rules.weekStartsOn);
@@ -69,7 +77,7 @@ export function periodPay(input: {
 
   // Hourly and salary
   const rate = Number(m.hourlyRate) || 0; const hourlyish = ps === 'hourly' || ps === 'hourly_plus_commission';
-  const hourlyPay = hourlyish && rate ? regHours * rate + otHours * rate * rules.multiplier : 0;
+  const hourlyPay = hourlyish && rate ? regHours * rate + otHours * rate * rules.multiplier + dtHours * rate * 2 : 0;
   const days = Math.max(0, (toMs - fromMs) / 86400000); const salaryWeekly = annualSalary(m) / 52;
   const salaryPay = ps === 'salary' ? salaryWeekly * Math.min(days, 366) / 7 : 0;
   const salaryNonExempt = ps === 'salary' && (m.overtimeExempt === false || m.overtimeNonExempt === true);
@@ -77,31 +85,33 @@ export function periodPay(input: {
   // Per workweek: overtime on other pay, and the minimum-wage check
   let overtimePremium = 0, minWageTopUp = 0; const weekRows: PayLine['weeks'] = [];
   for (const w of weeks) {
-    const h = w.minutes / 60, ot = w.overtime / 60; const wt = byWeek.get(w.weekStart) || [];
+    const h = w.minutes / 60, ot = w.overtime / 60, dt = (w.doubleTime || 0) / 60; const wt = byWeek.get(w.weekStart) || [];
     const other = (earns ? svcFor(wt) + retailFor(wt) : 0);                                   // commission / per service / retail that week
     const straight = (hourlyish ? h * rate : 0) + other + (ps === 'salary' ? salaryWeekly : 0);  // pay for the week before overtime and tips
     let premium = 0;
-    if (h > 0 && ot > 0) {
-      if (ps === 'commission' || ps === 'per_service') premium = 0.5 * Math.max(rules.minimumWage, other / h) * ot;
-      else if (ps === 'hourly_plus_commission') premium = 0.5 * (other / h) * ot;           // the hourly part's overtime is already in hourlyPay
-      else if (salaryNonExempt) premium = ot * (salaryWeekly / rules.overtimeHours) * rules.multiplier;
+    if (h > 0 && (ot > 0 || dt > 0)) {
+      // overtime adds half the regular rate per hour; double time adds a full regular rate
+      if (ps === 'commission' || ps === 'per_service') { const rr = Math.max(rules.minimumWage, other / h); premium = 0.5 * rr * ot + rr * dt; }
+      else if (ps === 'hourly_plus_commission') { const rr = other / h; premium = 0.5 * rr * ot + rr * dt; }   // the hourly part is already in hourlyPay
+      else if (salaryNonExempt) premium = (ot * rules.multiplier + dt * 2) * (salaryWeekly / rules.overtimeHours);
     }
     const topUp = ps !== 'salary' && h > 0 ? Math.max(0, rules.minimumWage * h - straight) : 0;
     overtimePremium += premium; minWageTopUp += topUp;
-    weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: r2(ot), earned: r2(straight), topUp: r2(topUp), premium: r2(premium) });
+    weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: r2(ot), doubleTimeHours: r2(dt), earned: r2(straight), topUp: r2(topUp), premium: r2(premium) });
   }
 
   const total = hourlyPay + salaryPay + servicePay + retail + extras + overtimePremium + minWageTopUp + tips;
-  return { staffId: m.id, name: m.name, payStructure: ps, hours: r2(hours), regularHours: r2(regHours), overtimeHours: r2(otHours),
+  return { staffId: m.id, name: m.name, payStructure: ps, hours: r2(hours), regularHours: r2(regHours), overtimeHours: r2(otHours), doubleTimeHours: r2(dtHours),
     hourlyPay: r2(hourlyPay), salaryPay: r2(salaryPay), servicePay: r2(servicePay), retail: r2(retail), extras: r2(extras),
-    overtimePremium: r2(overtimePremium), minWageTopUp: r2(minWageTopUp), tips: r2(tips), total: r2(total), missingClockOuts, weeks: weekRows };
+    overtimePremium: r2(overtimePremium), minWageTopUp: r2(minWageTopUp), tips: r2(tips), total: r2(total), missingClockOuts, unapprovedSessions: unapproved,
+    noHours: (earns && servicePay > 0 && hours === 0), weeks: weekRows };
 }
 
 /** What payroll (Gusto) is sent: hours for hourly pay (Gusto applies the rate), and everything else as fixed amounts. */
 export function payrollFields(l: PayLine) {
   const hourly = l.payStructure === 'hourly' || l.payStructure === 'hourly_plus_commission';
   return {
-    regularHours: hourly ? l.regularHours : 0, overtimeHours: hourly ? l.overtimeHours : 0,
+    regularHours: hourly ? l.regularHours : 0, overtimeHours: hourly ? l.overtimeHours : 0, doubleOvertimeHours: hourly ? l.doubleTimeHours : 0,
     commission: r2(l.servicePay + l.retail + l.extras),
     bonus: r2(l.overtimePremium + l.minWageTopUp),          // overtime on commission / per service pay, and minimum-wage top-ups
     salary: l.salaryPay, tips: l.tips,

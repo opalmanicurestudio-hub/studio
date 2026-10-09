@@ -1,5 +1,7 @@
 'use client';
 
+import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
+import { punchState } from '@/lib/punch';
 import { serviceCommission, perServicePay } from '@/lib/commission';
 import { handoffEntry } from '@/lib/handoff-log';
 import { StaffOverruns } from '@/components/visit/StaffOverruns';
@@ -2767,52 +2769,21 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
   const isOnBreak = clockStatus.isOnBreak;
   const isClockedIn = clockStatus.isClockedIn;
 
-  const handleClockInOut = async () => {
-    if (!isClockedIn && isOnBreak) return; // can't clock out while on break
+  // Recorded on the server, the same way as the kiosk (lib/punch): checks where they are first, ends a break when
+  // clocking out, and notes late / early against the published shift.
+  const punch = async (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
     setProcessing(true);
     try {
-      const now  = new Date().toISOString();
-      const type = isClockedIn ? 'clock_out' : 'clock_in';
-      const batch = writeBatch(firestore);
-      const logRef = doc(collection(firestore, `tenants/${tenantId}/activityLogs`));
-      batch.set(logRef, { id: logRef.id, staffId: staffMember.id, type, timestamp: now, createdAt: now });
-      batch.set(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id),
-        { status: type === 'clock_in' ? 'available' : 'off', ...(type === 'clock_in' ? { lastClockIn: now } : { lastClockOut: now }) },
-        { merge: true });
-      const aRef = doc(collection(firestore, `tenants/${tenantId}/auditLogs`));
-      batch.set(aRef, { id: aRef.id, ...auditEntry({
-        action: 'time.' + type, targetType: 'activityLog', targetId: logRef.id,
-        summary: `${staffMember.name} ${type === 'clock_in' ? 'clocked in' : 'clocked out'} (portal)`,
-        actor: { type: 'user', id: staffMember.id, name: staffMember.name, role: staffMember.role },
-      }) });
-      await batch.commit();
-      toast({ title: type === 'clock_in' ? 'Clocked In ✓' : 'Clocked Out ✓' });
-    } catch { toast({ variant: 'destructive', title: 'Clock action failed.' }); }
-    finally { setProcessing(false); }
+      const { getAuth } = await import('firebase/auth');
+      const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+      const r = await fetch('/api/timeclock/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+        body: JSON.stringify({ tenantId, action, via: 'portal' }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
+      if (r.ok) toast({ title: r.message || 'Done', description: r.note ? String(r.note).replace(/^\w+:\s*/, '') : undefined });
+      else toast({ variant: 'destructive', title: 'Not recorded', description: r.error || 'Try again.' });
+    } finally { setProcessing(false); }
   };
-
-  const handleBreak = async () => {
-    setProcessing(true);
-    try {
-      const now  = new Date().toISOString();
-      const type = isOnBreak ? 'break_end' : 'break_start';
-      const batch = writeBatch(firestore);
-      const logRef = doc(collection(firestore, `tenants/${tenantId}/activityLogs`));
-      batch.set(logRef, { id: logRef.id, staffId: staffMember.id, type, timestamp: now, createdAt: now });
-      batch.set(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id),
-        { status: isOnBreak ? 'available' : 'on_break', ...(isOnBreak ? { lastBreakEnd: now } : { lastBreakStart: now }) },
-        { merge: true });
-      const aRef = doc(collection(firestore, `tenants/${tenantId}/auditLogs`));
-      batch.set(aRef, { id: aRef.id, ...auditEntry({
-        action: 'time.' + type, targetType: 'activityLog', targetId: logRef.id,
-        summary: `${staffMember.name} ${isOnBreak ? 'ended break' : 'started break'} (portal)`,
-        actor: { type: 'user', id: staffMember.id, name: staffMember.name, role: staffMember.role },
-      }) });
-      await batch.commit();
-      toast({ title: isOnBreak ? 'Break Ended ✓' : 'On Break ✓' });
-    } catch { toast({ variant: 'destructive', title: 'Failed.' }); }
-    finally { setProcessing(false); }
-  };
+  const handleClockInOut = () => punch(isClockedIn ? 'clock_out' : 'clock_in');
+  const handleBreak = () => punch(isOnBreak ? 'break_end' : 'break_start');
 
   if (!isClockedIn) {
     return (
@@ -4665,41 +4636,22 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [clockNow, setClockNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setClockNow(Date.now()), 60000); return () => clearInterval(t); }, []);
   const clockStatus = useMemo(() => {
-    if (!activityLogs) return { isClockedIn: false, isOnBreak: false, minutesWorked: 0, breakMinutes: 0, breakStartTime: null as Date | null };
-    const logs = activityLogs
-      .filter((l: any) => isSameDay(safeDate(l.timestamp), today))
-      .sort((a: any, b: any) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
-
-    let isClockedIn = false, clockInTime: Date | null = null;
-    let isOnBreak = false, breakStartTime: Date | null = null;
-    let totalWorked = 0, totalBreak = 0;
-
-    for (const l of logs) {
-      const ts = safeDate(l.timestamp);
-      if      (l.type === 'clock_in')    { isClockedIn = true;  clockInTime = ts; }
-      else if (l.type === 'clock_out' && clockInTime) {
-        totalWorked += differenceInMinutes(ts, clockInTime);
-        isClockedIn = false; clockInTime = null;
-      }
-      else if (l.type === 'break_start') { isOnBreak = true;  breakStartTime = ts; }
-      else if (l.type === 'break_end' && breakStartTime) {
-        totalBreak += differenceInMinutes(ts, breakStartTime);
-        isOnBreak = false; breakStartTime = null;
-      }
-    }
-    // Add current open clock-in period
-    if (isClockedIn && clockInTime) totalWorked += differenceInMinutes(new Date(clockNow), clockInTime);
-    // Add current open break period
-    if (isOnBreak && breakStartTime) totalBreak += differenceInMinutes(new Date(clockNow), breakStartTime);
-
+    // From the shared time clock engine: where they are now, and today's hours in the business's time zone (a shift
+    // that started yesterday evening still shows as on the clock).
+    if (!activityLogs) return { isClockedIn: false, isOnBreak: false, minutesWorked: 0, breakMinutes: 0, breakStartTime: null as Date | null, forgotten: false };
+    const tz = (portalTenant as any)?.timezone || 'America/New_York';
+    const st = punchState(activityLogs as any, portalTenant || {}, clockNow);
+    const today = localDay(clockNow, tz);
+    const ses = sessionsFrom(activityLogs as any, clockPolicy(portalTenant || {}, clockNow)).filter((x) => x.localDate === today || (st.clockedIn && x.inAt === st.since));
     return {
-      isClockedIn,
-      isOnBreak,
-      breakStartTime,
-      minutesWorked: Math.max(0, totalWorked - totalBreak), // net of breaks
-      breakMinutes: totalBreak,
+      isClockedIn: st.clockedIn,
+      isOnBreak: st.onBreak,
+      breakStartTime: st.breakSince ? new Date(st.breakSince) : null,
+      minutesWorked: ses.reduce((a, x) => a + x.workedMinutes, 0),
+      breakMinutes: ses.reduce((a, x) => a + x.breakMinutes, 0),
+      forgotten: st.forgotten,
     };
-  }, [activityLogs, clockNow]);
+  }, [activityLogs, clockNow, portalTenant]);
 
   const weekEarnings = useMemo(() => {
     const ws = startOfWeek(today, { weekStartsOn: 1 });

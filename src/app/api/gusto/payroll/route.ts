@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
           const n = String(h.name || '').toLowerCase();
           if (n === 'regular hours') return { ...h, hours: hoursStr(line.regularHours) };
           if (n === 'overtime') return { ...h, hours: hoursStr(line.overtimeHours) };
+          if (n === 'double overtime' && line.doubleOvertimeHours != null) return { ...h, hours: hoursStr(line.doubleOvertimeHours) };
           return h;
         });
         const FIXED: Record<string, number> = {

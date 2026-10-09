@@ -865,17 +865,28 @@ function SettingsPageImpl() {
                     <Choice label="If location can’t be checked" value={(tenantData.geoFenceFailBehavior as string) || 'warn'} options={[{ value: 'warn', label: 'Let them in, flag it' }, { value: 'block', label: 'Don’t let them in' }]} onChange={(v) => setTenantData((prev) => ({ ...prev, geoFenceFailBehavior: v } as any))} />
                   </Row>
                 </>)}
-                <Row label="Staff can clock in early by" help="Before their shift starts. Earlier than this and the clock waits." inline><Num field="earlyClockInMinutes" suffix="minutes" max={120} /></Row>
+                <Row label="Staff can clock in early by" help="Before their published shift starts. Earlier than this and the clock waits. Leave blank to allow any time (early clock-ins are still noted)." inline><Num field="earlyClockInMinutes" suffix="minutes" max={120} /></Row>
               </Section>
               <More help="Stricter rules, overtime and breaks — most studios leave these as they are.">
                 <Section title="Stricter rules">
                   {T('requireAppointmentToClockIn', 'Only clock in with an appointment that day')}
                   {T('blockClockInOnExpiredLicense', 'Block clock-in if their licence has expired')}
                   {T('requireManagerOverrideForLateClockIn', 'A manager must approve late clock-ins')}
+                  <Row label="Late after" help="Minutes after a shift starts before a clock-in counts as late." inline><Num field="lateGraceMinutes" suffix="minutes" max={60} /></Row>
+                  <Row label="Pay approved hours only" help="Payroll counts only shifts a manager has approved on Timesheets; the rest wait for the next pay run.">
+                    <Toggle checked={(tenantData as any).payRules?.approvedHoursOnly === true} onChange={(v) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), approvedHoursOnly: v } }))} label="Pay approved hours only" />
+                  </Row>
                   <Row label="Shortest shift that counts" inline><Num field="minimumShiftMinutes" suffix="minutes" max={720} /></Row>
                 </Section>
                 <Section title="Overtime">
+                  <Row label="Workweek starts on" help="Overtime is counted per workweek; Timesheets and payroll periods follow it." inline>
+                    <Choice label="Workweek starts on" value={String((tenantData as any).workweekStartsOn ?? 1)} options={[{ value: '1', label: 'Monday' }, { value: '0', label: 'Sunday' }]} onChange={(v) => setTenantData((prev: any) => ({ ...prev, workweekStartsOn: Number(v) }))} />
+                  </Row>
+                  {T('dailyOvertimeOn', 'Daily overtime too (California and a few other states)')}
+                  {(tenantData as any).dailyOvertimeOn === true && (<>
                   <Row label="Overtime after, in a day" inline><Num field="dailyOvertimeHours" suffix="hours" max={24} step={0.5} /></Row>
+                  <Row label="Double time after, in a day" help="California: double time after 12 hours in a day." inline><Num field="doubleTimeAfterHours" suffix="hours" max={24} step={0.5} /></Row>
+                  </>)}
                   <Row label="Overtime after, in a week" inline><Num field="overtimeThresholdHours" suffix="hours" max={168} step={0.5} /></Row>
                   <Row label="Overtime pay rate" help="1.5 = time and a half." inline><Num field="overtimeMultiplier" suffix="× hourly" max={5} step={0.1} /></Row>
                   <Row label="Warn a manager when someone is this close to overtime" inline><Num field="overtimeAlertHours" suffix="hours" max={24} step={0.5} /></Row>
