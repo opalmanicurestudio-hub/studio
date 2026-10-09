@@ -28,6 +28,9 @@ import { collection, doc, writeBatch } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
+import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
+import { logAuditClient } from '@/lib/audit-client';
+import { getAuth } from 'firebase/auth';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -68,62 +71,19 @@ export default function TimesheetsPage() {
 
   const timesheets = useMemo(() => {
     if (!staff || !activityLogs) return [];
-    return staff.map(member => {
-      const memberLogs = activityLogs
-        .filter(log => log.staffId === member.id
-          && safeDate(log.timestamp) >= weekStart
-          && safeDate(log.timestamp) <= weekEnd)
-        .sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
-
+    // Sessions from the shared time clock engine (lib/timeclock): overnight shifts kept, forgotten clock-outs flagged,
+    // breaks worked out from the punches, rejected sessions not paid.
+    const all = sessionsFrom(activityLogs as any, clockPolicy(selectedTenant));
+    return staff.filter((m: any) => m.isRenter !== true && m.archived !== true).map(member => {
+      const mine = all.filter((x) => x.staffId === member.id);
+      const latestIn = mine.length ? mine[mine.length - 1].inAt : '';
       const days = weekDays.map(day => {
-        const dayLogs = memberLogs.filter(log => isSameDay(safeDate(log.timestamp), day));
-        const sessions: any[] = [];
-        let clockIn: Date | null = null;
-        let breakStart: Date | null = null;
-        let breakMinutes = 0;
-        let paidBreakMins = 0;
-
-        dayLogs.forEach(log => {
-          const t = safeDate(log.timestamp);
-          if (log.type === 'clock_in') {
-            clockIn = t; breakMinutes = 0; paidBreakMins = 0;
-          } else if (log.type === 'clock_out' && clockIn) {
-            const worked = Math.max(0, differenceInMinutes(t, clockIn) - (breakMinutes - paidBreakMins));
-            sessions.push({
-              clockIn, clockOut: t, breakMinutes, paidBreakMins,
-              workedMinutes: worked,
-              geoVerified: log.geoVerified || false,
-              geoWarnOnly: log.geoWarnOnly || false,
-              status: log.timesheetStatus || 'pending',
-              logId: log.id,
-              managerNote: log.reviewNote || '',
-              approvedBy: log.approvedBy || '',
-            });
-            clockIn = null;
-          } else if (log.type === 'break_start') {
-            breakStart = t;
-          } else if (log.type === 'break_end' && breakStart) {
-            const dur = differenceInMinutes(t, breakStart);
-            breakMinutes += dur;
-            // Credit paid break up to tenant limit
-            if (paidBreakMinutes > 0) {
-              const alreadyPaid = paidBreakMins;
-              const canPay = Math.max(0, paidBreakMinutes - alreadyPaid);
-              paidBreakMins += Math.min(dur, canPay);
-            }
-            breakStart = null;
-          }
-        });
-
-        // Still clocked in today
-        if (clockIn && isSameDay(clockIn, new Date())) {
-          sessions.push({
-            clockIn, clockOut: null, breakMinutes, paidBreakMins,
-            workedMinutes: Math.max(0, differenceInMinutes(new Date(), clockIn) - (breakMinutes - paidBreakMins)),
-            geoVerified: false, geoWarnOnly: false, status: 'active', logId: null, managerNote: '', approvedBy: '',
-          });
-        }
-
+        const key = format(day, 'yyyy-MM-dd');
+        const sessions = mine.filter((x) => x.localDate === key).map((x) => ({
+          clockIn: new Date(x.inAt), clockOut: x.outAt ? new Date(x.outAt) : null, breakMinutes: x.breakMinutes, paidBreakMins: x.paidBreakMinutes,
+          workedMinutes: x.workedMinutes, geoVerified: x.geoVerified, geoWarnOnly: x.geoWarnOnly, status: x.status, logId: x.outId || null, inId: x.inId || null,
+          missingOut: x.missingOut, isLatest: x.inAt === latestIn, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id,
+        }));
         const totalMinutes = sessions.reduce((sum, s) => sum + s.workedMinutes, 0);
         return { date: day, sessions, totalMinutes };
       });
@@ -141,12 +101,13 @@ export default function TimesheetsPage() {
 
       const pendingCount = days.reduce((sum, d) =>
         sum + d.sessions.filter(s => s.status === 'pending' && s.clockOut).length, 0);
+      const missingCount = days.reduce((sum, d) => sum + d.sessions.filter((s: any) => s.missingOut).length, 0);
 
       return {
         member, days, totalWeekMinutes,
         totalWeekHours: totalWeekMinutes / 60,
         overtimeMinutes, regularMinutes, estimatedPay,
-        hasUnapproved: pendingCount > 0, pendingCount
+        hasUnapproved: pendingCount > 0, pendingCount, missingCount
       };
     });
   }, [staff, activityLogs, weekStart, weekEnd, overtimeThreshold, paidBreakMinutes, selectedTenant]);
@@ -228,38 +189,50 @@ export default function TimesheetsPage() {
     }
   };
 
+  // Manager correction: moves the clock-in punch and the clock-out punch to the times given (adds the clock-out when it
+  // was forgotten), keeps the original times on each punch, and records who changed what in the audit log.
   const handleSaveEdit = async (session: any) => {
-    if (!firestore || !tenantId || !session.logId) return;
+    if (!firestore || !tenantId || !session?.inId) return;
     if (!editClockIn || !editClockOut) {
-      toast({ variant: 'destructive', title: 'Invalid Times', description: 'Both clock-in and clock-out times are required.' });
+      toast({ variant: 'destructive', title: 'Both times needed', description: 'Put in the clock-in and clock-out times.' });
+      return;
+    }
+    const baseDate = format(session.clockIn, 'yyyy-MM-dd');
+    const newClockIn = new Date(`${baseDate}T${editClockIn}:00`);
+    let newClockOut = new Date(`${baseDate}T${editClockOut}:00`);
+    if (newClockOut <= newClockIn) newClockOut = new Date(newClockOut.getTime() + 86400000);   // past midnight: the next day
+    if (newClockOut.getTime() - newClockIn.getTime() > 18 * 3600000) {
+      toast({ variant: 'destructive', title: 'Check the times', description: 'That shift would be over 18 hours.' });
       return;
     }
     setIsProcessing(true);
     try {
-      // Build corrected timestamps using same date as original
-      const baseDate = format(session.clockIn, 'yyyy-MM-dd');
-      const newClockIn = new Date(`${baseDate}T${editClockIn}:00`);
-      const newClockOut = new Date(`${baseDate}T${editClockOut}:00`);
-      if (newClockOut <= newClockIn) {
-        toast({ variant: 'destructive', title: 'Invalid Range', description: 'Clock-out must be after clock-in.' });
-        setIsProcessing(false);
-        return;
+      const now = new Date().toISOString(); const note = reviewNote || 'Manager correction';
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, `tenants/${tenantId}/activityLogs`, session.inId), {
+        timestamp: newClockIn.toISOString(), managerEdited: true, editedAt: now, editNote: note,
+        ...(session.clockIn ? { originalTimestamp: (session as any).originalIn || session.clockIn.toISOString() } : {}),
+      });
+      if (session.logId) {
+        batch.update(doc(firestore, `tenants/${tenantId}/activityLogs`, session.logId), {
+          timestamp: newClockOut.toISOString(), managerEdited: true, editedAt: now, editNote: note, timesheetStatus: 'pending',
+          ...(session.clockOut ? { originalTimestamp: session.clockOut.toISOString() } : {}),
+        });
+      } else {
+        const ref = doc(collection(firestore, `tenants/${tenantId}/activityLogs`));
+        batch.set(ref, { id: ref.id, staffId: session.staffId, type: 'clock_out', timestamp: newClockOut.toISOString(), addedByManager: true, editedAt: now, editNote: note, timesheetStatus: 'pending' });
+        // The person still shows as on the clock from the forgotten shift — clear it (only when it's their latest one).
+        if (session.isLatest) batch.update(doc(firestore, `tenants/${tenantId}/staff`, session.staffId), { active: false, onBreak: false, clockInTime: null, status: 'off' });
       }
-      const newWorked = differenceInMinutes(newClockOut, newClockIn) - (session.breakMinutes - session.paidBreakMins);
-      await updateDocumentNonBlocking(
-        doc(firestore, `tenants/${tenantId}/activityLogs`, session.logId),
-        {
-          timestamp: newClockIn.toISOString(),
-          clockInTime: newClockIn.toISOString(),
-          workedMinutes: Math.max(0, newWorked),
-          managerEdited: true,
-          editedAt: new Date().toISOString(),
-          editNote: reviewNote || 'Manager correction',
-          timesheetStatus: 'pending',
-        }
-      );
-      toast({ title: 'Session Updated', description: 'Times corrected. Review and approve to finalize.' });
-      setIsEditing(false);
+      await batch.commit();
+      const hm = (d: Date | null) => (d ? format(d, 'h:mm a') : 'no clock-out');
+      void logAuditClient(firestore, tenantId, { action: 'timesheet.edited', targetType: 'staff', targetId: session.staffId, actor: { type: 'user', id: getAuth().currentUser?.uid },
+        summary: `${session.staffName || 'Team member'} ${format(session.clockIn, 'EEE MMM d')}: ${hm(session.clockIn)}–${hm(session.clockOut)} changed to ${hm(newClockIn)}–${hm(newClockOut)}${note ? ` (${note})` : ''}`,
+        before: { in: session.clockIn?.toISOString(), out: session.clockOut?.toISOString() || null }, after: { in: newClockIn.toISOString(), out: newClockOut.toISOString() } } as any);
+      toast({ title: 'Times corrected', description: 'Review and approve to finish.' });
+      setIsEditing(false); setIsReviewOpen(false);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Couldn’t save', description: e?.message || 'Try again.' });
     } finally {
       setIsProcessing(false);
     }
@@ -275,7 +248,7 @@ export default function TimesheetsPage() {
         if (session.status === 'pending' && session.logId && session.clockOut) {
           batch.update(
             doc(firestore, `tenants/${tenantId}/activityLogs`, session.logId),
-            { timesheetStatus: 'approved', approvedBy: 'manager', approvedAt: now }
+            { timesheetStatus: 'approved', approvedBy: getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Manager', approvedById: getAuth().currentUser?.uid || null, approvedAt: now }
           );
         }
       });
@@ -488,12 +461,13 @@ export default function TimesheetsPage() {
                             session.status === 'approved' ? "bg-green-500"
                             : session.status === 'rejected' ? "bg-destructive"
                             : session.status === 'active' ? "bg-primary animate-pulse"
+                            : session.missingOut ? "bg-destructive"
                             : "bg-amber-400"
                           )} />
                           <div className="min-w-0">
                             <p className="text-[11px] font-black uppercase text-slate-900">{format(day.date, 'EEE, MMM d')}</p>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
-                              {format(session.clockIn, 'h:mm a')} -- {session.clockOut ? format(session.clockOut, 'h:mm a') : 'Active'}
+                              {format(session.clockIn, 'h:mm a')} -- {session.clockOut ? format(session.clockOut, 'h:mm a') : session.missingOut ? 'no clock-out' : 'Active'}
                               {session.breakMinutes > 0 && ` (${session.breakMinutes}m break`}
                               {session.paidBreakMins > 0 && `, ${session.paidBreakMins}m paid`}
                               {session.breakMinutes > 0 && ')'}
@@ -516,8 +490,13 @@ export default function TimesheetsPage() {
                             : session.status === 'active' ? "bg-primary/10 text-primary animate-pulse"
                             : "bg-amber-100 text-amber-700"
                           )}>
-                            {session.status}
+                            {session.missingOut ? 'Needs clock-out' : session.status}
                           </Badge>
+                          {session.missingOut && session.inId && (
+                            <Button size="sm" variant="ghost" onClick={() => { openReview(session, ts.member.id, ts.member.name); setIsEditing(true); }} className="h-7 px-3 text-[9px] font-black uppercase rounded-xl border border-destructive/30 text-destructive">
+                              Add clock-out
+                            </Button>
+                          )}
                           {/* Review/Edit button for pending sessions */}
                           {session.status === 'pending' && session.clockOut && session.logId && (
                             <Button size="sm" variant="ghost" onClick={() => openReview(session, ts.member.id, ts.member.name)} className="h-7 px-3 text-[9px] font-black uppercase rounded-xl border border-muted hover:bg-primary/5 hover:text-primary hover:border-primary/20">

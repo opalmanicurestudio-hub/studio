@@ -86,7 +86,8 @@ export async function POST(req: NextRequest) {
       .map((comp: any) => {
         const line: any = byEmployee.get(comp.employee_uuid);
         if (!line) return null; // untouched employees keep Gusto's values
-        const hourly = (comp.hourly_compensations || []).map((h: any) => {
+        // Salaried people: Gusto pays the salary itself — their hours rows are left exactly as Gusto has them.
+        const hourly = line.payStructure === 'salary' ? (comp.hourly_compensations || []) : (comp.hourly_compensations || []).map((h: any) => {
           const n = String(h.name || '').toLowerCase();
           if (n === 'regular hours') return { ...h, hours: hoursStr(line.regularHours) };
           if (n === 'overtime') return { ...h, hours: hoursStr(line.overtimeHours) };

@@ -1,6 +1,8 @@
 'use client';
 
 import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras } from '@/lib/commission';
+import { periodPay, payrollFields } from '@/lib/pay-period';
+import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
@@ -1612,55 +1614,39 @@ const PaydayTab = () => {
   const apptStaff = useMemo(() => Object.fromEntries((appointments || []).filter((a: any) => a?.id && a.staffId).map((a: any) => [a.id, String(a.staffId)])) as Record<string, string>, [appointments]);
   const staffObligations = useMemo(() => {
     if (!staff || !filteredTransactions || !activityLogs) return [];
+    // One calculation for every pay setup (lib/pay-period) — hours from the time clock's punches, overtime per
+    // workweek, minimum-wage top-ups, salary — the same one the payroll draft uses.
+    const sessions = sessionsFrom(activityLogs as any, clockPolicy(selectedTenant));
+    const income = filteredTransactions.filter((t: any) => t.type === 'income');
 
     // Booth renters are not on payroll — they rent the chair and keep their
     // own takings. Excluded here for the same reason the server draft
     // excludes them; if the two disagreed, the screen would be the lie.
     return staff.filter((m: any) => m.isRenter !== true).map(member => {
-        const staffTransactions = filteredTransactions.filter(t => t.staffId === member.id && t.type === 'income');
-
-        const retailSales = staffTransactions
-            .filter(t => t.category === 'Retail')
-            .reduce((acc, t) => acc + t.amount, 0);
-
-        const tips = staffTransactions
-            .filter(t => t.category === 'Tips' || t.tipAmount)
-            .reduce((acc, t) => acc + (t.tipAmount || t.amount), 0);
-
-        let earnings = 0;
-        let hoursWorked = 0;
-        // Services: commission per service, or per service pay (lib/commission); then retail commission and extras.
-        earnings = serviceEarnings(member, staffTransactions, services || [], 40);
-        if ((earnsCommission(member) || paidPerService(member)) && member.retailCommissionRate) earnings += retailSales * (member.retailCommissionRate / 100);
-        const ex = payExtras(member, filteredTransactions, selectedTenant, apptStaff); earnings += ex.saleBonus + ex.noShow;
-        const commissionPay = earnings;   // services, retail, extras — sent to payroll as commission
-        if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
-            const logs = activityLogs.filter(l =>
-                l.staffId === member.id &&
-                safeDate(l.timestamp) >= dateRange.from &&
-                safeDate(l.timestamp) <= dateRange.to
-            );
-            const totalMinutes = logs.reduce((acc, l) => acc + (l.durationMinutes || 0), 0);
-            hoursWorked = totalMinutes / 60;
-            earnings += hoursWorked * member.hourlyRate;
-        }
-
-        const totalOwed = earnings + tips;
-
+        const l = periodPay({ member, from: dateRange.from, to: dateRange.to, incomeTxns: income, services: services || [], tenant: selectedTenant, sessions, apptStaff });
+        const f = payrollFields(l);
+        const ps = String(member.payStructure || 'commission');
+        const parts = [ps === 'commission' ? 'Comm' : ps === 'hourly_plus_commission' ? 'Hr + Comm' : ps === 'per_service' ? 'Per service' : ps === 'salary' ? 'Salary' : 'Hr'];
+        if (l.overtimeHours) parts.push(`${l.overtimeHours}h OT`); if (l.minWageTopUp) parts.push('min. wage top-up'); parts.push('Tips');
         return {
             id: member.id,
             name: member.name,
             avatarUrl: member.avatarUrl,
-            amount: totalOwed,
+            amount: l.total,
             // v60 — broken out for the Gusto payroll draft
-            earnings,
-            commissionPay,
-            tips,
-            hours: hoursWorked,
+            earnings: l.total - l.tips,
+            commissionPay: f.commission,
+            bonus: f.bonus,
+            regularHours: f.regularHours,
+            overtimeHours: f.overtimeHours,
+            tips: l.tips,
+            hours: l.hours,
+            missingClockOuts: l.missingClockOuts,
+            line: l,
             payStructure: member.payStructure,
-            details: `${member.payStructure === 'commission' ? 'Comm' : member.payStructure === 'hourly_plus_commission' ? 'Hr + Comm' : member.payStructure === 'per_service' ? 'Per service' : 'Hr'} + Tips`
+            details: parts.join(' + '),
         };
-    }).filter(o => o.amount > 0);
+    }).filter(o => o.amount > 0 || o.missingClockOuts > 0);
   }, [staff, filteredTransactions, activityLogs, dateRange, services, apptStaff, selectedTenant]);
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
@@ -1838,11 +1824,12 @@ const PaydayTab = () => {
             lines: staffObligations.map(o => ({
                 staffId: o.id,
                 name: o.name,
-                regularHours: o.payStructure === 'hourly' || o.payStructure === 'hourly_plus_commission' ? Number((o.hours || 0).toFixed(2)) : 0,
-                overtimeHours: 0,
+                payStructure: o.payStructure,
+                regularHours: Number(((o as any).regularHours || 0).toFixed(2)),
+                overtimeHours: Number(((o as any).overtimeHours || 0).toFixed(2)),
                 commission: Number(((o as any).commissionPay || 0).toFixed(2)),   // commission, per service pay and extras (hours are paid from regularHours)
                 tips: Number((o.tips || 0).toFixed(2)),
-                bonus: 0,
+                bonus: Number(((o as any).bonus || 0).toFixed(2)),   // overtime on commission / per service pay + minimum-wage top-ups
                 reimbursements: 0,
                 deductions: 0,
             })),
@@ -2039,6 +2026,7 @@ const PaydayTab = () => {
                         {[
                             { label: `Employees with earnings: ${staffObligations.length}`, ok: staffObligations.length > 0 },
                             { label: 'Hours & commissions calculated', ok: staffObligations.length > 0 },
+                            ...(() => { const n = staffObligations.reduce((x: number, o: any) => x + (o.missingClockOuts || 0), 0); return [{ label: n ? `${n} forgotten clock-out${n === 1 ? '' : 's'} — not paid until fixed on Timesheets` : 'No forgotten clock-outs', ok: n === 0 }]; })(),
                             { label: 'Tips reconciled from ledger', ok: true },
                             { label: `Payroll reserve funded (${fmtCurrency(payrollCashNeeded)} needed)`, ok: currentBalance >= payrollCashNeeded },
                         ].map(item => (
@@ -2226,6 +2214,7 @@ const PaydayTab = () => {
                                                     <div className="min-w-0">
                                                         <p className="text-[10px] font-black uppercase tracking-tight truncate">{owed.name}</p>
                                                         <p className="text-[8px] text-muted-foreground uppercase font-bold tracking-widest mt-0.5">{owed.details}</p>
+                                                        {(owed as any).missingClockOuts > 0 && <a href="/timesheets" className="text-[11px] font-semibold text-destructive">{(owed as any).missingClockOuts} forgotten clock-out{(owed as any).missingClockOuts === 1 ? '' : 's'} — fix on Timesheets</a>}
                                                     </div>
                                                 </div>
                                                 <span className="font-mono font-black text-xs md:text-sm ml-2">${owed.amount.toFixed(2)}</span>
@@ -2622,22 +2611,10 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
   const apptStaff = useMemo(() => Object.fromEntries((appointments || []).filter((a: any) => a?.id && a.staffId).map((a: any) => [a.id, String(a.staffId)])) as Record<string, string>, [appointments]);
   const staffTotalOwed = useMemo(() => {
     if (!staff) return 0;
-    return staff.filter((m: any) => m.isRenter !== true).reduce((total: number, member: any) => {
-      const staffTxns = periodTxns.filter((t: any) => t.staffId === member.id && t.type === 'income');
-      const retailSales    = staffTxns.filter((t: any) => t.category === 'Retail').reduce((s: number, t: any) => s + t.amount, 0);
-      const tips           = staffTxns.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
-      let earnings = 0;
-      earnings = serviceEarnings(member, staffTxns, services || [], 40);
-      if ((earnsCommission(member) || paidPerService(member)) && member.retailCommissionRate) earnings += retailSales * (member.retailCommissionRate / 100);
-      const ex = payExtras(member, periodTxns, selectedTenant, apptStaff); earnings += ex.saleBonus + ex.noShow;
-      if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
-        const logs = (activityLogs || []).filter((l: any) =>
-          l.staffId === member.id && safeDate(l.timestamp) >= range.from && safeDate(l.timestamp) <= range.to);
-        const totalMinutes = logs.reduce((acc: number, l: any) => acc + (l.durationMinutes || 0), 0);
-        earnings += (totalMinutes / 60) * member.hourlyRate;
-      }
-      return total + earnings + tips;
-    }, 0);
+    const sessions = sessionsFrom((activityLogs || []) as any, clockPolicy(selectedTenant));
+    const income = periodTxns.filter((t: any) => t.type === 'income');
+    return staff.filter((m: any) => m.isRenter !== true).reduce((total: number, member: any) =>
+      total + periodPay({ member, from: range.from, to: range.to, incomeTxns: income, services: services || [], tenant: selectedTenant, sessions, apptStaff }).total, 0);
   }, [staff, periodTxns, activityLogs, range, services, apptStaff, selectedTenant]);
 
   // ── Bills snapshot (all unpaid, not just this period) ──

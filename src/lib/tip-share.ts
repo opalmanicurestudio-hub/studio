@@ -1,3 +1,4 @@
+import { sessionsFrom, sessionsIn, clockPolicy, localDay } from '@/lib/timeclock';
 // src/lib/tip-share.ts — HOW TIPS ARE SHARED (per business): direct, tip-outs, or a pool. Worked out per period from
 // the tips recorded at checkout (who each tip was for, cash or card) and hours from the time clock; the owner reviews
 // and approves each period, and payroll pays the approved shares.
@@ -33,11 +34,14 @@ export async function computeTipShares(db: any, tenantId: string, tenant: any, s
   const T = `tenants/${tenantId}`; const pol = tipPolicy(tenant);
   const staff = (await db.collection(`${T}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
   const tips = (await db.collection(`${T}/transactions`).where('category', '==', 'Tips').get()).docs.map((d: any) => d.data() || {}).filter((t: any) => t.type === 'income' && String(t.date || '') >= start && String(t.date || '') <= end && t.staffId && t.staffId !== '__school');
-  const logs = (await db.collection(`${T}/activityLogs`).get()).docs.map((d: any) => d.data() || {}).filter((l: any) => { const ts = l.timestamp?.toDate ? l.timestamp.toDate().toISOString() : String(l.timestamp || ''); return ts >= start && ts <= end && n(l.durationMinutes) > 0; });
-  const hoursOf = (id: string, day?: string) => logs.filter((l: any) => l.staffId === id && (!day || String(l.timestamp?.toDate ? l.timestamp.toDate().toISOString() : l.timestamp).slice(0, 10) === day)).reduce((s: number, l: any) => s + n(l.durationMinutes), 0) / 60;
+  // Hours from the time clock's punches (lib/timeclock) — shift time minus unpaid breaks, days in the business's time zone.
+  const pad = (iso: string, d: number) => new Date(Date.parse(iso) + d * 86400000).toISOString();
+  const punches = (await db.collection(`${T}/activityLogs`).where('timestamp', '>=', pad(start, -1)).where('timestamp', '<=', pad(end, 1)).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  const sessions = sessionsIn(sessionsFrom(punches, clockPolicy(tenant)), start, end);
+  const hoursOf = (id: string, day?: string) => sessions.filter((x) => x.staffId === id && (!day || x.localDate === day)).reduce((s, x) => s + x.workedMinutes, 0) / 60;
   const rows = new Map<string, ShareRow>(); const warnings: string[] = []; let feeCents = 0;
   const row = (m: any) => { const r = tipRole(m); let x = rows.get(m.id); if (!x) { x = { staffId: m.id, name: m.name || 'Team member', role: r.role, earnedCents: 0, cashEarnedCents: 0, hours: Math.round(hoursOf(m.id) * 100) / 100, weight: pol.weights[r.role] ?? 1, shareCents: 0, outCents: 0, inCents: 0, note: r.eligible ? undefined : r.why }; rows.set(m.id, x); } return x; };
-  for (const t of tips) { const m = staff.find((s: any) => s.id === t.staffId); if (!m || tipRole(m).role === 'renter') continue; const x = row(m);   // renters' tips are their own money — never on this sheet const c = Math.round(n(t.tipAmount || t.amount) * 100);
+  for (const t of tips) { const m = staff.find((s: any) => s.id === t.staffId); if (!m || tipRole(m).role === 'renter') continue; const x = row(m); /* renters' tips are their own money — never on this sheet */ const c = Math.round(n(t.tipAmount || t.amount) * 100);
     const fee = pol.cardFeePct > 0 && !/cash/i.test(String(t.paymentMethod || '')) ? Math.round(c * pol.cardFeePct / 100) : 0; feeCents += fee;
     x.earnedCents += c - fee; if (/cash/i.test(String(t.paymentMethod || ''))) x.cashEarnedCents += c; }
   for (const m of staff) if (tipRole(m).eligible && hoursOf(m.id) > 0) row(m);   // worked the period but took no tips directly (assistants, front desk)
@@ -46,7 +50,7 @@ export async function computeTipShares(db: any, tenantId: string, tenant: any, s
   else if (pol.mode === 'tipout') {
     for (const x of all) x.shareCents = x.note ? 0 : x.earnedCents;
     // each provider passes pct of what they earned to each support role, split among that role's people on shift the same days (by hours)
-    for (const t of tips) { const giver = rows.get(t.staffId); if (!giver || giver.note) continue; const day = String(t.date || '').slice(0, 10); const c = Math.round(n(t.tipAmount || t.amount) * 100);
+    for (const t of tips) { const giver = rows.get(t.staffId); if (!giver || giver.note) continue; const day = localDay(Date.parse(String(t.date || '')) || Date.now(), tenant?.timezone || 'America/New_York'); /* the business's day, matching the time clock */ const c = Math.round(n(t.tipAmount || t.amount) * 100);
       for (const to of pol.tipouts) { const recipients = eligible.filter((x) => x.staffId !== giver.staffId && (to.to.startsWith('staff:') ? x.staffId === to.to.slice(6) : x.role === to.to.replace(/^role:/, ''))).map((x) => ({ x, h: hoursOf(x.staffId, day) })).filter((r) => r.h > 0);
         if (!recipients.length) continue; const out = Math.round(c * to.pct / 100); const hsum = recipients.reduce((s, r) => s + r.h, 0); giver.shareCents -= out; giver.outCents += out;
         recipients.forEach((r) => { const part = Math.round(out * r.h / hsum); r.x.shareCents += part; r.x.inCents += part; }); } }

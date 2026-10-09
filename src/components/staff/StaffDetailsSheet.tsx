@@ -1,5 +1,7 @@
 'use client';
 
+import { periodPay } from '@/lib/pay-period';
+import { sessionsFrom, workedMinutes, clockPolicy } from '@/lib/timeclock';
 import { serviceCommission, perServicePay } from '@/lib/commission';
 import { TypicalTimes } from '@/components/staff/TypicalTimes';
 import { CommissionByService } from '@/components/staff/CommissionByService';
@@ -236,53 +238,14 @@ export const StaffDetailsSheet = ({
         return acc + (t.tipAmount || 0);
     }, 0);
 
-    let totalMinutesWorked = 0;
-    const staffLogs = activityLogs.filter((log: ActivityLog) => log.staffId === staffMember.id && filterByDate(log.timestamp));
-    const sortedLogs = staffLogs.sort((a: ActivityLog, b: ActivityLog) => safeDateWrapper(a.timestamp).getTime() - safeDateWrapper(b.timestamp).getTime());
-    
-    let clockInTime: Date | null = null;
-    let totalBreakMinutes = 0;
-    
-    for (const log of sortedLogs) {
-        const logTime = safeDateWrapper(log.timestamp);
-        if (log.type === 'clock_in') {
-            if (clockInTime) {
-                const sessionEnd = toDate && logTime > toDate ? toDate : logTime;
-                totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
-            }
-            clockInTime = logTime;
-            totalBreakMinutes = 0;
-        } else if (log.type === 'clock_out' && clockInTime) {
-            let sessionEnd = logTime;
-            if (toDate && sessionEnd > toDate) sessionEnd = toDate;
-            totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
-            clockInTime = null;
-        } else if (log.type === 'break_end' && log.durationMinutes) {
-            totalBreakMinutes += log.durationMinutes;
-        }
-    }
-    
-    if(clockInTime) {
-        const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
-        totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
-    }
+    // Hours from the time clock (lib/timeclock): shift time minus unpaid breaks, forgotten clock-outs left out.
+    let totalMinutesWorked = workedMinutes(sessionsFrom(activityLogs.filter((log: ActivityLog) => log.staffId === staffMember.id) as any, clockPolicy(selectedTenant)), staffMember.id, fromDate || new Date(0), toDate || new Date());
 
     const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
     
-    let earnings = 0;
-    if (staffMember.payStructure === 'commission') {
-        earnings = serviceCommission(staffMember, staffTransactions, services, 0).total;   // commission per service
-    } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-        const hoursWorked = totalMinutesWorked / 60;
-        earnings = hoursWorked * staffMember.hourlyRate;
-    } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
-        earnings = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + serviceCommission(staffMember, staffTransactions, services, 40).total;
-    } else if (staffMember.payStructure === 'per_service') {
-        earnings = perServicePay(staffMember, staffTransactions, services).total;
-    }
-    
-    const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
-    earnings += tips + retailCommission; 
+    // Pay for the range: the same calculation as Payday and payroll (lib/pay-period).
+    const earnings = periodPay({ member: staffMember, from: fromDate || new Date(0), to: toDate || new Date(), incomeTxns: transactions.filter((t: any) => filterByDate(t.date)),
+      services, tenant: selectedTenant, sessions: sessionsFrom(activityLogs.filter((log: ActivityLog) => log.staffId === staffMember.id) as any, clockPolicy(selectedTenant)), tips }).total;
 
     return {
         totalSales,

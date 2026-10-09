@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { buildPayrollDraft, runPayrollGates, CADENCE_DAYS } from '@/lib/payroll-draft';
+import { buildPayrollDraft, runPayrollGates, CADENCE_DAYS, lastPeriod } from '@/lib/payroll-draft';
 import { logAuditAdmin } from '@/lib/audit';
 
 export const maxDuration = 300;
@@ -44,8 +44,9 @@ export async function GET(req: NextRequest) {
       const daysSince = lastDraftAt ? (now.getTime() - lastDraftAt.getTime()) / 86400000 : Infinity;
       if (daysSince < cadenceDays - 0.5) { results[tenantId] = { skipped: 'not due' }; continue; }
 
-      const periodStart = new Date(now.getTime() - cadenceDays * 86400000);
-      const draft = await buildPayrollDraft(db, tenantId, periodStart, now);
+      // The period that just ended, on whole workweeks in the business's time zone (overtime is per workweek).
+      const { start: periodStart, end: periodEnd } = lastPeriod(tDoc.data(), cadence, now);
+      const draft = await buildPayrollDraft(db, tenantId, periodStart, periodEnd);
       const { gates, allPassed } = runPayrollGates(draft);
 
       // Supersede any older pending draft so exactly one is actionable

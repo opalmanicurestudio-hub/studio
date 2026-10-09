@@ -1,5 +1,7 @@
 'use client';
 
+import { periodPay } from '@/lib/pay-period';
+import { sessionsFrom, workedMinutes, clockPolicy } from '@/lib/timeclock';
 import { serviceCommission, perServicePay } from '@/lib/commission';
 import { VisitProfit } from '@/components/reports/VisitProfit';
 import { HousekeepingStats } from '@/components/reports/HousekeepingStats';
@@ -164,39 +166,17 @@ export default function ReportsPage() {
         const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || (t.category === 'Tips' ? t.amount : 0)), 0);
 
-        let totalMinutesWorked = 0;
-        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
-        const sortedLogs = staffLogs.sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
-        let clockInTime: Date | null = null;
-        let totalBreakMinutes = 0;
-        for (const log of sortedLogs) {
-            const logTime = safeDate(log.timestamp);
-            if (log.type === 'clock_in') {
-                if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
-                clockInTime = logTime; totalBreakMinutes = 0;
-            } else if (log.type === 'clock_out' && clockInTime) {
-                totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
-                clockInTime = null;
-            } else if (log.type === 'break_end' && log.durationMinutes) {
-                totalBreakMinutes += log.durationMinutes;
-            }
-        }
-        if (clockInTime) {
-            const endOfRange = effectiveTo && effectiveTo < new Date() ? effectiveTo : new Date();
-            totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
-        }
+        // Hours from the time clock (lib/timeclock): shift time minus unpaid breaks, forgotten clock-outs left out.
+        let totalMinutesWorked = workedMinutes(sessionsFrom(activityLogs.filter((log: any) => log.staffId === staffMember.id) as any, clockPolicy(selectedTenant)), staffMember.id, effectiveFrom, effectiveTo);
 
         const totalHoursWorked = totalMinutesWorked / 60;
         const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
         const yieldPerHour = totalHoursWorked > 0 ? (serviceRevenue + retailSales) / totalHoursWorked : 0;
 
-        let wages = 0;
-        const svcCommission = serviceCommission(staffMember, staffTransactions, services, 0).total;   // commission per service
-        if (staffMember.payStructure === 'commission') wages = svcCommission;
-        else if (staffMember.payStructure === 'per_service') wages = perServicePay(staffMember, staffTransactions, services).total;
-        else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) wages = totalHoursWorked * staffMember.hourlyRate;
-        else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) wages = (totalHoursWorked * staffMember.hourlyRate) + svcCommission;
-        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
+        // Wages for the range: the same calculation as Payday and payroll (lib/pay-period), without tips (they aren't a cost).
+        const pl = periodPay({ member: staffMember, from: effectiveFrom, to: effectiveTo, incomeTxns: transactions.filter((t: any) => filterByDate(t.date)), services, tenant: selectedTenant,
+          sessions: sessionsFrom(activityLogs.filter((log: any) => log.staffId === staffMember.id) as any, clockPolicy(selectedTenant)), tips: 0 });
+        const wages = pl.total - pl.retail; const retailCommission = pl.retail;
         const laborBase = wages + retailCommission;
         const laborBurden = laborBase * (1 + (taxBurden / 100));
         const timeFloorOverhead = (totalInServiceMinutes / 60) * tmhr;

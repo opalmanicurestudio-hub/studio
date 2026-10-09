@@ -90,6 +90,9 @@ const editStaffSchema = z.object({
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission', 'per_service']),
   serviceHourRate: z.coerce.number().min(0).optional(),   // per service pay: $ for each hour of service performed
+  salaryAmount: z.coerce.number().min(0).optional(),
+  salaryPer: z.enum(['year', 'week']).optional(),
+  overtimeNonExempt: z.boolean().optional(),
   employmentModel: z.enum(['unset', 'employee', 'commission', 'contractor', 'renter']).optional(),
   showProfitability: z.boolean().optional(),
   decisionAuthority: z.enum(['default', 'none', 'limited', 'request_approval', 'full']).optional(),
@@ -675,6 +678,24 @@ const EditStaffFormInternal = ({
             </div>
           )}
 
+          {payStructure === 'salary' && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="salaryAmount-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Salary ($)</Label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                  <Input id="salaryAmount-edit" type="number" step="0.01" placeholder="45000" {...register('salaryAmount' as any)} className="h-12 pl-9 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="salaryPer-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Per</Label>
+                <select id="salaryPer-edit" {...register('salaryPer' as any)} className="h-12 w-full rounded-xl border-2 px-3 text-[15px] font-semibold"><option value="year">Year</option><option value="week">Week</option></select>
+              </div>
+              <label className="col-span-2 flex items-start gap-3 rounded-xl border p-3 text-[14px]"><input type="checkbox" {...register('overtimeNonExempt' as any)} className="mt-1 h-5 w-5" />
+                <span><b>Paid overtime</b> — tick if this salaried person is owed overtime over 40 hours a week (non-exempt). In the US most salaried staff earning under the federal threshold, and many front-desk roles, are non-exempt; check with your accountant.</span></label>
+              <p className="col-span-2 ml-1 text-[13px] text-muted-foreground">Paid each period as the year’s salary ÷ 52 per week. Payroll services pay salaries themselves; this keeps your Payday totals and reports right.</p>
+            </div>
+          )}
           {payStructure === 'per_service' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

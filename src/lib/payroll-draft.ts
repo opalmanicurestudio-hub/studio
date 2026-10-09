@@ -14,7 +14,8 @@
 // the cron may submit to Gusto without a tap. Flip it only after months
 // of boringly-accurate Level 2 drafts.
 
-import { serviceCommission, earnsCommission, paidPerService, perServicePay, payExtras } from './commission';
+import { periodPay, payrollFields } from './pay-period';
+import { sessionsFrom, clockPolicy, localDay, weekOf } from './timeclock';
 import { getStateProfile, estimateEmployerPayrollTax, GENERIC_US_PROFILE } from './state-tax-profiles';
 
 export type DraftLine = {
@@ -23,9 +24,12 @@ export type DraftLine = {
   name: string;
   payStructure: string;
   regularHours: number;
+  overtimeHours?: number;
   commission: number;      // everything earned from services and sales (commission, per service pay, bonuses) — what payroll pays as commission
   servicePay?: number;     // per service pay (part of commission)
   extras?: number;         // membership sale bonus + share of no-show fees (part of commission)
+  bonus?: number;          // overtime on commission / per service pay + minimum-wage top-ups
+  overtimePremium?: number; minWageTopUp?: number; salary?: number; hours?: number; missingClockOuts?: number;
   tips: number;
   total: number;
 };
@@ -63,7 +67,10 @@ export async function buildPayrollDraft(
     db.collection(`tenants/${tenantId}/transactions`)
       .where('date', '>=', periodStart.toISOString())
       .where('date', '<=', periodEnd.toISOString()).get(),
-    db.collection(`tenants/${tenantId}/activityLogs`).get(),
+    // Punches from a day before the period (a shift that started then) to a day after (its clock-out).
+    db.collection(`tenants/${tenantId}/activityLogs`)
+      .where('timestamp', '>=', new Date(periodStart.getTime() - 86400000).toISOString())
+      .where('timestamp', '<=', new Date(periodEnd.getTime() + 86400000).toISOString()).get(),
     db.collection(`tenants/${tenantId}/services`).get(),
   ]);
   const services = svcSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
@@ -90,49 +97,35 @@ export async function buildPayrollDraft(
       amount: typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100,
       type: t.type || 'income',
     }));
-  const logs = logsSnap.docs.map((d: any) => d.data() as any)
-    .filter((l: any) => {
-      const ts = toDate(l.timestamp);
-      return ts >= periodStart && ts <= periodEnd;
-    });
 
   // No-show / late-cancel fees name the visit, not always the provider: look the provider up once.
   const feeAppts = [...new Set(txns.filter((t: any) => !t.staffId && t.appointmentId && ['No-Show Revenue', 'Cancellation Fee', 'Cancellation Fees'].includes(String(t.category))).map((t: any) => String(t.appointmentId)))].slice(0, 500);
   const apptStaff: Record<string, string> = {};
   if (feeAppts.length && (tenant.payExtras?.noShowPct || 0) > 0) for (const s of await Promise.all(feeAppts.map((id) => db.doc(`tenants/${tenantId}/appointments/${id}`).get()))) { const a: any = s?.exists ? s.data() : null; if (a?.staffId) apptStaff[s.id] = String(a.staffId); }
   const allIncome = txns.filter((t: any) => t.type === 'income');
-  // ── Same per-staff math as the Payday tab ──
+  // ── One calculation for every pay setup (lib/pay-period): hours from the time clock, overtime, minimum wage, salary ──
+  const sessions = sessionsFrom(logsSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })), clockPolicy(tenant, periodEnd.getTime()));
   const lines: DraftLine[] = staff.map((member: any) => {
     const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income');
-    const retailSales = mine.filter((t: any) => t.category === 'Retail').reduce((s: number, t: any) => s + t.amount, 0);
     const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
-
-    // Commission per service (lib/commission): a person's own rate for a service, then the service's, then their usual one.
-    // Per service pay: a set amount (or rate per service hour) for each service performed — members' visits included.
-    let commission = 0, regularHours = 0, servicePay = 0;
-    if (earnsCommission(member)) commission = serviceCommission(member, mine, services, 40).total;
-    if (paidPerService(member)) { servicePay = perServicePay(member, mine, services).total; commission += servicePay; }
-    if ((earnsCommission(member) || paidPerService(member)) && member.retailCommissionRate) commission += retailSales * (member.retailCommissionRate / 100);
-    const ex = payExtras(member, allIncome, tenant, apptStaff); const extras = ex.saleBonus + ex.noShow; commission += extras;
-    if ((member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate) {
-      const minutes = logs.filter((l: any) => l.staffId === member.id)
-        .reduce((s: number, l: any) => s + (l.durationMinutes || 0), 0);
-      regularHours = minutes / 60;
-    }
-    const hourlyPay = (member.payStructure === 'hourly' || member.payStructure === 'hourly_plus_commission') && member.hourlyRate ? regularHours * member.hourlyRate : 0;
-    const total = commission + hourlyPay + tips;
-
+    const l = periodPay({ member, from: periodStart, to: periodEnd, incomeTxns: allIncome, services, tenant, sessions, apptStaff, tips });
+    const f = payrollFields(l);
     return {
       staffId: member.id,
       gustoEmployeeId: member.gustoEmployeeId || undefined,
       name: member.name,
-      payStructure: member.payStructure || 'commission',
-      regularHours: Number(regularHours.toFixed(2)),
-      commission: Number(commission.toFixed(2)),
-      ...(servicePay ? { servicePay: Number(servicePay.toFixed(2)) } : {}),
-      ...(extras ? { extras: Number(extras.toFixed(2)) } : {}),
-      tips: Number(tips.toFixed(2)),
-      total: Number(total.toFixed(2)),
+      payStructure: l.payStructure,
+      hours: l.hours,
+      regularHours: f.regularHours,
+      overtimeHours: f.overtimeHours,
+      commission: f.commission,
+      ...(l.servicePay && member.payStructure === 'per_service' ? { servicePay: l.servicePay } : {}),
+      ...(l.extras ? { extras: l.extras } : {}),
+      ...(f.bonus ? { bonus: f.bonus, overtimePremium: l.overtimePremium, minWageTopUp: l.minWageTopUp } : {}),
+      ...(l.salaryPay ? { salary: l.salaryPay } : {}),
+      ...(l.missingClockOuts ? { missingClockOuts: l.missingClockOuts } : {}),
+      tips: l.tips,
+      total: l.total,
     };
   }).filter((l: DraftLine) => l.total > 0);
 
@@ -179,6 +172,12 @@ export function runPayrollGates(draft: ServerPayrollDraft): { gates: PayrollGate
       detail: draft.lines.filter(l => !l.gustoEmployeeId).map(l => l.name).join(', ') || 'all matched',
     },
     {
+      key: 'clock_outs',
+      label: 'No forgotten clock-outs waiting for a manager',
+      passed: draft.lines.every(l => !l.missingClockOuts),
+      detail: draft.lines.filter(l => l.missingClockOuts).map(l => `${l.name} (${l.missingClockOuts})`).join(', ') || 'none',
+    },
+    {
       key: 'reserve_funded',
       label: 'Period income covers wages + employer taxes',
       passed: draft.periodNetIncome >= draft.cashNeeded,
@@ -186,6 +185,25 @@ export function runPayrollGates(draft: ServerPayrollDraft): { gates: PayrollGate
     },
   ];
   return { gates, allPassed: gates.every(g => g.passed) };
+}
+
+/**
+ * The pay period that just ended, lined up with whole workweeks (so overtime is counted per complete week): it ends at
+ * the start of the current workweek in the business's time zone and runs back one or two weeks. Monthly: the last 30 days.
+ */
+export function lastPeriod(tenant: any, cadence: string, now = new Date()): { start: Date; end: Date } {
+  const days = CADENCE_DAYS[cadence] || 14;
+  if (cadence === 'monthly') return { start: new Date(now.getTime() - days * 86400000), end: now };
+  const tz = tenant?.timezone || 'America/New_York'; const ws = Number.isInteger(tenant?.workweekStartsOn) ? tenant.workweekStartsOn : 1;
+  const thisWeek = weekOf(localDay(now.getTime(), tz), ws);
+  // midnight at the start of this workweek, in the business's time zone
+  const guess = Date.parse(`${thisWeek}T00:00:00Z`); const off = tzOffsetMs(tz, guess); const end = new Date(guess - off - 1);
+  return { start: new Date(end.getTime() + 1 - days * 86400000), end };
+}
+function tzOffsetMs(timeZone: string, t: number): number {
+  try { const p = new Intl.DateTimeFormat('en-US', { timeZone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(t));
+    const g = (k: string) => Number(p.find((x) => x.type === k)?.value); const asUtc = Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second')); return asUtc - t; }
+  catch { return 0; }
 }
 
 export const CADENCE_DAYS: Record<string, number> = {

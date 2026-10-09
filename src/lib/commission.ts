@@ -54,11 +54,12 @@ export function serviceCommission(staff: any, txns: any[], services: any[] | Rec
   return { total, revenue, lines };
 }
 
-/** What to stamp on a service sale at checkout: the service, and the rate when an override applies (else nothing — the usual rate). */
+/** What to stamp on a service sale at checkout: the service, the commission rate it earned, the provider's per service pay. */
 export function saleStamp(staff: any, service: any, opts: { minutes?: number; coveredAt?: number | null } = {}): { serviceId?: string; commissionPct?: number; commissionBase?: number; providerPay?: number } {
   const out: { serviceId?: string; commissionPct?: number; commissionBase?: number; providerPay?: number } = {};
   if (service?.id) out.serviceId = String(service.id);
-  const o = earnsCommission(staff) ? overrideRate(staff, service) : null; if (o !== null) out.commissionPct = o;
+  // Every commission sale carries the rate it earned — a raise or a new rate later never re-prices sales already made.
+  if (earnsCommission(staff)) out.commissionPct = overrideRate(staff, service) ?? usualRate(staff, 40);
   if (opts.coveredAt != null && Number(opts.coveredAt) > 0) out.commissionBase = Math.round(Number(opts.coveredAt) * 100) / 100;
   if (paidPerService(staff)) out.providerPay = payForService(staff, service, opts.minutes);
   return out;

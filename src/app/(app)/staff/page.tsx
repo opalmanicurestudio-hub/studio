@@ -1,5 +1,7 @@
 'use client';
 
+import { periodPay } from '@/lib/pay-period';
+import { sessionsFrom, workedMinutes, clockPolicy } from '@/lib/timeclock';
 import { serviceCommission, perServicePay } from '@/lib/commission';
 import { verifyPin, setPin as setStaffPinServer } from '@/lib/pin-client';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -707,51 +709,15 @@ export default function StaffPage() {
             return acc + (t.tipAmount || 0);
         }, 0);
 
-        let totalMinutesWorked = 0;
-        const staffLogs = (logsByStaff.get(staffMember.id) || []).filter(log => filterByDate(safeDate(log.timestamp)));
-        const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-        let clockInTime: Date | null = null;
-        let totalBreakMinutes = 0;
-        
-        for (const log of sortedLogs) {
-            const logTime = safeDate(log.timestamp);
-            if (log.type === 'clock_in') {
-                if (clockInTime) {
-                    const sessionEnd = toDate && logTime > toDate ? toDate : logTime;
-                    totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
-                }
-                clockInTime = logTime;
-                totalBreakMinutes = 0;
-            } else if (log.type === 'clock_out' && clockInTime) {
-                let sessionEnd = logTime;
-                if (toDate && sessionEnd > toDate) sessionEnd = toDate;
-                totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
-                clockInTime = null;
-            } else if (log.type === 'break_end' && log.durationMinutes) {
-                totalBreakMinutes += log.durationMinutes;
-            }
-        }
-        if (clockInTime) {
-            const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
-            totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
-        }
+        // Hours from the time clock (lib/timeclock): shift time minus unpaid breaks, forgotten clock-outs left out.
+        let totalMinutesWorked = workedMinutes(sessionsFrom((logsByStaff.get(staffMember.id) || []) as any, clockPolicy(selectedTenant)), staffMember.id, fromDate || new Date(0), toDate || new Date());
 
         const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
         
-        let earnings = 0;
-        if (staffMember.payStructure === 'commission') {
-            earnings = serviceCommission(staffMember, staffTransactions, services, 0).total;   // commission per service
-        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
-            const hoursWorked = totalMinutesWorked / 60;
-            earnings = hoursWorked * staffMember.hourlyRate;
-        } else if (staffMember.payStructure === 'hourly_plus_commission' && staffMember.hourlyRate) {
-            earnings = ((totalMinutesWorked / 60) * staffMember.hourlyRate) + serviceCommission(staffMember, staffTransactions, services, 0).total;
-        } else if (staffMember.payStructure === 'per_service') {
-            earnings = perServicePay(staffMember, staffTransactions, services).total;   // a set amount per service performed
-        }
-        
-        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
-        earnings += tips + retailCommission; 
+        // Pay for the range: the same calculation as Payday and payroll (lib/pay-period) — hours, overtime, minimum wage,
+        // salary, commission / per service pay, extras and tips.
+        const earnings = periodPay({ member: staffMember, from: fromDate || new Date(0), to: toDate || new Date(), incomeTxns: transactions.filter((t: any) => filterByDate(safeDate(t.date))),
+          services, tenant: selectedTenant, sessions: sessionsFrom((logsByStaff.get(staffMember.id) || []) as any, clockPolicy(selectedTenant)), tips }).total;
 
         /* TODAY, alongside the range totals. Sales and payout answer "how has
          * this person been doing"; a roster at 9am is asking "what is on them

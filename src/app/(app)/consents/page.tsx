@@ -35,6 +35,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import { AddConsentFormDialog } from '@/components/consents/AddConsentFormDialog';
 import { PreviewConsentFormDialog } from '@/components/consents/PreviewConsentFormDialog';
 import { useToast } from '@/hooks/use-toast';

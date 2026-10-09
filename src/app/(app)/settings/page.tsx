@@ -710,6 +710,10 @@ function SettingsPageImpl() {
                       {mode === 'pool' && <div className="flex flex-wrap items-center gap-2"><span>Split</span><select value={['hours', 'weighted', 'equal'].includes(t.split) ? t.split : 'hours'} onChange={(e) => set({ split: e.target.value })} aria-label="Split" className="h-11 rounded-xl border px-3" style={ipt}><option value="hours">by hours worked</option><option value="weighted">by hours × role weight (provider 1 · assistant 0.5 · front desk 0.3)</option><option value="equal">equally among everyone who worked</option></select></div>}
                     </div>); })()}
                 </Row>
+                <Row label="Minimum wage" help="Each workweek, everyone paid by commission, per service or by the hour must earn at least this for every hour on the clock (tips don’t count). Payday and payroll add a top-up when they don’t, and overtime on commission or per service pay is worked out from it. Use your state or city rate when it’s higher than the federal $7.25.">
+                  {(() => { const pr: any = (tenantData as any).payRules || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } }));
+                    return (<div className="flex flex-wrap items-center gap-2 text-[15px]">$<input type="number" min={0} step={0.01} value={pr.minimumWage ?? ''} placeholder="7.25" onChange={(e) => set({ minimumWage: Math.max(0, parseFloat(e.target.value) || 0) || null })} aria-label="Minimum wage per hour" className="h-11 w-24 rounded-xl border px-3 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /><span>an hour</span></div>); })()}
+                </Row>
                 <Row label="Extra pay for providers" help="On top of commission or per service pay. A bonus for selling a membership or package goes to whoever sold it at checkout. A share of no-show and late-cancellation fees goes to the provider the visit was booked with — only fees actually collected count. Both go into payroll as commission.">
                   {(() => { const x: any = (tenantData as any).payExtras || {}; const ms: any = x.membershipSale || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payExtras: { ...((prev as any).payExtras || {}), ...patch } })); const ipt = { borderColor: 'var(--line, #e7e2dc)' } as any;
                     return (<div className="space-y-2 text-[15px]">
@@ -875,7 +879,7 @@ function SettingsPageImpl() {
                   <Row label="Overtime after, in a week" inline><Num field="overtimeThresholdHours" suffix="hours" max={168} step={0.5} /></Row>
                   <Row label="Overtime pay rate" help="1.5 = time and a half." inline><Num field="overtimeMultiplier" suffix="× hourly" max={5} step={0.1} /></Row>
                   <Row label="Warn a manager when someone is this close to overtime" inline><Num field="overtimeAlertHours" suffix="hours" max={24} step={0.5} /></Row>
-                  <Row label="Clock out automatically after" help="Catches forgotten clock-outs." inline><Num field="autoClockOutHours" suffix="hours" max={24} step={0.5} /></Row>
+                  <Row label="Forgotten clock-out after" help="A shift still open after this long (12 hours if blank) is flagged on Timesheets for a manager to put in the real clock-out time. It isn’t paid until then, so a forgotten clock-out never pays for days." inline><Num field="autoClockOutHours" suffix="hours" max={24} step={0.5} /></Row>
                 </Section>
                 <Section title="Breaks">
                   <Row label="Shortest break" inline><Num field="minimumBreakMinutes" suffix="minutes" max={120} /></Row>
