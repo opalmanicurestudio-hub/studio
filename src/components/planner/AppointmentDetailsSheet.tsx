@@ -1,5 +1,6 @@
 'use client';
 
+import { AssistPicker } from '@/components/planner/AssistPicker';
 import { StepTimeline } from '@/components/planner/StepTimeline';
 import { stateOf, elapsedLabel, useNow } from '@/components/planner/AgendaView';
 import { LastFormula, PartsPlan, AddAsYouGo, ThisVisitFormula, VisitCharges, HandoffLog, recipeFormula, addToFormula } from '@/components/visit/VisitWork';
@@ -2445,6 +2446,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div hidden={visitTab !== 'now'} className="space-y-5">
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
+        {tenantId && <AssistPicker tenantId={tenantId} appointment={appointment} staff={staff || []} defaultPct={Number((selectedTenant as any)?.payRules?.assistPct) || 20} />}
         {!['cancelled', 'declined'].includes(String(appointment?.status)) && <div className="space-y-3">
           <StepTimeline service={service} appointment={appointment} extraMinutes={Number((appointment as any)?.clientExtraMinutes) || 0} tenantId={tenantId}
             next={(() => { const t0 = Date.parse(String(appointment?.startTime || '')) || 0; if (!t0) return null; const mineR: string[] = Array.isArray((appointment as any)?.requiredResourceIds) ? (appointment as any).requiredResourceIds : [];

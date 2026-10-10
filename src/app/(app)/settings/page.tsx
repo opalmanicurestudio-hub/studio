@@ -714,6 +714,22 @@ function SettingsPageImpl() {
                   {(() => { const pr: any = (tenantData as any).payRules || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } }));
                     return (<div className="flex flex-wrap items-center gap-2 text-[15px]">$<input type="number" min={0} step={0.01} value={pr.minimumWage ?? ''} placeholder="7.25" onChange={(e) => set({ minimumWage: Math.max(0, parseFloat(e.target.value) || 0) || null })} aria-label="Minimum wage per hour" className="h-11 w-24 rounded-xl border px-3 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /><span>an hour</span></div>); })()}
                 </Row>
+                <Row label="Commission rules" help="How commission is worked out for everyone on commission. Changes apply to new sales.">
+                  {(() => { const pr: any = (tenantData as any).payRules || {}; const pc: any = pr.productCharge || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } })); const ipt = { borderColor: 'var(--line, #e7e2dc)' } as any;
+                    return (<div className="space-y-2 text-[15px]">
+                      <div className="flex flex-wrap items-center gap-2"><span>Take a product charge off first:</span>
+                        <input type="number" min={0} step={0.01} value={pc.amount ?? ''} placeholder="0" onChange={(e) => set({ productCharge: { ...pc, amount: Math.max(0, parseFloat(e.target.value) || 0) } })} aria-label="Product charge" className="h-11 w-24 rounded-xl border px-3 text-right" style={ipt} />
+                        <select value={pc.mode === 'pct' ? 'pct' : 'flat'} onChange={(e) => set({ productCharge: { ...pc, mode: e.target.value } })} aria-label="Product charge type" className="h-11 rounded-xl border px-3" style={ipt}><option value="flat">dollars per service</option><option value="pct">% of the price</option></select>
+                        <span className="text-[13px] cf-muted">(a service can set its own)</span></div>
+                      <div className="flex flex-wrap items-center gap-2"><span>Pay commission on</span>
+                        <select value={pr.commissionOn === 'paid' ? 'paid' : 'price'} onChange={(e) => set({ commissionOn: e.target.value })} aria-label="Commission basis" className="h-11 rounded-xl border px-3" style={ipt}><option value="price">the service price</option><option value="paid">what the client paid (after discounts)</option></select></div>
+                      <div className="flex flex-wrap items-center gap-2"><span>When a service is refunded</span>
+                        <select value={pr.refundCommission === 'keep' ? 'keep' : 'take_back'} onChange={(e) => set({ refundCommission: e.target.value })} aria-label="Refunds and commission" className="h-11 rounded-xl border px-3" style={ipt}><option value="take_back">take the commission back</option><option value="keep">the provider keeps it</option></select>
+                        <span className="text-[13px] cf-muted">(you can choose each time)</span></div>
+                      <div className="flex flex-wrap items-center gap-2"><span>An assistant’s usual share of a service</span>
+                        <input type="number" min={0} max={90} value={pr.assistPct ?? ''} placeholder="20" onChange={(e) => set({ assistPct: Math.max(0, Math.min(90, parseFloat(e.target.value) || 0)) || null })} aria-label="Assistant share" className="h-11 w-20 rounded-xl border px-3 text-right" style={ipt} /><span>%</span></div>
+                    </div>); })()}
+                </Row>
                 <Row label="Extra pay for providers" help="On top of commission or per service pay. A bonus for selling a membership or package goes to whoever sold it at checkout. A share of no-show and late-cancellation fees goes to the provider the visit was booked with — only fees actually collected count. Both go into payroll as commission.">
                   {(() => { const x: any = (tenantData as any).payExtras || {}; const ms: any = x.membershipSale || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payExtras: { ...((prev as any).payExtras || {}), ...patch } })); const ipt = { borderColor: 'var(--line, #e7e2dc)' } as any;
                     return (<div className="space-y-2 text-[15px]">

@@ -5,7 +5,7 @@
 // A visit's money: what it brings in − provider pay × (1 + employer taxes) − products − running costs for the time the
 // station is busy (the business's cost per hour × set-up + service + turnover). Same parts as lib/visit-cost.
 import { unitCost } from '@/lib/visit-cost';
-import { rateFor, payForService } from '@/lib/commission';
+import { rateFor, payForService, productChargeFor } from '@/lib/commission';
 
 export type VisitKind = { key: 'full' | 'member' | 'covered' | 'package'; label: string; brings: number; charged: number; covered: boolean; note?: string };
 export type PayChoice = { key: string; label: string; staff: any; note?: string };
@@ -34,9 +34,10 @@ export function visitKinds(service: any, memberships: any[] = [], packages: any[
 }
 
 /** What the provider is paid for one visit under a pay setup. null = not paid per visit (salary). */
-export function payForVisit(staff: any, service: any, kind: VisitKind, minutes?: number): number | null {
+export function payForVisit(staff: any, service: any, kind: VisitKind, minutes?: number, tenant?: any): number | null {
   const ps = String(staff?.payStructure || ''); const m = n(minutes) || n(service?.duration) || 60;
-  const commissionOn = kind.covered ? n(service?.price) : kind.charged;   // covered visits count at the normal price
+  const gross = kind.covered ? n(service?.price) : kind.charged;   // covered visits count at the normal price
+  const commissionOn = Math.max(0, gross - productChargeFor(service, tenant, gross));   // less any product charge taken before commission
   if (ps === 'commission') return r2(commissionOn * rateFor(staff, service, 40) / 100);
   if (ps === 'hourly_plus_commission') return r2((n(staff.hourlyRate) * m) / 60 / busyShare(staff) + commissionOn * rateFor(staff, service, 40) / 100);
   if (ps === 'per_service') return payForService(staff, service, m);
@@ -47,9 +48,9 @@ export function payForVisit(staff: any, service: any, kind: VisitKind, minutes?:
 export const busyShare = (staff: any) => Math.min(1, Math.max(0.3, n(staff?.busyShare) || 0.7));
 
 /** The money from one visit. */
-export function visitOutcome(input: { service: any; staff: any; kind: VisitKind; inventory?: any[]; costPerHour?: number; taxPct?: number; minutes?: number }): Outcome {
+export function visitOutcome(input: { service: any; staff: any; kind: VisitKind; inventory?: any[]; costPerHour?: number; taxPct?: number; minutes?: number; tenant?: any }): Outcome {
   const { service, staff, kind } = input; const inv = input.inventory || [];
-  const pay = payForVisit(staff, service, kind, input.minutes);
+  const pay = payForVisit(staff, service, kind, input.minutes, input.tenant);
   const payCost = pay == null ? 0 : pay * (1 + Math.max(0, n(input.taxPct)) / 100);
   let materials = 0; for (const p of service?.products || []) { const it = inv.find((i: any) => i.id === p.id); if (it) materials += (n(p.quantityUsed) || 1) * unitCost(it); }
   const stationMin = (n(input.minutes) || n(service?.duration) || 60) + n(service?.padBefore) + n(service?.padAfter);

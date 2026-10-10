@@ -11,13 +11,14 @@
 //   tips         never count toward minimum wage or the overtime rate
 //
 // Not legal advice: wage rules differ by state and city (daily overtime in California, tip credits, exempt status).
-import { serviceEarnings, earnsCommission, paidPerService, payExtras } from '@/lib/commission';
+import { serviceEarnings, earnsCommission, paidPerService, payExtras, tierBonus, payReversals } from '@/lib/commission';
 import { weeklyHours, sessionsIn, localDay, weekOf, type Session } from '@/lib/timeclock';
 
 export type PayLine = {
   staffId: string; name: string; payStructure: string;
   hours: number; regularHours: number; overtimeHours: number; doubleTimeHours: number;
   hourlyPay: number; salaryPay: number; servicePay: number; retail: number; extras: number;
+  tierBonus: number; refundTakeBack: number; refunds: number;   // both already inside servicePay
   overtimePremium: number;     // overtime owed beyond what hourly pay already covers (commission / per service / the commission part of hourly + commission)
   minWageTopUp: number;
   tips: number; total: number;
@@ -54,8 +55,10 @@ export function periodPay(input: {
 }): PayLine {
   const { member: m, tenant } = input; const rules = payRules(tenant); const ps = String(m.payStructure || 'commission');
   const fromMs = new Date(input.from as any).getTime(), toMs = new Date(input.to as any).getTime();
-  const mine = (input.incomeTxns || []).filter((t) => t.staffId === m.id && (t.type || 'income') === 'income');
-  const tips = input.tips ?? mine.filter((t) => t.category === 'Tips' || t.tipAmount).reduce((s, t) => s + (t.tipAmount || amt(t)), 0);
+  // Their sales — including services they assisted on (a shared service names them in splitWith). The list passed in
+  // may hold every transaction for the period: refund lines are read for take-backs, other people's ignored.
+  const mine = (input.incomeTxns || []).filter((t) => (t.type || 'income') === 'income' && (t.staffId === m.id || t.splitWith?.staffId === m.id));
+  const tips = input.tips ?? mine.filter((t) => t.staffId === m.id && (t.category === 'Tips' || t.tipAmount)).reduce((s, t) => s + (t.tipAmount || amt(t)), 0);
 
   // Hours, per workweek. With "pay approved hours only" on, sessions a manager hasn't approved wait for the next run.
   const approvedOnly = tenant?.payRules?.approvedHoursOnly === true;
@@ -71,8 +74,10 @@ export function periodPay(input: {
   const byWeek = new Map<string, any[]>(); for (const t of mine) { const k = weekOfTxn(t); (byWeek.get(k) || byWeek.set(k, []).get(k)!).push(t); }
   const earns = earnsCommission(m) || paidPerService(m);
   const svcFor = (txns: any[]) => serviceEarnings(m, txns, input.services, 40);
-  const retailFor = (txns: any[]) => (earns && m.retailCommissionRate ? txns.filter((t) => t.category === 'Retail').reduce((s, t) => s + amt(t), 0) * (Number(m.retailCommissionRate) / 100) : 0);
-  const servicePay = svcFor(mine); const retail = retailFor(mine);
+  const retailFor = (txns: any[]) => (earns && m.retailCommissionRate ? txns.filter((t) => t.category === 'Retail' && t.staffId === m.id).reduce((s, t) => s + amt(t), 0) * (Number(m.retailCommissionRate) / 100) : 0);
+  const tiers = tierBonus(m, mine, input.services, 40);                       // sales tiers (higher rate above a level)
+  const refunds = payReversals(m, input.incomeTxns || []);                     // commission taken back on refunds this period
+  const servicePay = svcFor(mine) + tiers - refunds.total; const retail = retailFor(mine);
   const ex = payExtras(m, input.incomeTxns || [], tenant, input.apptStaff || {}); const extras = ex.saleBonus + ex.noShow;
 
   // Hourly and salary
@@ -102,7 +107,7 @@ export function periodPay(input: {
 
   const total = hourlyPay + salaryPay + servicePay + retail + extras + overtimePremium + minWageTopUp + tips;
   return { staffId: m.id, name: m.name, payStructure: ps, hours: r2(hours), regularHours: r2(regHours), overtimeHours: r2(otHours), doubleTimeHours: r2(dtHours),
-    hourlyPay: r2(hourlyPay), salaryPay: r2(salaryPay), servicePay: r2(servicePay), retail: r2(retail), extras: r2(extras),
+    hourlyPay: r2(hourlyPay), salaryPay: r2(salaryPay), servicePay: r2(servicePay), retail: r2(retail), extras: r2(extras), tierBonus: r2(tiers), refundTakeBack: r2(refunds.total), refunds: refunds.count,
     overtimePremium: r2(overtimePremium), minWageTopUp: r2(minWageTopUp), tips: r2(tips), total: r2(total), missingClockOuts, unapprovedSessions: unapproved,
     noHours: (earns && servicePay > 0 && hours === 0), weeks: weekRows };
 }

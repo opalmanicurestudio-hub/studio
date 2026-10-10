@@ -74,7 +74,8 @@ const schema = z.object({
   noExtraTimeCharge: z.boolean().optional(),                       // clients' usual extra time is reserved but never charged on this service                             // shown as "from $X" — the final price is agreed at the visit
   memberPrice: z.coerce.number().min(0).optional().nullable(),
   commissionRate: z.any().optional(),
-  providerPay: z.any().optional(),                               // per service pay for this service, for everyone paid per service (blank = by the hour)                            // commission on this service for everyone (blank = each person's usual rate)   // what members pay (blank = the normal price)
+  providerPay: z.any().optional(),
+  productCharge: z.any().optional(),                             // product charge taken before commission on this service (blank = the business's rule)                               // per service pay for this service, for everyone paid per service (blank = by the hour)                            // commission on this service for everyone (blank = each person's usual rate)   // what members pay (blank = the normal price)
   padBefore: z.coerce.number().optional(),
   padAfter: z.coerce.number().optional(),
   description: z.string().optional(),
@@ -350,7 +351,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         id: service.id, name: service.name, type: service.type,
         where: ((service as any).where || 'studio') as any, meetingLink: (service as any).meetingLink || '', phoneWho: ((service as any).phoneWho || 'we_call') as any, clientChoosesPlace: (service as any).clientChoosesPlace === true, placeAlternatives: Array.isArray((service as any).placeAlternatives) ? (service as any).placeAlternatives : [],
         isAddon: service.type === 'addon', isPrivate: service.isPrivate, membersOnly: service.membersOnly === true, rebookWeeks: Number(service.rebookWeeks) || 0, returnServiceId: (service as any).returnServiceId || '', returnMinWeeks: Number((service as any).returnMinWeeks) || 0, returnMaxWeeks: Number((service as any).returnMaxWeeks) || 0, lateServiceId: (service as any).lateServiceId || '',
-        category: service.category, duration: service.duration, timedBy: ((service as any).timedBy || 'provider') as any, taxExempt: !!(service as any).taxExempt, noExtraTimeCharge: (service as any).extraTimeCharge === false || !!(service as any).noExtraTimeCharge, priceIsFrom: !!(service as any).priceIsFrom, memberPrice: (service as any).memberPrice ?? null, commissionRate: (service as any).commissionRate ?? '', providerPay: (service as any).providerPay ?? '',
+        category: service.category, duration: service.duration, timedBy: ((service as any).timedBy || 'provider') as any, taxExempt: !!(service as any).taxExempt, noExtraTimeCharge: (service as any).extraTimeCharge === false || !!(service as any).noExtraTimeCharge, priceIsFrom: !!(service as any).priceIsFrom, memberPrice: (service as any).memberPrice ?? null, commissionRate: (service as any).commissionRate ?? '', providerPay: (service as any).providerPay ?? '', productCharge: (service as any).productCharge ?? '',
         padBefore: service.padBefore || 0, padAfter: service.padAfter || 0,
         description: service.description || '', imageUrl: service.imageUrl || '',
         price: service.price, serviceTiers: service.serviceTiers || [],
@@ -534,6 +535,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       returnMinWeeks: Math.max(0, Math.min(52, Number(data.returnMinWeeks) || 0)), returnMaxWeeks: Math.max(0, Math.min(52, Number(data.returnMaxWeeks) || 0)),
       // Blueprint on → its phases decide duration and the set-up / clean-up buffers (one source of truth for booking).
       ...(bpOn && bpPhases.length ? (() => { const bp = nextBlueprint((service as any)?.blueprint, bpPhases, bpReqs); const d = deriveTimings(bp.phases); return { blueprint: bp, duration: d.duration || data.duration, padBefore: d.padBefore, padAfter: d.padAfter }; })() : {}),
+      productCharge: (() => { const v = (data as any).productCharge; if (v === '' || v === null || v === undefined) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null; })(),
       providerPay: (() => { const v = (data as any).providerPay; if (v === '' || v === null || v === undefined) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null; })(),
       commissionRate: (() => { const v = (data as any).commissionRate; if (v === '' || v === null || v === undefined) return null; const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n * 10) / 10)) : null; })(),
       cost: breakEven,
@@ -841,10 +843,12 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   <Input type="number" step="1" min={0} max={100} placeholder="Each person’s usual rate" {...register('commissionRate' as any)} className="h-12 rounded-xl border" /><p className="text-[11px] text-muted-foreground">For everyone on commission. Blank = each person’s usual rate. A person’s own rate for this service (on their profile) comes first.</p></div>
                 <div className="space-y-1.5"><Label className="text-[12px] font-semibold text-muted-foreground">Pay per service ($)</Label>
                   <Input type="number" step="0.01" min={0} placeholder="By the hour" {...register('providerPay' as any)} className="h-12 rounded-xl border" /><p className="text-[11px] text-muted-foreground">For everyone paid per service: what one of these pays them, members’ visits included. Blank = their rate per hour of service × its length.</p></div>
+                <div className="space-y-1.5"><Label className="text-[12px] font-semibold text-muted-foreground">Product charge ($)</Label>
+                  <Input type="number" step="0.01" min={0} placeholder="The business’s rule" {...register('productCharge' as any)} className="h-12 rounded-xl border" /><p className="text-[11px] text-muted-foreground">Taken off the price before commission is worked out (e.g. $8 for gel). Blank = the rule in Settings.</p></div>
               </div>
 
               {/* The money behind the pay choice for this service: what each kind of visit leaves the business. */}
-              <PayImpact service={{ id: values.id, type: values.isAddon ? 'addon' : 'service', price: Number(values.price) || 0, memberPrice: (values as any).memberPrice, duration: Number(values.duration) || 60, padBefore: Number(values.padBefore) || 0, padAfter: Number(values.padAfter) || 0, products: values.products || [], commissionRate: (values as any).commissionRate, providerPay: (values as any).providerPay }} />
+              <PayImpact service={{ id: values.id, type: values.isAddon ? 'addon' : 'service', price: Number(values.price) || 0, memberPrice: (values as any).memberPrice, duration: Number(values.duration) || 60, padBefore: Number(values.padBefore) || 0, padAfter: Number(values.padAfter) || 0, products: values.products || [], commissionRate: (values as any).commissionRate, providerPay: (values as any).providerPay, productCharge: (values as any).productCharge }} />
               <RecoveryMatrix
                 pricingTiers={pricingTiers || []}
                 values={values}

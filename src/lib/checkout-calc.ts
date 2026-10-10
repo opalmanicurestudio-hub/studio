@@ -89,5 +89,7 @@ export function computeCheckout(i: CalcInput) {
   const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));
   const total = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
-  return { memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
+  // The share of the discountable total taken off by discounts — commission "on what the client paid" uses it.
+  const discountShare = discountable > 0 ? Math.min(1, discount / discountable) : 0;
+  return { discountShare, memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
 }

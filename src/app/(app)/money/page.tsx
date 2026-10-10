@@ -1,7 +1,7 @@
 'use client';
 
 import { PayStatement } from '@/components/staff/PayStatement';
-import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras } from '@/lib/commission';
+import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras, reversalsFor } from '@/lib/commission';
 import { periodPay, payrollFields } from '@/lib/pay-period';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
@@ -666,6 +666,10 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
     return { overhead, materials, labor, staffMember };
   }, [transaction, services, appointments, tmhr, staff, inventory]);
 
+  // Commission on a refunded service: taken back (or kept) — the business's default, changeable here.
+  const isServiceSale = transaction?.category === 'Service Revenue' && !!transaction?.staffId;
+  const [takeBack, setTakeBack] = useState<boolean>(true);
+  useEffect(() => { setTakeBack(((tenant as any)?.payRules?.refundCommission || 'take_back') !== 'keep'); }, [transaction?.id, (tenant as any)?.payRules?.refundCommission]);
   useEffect(() => {
     if (transaction) { setRefundAmount(transaction.amount); setReason(''); setLogIncident(false); setWithholdOverhead(false); setWithholdMaterials(false); setWithholdLabor(costsBreakdown.staffMember?.payStructure === 'hourly'); }
   }, [transaction?.id]);
@@ -703,7 +707,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
       } catch {
         toast({ variant: 'destructive', title: 'No connection', description: 'PINs are checked online — try again.' }); return;   // never compared on this device
       }
-      onConfirm({ amount: refundAmount, refundTip: refundTip && (transaction.tipAmount || 0) > 0, tipStrategy, reason, logIncident, authorizerId });
+      onConfirm({ amount: refundAmount, refundTip: refundTip && (transaction.tipAmount || 0) > 0, tipStrategy, reason, logIncident, authorizerId, takeBack: isServiceSale && takeBack });
       setPin('');
     } finally { setVerifying(false); }
   };
@@ -726,6 +730,14 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                 {isCard ? 'Original Card (Locked)' : transaction.paymentMethod}
               </p>
             </div>
+            {isServiceSale && (
+              <div className="space-y-2 rounded-2xl border p-4 text-[14px]">
+                <p className="font-semibold">The provider’s commission on this service</p>
+                <label className="flex items-center gap-2"><input type="radio" name="refund-commission" checked={takeBack} onChange={() => setTakeBack(true)} className="h-4 w-4" /> Take it back from their next pay</label>
+                <label className="flex items-center gap-2"><input type="radio" name="refund-commission" checked={!takeBack} onChange={() => setTakeBack(false)} className="h-4 w-4" /> They keep it (e.g. they fixed it, or it wasn’t their fault)</label>
+                <p className="text-[12px] text-muted-foreground">In proportion to the amount refunded. An assistant’s share goes the same way.</p>
+              </div>
+            )}
             <div className="space-y-3">
               <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2"><Scale className="w-3.5 h-3.5" /> Cost Recovery Matrix</p>
               <div className="rounded-2xl border-2 bg-muted/5 p-4 space-y-3">
@@ -1234,7 +1246,7 @@ const LedgerTab = () => {
     const now = new Date().toISOString();
     const refundTotal = data.amount + (data.refundTip ? (transactionToRefund.tipAmount || 0) : 0);
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-    batch.set(txnRef, { id: txnRef.id, date: now, description: `Refund for: ${transactionToRefund.description}`, clientOrVendor: transactionToRefund.clientOrVendor, clientId: transactionToRefund.clientId, type: 'reversal', context: transactionToRefund.context, category: 'Refunds', amount: refundTotal, paymentMethod: transactionToRefund.paymentMethod, reversalOf: transactionToRefund.id, hasReceipt: false, notes: `Refund Reason: ${data.reason}` });
+    batch.set(txnRef, { id: txnRef.id, date: now, description: `Refund for: ${transactionToRefund.description}`, clientOrVendor: transactionToRefund.clientOrVendor, clientId: transactionToRefund.clientId, type: 'reversal', context: transactionToRefund.context, category: 'Refunds', amount: refundTotal, paymentMethod: transactionToRefund.paymentMethod, reversalOf: transactionToRefund.id, hasReceipt: false, notes: `Refund Reason: ${data.reason}` , ...(data.takeBack ? (() => { const r = reversalsFor(transactionToRefund, data.amount, staff || [], services || []); return r.length ? { payReversals: r, staffId: transactionToRefund.staffId } : {}; })() : {}) });
     if (isCash && activeTill) {
       const updates: any = { expectedCash: increment(-refundTotal), totalCashRefunds: increment(refundTotal) };
       if (data.refundTip && data.tipStrategy === 'clawback' && transactionToRefund.staffId) { updates[`cashTipsByStaff.${transactionToRefund.staffId}`] = increment(-(transactionToRefund.tipAmount || 0)); updates.totalCashTips = increment(-(transactionToRefund.tipAmount || 0)); }
@@ -1631,13 +1643,12 @@ const PaydayTab = () => {
     // One calculation for every pay setup (lib/pay-period) — hours from the time clock's punches, overtime per
     // workweek, minimum-wage top-ups, salary — the same one the payroll draft uses.
     const sessions = sessionsFrom(activityLogs as any, clockPolicy(selectedTenant));
-    const income = filteredTransactions.filter((t: any) => t.type === 'income');
 
     // Booth renters are not on payroll — they rent the chair and keep their
     // own takings. Excluded here for the same reason the server draft
     // excludes them; if the two disagreed, the screen would be the lie.
     return staff.filter((m: any) => m.isRenter !== true).map(member => {
-        const l = periodPay({ member, from: dateRange.from, to: dateRange.to, incomeTxns: income, services: services || [], tenant: selectedTenant, sessions, apptStaff, ...(sharedTips ? { tips: sharedTips.get(member.id) || 0 } : {}) });
+        const l = periodPay({ member, from: dateRange.from, to: dateRange.to, incomeTxns: filteredTransactions, services: services || [], tenant: selectedTenant, sessions, apptStaff, ...(sharedTips ? { tips: sharedTips.get(member.id) || 0 } : {}) });
         const f = payrollFields(l);
         const ps = String(member.payStructure || 'commission');
         const parts = [ps === 'commission' ? 'Comm' : ps === 'hourly_plus_commission' ? 'Hr + Comm' : ps === 'per_service' ? 'Per service' : ps === 'salary' ? 'Salary' : 'Hr'];
@@ -2634,9 +2645,8 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
   const staffTotalOwed = useMemo(() => {
     if (!staff) return 0;
     const sessions = sessionsFrom((activityLogs || []) as any, clockPolicy(selectedTenant));
-    const income = periodTxns.filter((t: any) => t.type === 'income');
     return staff.filter((m: any) => m.isRenter !== true).reduce((total: number, member: any) =>
-      total + periodPay({ member, from: range.from, to: range.to, incomeTxns: income, services: services || [], tenant: selectedTenant, sessions, apptStaff }).total, 0);
+      total + periodPay({ member, from: range.from, to: range.to, incomeTxns: periodTxns, services: services || [], tenant: selectedTenant, sessions, apptStaff }).total, 0);
   }, [staff, periodTxns, activityLogs, range, services, apptStaff, selectedTenant]);
 
   // ── Bills snapshot (all unpaid, not just this period) ──

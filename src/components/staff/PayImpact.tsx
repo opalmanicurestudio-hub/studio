@@ -33,7 +33,7 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
   const costPerHour = Number(selectedTenant?.tmhr) || 50; const taxPct = Number(selectedTenant?.employerTaxBurdenPct) || 10;
   const [target, setTarget] = React.useState<number>(Number(selectedTenant?.opsCosts?.minMarginPct) || 20);
   const [what, setWhat] = React.useState<{ commissionPct?: number; perHour?: number; hourly?: number }>({});
-  const base = { inventory, costPerHour, taxPct };
+  const base = { inventory, costPerHour, taxPct, tenant: selectedTenant };
   const muted = { color: 'var(--muted, #78716c)' }; const ipt = 'h-9 w-16 rounded-lg border px-2 text-right text-[13px] tabular-nums';
 
   if (mode === 'person') {

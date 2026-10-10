@@ -84,6 +84,37 @@ export function CommissionByService({ tenantId, staffMember, services = [] }: { 
           </select>
           <button type="button" disabled={!adding || busy === adding} onClick={() => { const id = adding; setAdding(''); save(id, wideOf(svc(id)) ?? (perService ? payForService(staffMember, svc(id)) : usual)); }} className="h-10 rounded-full border px-4 text-[13px] font-[600]" style={{ borderColor: line }}>Add</button>
         </div>)}
+      {!perService && <TierEditor tenantId={tenantId} staffMember={staffMember} usual={usual} first={first} />}
       {err && <p role="alert" className="text-[13px] font-[600] text-[#B42318]">{err}</p>}
     </section>);
+}
+
+/** Sales tiers: a higher rate on the part of a pay period's services above a level (e.g. 45% over $3,000). */
+function TierEditor({ tenantId, staffMember, usual, first }: { tenantId: string; staffMember: any; usual: number; first: string }) {
+  const { firestore } = useFirebase();
+  const [rows, setRows] = React.useState<{ over: string; rate: string }[]>(() => (Array.isArray(staffMember?.commissionTiers) ? staffMember.commissionTiers : []).map((t: any) => ({ over: String(t.over ?? ''), rate: String(t.rate ?? '') })));
+  const [saved, setSaved] = React.useState(''); const line = 'var(--line, #e7e2dc)'; const muted = { color: 'var(--muted, #78716c)' };
+  const save = async () => {
+    if (!firestore) return;
+    const tiers = rows.map((r) => ({ over: Math.round(Number(r.over) || 0), rate: Math.round((Number(r.rate) || 0) * 10) / 10 })).filter((r) => r.over > 0 && r.rate > 0 && r.rate <= 100).sort((a, b) => a.over - b.over);
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'staff', staffMember.id), { commissionTiers: tiers });
+      void logAuditClient(firestore, tenantId, { action: 'staff.commission_tiers', targetType: 'staff', targetId: staffMember.id, actor: { type: 'user', id: getAuth().currentUser?.uid }, summary: tiers.length ? `${first}'s sales tiers: ${tiers.map((t) => `${t.rate}% over $${t.over}`).join(', ')}` : `${first}'s sales tiers removed` } as any);
+      setSaved('Saved'); setTimeout(() => setSaved(''), 2000); } catch { setSaved('Couldn’t save'); }
+  };
+  return (
+    <div className="space-y-2 border-t pt-3" style={{ borderColor: line }}>
+      <p className="text-[14px] font-[700]">Sales tiers</p>
+      <p className="text-[12px]" style={muted}>A higher rate on the part of each pay period’s services above a level. Services with their own rate aren’t counted.</p>
+      {rows.map((r, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2 text-[14px]">
+          <span>Over $</span><input inputMode="numeric" value={r.over} onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, over: e.target.value.replace(/[^\d]/g, '') } : y)))} aria-label="Sales level" className="h-10 w-24 rounded-xl border px-3 text-right" style={{ borderColor: line }} />
+          <span>earns</span><input inputMode="decimal" value={r.rate} onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, rate: e.target.value.replace(/[^\d.]/g, '') } : y)))} aria-label="Rate" className="h-10 w-16 rounded-xl border px-3 text-right" style={{ borderColor: line }} /><span>%</span>
+          <button type="button" onClick={() => setRows((x) => x.filter((_, j) => j !== i))} className="h-9 rounded-full border px-3 text-[13px]" style={{ borderColor: line }}>Remove</button>
+        </div>))}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => setRows((x) => [...x, { over: x.length ? String((Number(x[x.length - 1].over) || 0) + 2000) : '3000', rate: String(Math.min(100, (x.length ? Number(x[x.length - 1].rate) || usual : usual) + 5)) }])} className="h-10 rounded-full border px-4 text-[13px] font-[600]" style={{ borderColor: line }}>Add a tier</button>
+        <button type="button" onClick={save} className="h-10 rounded-full bg-[#17181A] px-4 text-[13px] font-[700] text-white">Save tiers</button>
+        {saved && <span className="self-center text-[13px]" style={muted}>{saved}</span>}
+      </div>
+    </div>);
 }

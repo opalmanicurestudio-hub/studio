@@ -24,7 +24,7 @@ export function buildStatement(input: { member: any; from: string; to: string; i
   const { member: m, tenant } = input;
   const sessions = sessionsFrom(input.punches || [], clockPolicy(tenant, Date.parse(input.to)));
   const l = periodPay({ member: m, from: input.from, to: input.to, incomeTxns: input.incomeTxns, services: input.services, tenant, sessions, apptStaff: input.apptStaff, ...(input.tips != null ? { tips: input.tips } : {}) });
-  const mine = (input.incomeTxns || []).filter((t) => t.staffId === m.id);
+  const mine = (input.incomeTxns || []).filter((t) => t.staffId === m.id || t.splitWith?.staffId === m.id);
   const sections: Statement['sections'] = []; const notes: string[] = [];
 
   if (earnsCommission(m)) {
@@ -35,6 +35,10 @@ export function buildStatement(input: { member: any; from: string; to: string; i
     const p = perServicePay(m, mine, input.services);
     if (p.lines.length) sections.push({ title: 'Services', lines: p.lines.map((x) => ({ label: x.name, detail: `${x.count} ×`, amount: x.pay })) });
   }
+  const adj: StatementLine[] = [];
+  if (l.tierBonus) adj.push({ label: 'Sales tier bonus', detail: 'a higher rate on services above your level this period', amount: l.tierBonus });
+  if (l.refundTakeBack) adj.push({ label: 'Refunds', detail: `commission taken back on ${l.refunds} refunded service${l.refunds === 1 ? '' : 's'}`, amount: -l.refundTakeBack });
+  if (adj.length) sections.push({ title: 'Adjustments', lines: adj });
   if (l.retail) sections.push({ title: 'Retail', lines: [{ label: 'Retail commission', detail: `${m.retailCommissionRate}% of retail sales`, amount: l.retail }] });
   const hourLines: StatementLine[] = [];
   if (l.hourlyPay) hourLines.push({ label: 'Hourly pay', detail: `${hrs(l.regularHours)} at ${money(Number(m.hourlyRate) || 0)}${l.overtimeHours ? ` + ${hrs(l.overtimeHours)} overtime` : ''}${l.doubleTimeHours ? ` + ${hrs(l.doubleTimeHours)} double time` : ''}`, amount: l.hourlyPay });
@@ -67,7 +71,7 @@ export async function statementFor(db: any, tenantId: string, staffId: string, f
   ]);
   if (!mSnap.exists) return null;
   const tenant: any = tSnap.data() || {}; const member = { id: staffId, ...(mSnap.data() || {}) };
-  const income = txSnap.docs.map((d: any) => d.data() || {}).map((t: any) => ({ ...t, amount: typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100, type: t.type || 'income' })).filter((t: any) => t.type === 'income');
+  const income = txSnap.docs.map((d: any) => d.data() || {}).map((t: any) => ({ ...t, amount: typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100, type: t.type || 'income' }));   // refunds included: they carry take-backs
   const punches = pSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((p: any) => p.staffId === staffId);
   // Shared tips: their approved share for runs inside the period.
   let tips: number | undefined;

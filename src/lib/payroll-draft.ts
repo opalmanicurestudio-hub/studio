@@ -109,7 +109,7 @@ export async function buildPayrollDraft(
   const lines: DraftLine[] = staff.map((member: any) => {
     const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income');
     const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
-    const l = periodPay({ member, from: periodStart, to: periodEnd, incomeTxns: allIncome, services, tenant, sessions, apptStaff, tips });
+    const l = periodPay({ member, from: periodStart, to: periodEnd, incomeTxns: txns,   /* all of the period's lines: refunds carry take-backs */ services, tenant, sessions, apptStaff, tips });
     const f = payrollFields(l);
     return {
       staffId: member.id,

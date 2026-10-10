@@ -9,6 +9,15 @@
 // A visit covered by a membership or package records $0 but carries `commissionBase` (the service's normal price), so
 // the provider earns what a paying client's visit would have paid them.
 // Sales recorded before services were stamped on them use 2–4 via the sale's serviceId when there is one, else 4.
+//
+// What the rate is paid ON (the "base"), all stamped on the sale at checkout:
+//   • the price charged — or, when the business pays commission on what the client actually paid, the price after
+//     discounts (`commissionBase`); a membership / package visit counts at the normal price (`commissionBase`);
+//   • less a product charge (`productCharge`) when the business takes one before commission ($5 a service, or 10%);
+//   • a shared service (`splitWith: { staffId, pct }`) gives the assistant `pct` of the base and the provider the rest.
+// A refund that takes commission back carries `payReversal` on the refund line (lib/commission → payReversals).
+// Sales tiers (`staff.commissionTiers`, e.g. 45% once the period's services pass $3,000) add the difference on the part
+// above each level — see tierBonus.
 
 const pct = (v: any): number | null => { if (v === '' || v === null || v === undefined) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null; };
 
@@ -29,6 +38,41 @@ export function rateFor(staff: any, service: any, fallback = 40): number {
   return overrideRate(staff, service) ?? usualRate(staff, fallback);
 }
 
+/** The share of a sale's credit that belongs to this person (a shared service splits it; everyone else gets it all). */
+export function splitShare(t: any, staffId?: string): number {
+  const p = Number(t?.splitWith?.pct); if (!t?.splitWith?.staffId || !(p > 0 && p < 100)) return 1;
+  return t.splitWith.staffId === staffId ? p / 100 : 1 - p / 100;
+}
+
+/** What to take back from someone's pay for refunds in a period (refund lines carry `payReversals: [{ staffId, amount }]`). */
+export function payReversals(staff: any, txns: any[]): { total: number; count: number } {
+  let total = 0, count = 0;
+  for (const t of txns || []) {
+    const list = [...(Array.isArray(t?.payReversals) ? t.payReversals : []), ...(t?.payReversal ? [t.payReversal] : [])];
+    for (const r of list) { if (r?.staffId !== staff?.id) continue; const v = Number(r.amount) || 0; if (v > 0) { total += v; count++; } }
+  }
+  return { total: Math.round(total * 100) / 100, count };
+}
+
+/**
+ * Sales tiers: `staff.commissionTiers = [{ over: 3000, rate: 45 }, …]` — once a period's commission base (at their usual
+ * rate) passes `over`, the part above earns `rate` instead. Returns the extra on top of the usual commission.
+ */
+export function tierBonus(staff: any, txns: any[], services: any[] | Record<string, any>, fallback = 40): number {
+  const tiers = (Array.isArray(staff?.commissionTiers) ? staff.commissionTiers : []).map((x: any) => ({ over: Number(x?.over) || 0, rate: pct(x?.rate) })).filter((x: any) => x.over > 0 && x.rate !== null).sort((a: any, b: any) => a.over - b.over);
+  if (!tiers.length || !earnsCommission(staff)) return 0;
+  const usual = usualRate(staff, fallback); const byId: Record<string, any> = Array.isArray(services) ? Object.fromEntries(services.filter(Boolean).map((s: any) => [s.id, s])) : (services || {});
+  let base = 0;   // only sales earned at the usual rate count (a special rate for a service stays as it is)
+  for (const t of txns || []) {
+    if (!isServiceIncome(t) || t.staffId !== staff.id) continue;
+    const r = pct(t.commissionPct) ?? rateFor(staff, byId[t.serviceId] || { id: t.serviceId }, fallback); if (r !== usual) continue;
+    base += Math.max(0, (t.commissionBase != null ? Number(t.commissionBase) : amountOf(t)) - (Number(t.productCharge) || 0)) * splitShare(t, staff.id);
+  }
+  let extra = 0;
+  tiers.forEach((tier: any, i: number) => { const top = i + 1 < tiers.length ? tiers[i + 1].over : Infinity; const inBand = Math.max(0, Math.min(base, top) - tier.over); extra += inBand * ((tier.rate as number) - usual) / 100; });
+  return Math.round(Math.max(0, extra) * 100) / 100;
+}
+
 const isServiceIncome = (t: any) => (t?.type || 'income') === 'income' && t?.category === 'Service Revenue';
 const amountOf = (t: any) => (typeof t?.amount === 'number' ? t.amount : (Number(t?.amountCents) || 0) / 100);
 
@@ -42,27 +86,41 @@ export function serviceCommission(staff: any, txns: any[], services: any[] | Rec
   const byId: Record<string, any> = Array.isArray(services) ? Object.fromEntries(services.filter(Boolean).map((s: any) => [s.id, s])) : (services || {});
   const groups = new Map<string, CommissionLine>(); let total = 0, revenue = 0;
   for (const t of txns || []) {
-    if (!isServiceIncome(t) || (staff?.id && t.staffId && t.staffId !== staff.id)) continue;
+    if (!isServiceIncome(t)) continue;
+    const assisting = !!(staff?.id && t.splitWith?.staffId === staff.id && t.staffId !== staff.id);
+    if (staff?.id && t.staffId && t.staffId !== staff.id && !assisting) continue;
     const amt = amountOf(t); const svc = t.serviceId ? byId[t.serviceId] : null;
-    const rate = pct(t.commissionPct) ?? rateFor(staff, svc || { id: t.serviceId }, fallback);
-    const base = t.commissionBase != null && Number.isFinite(Number(t.commissionBase)) ? Number(t.commissionBase) : amt;   // covered visits: the normal price
-    const c = (base * rate) / 100; total += c; revenue += amt;
+    // The assistant earns at their own rate for the service; the provider at the rate stamped on the sale.
+    const rate = assisting ? rateFor(staff, svc || { id: t.serviceId }, fallback) : (pct(t.commissionPct) ?? rateFor(staff, svc || { id: t.serviceId }, fallback));
+    const share = splitShare(t, staff?.id);
+    const base = Math.max(0, (t.commissionBase != null && Number.isFinite(Number(t.commissionBase)) ? Number(t.commissionBase) : amt) - (Number(t.productCharge) || 0)) * share;
+    const c = (base * rate) / 100; total += c; revenue += amt * share;
     const key = `${t.serviceId || '-'}|${rate}`; const g = groups.get(key) || { serviceId: t.serviceId || null, name: svc?.name || (t.serviceId ? 'Service' : 'Services'), revenue: 0, rate, commission: 0, count: 0, base: 0, covered: 0 };
-    g.revenue += amt; g.commission += c; g.count = (g.count || 0) + 1; g.base = (g.base || 0) + base; if (t.commissionBase != null && amt === 0) g.covered = (g.covered || 0) + 1; groups.set(key, g);
+    g.revenue += amt * share; g.commission += c; if (assisting) g.name = `${g.name.replace(/ \(assisting\)$/, '')} (assisting)`; g.count = (g.count || 0) + 1; g.base = (g.base || 0) + base; if (t.commissionBase != null && amt === 0) g.covered = (g.covered || 0) + 1; groups.set(key, g);
   }
   const lines = [...groups.values()].map((g) => ({ ...g, revenue: Math.round(g.revenue * 100) / 100, base: Math.round((g.base || 0) * 100) / 100, commission: Math.round(g.commission * 100) / 100 })).sort((a, b) => b.commission - a.commission);
   return { total, revenue, lines };
 }
 
 /** What to stamp on a service sale at checkout: the service, the commission rate it earned, the provider's per service pay. */
-export function saleStamp(staff: any, service: any, opts: { minutes?: number; coveredAt?: number | null } = {}): { serviceId?: string; commissionPct?: number; commissionBase?: number; providerPay?: number } {
-  const out: { serviceId?: string; commissionPct?: number; commissionBase?: number; providerPay?: number } = {};
+export function saleStamp(staff: any, service: any, opts: { minutes?: number; coveredAt?: number | null; price?: number; tenant?: any; discountShare?: number } = {}): { serviceId?: string; commissionPct?: number; commissionBase?: number; providerPay?: number; productCharge?: number } {
+  const out: { serviceId?: string; commissionPct?: number; commissionBase?: number; providerPay?: number; productCharge?: number } = {};
   if (service?.id) out.serviceId = String(service.id);
   // Every commission sale carries the rate it earned — a raise or a new rate later never re-prices sales already made.
   if (earnsCommission(staff)) out.commissionPct = overrideRate(staff, service) ?? usualRate(staff, 40);
   if (opts.coveredAt != null && Number(opts.coveredAt) > 0) out.commissionBase = Math.round(Number(opts.coveredAt) * 100) / 100;
+  else if (earnsCommission(staff) && opts.tenant?.payRules?.commissionOn === 'paid' && Number(opts.discountShare) > 0 && Number(opts.price) > 0)
+    out.commissionBase = Math.round(Number(opts.price) * (1 - Math.min(1, Number(opts.discountShare))) * 100) / 100;   // commission on what the client actually paid
+  if (earnsCommission(staff)) { const pc = productChargeFor(service, opts.tenant, opts.coveredAt != null && Number(opts.coveredAt) > 0 ? Number(opts.coveredAt) : Number(opts.price) || 0); if (pc > 0) out.productCharge = pc; }
   if (paidPerService(staff)) out.providerPay = payForService(staff, service, opts.minutes);
   return out;
+}
+
+/** The product charge taken before commission: the service's own amount, else the business's rule ($ each or % of the price). */
+export function productChargeFor(service: any, tenant: any, price: number): number {
+  const own = Number(service?.productCharge); if (service?.productCharge !== '' && service?.productCharge != null && Number.isFinite(own) && own >= 0) return Math.round(Math.min(own, price || own) * 100) / 100;
+  const r = tenant?.payRules?.productCharge || {}; const v = Number(r.amount) || 0; if (!(v > 0)) return 0;
+  const c = r.mode === 'pct' ? (price * Math.min(100, v)) / 100 : v; return Math.round(Math.min(c, Math.max(0, price)) * 100) / 100;
 }
 
 // ── PER SERVICE PAY ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -129,4 +187,19 @@ export function payExtras(staff: any, txns: any[], tenant: any, apptStaff: Recor
     noShow += (amountOf(t) * share) / 100;
   }
   return { saleBonus: Math.round(saleBonus * 100) / 100, sales, noShow: Math.round(noShow * 100) / 100 };
+}
+
+/**
+ * When a service sale is refunded: what each person's pay gives back, in proportion to how much of it was refunded —
+ * the provider's commission (or per service pay) and an assistant's share. Empty when the business lets them keep it.
+ */
+export function reversalsFor(sale: any, refunded: number, staffList: any[], services: any[]): { staffId: string; amount: number }[] {
+  const amt = amountOf(sale); const frac = amt > 0 ? Math.min(1, Math.max(0, refunded / amt)) : 0; if (!(frac > 0)) return [];
+  const out: { staffId: string; amount: number }[] = [];
+  for (const id of [sale?.staffId, sale?.splitWith?.staffId].filter(Boolean)) {
+    const m = (staffList || []).find((s: any) => s.id === id); if (!m) continue;
+    const pay = earnsCommission(m) ? serviceCommission(m, [sale], services, 40).total : paidPerService(m) && id === sale.staffId ? perServicePay(m, [sale], services).total : 0;
+    const v = Math.round(pay * frac * 100) / 100; if (v > 0) out.push({ staffId: id, amount: v });
+  }
+  return out;
 }
