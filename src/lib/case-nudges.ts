@@ -1,6 +1,5 @@
-// src/lib/case-nudges.ts — MAKING IT RIGHT reminders, run with the every-few-minutes cron: a case past its reply time
-// with no reply (told once: the owner, or managers when nobody owns it), and a finished fix due its check-back (told
-// once: the owner). Safety cases with no 48-hour check-in by then are flagged to managers.
+// src/lib/case-nudges.ts — MAKING IT RIGHT reminders, run with the every-few-minutes cron — only the ones the business
+// has set: a reply time passed with no reply, a check-back date reached, a safety follow-up check-in due. Each is told once.
 const T = (t: string) => `tenants/${t}`;
 const MANAGERS = ['owner', 'admin', 'manager'];
 
@@ -19,8 +18,8 @@ export async function caseNudges(db: any, tenantId: string, tenant: any, nowMs =
     if (c.status === 'done' && c.followUpAt && Date.parse(c.followUpAt) < nowMs && !c.checkBackTold) {
       await tell(who, 'case_check_back', `Time to check back with ${c.clientName}: did we make it right?`, d.id); await d.ref.set({ checkBackTold: at }, { merge: true });
     }
-    if (c.safety && !c.incident?.checkIn48At && c.createdAt && Date.parse(c.createdAt) + 48 * 3600000 < nowMs && !c.checkInTold) {
-      await tell(mgrs, 'case_safety', `48-hour check-in due for ${c.clientName} (${c.reasonLabel}).`, d.id); await d.ref.set({ checkInTold: at }, { merge: true });
+    if (c.safety && c.checkInDueAt && !c.incident?.checkIn48At && Date.parse(c.checkInDueAt) < nowMs && !c.checkInTold) {
+      await tell(mgrs, 'case_safety', `Follow-up check-in due for ${c.clientName} (${c.reasonLabel}).`, d.id); await d.ref.set({ checkInTold: at }, { merge: true });
     }
   }
   return n;

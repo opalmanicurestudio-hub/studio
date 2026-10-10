@@ -4,10 +4,11 @@
 //   upload   { dataUrl }                                  → one photo or voice note, stored for this visit's case
 //   report   { reasonId, words, wants, photos, voice, lang } → opens a Making it right case (one per visit)
 //   confirm  { good, words }                              → "Did we make it right?"
+//   redo_times { others? } · book_redo { staffId, date, time } · redo_none { note }  → choosing or moving the free redo
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { feedbackVisit, feedbackInfo, feedbackPath } from '@/lib/visit-feedback';
-import { openCase, clientConfirm } from '@/lib/cases';
+import { openCase, clientConfirm, bookRedo, redoNone } from '@/lib/cases';
 import { uploadClaimPhotoFromDataUrl } from '@/lib/claim-photo-upload';
 export const dynamic = 'force-dynamic';
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -34,6 +35,16 @@ export async function POST(req: NextRequest) {
   if (b.action === 'confirm') {
     if (!info.case) return bad('Nothing to confirm yet.');
     return NextResponse.json(await clientConfirm(db, tenantId, info.case.id, b.good !== false, String(b.words || '')));
+  }
+  if (['redo_times', 'book_redo', 'redo_none'].includes(b.action)) {
+    if (!info.case?.redo) return bad('There’s no redo to book.');
+    if (!info.case.redo.canChange) return bad('This redo can’t be changed online — please message us.');
+    const c: any = (await db.doc(`tenants/${tenantId}/cases/${info.case.id}`).get()).data();
+    if (b.action === 'redo_times') { const { redoTimes } = await import('@/lib/redo-times'); const r = await redoTimes(db, tenantId, c, { others: !!b.others, from: b.from });
+      return NextResponse.json({ ok: r.ok, minutes: r.minutes, error: r.error, providers: r.providers.map((p) => ({ staffId: p.staffId, name: String(p.name).split(' ')[0], original: p.original, days: p.days })) }); }
+    if (b.action === 'redo_none') return NextResponse.json(await redoNone(db, tenantId, c, String(b.note || '')));
+    const r = await bookRedo(db, tenantId, c, { staffId: String(b.staffId || ''), date: String(b.date || ''), time: String(b.time || ''), by: c.clientName || 'Client', byClient: true });
+    return NextResponse.json(r, { status: r.ok ? 200 : 409 });
   }
   if (!info.open) return bad('This visit can’t take a report here any more — please call us.');
   if (info.case) return bad('We already have your report for this visit.');

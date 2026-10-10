@@ -37,7 +37,11 @@ export function presetKey(tenant: any): string {
 
 export type MirSettings = {
   preset: string; reasons: Reason[]; fixes: Record<FixKind, boolean>; redoWindowDays: number; serviceWindows: Record<string, number>;
-  deskLimitCents: number; deskRedos: number; providersCanOfferRedo: boolean; replyHours: number; followUpDays: number;
+  deskLimitCents: number; deskRedos: number; providersCanOfferRedo: boolean;
+  /** Only when the business sets them — no reply clock, check-back reminder or safety check-in otherwise. */
+  replyHours: number | null; followUpDays: number | null; safetyCheckInHours: number | null;
+  /** Redo booking: how far ahead to look for times, and how many times a client may move their redo themselves. */
+  redoLookDays: number; redoChanges: number;
   channels: { survey: boolean; visitLink: boolean; calls: boolean; staff: boolean };
   fairUse: { maxFixes: number; perMonths: number; requirePhotos: boolean; sameServiceOnly: boolean; originalProviderFirst: boolean; refundToOriginalCard: boolean; wearDays: number; wearDaysByService: Record<string, number>; clientConfirms: boolean };
   retentionYears: number; payRules: { redoProvider: 'none' | 'half' | 'normal'; originalProvider: 'keep' | 'pays' | 'split'; refund: 'take_back' | 'keep' };
@@ -46,12 +50,14 @@ export type MirSettings = {
 export function settingsOf(tenant: any): MirSettings {
   const key = presetKey(tenant); const P = PRESETS[key]; const s: any = tenant?.makingItRight || {};
   const num = (v: any, d: number) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d);
+  const opt = (v: any) => (v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
   return {
     preset: key, reasons: Array.isArray(s.reasons) && s.reasons.length ? s.reasons : P.reasons,
     fixes: { redo: true, refund: true, credit: true, replace: key === 'shop', addon: false, note: true, ...(s.fixes || {}) },
     redoWindowDays: num(s.redoWindowDays, P.window), serviceWindows: s.serviceWindows || {},
     deskLimitCents: num(s.deskLimitCents, 2500), deskRedos: num(s.deskRedos, 1), providersCanOfferRedo: s.providersCanOfferRedo !== false,
-    replyHours: num(s.replyHours, 24), followUpDays: num(s.followUpDays, 3),
+    replyHours: opt(s.replyHours), followUpDays: opt(s.followUpDays), safetyCheckInHours: opt(s.safetyCheckInHours),
+    redoLookDays: Math.min(21, Math.max(3, num(s.redoLookDays, 14))), redoChanges: Math.min(5, num(s.redoChanges, 1)),
     channels: { survey: true, visitLink: true, calls: true, staff: true, ...(s.channels || {}) },
     fairUse: { maxFixes: 2, perMonths: 6, requirePhotos: true, sameServiceOnly: true, originalProviderFirst: true, refundToOriginalCard: true, wearDays: P.wearDays, wearDaysByService: {}, clientConfirms: true, ...(s.fairUse || {}) },
     retentionYears: num(s.retentionYears, 7),
@@ -75,7 +81,7 @@ export function fairUseChecks(input: { settings: MirSettings; visit: { startTime
   const since = now - S.fairUse.perMonths * 30 * DAY; const recent = input.priorFixes.filter((f) => Date.parse(f.at) >= since).length;
   out.push({ ok: recent < S.fairUse.maxFixes, key: 'limit', title: recent === 0 ? `First case in ${S.fairUse.perMonths} months` : `${recent + 1}${recent === 0 ? 'st' : recent === 1 ? 'nd' : recent === 2 ? 'rd' : 'th'} fix in ${S.fairUse.perMonths} months`, detail: `Your limit is ${S.fairUse.maxFixes}` });
   if (S.fairUse.requirePhotos) out.push({ ok: input.photos > 0, key: 'photos', title: input.photos > 0 ? 'Photos sent' : 'No photos yet', detail: input.photos > 0 ? `${input.photos} photo${input.photos === 1 ? '' : 's'}` : 'Photos are needed for a free redo' });
-  if (input.wants === 'refund') out.push({ ok: false, key: 'refund', title: 'Asked for a refund', detail: 'Refunds over your limit need a manager' });
+  if (input.wants === 'refund') out.push({ ok: false, key: 'refund', title: 'Would like to talk about a refund', detail: 'A manager decides refunds over your limit' });
   if ((input.afterDiscount ?? 0) >= 2) out.push({ ok: false, key: 'discount', title: 'Complaints follow discounts', detail: `${input.afterDiscount} recent complaints were on discounted visits` });
   return out;
 }
@@ -89,5 +95,12 @@ export function canDecide(S: MirSettings, who: { isManager: boolean; role: strin
   if (fix.kind === 'refund' || fix.kind === 'credit') return (fix.amountCents || 0) <= S.deskLimitCents ? { ok: true } : { ok: false, why: `Over $${(S.deskLimitCents / 100).toFixed(0)} needs a manager.` };
   return { ok: true };
 }
+/** What the client said would help — shown to the client only for fixes this business offers. */
+export const WANTS: { id: 'fix' | 'refund' | 'talk'; client: string; team: string; needs?: FixKind }[] = [
+  { id: 'fix', client: 'Have it fixed', team: 'having it fixed', needs: 'redo' },
+  { id: 'refund', client: 'Talk about a refund', team: 'talking about a refund', needs: 'refund' },
+  { id: 'talk', client: 'Just letting you know', team: 'just letting us know' },
+];
+export const wantsFor = (S: MirSettings) => WANTS.filter((w) => !w.needs || S.fixes[w.needs]);
 export const STAGES = ['Heard', 'Owned', 'Fix chosen', 'Done', 'Checked back'] as const;
 export const stageIndex = (status: string) => ({ heard: 0, owned: 1, fix_chosen: 2, done: 3, checked_back: 4, closed: 5 } as any)[status] ?? 0;

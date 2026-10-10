@@ -61,7 +61,7 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
     via, words: String(b.words || '').trim().slice(0, 2000), wordsEn: b.wordsEn ? String(b.wordsEn).slice(0, 2000) : null, wordsLang: b.wordsLang ? String(b.wordsLang).slice(0, 12) : null, photos, voice: voiceOf(b.voice), statusPath: b.statusPath ? String(b.statusPath).slice(0, 300) : null, wants: ['fix', 'talk', 'refund'].includes(b.wants) ? b.wants : null,
     reportedBy: { id: actor.staffId, name: actor.name }, providerAction: via === 'staff' ? String(b.providerAction || '').slice(0, 40) || null : null,
     ownerId, ownerName: ownerId ? actor.name : null, status: ownerId ? 'owned' : 'heard', checks, needsManager: !!reason?.safety || checks.some((c) => !c.ok),
-    replyDueAt: new Date(Date.now() + S.replyHours * 3600000).toISOString(), fix: null, pending: null,
+    replyDueAt: S.replyHours ? new Date(Date.now() + S.replyHours * 3600000).toISOString() : null, checkInDueAt: reason?.safety && S.safetyCheckInHours ? new Date(Date.now() + S.safetyCheckInHours * 3600000).toISOString() : null, fix: null, pending: null,
     timeline: [line(actor.name, `Case opened (${({ call: 'phone call', staff: 'reported by the provider', desk: 'at the desk', survey: '“How was your visit?”', link: 'their visit link' } as any)[via]}): ${reason?.label || 'something else'}${b.words ? ` — “${String(b.words).slice(0, 200)}”` : ''}`),
       ...(ownerId ? [line(actor.name, `${actor.name} took ownership`)] : [])],
     incident: reason?.safety ? { started: now(), whatHappened: String(b.words || ''), present: [], statements: [], checkIn48At: null } : null,
@@ -88,6 +88,40 @@ async function textClient(db: any, tenantId: string, tenant: any, c: any, body: 
     const r = await sendTenantSms(db, tenantId, phone || '', `${body}${link}`, { email, subject: `About your visit` }, { kind: 'case_reply', recipientType: 'client', recipientId: c.clientId || null, recipientName: c.clientName || null, appointmentId: c.visit?.appointmentId || null });
     return !!r.ok;
   } catch { return false; }
+}
+
+/** Book (or move) the free redo at a time that's still open. A client may move it themselves up to the business's limit. */
+export async function bookRedo(db: any, tenantId: string, c: any, o: { staffId: string; date: string; time: string; by: string; byClient: boolean }): Promise<{ ok: true; id: string; when: string } | { ok: false; error: string }> {
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant); const tz = tenant.timezone || 'America/New_York';
+  const redo = c.fix?.redo || {}; const moving = !!c.fix?.redoAppointmentId;
+  if (o.byClient && moving && (Number(redo.changes) || 0) >= S.redoChanges) return { ok: false, error: 'This redo can’t be moved online again — please message us and we’ll sort it out.' };
+  if (!o.staffId) return { ok: false, error: 'Pick who’ll do the redo.' };
+  const { redoSlotFree } = await import('@/lib/redo-times'); const free = await redoSlotFree(db, tenantId, c, o.staffId, o.date, o.time);
+  if (!free.ok || !free.start) return { ok: false, error: free.error || 'That time isn’t open.' };
+  const prov: any = (await db.doc(`${T(tenantId)}/staff/${o.staffId}`).get()).data() || {};
+  const r = db.collection(`${T(tenantId)}/appointments`).doc(); const mins = free.minutes || 60;
+  await r.set({ id: r.id, clientId: c.clientId, clientName: c.clientName, serviceId: c.visit.serviceId, serviceName: `Redo: ${c.visit.serviceName || 'service'}`, staffId: o.staffId, staffName: prov.name || '',
+    startTime: free.start.toISOString(), endTime: new Date(free.start.getTime() + mins * 60000).toISOString(), duration: mins, price: 0, status: 'confirmed', isRedo: true, redoOf: c.visit.appointmentId, caseId: c.id,
+    source: 'making_it_right', bookedBy: o.byClient ? 'client' : 'team', createdAt: now(), notes: `Free redo — ${c.reasonLabel}${c.words ? `: “${String(c.words).slice(0, 140)}”` : ''}` });
+  if (moving) await db.doc(`${T(tenantId)}/appointments/${c.fix.redoAppointmentId}`).set({ status: 'cancelled', cancelReason: 'redo_moved', cancelledAt: now(), movedTo: r.id }, { merge: true }).catch(() => {});
+  const when = free.start.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
+  await db.doc(`${T(tenantId)}/cases/${c.id}`).set({ fix: { ...c.fix, redoAppointmentId: r.id, redo: { ...redo, state: 'booked', staffId: o.staffId, startTime: free.start.toISOString(), changes: (Number(redo.changes) || 0) + (o.byClient && moving ? 1 : 0), note: null } }, updatedAt: now(),
+    timeline: FieldValue.arrayUnion(line(o.by, `${moving ? 'Redo moved to' : 'Redo booked:'} ${when} with ${String(prov.name || '').split(' ')[0] || 'the provider'}${o.byClient ? ' (the client chose it)' : ''}`)) }, { merge: true });
+  const staff = await staffList(db, tenantId);
+  await tell(db, tenantId, [o.staffId, ...(o.byClient && c.ownerId ? [c.ownerId] : [])], 'case_redo', `${moving ? 'Redo moved' : 'Free redo booked'}: ${c.clientName}, ${when} — ${c.reasonLabel}.`, c.id);
+  if (moving && redo.staffId && redo.staffId !== o.staffId && staff.some((s: any) => s.id === redo.staffId)) await tell(db, tenantId, [redo.staffId], 'case_redo', `${c.clientName}’s redo moved to someone else.`, c.id);
+  return { ok: true, id: r.id, when };
+}
+
+/** The client can't make any of the times: tell whoever owns the case, with when suits them. */
+export async function redoNone(db: any, tenantId: string, c: any, note: string) {
+  const text = String(note || '').trim().slice(0, 500);
+  await db.doc(`${T(tenantId)}/cases/${c.id}`).set({ fix: { ...c.fix, redo: { ...(c.fix?.redo || {}), state: 'needs_time', note: text || null } }, updatedAt: now(),
+    timeline: FieldValue.arrayUnion(line(c.clientName || 'Client', `None of the redo times work${text ? ` — “${text}”` : ''}`)) }, { merge: true });
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const staff = await staffList(db, tenantId);
+  const to = c.ownerId ? [c.ownerId] : [...staff.filter((s: any) => MANAGERS.includes(String(s.role))).map((s: any) => s.id), tenant.userId];
+  await tell(db, tenantId, to, 'case_redo', `${c.clientName} can’t make any redo times${text ? `: “${text}”` : ''}. Book one with them.`, c.id);
+  return { ok: true as const };
 }
 
 /** The client answers "Did we make it right?" from their case page. Yes closes it; no reopens it for the owner. */
@@ -136,27 +170,32 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
         await tell(db, tenantId, mgrs.filter((x: string) => x !== actor.staffId), 'case_approval', `${c.clientName}: ${actor.name.split(' ')[0]} wants to give ${FIX_LABEL[kind].toLowerCase()}${amountCents ? ` (${money(amountCents)})` : ''} — needs your OK.`, c.id);
         return { ok: true as const, pending: true, why: (ok as any).why };
       }
-      let redoId: string | null = null;
-      if (kind === 'redo' && p.redo?.startTime && c.visit?.serviceId) {
-        const start = new Date(String(p.redo.startTime)); const mins = Math.max(15, Math.min(240, Number(p.redo.minutes) || 30));
-        if (!Number.isFinite(start.getTime())) return { ok: false as const, error: 'Pick a time for the redo.' };
-        const prov = staff.find((s: any) => s.id === (p.redo.staffId || c.visit.providerId));
-        const r = db.collection(`${T(tenantId)}/appointments`).doc(); redoId = r.id;
-        await r.set({ id: r.id, clientId: c.clientId, clientName: c.clientName, serviceId: c.visit.serviceId, serviceName: `Redo: ${c.visit.serviceName || 'service'}`, staffId: prov?.id || c.visit.providerId, staffName: prov?.name || c.visit.providerName,
-          startTime: start.toISOString(), endTime: new Date(start.getTime() + mins * 60000).toISOString(), duration: mins, price: 0, status: 'confirmed', isRedo: true, redoOf: c.visit.appointmentId, caseId: c.id, source: 'making_it_right', createdAt: now(), notes: `Free redo — ${c.reasonLabel}${c.words ? `: “${c.words.slice(0, 140)}”` : ''}` });
-      }
-      const fix = { kind, label: FIX_LABEL[kind], amountCents, redoAppointmentId: redoId, by: action === 'approve' ? c.pending?.askedBy : actor.name, approvedBy: action === 'approve' || actor.isManager ? actor.name : null, at: now(),
+      const provId = String(p.redo?.staffId || c.visit?.providerId || '');
+      const redo = kind === 'redo' ? { state: 'choosing', staffId: provId || null, minutes: Number(p.redo?.minutes) || null, changes: 0, note: null } : null;
+      const fix = { kind, label: FIX_LABEL[kind], amountCents, redoAppointmentId: null, redo, by: action === 'approve' ? c.pending?.askedBy : actor.name, approvedBy: action === 'approve' || actor.isManager ? actor.name : null, at: now(),
         todo: kind === 'refund' ? `Refund ${money(amountCents)} to the card${c.visit?.cardLast4 ? ` ending ${c.visit.cardLast4}` : ''} in Money` : kind === 'credit' ? `Add ${money(amountCents)} credit to ${c.clientName}’s account` : null };
       await push({ fix, pending: null, status: kind === 'note' ? 'done' : 'fix_chosen', ownerId: c.ownerId || actor.staffId, ownerName: c.ownerName || actor.name },
-        `${action === 'approve' ? `${actor.name} approved: ` : 'Fix chosen: '}${FIX_LABEL[kind]}${amountCents ? ` ${money(amountCents)}` : ''}${redoId ? ` — booked ${new Date(String(p.redo.startTime)).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || 'America/New_York' })}` : ''}`);
-      if (redoId && c.visit?.providerId) await tell(db, tenantId, [p.redo?.staffId || c.visit.providerId], 'case_redo', `Free redo booked for ${c.clientName} — ${c.reasonLabel}.`, c.id);
-      return { ok: true as const, redoId };
+        `${action === 'approve' ? `${actor.name} approved: ` : 'Fix chosen: '}${FIX_LABEL[kind]}${amountCents ? ` ${money(amountCents)}` : ''}`);
+      if (kind === 'redo') {
+        const fresh = { ...c, fix };
+        if (p.redo?.mode === 'book' && p.redo.date && p.redo.time) { const r = await bookRedo(db, tenantId, fresh, { staffId: provId, date: p.redo.date, time: p.redo.time, by: actor.name, byClient: false }); if (!r.ok) return { ok: true as const, warn: `Fix chosen, but the time didn’t book: ${r.error}` }; return { ok: true as const, redoId: r.id }; }
+        const sent = c.statusPath ? await textClient(db, tenantId, tenant, c, `We’d love to fix this for you at no charge. Pick a time that suits you:`) : false;
+        return { ok: true as const, offered: true, sent };
+      }
+      return { ok: true as const };
     }
+    case 'redo_times': { if (!desk && !isProvider) return { ok: false as const, error: 'You can’t see times for this case.' };
+      const { redoTimes } = await import('@/lib/redo-times'); const r = await redoTimes(db, tenantId, c, { staffId: b.staffId || undefined, from: b.from, others: !!b.others }); return r.ok ? { ...r, ok: true as const } : { ok: false as const, error: r.error || 'No times.' }; }
+    case 'redo_book': { if (!desk && !isProvider) return { ok: false as const, error: 'You can’t book this redo.' }; if (c.fix?.kind !== 'redo') return { ok: false as const, error: 'Choose a free redo first.' };
+      const r = await bookRedo(db, tenantId, c, { staffId: String(b.staffId || c.fix.redo?.staffId || c.visit?.providerId || ''), date: String(b.date || ''), time: String(b.time || ''), by: actor.name, byClient: false });
+      if (!r.ok) return { ok: false as const, error: r.error };
+      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `Your free redo is booked: ${r.when}.`);
+      return { ok: true as const, redoId: r.id }; }
     case 'done': if (!desk && !isProvider) return { ok: false as const, error: 'You can’t mark this done.' };
-      await push({ status: 'done', doneAt: now(), followUpAt: new Date(Date.now() + S.followUpDays * 86400000).toISOString() }, `Marked done${text ? `: ${text}` : ''}${c.fix?.todo ? ` (${c.fix.todo} — done)` : ''}`); return { ok: true as const };
+      await push({ status: 'done', doneAt: now(), followUpAt: S.followUpDays ? new Date(Date.now() + S.followUpDays * 86400000).toISOString() : null }, `Marked done${text ? `: ${text}` : ''}${c.fix?.todo ? ` (${c.fix.todo} — done)` : ''}`); return { ok: true as const };
     case 'checked_back': { if (!desk) return { ok: false as const, error: 'The desk or a manager records this.' }; const good = b.answer !== 'no';
       if (!good) { await push({ status: 'owned', reopenedAt: now() }, `Checked back: still not right${text ? ` — “${text}”` : ''}. Reopened.`); if (c.ownerId) await tell(db, tenantId, [c.ownerId], 'case_reopened', `${c.clientName} says it’s still not right. The case is open again.`, c.id); return { ok: true as const }; }
-      if (c.safety && !c.incident?.checkIn48At) return { ok: false as const, error: 'Record the 48-hour check-in first.' };
+      if (c.safety && c.checkInDueAt && !c.incident?.checkIn48At) return { ok: false as const, error: 'Record the follow-up check-in first.' };
       await push({ status: 'closed', checkedBackAt: now(), closedAt: now(), locked: true, closedBy: actor.name }, `Checked back: all good. Case closed by ${actor.name}.`); return { ok: true as const }; }
     case 'close': if (!actor.isManager && !desk) return { ok: false as const, error: 'The desk or a manager closes cases.' };
       if (c.safety && !actor.isManager) return { ok: false as const, error: 'A manager closes safety cases.' };
@@ -166,7 +205,7 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
         if (Array.isArray(i.present)) patch['incident.present'] = i.present.map(String).slice(0, 10);
         if (i.checkIn48) patch['incident.checkIn48At'] = now(), patch['incident.checkIn48Note'] = String(i.checkIn48Note || '').slice(0, 1000);
         if (i.signOff) patch['incident.signedOffBy'] = actor.name, patch['incident.signedOffAt'] = now();
-        await ref.update({ ...patch, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, i.checkIn48 ? `48-hour check-in: ${i.checkIn48Note || 'done'}` : i.signOff ? 'Signed off the incident report' : 'Updated the incident report')) }); return { ok: true as const }; }
+        await ref.update({ ...patch, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, i.checkIn48 ? `Follow-up check-in: ${i.checkIn48Note || 'done'}` : i.signOff ? 'Signed off the incident report' : 'Updated the incident report')) }); return { ok: true as const }; }
     case 'statement': if (!text) return { ok: false as const, error: 'Write your account.' };
       await ref.update({ 'incident.statements': FieldValue.arrayUnion({ by: actor.name, staffId: actor.staffId, text, at: now(), signed: true }), updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `${actor.name} gave a signed statement`)) }); return { ok: true as const };
     case 'addendum': if (!text) return { ok: false as const, error: 'Write the note.' };

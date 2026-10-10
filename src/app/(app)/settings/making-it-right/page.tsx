@@ -84,9 +84,18 @@ export default function MakingItRightSettings() {
         <Row label="Providers can offer a redo themselves" help="Only within the window, and only when the fair-use checks pass." inline><Toggle checked={s.providersCanOfferRedo} onChange={(v) => set({ providersCanOfferRedo: v })} label="Providers can offer a redo" disabled={!canEdit} /></Row>
       </Section>
 
-      <Section title="How fast" help="The case shows a clock until someone replies, and reminds the team to check back once the fix is done.">
-        <Row label="Reply to the client within" inline><Num value={s.replyHours} onChange={(n) => set({ replyHours: Math.max(1, n) })} suffix="hours" /></Row>
-        <Row label="Check back after the fix" inline><Num value={s.followUpDays} onChange={(n) => set({ followUpDays: Math.max(1, n) })} suffix="days" /></Row>
+      <Section title="Timing" help="Only if you want them. Nothing is timed unless you switch it on here.">
+        <Row label="Promise clients a reply time" help={s.replyHours ? 'Clients see it, the case shows a countdown, and the owner is reminded if it passes.' : 'Off — clients are told someone will be in touch.'} inline>
+          <span className="inline-flex items-center gap-3">{s.replyHours ? <Num value={s.replyHours} onChange={(n) => set({ replyHours: Math.max(1, n) })} suffix="hours" /> : null}<Toggle checked={!!s.replyHours} onChange={(v) => set({ replyHours: v ? 24 : null })} label="Promise a reply time" disabled={!canEdit} /></span></Row>
+        <Row label="Remind us to check back after a fix" help="The client’s page always asks “Did we make it right?” once a fix is done. This adds a reminder for the team." inline>
+          <span className="inline-flex items-center gap-3">{s.followUpDays ? <Num value={s.followUpDays} onChange={(n) => set({ followUpDays: Math.max(1, n) })} suffix="days" /> : null}<Toggle checked={!!s.followUpDays} onChange={(v) => set({ followUpDays: v ? 3 : null })} label="Check-back reminder" disabled={!canEdit} /></span></Row>
+        <Row label="Follow-up check-in after a safety case" help="When on, a manager is reminded to check on the client, and the case can’t close until it’s recorded." inline>
+          <span className="inline-flex items-center gap-3">{s.safetyCheckInHours ? <Num value={s.safetyCheckInHours} onChange={(n) => set({ safetyCheckInHours: Math.max(1, n) })} suffix="hours" /> : null}<Toggle checked={!!s.safetyCheckInHours} onChange={(v) => set({ safetyCheckInHours: v ? 48 : null })} label="Safety check-in" disabled={!canEdit} /></span></Row>
+      </Section>
+
+      <Section title="Booking the redo" help="Times come from the provider’s real calendar — their hours, days off and other bookings — for the same service at the same length as the original visit.">
+        <Row label="Show open times for the next" inline><Num value={s.redoLookDays} onChange={(n) => set({ redoLookDays: Math.min(21, Math.max(3, n)) })} suffix="days" /></Row>
+        <Row label="Times a client can move their redo themselves" help="After that, they message you to change it." inline><Num value={s.redoChanges} onChange={(n) => set({ redoChanges: Math.min(5, n) })} width="w-16" /></Row>
       </Section>
 
       <Section title="How complaints come in">

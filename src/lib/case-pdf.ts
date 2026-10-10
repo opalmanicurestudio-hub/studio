@@ -45,7 +45,7 @@ export async function casePdf(c: any, business: { name: string; accent: string; 
     section('Who was there'); para((i.present || []).join(', ') || [v.providerName, c.clientName].filter(Boolean).join(', '));
     section('Statements'); if (!(i.statements || []).length) para('No statements yet.', { color: MUTED });
     for (const s of i.statements || []) { para(`${s.by}, ${when(s.at, tz)}${s.signed ? ' (signed)' : ''}:`, { font: B, size: 9.5 }); para(`"${s.text}"`, { indent: 10, size: 9.5 }); y -= 4; }
-    section('48-hour check-in'); para(i.checkIn48At ? `${when(i.checkIn48At, tz)}: ${i.checkIn48Note || 'done'}` : 'Not done yet.', { color: i.checkIn48At ? INK : RED });
+    section('Follow-up check-in'); para(i.checkIn48At ? `${when(i.checkIn48At, tz)}: ${i.checkIn48Note || 'done'}` : c.checkInDueAt ? 'Not done yet.' : 'Not required by this business.', { color: i.checkIn48At || !c.checkInDueAt ? INK : RED });
     section('Sign-off'); need(40); y -= 18;
     page.drawLine({ start: { x: M, y }, end: { x: M + 220, y }, thickness: 0.8, color: INK }); page.drawLine({ start: { x: W - M - 220, y }, end: { x: W - M, y }, thickness: 0.8, color: INK });
     text(i.signedOffBy ? `Manager: ${i.signedOffBy}, ${day(i.signedOffAt, tz)}` : 'Manager sign-off (pending)', M, y - 12, { size: 8.5, color: MUTED }); text(`Provider: ${(i.statements || []).find((s: any) => s.by === v.providerName)?.by || v.providerName || '-'}`, W - M - 220, y - 12, { size: 8.5, color: MUTED }); y -= 28;

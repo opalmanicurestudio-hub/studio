@@ -5,7 +5,7 @@
 // when they wrote or spoke in another language). Once a case exists the same page shows where it is, the team's replies,
 // and "Did we make it right?". One case per visit; only finished visits; only within the business's window.
 import { createHmac } from 'crypto';
-import { settingsOf, FIX_LABEL } from '@/lib/making-it-right';
+import { settingsOf, FIX_LABEL, wantsFor } from '@/lib/making-it-right';
 import { brandAccent } from '@/lib/brand-accent';
 
 const T = (t: string) => `tenants/${t}`;
@@ -39,16 +39,19 @@ export async function feedbackInfo(db: any, tenantId: string, v: { id: string; a
     answered: a.feedback?.rating || null, reviewUrl: (tenant.clientNotify || {}).reviewUrl || tenant.reviewUrl || null,
     open: FINISHED.includes(String(a.status)) && daysSince <= MAX_DAYS && S.channels.survey !== false,
     reasons: S.reasons.filter((r) => r.on !== false).map((r) => ({ id: r.id, label: r.label, safety: !!r.safety })),
-    policy: { windowDays: window, withinWindow: daysSince <= window, photos: S.fairUse.requirePhotos, refundToCard: S.fairUse.refundToOriginalCard, replyHours: S.replyHours } };
+    wants: wantsFor(S).map((w) => ({ id: w.id, label: w.client })),
+    policy: { windowDays: window, withinWindow: daysSince <= window, photos: S.fairUse.requirePhotos, redo: !!S.fixes.redo, refund: !!S.fixes.refund, refundToCard: S.fairUse.refundToOriginalCard, replyHours: S.replyHours } };
   if (!c) return { ...base, case: null };
   const stage = c.locked ? 'closed' : c.status === 'done' ? 'check' : c.fix ? 'fixing' : 'heard';
   const due = c.replyDueAt ? new Date(c.replyDueAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: tz }) : '';
   let fixLine = '';
-  if (c.fix) { fixLine = c.fix.kind === 'redo' && c.fix.redoAppointmentId ? await (async () => { const r: any = (await db.doc(`${T(tenantId)}/appointments/${c.fix.redoAppointmentId}`).get()).data() || {};
+  const rd = c.fix?.kind === 'redo' ? (c.fix.redo || {}) : null;
+  const redo = rd ? { state: c.fix.redoAppointmentId ? 'booked' : rd.state || 'choosing', provider: firstOf(c.visit?.providerName), canChange: !c.locked && c.status !== 'done' && (!c.fix.redoAppointmentId || (Number(rd.changes) || 0) < S.redoChanges), note: rd.note || null } : null;
+  if (c.fix) { fixLine = c.fix.kind === 'redo' && !c.fix.redoAppointmentId ? (rd?.state === 'needs_time' ? 'A free redo — we’ll be in touch to find a time that works.' : 'A free redo — pick a time below.') : c.fix.kind === 'redo' && c.fix.redoAppointmentId ? await (async () => { const r: any = (await db.doc(`${T(tenantId)}/appointments/${c.fix.redoAppointmentId}`).get()).data() || {};
       return `A free redo${r.staffName ? ` with ${firstOf(r.staffName)}` : ''}${r.startTime ? `, ${new Date(r.startTime).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz })}` : ''}.`; })()
     : c.fix.kind === 'refund' ? `A refund of $${(c.fix.amountCents / 100).toFixed(2)} back to your card${c.visit?.cardLast4 ? ` ending ${c.visit.cardLast4}` : ''}. Banks usually take 5–10 days to show it.`
     : c.fix.kind === 'credit' ? `$${(c.fix.amountCents / 100).toFixed(2)} off your next visit.`
     : c.fix.kind === 'note' ? 'We’ve noted it and shared it with the team.' : `${FIX_LABEL[c.fix.kind as keyof typeof FIX_LABEL] || 'A fix'}.`; }
   return { ...base, case: { number: c.number, stage, owner: firstOf(c.ownerName), replyBy: !c.firstReplyAt ? due : '', fix: fixLine, safety: !!c.safety,
-    replies: (c.messages || []).map((m: any) => ({ by: firstOf(m.by), text: m.text, at: m.at })), confirmed: !!c.clientConfirmed, createdAt: c.createdAt, id: caseSnap.id } };
+    replies: (c.messages || []).map((m: any) => ({ by: firstOf(m.by), text: m.text, at: m.at })), confirmed: !!c.clientConfirmed, redo, createdAt: c.createdAt, id: caseSnap.id } };
 }

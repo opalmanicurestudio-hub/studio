@@ -11,7 +11,7 @@ import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
-import { settingsOf, FIX_LABEL, FIX_HINT, STAGES, stageIndex, type FixKind } from '@/lib/making-it-right';
+import { settingsOf, FIX_LABEL, FIX_HINT, STAGES, stageIndex, WANTS, wantsFor, type FixKind } from '@/lib/making-it-right';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f6', RED = '#b42318', PINK = '#fdecec', GREEN = '#1f6b3a';
 const ago = (iso: string) => { const m = Math.max(0, (Date.now() - Date.parse(iso)) / 60000); return m < 60 ? `${Math.round(m)} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
@@ -24,6 +24,28 @@ async function download(tenantId: string, id: string, kind: 'record' | 'incident
   const r = await fetch(`/api/cases/pdf?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(id)}&kind=${kind}`, { headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'That didn’t download — try again.'); }
   const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = `${kind === 'incident' ? 'incident' : 'case'}-${number}.pdf`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+
+const tl = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
+const dl = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+/** Open times for the redo — same service, same length, the provider's real calendar. Picks one; the caller books it. */
+function SlotPicker({ tenantId, caseId, onPick, busy, label }: { tenantId: string; caseId: string; onPick: (p: { staffId: string; date: string; time: string }) => void; busy: boolean; label: string }) {
+  const [others, setOthers] = React.useState(false); const [data, setData] = React.useState<any>(null); const [who, setWho] = React.useState(''); const [day, setDay] = React.useState(''); const [time, setTime] = React.useState('');
+  React.useEffect(() => { setData(null); payPost('/api/cases', { tenantId, id: caseId, action: 'redo_times', others }).then((d) => { setData(d); const p0 = (d.providers || []).find((p: any) => p.days.length); setWho(p0?.staffId || ''); setDay(p0?.days[0]?.date || ''); setTime(''); }); }, [tenantId, caseId, others]);
+  const P = data?.providers?.find((p: any) => p.staffId === who); const D = P?.days.find((d: any) => d.date === day); const list = (data?.providers || []).filter((p: any) => p.days.length);
+  return (
+    <div className="space-y-3 rounded-2xl p-3.5" style={{ background: SOFT }}>
+      {!data ? <p className="text-[14px]" style={{ color: MUTED }}>Finding open times…</p> : !list.length ? <p className="text-[14px]">{data.error || (others ? 'No one else has an opening soon.' : 'No openings soon with the original provider.')}</p> : <>
+        <div className="flex flex-wrap gap-2">{list.map((p: any) => <button key={p.staffId} type="button" onClick={() => { setWho(p.staffId); setDay(p.days[0].date); setTime(''); }} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={who === p.staffId ? { background: INK, color: '#fff' } : { background: '#fff' }}>{p.name}{p.original ? ' (did the visit)' : ''}</button>)}</div>
+        <div className="flex gap-1.5 overflow-x-auto pb-1">{(P?.days || []).map((d: any) => <button key={d.date} type="button" onClick={() => { setDay(d.date); setTime(''); }} className="h-10 shrink-0 rounded-xl px-3 text-[13.5px] font-semibold" style={day === d.date ? { background: INK, color: '#fff' } : { background: '#fff' }}>{dl(d.date)}</button>)}</div>
+        <div className="flex flex-wrap gap-1.5">{(D?.times || []).map((t: string) => <button key={t} type="button" onClick={() => setTime(t)} className="h-9 rounded-lg px-3 text-[13.5px] font-semibold" style={time === t ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` }}>{tl(t)}</button>)}</div>
+        {data.minutes ? <p className="text-[12.5px]" style={{ color: MUTED }}>{data.minutes} min — the same length as the original visit.</p> : null}</>}
+      <div className="flex flex-wrap items-center gap-3">
+        {time && <button type="button" disabled={busy} onClick={() => onPick({ staffId: who, date: day, time })} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>{busy ? 'Booking…' : `${label} ${dl(day)} at ${tl(time)}`}</button>}
+        <button type="button" onClick={() => setOthers(!others)} className="text-[13.5px] underline" style={{ color: MUTED }}>{others ? 'Back to the original provider' : 'Someone else'}</button>
+      </div>
+    </div>);
 }
 
 function StageRail({ status }: { status: string }) {
@@ -61,7 +83,7 @@ function NewCase({ firestore, tenantId, S, onDone }: { firestore: any; tenantId:
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>IN THEIR WORDS</p>
         <textarea value={words} onChange={(e) => setWords(e.target.value)} rows={3} placeholder="What they said, as close to their words as you can" className="w-full rounded-xl border p-3 text-[15px]" style={{ borderColor: LINE }} /></div>
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>WHAT ARE THEY HOPING FOR?</p>
-        <div className="flex flex-wrap gap-2">{[['fix', 'Get it fixed'], ['refund', 'Their money back'], ['talk', 'Just to be heard']].map(([k, l]) => <button key={k} type="button" onClick={() => setWants(wants === k ? '' : k)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={wants === k ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div></div>
+        <div className="flex flex-wrap gap-2">{wantsFor(S).map((w) => [w.id, w.client]).map(([k, l]) => <button key={k} type="button" onClick={() => setWants(wants === k ? '' : k)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={wants === k ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div></div>
       {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
       <button type="button" disabled={busy || (!reason && !words.trim()) || (!visit && !name.trim())} onClick={go} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Starting…' : 'Start the case'}</button>
     </div>);
@@ -69,9 +91,9 @@ function NewCase({ firestore, tenantId, S, onDone }: { firestore: any; tenantId:
 
 function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: string; S: any; me: string; isManager: boolean; tz: string }) {
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [ok, setOk] = React.useState('');
-  const [kind, setKind] = React.useState<FixKind | ''>(''); const [amt, setAmt] = React.useState(''); const [when, setWhen] = React.useState(''); const [mins, setMins] = React.useState('45');
+  const [kind, setKind] = React.useState<FixKind | ''>(''); const [amt, setAmt] = React.useState(''); const [redoMode, setRedoMode] = React.useState<'client' | 'book'>('client'); const [move, setMove] = React.useState(false);
   const [msg, setMsg] = React.useState(''); const [note, setNote] = React.useState(''); const [inc, setInc] = React.useState<any>({}); const [stmt, setStmt] = React.useState(''); const [cb, setCb] = React.useState('');
-  React.useEffect(() => { setKind(''); setAmt(''); setWhen(''); setErr(''); setOk(''); setInc({}); }, [c.id]);
+  React.useEffect(() => { setKind(''); setAmt(''); setRedoMode('client'); setMove(false); setErr(''); setOk(''); setInc({}); }, [c.id]);
   const act = async (action: string, extra: any = {}, done = 'Saved.') => { setBusy(true); setErr(''); setOk(''); const r = await payPost('/api/cases', { tenantId, id: c.id, action, ...extra }); setBusy(false); if (r.ok) { setOk(r.pending ? `Sent to a manager — ${r.why}` : action === 'message' && r.sent === false ? 'Saved on the case — we couldn’t text them, so call or message them too.' : done); return true; } setErr(r.error || 'That didn’t work.'); return false; };
   const v = c.visit || {}; const fixes = (Object.keys(FIX_LABEL) as FixKind[]).filter((k) => S.fixes[k]);
   const clock = !c.firstReplyAt && c.replyDueAt && c.status !== 'closed' ? left(c.replyDueAt) : null;
@@ -82,7 +104,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: str
   return (
     <div className="space-y-6">
       <header className="space-y-3">
-        {c.safety && <p className="rounded-xl px-3.5 py-2.5 text-[14px] font-bold" style={{ background: PINK, color: RED }}>Safety case — a manager owns this, and the incident report must be finished before it closes.</p>}
+        {c.safety && <p className="rounded-xl px-3.5 py-2.5 text-[14px] font-bold" style={{ background: PINK, color: RED }}>Safety case — a manager owns this and fills in the incident report.</p>}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><p className="text-[13px] font-semibold" style={{ color: MUTED }}>{c.number} · {VIA[c.via] || c.via} · {ago(c.createdAt)} ago</p>
             <h2 className="text-[26px] font-bold leading-tight tracking-tight">{c.clientName}</h2>
@@ -106,7 +128,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: str
         <Card title="WHAT THEY SAID">
           <p className="text-[16px] leading-snug">{c.words ? `“${c.words}”` : !c.voice ? <span style={{ color: MUTED }}>No words recorded.</span> : null}</p>
           {c.wordsEn && <p className="rounded-xl p-3 text-[14.5px]" style={{ background: SOFT }}><b>In English:</b> {c.wordsEn}</p>}
-          {c.wants && <p className="text-[14px]" style={{ color: MUTED }}>Hoping for: <b style={{ color: INK }}>{({ fix: 'getting it fixed', refund: 'their money back', talk: 'to be heard' } as any)[c.wants]}</b></p>}
+          {c.wants && <p className="text-[14px]" style={{ color: MUTED }}>Hoping for: <b style={{ color: INK }}>{WANTS.find((w) => w.id === c.wants)?.team}</b></p>}
           {(c.photos || []).length > 0 && <div className="flex gap-2 overflow-x-auto">{c.photos.map((u: string) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="Client photo" className="h-20 w-20 rounded-xl object-cover" /></a>)}</div>}
           {c.voice?.url && <div className="space-y-1.5"><p className="text-[13px] font-semibold" style={{ color: MUTED }}>Voice note{c.voice.seconds ? ` · ${c.voice.seconds}s` : ''}</p><audio controls src={c.voice.url} className="w-full" />
             {c.voice.transcript && <p className="text-[14.5px]">“{c.voice.transcript}”</p>}
@@ -138,16 +160,24 @@ function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: str
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{fixes.map((k) => <button key={k} type="button" onClick={() => setKind(k)} className="rounded-2xl border p-3 text-left" style={kind === k ? { borderColor: INK, background: INK, color: '#fff' } : { borderColor: LINE }}><span className="block text-[15px] font-bold">{FIX_LABEL[k]}</span><span className="block text-[12.5px] opacity-75">{FIX_HINT[k]}</span></button>)}</div>
         {(kind === 'refund' || kind === 'credit') && <label className="flex items-center gap-2 text-[15px]">Amount $<input type="number" inputMode="decimal" min={0} value={amt} onChange={(e) => setAmt(e.target.value)} placeholder={v.paid ? Number(v.paid).toFixed(2) : '0.00'} className="h-11 w-32 rounded-xl border px-3" style={{ borderColor: LINE }} />
           {kind === 'refund' && v.paid ? <span className="text-[13px]" style={{ color: MUTED }}>of ${Number(v.paid).toFixed(2)} paid</span> : null}</label>}
-        {kind === 'redo' && <div className="flex flex-wrap items-center gap-2 text-[15px]"><label className="flex items-center gap-2">When <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="h-11 rounded-xl border px-3" style={{ borderColor: LINE }} /></label>
-          <label className="flex items-center gap-2">for <input type="number" min={15} step={15} value={mins} onChange={(e) => setMins(e.target.value)} className="h-11 w-20 rounded-xl border px-3" style={{ borderColor: LINE }} /> min</label>
-          <span className="text-[13px]" style={{ color: MUTED }}>Leave the time empty to book it later. {S.fairUse.originalProviderFirst && v.providerName ? `Booked with ${v.providerName.split(' ')[0]}.` : ''}</span></div>}
-        {kind && <button type="button" disabled={busy || ((kind === 'refund' || kind === 'credit') && !(Number(amt) > 0))} onClick={async () => { if (await act('choose_fix', { kind, amountCents: Math.round((Number(amt) || 0) * 100), redo: kind === 'redo' && when ? { startTime: new Date(when).toISOString(), minutes: Number(mins) || 45 } : null }, 'Fix chosen.')) setKind(''); }} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : `Go with ${FIX_LABEL[kind].toLowerCase()}`}</button>}
+        {kind === 'redo' && <div className="space-y-2.5">
+          <div className="flex flex-wrap gap-2">{([['client', 'Let them pick a time'], ['book', 'Book it now']] as const).map(([m, l]) => <button key={m} type="button" onClick={() => setRedoMode(m)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={redoMode === m ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div>
+          <p className="text-[13px]" style={{ color: MUTED }}>{redoMode === 'client' ? `We text them a link to choose from ${v.providerName ? `${v.providerName.split(' ')[0]}’s` : 'the'} open times. If none work, they can see someone else or tell you when suits them.` : 'Already agreed a time with them? Pick it here.'}</p>
+          {redoMode === 'book' && <SlotPicker tenantId={tenantId} caseId={c.id} busy={busy} label="Book" onPick={async (pk) => { if (await act('choose_fix', { kind: 'redo', redo: { mode: 'book', ...pk } }, 'Redo booked.')) setKind(''); }} />}
+        </div>}
+        {kind && !(kind === 'redo' && redoMode === 'book') && <button type="button" disabled={busy || ((kind === 'refund' || kind === 'credit') && !(Number(amt) > 0))} onClick={async () => { if (await act('choose_fix', { kind, amountCents: Math.round((Number(amt) || 0) * 100), redo: kind === 'redo' ? { mode: 'client' } : null }, kind === 'redo' ? 'Free redo offered — they’ll pick a time.' : 'Fix chosen.')) setKind(''); }} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : kind === 'redo' ? 'Offer the free redo' : `Go with ${FIX_LABEL[kind].toLowerCase()}`}</button>}
       </Card>}
 
       {c.fix && <Card title="THE FIX">
         <p className="text-[16px]"><b>{c.fix.label}{c.fix.amountCents ? ` $${(c.fix.amountCents / 100).toFixed(2)}` : ''}</b> · chosen by {c.fix.by}{c.fix.approvedBy && c.fix.approvedBy !== c.fix.by ? `, approved by ${c.fix.approvedBy}` : ''}</p>
+        {c.fix.kind === 'redo' && (() => { const r = c.fix.redo || {}; const booked = !!c.fix.redoAppointmentId;
+          return <div className="space-y-2">
+            <p className="text-[14.5px]">{booked ? <>Booked: <b>{r.startTime ? fmt(r.startTime) : ''}</b>{r.changes ? ` · moved by the client ${r.changes}×` : ''}</> : r.state === 'needs_time' ? <><b style={{ color: RED }}>None of the times work for them.</b>{r.note ? ` They said: “${r.note}”` : ''}</> : 'Waiting for them to pick a time.'}</p>
+            {!c.locked && c.status === 'fix_chosen' && (move || (!booked && r.state === 'needs_time') ? <SlotPicker tenantId={tenantId} caseId={c.id} busy={busy} label={booked ? 'Move to' : 'Book'} onPick={async (pk) => { if (await act('redo_book', pk, booked ? 'Redo moved — we’ve texted them.' : 'Redo booked — we’ve texted them.')) setMove(false); }} />
+              : <button type="button" onClick={() => setMove(true)} className="text-[14px] font-semibold underline">{booked ? 'Move it' : 'Book it for them'}</button>)}
+          </div>; })()}
         {c.fix.todo && c.status === 'fix_chosen' && <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: '#fff7e6' }}>To do: {c.fix.todo}</p>}
-        {c.status === 'fix_chosen' && <button type="button" disabled={busy} onClick={() => act('done', {}, 'Marked done. We’ll remind you to check back.')} className={btn} style={{ background: INK, color: '#fff' }}>It’s done</button>}
+        {c.status === 'fix_chosen' && <button type="button" disabled={busy} onClick={() => act('done', {}, S.followUpDays ? 'Marked done. We’ll remind you to check back.' : 'Marked done. Their page now asks if we made it right.')} className={btn} style={{ background: INK, color: '#fff' }}>It’s done</button>}
         {c.status === 'done' && <div className="space-y-2"><p className="text-[14.5px]">Check back{c.followUpAt ? ` around ${new Date(c.followUpAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}: <b>did we make it right?</b></p>
           <input value={cb} onChange={(e) => setCb(e.target.value)} placeholder="What they said (optional)" className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} />
           <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => act('checked_back', { answer: 'yes', note: cb }, 'Closed. Nice work.')} className={btn} style={{ background: GREEN, color: '#fff' }}>Yes — close the case</button>
@@ -167,8 +197,8 @@ function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: str
           {!c.locked && <div className="flex gap-2"><input value={stmt} onChange={(e) => setStmt(e.target.value)} placeholder="Your account of what happened" className="h-11 flex-1 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><button type="button" disabled={busy || !stmt.trim()} onClick={async () => { if (await act('statement', { text: stmt }, 'Statement signed.')) setStmt(''); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Sign it</button></div>}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t pt-3" style={{ borderColor: LINE }}>
-          {c.incident?.checkIn48At ? <p className="text-[14.5px]" style={{ color: GREEN }}><b>48-hour check-in done</b> {fmt(c.incident.checkIn48At)}{c.incident.checkIn48Note ? ` — ${c.incident.checkIn48Note}` : ''}</p> :
-            isManager && !c.locked && <><input placeholder="48-hour check-in: how are they?" onChange={(e) => setInc({ ...inc, checkIn48Note: e.target.value })} className="h-11 flex-1 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><button type="button" disabled={busy} onClick={() => act('incident', { incident: { checkIn48: true, checkIn48Note: inc.checkIn48Note || '' } }, 'Check-in recorded.')} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Record check-in</button></>}
+          {c.incident?.checkIn48At ? <p className="text-[14.5px]" style={{ color: GREEN }}><b>Follow-up check-in done</b> {fmt(c.incident.checkIn48At)}{c.incident.checkIn48Note ? ` — ${c.incident.checkIn48Note}` : ''}</p> :
+            isManager && !c.locked && <><input placeholder="Follow-up check-in: how are they?" onChange={(e) => setInc({ ...inc, checkIn48Note: e.target.value })} className="h-11 flex-1 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><button type="button" disabled={busy} onClick={() => act('incident', { incident: { checkIn48: true, checkIn48Note: inc.checkIn48Note || '' } }, 'Check-in recorded.')} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Record check-in</button></>}
           {c.incident?.signedOffBy ? <p className="text-[14.5px]">Signed off by <b>{c.incident.signedOffBy}</b></p> : isManager && !c.locked && <button type="button" disabled={busy} onClick={() => act('incident', { incident: { signOff: true } }, 'Signed off.')} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Sign off the report</button>}
         </div>
       </Card>}
