@@ -32,7 +32,7 @@ export function rateFor(staff: any, service: any, fallback = 40): number {
 const isServiceIncome = (t: any) => (t?.type || 'income') === 'income' && t?.category === 'Service Revenue';
 const amountOf = (t: any) => (typeof t?.amount === 'number' ? t.amount : (Number(t?.amountCents) || 0) / 100);
 
-export type CommissionLine = { serviceId: string | null; name: string; revenue: number; rate: number; commission: number };
+export type CommissionLine = { serviceId: string | null; name: string; revenue: number; rate: number; commission: number; count?: number; base?: number; covered?: number };
 
 /**
  * Commission on a person's service sales. `txns` may include other people's and other categories — only this person's
@@ -47,10 +47,10 @@ export function serviceCommission(staff: any, txns: any[], services: any[] | Rec
     const rate = pct(t.commissionPct) ?? rateFor(staff, svc || { id: t.serviceId }, fallback);
     const base = t.commissionBase != null && Number.isFinite(Number(t.commissionBase)) ? Number(t.commissionBase) : amt;   // covered visits: the normal price
     const c = (base * rate) / 100; total += c; revenue += amt;
-    const key = `${t.serviceId || '-'}|${rate}`; const g = groups.get(key) || { serviceId: t.serviceId || null, name: svc?.name || (t.serviceId ? 'Service' : 'Services'), revenue: 0, rate, commission: 0 };
-    g.revenue += amt; g.commission += c; groups.set(key, g);
+    const key = `${t.serviceId || '-'}|${rate}`; const g = groups.get(key) || { serviceId: t.serviceId || null, name: svc?.name || (t.serviceId ? 'Service' : 'Services'), revenue: 0, rate, commission: 0, count: 0, base: 0, covered: 0 };
+    g.revenue += amt; g.commission += c; g.count = (g.count || 0) + 1; g.base = (g.base || 0) + base; if (t.commissionBase != null && amt === 0) g.covered = (g.covered || 0) + 1; groups.set(key, g);
   }
-  const lines = [...groups.values()].map((g) => ({ ...g, revenue: Math.round(g.revenue * 100) / 100, commission: Math.round(g.commission * 100) / 100 })).sort((a, b) => b.commission - a.commission);
+  const lines = [...groups.values()].map((g) => ({ ...g, revenue: Math.round(g.revenue * 100) / 100, base: Math.round((g.base || 0) * 100) / 100, commission: Math.round(g.commission * 100) / 100 })).sort((a, b) => b.commission - a.commission);
   return { total, revenue, lines };
 }
 

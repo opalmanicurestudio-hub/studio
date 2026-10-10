@@ -865,6 +865,7 @@ function SettingsPageImpl() {
                     <Choice label="If location can’t be checked" value={(tenantData.geoFenceFailBehavior as string) || 'warn'} options={[{ value: 'warn', label: 'Let them in, flag it' }, { value: 'block', label: 'Don’t let them in' }]} onChange={(v) => setTenantData((prev) => ({ ...prev, geoFenceFailBehavior: v } as any))} />
                   </Row>
                 </>)}
+                <Row label="Remind people to clock in and out" help="A nudge 10 minutes into a published shift with no clock-in, managers told at 30 minutes, and a reminder to clock out 30 minutes after the shift ends." inline><Toggle checked={(tenantData as any).clockReminders !== false} onChange={(v) => setTenantData((prev: any) => ({ ...prev, clockReminders: v }))} label="Remind people to clock in and out" /></Row>
                 <Row label="Staff can clock in early by" help="Before their published shift starts. Earlier than this and the clock waits. Leave blank to allow any time (early clock-ins are still noted)." inline><Num field="earlyClockInMinutes" suffix="minutes" max={120} /></Row>
               </Section>
               <More help="Stricter rules, overtime and breaks — most studios leave these as they are.">

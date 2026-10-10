@@ -7,12 +7,12 @@
 // 'state' answers where the person is (clocked in, on a break) without recording anything, so screens show the right
 // buttons. Errors come back in plain words and nothing is written.
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { requestActor } from '@/lib/request-actor';
 import { findStaffByPin, pinLocked, recordPinAttempt } from '@/lib/pin';
 import { recordPunch, punchState, type PunchAction } from '@/lib/punch';
 export const dynamic = 'force-dynamic';
 
-const MANAGERS = ['owner', 'admin', 'manager'];
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
@@ -29,21 +29,12 @@ export async function POST(req: NextRequest) {
     if (b.staffId && String(b.staffId) !== hit.id) return NextResponse.json({ ok: false, error: 'That PIN belongs to someone else.' }, { status: 401 });
     staffId = hit.id; actor = { id: hit.id, name: hit.name };
   } else {
-    const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
-    if (!token) return NextResponse.json({ ok: false, error: 'Enter your PIN.' }, { status: 401 });
-    let uid = '';
-    try { uid = (await getAdminAuth().verifyIdToken(token)).uid; } catch { return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 }); }
-    // The staff portal signs in as portal:{tenant}:{staffId}; the app signs in with the person's own account.
-    const portal = /^portal:([^:]+):(.+)$/.exec(uid);
-    const selfId = portal ? (portal[1] === tenantId ? portal[2] : '') : uid;
-    if (!selfId) return NextResponse.json({ ok: false, error: 'That sign-in is for another business.' }, { status: 403 });
-    const [tSnap, meSnap] = await Promise.all([db.doc(`tenants/${tenantId}`).get(), db.doc(`tenants/${tenantId}/staff/${selfId}`).get()]);
-    const me: any = meSnap.exists ? meSnap.data() : null; const owner = (tSnap.data() as any)?.userId === uid;
-    if (!me && !owner) return NextResponse.json({ ok: false, error: 'You’re not on this team.' }, { status: 403 });
-    const target = String(b.staffId || selfId);
-    if (target !== selfId && !(owner || MANAGERS.includes(String(me?.role || '')))) return NextResponse.json({ ok: false, error: 'Only a manager can clock someone else in or out.' }, { status: 403 });
-    staffId = target; actor = { id: selfId, name: me?.name || (owner ? 'The owner' : undefined) };
-    if (portal) via = 'portal'; else if (target !== selfId) via = 'manager';
+    const who = await requestActor(db, req.headers.get('authorization'), tenantId);
+    if (!who.ok) return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+    const target = String(b.staffId || who.actor.staffId);
+    if (target !== who.actor.staffId && !who.actor.isManager) return NextResponse.json({ ok: false, error: 'Only a manager can clock someone else in or out.' }, { status: 403 });
+    staffId = target; actor = { id: who.actor.staffId, name: who.actor.name };
+    if (who.actor.portal) via = 'portal'; else if (target !== who.actor.staffId) via = 'manager';
   }
 
   if (action === 'state') {

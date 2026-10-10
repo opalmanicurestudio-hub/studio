@@ -59,6 +59,8 @@ const timeToMinutes = (t: string) => {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
 };
+/** A shift's length in minutes — an overnight shift (10 pm – 2 am) runs past midnight. */
+const spanMinutes = (start: string, end: string) => { const d = timeToMinutes(end) - timeToMinutes(start); return d <= 0 ? d + 24 * 60 : d; };
 const minutesToTime = (m: number) => {
   const h = Math.floor(m / 60) % 24;
   const min = m % 60;
@@ -77,6 +79,7 @@ type Shift = {
   startTime: string;
   endTime: string;
   breakMinutes: number;
+  breakStart?: string;   // optional time the break starts — booking keeps it free
   status: 'draft' | 'published' | 'confirmed' | 'cancelled';
   notes?: string;
   estimatedPay?: number;
@@ -132,6 +135,7 @@ export default function SchedulePage() {
   const [shiftStart, setShiftStart] = useState('09:00');
   const [shiftEnd, setShiftEnd] = useState('17:00');
   const [shiftBreak, setShiftBreak] = useState(30);
+  const [shiftBreakStart, setShiftBreakStart] = useState('');
   const [shiftNotes, setShiftNotes] = useState('');
 
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
@@ -170,7 +174,7 @@ export default function SchedulePage() {
     staff.forEach(member => {
       const memberShifts = (shifts || []).filter(s => s.staffId === member.id && s.status !== 'cancelled');
       const totalMins = memberShifts.reduce((sum, s) => {
-        const worked = timeToMinutes(s.endTime) - timeToMinutes(s.startTime) - (s.breakMinutes || 0);
+        const worked = spanMinutes(s.startTime, s.endTime) - (s.breakMinutes || 0);
         return sum + Math.max(0, worked);
       }, 0);
       const totalHours = totalMins / 60;
@@ -216,7 +220,7 @@ export default function SchedulePage() {
     const byStaff = staff.map(member => {
       const memberShifts = (shifts || []).filter(s => s.staffId === member.id && s.status !== 'cancelled');
       const totalMins = memberShifts.reduce((sum, s) => {
-        return sum + Math.max(0, timeToMinutes(s.endTime) - timeToMinutes(s.startTime) - (s.breakMinutes || 0));
+        return sum + Math.max(0, spanMinutes(s.startTime, s.endTime) - (s.breakMinutes || 0));
       }, 0);
       const totalHours = totalMins / 60;
       let pay = 0;
@@ -248,7 +252,7 @@ export default function SchedulePage() {
     setShiftDate(day ? format(day, 'yyyy-MM-dd') : format(weekStart, 'yyyy-MM-dd'));
     setShiftStart('09:00');
     setShiftEnd('17:00');
-    setShiftBreak(30);
+    setShiftBreak(30); setShiftBreakStart('');
     setShiftNotes('');
     setIsAddShiftOpen(true);
   };
@@ -259,7 +263,7 @@ export default function SchedulePage() {
     setShiftDate(shift.date);
     setShiftStart(shift.startTime);
     setShiftEnd(shift.endTime);
-    setShiftBreak(shift.breakMinutes || 0);
+    setShiftBreak(shift.breakMinutes || 0); setShiftBreakStart((shift as any).breakStart || '');
     setShiftNotes(shift.notes || '');
     setIsAddShiftOpen(true);
   };
@@ -268,7 +272,7 @@ export default function SchedulePage() {
     if (!firestore || !tenantId || !shiftStaffId || !shiftDate) return;
     setIsProcessing(true);
 
-    const worked = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak;
+    const worked = spanMinutes(shiftStart, shiftEnd) - shiftBreak;
     const member = (staff || []).find(s => s.id === shiftStaffId);
     let estimatedPay = 0;
     if (member?.payStructure === 'hourly' && member.hourlyRate) {
@@ -282,6 +286,7 @@ export default function SchedulePage() {
       startTime: shiftStart,
       endTime: shiftEnd,
       breakMinutes: shiftBreak,
+      ...(shiftBreak > 0 && shiftBreakStart ? { breakStart: shiftBreakStart } : {}),
       status: editingShift?.status || 'draft',
       notes: shiftNotes || undefined,
       estimatedPay,
@@ -429,11 +434,11 @@ export default function SchedulePage() {
           shiftEnd = minutesToTime(Math.ceil(endMins / 30) * 30);
         }
 
-        if (timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) < 240) {
+        if (spanMinutes(shiftStart, shiftEnd) < 240) {
           shiftEnd = minutesToTime(Math.min(timeToMinutes(biz.close), timeToMinutes(shiftStart) + 480));
         }
 
-        const shiftDurationHours = (timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - 30) / 60;
+        const shiftDurationHours = (spanMinutes(shiftStart, shiftEnd) - 30) / 60;
         let staffAssignedToday = 0;
 
         for (const member of sortedStaff) {
@@ -446,7 +451,7 @@ export default function SchedulePage() {
           }
           if (suggestions.some(s => s.staffId === member.id && s.date === dayStr)) continue;
 
-          const worked = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - 30;
+          const worked = spanMinutes(shiftStart, shiftEnd) - 30;
           const estimatedPay = member.payStructure === 'hourly' && member.hourlyRate
             ? (worked / 60) * member.hourlyRate : 0;
 
@@ -678,7 +683,7 @@ export default function SchedulePage() {
                                   {formatTime(shift.startTime)} -- {formatTime(shift.endTime)}
                                 </p>
                                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
-                                  {((timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime) - (shift.breakMinutes || 0)) / 60).toFixed(1)}h
+                                  {((spanMinutes(shift.startTime, shift.endTime) - (shift.breakMinutes || 0)) / 60).toFixed(1)}h
                                 </p>
                                 <div className="flex items-center justify-between mt-0.5">
                                   <Badge className={cn("h-3.5 px-1 text-[7px] font-black uppercase border-none", STATUS_STYLES[shift.status])}>
@@ -747,7 +752,7 @@ export default function SchedulePage() {
                 <div className="p-3 space-y-2">
                   {dayShifts.length > 0 ? dayShifts.map(shift => {
                     const member = (staff || []).find(s => s.id === shift.staffId);
-                    const hours = ((timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime) - (shift.breakMinutes || 0)) / 60);
+                    const hours = ((spanMinutes(shift.startTime, shift.endTime) - (shift.breakMinutes || 0)) / 60);
                     return (
                       <div key={shift.id} className={cn("flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer", shift.status === 'draft' ? "bg-slate-50 border-slate-200" : shift.status === 'published' ? "bg-primary/5 border-primary/20" : "bg-green-50 border-green-200")} onClick={() => canManage && openEditShift(shift)}>
                         <Avatar className="w-8 h-8 rounded-xl border shrink-0">
@@ -875,19 +880,26 @@ export default function SchedulePage() {
                   </SelectContent>
                 </Select>
               </div>
+              {shiftBreak > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-[13px] font-semibold text-muted-foreground">Break starts at (optional)</Label>
+                  <Input type="time" value={shiftBreakStart} onChange={(e) => setShiftBreakStart(e.target.value)} className="h-12 rounded-2xl border-2" />
+                  <p className="text-[12px] text-muted-foreground">With a time, clients can’t book them during the break.</p>
+                </div>
+              )}
 
               {shiftStart && shiftEnd && (
                 <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center">
                   <div>
                     <p className="text-[9px] font-black uppercase text-primary/60">Total Shift</p>
                     <p className="font-black text-xl font-mono text-primary">
-                      {((timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak) / 60).toFixed(1)}h
+                      {((spanMinutes(shiftStart, shiftEnd) - shiftBreak) / 60).toFixed(1)}h
                     </p>
                   </div>
                   {shiftStaffId && (() => {
                     const m = (staff || []).find(s => s.id === shiftStaffId);
                     if (!m?.hourlyRate) return null;
-                    const pay = ((timeToMinutes(shiftEnd) - timeToMinutes(shiftStart) - shiftBreak) / 60) * m.hourlyRate;
+                    const pay = ((spanMinutes(shiftStart, shiftEnd) - shiftBreak) / 60) * m.hourlyRate;
                     return (
                       <div className="text-right">
                         <p className="text-[9px] font-black uppercase text-primary/60">Est. Pay</p>
@@ -930,7 +942,7 @@ export default function SchedulePage() {
             <div className="space-y-3">
               {aiSuggestions.map((shift, idx) => {
                 const member = (staff || []).find(s => s.id === shift.staffId);
-                const hours = (timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime) - (shift.breakMinutes || 0)) / 60;
+                const hours = (spanMinutes(shift.startTime, shift.endTime) - (shift.breakMinutes || 0)) / 60;
                 return (
                   <div key={idx} className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-white shadow-sm">
                     <Avatar className="w-10 h-10 rounded-xl border shrink-0">

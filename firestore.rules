@@ -368,10 +368,20 @@ service cloud.firestore {
         || (isPortalMember(tenantId) && resource.data.staffId == request.auth.token.staffId);
       allow create, update, delete: if isManager(tenantId);
     }
-    // SHIFTS: the team reads and plans them as before; a staff-portal sign-in reads its own.
+    // SHIFTS: the team reads and plans them as before. A staff-portal sign-in (not a renter) reads the team's schedule
+    // so swaps and cover can be offered; changes go through the server (/api/shifts/request).
     match /tenants/{tenantId}/shifts/{shiftId} {
       allow read: if isStaff(tenantId)
-        || (isPortalMember(tenantId) && resource.data.staffId == request.auth.token.staffId);
+        || (isPortalMember(tenantId) && request.auth.token.isRenter != true);
+      allow write: if isStaff(tenantId);
+    }
+    // SHIFT REQUESTS: written by the server (portal) or the team (app). A portal sign-in reads its own, the swaps asked
+    // of it, and — for managers — everyone's.
+    match /tenants/{tenantId}/shiftRequests/{requestId} {
+      allow read: if isStaff(tenantId)
+        || (isPortalMember(tenantId) && (resource.data.staffId == request.auth.token.staffId
+             || resource.data.get('swapWithStaffId', '') == request.auth.token.staffId
+             || request.auth.token.role in ['owner', 'admin', 'manager']));
       allow write: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/{collection}/{rest=**} {
@@ -387,7 +397,7 @@ service cloud.firestore {
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
           'depositCredits',
           'inventoryExceptions',
-          'activityLogs', 'shifts',
+          'activityLogs', 'shifts', 'shiftRequests',
           'kits', 'linens', 'kitTypes', 'linenBundles', 'sterilisationCycles',
           'assetUnits',
           'assetScanEvents',

@@ -1067,7 +1067,9 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
     }
 
     const rawOpen = parseClock(hours.start, dateObj);
-    const rawClose = parseClock(hours.end, dateObj);
+    let rawClose = parseClock(hours.end, dateObj);
+    // An overnight SHIFT (10 pm – 2 am) ends the next day; weekly hours never wrap.
+    if (shift && rawOpen && rawClose && rawClose <= rawOpen) rawClose = addMinutes(rawClose, 24 * 60);
     if (!rawOpen || !rawClose || rawClose <= rawOpen) {
       warnings.push(`Unreadable hours for ${staffMember?.name || staffMember.id} on ${dayName}.`);
       continue;
@@ -1127,6 +1129,13 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
       if (block?.staffId !== staffMember.id) continue;
       const w = staffBlockWindow(block);
       if (w) busy.push(w);
+    }
+
+    // A shift's break, when the schedule gives it a time (breakStart + breakMinutes), isn't bookable.
+    if (shift?.breakStart && num(shift?.breakMinutes, 0) > 0) {
+      let bs = parseClock(String(shift.breakStart), dateObj);
+      if (bs && bs < open) bs = addMinutes(bs, 24 * 60);   // a break after midnight on an overnight shift
+      if (bs) busy.push({ start: bs, end: addMinutes(bs, num(shift.breakMinutes, 0)) });
     }
 
     busy.sort((a, b) => a.start.getTime() - b.start.getTime());

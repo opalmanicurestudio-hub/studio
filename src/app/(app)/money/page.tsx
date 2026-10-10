@@ -1,5 +1,6 @@
 'use client';
 
+import { PayStatement } from '@/components/staff/PayStatement';
 import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras } from '@/lib/commission';
 import { periodPay, payrollFields } from '@/lib/pay-period';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
@@ -1550,6 +1551,7 @@ const PaydayTab = () => {
 
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
   const [cadence, setCadence] = useState<Cadence>('bi-weekly');
+  const [statementFor, setStatementFor] = useState<string | null>(null);   // whose pay statement is open
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [dateRange, setDateRange] = useState<{ from: Date, to: Date }>(() => {
@@ -2220,8 +2222,8 @@ const PaydayTab = () => {
                                 <div className='p-4 md:p-5 bg-muted/50 rounded-2xl border-2 space-y-4 shadow-inner'>
                                     <h4 className='font-black text-[9px] md:text-[10px] uppercase tracking-widest flex items-center gap-2 text-primary'><Users className='w-3 h-3'/>Staff Earnings</h4>
                                     <div className="space-y-2">
-                                        {staffObligations.length > 0 ? staffObligations.map((owed, idx) => (
-                                            <div key={idx} className='flex items-center justify-between bg-background p-2.5 rounded-xl border shadow-sm'>
+                                        {staffObligations.length > 0 ? staffObligations.map((owed, idx) => (<React.Fragment key={idx}>
+                                            <div className='flex items-center justify-between bg-background p-2.5 rounded-xl border shadow-sm'>
                                                 <div className="flex items-center gap-2 min-w-0">
                                                     <Avatar className="h-7 w-7 rounded-lg border">
                                                         <AvatarImage src={owed.avatarUrl} className="object-cover" />
@@ -2233,11 +2235,13 @@ const PaydayTab = () => {
                                                         {(owed as any).missingClockOuts > 0 && <a href="/timesheets" className="text-[11px] font-semibold text-destructive">{(owed as any).missingClockOuts} forgotten clock-out{(owed as any).missingClockOuts === 1 ? '' : 's'} — fix on Timesheets</a>}
                                                         {(owed as any).unapprovedSessions > 0 && <a href="/timesheets" className="block text-[11px] font-semibold text-amber-700">{(owed as any).unapprovedSessions} shift{(owed as any).unapprovedSessions === 1 ? '' : 's'} waiting for approval — not paid yet</a>}
                                                         {(owed as any).noHours && <p className="text-[11px] font-semibold text-amber-700">No hours on the clock — minimum wage and overtime can’t be checked</p>}
+                                                        <button type="button" onClick={() => setStatementFor(statementFor === owed.id ? null : owed.id)} className="text-[11px] font-semibold underline underline-offset-2">{statementFor === owed.id ? 'Hide' : 'See how it’s worked out'}</button>
                                                     </div>
                                                 </div>
                                                 <span className="font-mono font-black text-xs md:text-sm ml-2">${owed.amount.toFixed(2)}</span>
                                             </div>
-                                        )) : <p className="text-[9px] text-muted-foreground uppercase font-bold text-center py-4 border-2 border-dashed rounded-xl opacity-40">No staff earnings</p>}
+                                            {statementFor === owed.id && tenantId && <PayStatement tenantId={tenantId} staffId={owed.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${owed.name} — pay statement`} />}
+                                        </React.Fragment>)) : <p className="text-[9px] text-muted-foreground uppercase font-bold text-center py-4 border-2 border-dashed rounded-xl opacity-40">No staff earnings</p>}
                                     </div>
                                     <div className='flex justify-between text-xs border-t border-primary/20 pt-3 font-black uppercase'>
                                         <span className="tracking-widest opacity-60">Total Staff</span>

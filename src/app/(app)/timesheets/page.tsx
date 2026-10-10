@@ -28,7 +28,7 @@ import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
-import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
+import { sessionsFrom, clockPolicy, localDay, zonedEpoch } from '@/lib/timeclock';
 import { dayCompare } from '@/lib/shift-check';
 import { logAuditClient } from '@/lib/audit-client';
 import { getAuth } from 'firebase/auth';
@@ -55,7 +55,10 @@ export default function TimesheetsPage() {
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
-  const wso = ((selectedTenant as any)?.workweekStartsOn === 0 ? 0 : 1) as 0 | 1;   // the business's workweek (Settings)
+  const wso = ((selectedTenant as any)?.workweekStartsOn === 0 ? 0 : 1) as 0 | 1;
+  // Times shown and edited in the BUSINESS's time zone, whatever device the manager is on.
+  const bizTz = (selectedTenant as any)?.timezone || 'America/New_York';
+  const tHM = (d: Date | null | undefined, h24 = false) => (d ? new Intl.DateTimeFormat(h24 ? 'en-GB' : 'en-US', { hour: h24 ? '2-digit' : 'numeric', minute: '2-digit', hour12: !h24, timeZone: bizTz }).format(d) : '');   // the business's workweek (Settings)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   React.useEffect(() => { setWeekStart((w) => startOfWeek(w, { weekStartsOn: wso })); }, [wso]);
   const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
@@ -89,7 +92,7 @@ export default function TimesheetsPage() {
         const sessions = mine.filter((x) => x.localDate === key).map((x) => ({
           clockIn: new Date(x.inAt), clockOut: x.outAt ? new Date(x.outAt) : null, breakMinutes: x.breakMinutes, paidBreakMins: x.paidBreakMinutes,
           workedMinutes: x.workedMinutes, geoVerified: x.geoVerified, geoWarnOnly: x.geoWarnOnly, status: x.status, logId: x.outId || null, inId: x.inId || null,
-          missingOut: x.missingOut, isLatest: x.inAt === latestIn, shiftNoteIn: x.shiftNoteIn || null, shiftNoteOut: x.shiftNoteOut || null, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id,
+          missingOut: x.missingOut, isLatest: x.inAt === latestIn, localDate: x.localDate, shiftNoteIn: x.shiftNoteIn || null, shiftNoteOut: x.shiftNoteOut || null, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id,
         }));
         const totalMinutes = sessions.reduce((sum, s) => sum + s.workedMinutes, 0);
         const cmp = dayCompare(key, (weekShifts || []).filter((x: any) => x.staffId === member.id), mine, selectedTenant);
@@ -211,9 +214,9 @@ export default function TimesheetsPage() {
       toast({ variant: 'destructive', title: 'Both times needed', description: 'Put in the clock-in and clock-out times.' });
       return;
     }
-    const baseDate = format(session.clockIn, 'yyyy-MM-dd');
-    const newClockIn = new Date(`${baseDate}T${editClockIn}:00`);
-    let newClockOut = new Date(`${baseDate}T${editClockOut}:00`);
+    const baseDate = session.localDate || localDay(session.clockIn.getTime(), bizTz);
+    const newClockIn = new Date(zonedEpoch(baseDate, editClockIn, bizTz));
+    let newClockOut = new Date(zonedEpoch(baseDate, editClockOut, bizTz));
     if (newClockOut <= newClockIn) newClockOut = new Date(newClockOut.getTime() + 86400000);   // past midnight: the next day
     if (newClockOut.getTime() - newClockIn.getTime() > 18 * 3600000) {
       toast({ variant: 'destructive', title: 'Check the times', description: 'That shift would be over 18 hours.' });
@@ -239,7 +242,7 @@ export default function TimesheetsPage() {
         if (session.isLatest) batch.update(doc(firestore, `tenants/${tenantId}/staff`, session.staffId), { active: false, onBreak: false, clockInTime: null, status: 'off' });
       }
       await batch.commit();
-      const hm = (d: Date | null) => (d ? format(d, 'h:mm a') : 'no clock-out');
+      const hm = (d: Date | null) => (d ? tHM(d) : 'no clock-out');
       void logAuditClient(firestore, tenantId, { action: 'timesheet.edited', targetType: 'staff', targetId: session.staffId, actor: { type: 'user', id: getAuth().currentUser?.uid },
         summary: `${session.staffName || 'Team member'} ${format(session.clockIn, 'EEE MMM d')}: ${hm(session.clockIn)}–${hm(session.clockOut)} changed to ${hm(newClockIn)}–${hm(newClockOut)}${note ? ` (${note})` : ''}`,
         before: { in: session.clockIn?.toISOString(), out: session.clockOut?.toISOString() || null }, after: { in: newClockIn.toISOString(), out: newClockOut.toISOString() } } as any);
@@ -290,8 +293,8 @@ export default function TimesheetsPage() {
           rows.push([
             ts.member.name,
             format(day.date, 'yyyy-MM-dd'),
-            session.clockIn ? format(session.clockIn, 'HH:mm') : '',
-            session.clockOut ? format(session.clockOut, 'HH:mm') : 'Active',
+            session.clockIn ? tHM(session.clockIn, true) : '',
+            session.clockOut ? tHM(session.clockOut, true) : 'Active',
             String(session.breakMinutes),
             String(session.paidBreakMins),
             (session.workedMinutes / 60).toFixed(2),
@@ -316,8 +319,8 @@ export default function TimesheetsPage() {
     setSelectedEntry({ ...session, staffId, staffName });
     setReviewNote(session.managerNote || '');
     setIsEditing(false);
-    setEditClockIn(session.clockIn ? format(session.clockIn, 'HH:mm') : '');
-    setEditClockOut(session.clockOut ? format(session.clockOut, 'HH:mm') : '');
+    setEditClockIn(session.clockIn ? tHM(session.clockIn, true) : '');
+    setEditClockOut(session.clockOut ? tHM(session.clockOut, true) : '');
     setIsReviewOpen(true);
   };
 
@@ -496,7 +499,7 @@ export default function TimesheetsPage() {
                           <div className="min-w-0">
                             <p className="text-[11px] font-black uppercase text-slate-900">{format(day.date, 'EEE, MMM d')}</p>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
-                              {format(session.clockIn, 'h:mm a')} -- {session.clockOut ? format(session.clockOut, 'h:mm a') : session.missingOut ? 'no clock-out' : 'Active'}
+                              {tHM(session.clockIn)} -- {session.clockOut ? tHM(session.clockOut) : session.missingOut ? 'no clock-out' : 'Active'}
                               {session.breakMinutes > 0 && ` (${session.breakMinutes}m break`}
                               {session.paidBreakMins > 0 && `, ${session.paidBreakMins}m paid`}
                               {session.breakMinutes > 0 && ')'}
@@ -614,7 +617,7 @@ export default function TimesheetsPage() {
                   <div>
                     <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Recorded Times</p>
                     <p className="font-black text-sm text-slate-900">
-                      {selectedEntry?.clockIn ? format(selectedEntry.clockIn, 'h:mm a') : '--'} to {selectedEntry?.clockOut ? format(selectedEntry.clockOut, 'h:mm a') : '--'}
+                      {selectedEntry?.clockIn ? tHM(selectedEntry.clockIn) : '--'} to {selectedEntry?.clockOut ? tHM(selectedEntry.clockOut) : '--'}
                     </p>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-8 px-3 text-[9px] font-black uppercase rounded-xl border border-muted hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200">

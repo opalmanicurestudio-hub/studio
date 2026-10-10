@@ -1,5 +1,6 @@
 'use client';
 
+import { PayStatement } from '@/components/staff/PayStatement';
 import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
 import { punchState } from '@/lib/punch';
 import { serviceCommission, perServicePay } from '@/lib/commission';
@@ -3493,6 +3494,14 @@ function NextBanner({ appointments, services }: any) {
   );
 }
 
+// Shift requests go through the server (lib/shift-requests) — the portal's sign-in can't write the schedule directly.
+async function shiftRequestPost(body: any): Promise<{ ok: boolean; message?: string; error?: string }> {
+  const { getAuth } = await import('firebase/auth');
+  const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+  return fetch('/api/shifts/request', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) })
+    .then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
+}
+
 // ─── SWAP CARDS ───────────────────────────────────────────────────────────────
 function SwapConsentCard({ req, staffMember, tenantId, firestore, allStaff, allShifts }: any) {
   const [processing, setProcessing] = useState(false);
@@ -3504,17 +3513,9 @@ function SwapConsentCard({ req, staffMember, tenantId, firestore, allStaff, allS
   const respond = async (agree: boolean) => {
     setProcessing(true);
     try {
-      const now = new Date().toISOString();
-      const batch = writeBatch(firestore);
-      batch.update(doc(firestore, `tenants/${tenantId}/shiftRequests`, req.id), { status: agree ? 'swap_consent_given' : 'swap_consent_denied', consentBy: staffMember.id, consentAt: now });
-      const n1 = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-      batch.set(n1, { id: n1.id, userId: req.staffId, read: false, createdAt: now, link: 'requests', type: agree ? 'swap_consent_given' : 'swap_consent_denied', message: agree ? `${staffMember.name} agreed to your swap on ${req.date ? format(safeDate(req.date), 'MMM d') : 'the date'}.` : `${staffMember.name} declined your swap.` });
-      const mgrs = await getDocs(query(collection(firestore, `tenants/${tenantId}/staff`), where('role', 'in', ['owner', 'admin'])));
-      mgrs.docs.forEach(mgr => { const n = doc(collection(firestore, `tenants/${tenantId}/notifications`)); batch.set(n, { id: n.id, userId: mgr.id, read: false, createdAt: now, link: '/schedule/requests', type: 'swap_request', message: agree ? `${staffMember.name} agreed to swap with ${requester?.name}. Ready for approval.` : `Swap between ${requester?.name} and ${staffMember.name} declined.` }); });
-      await batch.commit();
-      toast({ title: agree ? 'Swap Agreed ✓' : 'Swap Declined' });
-    } catch { toast({ variant: 'destructive', title: 'Error.' }); }
-    finally { setProcessing(false); }
+      const r = await shiftRequestPost({ tenantId, action: 'consent', requestId: req.id, agree });
+      if (r.ok) toast({ title: r.message || (agree ? 'Swap agreed' : 'Swap declined') }); else toast({ variant: 'destructive', title: 'Not sent', description: r.error });
+    } finally { setProcessing(false); }
   };
 
   return (
@@ -3546,7 +3547,7 @@ function SwapApproveCard({ req, staffMember, tenantId, firestore, allStaff, allS
   const [processing, setProcessing] = useState(false);
   const [note, setNote] = useState('');
   const { toast } = useToast();
-  if (staffMember.role !== 'owner' && staffMember.role !== 'admin') return null;
+  if (!['owner', 'admin', 'manager'].includes(String(staffMember.role))) return null;
   const requester    = (allStaff  || []).find((s: any) => s.id === req.staffId);
   const consentGiver = (allStaff  || []).find((s: any) => s.id === req.swapWithStaffId);
   const shift1       = (allShifts || []).find((s: any) => s.id === req.myShiftId);
@@ -3555,15 +3556,9 @@ function SwapApproveCard({ req, staffMember, tenantId, firestore, allStaff, allS
   const decide = async (approve: boolean) => {
     setProcessing(true);
     try {
-      const now = new Date().toISOString();
-      const batch = writeBatch(firestore);
-      batch.update(doc(firestore, `tenants/${tenantId}/shiftRequests`, req.id), { status: approve ? 'approved' : 'denied', approvedBy: staffMember.id, approvedAt: now, managerNote: note.trim() || null });
-      if (approve && shift1 && shift2) { batch.update(doc(firestore, `tenants/${tenantId}/shifts`, shift1.id), { staffId: req.swapWithStaffId }); batch.update(doc(firestore, `tenants/${tenantId}/shifts`, shift2.id), { staffId: req.staffId }); }
-      [req.staffId, req.swapWithStaffId].filter(Boolean).forEach((uid: string) => { const n = doc(collection(firestore, `tenants/${tenantId}/notifications`)); batch.set(n, { id: n.id, userId: uid, read: false, createdAt: now, link: 'schedule', type: approve ? 'swap_approved' : 'request_denied', message: approve ? `Your swap was approved.` : `Your swap was denied.${note ? ` Note: ${note}` : ''}` }); });
-      await batch.commit();
-      toast({ title: approve ? 'Swap Approved ✓' : 'Swap Denied' });
-    } catch { toast({ variant: 'destructive', title: 'Error.' }); }
-    finally { setProcessing(false); }
+      const r = await shiftRequestPost({ tenantId, action: 'decide', requestId: req.id, approve, note });
+      if (r.ok) toast({ title: r.message || (approve ? 'Approved' : 'Not approved') }); else toast({ variant: 'destructive', title: 'Not saved', description: r.error });
+    } finally { setProcessing(false); }
   };
 
   return (
@@ -4653,25 +4648,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     };
   }, [activityLogs, clockNow, portalTenant]);
 
-  const weekEarnings = useMemo(() => {
-    const ws = startOfWeek(today, { weekStartsOn: 1 });
-    const we = endOfWeek(ws, { weekStartsOn: 1 });
-    const shifts = (myShiftsRaw || []).filter((s: any) => s.date >= format(ws,'yyyy-MM-dd') && s.date <= format(we,'yyyy-MM-dd') && s.status !== 'cancelled');
-    const weekHours = shifts.reduce((sum: number, s: any) => sum + calcHours(s.startTime, s.endTime, s.breakMinutes||0), 0);
-    const weekTx    = (transactions||[]).filter((t: any) => { const d = safeDate(t.date); return d >= ws && d <= we; });
-    const tipTotal       = weekTx.reduce((s: number, t: any) => s + (t.tipAmount || (t.category==='Tips' ? t.amount : 0)), 0);
-    const serviceRevenue = weekTx.filter((t: any) => t.category==='Service Revenue').reduce((s: number, t: any) => s + t.amount, 0);
-    const apptCount      = (myApptsRaw||[]).filter((a: any) => { const d = safeDate(a.startTime); return d >= ws && d <= we && a.status==='completed'; }).length;
-    const ps = staffMember.payStructure;
-    let estimatedPay = 0;
-    const svcCommission = serviceCommission(staffMember, weekTx, services || [], 0).total;   // commission per service
-    if      (ps==='hourly')                estimatedPay = weekHours * (staffMember.hourlyRate||0);
-    else if (ps==='commission')            estimatedPay = svcCommission;
-    else if (ps==='hourly_plus_commission') estimatedPay = (staffMember.hourlyRate||0)*weekHours + svcCommission;
-    else if (ps==='per_service')            estimatedPay = perServicePay(staffMember, weekTx, services || []).total;
-    else if (ps==='salary')               estimatedPay = staffMember.salaryWeekly || 0;
-    return { estimatedPay, weekHours, tipTotal, serviceRevenue, apptCount };
-  }, [myShiftsRaw, transactions, myApptsRaw, staffMember, services]);
 
   const sortedNotifs   = useMemo(() => notifs ? [...notifs].sort((a,b) => new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime()) : [], [notifs]);
   const unreadCount    = useMemo(() => sortedNotifs.filter(n => !n.read).length, [sortedNotifs]);
@@ -4789,16 +4765,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     if (requestType==='swap'&&!myShiftOnRequestDate) { toast({ variant:'destructive', title:"You're not scheduled on this date." }); return; }
     setIsSubmitting(true);
     try {
-      const batch=writeBatch(firestore); const now=new Date().toISOString();
-      const reqRef=doc(collection(firestore,`tenants/${tenantId}/shiftRequests`));
-      batch.set(reqRef,{ id:reqRef.id, staffId:staffMember.id, type:requestType, date:requestDate, reason:requestReason, status:requestType==='swap'?'pending_swap_consent':'pending', createdAt:now, ...(requestType==='swap'&&{ swapWithStaffId:swapTargetStaffId, swapShiftId:swapTargetShiftId, myShiftId:myShiftOnRequestDate?.id||null }) });
-      if (requestType==='day_off') { const b=doc(collection(firestore,`tenants/${tenantId}/shiftDayOffBlocks`)); batch.set(b,{ id:b.id, staffId:staffMember.id, date:requestDate, status:'pending', requestId:reqRef.id, reason:requestReason, createdAt:now }); }
-      if (requestType==='swap'&&swapTargetStaffId) { const n=doc(collection(firestore,`tenants/${tenantId}/notifications`)); batch.set(n,{ id:n.id, userId:swapTargetStaffId, read:false, createdAt:now, type:'swap_request', link:'requests', message:`${staffMember.name} wants to swap shifts on ${format(safeDate(requestDate),'EEE, MMM d')}.` }); }
-      if (requestType!=='swap') { const mgrs=await getDocs(query(collection(firestore,`tenants/${tenantId}/staff`),where('role','in',['owner','admin']))); mgrs.docs.forEach(mgr => { const n=doc(collection(firestore,`tenants/${tenantId}/notifications`)); batch.set(n,{ id:n.id, userId:mgr.id, read:false, createdAt:now, type:requestType==='day_off'?'day_off_request':'early_release_request', link:'/schedule/requests', message:`${staffMember.name} requested ${requestType==='day_off'?'a day off':'early release'} on ${format(safeDate(requestDate),'EEE, MMM d')}.` }); }); }
-      await batch.commit();
-      toast({ title:'Request Submitted ✓' });
+      const r = await shiftRequestPost({ tenantId, action: 'submit', type: requestType, date: requestDate, reason: requestReason, ...(requestType === 'swap' ? { myShiftId: myShiftOnRequestDate?.id || null, swapShiftId: swapTargetShiftId } : {}) });
+      if (!r.ok) { toast({ variant: 'destructive', title: 'Not sent', description: r.error }); return; }
+      toast({ title: r.message || 'Request sent' });
       setIsRequestOpen(false); setRequestReason(''); setRequestDate(''); setSwapTargetShiftId(''); setSwapTargetStaffId('');
-    } catch { toast({ variant:'destructive', title:'Submission failed.' }); }
+    }
     finally { setIsSubmitting(false); }
   };
 
@@ -5201,24 +5172,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {/* EARNINGS */}
           {activeTab==='earnings' && (
             <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">This Week's Summary</p>
-              <div className="p-6 rounded-[2.5rem] bg-slate-900 text-white space-y-6">
-                <div className="space-y-1">
-                  <p className="text-[9px] font-black uppercase text-primary/60 tracking-[0.3em]">Estimated Earnings</p>
-                  <p className="text-5xl font-black font-mono tracking-tighter text-primary">${weekEarnings.estimatedPay.toFixed(2)}</p>
-                  <p className="text-[9px] font-bold text-white/40 uppercase">{staffMember.payStructure?.replace(/_/g,' ')||'commission'} · {weekEarnings.weekHours.toFixed(1)}h</p>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {[{l:'Tips',v:`$${weekEarnings.tipTotal.toFixed(0)}`,c:'text-green-400'},{l:'Services',v:String(weekEarnings.apptCount),c:'text-white'},{l:'Hours',v:weekEarnings.weekHours.toFixed(1),c:'text-white'}].map(({l,v,c}) => (
-                    <div key={l} className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center"><p className="text-[8px] font-black uppercase text-white/40">{l}</p><p className={cn('font-black font-mono text-lg',c)}>{v}</p></div>
-                  ))}
-                </div>
-              </div>
+              {/* What they've earned, line by line, from the time clock and their sales — the same numbers as payroll. */}
+              <PayStatement tenantId={tenantId} weekStartsOn={(portalTenant as any)?.workweekStartsOn === 0 ? 0 : 1} />
               <div className="p-4 rounded-2xl bg-white border-2 border-slate-100 space-y-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Pay Structure</p>
                 <div className="flex items-center justify-between"><p className="font-bold uppercase text-sm text-slate-700">{staffMember.payStructure?.replace(/_/g,' ')||'Commission'}</p>{staffMember.commissionRate&&<Badge className="bg-primary/10 text-primary border-none font-black text-[10px]">{staffMember.commissionRate}% service</Badge>}</div>
                 {staffMember.hourlyRate&&<p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">${staffMember.hourlyRate}/hr base</p>}
-                <div className="pt-2 border-t border-dashed"><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">Estimates based on scheduled shifts and completed services. Final payout confirmed by management.</p></div>
+                <div className="pt-2 border-t border-dashed"><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">Worked out from your clock-ins and your sales, the same way as payroll — before taxes. Your manager confirms the final payout.</p></div>
               </div>
             </div>
           )}
