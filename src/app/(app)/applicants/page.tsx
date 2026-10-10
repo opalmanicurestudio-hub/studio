@@ -886,10 +886,10 @@ const ApplicantCardWithData = (props: any) => {
 export default function ApplicantsPage() {
   const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant, role, can } = useTenant();
   const actorName = currentUser?.displayName || currentUser?.email || 'A manager';
   const tenantId = selectedTenant?.id;
-  const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
+  const canManage = can('hiring.manage');
 
   const [origin, setOrigin] = useState('');
   const [copied, setCopied] = useState(false);

@@ -160,8 +160,8 @@ interface TeamStatusProps {
 }
 
 export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, resources, onReorder, assignmentMode, onAssignmentModeChange, onForceIdle, services }) => {
-    const { role } = useTenant();
-    const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
+    const { role, can } = useTenant();
+    const canManage = can('time.approve');
 
     const handleMove = (staffId: string, direction: 'up' | 'down') => {
         const staffList = staff || [];

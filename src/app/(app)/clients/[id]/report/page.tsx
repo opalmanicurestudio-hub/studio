@@ -26,10 +26,10 @@ const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { id: clientId } = params;
     const { firestore, isUserLoading } = useFirebase();
-    const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
+    const { selectedTenant, role, isLoading: isTenantLoading, can } = useTenant();
     const tenantId = selectedTenant?.id;
     
-    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
+    const isOwnerOrAdmin = can('money.view');
 
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
     const [isLoadingAi, setIsLoadingAi] = useState(false);

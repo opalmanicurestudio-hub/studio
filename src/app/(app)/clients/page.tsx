@@ -61,10 +61,10 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 
 export default function ClientsPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
+  const { selectedTenant, role, roleId, can, isLoading: isTenantLoading } = useTenant();
   // v43 — single source of truth: lib/privacy.ts + tenant.staffPrivacy.
-  const showFinancials = canSeeFinancials(selectedTenant, role);
-  const showContact = canSeeClientContact(selectedTenant, role);
+  const showFinancials = canSeeFinancials(selectedTenant, roleId || role);
+  const showContact = canSeeClientContact(selectedTenant, roleId || role);
   const router = useRouter();
   const tenantId = selectedTenant?.id;
   const inv = useInventory();
@@ -306,7 +306,7 @@ export default function ClientsPage() {
         <main className="cf-settings cf-legacy flex-1 w-full max-w-7xl mx-auto min-w-0 p-4 pb-28 md:p-8">
           <SettingsStyle />
           <ClientsList tenantId={tenantId || ''} clients={clients || []} appointments={appointments || []} services={(inv as any).services || []} staff={(inv as any).staff || []}
-            showMoney={!!showFinancials} showContact={!!showContact} canMessage={canMessageClients(selectedTenant, role)} canManage={role === 'owner' || role === 'admin' || role === 'manager'}
+            showMoney={!!showFinancials} showContact={!!showContact} canMessage={canMessageClients(selectedTenant, roleId || role)} canManage={can('clients.delete')}
             onOpen={(id: string) => router.push(`/clients/${id}`)} onBook={(id: string) => setBookFor(id)} onAdd={() => setIsAddClientOpen(true)} onFindDuplicates={() => setIsMergeClientsOpen(true)}
             onArchive={(ids: string[]) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: 'archived' })); toast({ title: `${ids.length} archived` }); }}
             onUnarchive={(ids: string[]) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: 'active' })); toast({ title: `${ids.length} restored` }); }}

@@ -114,7 +114,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 export default function SchedulePage() {
   const { firestore, user } = useFirebase();
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant, role, can } = useTenant();
   const { staff, appointments, services } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
@@ -525,7 +525,7 @@ export default function SchedulePage() {
     return grid;
   }, [shifts, staff, weekDays]);
 
-  const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
+  const canManage = can('schedule.manage');
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50/50">

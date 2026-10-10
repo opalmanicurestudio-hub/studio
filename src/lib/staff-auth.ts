@@ -15,6 +15,7 @@
  * is worse than no audit line, because it reads as fact.
  */
 
+import { capsFor, isManagerRole, ALL_CAPS } from '@/lib/permissions';
 import type { NextRequest } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import {
@@ -35,6 +36,7 @@ export type StaffActor = {
   role: string;
   isManager: boolean;
   isTenantOwner: boolean;
+  caps?: string[];
   employmentModel: EmploymentModel | null;
   decisionAuthority: DecisionAuthority | null;
 };
@@ -90,8 +92,9 @@ export async function verifyStaffActor(
       ...(staffDocId !== uid ? { authUid: uid } : {}),
       name: String(staff?.name || (isTenantOwner ? 'The owner' : 'A team member')).slice(0, 80),
       role,
-      isManager: isTenantOwner || (MANAGER_ROLES as readonly string[]).includes(role),
+      isManager: isTenantOwner || (MANAGER_ROLES as readonly string[]).includes(role) || isManagerRole(tenantSnap.data(), role),
       isTenantOwner,
+      caps: isTenantOwner ? ALL_CAPS : capsFor(tenantSnap.data(), role),
       employmentModel: (staff?.employmentModel as EmploymentModel) || null,
       decisionAuthority: (staff?.decisionAuthority as DecisionAuthority) || null,
     },

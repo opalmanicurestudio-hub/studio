@@ -277,9 +277,9 @@ export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
-  const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
-  const showFinancials = canSeeFinancials(selectedTenant, role);
-  const showCareContents = canSeeCareNoteContents(selectedTenant, role);
+  const { selectedTenant, role, roleId, can, isLoading: isTenantLoading } = useTenant();
+  const showFinancials = canSeeFinancials(selectedTenant, roleId || role);
+  const showCareContents = canSeeCareNoteContents(selectedTenant, roleId || role);
   const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages, transactions: allTransactions } = useInventory();
   const allClientsList: any[] = ((useInventory() as any).clients) || [];
   const { showProfitability: seesMoney } = useProfitabilityVisibility();
@@ -289,9 +289,9 @@ export default function ClientDetailPage() {
   const consentFormDefs: any[] = ((useInventory() as any).consentForms) || [];
   const allStaffList: any[] = ((useInventory() as any).staff) || [];
   const tenantId = selectedTenant?.id;
-  const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
-  const seesContact = canSeeClientContact(selectedTenant, role);
-  const mayMessage = canMessageClients(selectedTenant, role);   // …and whether they may text or email through the business without seeing it   // Settings → privacy: who may see client phone numbers and emails
+  const isOwnerOrAdmin = can('money.view');
+  const seesContact = canSeeClientContact(selectedTenant, roleId || role);
+  const mayMessage = canMessageClients(selectedTenant, roleId || role);   // …and whether they may text or email through the business without seeing it   // Settings → privacy: who may see client phone numbers and emails
 
   const router = useRouter();
   const clientDocRef = useMemoFirebase(() => !firestore || !clientId || !tenantId ? null : doc(firestore, `tenants/${tenantId}/clients`, clientId), [firestore, tenantId, clientId]);
@@ -1126,7 +1126,7 @@ export default function ClientDetailPage() {
           <div className="lg:col-span-1 space-y-8 text-left">
             <p className="text-[17px] font-semibold lg:hidden">About {String(client.name || 'them').split(' ')[0]}</p>
             <ClientRail client={client} facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} cancels={cancelTotal} noShows={noShowTotal} reschedules={rescheduleTotal}>
-              <ClientTimingCard tenant={selectedTenant} client={client} services={services || []} canEdit={isOwnerOrAdmin || String(role) === 'manager'}
+              <ClientTimingCard tenant={selectedTenant} client={client} services={services || []} canEdit={can('bookings.manage')}
                 onSave={(t: any) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), { timing: t } as any); toast({ title: 'Their usual time is saved' }); }}
                 onDecide={(sid: string, accept: boolean, extra: number, visits: number) => { if (!firestore || !tenantId) return; const ref = doc(firestore, `tenants/${tenantId}/clients`, client.id); const at = new Date().toISOString();
                   if (accept) { const cur: any = (client as any).timing || {}; updateDocumentNonBlocking(ref, { timing: { all: cur.all ?? null, services: { ...(cur.services || {}), [sid]: { extra, reason: `From their last ${visits} timed visits`, setAt: at, setBy: null, chargeCents: null } } }, [`timingSuggestions.${sid}`]: deleteField() } as any); toast({ title: 'Their usual time is saved' }); }

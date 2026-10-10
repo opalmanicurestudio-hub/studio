@@ -68,6 +68,8 @@ import { Badge } from '@/components/ui/badge';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 import { AppAccess } from '@/components/staff/AppAccess';
+import { useTenant } from '@/context/TenantContext';
+import { rolesFor, assignableRoles } from '@/lib/permissions';
 
 const editStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -83,7 +85,7 @@ const editStaffSchema = z.object({
   pinterestUrl: z.string().optional(),
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
-  role: z.enum(['admin', 'manager', 'staff', 'owner']),
+  role: z.string().min(1),
   // Tip sharing (Settings → Fees & credit → How tips are shared): their part in tip-outs and weighted pools, and —
   // for owners and admins — whether they also work as a provider and may share in tips.
   tipRole: z.enum(['provider', 'assistant', 'front_desk']).optional(),
@@ -153,6 +155,12 @@ const EditStaffFormInternal = ({
   onHoursChange: (w: WeekHours) => void;
 }) => {
   const { register, control, watch, setValue, formState: { errors } } = useFormContext<EditStaffFormData>();
+
+  // The business's own roles (Settings → Roles), only those this person may hand out — plus whatever they have now.
+  const { selectedTenant: roleTenant, role: myLevel, roleId: myRoleId } = useTenant() as any;
+  const roleChoices = React.useMemo(() => { const all = rolesFor(roleTenant); const ids = assignableRoles(roleTenant, myLevel === 'owner' ? { isOwner: true } : (myRoleId || myLevel)).filter((id) => id !== 'renter' && id !== 'owner');
+    const cur = String(watch('role') || ''); if (cur && all[cur] && !ids.includes(cur)) ids.push(cur);
+    return ids.map((id) => ({ id, name: all[id].name })); }, [roleTenant, myLevel, myRoleId, watch('role')]);
   const payStructure = watch('payStructure');
   const selectedServiceIds = watch('services') || [];
   const assignedFormIds = watch('assignedFormIds') || [];
@@ -292,10 +300,7 @@ const EditStaffFormInternal = ({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="rounded-xl border-2 shadow-2xl">
-                    <SelectItem value="staff" className="font-bold uppercase text-[10px] tracking-widest">STAFF PROVIDER</SelectItem>
-                    <SelectItem value="manager" className="font-bold uppercase text-[10px] tracking-widest">MANAGER</SelectItem>
-                    <SelectItem value="admin" className="font-bold uppercase text-[10px] tracking-widest">ADMIN</SelectItem>
-                    <SelectItem value="owner" className="font-bold uppercase text-[10px] tracking-widest">MASTER OWNER</SelectItem>
+                    {roleChoices.map((r) => <SelectItem key={r.id} value={r.id} className="text-[14px]">{r.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               )} />

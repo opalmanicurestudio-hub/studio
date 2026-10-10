@@ -7,6 +7,7 @@ import { useDoc } from '@/firebase/firestore/use-doc';
 import { collection, query, where, doc, updateDoc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
 import type { User } from 'firebase/auth';
+import { can as canFor, isManagerRole, type Cap } from '@/lib/permissions';
 
 type UserRole = 'owner' | 'admin' | 'manager' | 'staff' | null;
 
@@ -19,6 +20,10 @@ interface TenantContextType {
  user: User | null;
  /** The signed-in person's STAFF record id — their login for the owner, the linked record for an invited team member. */
  staffId: string | null;
+ /** Their actual role id at this business (a built-in or one the business made). `role` above is the broad level. */
+ roleId: string | null;
+ /** May the signed-in person do this? (lib/permissions) — the owner always can. */
+ can: (cap: Cap) => boolean;
 }
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined);
@@ -27,6 +32,7 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
  const { user, isUserLoading } = useFirebase();
  const firestore = useFirebase().firestore;
  const [role, setRole] = useState<UserRole>(null);
+ const [roleId, setRoleId] = useState<string | null>(null);
 
  // ── Owner path ─────────────────────────────────────────────────────────────
  // Owner path — which businesses are MINE comes from the server (the rules forbid listing businesses from a browser;
@@ -59,7 +65,7 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
    if (isUserLoading || tenantsLoading || fallbackLoading) return;
 
    if (isOwner && allTenants.length > 0) {
-     setRole('owner');
+     setRole('owner'); setRoleId('owner');
      const stored = localStorage.getItem('selectedTenantId');
      const activeTenant = allTenants.find(t => t.id === stored) || allTenants[0];
      setSelectedTenant(activeTenant);
@@ -71,11 +77,13 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
 
    if (staffTenant && staffDirectoryEntry) {
      const r = String((staffDirectoryEntry as any).role || 'staff');
-     setRole((['owner', 'admin', 'manager', 'staff'].includes(r) ? r : 'staff') as UserRole);
+     setRoleId(r);
+     // Custom roles map to the broad level the rest of the app understands; what they may do comes from can().
+     setRole((['owner', 'admin', 'manager', 'staff'].includes(r) ? r : isManagerRole(staffTenant, r) ? 'manager' : 'staff') as UserRole);
      setSelectedTenant(staffTenant);
      localStorage.setItem('selectedTenantId', staffTenant.id);
    } else {
-     setRole(null);
+     setRole(null); setRoleId(null);
      setSelectedTenant(null);
    }
  }, [
@@ -118,6 +126,8 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
    role,
    user,
    staffId: !user ? null : role === 'owner' ? user.uid : String((staffDirectoryEntry as any)?.staffId || user.uid),
+   roleId,
+   can: (cap: Cap) => !!role && (role === 'owner' || canFor(selectedTenant, roleId || role, cap)),
  };
 
  return (

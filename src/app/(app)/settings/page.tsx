@@ -607,6 +607,7 @@ function SettingsPageImpl() {
               </Section>
               <More help="Booking times, and limiting some days to certain clients.">
                 <Section title="Who sees what" help="What your team can see about clients. Owners and admins always see everything. Clients belong to the business — if you hide their contact details, staff can still reach them through the business without ever seeing the number.">
+                  <a href="/settings/roles" className="flex items-center justify-between gap-3 px-5 py-4" style={{ borderBottom: '1px solid var(--line)' }}><span><span className="block text-[15px] font-medium">Roles and permissions</span><span className="block text-[13.5px] cf-muted">What each role can see and do — these choices are where the everyday roles start.</span></span><span aria-hidden className="cf-muted">›</span></a>
                   {(() => { const sp: any = (tenantData as any).staffPrivacy || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, staffPrivacy: { ...((prev as any).staffPrivacy || {}), ...patch } }));
                     const pick = (k: string, def: string) => (<select value={sp[k] || def} onChange={(e) => set({ [k]: e.target.value })} className={cfInput} style={{ ...cfInputStyle, maxWidth: 260 } as any} aria-label={k}><option value="all_staff">Everyone on the team</option><option value="admins_only">Owners and admins only</option></select>);
                     return (<>

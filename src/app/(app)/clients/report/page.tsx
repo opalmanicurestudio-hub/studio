@@ -24,9 +24,9 @@ import { canSeeFinancials } from '@/lib/privacy';
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { clients, appointments, services } = useInventory();
-    const { role, selectedTenant } = useTenant();
-    const showFinancials = canSeeFinancials(selectedTenant, role);
-    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
+    const { role, roleId, can, selectedTenant } = useTenant();
+    const showFinancials = canSeeFinancials(selectedTenant, roleId || role);
+    const isOwnerOrAdmin = can('money.view');
 
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
     const [isPageLoading, setIsPageLoading] = useState(true);

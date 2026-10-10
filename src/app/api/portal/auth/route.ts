@@ -25,6 +25,7 @@
 // — 5 failed logins in 15 minutes locks logins for 15 minutes. Reset codes:
 // 5 attempts max per code.
 
+import { can } from '@/lib/permissions';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
@@ -246,7 +247,8 @@ export async function POST(req: NextRequest) {
       let hitId: string | null = null; let hitData: any = null;
       { const { findStaffByPin } = await import('@/lib/pin'); const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
       const role = hitData?.role;
-      const isManager = !!hitId && ((role === 'owner' || role === 'admin' || role === 'manager'));
+      const tDoc: any = hitId ? ((await db.doc(`tenants/${tenantId}`).get()).data() || {}) : {};
+      const isManager = !!hitId && (['owner', 'admin', 'manager'].includes(String(role)) || can(tDoc, String(role || 'staff'), 'checkout.refund'));   // whose role allows refunds
       await recordAttempt(db, tenantId, isManager);
       if (!isManager) return NextResponse.json({ ok: false, error: 'Unauthorized.' }, { status: 401 });
       return NextResponse.json({ ok: true, manager: { id: hitId, name: hitData?.name || '', role } });

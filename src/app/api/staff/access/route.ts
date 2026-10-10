@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   if (!who.actor.isManager) return NextResponse.json({ ok: false, error: 'Only a manager can change who can sign in.' }, { status: 403 });
   // Only the owner can give someone the owner role's access.
   const target: any = (await db.doc(`tenants/${tenantId}/staff/${staffId}`).get()).data() || {};
-  if (target.role === 'owner' && !who.actor.isOwner && who.actor.role !== 'owner') return NextResponse.json({ ok: false, error: 'Only the owner can give owner access.' }, { status: 403 });
+  if (['owner', 'admin'].includes(String(target.role)) && !who.actor.isOwner && who.actor.role !== 'owner') return NextResponse.json({ ok: false, error: 'Only the owner can give owner or admin access.' }, { status: 403 });
   const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   let r;
   if (b.action === 'invite') {

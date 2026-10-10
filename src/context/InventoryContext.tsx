@@ -102,11 +102,11 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 
 export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { firestore } = useFirebase();
-  const { selectedTenant, role } = useTenant() as any;
+  const { selectedTenant, role, roleId } = useTenant() as any;
   // CONTACT PRIVACY (Settings → privacy → client contact details): for people who may not see them, phone numbers,
   // emails and addresses are removed HERE, so every screen fed from this context follows the setting — including
   // ones built later. Records are marked contactHidden so nothing can save the gap back over the real details.
-  const hideContact = !canSeeClientContact(selectedTenant, role);
+  const hideContact = !canSeeClientContact(selectedTenant, roleId || role);
   const tenantId = selectedTenant?.id;
 
   const { data: inventory, isLoading: inventoryLoading } = useCollection<InventoryItem>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'inventory') : null, [firestore, tenantId]));

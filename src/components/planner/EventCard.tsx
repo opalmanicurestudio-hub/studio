@@ -137,8 +137,8 @@ export function EventCard({
     const [isSheetOpen, setIsSheetOpen] = useState(false);
     const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
     const isMobile = useIsMobile();
-    const { user, role } = useTenant();
-    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
+    const { user, role, can } = useTenant();
+    const isOwnerOrAdmin = can('schedule.manage');
     
     const duration = differenceInMinutes(event.endTime, event.startTime);
 

@@ -146,11 +146,11 @@ const EditAppointmentForm = ({
     onConfirm: (apt: Appointment) => void;
 }) => {
     const { inventory, staff, appointments, events, scheduleProfiles } = useInventory();
-    const { selectedTenant, role } = useTenant();
+    const { selectedTenant, role, can } = useTenant();
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const { toast } = useToast();
 
-    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
+    const isOwnerOrAdmin = can('clients.contact');
 
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
     const [selectedStaffId, setSelectedStaffId] = useState<string>(appointment.staffId || '');

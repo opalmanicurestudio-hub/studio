@@ -292,7 +292,7 @@ export function usePosEngine() {
   const isMobile = useIsMobile();
   const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
   const { firestore, user: currentUser } = useFirebase();
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant, role, can } = useTenant();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
@@ -431,7 +431,7 @@ export function usePosEngine() {
     prevWalkInCountRef.current = waitingCount;
   }, [walkIns]);
 
-  const isOwnerOrAdminUser = (role === 'owner' || role === 'admin' || role === 'manager');
+  const isOwnerOrAdminUser = can('checkout.discount');
   const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
 
   const readyForCheckoutAppointments = useMemo(() => {

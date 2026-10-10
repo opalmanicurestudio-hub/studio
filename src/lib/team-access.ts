@@ -10,6 +10,8 @@
 //   syncAccess    copy the role across (or remove access when they're archived / a renter)
 //   revokeAccess  turn app access off (the portal PIN still works)
 
+import { capsFor, isManagerRole, ALL_CAPS } from '@/lib/permissions';
+
 export type AccessResult = { ok: true; message: string; link?: string; uid?: string } | { ok: false; error: string };
 
 export async function syncAccess(db: any, tenantId: string, staffId: string): Promise<AccessResult> {
@@ -21,7 +23,9 @@ export async function syncAccess(db: any, tenantId: string, staffId: string): Pr
   const dir = db.doc(`staffDirectory/${uid}`); const cur: any = (await dir.get()).data() || null;
   if (cur && cur.tenantId && cur.tenantId !== tenantId) return { ok: false, error: 'That login belongs to another business.' };
   if (off) { if (cur) await dir.delete(); return { ok: true, message: 'App access is off.' }; }
-  await dir.set({ tenantId, staffId, role: String(m.role || 'staff'), name: String(m.name || ''), updatedAt: new Date().toISOString() }, { merge: true });
+  // What their role allows travels with the link, so the database rules can check it (manager = acts on other people).
+  const tenant: any = (await db.doc(T).get()).data() || {}; const role = String(m.role || 'staff');
+  await dir.set({ tenantId, staffId, role, name: String(m.name || ''), manager: isManagerRole(tenant, role), caps: role === 'owner' ? ALL_CAPS : capsFor(tenant, role), updatedAt: new Date().toISOString() }, { merge: true });
   return { ok: true, message: `Access updated — ${String(m.role || 'staff')}.` };
 }
 
@@ -61,4 +65,11 @@ export async function revokeAccess(db: any, tenantId: string, staffId: string): 
   await sRef.set({ appAccess: 'off', appAccessOffAt: new Date().toISOString() }, { merge: true });
   if (uid) { const d = db.doc(`staffDirectory/${uid}`); const cur: any = (await d.get()).data(); if (cur?.tenantId === tenantId) await d.delete(); }
   return { ok: true, message: 'App access turned off. Their PIN still works for the time clock and portal.' };
+}
+
+/** After the business changes what a role allows: bring every linked login with that role up to date. */
+export async function syncRole(db: any, tenantId: string, roleId: string): Promise<number> {
+  const snap = await db.collection(`tenants/${tenantId}/staff`).where('role', '==', roleId).get(); let n = 0;
+  for (const d of snap.docs) if ((d.data() as any)?.authUid) { await syncAccess(db, tenantId, d.id); n++; }
+  return n;
 }

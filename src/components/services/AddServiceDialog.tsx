@@ -1,5 +1,6 @@
 'use client';
 
+import { can as canDo } from '@/lib/permissions';
 import { approveWithPin } from '@/lib/approve-client';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -523,7 +524,7 @@ export const CheckoutHub = ({
 
   const terminal = useTerminalSafe();
 
-  const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
+  const isOwnerOrAdmin = canDo(selectedTenant, role, 'checkout.discount');
 
   const selectedClient = useMemo(
     () => clients.find((c: Client) => c.id === selectedClientId),

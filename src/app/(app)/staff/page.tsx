@@ -584,7 +584,7 @@ export default function StaffPage() {
   useEffect(() => {
     if (editingInline || addingInline || viewingInline) window.scrollTo({ top: 0 });
   }, [editingInline, addingInline, viewingInline]);
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant, role, can } = useTenant();
   const tenantId = selectedTenant?.id;
   // Once per business: convert every PIN to the private server-only store and remove them from team records.
   useEffect(() => {
@@ -593,7 +593,7 @@ export default function StaffPage() {
       await fetch('/api/pin/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }); } catch { /* tries again next visit */ } })();
   }, [tenantId, role]); // eslint-disable-line react-hooks/exhaustive-deps
   const studioName = selectedTenant?.name || 'the studio';
-  const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
+  const canManage = can('team.manage');
   const { toast: uiToast } = useToast();
   
   const [convertFor, setConvertFor] = useState<any | null>(null);

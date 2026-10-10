@@ -1,5 +1,6 @@
 'use client';
 
+import { can as canDo } from '@/lib/permissions';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { visitTiming, overtimePrice } from '@/lib/timing';
@@ -613,7 +614,7 @@ export const CheckoutHub = ({
 
   const terminal = useTerminalSafe();
 
-  const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
+  const isOwnerOrAdmin = canDo(selectedTenant, role, 'checkout.discount');
 
   const selectedClient = useMemo(
     () => clients.find((c: Client) => c.id === selectedClientId),

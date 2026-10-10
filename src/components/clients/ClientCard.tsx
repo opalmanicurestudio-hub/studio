@@ -28,8 +28,8 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { useTenant } from '@/context/TenantContext';
 
 export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
-    const { role } = useTenant();
-    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
+    const { role, can } = useTenant();
+    const isOwnerOrAdmin = can('clients.contact');
 
     const lastAppointment = useMemo(() => {
         if (!client.lastAppointment) return null;

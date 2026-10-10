@@ -22,6 +22,8 @@
  * day-to-day.
  */
 
+import { can } from '@/lib/permissions';
+
 export type PrivacyAudience = 'all_staff' | 'admins_only';
 
 export interface StaffPrivacySettings {
@@ -38,7 +40,10 @@ export const PRIVACY_DEFAULTS: Required<StaffPrivacySettings> = {
   staffMessaging: true,
 };
 
-function isPrivileged(role?: string | null): boolean {
+// Since roles and permissions (lib/permissions): each role says what it may see. The privacy settings below are the
+// starting point for the everyday roles until a business changes them on the Roles screen.
+function isPrivileged(role?: string | null, tenant?: any, cap?: any): boolean {
+  if (cap) return can(tenant, role || 'staff', cap);
   return (role === 'owner' || role === 'admin' || role === 'manager');
 }
 
@@ -47,21 +52,21 @@ function audienceFor(tenant: any, key: 'financials' | 'clientContact' | 'careNot
 }
 
 export function canSeeFinancials(tenant: any, role?: string | null): boolean {
-  return isPrivileged(role) || audienceFor(tenant, 'financials') === 'all_staff';
+  return isPrivileged(role, tenant, 'money.view');
 }
 
 export function canSeeClientContact(tenant: any, role?: string | null): boolean {
-  return isPrivileged(role) || audienceFor(tenant, 'clientContact') === 'all_staff';
+  return isPrivileged(role, tenant, 'clients.contact');
 }
 
 export function canSeeCareNoteContents(tenant: any, role?: string | null): boolean {
-  return isPrivileged(role) || audienceFor(tenant, 'careNoteContents') === 'all_staff';
+  return isPrivileged(role, tenant, 'clients.notes');
 }
 
 /** May this person text or email a client through the business? Owners and admins always; staff unless the business
  *  has switched it off. Works whether or not they can SEE the number — the server looks it up and sends. */
 export function canMessageClients(tenant: any, role?: string | null): boolean {
-  return isPrivileged(role) || canSeeClientContact(tenant, role) || tenant?.staffPrivacy?.staffMessaging !== false;
+  return isPrivileged(role, tenant, 'clients.message') || canSeeClientContact(tenant, role);
 }
 
 /** The fields that count as a client's contact details. */

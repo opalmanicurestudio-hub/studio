@@ -36,6 +36,8 @@ import { Switch } from '../ui/switch';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { useTenant } from '@/context/TenantContext';
+import { rolesFor, assignableRoles } from '@/lib/permissions';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -51,7 +53,7 @@ const addStaffSchema = z.object({
   pinterestUrl: z.string().optional(),
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
-  role: z.enum(['admin', 'manager', 'staff']),
+  role: z.string().min(1),
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission', 'per_service']),
   serviceHourRate: z.coerce.number().min(0).optional(),   // per service pay: $ for each hour of service performed
@@ -130,6 +132,12 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
 // ─── STEP 1 ───────────────────────────────────────────────────────────────────
 const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
   const { register, control, watch, setValue, formState: { errors } } = useFormContext<AddStaffFormData>();
+
+  // The business's own roles (Settings → Roles), only those this person may hand out — plus whatever they have now.
+  const { selectedTenant: roleTenant, role: myLevel, roleId: myRoleId } = useTenant() as any;
+  const roleChoices = React.useMemo(() => { const all = rolesFor(roleTenant); const ids = assignableRoles(roleTenant, myLevel === 'owner' ? { isOwner: true } : (myRoleId || myLevel)).filter((id) => id !== 'renter' && id !== 'owner');
+    const cur = String(watch('role') || ''); if (cur && all[cur] && !ids.includes(cur)) ids.push(cur);
+    return ids.map((id) => ({ id, name: all[id].name })); }, [roleTenant, myLevel, myRoleId, watch('role')]);
 
   const handleRegeneratePin = () => {
     const newPin = Math.floor(1000 + Math.random() * 9000).toString();
@@ -218,9 +226,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-2xl">
-                  <SelectItem value="staff" className="font-bold uppercase text-[10px] tracking-widest">STAFF PROVIDER</SelectItem>
-                  <SelectItem value="manager" className="font-bold uppercase text-[10px] tracking-widest">MANAGER</SelectItem>
-                  <SelectItem value="admin" className="font-bold uppercase text-[10px] tracking-widest">ADMIN</SelectItem>
+                  {roleChoices.map((r) => <SelectItem key={r.id} value={r.id} className="text-[14px]">{r.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             )} />

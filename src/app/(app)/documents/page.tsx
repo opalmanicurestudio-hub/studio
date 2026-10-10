@@ -1205,9 +1205,9 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
 export default function DocumentsPage() {
   const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant, role, can } = useTenant();
   const tenantId = selectedTenant?.id;
-  const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
+  const canManage = can('documents.manage');
   const actorName = currentUser?.displayName || currentUser?.email || 'A manager';
   const myStaffId = resolveActiveStaffId(currentUser?.uid) || '';
 

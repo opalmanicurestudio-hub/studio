@@ -56,7 +56,7 @@ service cloud.firestore {
           staffDoc(tenantId).data.role == 'admin' ||
           staffDoc(tenantId).data.role == 'manager'
         )) ||
-        (inDirectory(tenantId) && dirEntry().data.role in ['owner', 'admin', 'manager'])
+        (inDirectory(tenantId) && (dirEntry().data.role in ['owner', 'admin', 'manager'] || dirEntry().data.get('manager', false) == true))
       );
     }
     match /tenants/{tenantId} {
@@ -79,11 +79,11 @@ service cloud.firestore {
       allow list: if isStaff(tenantId);
       // Who can sign in is the server's job (authUid / appAccess), and only the business owner hands out the owner role.
       allow create: if isManager(tenantId) && !('authUid' in request.resource.data) && !('appAccess' in request.resource.data)
-        && (request.resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId);
+        && (!(request.resource.data.get('role', 'staff') in ['owner', 'admin']) || isOwner(tenantId));
       allow delete: if isManager(tenantId);
       allow update: if (isManager(tenantId)
           && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['authUid', 'appAccess', 'appInvitedAt', 'appInvitedBy', 'appAccessOffAt'])
-          && (request.resource.data.get('role', 'staff') == resource.data.get('role', 'staff') || request.resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId)
+          && (request.resource.data.get('role', 'staff') == resource.data.get('role', 'staff') || !(request.resource.data.get('role', 'staff') in ['owner', 'admin']) || isOwner(tenantId))
           && (resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId || isOwner(tenantId)))
         || (isStaff(tenantId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffStatusFields()))
         || (isStaff(tenantId) && isSelf(tenantId, staffId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffSelfFields()));

@@ -1590,7 +1590,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
   const { inventory, services: allServices, staff, appointments: allAppointments, consentForms } = useInventory();
-  const { role, selectedTenant } = useTenant();
+  const { role, selectedTenant, can } = useTenant();
   const { user: currentUser } = useUser();
   const tenantId = selectedTenant?.id;
   // THE VISIT — one screen in five tabs (the sheet and the visit ticket, merged). Opens on Now; resets per visit.
@@ -2343,7 +2343,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   // ── All hooks done — safe to early-return ──────────────────────────────────
   if (!mounted || !open || !appointment || !client || !service) return null;
 
-  const isOwnerOrAdminUser = (role === 'owner' || role === 'admin' || role === 'manager');
+  const isOwnerOrAdminUser = can('money.view');
   const ticketId = safeTicketId(appointment.id);
   const mainStaffId = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
   const mainStaffMember = (staff || []).find((s: Staff) => s.id === mainStaffId);

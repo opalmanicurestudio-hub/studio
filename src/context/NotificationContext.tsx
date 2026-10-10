@@ -34,7 +34,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     const { staff, inventory, billInstances, billDefinitions } = useInventory();
     const { firestore } = useFirebase();
     const { user } = useUser();
-    const { selectedTenant, role, staffId } = useTenant() as any;
+    const { selectedTenant, role, staffId, can } = useTenant() as any;
     const tenantId = selectedTenant?.id;
 
     const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
@@ -66,7 +66,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     const pendingEventsQuery = useMemoFirebase(() => {
-        if (firestore && tenantId && ((role === 'owner' || role === 'admin' || role === 'manager'))) {
+        if (firestore && tenantId && can('schedule.manage')) {
             return query(collection(firestore, `tenants/${tenantId}/events`), where("status", "==", "pending"));
         }
         return null;
