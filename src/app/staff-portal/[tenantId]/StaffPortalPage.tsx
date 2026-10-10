@@ -120,6 +120,7 @@ import { Star } from 'lucide-react';
 import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
 import { ForgotClockOut } from '@/components/staff-portal/ForgotClockOut';
 import { MyDetails } from '@/components/staff-portal/MyDetails';
+import { AlertSettings } from '@/components/staff-portal/AlertSettings';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -4457,6 +4458,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   // Today's view: Now / Day / Floor. Chosen by hand it holds until the next visit starts; otherwise it follows the day.
   const [editingDetails, setEditingDetails] = useState(false);
+  const [editingAlerts, setEditingAlerts] = useState(false);
   const [todayPick, setTodayPick] = useState<{ view: 'now' | 'day' | 'floor'; visitId: string | null } | null>(null);
   // Calls the front desk passed on to this person (or to managers, if they are one).
   const myCalls = useMyCalls(staffMember.role === 'renter' ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
@@ -5292,7 +5294,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='me' && editingDetails && (
             <div className="pt-1"><MyDetails firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={staffMember.name || 'A team member'} managerIds={(allStaff || []).filter((x: any) => ['owner', 'admin', 'manager'].includes(String(x.role)) && !x.archived).map((x: any) => x.id)} onDone={() => setEditingDetails(false)} /></div>
           )}
-          {activeTab==='me' && !editingDetails && (
+          {activeTab==='me' && editingAlerts && !editingDetails && (
+            <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>
+          )}
+          {activeTab==='me' && !editingDetails && !editingAlerts && (
             <div className="space-y-4 pt-1">
               <div className="flex items-center gap-4 rounded-[24px] border border-[#ececee] bg-white p-4">
                 <div className="h-16 w-16 shrink-0 rounded-full p-[3px]" style={{ background: `conic-gradient(${accentColor}, #d7e6e4, ${accentColor})` }}>
@@ -5305,12 +5310,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               <div className="overflow-hidden rounded-[24px] border border-[#ececee] bg-white divide-y divide-[#f0f0f2]">
                 {[
                   { k: 'details', label: 'My details', sub: 'Phone, address, emergency contact', show: true },
+                  { k: 'alerts', label: 'Alerts', sub: 'What buzzes your phone, quiet hours, away', show: true },
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
                   { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
                   { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: !!fulfilmentPerms.canPick },
                   { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
                 ].filter((r) => r.show).map((r) => (
-                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
                     <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{r.label}</span><span className="block text-[13px] text-[#6d7075]">{r.sub}</span></span>
                     <ChevronRight className="h-4 w-4 text-[#9a9ca1]" />
                   </button>))}

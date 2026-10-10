@@ -1,7 +1,9 @@
 // src/lib/clock-reminders.ts — NUDGES AROUND THE SCHEDULE, from the ops tick (every few minutes):
 //   • a published shift started 10 minutes ago and they haven't clocked in → remind them (once);
 //   • 30 minutes in and still nothing → tell the managers they may be a no-show (once);
-//   • a shift ended 30 minutes ago and they're still on the clock → remind them to clock out (once).
+//   • a shift ended 30 minutes ago and they're still on the clock → remind them to clock out (once);
+//   • a clock-in is flagged as a forgotten clock-out → tell the person (their Today asks when they left) and the
+//     managers, the moment it's flagged (once — marked `missingOutTold` on the clock-in).
 // Everyone on the schedule gets these — including people paid by commission or per service, whose hours the
 // minimum-wage and overtime checks need. Renters never.
 import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
@@ -12,8 +14,9 @@ export async function clockReminders(db: any, tenantId: string, tenant: any, now
   const T = `tenants/${tenantId}`; const tz = tenant?.timezone || 'America/New_York';
   const today = localDay(now, tz); const yesterday = localDay(now - 86400000, tz);
   const shifts = (await db.collection(`${T}/shifts`).where('date', 'in', [yesterday, today]).get()).docs.map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() || {}) })).filter(LIVE);
-  if (!shifts.length) return 0;
-  const punches = (await db.collection(`${T}/activityLogs`).where('timestamp', '>=', new Date(now - 2 * 86400000).toISOString()).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  const punchDocs = (await db.collection(`${T}/activityLogs`).where('timestamp', '>=', new Date(now - 2 * 86400000).toISOString()).get()).docs;
+  if (!shifts.length && !punchDocs.length) return 0;
+  const punches = punchDocs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
   const sessions = sessionsFrom(punches, clockPolicy(tenant, now));
   const staff = new Map<string, any>((await db.collection(`${T}/staff`).get()).docs.map((d: any) => [d.id, d.data() || {}]));
   const mgrs = [...staff].filter(([, s]) => ['owner', 'admin', 'manager'].includes(String(s.role)) && s.archived !== true).map(([id]) => id);
@@ -37,6 +40,18 @@ export async function clockReminders(db: any, tenantId: string, tenant: any, now
     if (open && now >= w.end + 30 * 60000 && !sh.clockOutReminded) {
       tell(sh.staffId, 'clock_reminder', `Your shift ended at ${hm(w.end)} — you’re still clocked in. Clock out if you’ve finished.`, 'today'); b.update(sh.ref, { clockOutReminded: iso });
     }
+  }
+  // Forgotten clock-outs, the moment they're flagged.
+  const told = new Set(punches.filter((x: any) => x.missingOutTold).map((x: any) => x.id));
+  for (const x of sessions) {
+    if (!x.missingOut || !x.inId || told.has(x.inId)) continue;
+    const p = staff.get(x.staffId); if (!p || p.isRenter === true || p.role === 'renter') continue;
+    const ref = punchDocs.find((d: any) => d.id === x.inId)?.ref; if (!ref) continue;
+    const first = String(p.name || 'Team member').split(' ')[0];
+    const when = new Date(Date.parse(x.inAt)).toLocaleDateString('en-US', { weekday: 'long', timeZone: tz });
+    tell(x.staffId, 'clock_fix', `You didn’t clock out after your ${hm(Date.parse(x.inAt))} clock-in on ${when}. Open Today to tell us when you left.`, 'today');
+    for (const m of mgrs) if (m !== x.staffId) tell(m, 'clock_fix', `${first} didn’t clock out after clocking in at ${hm(Date.parse(x.inAt))} on ${when}. Those hours won’t count until it’s fixed.`, '/timesheets');
+    b.update(ref, { missingOutTold: iso });
   }
   if (n) await b.commit();
   return n;
