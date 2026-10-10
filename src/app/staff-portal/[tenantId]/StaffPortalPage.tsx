@@ -121,6 +121,7 @@ import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
 import { ForgotClockOut } from '@/components/staff-portal/ForgotClockOut';
 import { MyDetails } from '@/components/staff-portal/MyDetails';
 import { AlertSettings } from '@/components/staff-portal/AlertSettings';
+import { PayHome } from '@/components/pay/PayHome';
 import { PortalSplash, shouldShowSplash } from '@/components/staff-portal/PortalSplash';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
@@ -5224,16 +5225,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
           {/* EARNINGS */}
           {activeTab==='earnings' && (
-            <div className="space-y-4">
-              {/* What they've earned, line by line, from the time clock and their sales — the same numbers as payroll. */}
-              <PayStatement tenantId={tenantId} weekStartsOn={(portalTenant as any)?.workweekStartsOn === 0 ? 0 : 1} />
-              <div className="p-4 rounded-2xl bg-white border-2 border-slate-100 space-y-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Pay Structure</p>
-                <div className="flex items-center justify-between"><p className="font-bold uppercase text-sm text-slate-700">{staffMember.payStructure?.replace(/_/g,' ')||'Commission'}</p>{staffMember.commissionRate&&<Badge className="bg-primary/10 text-primary border-none font-black text-[10px]">{staffMember.commissionRate}% service</Badge>}</div>
-                {staffMember.hourlyRate&&<p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">${staffMember.hourlyRate}/hr base</p>}
-                <div className="pt-2 border-t border-dashed"><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 leading-relaxed">Worked out from your clock-ins and your sales, the same way as payroll — before taxes. Your manager confirms the final payout.</p></div>
-              </div>
-            </div>
+            <PayHome tenantId={tenantId} staffId={staffMember.id} firestore={firestore} accent={accentColor} />
           )}
 
           {/* REQUESTS */}

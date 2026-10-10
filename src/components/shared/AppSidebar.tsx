@@ -93,6 +93,7 @@ const TEAM_FULL = [
   { href: '/documents',  icon: FileText,     label: 'Documents'      },
   { href: '/schedule',   icon: CalendarDays, label: 'Shift schedule' },
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
+  { href: '/payroll/questions', icon: ClipboardList, label: 'Pay questions' },
 ];
 
 const TEAM_ADMIN = [
@@ -101,6 +102,7 @@ const TEAM_ADMIN = [
   { href: '/documents',  icon: FileText,     label: 'Documents'      },
   { href: '/schedule',   icon: CalendarDays, label: 'Shift schedule' },
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
+  { href: '/payroll/questions', icon: ClipboardList, label: 'Pay questions' },
 ];
 
 // v28 — Ledger, Obligations (Bills), and Payday are now consolidated into

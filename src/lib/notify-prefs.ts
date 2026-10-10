@@ -22,7 +22,7 @@ put('clients', 'sms sms_escalation sms_escalation_unassigned call_message call_r
 put('visits', 'visit_cancelled visit_moved visit_added visit_removed appointment_assigned walk_in_assigned guest_arrived guest_running_late late_choice suspected_no_show no_show_escalation appointment_overdue addon_handoff escalation provider_delay_reply disruption_reply provider_ask provider_offer_reply change_request visit_delay delay_affects_you appointment');
 put('schedule', 'shift_changed swap_request request_approved request_denied day_off_approved swap_approved schedule_published cover_request');
 put('team', 'staff_message shoutout task');
-put('pay', 'clock_reminder timeclock clock_fix clock_fix_approved clock_fix_declined payroll_draft');
+put('pay', 'pay_question pay_question_update clock_reminder timeclock clock_fix clock_fix_approved clock_fix_declined payroll_draft');
 put('floor', 'assist assist_escalation floor_assist turnover_due turnover_escalation kit_timer kit_cleansed contact_reached cycle_done linen_timer kit_none_usable kit_short');
 put('rent', 'renter_arrived booth_reservation booth_tour booth_application booth_no_show renter_leave renter_document renter_concern renter_message renter_swap credential rent_late renter_barred tour_followup');
 export const groupOf = (type?: string): NotifyGroup => OF[String(type || '')] || 'business';

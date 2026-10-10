@@ -29,7 +29,8 @@ export type DraftLine = {
   commission: number;      // everything earned from services and sales (commission, per service pay, bonuses) — what payroll pays as commission
   servicePay?: number;     // per service pay (part of commission)
   extras?: number;         // membership sale bonus + share of no-show fees (part of commission)
-  bonus?: number;          // overtime on commission / per service pay + minimum-wage top-ups
+  bonus?: number;          // overtime on commission / per service pay + minimum-wage top-ups (+ approved pay corrections)
+  adjustments?: number;    // approved pay corrections dated in this period (lib/pay-questions)
   overtimePremium?: number; minWageTopUp?: number; salary?: number; hours?: number; missingClockOuts?: number; unapprovedSessions?: number; noHours?: boolean;
   tips: number;
   total: number;
@@ -108,6 +109,10 @@ export async function buildPayrollDraft(
   const fromDay = new Date(periodStart.getTime() - 86400000).toISOString().slice(0, 10), toDay = new Date(periodEnd.getTime() + 86400000).toISOString().slice(0, 10);
   const schedule = (await db.collection(`tenants/${tenantId}/shifts`).where('date', '>=', fromDay).where('date', '<=', toDay).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
   const sessions = sessionsFrom(logsSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })), clockPolicy(tenant, periodEnd.getTime()));
+  // Pay corrections a manager approved (pay questions → "Add to next pay"), dated inside this period.
+  const adjBy = new Map<string, number>();
+  for (const d of (await db.collection(`tenants/${tenantId}/payAdjustments`).where('date', '>=', periodStart.toISOString()).where('date', '<=', periodEnd.toISOString()).get().catch(() => ({ docs: [] as any[] }))).docs) {
+    const a: any = d.data() || {}; if (a.staffId) adjBy.set(a.staffId, (adjBy.get(a.staffId) || 0) + (Number(a.amountCents) || 0) / 100); }
   const lines: DraftLine[] = staff.map((member: any) => {
     const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income');
     const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
@@ -131,7 +136,8 @@ export async function buildPayrollDraft(
       ...(l.unapprovedSessions ? { unapprovedSessions: l.unapprovedSessions } : {}),
       ...(l.noHours ? { noHours: true } : {}),
       tips: l.tips,
-      total: l.total,
+      ...(adjBy.get(member.id) ? { adjustments: Number((adjBy.get(member.id) || 0).toFixed(2)), bonus: Number(((f.bonus || 0) + (adjBy.get(member.id) || 0)).toFixed(2)) } : {}),
+      total: Number((l.total + (adjBy.get(member.id) || 0)).toFixed(2)),
     };
   }).filter((l: DraftLine) => l.total > 0);
 

@@ -73,7 +73,7 @@ export function tierBonus(staff: any, txns: any[], services: any[] | Record<stri
   return Math.round(Math.max(0, extra) * 100) / 100;
 }
 
-const isServiceIncome = (t: any) => (t?.type || 'income') === 'income' && t?.category === 'Service Revenue';
+export const isServiceIncome = (t: any) => (t?.type || 'income') === 'income' && t?.category === 'Service Revenue';
 const amountOf = (t: any) => (typeof t?.amount === 'number' ? t.amount : (Number(t?.amountCents) || 0) / 100);
 
 export type CommissionLine = { serviceId: string | null; name: string; revenue: number; rate: number; commission: number; count?: number; base?: number; covered?: number };

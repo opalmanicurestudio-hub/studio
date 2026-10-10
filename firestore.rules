@@ -312,6 +312,20 @@ service cloud.firestore {
       allow update: if isManager(tenantId);
       allow create, delete: if false;
     }
+    // PAY STUBS (saved on payday), PAY QUESTIONS ("something's off") and the CORRECTIONS that settle them: each person
+    // reads their own, managers read everyone's; only the server writes them (/api/pay/*).
+    match /tenants/{tenantId}/payStubs/{stubId} {
+      allow read: if isManager(tenantId) || isSelf(tenantId, resource.data.staffId) || (isPortalMember(tenantId) && resource.data.staffId == portalStaffId());
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/payQuestions/{qId} {
+      allow read: if isManager(tenantId) || isSelf(tenantId, resource.data.staffId) || (isPortalMember(tenantId) && resource.data.staffId == portalStaffId());
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/payAdjustments/{adjId} {
+      allow read: if isManager(tenantId) || isSelf(tenantId, resource.data.staffId) || (isPortalMember(tenantId) && resource.data.staffId == portalStaffId());
+      allow write: if false;
+    }
     // Finished payroll runs (from the payroll connection): managers only — never readable from a staff phone.
     match /tenants/{tenantId}/payrollRuns/{runId} {
       allow read: if isManager(tenantId);
@@ -473,6 +487,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
+          'payStubs', 'payQuestions', 'payAdjustments',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
