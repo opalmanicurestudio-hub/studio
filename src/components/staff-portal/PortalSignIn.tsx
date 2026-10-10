@@ -7,6 +7,7 @@
 // PINs are only ever checked on the server (/api/portal/auth). Choosing a face sends expectStaffId, so a PIN that isn't
 // that person's is refused rather than signing someone else in.
 import * as React from 'react';
+import { rememberBrand } from '@/components/staff-portal/PortalBoot';
 
 type Person = { id: string; name: string; avatarUrl?: string | null; state: 'working' | 'break' | 'off'; since?: string | null; breakSince?: string | null; shifts: { start: string; end: string; kind: string }[]; isRenter?: boolean };
 type Brand = { name: string; logoUrl?: string | null; accent: string; sharedBoard?: boolean };
@@ -174,13 +175,13 @@ export function PortalSignIn({ tenantId, notice, onSuccess, renderForgot }: { te
     setShared(read(key(tenantId, 'mode')) === 'shared');
     try { const l = JSON.parse(read(key(tenantId, 'last')) || 'null'); if (l?.id) setLast(l); } catch { /* none */ }
     fetch('/api/portal/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'brand', tenantId }) })
-      .then((r) => r.json()).then((d) => { if (d?.business) setBrand(d.business); }).catch(() => {});
+      .then((r) => r.json()).then((d) => { if (d?.business) { setBrand(d.business); rememberBrand(tenantId, d.business); } }).catch(() => {});
   }, [tenantId]);
 
   React.useEffect(() => {
     if (!shared) return; let stop = false;
     const load = () => fetch('/api/portal/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'today-board', tenantId }) })
-      .then((r) => r.json()).then((d) => { if (stop) return; if (d?.business) setBrand(d.business); if (d?.off) { setShared(false); return; } setPeople(Array.isArray(d?.people) ? d.people : []); }).catch(() => {});
+      .then((r) => r.json()).then((d) => { if (stop) return; if (d?.business) { setBrand(d.business); rememberBrand(tenantId, d.business); } if (d?.off) { setShared(false); return; } setPeople(Array.isArray(d?.people) ? d.people : []); }).catch(() => {});
     load(); const t = setInterval(load, 60000); return () => { stop = true; clearInterval(t); };
   }, [shared, tenantId]);
 

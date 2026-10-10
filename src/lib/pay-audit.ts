@@ -21,7 +21,7 @@ const hrs = (m: number) => `${Math.floor(m / 60)} h ${String(Math.round(m % 60))
 export function auditOf(input: { st: Statement; member: any; tenant: any; income: any[]; services: any[]; sessions: any[]; tipRuns?: { id: string; start: string; end: string; share: number }[]; adjustments?: any[] }): Audit {
   const { st, member: m, tenant } = input; const tz = tenant?.timezone || 'America/New_York';
   const byId = Object.fromEntries((input.services || []).map((s: any) => [s.id, s]));
-  const mine = (input.income || []).filter((t) => t.staffId === m.id || t.splitWith?.staffId === m.id);
+  const mine = (input.income || []).filter((t) => t.voided !== true && (t.staffId === m.id || t.splitWith?.staffId === m.id));
   const visits: AuditLine[] = []; const retail: AuditLine[] = []; const tips: AuditLine[] = []; const shifts: AuditLine[] = []; const period: AuditLine[] = []; const adjustments: AuditLine[] = [];
 
   for (const t of mine) {
@@ -43,6 +43,14 @@ export function auditOf(input: { st: Statement; member: any; tenant: any; income
   else for (const t of mine.filter((x) => (x.type || 'income') === 'income' && x.staffId === m.id && (x.category === 'Tips' || x.tipAmount))) {
     tips.push({ ref: `t:${t.id}`, kind: 'tip', date: dayOf(t.date, tz), title: `Tip · ${shortName(t.clientOrVendor)}`, detail: t.paymentMethod ? `paid by ${t.paymentMethod}` : 'tip', amount: r2(t.tipAmount || amt(t)), source: { txnId: t.id, appointmentId: t.appointmentId || undefined } });
   }
+  // Refunds: each one that took pay back, on its own line next to the visits.
+  for (const t of input.income || []) {
+    const list = [...(Array.isArray(t?.payReversals) ? t.payReversals : []), ...(t?.payReversal ? [t.payReversal] : [])].filter((r: any) => r?.staffId === m.id && Number(r.amount) > 0);
+    for (const [i, r] of list.entries()) visits.push({ ref: `rf:${t.id}:${i}`, kind: 'visit', date: dayOf(t.date, tz), title: `Refund · ${shortName(t.clientOrVendor)}`, detail: `${String(t.notes || '').replace(/^Refund Reason:\s*/, '') || 'refunded to the client'} — pay on it taken back`, amount: -r2(Number(r.amount)), source: { txnId: t.id, appointmentId: t.appointmentId || undefined } });
+  }
+  if (!input.tipRuns) for (const t of (input.income || []).filter((x) => x.tipReversal?.staffId === m.id)) {
+    tips.push({ ref: `tb:${t.id}`, kind: 'tip', date: dayOf(t.date, tz), title: `Tip refunded · ${shortName(t.clientOrVendor)}`, detail: 'the client’s tip was refunded with their payment', amount: -r2(Number(t.tipReversal.amount) || 0), source: { txnId: t.id, appointmentId: t.appointmentId || undefined } });
+  }
   const hourly = Number(m.hourlyRate) || 0;
   for (const s of input.sessions || []) {
     const status = s.missingOut ? 'no clock-out — not counted yet' : s.status === 'rejected' ? 'not approved' : s.status === 'pending' ? 'waiting for approval' : s.status === 'active' ? 'still clocked in' : 'approved';
@@ -54,7 +62,6 @@ export function auditOf(input: { st: Statement; member: any; tenant: any; income
   P('training', 'Training, meetings and other paid time', `${l.nonServiceHours} h`, l.nonServicePay);
   P('salary', 'Salary', 'this period’s share', l.salaryPay);
   P('tier', 'Sales tier bonus', 'a higher rate on services above your level this period', l.tierBonus);
-  P('refunds', 'Refunds', `commission taken back on ${l.refunds} refunded service${l.refunds === 1 ? '' : 's'}`, -l.refundTakeBack);
   P('ot', 'Overtime on commission / per service pay', 'hours over the weekly limit', l.overtimePremium);
   P('minwage', 'Minimum-wage top-up', (l.weeks || []).filter((w: any) => w.topUp > 0).map((w: any) => `week of ${w.weekStart}: ${money(w.topUp)}`).join(' · ') || 'to reach minimum wage', l.minWageTopUp);
   P('extras', 'Extras', 'membership / package sales and no-show fee share', l.extras);

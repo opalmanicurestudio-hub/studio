@@ -57,6 +57,12 @@ export function PayQuestionStatus({ tenantId, question: q, accent = INK, onBack 
           <li key={k} className="flex gap-3"><div className="flex flex-col items-center"><span className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold text-white" style={ok ? { background: accent } : { border: '2px solid #d9dadd' }}>{ok ? '✓' : ''}</span>{i < 2 && <span className="w-0.5 flex-1" style={{ minHeight: 22, background: LINE }} />}</div>
             <div className="pb-3"><p className="text-[15px] font-bold" style={{ color: ok ? INK : '#9a9ca1' }}>{label}</p><p className="text-[13px]" style={{ color: MUTED }}>{i === 0 ? when(q.createdAt) : i === 1 ? when(q.seenAt) : done ? when(res?.at) : 'You’ll get a notification'}</p></div></li>); })}
       </ol>
+      {(q.findings || []).length > 0 && !(q.findings.length === 1 && q.findings[0].tone === 'info' && /Nothing unusual/.test(q.findings[0].text)) && (
+        <section aria-label="What the app checked" className="space-y-1.5 rounded-[18px] border p-3.5" style={{ borderColor: LINE }}>
+          <p className="text-[13px] font-bold">What the app checked</p>
+          {q.findings.map((f: any, i: number) => <p key={i} className="text-[14px]" style={{ color: f.tone === 'likely' ? '#7a4a00' : '#55585e' }}>{f.tone === 'likely' ? '• ' : f.tone === 'explains' ? '✓ ' : '· '}{f.text}</p>)}
+          <p className="text-[12px]" style={{ color: MUTED }}>Your manager confirms before anything changes.</p>
+        </section>)}
       <section aria-label="Messages" className="space-y-2 rounded-[18px] border p-3.5" style={{ borderColor: LINE }}>
         <p className="text-[13px] font-bold">Messages</p>
         {(q.messages || []).map((m: any, i: number) => { const me = m.by === q.staffId; return <p key={i} className={`max-w-[85%] rounded-[16px] px-3 py-2 text-[14px] ${me ? 'ml-auto text-white' : ''}`} style={me ? { background: accent, borderBottomRightRadius: 6 } : { background: '#f4f4f5', borderBottomLeftRadius: 6 }}>{m.text}</p>; })}

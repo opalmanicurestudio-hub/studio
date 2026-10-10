@@ -74,6 +74,18 @@ export default function PayQuestionsPage() {
               {q.line?.ref && <p className="text-[14px]" style={{ color: MUTED }}>On the stub: {money(q.line.amount)}{q.line.date ? ` · ${dshort(q.line.date)}` : ''}</p>}</div>
             {q.visitHint && <p className="rounded-[14px] px-3.5 py-2.5 text-[15px]" style={{ background: '#f6f6f7' }}>Which visit: {q.visitHint}</p>}
             <div className="space-y-2">{(q.messages || []).map((m: any, i: number) => <p key={i} className="max-w-[640px] rounded-[16px] px-3.5 py-2.5 text-[15px]" style={{ background: m.by === q.staffId ? '#f6f6f7' : '#eef4f3' }}><span className="font-bold">{String(m.name).split(' ')[0]}: </span>{m.text}</p>)}</div>
+            {(q.findings || []).length > 0 && (
+              <section aria-label="What the app found" className="space-y-2 rounded-[18px] border p-4" style={{ borderColor: LINE }}>
+                <p className="text-[13px] font-bold" style={{ color: MUTED }}>WHAT THE APP FOUND IN THE RECORDS</p>
+                {(q.findings || []).map((f: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2.5 text-[15px]">
+                    <span className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold" style={f.tone === 'likely' ? { background: '#fdf1dc', color: '#9a5b00' } : f.tone === 'explains' ? { background: '#e6f2ec', color: '#1f6b3a' } : { background: '#f1f1f3', color: MUTED }}>{f.tone === 'likely' ? 'Likely cause' : f.tone === 'explains' ? 'It’s right because' : 'Note'}</span>
+                    <span className="min-w-0 flex-1">{f.text}</span>
+                    {f.suggestAmount && !['sorted', 'explained'].includes(q.status) ? <button type="button" onClick={() => { setMode('adjust'); setAmt(String(f.suggestAmount)); }} className="shrink-0 rounded-full border px-3 py-1 text-[13px] font-bold" style={{ borderColor: '#e6e6e8' }}>Use {money(f.suggestAmount)}</button> : null}
+                  </div>))}
+                {(q.findings || []).every((f: any) => f.tone !== 'likely') && (q.findings || []).some((f: any) => f.tone === 'explains') && !['sorted', 'explained'].includes(q.status) &&
+                  <button type="button" onClick={() => { setMode('explain'); setNote((q.findings || []).filter((f: any) => f.tone === 'explains').map((f: any) => f.text).join(' ')); }} className="text-[14px] font-bold" style={{ color: INK }}>Send this as the answer</button>}
+              </section>)}
             {firestore && <Records firestore={firestore} tenantId={tenantId} q={q} />}
             {['sorted', 'explained'].includes(q.status) ? (
               <p className="rounded-[16px] px-4 py-3 text-[15px] font-semibold" style={{ background: '#e6f2ec', color: '#1f6b3a' }}>{q.resolution?.kind === 'adjust' ? `Sorted by ${q.resolution.by}: ${money((q.resolution.amountCents || 0) / 100)} on their current pay.` : q.resolution?.kind === 'fixed' ? `Sorted by ${q.resolution.by}: the record was corrected.` : `Answered by ${q.resolution?.by}: “${q.resolution?.note}”`}</p>

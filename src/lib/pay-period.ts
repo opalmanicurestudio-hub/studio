@@ -60,8 +60,10 @@ export function periodPay(input: {
   const fromMs = new Date(input.from as any).getTime(), toMs = new Date(input.to as any).getTime();
   // Their sales — including services they assisted on (a shared service names them in splitWith). The list passed in
   // may hold every transaction for the period: refund lines are read for take-backs, other people's ignored.
-  const mine = (input.incomeTxns || []).filter((t) => (t.type || 'income') === 'income' && (t.staffId === m.id || t.splitWith?.staffId === m.id));
-  const tips = input.tips ?? mine.filter((t) => t.staffId === m.id && (t.category === 'Tips' || t.tipAmount)).reduce((s, t) => s + (t.tipAmount || amt(t)), 0);
+  const mine = (input.incomeTxns || []).filter((t) => (t.type || 'income') === 'income' && t.voided !== true && (t.staffId === m.id || t.splitWith?.staffId === m.id));
+  // Tips refunded to the client come back off (unless the business chose to absorb them — then no tipReversal is written).
+  const tipBack = (input.incomeTxns || []).filter((t) => t.tipReversal?.staffId === m.id).reduce((s, t) => s + (Number(t.tipReversal.amount) || 0), 0);
+  const tips = (input.tips ?? mine.filter((t) => t.staffId === m.id && (t.category === 'Tips' || t.tipAmount)).reduce((s, t) => s + (t.tipAmount || amt(t)), 0)) - (input.tips != null ? 0 : tipBack);
 
   // Hours, per workweek. With "pay approved hours only" on, sessions a manager hasn't approved wait for the next run.
   const approvedOnly = tenant?.payRules?.approvedHoursOnly === true;

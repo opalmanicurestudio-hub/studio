@@ -114,9 +114,9 @@ export async function buildPayrollDraft(
   for (const d of (await db.collection(`tenants/${tenantId}/payAdjustments`).where('date', '>=', periodStart.toISOString()).where('date', '<=', periodEnd.toISOString()).get().catch(() => ({ docs: [] as any[] }))).docs) {
     const a: any = d.data() || {}; if (a.staffId) adjBy.set(a.staffId, (adjBy.get(a.staffId) || 0) + (Number(a.amountCents) || 0) / 100); }
   const lines: DraftLine[] = staff.map((member: any) => {
-    const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income');
-    const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
-    const l = periodPay({ member, from: periodStart, to: periodEnd, shifts: schedule, incomeTxns: txns,   /* all of the period's lines: refunds carry take-backs */ services, tenant, sessions, apptStaff, tips });
+    const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income' && t.voided !== true);
+    const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0) - txns.filter((t: any) => t.tipReversal?.staffId === member.id).reduce((s: number, t: any) => s + (Number(t.tipReversal.amount) || 0), 0);
+    const l = periodPay({ member, from: periodStart, to: periodEnd, shifts: schedule, incomeTxns: txns.filter((t: any) => t.voided !== true),   /* all of the period's lines: refunds carry take-backs */ services, tenant, sessions, apptStaff, tips });
     const f = payrollFields(l);
     return {
       staffId: member.id,

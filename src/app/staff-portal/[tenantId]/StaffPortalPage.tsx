@@ -123,6 +123,7 @@ import { MyDetails } from '@/components/staff-portal/MyDetails';
 import { AlertSettings } from '@/components/staff-portal/AlertSettings';
 import { PayHome } from '@/components/pay/PayHome';
 import { PortalSplash, shouldShowSplash } from '@/components/staff-portal/PortalSplash';
+import { PortalBoot, rememberBrand } from '@/components/staff-portal/PortalBoot';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -3036,7 +3037,14 @@ function WalkInLeaderboard({
   }, [allStaff, allShifts, todayStr]);
 
   // Early return AFTER all hooks
-  if (totalActive === 0 && inService.length === 0 && queue.length === 0) return null;
+  // Nobody waiting: one quiet line, so "taking walk-ins" can still be switched on or off.
+  if (totalActive === 0 && inService.length === 0 && queue.length === 0) return (
+    <div className="flex items-center gap-3 rounded-[18px] border border-[#ececee] bg-white px-4 py-3">
+      <span className="min-w-0 flex-1"><span className="block text-[15px] font-bold">Walk-ins</span><span className="block text-[13px] text-[#6d7075]">No one waiting · {isAccepting ? 'you’re taking walk-ins' : 'you’re not taking walk-ins'}</span></span>
+      <button type="button" role="switch" aria-checked={isAccepting} aria-label="Taking walk-ins" onClick={toggleAccepting} className="relative h-[30px] w-[50px] shrink-0 rounded-full transition-colors" style={{ background: isAccepting ? '#16171a' : '#d9dadd' }}>
+        <span className="absolute top-[3px] h-6 w-6 rounded-full bg-white shadow transition-all" style={{ left: isAccepting ? 23 : 3 }} />
+      </button>
+    </div>);
 
   return (
     <>
@@ -4889,9 +4897,14 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     shoutout: <Star className="w-4 h-4 text-amber-500" />,
   };
 
+  // ── Walk-ins: only for businesses that take them, and only today's (yesterday's leftovers never keep the panel up) ──
+  const todayLocalKey = new Date().toLocaleDateString('en-CA', { timeZone: (portalTenant as any)?.timezone || 'America/New_York' });
+  const todaysWalkIns = (allWalkInsRaw || []).filter((w: any) => { const v: any = w.checkInTime || w.createdAt; const t = v?.toDate ? v.toDate().getTime() : typeof v?.seconds === 'number' ? v.seconds * 1000 : Date.parse(String(v || '')); return !Number.isFinite(t) || new Date(t).toLocaleDateString('en-CA', { timeZone: (portalTenant as any)?.timezone || 'America/New_York' }) === todayLocalKey; });
+  const takesWalkIns = (portalTenant as any)?.walkInEnabled !== false || todaysWalkIns.length > 0;
   // ── Portal frame (bottom bar, Today's views) ──
   const [splashOn, setSplashOn] = useState(() => typeof window !== 'undefined' && shouldShowSplash(`cf_portal_splash_${tenantId}_${staffMember.id}`));
   const accentColor = brandAccent(portalTenant);
+  useEffect(() => { if (portalTenant) rememberBrand(tenantId, { name: (portalTenant as any).name, accent: accentColor, logoUrl: brandLogo(portalTenant) }); }, [portalTenant, accentColor, tenantId]);
   const todaysMine = (allMyApts || []).filter((a: any) => isSameDay(safeDate(a.startTime), new Date()));
   const liveVisit = currentVisit(todaysMine);
   const canFloor = can(portalTenant, staffMember.role, 'bookings.all') || ['owner', 'admin', 'manager'].includes(String(staffMember.role));
@@ -5067,8 +5080,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                     </div>
                   ))}
                 {todayView === 'day' && <NextBanner appointments={allMyApts} services={services} />}
-                <WalkInLeaderboard
-                  allWalkIns={allWalkInsRaw || []}
+                {takesWalkIns && <WalkInLeaderboard
+                  allWalkIns={todaysWalkIns}
                   allStaff={allStaff || []}
                   allShifts={allShiftsRaw || []}
                   services={services || []}
@@ -5076,7 +5089,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   firestore={firestore}
                   currentStaffId={staffMember?.id}
                   activityLogs={activityLogs || []}
-                />
+                />}
                 {todayView !== 'now' && <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />}
                 {todayView !== 'now' && <DayTimeline
                   mode={todayView === 'floor' ? 'floor' : 'my_day'}
@@ -5206,6 +5219,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   );
                 })()}
                 <DayTimeline
+                  {...(canFloor ? {} : { mode: 'my_day' as const })}
                   appointments={allMyApts}
                   services={services}
                   selectedDate={selectedDate}
@@ -5519,6 +5533,8 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
   const [authNotice, setAuthNotice] = useState('');
   const tenantId = params.tenantId;
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [bootDone, setBootDone] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setBootDone(true), 1300); return () => clearTimeout(t); }, []);
 
   const resetTimeout = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -5550,11 +5566,9 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
     return () => { cancelled = true; };
   }, [signedInStaff]);
 
-  if (!firestore || !tenantId) return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-      <p className="text-white/40 font-black uppercase text-[10px] tracking-widest animate-pulse">Loading...</p>
-    </div>
-  );
+  // The opening screen holds for a moment on every open (Home Screen icon or link), so it's the first thing seen —
+  // then sign-in, then (once per session) "your day unfolds".
+  if (!firestore || !tenantId || !bootDone) return <PortalBoot tenantId={tenantId} />;
 
   const onSignedIn = (s: any) => { setAuthNotice(''); setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); };
   if (!signedInStaff) return <PortalSignIn tenantId={tenantId} notice={authNotice} onSuccess={onSignedIn} renderForgot={(back) => <ForgotPinFlow tenantId={tenantId} firestore={firestore} onBack={back} onSuccess={onSignedIn} />} />;

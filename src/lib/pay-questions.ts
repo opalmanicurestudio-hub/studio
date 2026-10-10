@@ -31,7 +31,9 @@ export async function askPayQuestion(db: any, tenantId: string, actor: RequestAc
   const doc = { id: ref.id, staffId: actor.staffId, staffName: actor.name, period: { from, to }, status: 'open', reason, reasonLabel: REASONS[reason],
     line: { ref: String(line.ref || '').slice(0, 120), title: String(line.title || '').slice(0, 160), amount: Number(line.amount) || 0, date: String(line.date || '').slice(0, 10), source: line.source || null },
     visitHint: String(b.visitHint || '').slice(0, 160), note, messages: note ? [{ by: actor.staffId, name: actor.name, text: note, at: now() }] : [], createdAt: now(), updatedAt: now() };
-  await ref.set(JSON.parse(JSON.stringify(doc)));
+  // The app checks the records first (lib/pay-detective) — the manager opens it with the likely answer ready.
+  let found: any[] = []; try { const { investigate } = await import('@/lib/pay-detective'); found = await investigate(db, tenantId, doc); } catch { /* checked by hand instead */ }
+  await ref.set(JSON.parse(JSON.stringify({ ...doc, findings: found, checkedAt: now() })));
   await tell(db, tenantId, (await managersOf(db, tenantId)).filter((id) => id !== actor.staffId), 'pay_question', `${actor.name.split(' ')[0]} has a pay question: ${REASONS[reason].toLowerCase()}${doc.line.title ? ` — ${doc.line.title}` : ''}.`, '/payroll/questions', ref.id);
   return { ok: true as const, id: ref.id };
 }
