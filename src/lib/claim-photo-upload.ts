@@ -24,19 +24,20 @@ export async function uploadClaimPhotoFromDataUrl(
   claimId: string,
   dataUrl: any,
   /** Storage folder under the tenant — claims by default; booking photos use 'booking-inspiration'. */
-  folder: 'retail-claims' | 'booking-inspiration' = 'retail-claims',
+  folder: 'retail-claims' | 'booking-inspiration' | 'cases' = 'retail-claims',
 ): Promise<ClaimPhotoResult> {
   try {
     const s = String(dataUrl || '');
     const m = /^data:([a-z]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(s);
     if (!m) return { url: null, error: 'That file isn\u2019t a photo we can read.' };
     const mime = m[1].toLowerCase();
-    if (!ALLOWED.has(mime)) return { url: null, error: 'Use a JPG, PNG, or WebP photo.' };
+    const audio = folder === 'cases' && /^audio\/(webm|mp4|mpeg|ogg|aac|x-m4a)$/.test(mime.split(';')[0]);
+    if (!ALLOWED.has(mime) && !audio) return { url: null, error: 'Use a JPG, PNG, or WebP photo.' };
     const buf = Buffer.from(m[2], 'base64');
     if (buf.length === 0) return { url: null, error: 'That photo came through empty \u2014 try again.' };
     if (buf.length > MAX_PHOTO_BYTES) return { url: null, error: 'Keep photos under 3 MB.' };
 
-    const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1];
+    const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1].split(';')[0].replace('x-', '');
     const path = `tenants/${tenantId}/${folder}/${claimId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const token = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 

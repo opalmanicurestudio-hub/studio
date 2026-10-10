@@ -31,6 +31,11 @@ async function visitOf(db: any, tenantId: string, appointmentId: string, staff: 
     paid: Math.round(paid * 100) / 100, tip: Math.round(tip * 100) / 100, cardLast4: card ? String(card.cardLast4 || card.last4) : null, products, station: a.stationName || null, clientId: a.clientId || null, clientName: a.clientName || null, discounted: Number(a.checkoutState?.discountTotal || a.discountTotal || 0) > 0 };
 }
 
+function voiceOf(v: any) {
+  if (!v || !/^https:\/\//.test(String(v.url || ''))) return null;
+  return { url: String(v.url), transcript: v.transcript ? String(v.transcript).slice(0, 4000) : null, language: v.language ? String(v.language).slice(0, 12) : null, translation: v.translation ? String(v.translation).slice(0, 4000) : null, seconds: Math.min(300, Number(v.seconds) || 0) || null };
+}
+
 async function nextNumber(db: any, tenantId: string) {
   const ref = db.doc(`${T(tenantId)}/counters/cases`); const y = new Date().getFullYear();
   const n = await db.runTransaction(async (tx: any) => { const c: any = (await tx.get(ref)).data() || {}; const v = c.year === y ? (Number(c.n) || 0) + 1 : 1; tx.set(ref, { year: y, n: v }); return v; });
@@ -49,11 +54,11 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   const photos: string[] = (Array.isArray(b.photos) ? b.photos : []).map(String).filter((u: string) => /^https:\/\//.test(u)).slice(0, 8);
   const checks = fairUseChecks({ settings: S, visit, reason, photos: photos.length, priorFixes, wants: b.wants, afterDiscount: prior.filter((c: any) => c.visit?.discounted).length + (visit?.discounted ? 1 : 0) });
   const via = ['call', 'staff', 'desk', 'survey', 'link'].includes(b.via) ? b.via : 'desk';
-  const ownerId = via === 'staff' || reason?.safety ? null : actor.staffId;
+  const ownerId = (via === 'call' || via === 'desk') && !reason?.safety ? actor.staffId : null;
   const id = db.collection(`${T(tenantId)}/cases`).doc().id; const number = await nextNumber(db, tenantId);
   const doc: any = {
     id, number, clientId: clientId || null, clientName, visit, reasonId: reason?.id || 'other', reasonLabel: reason?.label || 'Something else', safety: !!reason?.safety,
-    via, words: String(b.words || '').trim().slice(0, 2000), photos, voice: b.voice || null, wants: ['fix', 'talk', 'refund'].includes(b.wants) ? b.wants : null,
+    via, words: String(b.words || '').trim().slice(0, 2000), wordsEn: b.wordsEn ? String(b.wordsEn).slice(0, 2000) : null, wordsLang: b.wordsLang ? String(b.wordsLang).slice(0, 12) : null, photos, voice: voiceOf(b.voice), statusPath: b.statusPath ? String(b.statusPath).slice(0, 300) : null, wants: ['fix', 'talk', 'refund'].includes(b.wants) ? b.wants : null,
     reportedBy: { id: actor.staffId, name: actor.name }, providerAction: via === 'staff' ? String(b.providerAction || '').slice(0, 40) || null : null,
     ownerId, ownerName: ownerId ? actor.name : null, status: ownerId ? 'owned' : 'heard', checks, needsManager: !!reason?.safety || checks.some((c) => !c.ok),
     replyDueAt: new Date(Date.now() + S.replyHours * 3600000).toISOString(), fix: null, pending: null,
@@ -68,6 +73,36 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   else await tell(db, tenantId, [...mgrs, ...desk].filter((x) => x !== actor.staffId), 'case_new', `${clientName} isn’t happy: ${doc.reasonLabel}${visit?.providerName ? ` (${visit.providerName.split(' ')[0]})` : ''}.`, id);
   if (visit?.providerId && visit.providerId !== actor.staffId && !doc.safety) await tell(db, tenantId, [visit.providerId], 'case_yours', `${clientName} wasn’t happy with their visit: ${doc.reasonLabel}. The desk will be in touch.`, id);
   return { ok: true as const, id, number };
+}
+
+/** Text the client (with their case page link). Best-effort: false when there's no phone or texting isn't set up. */
+async function textClient(db: any, tenantId: string, tenant: any, c: any, body: string): Promise<boolean> {
+  try {
+    const { sendTenantSms, smsConfigured } = await import('@/lib/sms'); if (!smsConfigured()) return false;
+    let phone = ''; let email = '';
+    if (c.clientId) { const cl: any = (await db.doc(`${T(tenantId)}/clients/${c.clientId}`).get()).data() || {}; phone = cl.phone || cl.phoneNumber || ''; email = cl.email || ''; }
+    if (!phone && c.visit?.appointmentId) { const a: any = (await db.doc(`${T(tenantId)}/appointments/${c.visit.appointmentId}`).get()).data() || {}; phone = a.clientPhone || ''; email = email || a.clientEmail || ''; }
+    if (!phone && !email) return false;
+    const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, '');
+    const link = c.statusPath && base ? ` ${base}${c.statusPath}` : '';
+    const r = await sendTenantSms(db, tenantId, phone || '', `${body}${link}`, { email, subject: `About your visit` }, { kind: 'case_reply', recipientType: 'client', recipientId: c.clientId || null, recipientName: c.clientName || null, appointmentId: c.visit?.appointmentId || null });
+    return !!r.ok;
+  } catch { return false; }
+}
+
+/** The client answers "Did we make it right?" from their case page. Yes closes it; no reopens it for the owner. */
+export async function clientConfirm(db: any, tenantId: string, caseId: string, good: boolean, words: string) {
+  const ref = db.doc(`${T(tenantId)}/cases/${caseId}`); const snap = await ref.get(); if (!snap.exists) return { ok: false as const, error: 'Not found.' };
+  const c: any = snap.data(); if (c.locked) return { ok: true as const };
+  if (c.status !== 'done') return { ok: false as const, error: 'We’re still working on this one.' };
+  const text = String(words || '').trim().slice(0, 1000); const by = c.clientName || 'Client';
+  if (good && !c.safety) { await ref.set({ status: 'closed', checkedBackAt: now(), closedAt: now(), locked: true, closedBy: by, clientConfirmed: true, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Client confirmed it’s made right${text ? ` — “${text}”` : ''}. Case closed.`)) }, { merge: true }); return { ok: true as const }; }
+  if (good) { await ref.set({ clientConfirmed: true, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Client says they’re happy${text ? ` — “${text}”` : ''}. A manager closes safety cases.`)) }, { merge: true }); return { ok: true as const }; }
+  await ref.set({ status: 'owned', reopenedAt: now(), updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Client says it’s still not right${text ? ` — “${text}”` : ''}. Reopened.`)) }, { merge: true });
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {};
+  const staff = await staffList(db, tenantId); const to = c.ownerId ? [c.ownerId] : [...staff.filter((s: any) => MANAGERS.includes(String(s.role))).map((s: any) => s.id), tenant.userId];
+  await tell(db, tenantId, to, 'case_reopened', `${c.clientName} says it’s still not right. The case is open again.`, caseId);
+  return { ok: true as const };
 }
 
 export async function actOnCase(db: any, tenantId: string, actor: RequestActor, b: any) {
@@ -86,7 +121,8 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       await push({ ownerId: actor.staffId, ownerName: actor.name, status: c.status === 'heard' ? 'owned' : c.status }, `${actor.name} took ownership`); return { ok: true as const };
     case 'note': if (!text) return { ok: false as const, error: 'Write the note.' }; await push({}, `Note: ${text}`); return { ok: true as const };
     case 'message': if (!text) return { ok: false as const, error: 'Write the message.' };
-      await push({ messages: FieldValue.arrayUnion({ at: now(), by: actor.name, text, to: 'client' }), firstReplyAt: c.firstReplyAt || now() }, `Messaged the client: “${text.slice(0, 160)}”`); return { ok: true as const, sent: false };
+      { const sent = await textClient(db, tenantId, tenant, c, `${actor.name.split(' ')[0]}: ${text}`);
+        await push({ messages: FieldValue.arrayUnion({ at: now(), by: actor.name, text, to: 'client', sent }), firstReplyAt: c.firstReplyAt || now() }, `${sent ? 'Texted' : 'Replied to'} the client: “${text.slice(0, 160)}”`); return { ok: true as const, sent }; }
     case 'choose_fix': case 'approve': {
       const p = action === 'approve' ? c.pending : b; if (!p) return { ok: false as const, error: 'Nothing waiting for approval.' };
       const kind = String(p.kind) as FixKind; if (!FIX_LABEL[kind]) return { ok: false as const, error: 'Choose a fix.' };

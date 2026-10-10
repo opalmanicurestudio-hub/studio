@@ -432,6 +432,12 @@ const CompletedView = ({ tenant, client, appointment, service, brand }: { brand:
             ) : (
                 <VisitCard tone="ok"><p className="text-[15px]">Thank you — we’ve received your review.</p></VisitCard>
             )}
+            {(() => { const mir = (tenant as any)?.makingItRight; const tok = (appointment as any).checkInToken; const tid = (tenant as any)?.id; const aid = (appointment as any).id;
+                if (!mir || mir.channels?.visitLink === false || !tok || !tid || !aid) return null;
+                const href = `/how/${tid}/${aid}?t=${encodeURIComponent(String(tok))}&from=visit&start=report`;
+                return submitted && rating > 0 && rating <= 3
+                    ? <VisitCard><p className="text-[15px] font-semibold">Sorry it wasn’t perfect.</p><VisitMuted>Tell us what happened and we’ll make it right.</VisitMuted><VisitButton href={href}>Tell the team</VisitButton></VisitCard>
+                    : <p className="px-1 text-center text-[14px]" style={{ color: 'var(--muted)' }}>Not quite right? <a href={href} className="underline underline-offset-2">Tell us privately</a></p>; })()}
             {(tenant as any)?.visitTimelineForClients !== false && <VisitTimeline items={(appointment as any).timelinePublic} showTimes={(appointment as any).timelineShowTimes !== false} />}
             {(appointment as any).checkInToken ? <VisitRebook token={String((appointment as any).checkInToken)} bookHref={brand.bookHref || null} />
                 : brand.bookHref && <VisitButton quiet={!submitted} href={brand.bookHref}>Book your next visit</VisitButton>}

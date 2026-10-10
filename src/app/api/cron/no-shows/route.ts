@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
     try { const { sendBoothGuestTexts } = await import('@/lib/booth-texts'); await sendBoothGuestTexts(db, t.id, tenant); } catch { /* next run */ }
     // Providers hear about changes to their visits (moved, cancelled, handed over, added on) — lib/visit-watch.
     try { const { watchVisits } = await import('@/lib/visit-watch'); await watchVisits(db, t.id, tenant, now); } catch { /* next run */ }
+    try { const { caseNudges } = await import('@/lib/case-nudges'); await caseNudges(db, t.id, tenant); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {

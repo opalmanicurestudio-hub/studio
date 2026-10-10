@@ -92,8 +92,8 @@ export default function MakingItRightSettings() {
       <Section title="How complaints come in">
         <Row label="Phone calls and the desk" help="“Start a case” from a call or at checkout." inline><Toggle checked={s.channels.calls} onChange={(v) => set({ channels: { ...s.channels, calls: v } })} label="Phone calls and the desk" disabled={!canEdit} /></Row>
         <Row label="Providers" help="“They weren’t happy” on a finished visit in the staff app." inline><Toggle checked={s.channels.staff} onChange={(v) => set({ channels: { ...s.channels, staff: v } })} label="Providers" disabled={!canEdit} /></Row>
-        <Row label="“How was your visit?” text" help="Coming next — a short text after each visit." inline><Toggle checked={s.channels.survey} onChange={(v) => set({ channels: { ...s.channels, survey: v } })} label="How was your visit text" disabled={!canEdit} /></Row>
-        <Row label="“Not quite right?” on the visit link" help="Coming next — on the page clients already get for their visit." inline><Toggle checked={s.channels.visitLink} onChange={(v) => set({ channels: { ...s.channels, visitLink: v } })} label="Not quite right on the visit link" disabled={!canEdit} /></Row>
+        <Row label="“How was your visit?” text" help="The thank-you text the day after a visit links to a private page: happy clients are sent on to leave a review, unhappy ones reach you here." inline><Toggle checked={s.channels.survey} onChange={(v) => set({ channels: { ...s.channels, survey: v } })} label="How was your visit text" disabled={!canEdit} /></Row>
+        <Row label="“Not quite right?” on the visit link" help="On the visit link clients already have, once the visit is finished." inline><Toggle checked={s.channels.visitLink} onChange={(v) => set({ channels: { ...s.channels, visitLink: v } })} label="Not quite right on the visit link" disabled={!canEdit} /></Row>
       </Section>
 
       <Section title="Keeping it fair" help="Checked on every case. A case that doesn’t pass still opens — it just goes to a manager with the reason shown, never an automatic no.">

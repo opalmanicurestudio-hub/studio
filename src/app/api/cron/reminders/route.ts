@@ -26,6 +26,7 @@ import { bookingPolicyLines } from '@/lib/policy-copy';
 import { releaseUnpaidHolds } from '@/lib/release-unpaid';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
+import { feedbackPath } from '@/lib/visit-feedback';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
@@ -436,14 +437,19 @@ export async function GET(req: NextRequest) {
                   : `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}`;
             const bookLink = cfg.bookingUrl ? (() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
               try { const u = new URL(cfg.bookingUrl); u.searchParams.set('service', sid); return u.toString(); } catch { return cfg.bookingUrl; } })() : '';
-            const thanksMsg = resolveMessage(tDoc.data(), 'post_visit_followup', { client_first: String(first.a.clientName || '').split(' ')[0] || 'there', team: whoLabel || 'we', book_link: bookLink, review_link: cfg.reviewUrl || '', studio: (tDoc.data() as any)?.name || '' }, 'sms');
+            // Making it right: when the business has turned on "How was your visit?", the review link becomes the
+            // visit's private page — happy clients are sent on to the review site from there, unhappy ones reach the team.
+            const td: any = tDoc.data() || {};
+            const howUrl = base && td.makingItRight && td.makingItRight?.channels?.survey !== false ? `${base}${feedbackPath(tid, first.id)}` : '';
+            const reviewLink = howUrl || cfg.reviewUrl || '';
+            const thanksMsg = resolveMessage(tDoc.data(), 'post_visit_followup', { client_first: String(first.a.clientName || '').split(' ')[0] || 'there', team: whoLabel || 'we', book_link: bookLink, review_link: reviewLink, studio: (tDoc.data() as any)?.name || '' }, 'sms');
             if (!thanksMsg.send) continue;   // switched off on the Messages page
             const bits = thanksMsg.custom ? withoutEmptyLinks(tidyBody(thanksMsg.body)) : [
               `Thanks for coming in yesterday${whoLabel ? ` — ${whoLabel} loved having you` : ''}!`,
               // Opens on the service they just had, so rebooking is two taps.
               cfg.bookingUrl ? `Book your next visit: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
                 try { const u = new URL(cfg.bookingUrl); u.searchParams.set('service', sid); return u.toString(); } catch { return cfg.bookingUrl; } })()}` : null,
-              cfg.reviewUrl ? `Enjoyed it? A quick review means the world: ${cfg.reviewUrl}` : null,
+              howUrl ? `How was it? Tell us in one tap: ${howUrl}` : cfg.reviewUrl ? `Enjoyed it? A quick review means the world: ${cfg.reviewUrl}` : null,
             ].filter(Boolean).join(' ');
             let delivered = false;
             if (b.phone && smsConfigured()) {

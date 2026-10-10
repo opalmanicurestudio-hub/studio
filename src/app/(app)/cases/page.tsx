@@ -72,7 +72,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: str
   const [kind, setKind] = React.useState<FixKind | ''>(''); const [amt, setAmt] = React.useState(''); const [when, setWhen] = React.useState(''); const [mins, setMins] = React.useState('45');
   const [msg, setMsg] = React.useState(''); const [note, setNote] = React.useState(''); const [inc, setInc] = React.useState<any>({}); const [stmt, setStmt] = React.useState(''); const [cb, setCb] = React.useState('');
   React.useEffect(() => { setKind(''); setAmt(''); setWhen(''); setErr(''); setOk(''); setInc({}); }, [c.id]);
-  const act = async (action: string, extra: any = {}, done = 'Saved.') => { setBusy(true); setErr(''); setOk(''); const r = await payPost('/api/cases', { tenantId, id: c.id, action, ...extra }); setBusy(false); if (r.ok) { setOk(r.pending ? `Sent to a manager — ${r.why}` : done); return true; } setErr(r.error || 'That didn’t work.'); return false; };
+  const act = async (action: string, extra: any = {}, done = 'Saved.') => { setBusy(true); setErr(''); setOk(''); const r = await payPost('/api/cases', { tenantId, id: c.id, action, ...extra }); setBusy(false); if (r.ok) { setOk(r.pending ? `Sent to a manager — ${r.why}` : action === 'message' && r.sent === false ? 'Saved on the case — we couldn’t text them, so call or message them too.' : done); return true; } setErr(r.error || 'That didn’t work.'); return false; };
   const v = c.visit || {}; const fixes = (Object.keys(FIX_LABEL) as FixKind[]).filter((k) => S.fixes[k]);
   const clock = !c.firstReplyAt && c.replyDueAt && c.status !== 'closed' ? left(c.replyDueAt) : null;
   const dl = async (k: 'record' | 'incident') => { try { await download(tenantId, c.id, k, c.number); } catch (e: any) { setErr(e.message); } };
@@ -104,10 +104,13 @@ function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: str
 
       <div className="grid gap-3 md:grid-cols-2">
         <Card title="WHAT THEY SAID">
-          <p className="text-[16px] leading-snug">{c.words ? `“${c.words}”` : <span style={{ color: MUTED }}>No words recorded.</span>}</p>
+          <p className="text-[16px] leading-snug">{c.words ? `“${c.words}”` : !c.voice ? <span style={{ color: MUTED }}>No words recorded.</span> : null}</p>
+          {c.wordsEn && <p className="rounded-xl p-3 text-[14.5px]" style={{ background: SOFT }}><b>In English:</b> {c.wordsEn}</p>}
           {c.wants && <p className="text-[14px]" style={{ color: MUTED }}>Hoping for: <b style={{ color: INK }}>{({ fix: 'getting it fixed', refund: 'their money back', talk: 'to be heard' } as any)[c.wants]}</b></p>}
           {(c.photos || []).length > 0 && <div className="flex gap-2 overflow-x-auto">{c.photos.map((u: string) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="Client photo" className="h-20 w-20 rounded-xl object-cover" /></a>)}</div>}
-          {c.voice?.url && <audio controls src={c.voice.url} className="w-full" />}
+          {c.voice?.url && <div className="space-y-1.5"><p className="text-[13px] font-semibold" style={{ color: MUTED }}>Voice note{c.voice.seconds ? ` · ${c.voice.seconds}s` : ''}</p><audio controls src={c.voice.url} className="w-full" />
+            {c.voice.transcript && <p className="text-[14.5px]">“{c.voice.transcript}”</p>}
+            {c.voice.translation && <p className="rounded-xl p-3 text-[14.5px]" style={{ background: SOFT }}><b>In English:</b> {c.voice.translation}</p>}</div>}
           {c.providerAction && <p className="text-[14px]" style={{ color: MUTED }}>Provider: {c.providerAction}</p>}
         </Card>
         <Card title="THE VISIT">
@@ -172,8 +175,8 @@ function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: str
 
       {!c.locked && <Card title="MESSAGE THE CLIENT">
         <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={2} placeholder={`e.g. So sorry about this, ${String(c.clientName || '').split(' ')[0]} — we’d love to make it right.`} className="w-full rounded-xl border p-3 text-[15px]" style={{ borderColor: LINE }} />
-        <p className="text-[13px]" style={{ color: MUTED }}>Saved on the case as your reply. Send it to them by text or call as usual.</p>
-        <button type="button" disabled={busy || !msg.trim()} onClick={async () => { if (await act('message', { text: msg }, 'Saved on the case.')) setMsg(''); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Save reply</button>
+        <p className="text-[13px]" style={{ color: MUTED }}>We text it to them with a link to their case page, where they’ll see every reply.</p>
+        <button type="button" disabled={busy || !msg.trim()} onClick={async () => { if (await act('message', { text: msg }, 'Sent.')) setMsg(''); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Send reply</button>
       </Card>}
 
       <Card title="EVERY STEP">
