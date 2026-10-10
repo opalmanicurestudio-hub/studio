@@ -75,7 +75,7 @@ const MODES: {
 
 export default function BookingSettingsPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: myRole } = useTenant();
   const tenantId = selectedTenant?.id || '';
   const { toast } = useToast();
 
@@ -85,8 +85,8 @@ export default function BookingSettingsPage() {
   const [rbPct, setRbPct] = useState<string>('');
   const gp = useMemo(() => resolveGuardian(selectedTenant), [selectedTenant]);
   const [gDraft, setGDraft] = useState<Record<string, string>>({});
-  const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
-  const isMgr = ['owner', 'admin'].includes(staffRole);
+  const staffRole = String(myRole || 'staff').toLowerCase();   // the signed-in person's role (never assumed to be the owner)
+  const isMgr = ['owner', 'admin', 'manager'].includes(staffRole);
   const depositsLive = (selectedTenant as any)?.depositsLive === true;
 
   const [busy, setBusy] = useState<string | null>(null);

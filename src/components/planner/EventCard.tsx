@@ -138,7 +138,7 @@ export function EventCard({
     const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
     const isMobile = useIsMobile();
     const { user, role } = useTenant();
-    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
     
     const duration = differenceInMinutes(event.endTime, event.startTime);
 

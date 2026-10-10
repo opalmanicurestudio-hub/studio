@@ -404,7 +404,7 @@ export default function TeamThreadPage() {
       // reaches renters + management.
       const recipients = isTeamThread
         ? (staff || []).filter((s: any) => threadId === 'building_broadcast'
-            ? (s.isRenter || s.role === 'owner' || s.role === 'admin')
+            ? (s.isRenter || (s.role === 'owner' || s.role === 'admin' || s.role === 'manager'))
             : !s.isRenter)
           .map((s: any) => s.id).filter((id: string) => id !== activeStaffId)
         : (thread?.participantIds || []).filter((id: string) => id !== activeStaffId);

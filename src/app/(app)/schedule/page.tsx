@@ -525,7 +525,7 @@ export default function SchedulePage() {
     return grid;
   }, [shifts, staff, weekDays]);
 
-  const canManage = role === 'owner' || role === 'admin';
+  const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50/50">

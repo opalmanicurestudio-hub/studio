@@ -33,12 +33,12 @@ import { cn } from '@/lib/utils';
 
 export default function SettingsSetupPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: myRole } = useTenant();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id || '';
 
-  const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
-  const isMgr = ['owner', 'admin'].includes(staffRole);
+  const staffRole = String(myRole || 'staff').toLowerCase();   // the signed-in person's role (never assumed to be the owner)
+  const isMgr = ['owner', 'admin', 'manager'].includes(staffRole);
   const attention = useMemo(() => attentionItems(selectedTenant), [selectedTenant]);
 
   const [busy, setBusy] = useState<string | null>(null);

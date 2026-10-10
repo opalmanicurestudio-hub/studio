@@ -35,7 +35,7 @@ export async function enablePush(tenantId: string): Promise<{ state: PushState; 
     const idToken = await getAuth().currentUser?.getIdToken();
     const r = await fetch('/api/push/register', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) }, body: JSON.stringify({ tenantId, token }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection.' }));
     if (!r.ok) return { state: 'off', error: r.error || 'That didn’t save — try again.' };
-    try { localStorage.setItem('cf_push_registered', '1'); } catch { /* fine */ }
+    try { localStorage.setItem('cf_push_registered', '1'); localStorage.setItem('cf_push_token', token); } catch { /* fine */ }
     return { state: 'on' };
   } catch (e: any) { return { state: 'off', error: String(e?.message || 'That didn’t work — try again.').slice(0, 160) }; }
 }
@@ -48,4 +48,14 @@ export async function sendTestPush(tenantId: string): Promise<{ ok: boolean; tex
     if (r.ok) return { ok: true, text: `Sent (${String(r.result).replace(/^sent to /, '')}) — your phone should buzz now.` };
     return { ok: false, text: r.error || r.result || 'That didn’t send.' };
   } catch { return { ok: false, text: 'No connection — try again.' }; }
+}
+
+/** On sign-out (call BEFORE signing out): stop this phone getting the person's notifications. Quiet on failure. */
+export async function releasePush(tenantId: string): Promise<void> {
+  try {
+    const token = localStorage.getItem('cf_push_token'); if (!token) return;
+    const idToken = await getAuth().currentUser?.getIdToken(); if (!idToken) return;
+    await fetch('/api/push/register', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` }, body: JSON.stringify({ tenantId, token, remove: true }) }).catch(() => null);
+    localStorage.removeItem('cf_push_registered'); localStorage.removeItem('cf_push_token');
+  } catch { /* fine */ }
 }

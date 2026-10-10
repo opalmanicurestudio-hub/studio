@@ -13,26 +13,40 @@ service cloud.firestore {
     function hasStaffDoc(tenantId) {
       return exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid));
     }
+    // A team member signed in to the app with their own account: the server keeps staffDirectory/{uid} =
+    // { tenantId, staffId, role } in step with their staff record (/api/staff/access). Nobody can write it from a browser.
+    function dirEntry() {
+      return get(/databases/$(database)/documents/staffDirectory/$(request.auth.uid));
+    }
+    function inDirectory(tenantId) {
+      return exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && dirEntry().data.tenantId == tenantId;
+    }
+    function isSelf(tenantId, staffId) {
+      return isSignedIn() && (request.auth.uid == staffId || (inDirectory(tenantId) && dirEntry().data.staffId == staffId));
+    }
     function isOwner(tenantId) {
       return isSignedIn() && (
         request.auth.uid == tenantDoc(tenantId).data.userId ||
-        (hasStaffDoc(tenantId) && staffDoc(tenantId).data.role == 'owner')
+        (hasStaffDoc(tenantId) && staffDoc(tenantId).data.role == 'owner') ||
+        (inDirectory(tenantId) && dirEntry().data.role == 'owner')
       );
     }
     function isStaff(tenantId) {
       return isSignedIn() && (
         request.auth.uid == tenantDoc(tenantId).data.userId ||
-        hasStaffDoc(tenantId)
+        hasStaffDoc(tenantId) ||
+        inDirectory(tenantId)
       );
     }
     function staffStatusFields() {
       return ['status', 'onBreak', 'acceptingWalkIns', 'lastClockIn', 'lastClockOut', 'lastBreakStart', 'lastBreakEnd',
               'lastWalkInStartedAt', 'lastWalkInCompletedAt', 'turnOrder', 'currentAppointmentId', 'lastActiveAt', 'lastSeenAt', 'updatedAt'];
     }
-    function staffProtectedFields() {
-      return ['role', 'payStructure', 'hourlyRate', 'commissionRate', 'retailCommissionRate', 'payoutFrequency', 'salary', 'salaryAmount',
-              'permissions', 'showProfitability', 'tipRole', 'tipPoolEligible', 'isActive', 'active', 'isRenter', 'renterId', 'pricingTierId',
-              'services', 'employmentType', 'userId', 'tenantId', 'isAdmin', 'isManager', 'isStudent', 'compliance', 'pinHash', 'locationIds'];
+    // What a team member may change on their OWN record — an allow-list, so a new pay or permission field is protected
+    // the day it's added (the old block-list missed commission by service, per service pay and booking authority).
+    function staffSelfFields() {
+      return ['avatarUrl', 'photoURL', 'phone', 'phoneNumber', 'bio', 'specialties', 'pronouns', 'preferredName', 'emergencyContact',
+              'address', 'notificationPrefs', 'notificationAvailability', 'quietHours', 'fcmTokens', 'language', 'updatedAt'];
     }
     function isManager(tenantId) {
       return isSignedIn() && (
@@ -41,7 +55,8 @@ service cloud.firestore {
           staffDoc(tenantId).data.role == 'owner' ||
           staffDoc(tenantId).data.role == 'admin' ||
           staffDoc(tenantId).data.role == 'manager'
-        ))
+        )) ||
+        (inDirectory(tenantId) && dirEntry().data.role in ['owner', 'admin', 'manager'])
       );
     }
     match /tenants/{tenantId} {
@@ -60,12 +75,18 @@ service cloud.firestore {
     match /tenants/{tenantId}/staff/{staffId} {
       // Team only (pay rates, phone, email live here). Each person can read their own record; public pages use the
       // server's public cards (/api/public/staff: name, photo, title) instead.
-      allow get: if isStaff(tenantId) || (isSignedIn() && request.auth.uid == staffId);
+      allow get: if isStaff(tenantId) || isSelf(tenantId, staffId);
       allow list: if isStaff(tenantId);
-      allow create, delete: if isManager(tenantId);
-      allow update: if isManager(tenantId)
+      // Who can sign in is the server's job (authUid / appAccess), and only the business owner hands out the owner role.
+      allow create: if isManager(tenantId) && !('authUid' in request.resource.data) && !('appAccess' in request.resource.data)
+        && (request.resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId);
+      allow delete: if isManager(tenantId);
+      allow update: if (isManager(tenantId)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['authUid', 'appAccess', 'appInvitedAt', 'appInvitedBy', 'appAccessOffAt'])
+          && (request.resource.data.get('role', 'staff') == resource.data.get('role', 'staff') || request.resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId)
+          && (resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId || isOwner(tenantId)))
         || (isStaff(tenantId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffStatusFields()))
-        || (isStaff(tenantId) && request.auth.uid == staffId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(staffProtectedFields()));
+        || (isStaff(tenantId) && isSelf(tenantId, staffId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffSelfFields()));
       match /private/{docId} {
         allow read, write: if false;
       }

@@ -55,7 +55,7 @@ const when = (iso?: string) => {
 
 export default function RetailSupportPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: myRole } = useTenant();
   const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
   const { toast } = useToast();
@@ -70,8 +70,8 @@ export default function RetailSupportPage() {
    * (retailSettings.staffCreditCapCents, default $25); managers and the
    * owner are uncapped and set the cap right here. The database rule is the
    * real enforcement — this mirror just makes the refusal friendly. */
-  const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
-  const isMgr = ['owner', 'admin'].includes(staffRole);
+  const staffRole = String(myRole || 'staff').toLowerCase();   // the signed-in person's role (never assumed to be the owner)
+  const isMgr = ['owner', 'admin', 'manager'].includes(staffRole);
   const capCents = Math.max(0, Number((selectedTenant as any)?.retailSettings?.staffCreditCapCents) || 2500);
   const [capDraft, setCapDraft] = useState('');
   const saveCap = async () => {

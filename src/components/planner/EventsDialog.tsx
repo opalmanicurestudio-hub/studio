@@ -93,7 +93,7 @@ const AddEventForm = ({
   const [showConfirmation, setShowConfirmation] = useState(false);
 
   const staffToDisplay = useMemo(
-    () => (role === 'owner' || role === 'admin' ? staff : staff.filter(s => s.id === user?.uid)),
+    () => ((role === 'owner' || role === 'admin' || role === 'manager') ? staff : staff.filter(s => s.id === user?.uid)),
     [staff, role, user]
   );
 
@@ -199,7 +199,7 @@ const AddEventForm = ({
               <Label className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary" /> Assigned Team
               </Label>
-              {(role === 'owner' || role === 'admin') && (
+              {((role === 'owner' || role === 'admin' || role === 'manager')) && (
                 <Button variant="ghost" size="sm" type="button" onClick={toggleSelectAllStaff} className="h-auto p-0 text-[10px] font-black uppercase tracking-widest text-primary underline decoration-2 underline-offset-4">
                   {selectedStaffIds.length === staff.length ? 'Clear All' : 'Select All'}
                 </Button>
@@ -386,7 +386,7 @@ const EditEventForm = ({
   }, [event.id]); // only re-sync when the event itself changes
 
   const staffToDisplay = useMemo(
-    () => (role === 'owner' || role === 'admin' ? staff : staff.filter(s => s.id === user?.uid)),
+    () => ((role === 'owner' || role === 'admin' || role === 'manager') ? staff : staff.filter(s => s.id === user?.uid)),
     [staff, role, user]
   );
 
@@ -455,7 +455,7 @@ const EditEventForm = ({
               <Label className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary" /> Assigned Team
               </Label>
-              {(role === 'owner' || role === 'admin') && (
+              {((role === 'owner' || role === 'admin' || role === 'manager')) && (
                 <Button variant="ghost" size="sm" type="button" onClick={toggleSelectAllStaff} className="h-auto p-0 text-[10px] font-black uppercase tracking-widest text-primary underline">
                   {selectedStaffIds.length === staff.length ? 'Clear All' : 'Select All'}
                 </Button>

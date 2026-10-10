@@ -27,7 +27,7 @@ import {
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, writeBatch } from 'firebase/firestore';
+import { collection, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
@@ -58,7 +58,8 @@ const calcHours = (start: string, end: string, breakMins: number) => {
 
 export default function MySchedulePage() {
   const { firestore, user } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, staffId } = useTenant() as any;
+  const me: string | null = staffId || user?.uid || null;   // this person's staff record
   const { staff } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
@@ -78,12 +79,12 @@ export default function MySchedulePage() {
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
   const shiftsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId || !user?.uid) return null;
+    if (!firestore || !tenantId || !me) return null;
     return query(
       collection(firestore, `tenants/${tenantId}/shifts`),
-      where('staffId', '==', user.uid)
+      where('staffId', '==', me)
     );
-  }, [firestore, tenantId, user?.uid]);
+  }, [firestore, tenantId, me]);
 
   const allShiftsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId || !requestDate || requestType !== 'swap') return null;
@@ -95,12 +96,12 @@ export default function MySchedulePage() {
   }, [firestore, tenantId, requestDate, requestType]);
 
   const requestsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId || !user?.uid) return null;
+    if (!firestore || !tenantId || !me) return null;
     return query(
       collection(firestore, `tenants/${tenantId}/shiftRequests`),
-      where('staffId', '==', user.uid)
+      where('staffId', '==', me)
     );
-  }, [firestore, tenantId, user?.uid]);
+  }, [firestore, tenantId, me]);
 
   const { data: allShifts } = useCollection<any>(shiftsQuery);
   const { data: shiftsOnDate } = useCollection<any>(allShiftsQuery);
@@ -119,9 +120,9 @@ export default function MySchedulePage() {
   }, [allShifts, weekStart, weekEnd]);
 
   const swappableShifts = useMemo(() => {
-    if (!shiftsOnDate || !user?.uid) return [];
-    return shiftsOnDate.filter(s => s.staffId !== user.uid);
-  }, [shiftsOnDate, user?.uid]);
+    if (!shiftsOnDate || !me) return [];
+    return shiftsOnDate.filter(s => s.staffId !== me);
+  }, [shiftsOnDate, me]);
 
   const myRequests = useMemo(() => {
     if (!allRequests) return [];
@@ -137,11 +138,11 @@ export default function MySchedulePage() {
 
   const myShiftOnDate = useMemo(() => {
     if (!requestDate || !allShifts) return null;
-    return allShifts.find(s => s.date === requestDate && s.staffId === user?.uid && s.status !== 'cancelled');
-  }, [allShifts, requestDate, user?.uid]);
+    return allShifts.find(s => s.date === requestDate && s.staffId === me && s.status !== 'cancelled');
+  }, [allShifts, requestDate, me]);
 
   const handleSubmitRequest = async () => {
-    if (!firestore || !tenantId || !user?.uid || !requestDate || !requestReason.trim()) {
+    if (!tenantId || !user || !me || !requestDate || !requestReason.trim()) {
       toast({ variant: 'destructive', title: 'Missing Info', description: 'Please fill in all fields.' });
       return;
     }
@@ -152,63 +153,20 @@ export default function MySchedulePage() {
     setIsProcessing(true);
 
     try {
-      if (!firestore) return;
-      const batch = writeBatch(firestore);
-      const now = new Date().toISOString();
-
-      const requestRef = doc(collection(firestore, `tenants/${tenantId}/shiftRequests`));
-      batch.set(requestRef, {
-        id: requestRef.id,
-        staffId: user.uid,
-        type: requestType,
-        date: requestDate,
-        reason: requestReason,
-        status: 'pending',
-        createdAt: now,
-        ...(requestType === 'swap' && {
-          swapWithStaffId: swapTargetStaffId,
-          swapShiftId: swapTargetShiftId,
-          myShiftId: myShiftOnDate?.id || null,
-        }),
-      });
-
-      if (requestType === 'day_off') {
-        const blockRef = doc(collection(firestore, `tenants/${tenantId}/shiftDayOffBlocks`));
-        batch.set(blockRef, {
-          id: blockRef.id,
-          staffId: user.uid,
-          date: requestDate,
-          status: 'pending',
-          requestId: requestRef.id,
-          reason: requestReason,
-          createdAt: now,
-        });
-      }
-
-      const managersToNotify = (staff || []).filter(s => s.role === 'owner' || s.role === 'admin');
-      managersToNotify.forEach(manager => {
-        const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-        batch.set(notifRef, {
-          id: notifRef.id,
-          userId: manager.id,
-          type: requestType === 'day_off' ? 'day_off_request' : requestType === 'swap' ? 'swap_request' : 'early_release_request',
-          message: requestType === 'swap'
-            ? `${(staff || []).find(s => s.id === user.uid)?.name || 'Staff'} wants to swap shifts on ${format(safeDate(requestDate), 'MMM d')} with ${(staff || []).find(s => s.id === swapTargetStaffId)?.name || 'another staff member'}.`
-            : `${(staff || []).find(s => s.id === user.uid)?.name || 'Staff'} requested ${requestType === 'day_off' ? 'a day off' : 'early release'} on ${format(safeDate(requestDate), 'MMM d')}.`,
-          link: '/schedule/requests',
-          createdAt: now,
-          read: false,
-        });
-      });
-
-      await batch.commit();
+      // One path for every shift request (app and portal): the server checks the shifts and tells the right people.
+      const token = await user!.getIdToken();
+      const res = await fetch('/api/shifts/request', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tenantId, action: 'submit', type: requestType, date: requestDate, reason: requestReason,
+          ...(requestType === 'swap' ? { myShiftId: myShiftOnDate?.id || '', swapShiftId: swapTargetShiftId } : {}) }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) throw new Error(out.error || 'Could not send the request.');
 
       toast({
         title: requestType === 'day_off' ? 'Day Off Requested'
           : requestType === 'swap' ? 'Swap Requested'
           : 'Early Release Requested',
         description: requestType === 'swap'
-          ? 'Your manager will review the swap. Both shifts will update automatically once approved.'
+          ? 'Sent to your colleague to agree, then your manager approves. Both shifts update once it’s approved.'
           : requestType === 'day_off'
           ? 'The day has been flagged as pending. Your manager will confirm.'
           : 'Your manager will review and respond shortly.',
@@ -219,6 +177,8 @@ export default function MySchedulePage() {
       setRequestDate('');
       setSwapTargetStaffId('');
       setSwapTargetShiftId('');
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Not sent', description: e?.message || 'Could not send the request.' });
     } finally {
       setIsProcessing(false);
     }

@@ -2576,7 +2576,7 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
     // A party spread across four techs where only one of them is told is a
     // party where three people sit there while their tech waits for a name.
     seats.forEach(s => { if (s.holder) recipients.add(String(s.holder.id)); });
-    const mgrs = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin']).get();
+    const mgrs = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get();
     mgrs.docs.forEach((d: any) => recipients.add(d.id));
     // The owner's own uid off the tenant document, always.
     //

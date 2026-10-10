@@ -29,7 +29,8 @@ import {
 export const MANAGER_ROLES = ['owner', 'admin', 'manager'] as const;
 
 export type StaffActor = {
-  uid: string;
+  uid: string;        // their STAFF record id (the same as their login for the owner and older records)
+  authUid?: string;   // their login, when it differs (a team member invited to the app)
   name: string;
   role: string;
   isManager: boolean;
@@ -66,12 +67,18 @@ export async function verifyStaffActor(
     return { ok: false, error: 'Studio not found.', status: 404 };
   }
 
-  const staffSnap = await db.doc(`tenants/${tenantId}/staff/${uid}`).get();
+  let staffSnap = await db.doc(`tenants/${tenantId}/staff/${uid}`).get();
+  // A team member invited to the app: their login is linked to their staff record through staffDirectory.
+  if (!staffSnap.exists) { const dir: any = (await db.doc(`staffDirectory/${uid}`).get()).data(); if (dir?.tenantId === tenantId && dir.staffId) staffSnap = await db.doc(`tenants/${tenantId}/staff/${String(dir.staffId)}`).get(); }
   const staff = staffSnap.exists ? (staffSnap.data() as any) : null;
+  const staffDocId = staffSnap.exists ? String(staffSnap.id) : uid;
   const isTenantOwner = (tenantSnap.data() as any)?.userId === uid;
 
   if (!isTenantOwner && !staff) {
     return { ok: false, error: 'You do not have access to this studio.', status: 403 };
+  }
+  if (!isTenantOwner && (staff?.archived === true || staff?.appAccess === 'off')) {
+    return { ok: false, error: 'Your access to this business has been turned off.', status: 403 };
   }
 
   const role = String(staff?.role || (isTenantOwner ? 'owner' : 'staff'));
@@ -79,7 +86,8 @@ export async function verifyStaffActor(
     ok: true,
     tenant: (tenantSnap.data() as any) || {},
     actor: {
-      uid,
+      uid: staffDocId,
+      ...(staffDocId !== uid ? { authUid: uid } : {}),
       name: String(staff?.name || (isTenantOwner ? 'The owner' : 'A team member')).slice(0, 80),
       role,
       isManager: isTenantOwner || (MANAGER_ROLES as readonly string[]).includes(role),

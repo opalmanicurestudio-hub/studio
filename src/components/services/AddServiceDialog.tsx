@@ -523,7 +523,7 @@ export const CheckoutHub = ({
 
   const terminal = useTerminalSafe();
 
-  const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+  const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
 
   const selectedClient = useMemo(
     () => clients.find((c: Client) => c.id === selectedClientId),

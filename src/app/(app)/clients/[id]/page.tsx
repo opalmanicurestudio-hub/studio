@@ -289,7 +289,7 @@ export default function ClientDetailPage() {
   const consentFormDefs: any[] = ((useInventory() as any).consentForms) || [];
   const allStaffList: any[] = ((useInventory() as any).staff) || [];
   const tenantId = selectedTenant?.id;
-  const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+  const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
   const seesContact = canSeeClientContact(selectedTenant, role);
   const mayMessage = canMessageClients(selectedTenant, role);   // …and whether they may text or email through the business without seeing it   // Settings → privacy: who may see client phone numbers and emails
 

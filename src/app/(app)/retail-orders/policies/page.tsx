@@ -33,14 +33,14 @@ import { cn } from '@/lib/utils';
 
 export default function RetailPoliciesPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: myRole } = useTenant();
   const tenantId = selectedTenant?.id || '';
   const { toast } = useToast();
 
   const rs = ((selectedTenant as any)?.retailSettings || {}) as any;
   const pol = (rs.policies || {}) as any;
-  const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
-  const isMgr = ['owner', 'admin'].includes(staffRole);
+  const staffRole = String(myRole || 'staff').toLowerCase();   // the signed-in person's role (never assumed to be the owner)
+  const isMgr = ['owner', 'admin', 'manager'].includes(staffRole);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});

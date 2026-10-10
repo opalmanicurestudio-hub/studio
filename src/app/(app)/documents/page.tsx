@@ -1207,7 +1207,7 @@ export default function DocumentsPage() {
   const { user: currentUser } = useUser();
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
-  const canManage = role === 'owner' || role === 'admin';
+  const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
   const actorName = currentUser?.displayName || currentUser?.email || 'A manager';
   const myStaffId = resolveActiveStaffId(currentUser?.uid) || '';
 

@@ -41,6 +41,9 @@ export async function staffIdForLogin(db: any, tenantId: string, uid: string): P
   const T = `tenants/${tenantId}`; const portal = `portal:${tenantId}:`;
   if (uid.startsWith(portal)) { const id = uid.slice(portal.length); return (await db.doc(`${T}/staff/${id}`).get()).exists ? id : null; }
   if ((await db.doc(`${T}/staff/${uid}`).get()).exists) return uid;
+  // A team member invited to the app: their login is linked to their staff record by the server.
+  const dir: any = (await db.doc(`staffDirectory/${uid}`).get()).data();
+  if (dir?.tenantId === tenantId && dir.staffId && (await db.doc(`${T}/staff/${dir.staffId}`).get()).exists) return String(dir.staffId);
   const tenant: any = (await db.doc(T).get()).data() || {};
   if (tenant.userId === uid || tenant.ownerId === uid) return ensureOwnerTeamMember(db, tenantId);
   return null;

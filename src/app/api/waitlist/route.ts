@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
       // invisible to everyone — a lesson already learned on the lounge route.
       const recipients = new Set<string>();
       try {
-        const mgrs = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin']).get();
+        const mgrs = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get();
         mgrs.docs.forEach((d: any) => recipients.add(d.id));
       } catch { /* no managers resolved — the entry still lands on the panel */ }
       recipients.forEach(uid => {

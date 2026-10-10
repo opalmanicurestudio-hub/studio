@@ -34,7 +34,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     const { staff, inventory, billInstances, billDefinitions } = useInventory();
     const { firestore } = useFirebase();
     const { user } = useUser();
-    const { selectedTenant, role } = useTenant();
+    const { selectedTenant, role, staffId } = useTenant() as any;
     const tenantId = selectedTenant?.id;
 
     const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
@@ -66,7 +66,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     const pendingEventsQuery = useMemoFirebase(() => {
-        if (firestore && tenantId && (role === 'owner' || role === 'admin')) {
+        if (firestore && tenantId && ((role === 'owner' || role === 'admin' || role === 'manager'))) {
             return query(collection(firestore, `tenants/${tenantId}/events`), where("status", "==", "pending"));
         }
         return null;
@@ -91,11 +91,13 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     }, [pendingEvents, staff, readNotificationIds]);
 
     const userNotificationsQuery = useMemoFirebase(() => {
-        if (firestore && tenantId && user) {
-            return query(collection(firestore, `tenants/${tenantId}/notifications`), where("userId", "==", user.uid));
+        // Notices are addressed to the staff record (the owner's record shares their login id).
+        const me = staffId || user?.uid;
+        if (firestore && tenantId && me) {
+            return query(collection(firestore, `tenants/${tenantId}/notifications`), where("userId", "==", me));
         }
         return null;
-    }, [firestore, tenantId, user]);
+    }, [firestore, tenantId, user?.uid, staffId]);
     
     const { data: userNotificationsData } = useCollection<Notification>(userNotificationsQuery);
 

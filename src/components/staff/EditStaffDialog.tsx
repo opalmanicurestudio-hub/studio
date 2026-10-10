@@ -67,6 +67,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
+import { AppAccess } from '@/components/staff/AppAccess';
 
 const editStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -82,7 +83,7 @@ const editStaffSchema = z.object({
   pinterestUrl: z.string().optional(),
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
-  role: z.enum(['admin', 'staff', 'owner']),
+  role: z.enum(['admin', 'manager', 'staff', 'owner']),
   // Tip sharing (Settings → Fees & credit → How tips are shared): their part in tip-outs and weighted pools, and —
   // for owners and admins — whether they also work as a provider and may share in tips.
   tipRole: z.enum(['provider', 'assistant', 'front_desk']).optional(),
@@ -280,24 +281,7 @@ const EditStaffFormInternal = ({
             </div>
           </div>
 
-          <div className="p-6 rounded-[2rem] border-2 bg-muted/5 space-y-4 text-left">
-            <p className="ml-1 text-[13px] font-semibold text-foreground flex items-center gap-2">
-              <ShieldCheck className="w-3.5 h-3.5 opacity-40" /> Authentication Control
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-[11px] font-medium text-slate-600 uppercase tracking-tight text-center sm:text-left">
-                Dispatch a secure key recovery link to their verified inbox.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onSendPasswordReset}
-                className="h-10 px-6 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm w-full sm:w-auto shrink-0"
-              >
-                Send Reset Link
-              </Button>
-            </div>
-          </div>
+          <AppAccess member={watch() as any} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
             <div className="space-y-3">
@@ -309,7 +293,8 @@ const EditStaffFormInternal = ({
                   </SelectTrigger>
                   <SelectContent className="rounded-xl border-2 shadow-2xl">
                     <SelectItem value="staff" className="font-bold uppercase text-[10px] tracking-widest">STAFF PROVIDER</SelectItem>
-                    <SelectItem value="admin" className="font-bold uppercase text-[10px] tracking-widest">ADMIN MANAGER</SelectItem>
+                    <SelectItem value="manager" className="font-bold uppercase text-[10px] tracking-widest">MANAGER</SelectItem>
+                    <SelectItem value="admin" className="font-bold uppercase text-[10px] tracking-widest">ADMIN</SelectItem>
                     <SelectItem value="owner" className="font-bold uppercase text-[10px] tracking-widest">MASTER OWNER</SelectItem>
                   </SelectContent>
                 </Select>
@@ -618,7 +603,7 @@ const EditStaffFormInternal = ({
                 <select value={field.value || 'provider'} onChange={(e) => field.onChange(e.target.value)} aria-label="Their part in shared tips" className="h-12 w-full rounded-xl border px-3 text-[15px]">
                   <option value="provider">Provider — does services</option><option value="assistant">Assistant — helps providers</option><option value="front_desk">Front desk</option>
                 </select>)} />
-              {['owner', 'admin'].includes(String(watch('role'))) && <Controller name="tipPoolEligible" control={control} render={({ field }) => (
+              {['owner', 'admin', 'manager'].includes(String(watch('role'))) && <Controller name="tipPoolEligible" control={control} render={({ field }) => (
                 <label className="flex items-start gap-3 rounded-xl border p-3 text-[14px]"><input type="checkbox" checked={field.value === true} onChange={(e) => field.onChange(e.target.checked)} className="mt-1 h-5 w-5" />
                   <span><b>Works as a provider — can share in tips</b><br /><span className="text-[13px] text-muted-foreground">Owners and managers can’t take shared tips (US federal law) unless they also do services. Tick only if they regularly work as a provider.</span></span></label>)} />}
               <p className="ml-1 text-[13px] text-muted-foreground">Used when tips are shared — tip-outs go to assistants and front desk on shift; weighted pools use this role.</p>

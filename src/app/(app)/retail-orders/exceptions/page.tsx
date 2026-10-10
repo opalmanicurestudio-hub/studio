@@ -47,12 +47,12 @@ const REC_CLS: Record<string, string> = {
 
 export default function InventoryExceptionsPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: myRole } = useTenant();
   const tenantId = selectedTenant?.id || '';
   const { toast } = useToast();
 
-  const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
-  const isMgr = ['owner', 'admin'].includes(staffRole);
+  const staffRole = String(myRole || 'staff').toLowerCase();   // the signed-in person's role (never assumed to be the owner)
+  const isMgr = ['owner', 'admin', 'manager'].includes(staffRole);
 
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

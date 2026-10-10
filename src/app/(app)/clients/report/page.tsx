@@ -26,7 +26,7 @@ const ClientReportPage = () => {
     const { clients, appointments, services } = useInventory();
     const { role, selectedTenant } = useTenant();
     const showFinancials = canSeeFinancials(selectedTenant, role);
-    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
 
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
     const [isPageLoading, setIsPageLoading] = useState(true);

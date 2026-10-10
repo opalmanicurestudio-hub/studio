@@ -462,7 +462,7 @@ export async function POST(req: NextRequest) {
       try {
         const mgrs = await db
           .collection(`tenants/${tenantId}/staff`)
-          .where('role', 'in', ['owner', 'admin'])
+          .where('role', 'in', ['owner', 'admin', 'manager'])
           .get();
         mgrs.docs.forEach((d: any) => recipients.add(d.id));
       } catch {
@@ -596,7 +596,7 @@ export async function POST(req: NextRequest) {
       try {
         const mgrs = await db
           .collection(`tenants/${tenantId}/staff`)
-          .where('role', 'in', ['owner', 'admin'])
+          .where('role', 'in', ['owner', 'admin', 'manager'])
           .get();
         mgrs.docs.forEach((d: any) => recipients.add(d.id));
       } catch {

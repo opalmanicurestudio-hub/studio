@@ -8,7 +8,7 @@ import { collection, query, where, doc, updateDoc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
 import type { User } from 'firebase/auth';
 
-type UserRole = 'owner' | 'admin' | 'staff' | null;
+type UserRole = 'owner' | 'admin' | 'manager' | 'staff' | null;
 
 interface TenantContextType {
  tenants: Tenant[];
@@ -17,6 +17,8 @@ interface TenantContextType {
  isLoading: boolean;
  role: UserRole;
  user: User | null;
+ /** The signed-in person's STAFF record id — their login for the owner, the linked record for an invited team member. */
+ staffId: string | null;
 }
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined);
@@ -68,7 +70,8 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
    if (isStaffDirectoryLoading) return;
 
    if (staffTenant && staffDirectoryEntry) {
-     setRole((staffDirectoryEntry as any).role || 'staff');
+     const r = String((staffDirectoryEntry as any).role || 'staff');
+     setRole((['owner', 'admin', 'manager', 'staff'].includes(r) ? r : 'staff') as UserRole);
      setSelectedTenant(staffTenant);
      localStorage.setItem('selectedTenantId', staffTenant.id);
    } else {
@@ -114,6 +117,7 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
    isLoading,
    role,
    user,
+   staffId: !user ? null : role === 'owner' ? user.uid : String((staffDirectoryEntry as any)?.staffId || user.uid),
  };
 
  return (

@@ -477,7 +477,7 @@ function PlannerPageContent() {
         // put in is noise on the busiest screen in the building.
         ? (boothsData || []).filter((b: any) => b && b.isActive !== false)
         : (resourcesData || []);
-    if (role === 'owner' || role === 'admin') cols = [{ id: 'business', name: 'Studio', isBusiness: true }, ...cols];
+    if ((role === 'owner' || role === 'admin' || role === 'manager')) cols = [{ id: 'business', name: 'Studio', isBusiness: true }, ...cols];
     return cols;
   }, [activeView, staff, resourcesData, boothsData, role]);
 
@@ -1278,7 +1278,7 @@ function PlannerPageContent() {
   const myAuthority = useMemo(() => {
     const me = (allStaff || []).find((s: any) => s.id === currentUser?.uid || s.userId === currentUser?.uid);
     return resolveAuthority({
-      isManager: role === 'owner' || role === 'admin' || (me as any)?.role === 'manager',
+      isManager: (role === 'owner' || role === 'admin' || role === 'manager') || (me as any)?.role === 'manager',
       employmentModel: (me as any)?.employmentModel || null,
       decisionAuthority: (me as any)?.decisionAuthority || null,
       role: (me as any)?.role || null,
@@ -1321,7 +1321,7 @@ function PlannerPageContent() {
         uid: currentUser?.uid,
         name: decidingStaffName,
         role: (me as any)?.role || role || null,
-        isManager: role === 'owner' || role === 'admin',
+        isManager: (role === 'owner' || role === 'admin' || role === 'manager'),
       }, authorityPolicy, allStaff || [], (selectedTenant as any)?.userId || null);
       if (res.ok) {
         toast({ title: 'Sent to a manager', description: res.message });
@@ -1334,7 +1334,7 @@ function PlannerPageContent() {
     }
   }, [issueFor, allStaff, currentUser, firestore, tenantId, decidingStaffName, role, authorityPolicy, toast]);
 
-  const isManagerHere = role === 'owner' || role === 'admin';
+  const isManagerHere = (role === 'owner' || role === 'admin' || role === 'manager');
 
   /* Recomputed only while the sheet is open — a shortlist for one decision,
    * not a background job scanning every card on the day. */
@@ -1461,10 +1461,10 @@ function PlannerPageContent() {
       <PlannerHeader date={currentDate} onDate={(d: Date) => setCurrentDate(d)} isMobile={isMobile}
         appointments={appointments || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []}
         figures={{ visits: dayAppointments.filter((a: any) => !['cancelled', 'declined'].includes(String(a.status))).length, booked: dayPulse ? dayPulse.booked : null, goal: Number((selectedTenant as any)?.dailyGoal) || null }}
-        onFigures={role === 'owner' || role === 'admin' ? () => setIsKpiSheetOpen(true) : undefined}
+        onFigures={(role === 'owner' || role === 'admin' || role === 'manager') ? () => setIsKpiSheetOpen(true) : undefined}
         needsYou={[
           ...(awaitingUpcoming.length ? [{ key: 'awaiting', label: `${awaitingUpcoming.length} booking${awaitingUpcoming.length === 1 ? '' : 's'} awaiting your answer`, onClick: jumpToNextAwaiting, tone: 'warn' as const }] : []),
-          ...((role === 'owner' || role === 'admin') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
+          ...(((role === 'owner' || role === 'admin' || role === 'manager')) && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
           ...(cancelledToday > 0 ? [{ key: 'cancelled', label: `${cancelledToday} cancelled today — ${showCancelled ? 'hide' : 'show'}`, onClick: revealCancelled }] : []),
           ...studioEventsToday.map((se: any) => ({ key: `ev-${se.id}`, label: `${se.status === 'active' ? 'Live now · ' : ''}${se.title || se.name || 'Event'}${se.time ? ` · ${se.time}` : ''}`, onClick: () => router.push(`/events/${se.id}/manifest`) })),
         ]}
@@ -1480,7 +1480,7 @@ function PlannerPageContent() {
         ]}
         onScan={() => setIsScannerOpen(true)} onWaitlist={() => setIsWaitlistSheetOpen(true)} waitlistCount={openWaitlistCount}
         moreItems={[
-          ...((role === 'owner' || role === 'admin') ? [['Weekly numbers', () => setIsKpiSheetOpen(true)] as [string, () => void], [`Bills due${billInstancesWithDefinitions.length ? ` · ${billInstancesWithDefinitions.length}` : ''}`, () => setIsBillsSheetOpen(true)] as [string, () => void]] : []),
+          ...(((role === 'owner' || role === 'admin' || role === 'manager')) ? [['Weekly numbers', () => setIsKpiSheetOpen(true)] as [string, () => void], [`Bills due${billInstancesWithDefinitions.length ? ` · ${billInstancesWithDefinitions.length}` : ''}`, () => setIsBillsSheetOpen(true)] as [string, () => void]] : []),
           ['Find a time', () => setFindOpen(true)], ['Waiting list', () => setIsWaitlistSheetOpen(true)], ['Scan check-in code', () => setIsScannerOpen(true)], ['View settings', () => setPrefsOpen(true)],
           [density === 'compact' ? 'Roomy cards' : 'Compact cards', () => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })],
         ]}
@@ -1635,7 +1635,7 @@ function PlannerPageContent() {
                 employmentModel: (subject as any)?.employmentModel || null,
                 role: (subject as any)?.role || null,
               },
-              actor: { uid: currentUser?.uid, name: decidingStaffName, isManager: role === 'owner' || role === 'admin' },
+              actor: { uid: currentUser?.uid, name: decidingStaffName, isManager: (role === 'owner' || role === 'admin' || role === 'manager') },
               policy: (selectedTenant as any)?.blockPolicy || null,
               events: events || [],
               staff: allStaff || [],

@@ -59,7 +59,8 @@ import { cn } from '@/lib/utils';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
 import { FULFILMENT_ROLES, describeRole, permissionsFor, type FulfilmentRole } from '@/lib/fulfilment-access';
-import { collection, doc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
+import { collection, doc, writeBatch, deleteField, setDoc, updateDoc } from 'firebase/firestore';
+import { syncAppAccess } from '@/components/staff/AppAccess';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import { PrintableStaffReport } from '@/components/staff/PrintableStaffReport';
 import { ConvertToRenterDialog } from '@/components/staff/ConvertToRenterDialog';
@@ -592,7 +593,7 @@ export default function StaffPage() {
       await fetch('/api/pin/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }); } catch { /* tries again next visit */ } })();
   }, [tenantId, role]); // eslint-disable-line react-hooks/exhaustive-deps
   const studioName = selectedTenant?.name || 'the studio';
-  const canManage = role === 'owner' || role === 'admin';
+  const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
   const { toast: uiToast } = useToast();
   
   const [convertFor, setConvertFor] = useState<any | null>(null);
@@ -923,7 +924,12 @@ export default function StaffPage() {
     // A changed PIN goes to the server only — it's never saved on the team member's record.
     const { pin: newPin, pinHash: _ph, ...rest } = updatedStaffData as any;
     const sanitizedData = JSON.parse(JSON.stringify(rest));
-    updateDocumentNonBlocking(staffDocRef, sanitizedData);
+    // Saved first, then the server copies the role across to their app login (if they have one).
+    const prev: any = (staff || []).find((m: any) => m.id === updatedStaffData.id) || {};
+    const roleChanged = prev.role !== (sanitizedData as any).role || !!prev.archived !== !!(sanitizedData as any).archived;
+    void updateDoc(staffDocRef, sanitizedData)
+      .then(() => { if (roleChanged && (prev.authUid || (sanitizedData as any).authUid)) syncAppAccess(tenantId, updatedStaffData.id); })
+      .catch(() => updateDocumentNonBlocking(staffDocRef, sanitizedData));
     if (newPin && /^\d{4}$/.test(String(newPin))) {
       void setStaffPinServer(tenantId, updatedStaffData.id, String(newPin)).then((r) => {
         if (!r.ok) uiToast({ variant: 'destructive', title: 'PIN not changed', description: r.error || 'Try again.' });
@@ -989,9 +995,11 @@ export default function StaffPage() {
     }
     const ref = doc(firestore, 'tenants', tenantId, 'staff', member.id);
     const archiving = !(member as any).archived;
-    setDocumentNonBlocking(ref, archiving
+    void setDoc(ref, archiving
       ? { archived: true, archivedAt: new Date().toISOString(), active: false, onBreak: false, status: 'idle', showOnPublicPage: false }
-      : { archived: false }, { merge: true });
+      : { archived: false }, { merge: true })
+      .then(() => { if ((member as any).authUid) syncAppAccess(tenantId, member.id); })   // archiving turns their app login off
+      .catch(() => uiToast({ variant: 'destructive', title: 'Not saved', description: 'Try again.' }));
     uiToast({
       title: archiving ? 'Archived' : 'Restored',
       description: archiving

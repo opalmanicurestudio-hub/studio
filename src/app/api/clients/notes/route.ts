@@ -42,6 +42,6 @@ export async function POST(req: NextRequest) {
   const id = s(b.id, 120); const ref = id && !id.startsWith('legacy:') ? col.doc(id) : null; const cur: any = ref ? (await ref.get()).data() : null;
   if (!cur || !mayRead(cur)) return NextResponse.json({ ok: false, error: 'That note wasn’t found.' }, { status: 404 });
   if (b.action === 'pin' || b.action === 'unpin') { if (!(isManager || cur.authorUid === me.uid)) return NextResponse.json({ ok: false, error: 'Only managers or its author can pin it.' }, { status: 403 }); await ref!.set({ pinned: b.action === 'pin' }, { merge: true }); return NextResponse.json({ ok: true }); }
-  if (b.action === 'delete') { if (!(cur.authorUid === me.uid || me.owner || ['owner', 'admin'].includes(me.role))) return NextResponse.json({ ok: false, error: 'Only its author or an owner can delete it.' }, { status: 403 }); await ref!.delete(); return NextResponse.json({ ok: true }); }
+  if (b.action === 'delete') { if (!(cur.authorUid === me.uid || me.owner || ['owner', 'admin', 'manager'].includes(me.role))) return NextResponse.json({ ok: false, error: 'Only its author or an owner can delete it.' }, { status: 403 }); await ref!.delete(); return NextResponse.json({ ok: true }); }
   return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
 }

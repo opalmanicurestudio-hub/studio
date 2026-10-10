@@ -38,6 +38,7 @@ export function AppHeader({ title }: { title?: string }) {
 
   const handleLogout = async () => {
     if (auth) {
+        if (selectedTenant?.id) await import('@/lib/push-client').then(({ releasePush }) => releasePush(selectedTenant.id)).catch(() => {});
         await signOut(auth);
         router.push('/login');
     }

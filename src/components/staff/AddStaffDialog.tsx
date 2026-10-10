@@ -51,7 +51,7 @@ const addStaffSchema = z.object({
   pinterestUrl: z.string().optional(),
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
-  role: z.enum(['admin', 'staff']),
+  role: z.enum(['admin', 'manager', 'staff']),
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission', 'per_service']),
   serviceHourRate: z.coerce.number().min(0).optional(),   // per service pay: $ for each hour of service performed
@@ -219,7 +219,8 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-2xl">
                   <SelectItem value="staff" className="font-bold uppercase text-[10px] tracking-widest">STAFF PROVIDER</SelectItem>
-                  <SelectItem value="admin" className="font-bold uppercase text-[10px] tracking-widest">ADMIN MANAGER</SelectItem>
+                  <SelectItem value="manager" className="font-bold uppercase text-[10px] tracking-widest">MANAGER</SelectItem>
+                  <SelectItem value="admin" className="font-bold uppercase text-[10px] tracking-widest">ADMIN</SelectItem>
                 </SelectContent>
               </Select>
             )} />

@@ -3602,7 +3602,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const isRenter = staffMember.role === 'renter';
   const { toast } = useToast();
   const { user: authUser } = useUser();
-  const isOwnerOrAdmin = staffMember.role === 'owner' || staffMember.role === 'admin';
+  const isOwnerOrAdmin = (staffMember.role === 'owner' || staffMember.role === 'admin' || staffMember.role === 'manager');
   // v42 — the portal reads the same single source of truth. Tenant doc
   // fetched once; helper decides (owner-configured, PIN role respected).
   const [tenantDocData, setTenantDocData] = useState<any>(null);
@@ -3951,7 +3951,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     const bid = isRenter ? 'building_broadcast' : 'team_broadcast';
     const members = (allStaff||[])
       .filter((s:any) => isRenter
-        ? (s.isRenter || s.role === 'renter' || s.role === 'owner' || s.role === 'admin')
+        ? (s.isRenter || s.role === 'renter' || (s.role === 'owner' || s.role === 'admin' || s.role === 'manager'))
         : !(s.isRenter || s.role === 'renter'))
       .map((s:any)=>s.id);
     await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, bid),
@@ -4453,7 +4453,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [isClearingInbox, setIsClearingInbox] = useState(false);
   const [refreshKey, setRefreshKey]       = useState(0);
 
-  const isOwnerOrAdmin = staffMember.role === 'owner' || staffMember.role === 'admin';
+  const isOwnerOrAdmin = (staffMember.role === 'owner' || staffMember.role === 'admin' || staffMember.role === 'manager');
   // v76 — renters don't get floor-wide subscriptions (client names, the
   // whole roster's shifts, walk-ins). Their tabs never used this data.
   const isRenterUser = staffMember.role === 'renter';
@@ -5467,5 +5467,5 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
 
   if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} notice={authNotice} onSuccess={(s: any) => { setAuthNotice(''); setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); }} />;
 
-  return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); import('firebase/auth').then(({ getAuth, signOut }) => signOut(getAuth()).catch(() => {})); }} /></ErrorBoundary>;
+  return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); import('@/lib/push-client').then(({ releasePush }) => releasePush(tenantId)).finally(() => import('firebase/auth').then(({ getAuth, signOut }) => signOut(getAuth()).catch(() => {}))); }} /></ErrorBoundary>;
 }

@@ -2343,7 +2343,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   // ── All hooks done — safe to early-return ──────────────────────────────────
   if (!mounted || !open || !appointment || !client || !service) return null;
 
-  const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
+  const isOwnerOrAdminUser = (role === 'owner' || role === 'admin' || role === 'manager');
   const ticketId = safeTicketId(appointment.id);
   const mainStaffId = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
   const mainStaffMember = (staff || []).find((s: Staff) => s.id === mainStaffId);

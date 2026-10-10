@@ -29,7 +29,7 @@ const ClientReportPage = () => {
     const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
     const tenantId = selectedTenant?.id;
     
-    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
 
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
     const [isLoadingAi, setIsLoadingAi] = useState(false);

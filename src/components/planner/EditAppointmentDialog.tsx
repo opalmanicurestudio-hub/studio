@@ -150,7 +150,7 @@ const EditAppointmentForm = ({
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const { toast } = useToast();
 
-    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+    const isOwnerOrAdmin = (role === 'owner' || role === 'admin' || role === 'manager');
 
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
     const [selectedStaffId, setSelectedStaffId] = useState<string>(appointment.staffId || '');

@@ -39,7 +39,7 @@ export const PRIVACY_DEFAULTS: Required<StaffPrivacySettings> = {
 };
 
 function isPrivileged(role?: string | null): boolean {
-  return role === 'owner' || role === 'admin';
+  return (role === 'owner' || role === 'admin' || role === 'manager');
 }
 
 function audienceFor(tenant: any, key: 'financials' | 'clientContact' | 'careNoteContents'): PrivacyAudience {

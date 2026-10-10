@@ -386,7 +386,7 @@ export function AppSidebar() {
   };
 
   const handleLogout = async () => {
-    if (auth) { await signOut(auth); router.push('/login'); }
+    if (auth) { if (tenantId) await import('@/lib/push-client').then(({ releasePush }) => releasePush(tenantId)).catch(() => {}); await signOut(auth); router.push('/login'); }
   };
 
   // Badge counts — add open dispute count here

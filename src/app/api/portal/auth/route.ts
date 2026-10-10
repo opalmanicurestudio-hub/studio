@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
       // Until then: manager-mediated — owners/admins get the code as a
       // portal notification and relay it in person.
       const staffSnap = await db.collection(`tenants/${tenantId}/staff`).get();
-      const managers = staffSnap.docs.filter((d: any) => ['owner', 'admin'].includes((d.data() as any).role));
+      const managers = staffSnap.docs.filter((d: any) => ['owner', 'admin', 'manager'].includes((d.data() as any).role));
       for (const m of managers) {
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({
@@ -246,7 +246,7 @@ export async function POST(req: NextRequest) {
       let hitId: string | null = null; let hitData: any = null;
       { const { findStaffByPin } = await import('@/lib/pin'); const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
       const role = hitData?.role;
-      const isManager = !!hitId && (role === 'owner' || role === 'admin');
+      const isManager = !!hitId && ((role === 'owner' || role === 'admin' || role === 'manager'));
       await recordAttempt(db, tenantId, isManager);
       if (!isManager) return NextResponse.json({ ok: false, error: 'Unauthorized.' }, { status: 401 });
       return NextResponse.json({ ok: true, manager: { id: hitId, name: hitData?.name || '', role } });

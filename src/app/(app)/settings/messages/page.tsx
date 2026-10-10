@@ -35,13 +35,13 @@ const GROUPS = ['Booking', 'Money', 'Reminders', 'After the visit', 'Your team',
 
 export default function MessageSettingsPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: myRole } = useTenant();
   const tenantId = selectedTenant?.id || '';
   const { toast } = useToast();
 
   const stored = ((selectedTenant as any)?.messagePolicy || {}) as Record<string, any>;
-  const staffRole = String((selectedTenant as any)?.staffMember?.role || 'owner').toLowerCase();
-  const isMgr = ['owner', 'admin'].includes(staffRole);
+  const staffRole = String(myRole || 'staff').toLowerCase();   // the signed-in person's role (never assumed to be the owner)
+  const isMgr = ['owner', 'admin', 'manager'].includes(staffRole);
 
   const [group, setGroup] = useState<typeof GROUPS[number]>('Booking');
   const [busy, setBusy] = useState<string | null>(null);

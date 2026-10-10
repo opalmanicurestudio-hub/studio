@@ -889,7 +889,7 @@ export default function ApplicantsPage() {
   const { selectedTenant, role } = useTenant();
   const actorName = currentUser?.displayName || currentUser?.email || 'A manager';
   const tenantId = selectedTenant?.id;
-  const canManage = role === 'owner' || role === 'admin';
+  const canManage = (role === 'owner' || role === 'admin' || role === 'manager');
 
   const [origin, setOrigin] = useState('');
   const [copied, setCopied] = useState(false);

@@ -431,7 +431,7 @@ export function usePosEngine() {
     prevWalkInCountRef.current = waitingCount;
   }, [walkIns]);
 
-  const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
+  const isOwnerOrAdminUser = (role === 'owner' || role === 'admin' || role === 'manager');
   const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
 
   const readyForCheckoutAppointments = useMemo(() => {

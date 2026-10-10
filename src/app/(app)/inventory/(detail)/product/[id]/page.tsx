@@ -161,7 +161,7 @@ export default function ProductDetailPage() {
 
     const handleUnlockVault = async () => {
         setIsVerifyingVault(true);
-        const pv = await verifyPin(selectedTenant?.id || '', vaultPin, ['owner', 'admin']);   // checked on the server, owners & admins only
+        const pv = await verifyPin(selectedTenant?.id || '', vaultPin, ['owner', 'admin', 'manager']);   // checked on the server, owners & admins only
         const authorized = pv.ok;
         
         if (authorized) {
