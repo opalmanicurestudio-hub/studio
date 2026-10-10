@@ -221,7 +221,7 @@ service cloud.firestore {
       // the ones addressed to nobody in particular (floor alerts). Never anyone else's (PIN-reset codes go to managers).
       allow read, update, delete: if isStaff(tenantId) || (isPortalMember(tenantId) && (
         resource.data.get('userId', '') == portalStaffId()
-        || (resource.data.get('userId', '') == '' && request.auth.token.get('role', '') in ['owner', 'admin', 'manager'])));
+        || (resource.data.get('userId', null) in [null, ''] && request.auth.token.get('role', '') in ['owner', 'admin', 'manager'])));
     }
     match /tenants/{tenantId}/assetUnits/{unitId} {
       allow read, write: if isStaff(tenantId);
