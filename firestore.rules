@@ -38,6 +38,14 @@ service cloud.firestore {
         inDirectory(tenantId)
       );
     }
+    // The team: the app's sign-ins, plus team members signed in to the staff portal with their PIN (not renters — they
+    // run their own business and see only what's theirs).
+    function isTeam(tenantId) {
+      return isStaff(tenantId) || (isPortalMember(tenantId) && request.auth.token.get('isRenter', false) != true);
+    }
+    function portalStaffId() {
+      return request.auth.token.get('staffId', '');
+    }
     function staffStatusFields() {
       return ['status', 'onBreak', 'acceptingWalkIns', 'lastClockIn', 'lastClockOut', 'lastBreakStart', 'lastBreakEnd',
               'lastWalkInStartedAt', 'lastWalkInCompletedAt', 'turnOrder', 'currentAppointmentId', 'lastActiveAt', 'lastSeenAt', 'updatedAt'];
@@ -75,8 +83,8 @@ service cloud.firestore {
     match /tenants/{tenantId}/staff/{staffId} {
       // Team only (pay rates, phone, email live here). Each person can read their own record; public pages use the
       // server's public cards (/api/public/staff: name, photo, title) instead.
-      allow get: if isStaff(tenantId) || isSelf(tenantId, staffId);
-      allow list: if isStaff(tenantId);
+      allow get: if isTeam(tenantId) || isSelf(tenantId, staffId) || (isPortalMember(tenantId) && portalStaffId() == staffId);
+      allow list: if isTeam(tenantId);
       // Who can sign in is the server's job (authUid / appAccess), and only the business owner hands out the owner role.
       allow create: if isManager(tenantId) && !('authUid' in request.resource.data) && !('appAccess' in request.resource.data)
         && (!(request.resource.data.get('role', 'staff') in ['owner', 'admin']) || isOwner(tenantId));
@@ -102,8 +110,8 @@ service cloud.firestore {
       allow write: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/appointments/{appointmentId} {
-      allow read, create, delete: if isStaff(tenantId);
-      allow update: if isStaff(tenantId)
+      allow read, create, delete: if isTeam(tenantId);
+      allow update: if isTeam(tenantId)
         && request.resource.data.get('clinicCheckoff', null) == resource.data.get('clinicCheckoff', null)
         && !(request.resource.data.get('status', '') == 'completed'
              && resource.data.get('status', '') != 'completed'
@@ -150,10 +158,10 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/clients/{clientId} {
       // New clients come from the team, the client portal, or the server (bookings, walk-ins, inquiries).
-      allow create: if isStaff(tenantId) || (isPortalMember(tenantId) && request.auth.uid == clientId);
-      allow read, write: if isStaff(tenantId);
+      allow create: if isTeam(tenantId) || (isPortalMember(tenantId) && request.auth.uid == clientId);
+      allow read, write: if isTeam(tenantId);
       match /signedConsents/{consentId} {
-        allow read, write: if isStaff(tenantId);
+        allow read, write: if isTeam(tenantId);
       }
     }
     match /tenants/{tenantId}/chargeConsents/{consentId} {
@@ -287,7 +295,9 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     match /tenants/{tenantId}/transactions/{txnId} {
-      allow read, create, update: if isStaff(tenantId);
+      // A portal sign-in reads only its own sales (their earnings).
+      allow read: if isStaff(tenantId) || (isPortalMember(tenantId) && resource.data.get('staffId', '') == portalStaffId());
+      allow create, update: if isStaff(tenantId);
       allow delete: if false;
     }
     match /tenants/{tenantId}/rentInvoices/{invId} {
@@ -405,8 +415,23 @@ service cloud.firestore {
              || request.auth.token.role in ['owner', 'admin', 'manager']));
       allow write: if isStaff(tenantId);
     }
+    // TEAM CHAT: everyone in the app's team; a portal sign-in (staff or renter) only the conversations they're in, and
+    // only posts as themselves.
+    match /tenants/{tenantId}/staffThreads/{threadId} {
+      allow read: if isStaff(tenantId) || (isPortalMember(tenantId) && portalStaffId() in resource.data.get('participantIds', []));
+      allow create, update: if isStaff(tenantId) || (isPortalMember(tenantId) && portalStaffId() in request.resource.data.get('participantIds', []));
+      allow delete: if isManager(tenantId);
+      match /messages/{messageId} {
+        allow read, update: if isStaff(tenantId) || (isPortalMember(tenantId)
+          && portalStaffId() in get(/databases/$(database)/documents/tenants/$(tenantId)/staffThreads/$(threadId)).data.get('participantIds', []));
+        allow create: if isStaff(tenantId) || (isPortalMember(tenantId)
+          && request.resource.data.get('senderId', '') == portalStaffId()
+          && portalStaffId() in get(/databases/$(database)/documents/tenants/$(tenantId)/staffThreads/$(threadId)).data.get('participantIds', []));
+        allow delete: if isStaff(tenantId);
+      }
+    }
     match /tenants/{tenantId}/{collection}/{rest=**} {
-      allow read, write: if isStaff(tenantId) &&
+      allow read, write: if isTeam(tenantId) &&
         !(collection in [
           'courses', 'enrollments', 'students', 'studentSessions', 'studentLogins',
           'learningSessions', 'attendance', 'academyAudit', 'academyAuditMeta',
@@ -418,7 +443,7 @@ service cloud.firestore {
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
           'depositCredits',
           'inventoryExceptions',
-          'activityLogs', 'shifts', 'shiftRequests',
+          'activityLogs', 'shifts', 'shiftRequests', 'staffThreads',
           'kits', 'linens', 'kitTypes', 'linenBundles', 'sterilisationCycles',
           'assetUnits',
           'assetScanEvents',

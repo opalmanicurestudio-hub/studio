@@ -309,6 +309,7 @@ export default function TeamThreadPage() {
         preview: msg.body?.slice(0, 140) || (msg.imageUrl ? '📷 Photo' : msg.audioUrl ? '🎤 Voice note' : msg.fileUrl ? '📎 File' : 'Message'),
         senderName,
         pinnedAt: new Date().toISOString(),
+        ackBy: [],
       },
     }).catch(() => {});
     setOpenMenuId(null);
@@ -478,6 +479,7 @@ export default function TeamThreadPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-[8px] font-black uppercase tracking-widest text-amber-600">Pinned · {(thread as any).pinnedMessage.senderName}</p>
                   <p className="text-xs font-bold text-slate-700 truncate">{(thread as any).pinnedMessage.preview}</p>
+                  <p className="text-[11px] text-slate-500">Got it: {(((thread as any).pinnedMessage.ackBy || []) as string[]).map((id) => (staff || []).find((s: any) => s.id === id)?.name?.split(' ')[0]).filter(Boolean).join(', ') || 'nobody yet'}</p>
                 </div>
                 <button onClick={handleUnpin} className="p-1 rounded-lg hover:bg-amber-100 shrink-0" title="Unpin">
                   <X className="w-3.5 h-3.5 text-amber-600" />
@@ -612,6 +614,7 @@ export default function TeamThreadPage() {
                               )}
                             </a>
                           )}
+                          {msg.kind === 'shoutout' && <p className="font-bold">Shout-out to {String(msg.toName || 'a teammate').split(' ')[0]}</p>}
                           {msg.body && <p>{renderBody(msg.body)}</p>}
                         </>
                       )}

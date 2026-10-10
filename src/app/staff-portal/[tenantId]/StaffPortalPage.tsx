@@ -115,6 +115,7 @@ import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-port
 import { brandAccent } from '@/lib/brand-accent';
 import { can } from '@/lib/permissions';
 import { StepEdge } from '@/components/planner/StepTimeline';
+import { Star } from 'lucide-react';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -3780,6 +3781,26 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     finally { setSending(false); }
   };
 
+  // Shout-outs: a thank-you to a teammate, in the conversation and on their phone.
+  const [shoutOpen, setShoutOpen] = useState(false);
+  const sendShoutout = async (to: any) => {
+    if (!openId || sending || !to) return; setSending(true);
+    try {
+      const now = new Date().toISOString(); const first = String(to.name || 'a teammate').split(' ')[0];
+      const mRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${openId}/messages`));
+      await setDoc(mRef, { id: mRef.id, senderId: staffMember.id, kind: 'shoutout', toStaffId: to.id, toName: to.name || '', body: text.trim(), sentAt: now, readBy: [staffMember.id] });
+      await bumpThread(openId, `Shout-out to ${first}${text.trim() ? `: ${text.trim()}` : ''}`.slice(0, 140));
+      const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+      await setDoc(nRef, { id: nRef.id, userId: to.id, type: 'shoutout', message: `${staffMember.name || 'A teammate'} gave you a shout-out${text.trim() ? `: "${text.trim().slice(0, 100)}"` : '!'}`, link: '/staff-portal?tab=messages', createdAt: now, read: false });
+      setText(''); setShoutOpen(false);
+    } catch { toast({ variant: 'destructive', title: 'Could not send' }); }
+    finally { setSending(false); }
+  };
+  // Pinned announcements: "Got it" so the sender can see who has read it.
+  const ackPinned = async (threadId: string) => {
+    try { await updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), { 'pinnedMessage.ackBy': arrayUnion(staffMember.id) } as any); } catch { /* shown as unread */ }
+  };
+
   const openClPicker = async () => {
     if (clPickerOpen) { setClPickerOpen(false); return; }
     setClPickerOpen(true);
@@ -4010,15 +4031,17 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             {guestCtx.hasCareNotes && <span className="text-[8px] font-black uppercase tracking-widest bg-sky-100 text-sky-700 border border-sky-300 rounded-full px-2 py-0.5">Care notes</span>}
           </div>
         )}
-        {!isClient && (openThread as any)?.pinnedMessage && (
-          <div className="flex items-center gap-2.5 rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 mb-2 mx-1">
-            <span className="text-amber-600 text-xs">📌</span>
+        {!isClient && (openThread as any)?.pinnedMessage && (() => { const pm = (openThread as any).pinnedMessage; const acks: string[] = pm.ackBy || []; const others = (openThread.participantIds || []).length - 1; const got = acks.includes(staffMember.id);
+          return (
+          <div className="mx-1 mb-2 flex items-center gap-3 rounded-[18px] border px-3.5 py-3" style={{ borderColor: '#d7e6e4', background: '#f2f8f7' }}>
             <div className="flex-1 min-w-0">
-              <p className="text-[8px] font-black uppercase tracking-widest text-amber-600">Pinned · {(openThread as any).pinnedMessage.senderName}</p>
-              <p className="text-xs font-bold text-slate-700 truncate">{(openThread as any).pinnedMessage.preview}</p>
+              <p className="text-[12px] font-bold" style={{ color: '#2e6b66' }}>Pinned by {pm.senderName}</p>
+              <p className="text-[14px] font-semibold text-[#16171a] line-clamp-2">{pm.preview}</p>
+              <p className="text-[12px] text-[#6d7075]">Seen by {acks.length} of {Math.max(others, acks.length)}</p>
             </div>
-          </div>
-        )}
+            {!got ? <button type="button" onClick={() => ackPinned(openThread.id)} className="h-9 shrink-0 rounded-full bg-[#16171a] px-4 text-[13px] font-bold text-white">Got it</button>
+              : <span className="shrink-0 text-[12px] font-semibold text-[#6d7075]">You’ve seen it</span>}
+          </div>); })()}
         <div className="flex-1 overflow-y-auto space-y-2 px-1">
           {(msgs||[]).map((m:any) => {
             const mine = isClient ? m.direction==='outbound' : m.senderId===staffMember.id;
@@ -4028,6 +4051,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                 <div className="max-w-[80%]">
                   {!mine && sender && <p className="text-[9px] font-black uppercase text-indigo-600/70 mb-0.5 ml-1">{sender.name}</p>}
                   <div onClick={() => { if (!isClient) setReactionForId(reactionForId === m.id ? null : m.id); }} className={cn('px-3.5 py-2 text-sm font-medium', mine ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md' : 'bg-white text-slate-800 border-2 border-slate-200 rounded-2xl rounded-bl-md')}>
+                    {m.kind === 'shoutout' && !m.deleted && <p className="mb-1 flex items-center gap-1.5 text-[13px] font-bold"><Star className="h-4 w-4" />Shout-out to {String(m.toName || 'a teammate').split(' ')[0]}</p>}
                     {m.deleted ? <p className="italic opacity-50 text-xs">Message deleted</p> : (<>
                       {m.imageUrl && <a href={m.imageUrl} target="_blank" rel="noreferrer"><img src={m.imageUrl} alt="" className="rounded-xl max-h-56 mb-1 border"/></a>}
                       {m.audioUrl && <audio controls src={m.audioUrl} className="max-w-full h-10 my-0.5"/>}
@@ -4133,6 +4157,15 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             <button onClick={cancelRec} className="text-[9px] font-black uppercase text-slate-500 px-1 shrink-0">Cancel</button>
           </div>
         )}
+        {!isClient && shoutOpen && (
+          <div className="mx-1 mt-2 rounded-[18px] border border-[#ececee] bg-white p-3">
+            <p className="mb-2 text-[13px] font-semibold">Who’s the shout-out for? {text.trim() ? '' : 'Type why first, if you like.'}</p>
+            <div className="flex flex-wrap gap-2">
+              {(openThread?.participantIds || []).filter((id: string) => id !== staffMember.id).map((id: string) => { const p = (allStaff || []).find((x: any) => x.id === id); if (!p) return null;
+                return <button key={id} type="button" disabled={sending} onClick={() => sendShoutout(p)} className="h-9 rounded-full border border-[#e6e6e8] px-3 text-[13px] font-semibold">{String(p.name || '').split(' ')[0]}</button>; })}
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 pt-3 px-1">
           {!isClient && (<>
             <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0]; if(f){uploadAndSend(f,f.name,'image'); if(imgRef.current) imgRef.current.value='';}}}/>
@@ -4141,6 +4174,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white items-center justify-center shrink-0 hidden sm:flex"><Paperclip className="w-4 h-4"/></button>
             <button onClick={toggleRec} disabled={uploading} className={cn('h-11 w-11 rounded-xl border-2 flex items-center justify-center shrink-0', recording ? 'bg-red-500 text-white animate-pulse' : 'bg-white')}>{recording ? <Square className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
             <button onClick={openClPicker} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0"><User className="w-4 h-4"/></button>
+            <button onClick={()=>setShoutOpen(v=>!v)} aria-label="Give a shout-out" disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0"><Star className="w-4 h-4"/></button>
             {GIF_ENABLED && <button onClick={()=>setGifOpen(v=>!v)} disabled={uploading||recording} className="h-11 px-2.5 rounded-xl border-2 bg-white flex items-center justify-center shrink-0 font-black text-[9px] tracking-widest">GIF</button>}
           </>)}
           <input value={text} onChange={e=>{setText(e.target.value); if(!isClient) recordTyping();}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault(); isClient ? sendClientReply() : sendTeamText();}}} placeholder="Type a message..." className="flex-1 h-11 rounded-xl border-2 px-3 text-sm font-medium bg-white min-w-0"/>
@@ -4161,6 +4195,12 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
       )}
 
       {section==='team' ? (<>
+        {(() => { const tt: any = threads.find((t:any)=>t.type==='team'); const pm = tt?.pinnedMessage; if (!pm || (pm.ackBy || []).includes(staffMember.id)) return null;
+          return (
+          <div className="flex items-center gap-3 rounded-[20px] border px-4 py-3.5" style={{ borderColor: '#d7e6e4', background: '#f2f8f7' }}>
+            <div className="flex-1 min-w-0"><p className="text-[12px] font-bold" style={{ color: '#2e6b66' }}>Announcement · {pm.senderName}</p><p className="text-[15px] font-semibold text-[#16171a] line-clamp-3">{pm.preview}</p></div>
+            <button type="button" onClick={() => ackPinned(tt.id)} className="h-9 shrink-0 rounded-full bg-[#16171a] px-4 text-[13px] font-bold text-white">Got it</button>
+          </div>); })()}
         <button onClick={openTeamBroadcast} className="w-full text-left rounded-2xl border-2 border-indigo-200 bg-indigo-50/60 p-4 flex items-center gap-3">
           <div className="p-2.5 bg-indigo-600 rounded-xl shrink-0"><Users className="w-4 h-4 text-white"/></div>
           <div className="flex-1 min-w-0">
@@ -4730,7 +4770,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
   const handleNotifClick = async (n: any) => {
     if (!n.read) { try { await updateDoc(doc(firestore,`tenants/${tenantId}/notifications`,n.id),{ read:true }); } catch {} }
-    const map: Record<string,typeof activeTab> = { requests:'requests', schedule:'schedule', '/my-schedule':'schedule', '/schedule/requests':'requests', earnings:'earnings', today:'today' };
+    const map: Record<string,typeof activeTab> = { '/staff-portal?tab=schedule':'schedule', '/staff-portal?tab=messages':'messages', requests:'requests', schedule:'schedule', '/my-schedule':'schedule', '/schedule/requests':'requests', earnings:'earnings', today:'today' };
     if (n.link && map[n.link]) {
       setActiveTab(map[n.link]);
       return;
@@ -4857,6 +4897,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     sms_escalation_unassigned: <MessageSquare className="w-4 h-4 text-amber-500" />,
     membership_payment_failed: <CreditCard className="w-4 h-4 text-destructive" />,
     staff_message: <MessageSquare className="w-4 h-4 text-indigo-500" />,
+    shift_changed: <CalendarDays className="w-4 h-4 text-primary" />,
+    shoutout: <Star className="w-4 h-4 text-amber-500" />,
   };
 
   // ── Portal frame (bottom bar, Today's views) ──
@@ -4922,6 +4964,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           <ClockButton staffMember={staffMember} tenantId={tenantId} firestore={firestore} clockStatus={clockStatus} />
         </div>
         )}
+        {(navKey === 'today' || navKey === 'schedule') && sortedNotifs.filter((n: any) => n.type === 'shift_changed' && !n.read).slice(0, 3).map((n: any) => (
+          <div key={n.id} className="flex items-center gap-3 rounded-[20px] border px-4 py-3" style={{ borderColor: `${accentColor}33`, background: `${accentColor}12` }}>
+            <div className="min-w-0 flex-1"><p className="text-[12px] font-bold" style={{ color: accentColor }}>Your schedule changed</p><p className="text-[14px] font-semibold leading-snug">{n.message}</p></div>
+            <button type="button" onClick={() => { updateDoc(doc(firestore, `tenants/${tenantId}/notifications`, n.id), { read: true, ackAt: new Date().toISOString() }).catch(() => {}); }} className="h-9 shrink-0 rounded-full px-4 text-[13px] font-bold text-white" style={{ background: accentColor }}>Got it</button>
+          </div>))}
         {navKey === 'today' && <PushPrompt tenantId={tenantId} />}
         {staffMember.role !== 'renter' && navKey === 'today' && <StaffOverruns tenantId={tenantId} />}
         {navKey === 'today' && !isRenter && (
@@ -5247,6 +5294,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <RenterRentTab tenantId={tenantId} firestore={firestore} staffMember={staffMember} renter={myRenter} />
           )}
 
+          {activeTab==='messages' && (incomingSwaps||[]).length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="px-1 text-[15px] font-bold">Needs your answer</p>
+              {(incomingSwaps||[]).map((r: any) => <SwapConsentCard key={r.id} req={r} staffMember={staffMember} tenantId={tenantId} firestore={firestore} allStaff={allStaff} allShifts={allShiftsRaw}/>)}
+            </div>
+          )}
           {activeTab==='messages' && <StaffMessagesTab staffMember={staffMember} tenantId={tenantId} firestore={firestore} />}
 
           {activeTab==='inbox' && (

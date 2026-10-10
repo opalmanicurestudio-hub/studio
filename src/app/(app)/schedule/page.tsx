@@ -31,7 +31,7 @@ import {
 } from 'date-fns';
 import { cn, safeNumber } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, where, setDoc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
@@ -111,6 +111,9 @@ const STATUS_STYLES: Record<string, string> = {
   confirmed: 'bg-green-100 text-green-700 border-green-200',
   cancelled: 'bg-destructive/10 text-destructive border-destructive/20',
 };
+
+/** "13:00" → "1pm", "09:30" → "9:30am" (for shift-change notices). */
+const fmtTime = (hhmm: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm || '')); if (!m) return String(hhmm || ''); const h = Number(m[1]); return `${h % 12 || 12}${m[2] !== '00' ? `:${m[2]}` : ''}${h < 12 ? 'am' : 'pm'}`; };
 
 export default function SchedulePage() {
   const { firestore, user } = useFirebase();
@@ -301,6 +304,16 @@ export default function SchedulePage() {
         doc(firestore, `tenants/${tenantId}/shifts`, payload.id),
         payload, {}
       );
+      // A published shift that changed: tell the people affected (moving it to someone else tells both).
+      const was: any = editingShift; const live = was && (was.status === 'published' || was.status === 'confirmed');
+      if (live && (was.date !== payload.date || was.startTime !== payload.startTime || was.endTime !== payload.endTime || was.staffId !== payload.staffId)) {
+        const when = (d: string, a: string, b: string) => `${format(parseISO(d), 'EEE MMM d')}, ${fmtTime(a)}–${fmtTime(b)}`;
+        const notes: { to: string; msg: string }[] = was.staffId === payload.staffId
+          ? [{ to: payload.staffId, msg: `Your shift changed: ${when(payload.date, payload.startTime, payload.endTime)} (was ${when(was.date, was.startTime, was.endTime)}).` }]
+          : [{ to: was.staffId, msg: `Your shift on ${when(was.date, was.startTime, was.endTime)} has been moved to someone else.` },
+             { to: payload.staffId, msg: `You’ve been given a shift: ${when(payload.date, payload.startTime, payload.endTime)}.` }];
+        for (const n of notes) { const r = doc(collection(firestore, `tenants/${tenantId}/notifications`)); await setDoc(r, { id: r.id, userId: n.to, type: 'shift_changed', message: n.msg, link: '/staff-portal?tab=schedule', createdAt: new Date().toISOString(), read: false, needsAck: true }).catch(() => {}); }
+      }
       toast({ title: editingShift ? 'Shift Updated' : 'Shift Added' });
       setIsAddShiftOpen(false);
     } finally {
@@ -314,6 +327,11 @@ export default function SchedulePage() {
       doc(firestore, `tenants/${tenantId}/shifts`, shiftId),
       { status: 'cancelled' }
     );
+    const was: any = (shifts || []).find((x: any) => x.id === shiftId);
+    if (was && (was.status === 'published' || was.status === 'confirmed')) {
+      const r = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+      await setDoc(r, { id: r.id, userId: was.staffId, type: 'shift_changed', message: `Your shift on ${format(parseISO(was.date), 'EEE MMM d')}, ${fmtTime(was.startTime)}–${fmtTime(was.endTime)} was cancelled.`, link: '/staff-portal?tab=schedule', createdAt: new Date().toISOString(), read: false, needsAck: true }).catch(() => {});
+    }
     toast({ title: 'Shift Removed' });
   };
 

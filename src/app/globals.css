@@ -823,4 +823,22 @@ html.studio [role="dialog"] .bg-background, html.studio [data-radix-popper-conte
 :root .cf-portal .font-extrabold { font-weight: 800; }
 :root .cf-portal .font-bold { font-weight: 700; }
 :root .cf-portal .font-semibold { font-weight: 600; }
-:root .cf-portal .font-black { font-weight: 800; }
+
+/* Inside the staff portal, older screens speak the new look: sentence case, readable small text, hairline borders,
+   softer corners, white surfaces. (New portal pieces are written this way already.) */
+.cf-portal .uppercase { text-transform: none; }
+.cf-portal :is(.tracking-widest, .tracking-wider, .tracking-wide, [class*="tracking-[0."]) { letter-spacing: 0; }
+.cf-portal .tracking-tighter { letter-spacing: -0.02em; }
+.cf-portal :is(.text-\[6px\], .text-\[7px\], .text-\[8px\], .text-\[9px\], .text-\[10px\]) { font-size: 12px; }
+.cf-portal .text-\[11px\] { font-size: 13px; }
+.cf-portal .border-2 { border-width: 1px; }
+.cf-portal :is(.border-slate-100, .border-slate-200) { border-color: #ececee; }
+.cf-portal .rounded-\[2rem\] { border-radius: 24px; }
+.cf-portal .rounded-\[2\.5rem\] { border-radius: 28px; }
+.cf-portal .bg-slate-50 { background-color: #f6f6f7; }
+.cf-portal .bg-slate-900 { background-color: #16171a; }
+.cf-portal .font-black { font-weight: 700; }
+.cf-portal .bg-indigo-600 { background-color: #16171a; }
+.cf-portal :is(.text-indigo-600, .text-indigo-600\/70) { color: #2e6b66; }
+.cf-portal .border-indigo-200 { border-color: #ececee; }
+.cf-portal .bg-indigo-50\/60 { background-color: #f6f6f7; }
