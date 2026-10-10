@@ -6,6 +6,7 @@
 //   • the client: by default the desk confirms first ("Tell Bea" on the front desk); a business can choose to send
 //     automatically up to a limit, or never. Every message and notice is written to the audit log.
 // It tells again only when the knock-on grows by another margin, so a slow overrun doesn't send a text every 5 minutes.
+import { providersOf } from '@/lib/visit-watch';
 import { delayChain, delaySettings, delayClientText, worthTelling } from '@/lib/delay';
 import { attendantIds } from '@/lib/attendant';
 
@@ -47,7 +48,7 @@ export async function delayTick(db: any, tenantId: string, tenant: any, now = Da
       if (!worthTelling(k.lateMin, nx.delayedBy?.toldMin, S.marginMin)) continue;
       const fields: any = { expectedStartAt: new Date(k.expectedMs).toISOString(), delayedBy: { visitId: e.visitId, min: k.lateMin, why: k.why, toldMin: k.lateMin, at } };
       // Their provider (if not the one running late — they already know)
-      if (k.staffId && k.staffId !== e.staffId) note(k.staffId, 'delay_affects_you', `Your ${clock(k.startMs, tz)} (${k.clientName.split(' ')[0]}) will start about ${k.lateMin} min late — ${k.why === 'station' ? 'the station is still in use' : 'the client before is running over'}.`, k.id);
+      for (const pid of providersOf({ ...nx, staffId: k.staffId || nx.staffId }).filter((x) => x !== e.staffId)) note(pid, 'delay_affects_you', `Your ${clock(k.startMs, tz)} (${k.clientName.split(' ')[0]}) will start about ${k.lateMin} min late — ${k.why === 'station' ? 'the station is still in use' : 'the client before is running over'}.`, k.id);
       // The client
       const already = Math.max(Number(nx.delayTold?.min) || 0, Number(nx.providerDelay?.minutes) || 0) || null;
       if (S.clientMessages === 'auto' && k.lateMin <= S.autoMaxMin && worthTelling(k.lateMin, already, S.marginMin)) {

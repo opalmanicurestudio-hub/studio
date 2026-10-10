@@ -19,7 +19,7 @@ export const GROUPS: { id: NotifyGroup; label: string; hint: string }[] = [
 const OF: Record<string, NotifyGroup> = {};
 const put = (g: NotifyGroup, types: string) => types.split(/\s+/).filter(Boolean).forEach((t) => { OF[t] = g; });
 put('clients', 'sms sms_escalation sms_escalation_unassigned call_message call_reply front_door');
-put('visits', 'walk_in_assigned guest_arrived guest_running_late late_choice suspected_no_show no_show_escalation appointment_overdue addon_handoff escalation provider_delay_reply disruption_reply provider_ask provider_offer_reply change_request visit_delay delay_affects_you appointment');
+put('visits', 'visit_cancelled visit_moved visit_added visit_removed appointment_assigned walk_in_assigned guest_arrived guest_running_late late_choice suspected_no_show no_show_escalation appointment_overdue addon_handoff escalation provider_delay_reply disruption_reply provider_ask provider_offer_reply change_request visit_delay delay_affects_you appointment');
 put('schedule', 'shift_changed swap_request request_approved request_denied day_off_approved swap_approved schedule_published cover_request');
 put('team', 'staff_message shoutout task');
 put('pay', 'clock_reminder timeclock clock_fix clock_fix_approved clock_fix_declined payroll_draft');

@@ -30,6 +30,7 @@ import { internalPost, internalOrigin } from '@/lib/message-policy';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { checkChange, chainAfterMove, deadlineStart, hoursToDeadline } from '@/lib/change-rules';
 import { FieldValue } from 'firebase-admin/firestore';
+import { providersOf } from '@/lib/visit-watch';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -63,8 +64,15 @@ async function loadAuthed(db: any, tenantId: string, apptId: string, k: any) {
 
 async function notifyStaffAndOwner(db: any, tenantId: string, a: any, message: string) {
   try {
-    const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-    await nRef.set({ id: nRef.id, type: 'appointment', read: false, createdAt: new Date().toISOString(), link: '/planner', message });
+    // To the people who run the floor, by name — a notice with no recipient shows in nobody's bell. The visit's own
+    // providers hear through the visit watcher (lib/visit-watch) for moves and cancellations.
+    const mgrs = (await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs;
+    for (const m of mgrs) { const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, userId: m.id, type: 'appointment', read: false, createdAt: new Date().toISOString(), link: '/planner', appointmentId: a?.id || null, message }); }
+    if (/running late/.test(message)) for (const sid of providersOf(a).filter((x) => !mgrs.some((m: any) => m.id === x))) {
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, userId: sid, type: 'guest_running_late', read: false, createdAt: new Date().toISOString(), link: 'today', message });
+    }
   } catch { /* best-effort */ }
   try {
     if (a.staffId && smsConfigured()) {

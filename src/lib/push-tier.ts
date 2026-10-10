@@ -4,7 +4,7 @@
  *  (reports, receipts, "for your records") — so phones never get noisier by accident when a new type is added. */
 export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   // Front desk & visits — a person is waiting
-  walk_in_assigned: 'now', renter_arrived: 'now', guest_arrived: 'now', front_door: 'now', guest_running_late: 'now', late_choice: 'now',
+  walk_in_assigned: 'now', visit_cancelled: 'now', visit_moved: 'now', visit_added: 'now', visit_removed: 'now', appointment_assigned: 'now', renter_arrived: 'now', guest_arrived: 'now', front_door: 'now', guest_running_late: 'now', late_choice: 'now',
   clock_reminder: 'now', shift_no_show: 'now', timeclock: 'now',
   suspected_no_show: 'now', no_show_escalation: 'now', appointment_overdue: 'now', addon_handoff: 'now', escalation: 'now',
   provider_delay_reply: 'now', disruption_reply: 'now', cover_request: 'now', provider_ask: 'now', provider_offer_reply: 'now', change_request: 'now',

@@ -106,14 +106,14 @@ import { useDoc } from '@/firebase/firestore/use-doc';
 import { PortalHousekeeping } from '@/components/staff/MyTurnovers';
 import { PortalDecisionBar } from '@/components/staff-portal/PortalDecisionBar';
 import { isDeadAppointment } from '@/lib/booking-approval';
-import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy, limit } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { PortalSignIn, isSharedDevice } from '@/components/staff-portal/PortalSignIn';
 import { NowPanel, currentVisit } from '@/components/staff-portal/NowPanel';
 import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-portal/PortalChrome';
-import { brandAccent } from '@/lib/brand-accent';
+import { brandAccent, brandLogo } from '@/lib/brand-accent';
 import { can } from '@/lib/permissions';
 import { StepEdge } from '@/components/planner/StepTimeline';
 import { Star } from 'lucide-react';
@@ -121,6 +121,7 @@ import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
 import { ForgotClockOut } from '@/components/staff-portal/ForgotClockOut';
 import { MyDetails } from '@/components/staff-portal/MyDetails';
 import { AlertSettings } from '@/components/staff-portal/AlertSettings';
+import { PortalSplash, shouldShowSplash } from '@/components/staff-portal/PortalSplash';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -4839,6 +4840,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const RENT_TAB = { id:'rent' as any, label:'Rent', icon:Landmark as any };
   const DOCS_TAB = { id:'documents' as any, label:'Documents', icon:FileText as any };
   const fulfilmentPerms = permissionsFor(staffMember as any);
+  // Orders only for people who actually pack: someone a manager set up for orders, or a manager — and only when the
+  // business has had an online order at all. Everyone else never sees it.
+  const anyOrderQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : query(collection(firestore, `tenants/${tenantId}/retailOrders`), limit(1)), [firestore, tenantId]);
+  const { data: anyOrder } = useCollection<any>(anyOrderQ);
+  const fr = String((staffMember as any)?.fulfilmentRole || '').toLowerCase();
+  const showOrders = !!fulfilmentPerms.canPick && fr !== 'none' && (anyOrder || []).length > 0
+    && (!!fr || ['owner', 'admin', 'manager'].includes(String(staffMember?.role)));
   const ORDERS_TAB = { id: 'orders', label: 'Orders', icon: ShoppingCart };
 
   const TABS = isRenter
@@ -4881,6 +4889,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   };
 
   // ── Portal frame (bottom bar, Today's views) ──
+  const [splashOn, setSplashOn] = useState(() => typeof window !== 'undefined' && shouldShowSplash(`cf_portal_splash_${tenantId}_${staffMember.id}`));
   const accentColor = brandAccent(portalTenant);
   const todaysMine = (allMyApts || []).filter((a: any) => isSameDay(safeDate(a.startTime), new Date()));
   const liveVisit = currentVisit(todaysMine);
@@ -4896,6 +4905,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
   return (
     <div className="cf-portal min-h-screen bg-white text-[#16171a] flex flex-col max-w-lg mx-auto pb-28">
+      {splashOn && <PortalSplash name={staffMember.name || ''} business={(portalTenant as any)?.name || ''} logo={brandLogo(portalTenant)} accent={accentColor} visits={todaysMine} loading={apptsLoading} isRenter={isRenter} onDone={() => setSplashOn(false)} />}
 
       <header className="bg-white px-5 pt-6 pb-3 space-y-3 shrink-0">
         <div className="flex items-center justify-between gap-3">
@@ -5329,7 +5339,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   { k: 'alerts', label: 'Alerts', sub: 'What buzzes your phone, quiet hours, away', show: true },
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
                   { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
-                  { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: !!fulfilmentPerms.canPick },
+                  { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: showOrders },
                   { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
                 ].filter((r) => r.show).map((r) => (
                   <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">

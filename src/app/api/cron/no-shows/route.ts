@@ -28,6 +28,8 @@ export async function GET(req: NextRequest) {
       await sweepPendingCancellations(db, new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }), t.id); } catch { /* next run */ }
     // Booth guests' texts (booked, welcome, credit, overage) — their own switch; only with booth rental.
     try { const { sendBoothGuestTexts } = await import('@/lib/booth-texts'); await sendBoothGuestTexts(db, t.id, tenant); } catch { /* next run */ }
+    // Providers hear about changes to their visits (moved, cancelled, handed over, added on) — lib/visit-watch.
+    try { const { watchVisits } = await import('@/lib/visit-watch'); await watchVisits(db, t.id, tenant, now); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {

@@ -312,6 +312,11 @@ service cloud.firestore {
       allow update: if isManager(tenantId);
       allow create, delete: if false;
     }
+    // Finished payroll runs (from the payroll connection): managers only — never readable from a staff phone.
+    match /tenants/{tenantId}/payrollRuns/{runId} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
     match /tenants/{tenantId}/payrollDrafts/{draftId} {
       allow read, update: if isManager(tenantId);
       allow create, delete: if false;
@@ -467,6 +472,7 @@ service cloud.firestore {
           'transactions',
           'rentInvoices',
           'payrollDrafts',
+          'payrollRuns',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
