@@ -1405,6 +1405,8 @@ const MidServiceHandoffDialog = ({
         newOverrides[selectedServiceId] = selectedStaffId;
         updates.checkoutState = { ...(appointment.checkoutState || {}), serviceStaffOverrides: newOverrides };
       }
+      // Who's working on this visit, for staff phones (their add-on list reads this).
+      updates.assignedStaffIds = [...new Set([updates.staffId || appointment.staffId, ...Object.values(updates.checkoutState?.serviceStaffOverrides || appointment.checkoutState?.serviceStaffOverrides || {})].filter((x: any) => typeof x === 'string' && x))];
       await updateDocumentNonBlocking(appointmentRef, updates);
       toast({ title: 'Handoff recorded', description: `${selectedTarget.name} reassigned to ${staffName(selectedStaffId, staff)}` });
       onOpenChange(false);
@@ -2033,6 +2035,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
     updateDocumentNonBlocking(appointmentRef, {
       addOnIds: selectedAddOns.map(s => s.id),
+      assignedStaffIds: [...new Set([appointment.staffId, ...Object.values(newStaffOverrides || {})].filter((x: any) => typeof x === 'string' && x))],
       checkoutState: {
         ...currentCheckoutState,
         serviceStaffOverrides: newStaffOverrides,

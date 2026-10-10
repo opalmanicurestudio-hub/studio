@@ -107,6 +107,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { doc, writeBatch, collection, increment, arrayUnion } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { getAuth } from 'firebase/auth';
 import Image from 'next/image';
 import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
 
@@ -160,6 +161,9 @@ interface TechnicianReviewDialogProps {
   };
   onSendToFrontDesk: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
   staff: Staff[];
+  /** The staff portal passes these: a PIN sign-in has no app tenant, and its sign-in id isn't a staff id. */
+  tenantIdOverride?: string;
+  actorStaffId?: string;
 }
 
 export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
@@ -168,13 +172,17 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   appointmentData,
   onSendToFrontDesk,
   staff,
+  tenantIdOverride,
+  actorStaffId,
 }) => {
   const { appointment, client, service } = appointmentData;
   const { services: allServices, inventory, refreshmentRequests } = useInventory();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, staffId: ctxStaffId } = useTenant() as any;
   const { user: currentUser } = useUser();
   const { firestore } = useFirebase();
-  const tenantId = selectedTenant?.id;
+  const tenantId = tenantIdOverride || selectedTenant?.id;
+  const meId: string = actorStaffId || ctxStaffId || currentUser?.uid || '';   // the person's STAFF id (never a portal sign-in id)
+  const [finishing, setFinishing] = useState(false);
   const tmhr = selectedTenant?.tmhr || 50;
   const isMobile = useIsMobile();
   const { toast } = useToast();
@@ -243,7 +251,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setConcurrentServiceIds(alreadyConcurrent);
 
         const newlyCompleted = Object.entries(initialOverrides)
-            .filter(([_, staffId]) => staffId === currentUser?.uid)
+            .filter(([_, staffId]) => staffId === meId)
             .map(([svcId]) => svcId);
         
         setCompletedServiceIds([...new Set([...alreadyDone, ...newlyCompleted])]);
@@ -308,7 +316,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     const nextOverrides = { ...serviceStaffOverrides };
     newAddOns.forEach(addon => {
         if (!nextOverrides[addon.id]) {
-            nextOverrides[addon.id] = currentUser?.uid || appointment?.staffId || '';
+            nextOverrides[addon.id] = meId || appointment?.staffId || '';
         }
     });
     setServiceStaffOverrides(nextOverrides);
@@ -422,7 +430,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   };
 
   const handleCompleteMyPart = () => {
-    if (!client || !service || !appointment || !currentUser || !firestore || !tenantId) return;
+    if (!client || !service || !appointment || !firestore || !tenantId) return;
 
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
@@ -448,100 +456,19 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     };
 
     if (isLastProvider) {
-        const batch = writeBatch(firestore);
-        const now = new Date().toISOString();
-
-        editableFormula.forEach(item => {
-            const product = inventory.find(p => p.id === item.id);
-            if (!product) return;
-
-            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
-            const updateData: any = {};
-            let unitLabel = product.unit || 'units';
-
-            if (product.costingMethod === 'uses') {
-                unitLabel = product.useUnit || 'uses';
-                let currentUses = safeNumber(product.partialContainerUses);
-                let currentStock = safeNumber(product.totalStock);
-                const usesPerContainer = safeNumber(product.estimatedUses) || 1;
-                
-                currentUses -= item.quantity;
-                while (currentUses <= 0 && currentStock > 0) {
-                    currentStock -= 1;
-                    currentUses += usesPerContainer;
-                }
-                updateData.totalStock = currentStock;
-                updateData.partialContainerUses = currentUses;
-            } else if (product.costingMethod === 'size' && product.size) {
-                unitLabel = product.unit || 'ml';
-                let currentSize = safeNumber(product.partialContainerSize);
-                let currentStock = safeNumber(product.totalStock);
-                const sizePerContainer = safeNumber(product.size);
-                
-                currentSize -= item.quantity;
-                while (currentSize <= 0 && currentStock > 0) {
-                    currentStock -= 1;
-                    currentSize += sizePerContainer;
-                }
-                updateData.totalStock = currentStock;
-                updateData.partialContainerSize = currentSize;
-            } else {
-                updateData.totalStock = increment(-item.quantity);
-            }
-
-            batch.update(productRef, updateData);
-
-            const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-            batch.set(scRef, {
-                id: nanoid(),
-                productId: product.id,
-                date: now,
-                change: -item.quantity,
-                unit: unitLabel,
-                reason: `Service Formula: ${service.name} for ${client.name}`,
-                appointmentId: appointment.id
-            } as StockCorrection);
-        });
-
-        refreshments.forEach(ref => {
-            if (ref.isAccountedFor) return; 
-
-            const product = inventory.find(p => p.id === ref.id);
-            if (!product) return;
-
-            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
-            const qty = 1; 
-            
-            batch.update(productRef, { totalStock: increment(-qty) });
-
-            const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-            batch.set(scRef, {
-                id: nanoid(),
-                productId: product.id,
-                date: now,
-                change: -qty,
-                unit: product.unit || 'unit',
-                reason: `Manual Amenity: ${ref.name} during Review for ${client.name}`,
-                appointmentId: appointment.id
-            } as StockCorrection);
-        });
-
-        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), {
-            handoffs: arrayUnion(JSON.parse(JSON.stringify(handoffEntry(appointment, checkoutState)))),   // the last part, to the desk
-            status: 'ready_for_checkout',
-            checkoutState: JSON.parse(JSON.stringify(checkoutState)),
-            actualEndTime: now
-        });
-
-        const involvedIds = new Set([appointment.staffId || '', ...Object.values(serviceStaffOverrides)]);
-        involvedIds.forEach(sid => {
-            if (sid) batch.update(doc(firestore, `tenants/${tenantId}/staff`, sid), { status: 'idle' });
-        });
-
-        batch.commit().then(() => {
+        if (finishing) return;
+        setFinishing(true);
+        (async () => {
+          try {
+            const tk = await getAuth().currentUser?.getIdToken().catch(() => '');
+            const r = await fetch('/api/visits/handoff', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+              body: JSON.stringify({ tenantId, appointmentId: appointment.id, checkoutState: JSON.parse(JSON.stringify(checkoutState)), serviceName: service.name, clientName: client.name }) })
+              .then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
+            if (!r.ok) { toast({ variant: 'destructive', title: 'Not sent to the front desk', description: r.error || 'Try again.' }); return; }
             toast({ title: "Service Concluded", description: "Record sent to front desk for settlement." });
             onOpenChange(false);
-        });
+          } finally { setFinishing(false); }
+        })();
     } else {
         onSendToFrontDesk(appointment.id, checkoutState);
     }

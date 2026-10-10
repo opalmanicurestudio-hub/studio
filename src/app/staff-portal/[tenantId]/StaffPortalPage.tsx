@@ -968,9 +968,13 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
       const originalDuration = apt.originalDuration ?? apt.duration ?? 60;
       const newDuration = (apt.duration ?? 60) + selectedAddOn.duration;
 
+      // The planner draws the card from endTime — move it too, or the card doesn't grow and the slot looks free.
+      const startMs = Date.parse(String(apt.startTime || ''));
+      const endPatch = Number.isFinite(startMs) && !isConcurrent ? { endTime: new Date(startMs + newDuration * 60000).toISOString() } : {};
       batch.update(aptRef, {
         duration: newDuration,
         originalDuration,
+        ...endPatch,
         addOnIds: arrayUnion(selectedAddOn.id),
         assignedStaffIds: arrayUnion(techId),
         'checkoutState.serviceStaffOverrides': { ...currentOverrides, [selectedAddOn.id]: techId },
@@ -2935,8 +2939,8 @@ function WalkInLeaderboard({
         staffId: walkIn.staffId || currentStaffId,
         status: 'in_service', serviceStartTime: now,
       });
-      if (walkIn.appointmentId) {
-        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, walkIn.appointmentId), {
+      if (walkInAptId(walkIn) && (await getDoc(doc(firestore, `tenants/${tenantId}/appointments`, walkInAptId(walkIn)))).exists()) {
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, walkInAptId(walkIn)), {
           status: 'servicing', actualStartTime: now,
         });
       }
@@ -2954,7 +2958,7 @@ function WalkInLeaderboard({
     try {
       await writeBatch(firestore)
         .update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), {
-          status: 'waiting', staffId: null, notifiedAt: null,
+          status: 'waiting', staffId: null, assignedStaffId: null, notifiedAt: null,
         })
         .commit();
       toast({ title: 'Passed — back to queue' });
@@ -2973,10 +2977,10 @@ function WalkInLeaderboard({
       const newStatus = type === 'noshow' ? 'no_show' : type === 'skip' ? 'waiting' : 'cancelled';
       const update: any = { status: newStatus, updatedAt: now };
       if (type === 'cancel') { update.cancellationReason = reason || 'No reason'; update.cancelledAt = now; }
-      if (type === 'skip')   { update.staffId = null; update.notifiedAt = null; }
+      if (type === 'skip')   { update.staffId = null; update.assignedStaffId = null; update.notifiedAt = null; }
       batch.update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), update);
-      if (walkIn.appointmentId && (type === 'cancel' || type === 'noshow')) {
-        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, walkIn.appointmentId), {
+      if (walkInAptId(walkIn) && (type === 'cancel' || type === 'noshow') && (await getDoc(doc(firestore, `tenants/${tenantId}/appointments`, walkInAptId(walkIn)))).exists()) {
+        batch.update(doc(firestore, `tenants/${tenantId}/appointments`, walkInAptId(walkIn)), {
           status: type === 'noshow' ? 'no_show' : 'cancelled',
           ...(type === 'cancel' ? { cancellationReason: reason } : {}),
         });
@@ -4269,6 +4273,9 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   );
 }
 
+/** The desk files each walk-in's visit as apt-walkin-{id}; older walk-ins may carry the id themselves. */
+const walkInAptId = (w: any): string => String(w?.appointmentId || (w?.id ? `apt-walkin-${w.id}` : ''));
+
 // ─── RENTER RENT TAB (v78) ────────────────────────────────────────────────────
 // The renter's money world: lease + open rent (due/late with late fee),
 // card on file, schedule slot, unused-time credits, upcoming bookings,
@@ -4546,9 +4553,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const activityLogsQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/activityLogs`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
   const transactionsQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/transactions`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
 
-  const { data: myShiftsRaw,  loading: shiftsLoading }  = useCollection<any>(myShiftsQ);
+  const { data: myShiftsRaw,  isLoading: shiftsLoading }  = useCollection<any>(myShiftsQ);
   const { data: allShiftsRaw }                          = useCollection<any>(allShiftsQ);
-  const { data: myApptsRaw,   loading: apptsLoading }   = useCollection<any>(myApptsQ);
+  const { data: myApptsRaw,   isLoading: apptsLoading }   = useCollection<any>(myApptsQ);
   const { data: myAddonAptsRaw }                        = useCollection<any>(myAddonApptsQ);
   const { data: legacyCheckInsRaw }                     = useCollection<any>(checkInsQ);
   const { data: scopedCheckInsRaw }                     = useCollection<any>(scopedCheckInsQ);
@@ -4564,7 +4571,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: incomingSwapsRaw }                      = useCollection<any>(incomingSwapQ);
   const { data: pendingApprovals }                      = useCollection<any>(pendingApprovalQ);
   const { data: allStaff }                              = useCollection<any>(allStaffQ);
-  const { data: services,     loading: svcsLoading }    = useCollection<any>(servicesQ);
+  const { data: services,     isLoading: svcsLoading }    = useCollection<any>(servicesQ);
   const { data: notifs }                                = useCollection<any>(notifsQ);
   const { data: activityLogs }                          = useCollection<any>(activityLogsQ);
   const { data: transactions }                          = useCollection<any>(transactionsQ);
@@ -4616,7 +4623,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         checkInStatus:   ci?.checkInStatus   ?? apt.checkInStatus   ?? 'pending',
         lateTimeMinutes: ci?.lateTimeMinutes  ?? apt.lateTimeMinutes ?? 0,
         // If the check-in says confirmed but appt is still confirmed, keep appt status
-        status: (ci?.status && apt.status === 'confirmed') ? ci.status : apt.status,
+        // Only day-of progress from the check-in copy may move a confirmed booking on (the app's rule) — an old
+        // 'requested' or 'pending' copy must never pull an accepted booking back.
+        status: (apt.status === 'confirmed' && ['arrived', 'checked_in', 'servicing', 'ready_for_checkout', 'completed'].includes(String(ci?.status || ''))) ? ci.status : apt.status,
       };
     };
     /* The feed is filtered by staffId only, so every cancelled, declined and
@@ -4699,7 +4708,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     switch (action) {
       case 'start':
         batch.update(aptRef,{ status:'servicing', actualStartTime:now });
-        batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'busy' },{ merge:true });
+        batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'busy', currentAppointmentId:aptId },{ merge:true });
         break;
       case 'checkout':
         batch.update(aptRef,{ status:'ready_for_checkout', actualEndTime:now });
@@ -4711,7 +4720,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         break;
       case 'escalate': {
         batch.update(aptRef,{ escalatedAt:now, escalatedBy:staffMember.id });
-        const mgrs = await getDocs(query(collection(firestore,`tenants/${tenantId}/staff`),where('role','in',['owner','admin'])));
+        const mgrs = await getDocs(query(collection(firestore,`tenants/${tenantId}/staff`),where('role','in',['owner','admin','manager'])));
         mgrs.docs.forEach(mgr => { const n=doc(collection(firestore,`tenants/${tenantId}/notifications`)); batch.set(n,{ id:n.id, userId:mgr.id, read:false, createdAt:now, type:'escalation', link:'/appointments', message:`${staffMember.name} escalated ${apt.clientName||'a client'} at checkout.` }); });
         break;
       }
@@ -4720,7 +4729,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'available' },{ merge:true });
         break;
     }
-    await batch.commit();
+    // The check-in screen's copy of the visit follows, so the front desk and the client's screen agree.
+    const mirror: Record<string,string> = { start:'servicing', checkout:'ready_for_checkout', complete:'completed', noshow:'no_show' };
+    if (apt?.checkInToken && mirror[action]) batch.set(doc(firestore,'appointmentCheckIns',apt.checkInToken),{ status:mirror[action], tenantId },{ merge:true });
+    try { await batch.commit(); }
+    catch { toast({ variant:'destructive', title:'That didn’t save', description:'Check your connection and try again. If it keeps happening, tell your manager.' }); return; }
     const labels: Record<string,string> = { start:'Service Started ✓', checkout:'Sent to Checkout ✓', complete:'Marked Complete ✓', escalate:'Escalated to Manager ✓', noshow:'Marked No Show' };
     toast({ title: labels[action] || 'Updated' });
   }, [firestore, tenantId, staffMember]);
@@ -4731,7 +4744,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     const now  = new Date().toISOString();
     const batch = writeBatch(firestore);
     batch.update(doc(firestore,`tenants/${tenantId}/appointments`,apt.id), { isEscalated: true, escalatedAt: now, escalatedBy: staffMember.id });
-    const mgrs = await getDocs(query(collection(firestore,`tenants/${tenantId}/staff`),where('role','in',['owner','admin'])));
+    const mgrs = await getDocs(query(collection(firestore,`tenants/${tenantId}/staff`),where('role','in',['owner','admin','manager'])));
     mgrs.docs.forEach(mgr => {
       const n = doc(collection(firestore,`tenants/${tenantId}/notifications`));
       batch.set(n,{ id:n.id, userId:mgr.id, read:false, createdAt:now, type:'escalation', link:'/appointments', message:`URGENT: ${staffMember.name} escalated an issue with ${apt.clientName||'a guest'} (${apt.id.slice(-6).toUpperCase()}).` });
@@ -5429,6 +5442,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             setReviewApt(null); setReviewSvc(null);
           }}
           staff={allStaff || []}
+          tenantIdOverride={tenantId}
+          actorStaffId={staffMember.id}
         />
       )}
 

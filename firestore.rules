@@ -95,7 +95,9 @@ service cloud.firestore {
           && (resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId || isOwner(tenantId)))
         || (isStaff(tenantId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffStatusFields()))
         || (isStaff(tenantId) && isSelf(tenantId, staffId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffSelfFields()))
-        || (isPortalMember(tenantId) && portalStaffId() == staffId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffSelfFields()));
+        || (isPortalMember(tenantId) && portalStaffId() == staffId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffSelfFields()))
+        // A team member on their phone marks THEMSELVES busy / free (start a visit, finish, walk-ins on or off).
+        || (isTeam(tenantId) && isPortalMember(tenantId) && portalStaffId() == staffId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffStatusFields()));
       match /private/{docId} {
         allow read, write: if false;
       }
@@ -215,7 +217,11 @@ service cloud.firestore {
             && !('userId' in request.resource.data)
             && request.resource.data.get('message', '') is string && request.resource.data.get('message', '').size() <= 400
             && request.resource.data.keys().hasOnly(['id', 'type', 'message', 'link', 'read', 'createdAt', 'quoteId', 'title', 'priority']));
-      allow read, update, delete: if isStaff(tenantId) || isPortalMember(tenantId);
+      // The app's team sees the business's notices. A phone signed in with a PIN sees only its own — and, for managers,
+      // the ones addressed to nobody in particular (floor alerts). Never anyone else's (PIN-reset codes go to managers).
+      allow read, update, delete: if isStaff(tenantId) || (isPortalMember(tenantId) && (
+        resource.data.get('userId', '') == portalStaffId()
+        || (resource.data.get('userId', '') == '' && request.auth.token.get('role', '') in ['owner', 'admin', 'manager'])));
     }
     match /tenants/{tenantId}/assetUnits/{unitId} {
       allow read, write: if isStaff(tenantId);
@@ -286,7 +292,7 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/auditLogs/{entryId} {
-      allow create: if isStaff(tenantId);
+      allow create: if isTeam(tenantId);
       allow read: if isManager(tenantId);
       allow update, delete: if false;
     }
@@ -382,7 +388,7 @@ service cloud.firestore {
       allow read, write: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/appointmentCheckIns/{token} {
-      allow read: if isStaff(tenantId);
+      allow read: if isTeam(tenantId);
       allow write: if false;
     }
     match /tenants/{tenantId}/locations/{locationId} {
