@@ -11,7 +11,7 @@ import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
-import { settingsOf, FIX_LABEL, FIX_HINT, STAGES, stageIndex, WANTS, wantsFor, type FixKind } from '@/lib/making-it-right';
+import { settingsOf, FIX_LABEL, FIX_HINT, STAGES, stageIndex, WANTS, wantsFor, CAUSES, providerCaseStats, type FixKind } from '@/lib/making-it-right';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f6', RED = '#b42318', PINK = '#fdecec', GREEN = '#1f6b3a';
 const ago = (iso: string) => { const m = Math.max(0, (Date.now() - Date.parse(iso)) / 60000); return m < 60 ? `${Math.round(m)} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
@@ -142,7 +142,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
             <p className="text-[16px]">{c.reasonLabel}</p></div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => dl('record')} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Case record (PDF)</button>
-            {c.safety && <button type="button" onClick={() => dl('incident')} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: PINK, color: RED }}>Incident report (PDF)</button>}
+            {(c.safety || c.kind === 'incident') && <button type="button" onClick={() => dl('incident')} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: PINK, color: RED }}>Incident report (PDF)</button>}
           </div>
         </div>
         <StageRail status={c.status} />
@@ -175,6 +175,21 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
             <a href={`/pos?visit=${v.appointmentId}`} className="text-[14px] font-bold underline">Open the visit</a></> : <p className="text-[14px]" style={{ color: MUTED }}>No visit linked.</p>}
         </Card>
       </div>
+
+      <Card title={c.kind === 'incident' ? 'STATEMENTS' : 'EVERYONE’S SIDE'}>
+        {c.sideWanted && !c.locked && <p className="rounded-xl px-3 py-2 text-[14px] font-semibold" style={{ background: '#fff7e6' }}>Waiting for {v.providerName ? v.providerName.split(' ')[0] : 'the provider'}’s side — they’ve been asked in the staff app.</p>}
+        {[...(c.statements || []), ...(c.incident?.statements || [])].map((st: any, i: number) => <div key={i} className="space-y-1 border-b pb-2 last:border-0" style={{ borderColor: LINE }}>
+          <p className="text-[13px]" style={{ color: MUTED }}><b style={{ color: INK }}>{st.by}</b> · {fmt(st.at)} · signed</p>
+          {st.text && <p className="text-[15px]">“{st.text}”</p>}{st.textEn && <p className="text-[14px]" style={{ color: MUTED }}><b>In English:</b> {st.textEn}</p>}
+          {st.voice?.url && <audio controls src={st.voice.url} className="w-full" />}{st.voice?.translation && <p className="text-[14px]" style={{ color: MUTED }}><b>In English:</b> {st.voice.translation}</p>}</div>)}
+        {!(c.statements || []).length && !(c.incident?.statements || []).length && !c.sideWanted && <p className="text-[14px]" style={{ color: MUTED }}>No statements yet.</p>}
+        {!c.locked && <div className="flex gap-2"><input value={stmt} onChange={(e) => setStmt(e.target.value)} placeholder="Your account (signed with your name)" className="h-11 flex-1 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><button type="button" disabled={busy || !stmt.trim()} onClick={async () => { if (await act('statement', { text: stmt }, 'Statement signed.')) setStmt(''); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Sign it</button></div>}
+      </Card>
+
+      {isManager && c.kind !== 'incident' && <Card title="WHAT CAUSED IT">
+        <div className="flex flex-wrap gap-2">{Object.entries(CAUSES).map(([k, d]) => <button key={k} type="button" disabled={busy} onClick={() => act('cause', { cause: k }, 'Cause saved.')} className="min-h-10 rounded-full px-4 text-[14px] font-semibold" style={c.cause === k ? { background: INK, color: '#fff' } : { background: SOFT }}>{d.label}</button>)}</div>
+        <p className="text-[13px]" style={{ color: MUTED }}>Only “The work itself” counts in {v.providerName ? `${v.providerName.split(' ')[0]}’s` : 'the provider’s'} numbers. {c.sideWanted ? 'Their side isn’t in yet.' : ''}</p>
+      </Card>}
 
       <Card title="FAIR-USE CHECK">
         {(c.checks || []).length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>Nothing to check.</p> :
@@ -219,18 +234,13 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
             <button type="button" disabled={busy} onClick={() => act('checked_back', { answer: 'no', note: cb }, 'Reopened.')} className={btn} style={{ background: SOFT }}>Still not right</button></div></div>}
       </Card>}
 
-      {c.safety && <Card title="INCIDENT REPORT">
+      {(c.safety || c.kind === 'incident') && <Card title="INCIDENT REPORT">
         {[['whatHappened', 'What happened'], ['where', 'Where (chair, room, station)'], ['kit', 'Kit or tools used'], ['cycle', 'Sterilization record'], ['firstAid', 'First aid given'], ['advice', 'Advice given to the client']].map(([k, l]) => (
           <label key={k} className="block space-y-1"><span className="text-[13px] font-semibold" style={{ color: MUTED }}>{l}</span>
             <input defaultValue={c.incident?.[k] || ''} disabled={!isManager || c.locked} onChange={(e) => setInc({ ...inc, [k]: e.target.value })} className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /></label>))}
         <label className="block space-y-1"><span className="text-[13px] font-semibold" style={{ color: MUTED }}>Who was there (comma between names)</span>
           <input defaultValue={(c.incident?.present || []).join(', ')} disabled={!isManager || c.locked} onChange={(e) => setInc({ ...inc, present: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /></label>
         {isManager && !c.locked && <button type="button" disabled={busy || !Object.keys(inc).length} onClick={async () => { if (await act('incident', { incident: inc }, 'Incident report saved.')) setInc({}); }} className={btn} style={{ background: INK, color: '#fff' }}>Save the report</button>}
-        <div className="space-y-1.5 border-t pt-3" style={{ borderColor: LINE }}>
-          <p className="text-[13px] font-semibold" style={{ color: MUTED }}>Statements</p>
-          {(c.incident?.statements || []).map((s: any, i: number) => <p key={i} className="text-[14.5px]"><b>{s.by}</b> <span style={{ color: MUTED }}>({fmt(s.at)}, signed)</span>: “{s.text}”</p>)}
-          {!c.locked && <div className="flex gap-2"><input value={stmt} onChange={(e) => setStmt(e.target.value)} placeholder="Your account of what happened" className="h-11 flex-1 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><button type="button" disabled={busy || !stmt.trim()} onClick={async () => { if (await act('statement', { text: stmt }, 'Statement signed.')) setStmt(''); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Sign it</button></div>}
-        </div>
         <div className="flex flex-wrap items-center gap-2 border-t pt-3" style={{ borderColor: LINE }}>
           {c.incident?.checkIn48At ? <p className="text-[14.5px]" style={{ color: GREEN }}><b>Follow-up check-in done</b> {fmt(c.incident.checkIn48At)}{c.incident.checkIn48Note ? ` — ${c.incident.checkIn48Note}` : ''}</p> :
             isManager && !c.locked && <><input placeholder="Follow-up check-in: how are they?" onChange={(e) => setInc({ ...inc, checkIn48Note: e.target.value })} className="h-11 flex-1 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><button type="button" disabled={busy} onClick={() => act('incident', { incident: { checkIn48: true, checkIn48Note: inc.checkIn48Note || '' } }, 'Check-in recorded.')} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Record check-in</button></>}
@@ -257,6 +267,42 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
     </div>);
 }
 
+
+/** Each provider's numbers, fairly: only cases marked "the work itself" count. */
+function ByProvider({ cases }: { cases: any[] }) {
+  const ids = [...new Set(cases.map((c) => c.visit?.providerId).filter(Boolean))] as string[]; if (!ids.length) return null;
+  const rows = ids.map((id) => ({ id, name: cases.find((c) => c.visit?.providerId === id)?.visit?.providerName || 'Provider', ...providerCaseStats(cases, id) })).sort((a, b) => b.counted - a.counted || b.total - a.total);
+  return (
+    <div className="space-y-1.5 pt-4"><p className="text-[12px] font-bold tracking-wide" style={{ color: MUTED }}>BY PROVIDER</p>
+      {rows.map((r) => <p key={r.id} className="flex justify-between gap-2 text-[14px]"><span className="truncate">{r.name}</span><span><b>{r.counted}</b> <span style={{ color: MUTED }}>of {r.total}{r.unmarked ? ` · ${r.unmarked} to mark` : ''}{r.incidents ? ` · ${r.incidents} incident${r.incidents === 1 ? '' : 's'}` : ''}</span></span></p>)}
+      <p className="text-[12px]" style={{ color: MUTED }}>Counted = cause marked “the work itself”.</p></div>);
+}
+
+/** CLIENT CONDUCT reports from providers — never shown to the client. A manager decides what happens next. */
+function Conduct({ firestore, tenantId }: { firestore: any; tenantId: string }) {
+  const q = useMemoFirebase(() => (firestore && tenantId ? collection(firestore as Firestore, `tenants/${tenantId}/conductReports`) : null), [firestore, tenantId]);
+  const { data } = useCollection<any>(q); const [open, setOpen] = React.useState(''); const [acts, setActs] = React.useState<string[]>([]); const [note, setNote] = React.useState(''); const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { const id = new URLSearchParams(window.location.search).get('conduct'); if (id) setOpen(id); }, []);
+  const list = (data || []).slice().sort((a: any, b: any) => (a.status === 'open' ? 0 : 1) - (b.status === 'open' ? 0 : 1) || String(b.createdAt).localeCompare(String(a.createdAt)));
+  if (!list.length) return null; const r = list.find((x: any) => x.id === open);
+  const OPTS: [string, string][] = [['note', 'Add a note to their profile'], ['deposit', 'Ask for a deposit to book'], ['manager_present', 'A manager on site for their visits'], ['not_with_provider', 'Don’t book them with this provider'], ['none', 'No action']];
+  return (
+    <div className="space-y-2 pt-4"><p className="text-[12px] font-bold tracking-wide" style={{ color: MUTED }}>CLIENT CONDUCT · {list.filter((x: any) => x.status === 'open').length} to look at</p>
+      {list.slice(0, 6).map((x: any) => <button key={x.id} type="button" onClick={() => { setOpen(open === x.id ? '' : x.id); setActs([]); setNote(''); }} className="block w-full rounded-[16px] border bg-white p-3 text-left" style={{ borderColor: x.status === 'open' ? '#e7b04f' : LINE }}>
+        <p className="text-[14.5px] font-bold">{x.clientName} <span className="font-normal" style={{ color: MUTED }}>· {x.staffName?.split(' ')[0]}</span></p>
+        <p className="truncate text-[13px]" style={{ color: MUTED }}>{x.status === 'open' ? (x.stopped ? 'Service stopped · ' : '') + (x.wordsEn || x.words || 'Voice note') : `Decided: ${(x.decision?.actions || []).join(', ').replace(/_/g, ' ')}`}</p></button>)}
+      {r && <div className="space-y-2 rounded-[16px] p-3" style={{ background: SOFT }}>
+        {r.words && <p className="text-[14px]">“{r.words}”</p>}{r.wordsEn && <p className="text-[13.5px]" style={{ color: MUTED }}>In English: {r.wordsEn}</p>}
+        {r.voice?.url && <audio controls src={r.voice.url} className="w-full" />}{r.voice?.translation && <p className="text-[13.5px]" style={{ color: MUTED }}>In English: {r.voice.translation}</p>}
+        {r.status === 'open' ? <>
+          {OPTS.map(([k, l]) => <label key={k} className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={acts.includes(k)} onChange={(e) => setActs(e.target.checked ? [...acts.filter((a) => (k === 'none' ? false : a !== 'none')), k] : acts.filter((a) => a !== k))} />{l}</label>)}
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Note (shows on their profile if you add one)" className="w-full rounded-xl border p-2.5 text-[14px]" style={{ borderColor: LINE }} />
+          <button type="button" disabled={busy || !acts.length} onClick={async () => { setBusy(true); await payPost('/api/cases', { tenantId, action: 'conduct_decide', id: r.id, actions: acts, note }); setBusy(false); setOpen(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold disabled:opacity-40" style={{ background: INK, color: '#fff' }}>Save decision</button>
+          <p className="text-[12px]" style={{ color: MUTED }}>The provider is told a manager looked at it. The client never sees this.</p></> : <p className="text-[13.5px]">Decided by {r.decision?.by}{r.decision?.note ? ` — “${r.decision.note}”` : ''}</p>}
+      </div>}
+    </div>);
+}
+
 export default function CasesPage() {
   const { firestore, user } = useFirebase() as any; const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id || '';
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase()); const allowed = isManager || String(role) === 'front_desk';
@@ -274,7 +320,7 @@ export default function CasesPage() {
   if (!allowed) return <div className="p-6"><AppHeader title="Making it right" /><p className="mt-6" style={{ color: MUTED }}>Cases are handled by the desk and managers.</p></div>;
   const Row = ({ x }: { x: any }) => { const clock = !x.firstReplyAt && !x.locked && x.replyDueAt ? left(x.replyDueAt) : null; return (
     <button type="button" onClick={() => { setPick(x.id); setStarting(false); }} className="block w-full rounded-[18px] border bg-white p-3.5 text-left" style={{ borderColor: pick === x.id ? INK : LINE, boxShadow: pick === x.id ? `0 0 0 1px ${INK}` : undefined }}>
-      <div className="flex items-start justify-between gap-2"><p className="min-w-0 truncate text-[15.5px] font-bold">{x.clientName}</p>{x.safety ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: PINK, color: RED }}>SAFETY</span> : x.pending ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: '#fff7e6' }}>NEEDS OK</span> : null}</div>
+      <div className="flex items-start justify-between gap-2"><p className="min-w-0 truncate text-[15.5px] font-bold">{x.clientName}</p>{x.safety ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: PINK, color: RED }}>{x.kind === 'incident' ? 'INCIDENT' : 'SAFETY'}</span> : x.kind === 'incident' ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: '#fff7e6' }}>INCIDENT</span> : x.pending ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: '#fff7e6' }}>NEEDS OK</span> : null}</div>
       <p className="truncate text-[14px]">{x.reasonLabel}{x.visit?.providerName ? ` · ${x.visit.providerName.split(' ')[0]}` : ''}</p>
       <p className="mt-1 text-[12.5px]" style={{ color: clock?.late ? RED : MUTED }}>{x.locked ? `Closed · ${x.fix?.label || 'no fix'}` : clock ? clock.text : STAGES[Math.min(4, stageIndex(x.status))]}{' · '}{x.number}</p>
     </button>); };
@@ -291,6 +337,8 @@ export default function CasesPage() {
           {open.map((x: any) => <Row key={x.id} x={x} />)}
           {closed.length > 0 && <button type="button" onClick={() => setShowClosed(!showClosed)} className="pt-2 text-[14px] font-semibold" style={{ color: MUTED }}>{showClosed ? 'Hide' : 'Show'} {closed.length} closed</button>}
           {showClosed && closed.map((x: any) => <Row key={x.id} x={x} />)}
+          {isManager && <Conduct firestore={firestore} tenantId={tenantId} />}
+          {isManager && <ByProvider cases={all} />}
           {isManager && <a href="/settings/making-it-right" className="block pt-3 text-[14px] underline" style={{ color: MUTED }}>Your rules for making it right</a>}
         </aside>
         <section className="p-4 md:p-8">

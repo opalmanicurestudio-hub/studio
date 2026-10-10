@@ -104,3 +104,19 @@ export const WANTS: { id: 'fix' | 'refund' | 'talk'; client: string; team: strin
 export const wantsFor = (S: MirSettings) => WANTS.filter((w) => !w.needs || S.fixes[w.needs]);
 export const STAGES = ['Heard', 'Owned', 'Fix chosen', 'Done', 'Checked back'] as const;
 export const stageIndex = (status: string) => ({ heard: 0, owned: 1, fix_chosen: 2, done: 3, checked_back: 4, closed: 5 } as any)[status] ?? 0;
+
+/** What caused it — marked by a manager. Only "the work" counts against the provider in their numbers. */
+export const CAUSES = {
+  work: { label: 'The work itself', counts: true },
+  product: { label: 'A product or tool', counts: false },
+  aftercare: { label: 'Aftercare at home', counts: false },
+  wear: { label: 'Normal wear', counts: false },
+  communication: { label: 'A misunderstanding about what was wanted', counts: false },
+  not_provider: { label: 'Not about the provider', counts: false },
+} as const;
+export type Cause = keyof typeof CAUSES;
+/** A provider's case numbers, fairly: everything about their visits, and only the ones marked "the work" count. */
+export function providerCaseStats(cases: any[], staffId: string) {
+  const mine = cases.filter((c) => c.visit?.providerId === staffId && c.kind !== 'incident');
+  return { total: mine.length, counted: mine.filter((c) => c.cause && (CAUSES as any)[c.cause]?.counts).length, unmarked: mine.filter((c) => !c.cause).length, incidents: cases.filter((c) => c.visit?.providerId === staffId && c.kind === 'incident').length };
+}

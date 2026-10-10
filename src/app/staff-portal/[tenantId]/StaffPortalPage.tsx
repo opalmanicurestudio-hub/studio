@@ -1,6 +1,8 @@
 'use client';
 
 import { NotHappy } from '@/components/staff-portal/NotHappy';
+import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
+import { MyCases } from '@/components/staff-portal/MyCases';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
 import { punchState } from '@/lib/punch';
@@ -1424,6 +1426,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </button>
             )}
 
+            {!['cancelled','no_show'].includes(st) && <SomethingHappened apt={apt} tenantId={tenantId} />}
             {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} />}
             {['cancelled','no_show'].includes(st) && (
               <p className="text-center text-[11px] font-black uppercase text-muted-foreground opacity-30 py-2">
@@ -4484,6 +4487,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // Today's view: Now / Day / Floor. Chosen by hand it holds until the next visit starts; otherwise it follows the day.
   const [editingDetails, setEditingDetails] = useState(false);
   const [editingAlerts, setEditingAlerts] = useState(false);
+  const [viewingCases, setViewingCases] = useState(false);
   const [todayPick, setTodayPick] = useState<{ view: 'now' | 'day' | 'floor'; visitId: string | null } | null>(null);
   // Calls the front desk passed on to this person (or to managers, if they are one).
   const myCalls = useMyCalls(staffMember.role === 'renter' ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
@@ -5337,7 +5341,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='me' && editingAlerts && !editingDetails && (
             <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>
           )}
-          {activeTab==='me' && !editingDetails && !editingAlerts && (
+          {activeTab==='me' && viewingCases && !editingDetails && !editingAlerts && (
+            <MyCases firestore={firestore} tenantId={tenantId} staffId={staffMember.id} accent={accentColor} onBack={() => setViewingCases(false)} />
+          )}
+          {activeTab==='me' && !editingDetails && !editingAlerts && !viewingCases && (
             <div className="space-y-4 pt-1">
               <div className="flex items-center gap-4 rounded-[24px] border border-[#ececee] bg-white p-4">
                 <div className="h-16 w-16 shrink-0 rounded-full p-[3px]" style={{ background: `conic-gradient(${accentColor}, #d7e6e4, ${accentColor})` }}>
@@ -5351,12 +5358,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                 {[
                   { k: 'details', label: 'My details', sub: 'Phone, address, emergency contact', show: true },
                   { k: 'alerts', label: 'Alerts', sub: 'What buzzes your phone, quiet hours, away', show: true },
+                  { k: 'cases', label: 'Client cases', sub: 'Complaints and incidents on your visits — add your side', show: !isRenter },
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
                   { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
                   { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: showOrders },
                   { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
                 ].filter((r) => r.show).map((r) => (
-                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : r.k === 'cases' ? setViewingCases(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
                     <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{r.label}</span><span className="block text-[13px] text-[#6d7075]">{r.sub}</span></span>
                     <ChevronRight className="h-4 w-4 text-[#9a9ca1]" />
                   </button>))}

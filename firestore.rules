@@ -332,6 +332,11 @@ service cloud.firestore {
       allow read: if isStaff(tenantId) || (isPortalMember(tenantId) && resource.data.get('visit', {}).get('providerId', '') == portalStaffId());
       allow write: if false;
     }
+    // CLIENT CONDUCT reports from providers: managers only, never the client; only the server writes them.
+    match /tenants/{tenantId}/conductReports/{reportId} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
     match /tenants/{tenantId}/counters/{counterId} {
       allow read, write: if false;
     }
@@ -496,7 +501,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'cases', 'counters',
+          'payStubs', 'payQuestions', 'payAdjustments', 'cases', 'counters', 'conductReports',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',

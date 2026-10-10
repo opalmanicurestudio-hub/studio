@@ -44,5 +44,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, staff: { id: staffId, name: s.name || '', avatarUrl: s.avatarUrl || null, role: s.role || 'staff' }, state: punchState(recent, tSnap.data() || {}) });
   }
   const r = await recordPunch(db, { tenantId, staffId, action: action as PunchAction, via, actor, geo: b.geo && typeof b.geo === 'object' ? { verified: !!b.geo.verified, warnOnly: !!b.geo.warnOnly, coords: b.geo.coords || null } : undefined });
-  return NextResponse.json(r, { status: r.ok ? 200 : 409 });
+  // Before they go: any client case on their visits still waiting for their side.
+  let sideNeeded: string[] = [];
+  if (r.ok && action === 'clock_out') { try {
+    const open = (await db.collection(`tenants/${tenantId}/cases`).where('sideWanted', '==', staffId).get()).docs.map((d: any) => d.data() || {}).filter((c: any) => !c.locked);
+    sideNeeded = open.map((c: any) => String(c.clientName || 'A client'));
+    if (open.length) { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, userId: staffId, type: 'case_yours', message: `Before you go: ${sideNeeded.slice(0, 3).join(', ')}${open.length > 3 ? ' and more' : ''} — add your side in Me → Client cases.`, createdAt: new Date().toISOString(), read: false }); }
+  } catch { /* the reminder is a courtesy */ } }
+  return NextResponse.json({ ...r, sideNeeded }, { status: r.ok ? 200 : 409 });
 }

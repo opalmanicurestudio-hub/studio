@@ -55,7 +55,7 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant);
   const staff = await staffList(db, tenantId); const me = staff.find((s: any) => s.id === actor.staffId);
   const visit = await visitOf(db, tenantId, String(b.appointmentId || ''), staff);
-  const reason = S.reasons.find((x) => x.id === b.reasonId) || null;
+  const reason = S.reasons.find((x) => x.id === b.reasonId) || (b.reasonOverride && b.reasonOverride.label ? { id: String(b.reasonOverride.id || 'incident'), label: String(b.reasonOverride.label).slice(0, 80), safety: !!b.reasonOverride.safety } : null);
   if (!reason && !String(b.words || '').trim()) return { ok: false as const, error: 'Pick what went wrong, or write what they said.' };
   const clientId = String(b.clientId || visit?.clientId || ''); const clientName = String(b.clientName || visit?.clientName || '').slice(0, 120) || 'Client';
   const prior = clientId ? (await db.collection(`${T(tenantId)}/cases`).where('clientId', '==', clientId).get()).docs.map((d: any) => d.data() || {}) : [];
@@ -74,6 +74,8 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
     timeline: [line(actor.name, `Case opened (${({ call: 'phone call', staff: 'reported by the provider', desk: 'at the desk', survey: '“How was your visit?”', link: 'their visit link' } as any)[via]}): ${reason?.label || 'something else'}${b.words ? ` — “${String(b.words).slice(0, 200)}”` : ''}`),
       ...(ownerId ? [line(actor.name, `${actor.name} took ownership`)] : [])],
     incident: reason?.safety ? { started: now(), whatHappened: String(b.words || ''), present: [], statements: [], checkIn48At: null } : null,
+    kind: b.kind === 'incident' ? 'incident' : 'complaint', incidentType: b.incidentType || null, statements: Array.isArray(b.statements) ? b.statements.slice(0, 3) : [],
+    sideWanted: visit?.providerId && visit.providerId !== actor.staffId ? visit.providerId : null,
     createdAt: now(), updatedAt: now(), locked: false,
   };
   await db.doc(`${T(tenantId)}/cases/${id}`).set(JSON.parse(JSON.stringify(doc)));
@@ -224,8 +226,17 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
         if (i.checkIn48) patch['incident.checkIn48At'] = now(), patch['incident.checkIn48Note'] = String(i.checkIn48Note || '').slice(0, 1000);
         if (i.signOff) patch['incident.signedOffBy'] = actor.name, patch['incident.signedOffAt'] = now();
         await ref.update({ ...patch, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, i.checkIn48 ? `Follow-up check-in: ${i.checkIn48Note || 'done'}` : i.signOff ? 'Signed off the incident report' : 'Updated the incident report')) }); return { ok: true as const }; }
-    case 'statement': if (!text) return { ok: false as const, error: 'Write your account.' };
-      await ref.update({ 'incident.statements': FieldValue.arrayUnion({ by: actor.name, staffId: actor.staffId, text, at: now(), signed: true }), updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `${actor.name} gave a signed statement`)) }); return { ok: true as const };
+    case 'statement': { if (!text && !b.voice) return { ok: false as const, error: 'Write or record your side.' };
+      const lang = String(b.lang || 'en').slice(0, 2).toLowerCase(); let en: string | null = null; const voice = voiceOf(b.voice);
+      if (lang !== 'en') { try { const { translateTexts } = await import('@/lib/translate'); const out = await translateTexts(tenantId, [text, voice?.transcript || ''], 'en'); en = text && out[0] !== text ? out[0] : null; if (voice?.transcript && out[1] !== voice.transcript) voice.translation = out[1]; } catch { /* original kept */ } }
+      const st = { by: actor.name, staffId: actor.staffId, text, textEn: en, lang: lang !== 'en' ? lang : null, voice, at: now(), signed: true };
+      await ref.update({ statements: FieldValue.arrayUnion(st), sideWanted: c.sideWanted === actor.staffId ? null : c.sideWanted || null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `${actor.name} gave ${isProvider ? 'their side' : 'a signed statement'}`)) });
+      if (isProvider && c.ownerId && c.ownerId !== actor.staffId) await tell(db, tenantId, [c.ownerId], 'case_yours', `${actor.name.split(' ')[0]} added their side to ${c.clientName}’s case.`, c.id);
+      return { ok: true as const }; }
+    case 'cause': { if (!actor.isManager) return { ok: false as const, error: 'A manager marks the cause.' };
+      const { CAUSES } = await import('@/lib/making-it-right'); const k = String(b.cause || ''); if (!CAUSES[k as keyof typeof CAUSES]) return { ok: false as const, error: 'Pick a cause.' };
+      await ref.set({ cause: k, causeBy: actor.name, causeAt: now(), updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `Cause: ${CAUSES[k as keyof typeof CAUSES].label}${text ? ` — ${text}` : ''}`)) }, { merge: true });
+      return { ok: true as const }; }
     case 'addendum': if (!text) return { ok: false as const, error: 'Write the note.' };
       await ref.update({ addenda: FieldValue.arrayUnion({ by: actor.name, text, at: now() }), updatedAt: now() }); return { ok: true as const };
   }

@@ -458,8 +458,10 @@ function resolveBookingPlanInner(input: BookingPlanInput): BookingPlan {
 
   const cfg = resolveBookingMode(tenant);
 
-  const poorHistory = !!client
-    && (numOr(client.noShowCount, 0) + numOr(client.cancellationCount, 0)) > 2;
+  // A manager can ask for a deposit from one client (e.g. after a conduct report) — treated like a poor booking history.
+  const flagged = client?.requireDeposit === true;
+  const poorHistory = flagged || (!!client
+    && (numOr(client.noShowCount, 0) + numOr(client.cancellationCount, 0)) > 2);
   const guardianActive = tenant?.guardianProtocolEnabled !== false;
 
   let depositCents = computeDepositCents({
@@ -489,7 +491,7 @@ function resolveBookingPlanInner(input: BookingPlanInput): BookingPlan {
     reason = `${service?.name || 'This service'} overrides the shop rule (${String(svcMode).replace(/_/g, ' ')})`;
   }
 
-  if (client?.bookingTrust === 'trusted' && !(guardianActive && poorHistory)) {
+  if (client?.bookingTrust === 'trusted' && !flagged && !(guardianActive && poorHistory)) {
     if (mode === 'approval' || mode === 'deposit_required') {
       mode = 'instant';
       reason = 'Trusted client — books instantly';
@@ -498,6 +500,10 @@ function resolveBookingPlanInner(input: BookingPlanInput): BookingPlan {
   if (guardianActive && poorHistory && mode === 'instant' && depositCents > 0) {
     mode = 'deposit_required';
     reason = 'Booking history requires the deposit up front';
+  }
+  if (flagged && (mode === 'instant' || mode === 'card_on_file')) {
+    mode = depositCents > 0 ? 'deposit_required' : 'approval';
+    reason = depositCents > 0 ? 'A manager asked for a deposit from this client' : 'A manager asked to approve this client’s bookings';
   }
 
   // Staff booking for a client is itself the approval, and the studio does not

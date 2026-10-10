@@ -267,6 +267,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     if (a.completionStatus && a.completionStatus !== 'completed') out.push(['Forms not done', 'warn']);
     if ((c?.unpaidFees || []).length) out.push(['Owes', 'warn']);
     if (c?.activeMembershipId) out.push(['Member', 'ok']);
+    if (c?.managerPresent) out.push(['Manager on site', 'warn']);
     if (a.sensoryNeeds || a.notes || c?.alertNote) out.push(['Note', 'soft']);
     if ((a.inspirationPhotos || []).length || a.inspirationPhotoUrl) out.push(['Photos', 'soft']);
     if (soon) out.push(['Birthday this week', 'accent']);
