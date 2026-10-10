@@ -70,7 +70,7 @@ export function maxPayFor(input: { service: any; kind: VisitKind; inventory?: an
 }
 
 /** The pay setups worth comparing for a business: what the team uses today, else common starting points. */
-export function choicesFor(team: any[], service: any, a: { commissionPct?: number; perHour?: number; hourly?: number } = {}): PayChoice[] {
+export function choicesFor(team: any[], service: any, a: { commissionPct?: number; perHour?: number; hourly?: number; busy?: number | null } = {}): PayChoice[] {
   const paid = (team || []).filter((s) => s && s.isRenter !== true);
   const most = (ps: string, f: (s: any) => number) => { const v = paid.filter((s) => s.payStructure === ps).map(f).filter((x) => x > 0); return v.length ? v.sort((x, y) => x - y)[Math.floor(v.length / 2)] : 0; };
   const pct = n(a.commissionPct) || most('commission', (s) => n(s.commissionRate)) || 40;
@@ -79,6 +79,19 @@ export function choicesFor(team: any[], service: any, a: { commissionPct?: numbe
   return [
     { key: 'commission', label: service?.commissionRate != null && service.commissionRate !== '' ? `Commission ${n(service.commissionRate)}% (this service)` : `Commission ${pct}%`, staff: { payStructure: 'commission', commissionRate: pct } },
     { key: 'per_service', label: service?.providerPay != null && service.providerPay !== '' ? `Per service $${n(service.providerPay)} (this service)` : `Per service $${perHour} an hour`, staff: { payStructure: 'per_service', serviceHourRate: perHour } },
-    { key: 'hourly', label: `Hourly $${hourly}`, staff: { payStructure: 'hourly', hourlyRate: hourly }, note: 'Includes time between clients (busy 70% of the shift).' },
+    { key: 'hourly', label: `Hourly $${hourly}`, staff: { payStructure: 'hourly', hourlyRate: hourly, busyShare: a.busy || 0.7 }, note: `Includes time between clients — your team is with clients ${Math.round((a.busy || 0.7) * 100)}% of their clocked time${a.busy ? ' (last 30 days)' : ' (a typical figure until there are enough clocked hours)'}.` },
   ];
+}
+
+/**
+ * How much of their clocked time people spend with clients — from the last 30 days of the time clock and their visits.
+ * For one person (staffId) or the whole team. null until there are at least 20 clocked hours to go on.
+ */
+export function busyShareFrom(input: { sessions: any[]; appointments: any[]; staffId?: string; now?: number; days?: number }): number | null {
+  const now = input.now ?? Date.now(); const since = now - (input.days || 30) * 86400000;
+  const clocked = (input.sessions || []).filter((x: any) => (!input.staffId || x.staffId === input.staffId) && Date.parse(x.inAt) >= since).reduce((a: number, x: any) => a + (x.workedMinutes || 0), 0);
+  if (clocked < 20 * 60) return null;
+  const withClients = (input.appointments || []).filter((a: any) => (!input.staffId || a.staffId === input.staffId) && String(a.status) === 'completed').reduce((acc: number, a: any) => {
+    const s = Date.parse(String(a.startTime || '')), e = Date.parse(String(a.endTime || '')); if (!(s >= since && e > s)) return acc; return acc + Math.min(600, (e - s) / 60000); }, 0);
+  return Math.max(0.3, Math.min(1, withClients / clocked));
 }

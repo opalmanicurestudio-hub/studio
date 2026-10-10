@@ -259,7 +259,11 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const batch = db.batch();
   // A shared service: the visit names an assistant and their share (Appointment → "Assisted by"); the main service line
   // carries it so both people's pay splits the credit (lib/commission → splitShare).
-  const assistOf = (appt: any, mainStaffId: string) => { const x = appt?.assist; const p = Math.round(Number(x?.pct)); return x?.staffId && x.staffId !== mainStaffId && p > 0 && p < 100 ? { splitWith: { staffId: String(x.staffId), pct: p } } : {}; };
+  // Only an assistant who earns commission takes a share — someone paid by the hour is already paid for that time
+  // through the clock, so the provider keeps the full credit (the visit still records who helped).
+  const assistOf = (appt: any, mainStaffId: string) => { const x = appt?.assist; const p = Math.round(Number(x?.pct)); if (!x?.staffId || x.staffId === mainStaffId) return {};
+    const helper = staff.find((s: any) => s.id === x.staffId); const shares = helper && ['commission', 'hourly_plus_commission'].includes(String(helper.payStructure || ''));
+    return shares && p > 0 && p < 100 ? { splitWith: { staffId: String(x.staffId), pct: p } } : { assistedBy: String(x.staffId) }; };
   const txn = (f: any) => { if (!skipLedger) { const r = db.collection(`${T}/transactions`).doc(); batch.set(r, clean({ id: r.id, date: now, clientOrVendor: client.name || 'Client', clientId, payerClientId: clientId, paidBy: client.name || null, tenantId, checkoutSessionId, ...f })); } };
   const spend: Record<string, number> = {};   // lifetime value, by person
   const credit = (cid: string, amt: number) => { spend[cid] = (spend[cid] || 0) + amt; };

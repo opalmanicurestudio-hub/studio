@@ -105,11 +105,13 @@ export async function buildPayrollDraft(
   if (feeAppts.length && (tenant.payExtras?.noShowPct || 0) > 0) for (const s of await Promise.all(feeAppts.map((id) => db.doc(`tenants/${tenantId}/appointments/${id}`).get()))) { const a: any = s?.exists ? s.data() : null; if (a?.staffId) apptStaff[s.id] = String(a.staffId); }
   const allIncome = txns.filter((t: any) => t.type === 'income');
   // ── One calculation for every pay setup (lib/pay-period): hours from the time clock, overtime, minimum wage, salary ──
+  const fromDay = new Date(periodStart.getTime() - 86400000).toISOString().slice(0, 10), toDay = new Date(periodEnd.getTime() + 86400000).toISOString().slice(0, 10);
+  const schedule = (await db.collection(`tenants/${tenantId}/shifts`).where('date', '>=', fromDay).where('date', '<=', toDay).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
   const sessions = sessionsFrom(logsSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })), clockPolicy(tenant, periodEnd.getTime()));
   const lines: DraftLine[] = staff.map((member: any) => {
     const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income');
     const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0);
-    const l = periodPay({ member, from: periodStart, to: periodEnd, incomeTxns: txns,   /* all of the period's lines: refunds carry take-backs */ services, tenant, sessions, apptStaff, tips });
+    const l = periodPay({ member, from: periodStart, to: periodEnd, shifts: schedule, incomeTxns: txns,   /* all of the period's lines: refunds carry take-backs */ services, tenant, sessions, apptStaff, tips });
     const f = payrollFields(l);
     return {
       staffId: member.id,

@@ -16,19 +16,22 @@ export function AssistPicker({ tenantId, appointment, staff = [], defaultPct = 2
   const done = String(appointment.status) === 'completed' && appointment.checkoutSessionId;
   const team = staff.filter((s: any) => s?.id && s.id !== appointment.staffId && s.isRenter !== true && s.role !== 'renter' && s.archived !== true);
   const name = (id: string) => String(staff.find((s: any) => s.id === id)?.name || 'Someone').split(' ')[0];
+  // Only someone earning commission takes a share; an hourly-only assistant is already paid for the time.
+  const shares = (id: string) => ['commission', 'hourly_plus_commission'].includes(String(staff.find((s: any) => s.id === id)?.payStructure || ''));
   const save = async (clear = false) => {
     if (!firestore) return; setErr('');
     const p = Math.round(Number(pct));
-    if (!clear && (!who || !(p > 0 && p < 100))) { setErr('Choose who helped and a share between 1 and 99%.'); return; }
+    if (!clear && !who) { setErr('Choose who helped.'); return; }
+    if (!clear && shares(who) && !(p > 0 && p < 100)) { setErr('Choose a share between 1 and 99%.'); return; }
     setBusy(true);
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { assist: clear ? deleteField() : { staffId: who, pct: p } }); setOpen(false); }
+    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { assist: clear ? deleteField() : { staffId: who, pct: shares(who) ? p : 0 } }); setOpen(false); }
     catch { setErr('Couldn’t save — try again.'); }
     setBusy(false);
   };
   const line = 'var(--line, #e7e2dc)';
   if (!open) return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-[14px]" style={{ borderColor: line }}>
-      <span>{cur?.staffId ? <><b className="font-[700]">Assisted by {name(cur.staffId)}</b> · {cur.pct}% of the service’s credit</> : <span className="text-muted-foreground">Did someone help with this service?</span>}</span>
+      <span>{cur?.staffId ? <><b className="font-[700]">Assisted by {name(cur.staffId)}</b> · {shares(cur.staffId) ? `${cur.pct}% of the service’s commission` : 'paid by the hour — the provider keeps the full commission'}</> : <span className="text-muted-foreground">Did someone help with this service?</span>}</span>
       {!done && <button type="button" onClick={() => setOpen(true)} className="h-9 rounded-full border px-3 text-[13px] font-[600]" style={{ borderColor: line }}>{cur?.staffId ? 'Change' : 'Add an assistant'}</button>}
     </div>);
   return (
@@ -38,9 +41,9 @@ export function AssistPicker({ tenantId, appointment, staff = [], defaultPct = 2
         <select aria-label="Who helped" value={who} onChange={(e) => setWho(e.target.value)} className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3" style={{ borderColor: line }}>
           <option value="">Choose…</option>{team.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <input aria-label="Their share" inputMode="numeric" value={pct} onChange={(e) => setPct(e.target.value.replace(/[^\d]/g, '').slice(0, 2))} className="h-10 w-16 rounded-xl border px-3 text-right" style={{ borderColor: line }} /><span>%</span>
+        {(!who || shares(who)) && <><input aria-label="Their share" inputMode="numeric" value={pct} onChange={(e) => setPct(e.target.value.replace(/[^\d]/g, '').slice(0, 2))} className="h-10 w-16 rounded-xl border px-3 text-right" style={{ borderColor: line }} /><span>%</span></>}
       </div>
-      <p className="text-[12px] text-muted-foreground">Their share of the service’s credit for commission; the provider keeps the rest. Set when the visit is checked out.</p>
+      <p className="text-[12px] text-muted-foreground">{who && !shares(who) ? `${name(who)} is paid by the hour, so they’re already paid for this time — the provider keeps the full commission. It’s still noted that they helped.` : 'Their share of the service’s commission; the provider keeps the rest. Their hourly pay (if any) carries on as usual.'}</p>
       {err && <p role="alert" className="text-[13px] font-[600] text-[#B42318]">{err}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy} onClick={() => save(false)} className="h-10 rounded-full bg-[#17181A] px-4 text-[13px] font-[700] text-white">Save</button>

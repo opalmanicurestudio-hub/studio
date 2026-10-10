@@ -726,6 +726,9 @@ function SettingsPageImpl() {
                       <div className="flex flex-wrap items-center gap-2"><span>When a service is refunded</span>
                         <select value={pr.refundCommission === 'keep' ? 'keep' : 'take_back'} onChange={(e) => set({ refundCommission: e.target.value })} aria-label="Refunds and commission" className="h-11 rounded-xl border px-3" style={ipt}><option value="take_back">take the commission back</option><option value="keep">the provider keeps it</option></select>
                         <span className="text-[13px] cf-muted">(you can choose each time)</span></div>
+                      <div className="flex flex-wrap items-center gap-2"><span>Non-service time (training, meetings) pays</span>$
+                        <input type="number" min={0} step={0.01} value={pr.nonServiceRate ?? ''} placeholder="min. wage" onChange={(e) => set({ nonServiceRate: Math.max(0, parseFloat(e.target.value) || 0) || null })} aria-label="Non-service hourly rate" className="h-11 w-24 rounded-xl border px-3 text-right" style={ipt} /><span>an hour</span>
+                        <span className="text-[13px] cf-muted">(for people on commission or per service; set per person on their profile)</span></div>
                       <div className="flex flex-wrap items-center gap-2"><span>An assistant’s usual share of a service</span>
                         <input type="number" min={0} max={90} value={pr.assistPct ?? ''} placeholder="20" onChange={(e) => set({ assistPct: Math.max(0, Math.min(90, parseFloat(e.target.value) || 0)) || null })} aria-label="Assistant share" className="h-11 w-20 rounded-xl border px-3 text-right" style={ipt} /><span>%</span></div>
                     </div>); })()}

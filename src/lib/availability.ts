@@ -527,11 +527,22 @@ export function findShift(shifts: any[], staffId: string, dateStr: string): any 
       (s) =>
         s?.staffId === staffId &&
         String(s?.date || '').slice(0, 10) === dateStr &&
+        (!s?.kind || s.kind === 'work') &&   // training / meetings / other paid time aren't bookable
         s?.status !== 'cancelled' &&
         s?.status !== 'draft' &&
         s?.status !== 'denied',
     ) || null
   );
+}
+
+/** The after-midnight part of yesterday's overnight shift, as a shift for today (00:00 → its end), or null. */
+export function overnightTail(shifts: any[], staffId: string, dateStr: string): any | null {
+  const t = Date.parse(`${dateStr}T12:00:00Z`); if (!Number.isFinite(t)) return null;
+  const prev = new Date(t - 86400000).toISOString().slice(0, 10);
+  const y = findShift(shifts, staffId, prev); if (!y?.startTime || !y?.endTime) return null;
+  const mins = (x: string) => { const [h, m] = String(x).split(':').map((v) => Number(v) || 0); return h * 60 + m; };
+  if (mins(y.endTime) >= mins(y.startTime) || mins(y.endTime) === 0) return null;   // not overnight (or ends exactly at midnight)
+  return { ...y, date: dateStr, startTime: '00:00', endTime: y.endTime, breakStart: undefined, overnightTail: true };
 }
 
 /** Is the roster published for this date at all? Governs the shift fallback. */
@@ -901,7 +912,7 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
   // not been published for this date, applying it would blank the whole day.
   // In that case it is ignored entirely and the weekly hours take over.
   const shifts = input.shifts || [];
-  const rosterIsPublished = rosterPublished(shifts, dateStr);
+  const rosterIsPublished = rosterPublished(shifts, dateStr) || (shifts || []).some((x: any) => !!overnightTail([x], x?.staffId, dateStr));
   const useShifts = !input.ignoreShifts && shifts.length > 0 && rosterIsPublished;
   if (!input.ignoreShifts && shifts.length > 0 && !rosterIsPublished) {
     warnings.push(
@@ -1049,7 +1060,8 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
     // that date, and nothing on screen would explain why.
     const isRenterProvider = staffMember?.isRenter === true;
     const useShiftsHere = useShifts && !isRenterProvider;
-    const shift = useShiftsHere ? findShift(shifts, staffMember.id, dateStr) : null;
+    // Today's shift — or, failing that, the tail of last night's overnight shift (10 pm – 2 am → 12 am – 2 am today).
+    const shift = useShiftsHere ? (findShift(shifts, staffMember.id, dateStr) || overnightTail(shifts, staffMember.id, dateStr)) : null;
     if (useShiftsHere && !shift) continue; // published roster says they are not in
 
     let hours: { start: string; end: string } | null =

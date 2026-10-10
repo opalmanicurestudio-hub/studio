@@ -91,6 +91,7 @@ const editStaffSchema = z.object({
   payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission', 'per_service']),
   serviceHourRate: z.coerce.number().min(0).optional(),   // per service pay: $ for each hour of service performed
   salaryAmount: z.coerce.number().min(0).optional(),
+  nonServiceRate: z.coerce.number().min(0).optional(),   // $ an hour for training / meetings / other paid time (commission, per service)
   salaryPer: z.enum(['year', 'week']).optional(),
   overtimeNonExempt: z.boolean().optional(),
   employmentModel: z.enum(['unset', 'employee', 'commission', 'contractor', 'renter']).optional(),
@@ -678,6 +679,16 @@ const EditStaffFormInternal = ({
             </div>
           )}
 
+          {(payStructure === 'commission' || payStructure === 'per_service') && (
+            <div className="space-y-2">
+              <Label htmlFor="nonServiceRate-edit" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly rate for non-service time ($)</Label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                <Input id="nonServiceRate-edit" type="number" step="0.01" placeholder="The business’s rate" {...register('nonServiceRate' as any)} className="h-12 pl-9 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
+              </div>
+              <p className="ml-1 text-[13px] text-muted-foreground">Paid for training, team meetings and other non-service shifts on the schedule, for the time they’re clocked in. Blank = the business’s rate (Settings → Commission rules), or minimum wage.</p>
+            </div>
+          )}
           {payStructure === 'salary' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

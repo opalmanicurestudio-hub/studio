@@ -1617,6 +1617,9 @@ const PaydayTab = () => {
   const savedCadence = (selectedTenant as any)?.payroll?.cadence as Cadence | undefined;
   useEffect(() => { if (savedCadence && ['weekly', 'bi-weekly', 'monthly'].includes(savedCadence)) handleCadenceChange(savedCadence); }, [savedCadence]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The schedule for the period — paid non-service time (training, meetings) for commission / per service people.
+  const shFrom = format(subDays(dateRange.from, 1), 'yyyy-MM-dd'), shTo = format(addDays(dateRange.to, 1), 'yyyy-MM-dd');
+  const { data: periodShifts } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'shifts'), where('date', '>=', shFrom), where('date', '<=', shTo)) : null), [firestore, tenantId, shFrom, shTo]));
   // Shared tips: pay each person's APPROVED share (the same as the payroll draft), not the tips taken at their chair.
   const tipMode = String((selectedTenant as any)?.tipSharing?.mode || 'direct');
   const { data: tipRuns } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId && tipMode !== 'direct' ? query(collection(firestore, 'tenants', tenantId, 'tipShareRuns'), where('status', '==', 'approved')) : null), [firestore, tenantId, tipMode]));
@@ -1648,7 +1651,7 @@ const PaydayTab = () => {
     // own takings. Excluded here for the same reason the server draft
     // excludes them; if the two disagreed, the screen would be the lie.
     return staff.filter((m: any) => m.isRenter !== true).map(member => {
-        const l = periodPay({ member, from: dateRange.from, to: dateRange.to, incomeTxns: filteredTransactions, services: services || [], tenant: selectedTenant, sessions, apptStaff, ...(sharedTips ? { tips: sharedTips.get(member.id) || 0 } : {}) });
+        const l = periodPay({ member, from: dateRange.from, to: dateRange.to, shifts: periodShifts || [], incomeTxns: filteredTransactions, services: services || [], tenant: selectedTenant, sessions, apptStaff, ...(sharedTips ? { tips: sharedTips.get(member.id) || 0 } : {}) });
         const f = payrollFields(l);
         const ps = String(member.payStructure || 'commission');
         const parts = [ps === 'commission' ? 'Comm' : ps === 'hourly_plus_commission' ? 'Hr + Comm' : ps === 'per_service' ? 'Per service' : ps === 'salary' ? 'Salary' : 'Hr'];
@@ -1675,7 +1678,7 @@ const PaydayTab = () => {
             details: parts.join(' + '),
         };
     }).filter(o => o.amount > 0 || o.missingClockOuts > 0);
-  }, [staff, filteredTransactions, activityLogs, dateRange, services, apptStaff, selectedTenant, sharedTips]);
+  }, [staff, filteredTransactions, activityLogs, dateRange, services, apptStaff, selectedTenant, sharedTips, periodShifts]);
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
 

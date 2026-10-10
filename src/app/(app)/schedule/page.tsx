@@ -80,6 +80,7 @@ type Shift = {
   endTime: string;
   breakMinutes: number;
   breakStart?: string;   // optional time the break starts — booking keeps it free
+  kind?: 'work' | 'training' | 'meeting' | 'other';   // non-work shifts aren't bookable and pay the non-service rate
   status: 'draft' | 'published' | 'confirmed' | 'cancelled';
   notes?: string;
   estimatedPay?: number;
@@ -136,6 +137,7 @@ export default function SchedulePage() {
   const [shiftEnd, setShiftEnd] = useState('17:00');
   const [shiftBreak, setShiftBreak] = useState(30);
   const [shiftBreakStart, setShiftBreakStart] = useState('');
+  const [shiftKind, setShiftKind] = useState<'work' | 'training' | 'meeting' | 'other'>('work');
   const [shiftNotes, setShiftNotes] = useState('');
 
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
@@ -252,7 +254,7 @@ export default function SchedulePage() {
     setShiftDate(day ? format(day, 'yyyy-MM-dd') : format(weekStart, 'yyyy-MM-dd'));
     setShiftStart('09:00');
     setShiftEnd('17:00');
-    setShiftBreak(30); setShiftBreakStart('');
+    setShiftBreak(30); setShiftBreakStart(''); setShiftKind('work');
     setShiftNotes('');
     setIsAddShiftOpen(true);
   };
@@ -263,7 +265,7 @@ export default function SchedulePage() {
     setShiftDate(shift.date);
     setShiftStart(shift.startTime);
     setShiftEnd(shift.endTime);
-    setShiftBreak(shift.breakMinutes || 0); setShiftBreakStart((shift as any).breakStart || '');
+    setShiftBreak(shift.breakMinutes || 0); setShiftBreakStart((shift as any).breakStart || ''); setShiftKind(((shift as any).kind || 'work') as any);
     setShiftNotes(shift.notes || '');
     setIsAddShiftOpen(true);
   };
@@ -287,6 +289,7 @@ export default function SchedulePage() {
       endTime: shiftEnd,
       breakMinutes: shiftBreak,
       ...(shiftBreak > 0 && shiftBreakStart ? { breakStart: shiftBreakStart } : {}),
+      ...(shiftKind !== 'work' ? { kind: shiftKind } : {}),
       status: editingShift?.status || 'draft',
       notes: shiftNotes || undefined,
       estimatedPay,
@@ -871,6 +874,13 @@ export default function SchedulePage() {
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label className="text-[13px] font-semibold text-muted-foreground">What’s this time for?</Label>
+                <select value={shiftKind} onChange={(e) => setShiftKind(e.target.value as any)} aria-label="Shift type" className="h-12 w-full rounded-2xl border-2 px-3 text-[15px] font-semibold">
+                  <option value="work">Working — clients can book</option><option value="training">Training</option><option value="meeting">Team meeting</option><option value="other">Other paid time (cleaning, admin, events)</option>
+                </select>
+                {shiftKind !== 'work' && <p className="text-[12px] text-muted-foreground">Clients can’t book them. People on commission or per service are paid their non-service hourly rate for it when they clock in.</p>}
+              </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Break Duration (minutes)</Label>
                 <Select value={String(shiftBreak)} onValueChange={v => setShiftBreak(Number(v))}>

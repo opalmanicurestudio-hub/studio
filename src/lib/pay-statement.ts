@@ -20,10 +20,10 @@ const money = (v: number) => `$${(Math.round(v * 100) / 100).toFixed(2)}`;
 const hrs = (h: number) => `${Math.round(h * 10) / 10} h`;
 
 /** Build a statement from data already loaded (the server route and the tests both use this). */
-export function buildStatement(input: { member: any; from: string; to: string; incomeTxns: any[]; services: any[]; tenant: any; punches: any[]; apptStaff?: Record<string, string>; tips?: number }): Statement {
+export function buildStatement(input: { member: any; from: string; to: string; incomeTxns: any[]; services: any[]; tenant: any; punches: any[]; apptStaff?: Record<string, string>; tips?: number; shifts?: any[] }): Statement {
   const { member: m, tenant } = input;
   const sessions = sessionsFrom(input.punches || [], clockPolicy(tenant, Date.parse(input.to)));
-  const l = periodPay({ member: m, from: input.from, to: input.to, incomeTxns: input.incomeTxns, services: input.services, tenant, sessions, apptStaff: input.apptStaff, ...(input.tips != null ? { tips: input.tips } : {}) });
+  const l = periodPay({ member: m, from: input.from, to: input.to, incomeTxns: input.incomeTxns, services: input.services, tenant, sessions, apptStaff: input.apptStaff, shifts: input.shifts, ...(input.tips != null ? { tips: input.tips } : {}) });
   const mine = (input.incomeTxns || []).filter((t) => t.staffId === m.id || t.splitWith?.staffId === m.id);
   const sections: Statement['sections'] = []; const notes: string[] = [];
 
@@ -42,6 +42,7 @@ export function buildStatement(input: { member: any; from: string; to: string; i
   if (l.retail) sections.push({ title: 'Retail', lines: [{ label: 'Retail commission', detail: `${m.retailCommissionRate}% of retail sales`, amount: l.retail }] });
   const hourLines: StatementLine[] = [];
   if (l.hourlyPay) hourLines.push({ label: 'Hourly pay', detail: `${hrs(l.regularHours)} at ${money(Number(m.hourlyRate) || 0)}${l.overtimeHours ? ` + ${hrs(l.overtimeHours)} overtime` : ''}${l.doubleTimeHours ? ` + ${hrs(l.doubleTimeHours)} double time` : ''}`, amount: l.hourlyPay });
+  if (l.nonServicePay) hourLines.push({ label: 'Training, meetings and other paid time', detail: `${hrs(l.nonServiceHours)} at ${money(l.nonServicePay / (l.nonServiceHours || 1))}`, amount: l.nonServicePay });
   if (l.salaryPay) hourLines.push({ label: 'Salary', detail: 'This period’s share', amount: l.salaryPay });
   if (l.overtimePremium) hourLines.push({ label: 'Overtime on commission / per service pay', detail: `${hrs(l.overtimeHours + l.doubleTimeHours)} over the weekly limit`, amount: l.overtimePremium });
   if (l.minWageTopUp) hourLines.push({ label: 'Minimum-wage top-up', detail: l.weeks.filter((w) => w.topUp > 0).map((w) => `week of ${w.weekStart}: ${money(w.topUp)}`).join(' · '), amount: l.minWageTopUp });
@@ -80,6 +81,7 @@ export async function statementFor(db: any, tenantId: string, staffId: string, f
   // Fees that name only the visit: whose visit it was.
   const apptStaff: Record<string, string> = {};
   if (Number(tenant.payExtras?.noShowPct) > 0) for (const t of income) if (!t.staffId && t.appointmentId && ['No-Show Revenue', 'Cancellation Fee', 'Cancellation Fees'].includes(String(t.category))) { const a: any = (await db.doc(`${T}/appointments/${t.appointmentId}`).get()).data(); if (a?.staffId) apptStaff[t.appointmentId] = String(a.staffId); }
-  return buildStatement({ member, from, to, incomeTxns: income, services: svcSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), tenant, punches, apptStaff, tips });
+  const shifts = (await db.collection(`${T}/shifts`).where('staffId', '==', staffId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  return buildStatement({ member, from, to, incomeTxns: income, shifts, services: svcSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), tenant, punches, apptStaff, tips });
 }
 

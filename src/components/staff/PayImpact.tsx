@@ -8,7 +8,8 @@
 import * as React from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
-import { visitKinds, visitOutcome, maxPayFor, choicesFor, type VisitKind, type PayChoice } from '@/lib/pay-impact';
+import { visitKinds, visitOutcome, maxPayFor, choicesFor, busyShareFrom, type VisitKind, type PayChoice } from '@/lib/pay-impact';
+import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 
 const KIND_NOUN: Record<string, string> = { full: 'full-price visit', member: 'member-price visit', covered: 'membership visit', package: 'package session' };
 const money = (v: number) => `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(0)}`;
@@ -34,6 +35,9 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
   const [target, setTarget] = React.useState<number>(Number(selectedTenant?.opsCosts?.minMarginPct) || 20);
   const [what, setWhat] = React.useState<{ commissionPct?: number; perHour?: number; hourly?: number }>({});
   const base = { inventory, costPerHour, taxPct, tenant: selectedTenant };
+  // Real time with clients, from the time clock (last 30 days) — for hourly pay, the time between clients is paid too.
+  const sessions = React.useMemo(() => sessionsFrom((inv?.activityLogs || []) as any, clockPolicy(selectedTenant)), [inv?.activityLogs, selectedTenant]);
+  const teamBusy = React.useMemo(() => busyShareFrom({ sessions, appointments: inv?.appointments || [] }), [sessions, inv?.appointments]);
   const muted = { color: 'var(--muted, #78716c)' }; const ipt = 'h-9 w-16 rounded-lg border px-2 text-right text-[13px] tabular-nums';
 
   if (mode === 'person') {
@@ -47,14 +51,14 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
         <p className="text-[12px]" style={muted}>With this pay, after their pay plus {taxPct}% employer taxes, products, and running costs of ${costPerHour} an hour. Green keeps at least {target}%.</p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {svcs.map((s: any) => <Card key={s.id} title={s.name} sub={`${Number(s.duration) || 60} min`} target={target}
-            rows={visitKinds(s, memberships, packages).map((k) => { const o = visitOutcome({ ...base, service: s, staff: staffMember, kind: k, minutes: Number(staffMember?.serviceMinutes?.[s.id]) || undefined }); return { kind: k, pay: o.pay, keep: o.keep, pct: o.marginPct }; })} />)}
+            rows={visitKinds(s, memberships, packages).map((k) => { const o = visitOutcome({ ...base, service: s, staff: { ...staffMember, busyShare: busyShareFrom({ sessions, appointments: inv?.appointments || [], staffId: staffMember.id }) || teamBusy || undefined }, kind: k, minutes: Number(staffMember?.serviceMinutes?.[s.id]) || undefined }); return { kind: k, pay: o.pay, keep: o.keep, pct: o.marginPct }; })} />)}
         </div>
       </section>);
   }
 
   if (!service || !(Number(service.price) > 0)) return null;
   const kinds = visitKinds(service, memberships, packages);
-  const choices: PayChoice[] = choicesFor(team, service, what);
+  const choices: PayChoice[] = choicesFor(team, service, { ...what, busy: teamBusy });
   const first = kinds[0]; const sample = visitOutcome({ ...base, service, staff: { payStructure: 'salary' }, kind: first });
   const covered = kinds.find((k) => k.covered);
   const cap = (k: VisitKind) => maxPayFor({ ...base, service, kind: k, targetPct: target });

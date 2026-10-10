@@ -13,12 +13,14 @@
 // Not legal advice: wage rules differ by state and city (daily overtime in California, tip credits, exempt status).
 import { serviceEarnings, earnsCommission, paidPerService, payExtras, tierBonus, payReversals } from '@/lib/commission';
 import { weeklyHours, sessionsIn, localDay, weekOf, type Session } from '@/lib/timeclock';
+import { shiftWindow } from '@/lib/shift-check';
 
 export type PayLine = {
   staffId: string; name: string; payStructure: string;
   hours: number; regularHours: number; overtimeHours: number; doubleTimeHours: number;
   hourlyPay: number; salaryPay: number; servicePay: number; retail: number; extras: number;
   tierBonus: number; refundTakeBack: number; refunds: number;   // both already inside servicePay
+  nonServicePay: number; nonServiceHours: number;               // training / meetings / other paid time (commission / per service people)
   overtimePremium: number;     // overtime owed beyond what hourly pay already covers (commission / per service / the commission part of hourly + commission)
   minWageTopUp: number;
   tips: number; total: number;
@@ -52,6 +54,7 @@ export function annualSalary(m: any): number {
 export function periodPay(input: {
   member: any; from: Date | string; to: Date | string; incomeTxns: any[]; services: any[]; tenant: any; sessions: Session[];
   apptStaff?: Record<string, string>; tips?: number;
+  shifts?: any[];   // the schedule, for paid non-service time (training, meetings, other) — optional
 }): PayLine {
   const { member: m, tenant } = input; const rules = payRules(tenant); const ps = String(m.payStructure || 'commission');
   const fromMs = new Date(input.from as any).getTime(), toMs = new Date(input.to as any).getTime();
@@ -78,6 +81,19 @@ export function periodPay(input: {
   const tiers = tierBonus(m, mine, input.services, 40);                       // sales tiers (higher rate above a level)
   const refunds = payReversals(m, input.incomeTxns || []);                     // commission taken back on refunds this period
   const servicePay = svcFor(mine) + tiers - refunds.total; const retail = retailFor(mine);
+
+  // Paid non-service time: commission / per service people are paid an hourly rate for training, meetings and other
+  // non-service shifts on the schedule — the time they were actually clocked in during it.
+  const nsRate = Number(m.nonServiceRate) > 0 ? Number(m.nonServiceRate) : Number(tenant?.payRules?.nonServiceRate) > 0 ? Number(tenant.payRules.nonServiceRate) : rules.minimumWage;
+  const nsByWeek = new Map<string, number>(); let nsMinutes = 0;
+  if (earns && Array.isArray(input.shifts)) for (const sh of input.shifts) {
+    if (sh?.staffId !== m.id || !sh.kind || sh.kind === 'work' || ['draft', 'cancelled', 'denied'].includes(String(sh.status || 'published'))) continue;
+    const w = shiftWindow(sh, rules.timeZone); if (!w || w.start < fromMs || w.start > toMs) continue;
+    let got = 0; for (const x of counted) { if (x.staffId !== m.id || x.missingOut || x.status === 'rejected') continue; const a = Date.parse(x.inAt), b = x.outAt ? Date.parse(x.outAt) : Date.now(); got += Math.max(0, Math.min(b, w.end) - Math.max(a, w.start)) / 60000; }
+    const cap = Math.max(0, (w.end - w.start) / 60000 - (Number(sh.breakMinutes) || 0)); const mins = Math.min(got, cap); if (mins <= 0) continue;
+    nsMinutes += mins; const wk = weekOf(localDay(w.start, rules.timeZone), rules.weekStartsOn); nsByWeek.set(wk, (nsByWeek.get(wk) || 0) + mins);
+  }
+  const nonServicePay = r2((nsMinutes / 60) * nsRate);
   const ex = payExtras(m, input.incomeTxns || [], tenant, input.apptStaff || {}); const extras = ex.saleBonus + ex.noShow;
 
   // Hourly and salary
@@ -91,7 +107,7 @@ export function periodPay(input: {
   let overtimePremium = 0, minWageTopUp = 0; const weekRows: PayLine['weeks'] = [];
   for (const w of weeks) {
     const h = w.minutes / 60, ot = w.overtime / 60, dt = (w.doubleTime || 0) / 60; const wt = byWeek.get(w.weekStart) || [];
-    const other = (earns ? svcFor(wt) + retailFor(wt) : 0);                                   // commission / per service / retail that week
+    const other = (earns ? svcFor(wt) + retailFor(wt) + ((nsByWeek.get(w.weekStart) || 0) / 60) * nsRate : 0);                                   // commission / per service / retail that week
     const straight = (hourlyish ? h * rate : 0) + other + (ps === 'salary' ? salaryWeekly : 0);  // pay for the week before overtime and tips
     let premium = 0;
     if (h > 0 && (ot > 0 || dt > 0)) {
@@ -105,9 +121,9 @@ export function periodPay(input: {
     weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: r2(ot), doubleTimeHours: r2(dt), earned: r2(straight), topUp: r2(topUp), premium: r2(premium) });
   }
 
-  const total = hourlyPay + salaryPay + servicePay + retail + extras + overtimePremium + minWageTopUp + tips;
+  const total = hourlyPay + salaryPay + servicePay + retail + extras + nonServicePay + overtimePremium + minWageTopUp + tips;
   return { staffId: m.id, name: m.name, payStructure: ps, hours: r2(hours), regularHours: r2(regHours), overtimeHours: r2(otHours), doubleTimeHours: r2(dtHours),
-    hourlyPay: r2(hourlyPay), salaryPay: r2(salaryPay), servicePay: r2(servicePay), retail: r2(retail), extras: r2(extras), tierBonus: r2(tiers), refundTakeBack: r2(refunds.total), refunds: refunds.count,
+    hourlyPay: r2(hourlyPay), salaryPay: r2(salaryPay), servicePay: r2(servicePay), retail: r2(retail), extras: r2(extras), tierBonus: r2(tiers), refundTakeBack: r2(refunds.total), refunds: refunds.count, nonServicePay, nonServiceHours: r2(nsMinutes / 60),
     overtimePremium: r2(overtimePremium), minWageTopUp: r2(minWageTopUp), tips: r2(tips), total: r2(total), missingClockOuts, unapprovedSessions: unapproved,
     noHours: (earns && servicePay > 0 && hours === 0), weeks: weekRows };
 }
@@ -118,7 +134,7 @@ export function payrollFields(l: PayLine) {
   return {
     regularHours: hourly ? l.regularHours : 0, overtimeHours: hourly ? l.overtimeHours : 0, doubleOvertimeHours: hourly ? l.doubleTimeHours : 0,
     commission: r2(l.servicePay + l.retail + l.extras),
-    bonus: r2(l.overtimePremium + l.minWageTopUp),          // overtime on commission / per service pay, and minimum-wage top-ups
+    bonus: r2(l.overtimePremium + l.minWageTopUp + l.nonServicePay),   // overtime on commission / per service pay, minimum-wage top-ups, paid non-service time
     salary: l.salaryPay, tips: l.tips,
   };
 }
