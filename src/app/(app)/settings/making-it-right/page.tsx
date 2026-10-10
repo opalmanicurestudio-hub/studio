@@ -14,7 +14,7 @@ import { settingsOf, PRESETS, FIX_LABEL, FIX_HINT, type MirSettings, type FixKin
 
 export default function MakingItRightSettings() {
   const { selectedTenant, role } = useTenant() as any; const { firestore } = useFirebase(); const { toast } = useToast();
-  const tenantId = selectedTenant?.id || ''; const canEdit = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
+  const tenantId = selectedTenant?.id || ''; const canEdit = String(role || '').toLowerCase() === 'owner';
   const [s, setS] = React.useState<MirSettings | null>(null); const [dirty, setDirty] = React.useState(false); const [saving, setSaving] = React.useState(false);
   React.useEffect(() => { if (selectedTenant && !s) setS(settingsOf(selectedTenant)); }, [selectedTenant, s]);
   const svcQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore as Firestore, `tenants/${tenantId}/services`) : null), [firestore, tenantId]);
@@ -28,7 +28,7 @@ export default function MakingItRightSettings() {
   const save = async () => {
     if (!firestore || !tenantId) return; setSaving(true);
     try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { makingItRight: JSON.parse(JSON.stringify(s)) }); setDirty(false); toast({ title: 'Making it right saved' }); }
-    catch { toast({ title: 'That didn’t save', description: 'Only owners and managers can change these.', variant: 'destructive' }); }
+    catch { toast({ title: 'That didn’t save', description: 'Only the owner can change these.', variant: 'destructive' }); }
     setSaving(false);
   };
   const svcName = (id: string) => (services || []).find((x: any) => x.id === id)?.name || 'A service';
@@ -37,7 +37,7 @@ export default function MakingItRightSettings() {
   return (
     <SettingsPage title="Making it right" help="When a client isn’t happy: what they can tell you, what you can offer, who decides, and the limits that keep it fair."
       actions={canEdit ? <button type="button" onClick={save} disabled={!dirty || saving} className="h-11 rounded-full px-6 text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--ink)', color: 'var(--card)' }}>{saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}</button> : undefined}>
-      {!canEdit && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'var(--soft)' }}>Only owners and managers can change these.</p>}
+      {!canEdit && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'var(--soft)' }}>Only the owner can change these.</p>}
 
       <Section title="Start from" help="A starting set for your kind of business. Picking another one replaces the list of what can go wrong and the usual windows.">
         <Row label="Kind of business" inline>
