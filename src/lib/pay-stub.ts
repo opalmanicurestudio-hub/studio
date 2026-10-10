@@ -9,7 +9,8 @@ import { recentPeriods, periodRange, isPaid, type PayPeriod } from '@/lib/pay-pe
 
 export type Stub = { staffId: string; name: string; role: string; period: PayPeriod; paid: boolean; frozen: boolean; payStructure: string;
   total: number; parts: { services: number; tips: number; retail: number; time: number; other: number; adjustments: number };
-  hours: number; overtimeHours: number; visits: number; notes: string[]; audit: Audit; savedAt?: string };
+  hours: number; overtimeHours: number; visits: number; notes: string[]; audit: Audit; savedAt?: string;
+  stats?: { avgVisit: number | null; rebookPct: number | null; retailPerVisit: number | null; clients: number } };
 
 const r2 = (v: number) => Math.round((v || 0) * 100) / 100;
 
@@ -40,12 +41,27 @@ export async function buildStub(db: any, tenantId: string, staffId: string, peri
   const sessions = sessionsFrom(punches, clockPolicy(tenant, Date.parse(toIso))).filter((s) => s.staffId === staffId && s.localDate >= period.from && s.localDate <= period.to);
   const adjustments = adjSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((a: any) => String(a.date || '') >= fromIso && String(a.date || '') <= toIso);
   const audit = auditOf({ st, member, tenant, income, services, sessions, tipRuns, adjustments });
+  // Numbers for the stub's tiles: average visit (what clients paid for your services), rebooked (clients who already
+  // have another visit with you booked after this one), retail per visit.
+  const svcSales = income.filter((t: any) => (t.type || 'income') === 'income' && t.voided !== true && t.category === 'Service Revenue' && t.staffId === staffId);
+  const visitIds = [...new Set(svcSales.map((t: any) => String(t.appointmentId || t.id)))];
+  const salesTotal = svcSales.reduce((x: number, t: any) => x + (typeof t.amount === 'number' ? t.amount : 0), 0);
+  const retailTotal = income.filter((t: any) => (t.type || 'income') === 'income' && t.voided !== true && t.category === 'Retail' && t.staffId === staffId).reduce((x: number, t: any) => x + (Number(t.amount) || 0), 0);
+  let rebookPct: number | null = null; const clientIds = [...new Set(svcSales.map((t: any) => t.clientId).filter(Boolean))] as string[];
+  if (clientIds.length) {
+    const mineAppts = (await db.collection(`${T}/appointments`).where('staffId', '==', staffId).get()).docs.map((d: any) => d.data() || {});
+    const lastVisit: Record<string, string> = {}; for (const t of svcSales) if (t.clientId && String(t.date) > (lastVisit[t.clientId] || '')) lastVisit[t.clientId] = String(t.date);
+    const OFF = ['cancelled', 'canceled', 'no_show', 'declined', 'expired'];
+    const back = clientIds.filter((c) => mineAppts.some((a: any) => a.clientId === c && !OFF.includes(String(a.status)) && String(a.startTime) > lastVisit[c]));
+    rebookPct = Math.round((back.length / clientIds.length) * 100);
+  }
+  const stats = { avgVisit: visitIds.length ? r2(salesTotal / visitIds.length) : null, rebookPct, retailPerVisit: visitIds.length ? r2(retailTotal / visitIds.length) : null, clients: clientIds.length };
   const sum = (a: { amount: number }[]) => r2(a.reduce((s, x) => s + x.amount, 0));
   const timeKeys = ['p:hourly', 'p:training', 'p:salary', 'p:ot', 'p:minwage'];
   const parts = { services: sum(audit.visits), tips: sum(audit.tips), retail: sum(audit.retail), time: sum(audit.period.filter((x) => timeKeys.includes(x.ref))),
     other: sum(audit.period.filter((x) => !timeKeys.includes(x.ref))), adjustments: sum(audit.adjustments) };
   return { staffId, name: member.name || 'Team member', role: String(member.role || 'staff'), period, paid: isPaid(tenant, period), frozen: false, payStructure: st.payStructure,
-    total: audit.check.total, parts, hours: r2(st.line.hours), overtimeHours: r2(st.line.overtimeHours), visits: audit.visits.length, notes: st.notes, audit };
+    total: audit.check.total, parts, hours: r2(st.line.hours), overtimeHours: r2(st.line.overtimeHours), visits: visitIds.length, notes: st.notes, audit, stats };
 }
 
 /** The stub to show: saved once paid (and from then on read back unchanged), live until then. */
@@ -63,8 +79,8 @@ export async function payHome(db: any, tenantId: string, staffId: string, count 
   const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   const [cur, ...past] = recentPeriods(tenant, count);
   const current = await buildStub(db, tenantId, staffId, cur);
-  const stubs: { period: PayPeriod; total: number; parts: Stub['parts']; paid: boolean }[] = [];
-  for (const p of past) { const s = await stubFor(db, tenantId, staffId, p); if (s && (s.total || s.audit.check.lines)) stubs.push({ period: p, total: s.total, parts: s.parts, paid: s.paid }); }
+  const stubs: { period: PayPeriod; total: number; parts: Stub['parts']; paid: boolean; stats?: Stub['stats']; visits?: number }[] = [];
+  for (const p of past) { const s = await stubFor(db, tenantId, staffId, p); if (s && (s.total || s.audit.check.lines)) stubs.push({ period: p, total: s.total, parts: s.parts, paid: s.paid, stats: s.stats, visits: s.visits }); }
   const prev = stubs[0]?.total ?? null; const best = stubs.reduce((m, s) => Math.max(m, s.total), 0) || null;
   return { current: current ? { ...current, audit: { byDay: current.audit.byDay, check: current.audit.check } } : null, stubs, previousTotal: prev, bestTotal: best };
 }

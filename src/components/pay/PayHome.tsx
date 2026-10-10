@@ -22,7 +22,8 @@ export function PayHome({ tenantId, staffId, firestore, accent = INK }: { tenant
   const live = (questions || []).filter((q: any) => ['open', 'checking'].includes(q.status) || (Date.now() - Date.parse(q.updatedAt || '') < 7 * 86400000)).sort((a: any, b: any) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 
   if (qOpen) return <PayQuestionStatus tenantId={tenantId} question={(questions || []).find((q: any) => q.id === qOpen)} accent={accent} onBack={() => setQOpen(null)} />;
-  if (open) return <PayStubView tenantId={tenantId} from={open} accent={accent} previousTotal={(() => { const i = (data?.stubs || []).findIndex((s: any) => s.period.from === open); return i >= 0 ? data.stubs[i + 1]?.total ?? null : data?.stubs?.[0]?.total ?? null; })()} onBack={() => { setOpen(null); load(); }} />;
+  if (open) { const i = (data?.stubs || []).findIndex((s: any) => s.period.from === open); const prev = i >= 0 ? data.stubs[i + 1] : data?.stubs?.[0];
+    return <PayStubView tenantId={tenantId} from={open} accent={accent} previousTotal={prev?.total ?? null} previousStats={prev?.stats || null} onBack={() => { setOpen(null); load(); }} />; }
   if (err) return <p role="alert" className="rounded-[16px] px-4 py-3 text-[14px]" style={{ background: '#fdecec', color: '#b42318' }}>{err}</p>;
   if (!data) return <div className="space-y-3" aria-busy="true"><div className="h-[190px] animate-pulse rounded-[26px]" style={{ background: '#f1f1f3' }} /><div className="h-[120px] animate-pulse rounded-[20px]" style={{ background: '#f6f6f7' }} /></div>;
 

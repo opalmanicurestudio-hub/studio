@@ -11,22 +11,10 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 const FLAG = <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 21V4h11l-2 4 2 4H5" /></svg>;
 const DL = <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>;
 
-function Ring({ parts, total, accent }: { parts: Record<string, number>; total: number; accent: string }) {
-  const C = 2 * Math.PI * 54; const pos = Object.entries(parts).filter(([, v]) => v > 0); const sum = pos.reduce((s, [, v]) => s + v, 0) || 1; let off = 0;
-  return (
-    <div className="relative h-[140px] w-[140px] shrink-0" role="img" aria-label={`Total ${money(total)}: ${pos.map(([k, v]) => `${PART_LABEL[k]} ${money(v)}`).join(', ')}`}>
-      <svg aria-hidden width="140" height="140" viewBox="0 0 140 140" style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx="70" cy="70" r="54" fill="none" stroke="#f0f0f2" strokeWidth="20" />
-        {pos.map(([k, v]) => { const len = (v / sum) * C; const el = <circle key={k} cx="70" cy="70" r="54" fill="none" stroke={PART_COLORS(accent)[k]} strokeWidth="20" strokeDasharray={`${Math.max(0, len - 2)} ${C}`} strokeDashoffset={-off} />; off += len; return el; })}
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-[12px]" style={{ color: MUTED }}>Total</span><span className="text-[19px] font-extrabold">{money(total).replace(/\.\d\d$/, '')}</span></div>
-    </div>);
-}
-
-export function PayStubView({ tenantId, from, accent = INK, previousTotal, onBack }: { tenantId: string; from: string; accent?: string; previousTotal?: number | null; onBack: () => void }) {
+export function PayStubView({ tenantId, from, accent = INK, previousTotal, previousStats, onBack }: { tenantId: string; from: string; accent?: string; previousTotal?: number | null; previousStats?: any; onBack: () => void }) {
   const [stub, setStub] = React.useState<any>(null); const [err, setErr] = React.useState('');
   const [openPart, setOpenPart] = React.useState<string | null>('services'); const [line, setLine] = React.useState<any>(null); const [ask, setAsk] = React.useState<any>(null);
-  const [dl, setDl] = React.useState(false); const [sent, setSent] = React.useState('');
+  const [dl, setDl] = React.useState(false); const [sent, setSent] = React.useState(''); const [week, setWeek] = React.useState(0); const [dayPick, setDayPick] = React.useState<string | null>(null);
   React.useEffect(() => { (async () => { const r = await payGet(`/api/pay/stub?tenantId=${encodeURIComponent(tenantId)}&from=${from}`); if (r.ok) setStub(r.stub); else setErr(r.error || 'Couldn’t load this stub.'); })(); }, [tenantId, from]);
 
   const back = <button type="button" onClick={onBack} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: '#f4f4f5' }}>Back</button>;
@@ -60,25 +48,62 @@ export function PayStubView({ tenantId, from, accent = INK, previousTotal, onBac
       <div className="flex items-center gap-2.5">{back}<p className="text-[18px] font-extrabold">{dshort(p.from)} – {dshort(p.to)}</p></div>
       {sent && <p role="status" className="rounded-[16px] px-4 py-3 text-[14px] font-semibold" style={{ background: `${accent}14`, color: accent }}>{sent}</p>}
 
-      <section aria-label="Statement" className="overflow-hidden rounded-[24px] border bg-white" style={{ borderColor: LINE, boxShadow: '0 18px 40px -28px rgba(22,23,26,.45)' }}>
-        <div className="h-1.5" style={{ background: accent }} />
-        <div className="space-y-4 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div><p className="text-[12px] font-bold" style={{ color: MUTED }}>EARNINGS STATEMENT</p><p className="text-[15px] font-bold">{stub.name}</p>
-              <p className="text-[13px]" style={{ color: MUTED }}>{stub.paid ? `Paid ${dlong(p.payday)}` : `Payday ${dlong(p.payday)} · still adding up`}{stub.frozen ? ' · final' : ''}</p></div>
-            <div className="text-right"><p className="text-[11px] font-bold" style={{ color: MUTED }}>BEFORE TAXES</p><p className="text-[26px] font-extrabold leading-none tracking-[-0.02em]">{money(stub.total)}</p></div>
-          </div>
-          <div className="flex items-center gap-4">
-            <Ring parts={stub.parts} total={stub.total} accent={accent} />
-            <div className="space-y-1.5 text-[13px]">
-              {diff != null && Math.abs(diff) >= 1 && <p className="font-bold" style={{ color: diff > 0 ? accent : MUTED }}>{diff > 0 ? '▲' : '▼'} {money(Math.abs(diff))} {diff > 0 ? 'more' : 'less'} than last period</p>}
-              <p style={{ color: MUTED }}>{stub.visits} visit{stub.visits === 1 ? '' : 's'} · {stub.hours} h{stub.overtimeHours ? ` (${stub.overtimeHours} h overtime)` : ''}</p>
-              {stub.visits > 0 && stub.parts.services > 0 && <p style={{ color: MUTED }}>avg {money(stub.parts.services / stub.visits)} per visit</p>}
+      {(() => {
+        // ── Stub D: the period on a brand card, with the days inside it ──
+        const days: string[] = []; { let d = p.from; while (d <= p.to) { days.push(d); d = new Date(Date.parse(`${d}T12:00:00Z`) + 86400000).toISOString().slice(0, 10); } }
+        const weeks: string[][] = []; for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+        const wk = weeks[Math.min(week, weeks.length - 1)] || []; const byDay = a.byDay || {};
+        const max = Math.max(1, ...days.map((d) => byDay[d] || 0)); const wkTotal = wk.reduce((x, d) => x + (byDay[d] || 0), 0);
+        const visitsOn = (d: string) => a.visits.filter((l: any) => l.date === d && l.amount > 0).length;
+        const st = stub.stats || {}; const ps = previousStats || {};
+        const delta = (cur: any, prev: any, unit: '$' | 'pts') => cur == null || prev == null || cur === prev ? '' : `${cur > prev ? '▲' : '▼'} ${unit === '$' ? money(Math.abs(cur - prev)).replace(/\.00$/, '') : `${Math.abs(cur - prev)} pts`}`;
+        const pill = (t: string) => <span key={t} className="rounded-full px-2.5 py-1 text-[12px] font-bold" style={{ background: 'rgba(255,255,255,.18)' }}>{t}</span>;
+        return (<>
+          <section aria-label="Statement" className="overflow-hidden rounded-[26px] bg-white" style={{ boxShadow: '0 22px 44px -28px rgba(22,23,26,.5)', border: `1px solid ${LINE}` }}>
+            <div className="relative space-y-1.5 overflow-hidden p-[18px] text-white" style={{ background: `linear-gradient(140deg, ${accent}, ${INK})` }}>
+              <span aria-hidden className="absolute -right-10 -top-10 h-40 w-40 rounded-full" style={{ background: 'rgba(255,255,255,.08)' }} />
+              <div className="relative flex justify-between text-[12px] opacity-85"><span>{dshort(p.from)} – {dshort(p.to)}</span><span>{stub.paid ? `Paid ${dshort(p.payday)}` : `Payday ${dshort(p.payday)}`}{stub.frozen ? ' · final' : ''}</span></div>
+              <p className="relative text-[42px] font-extrabold leading-none tracking-[-0.03em]">{money(stub.total)}</p>
+              <div className="relative flex flex-wrap gap-1.5 pt-1">
+                {diff != null && Math.abs(diff) >= 1 ? pill(`${diff > 0 ? '▲' : '▼'} ${money(Math.abs(diff)).replace(/\.\d\d$/, '')} vs last`) : null}
+                {pill(`${stub.visits} visit${stub.visits === 1 ? '' : 's'}`)}
+                {st.rebookPct != null ? pill(`${st.rebookPct}% rebooked`) : null}
+                {!stub.paid ? pill('still adding up') : null}
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
+            {days.length > 0 && (
+              <div className="space-y-2 p-3.5">
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="font-extrabold">{weeks.length > 1 ? `Week of ${dshort(wk[0])}` : 'Your days'}</span>
+                  <span className="flex items-center gap-1.5"><span style={{ color: MUTED }}>{money(wkTotal).replace(/\.\d\d$/, '')}</span>
+                    {weeks.length > 1 && weeks.map((_, i) => <button key={i} type="button" aria-label={`Week ${i + 1}`} aria-pressed={i === week} onClick={() => setWeek(i)} className="h-6 min-w-6 rounded-full px-2 text-[11px] font-bold" style={i === week ? { background: INK, color: '#fff' } : { background: '#f4f4f5', color: MUTED }}>{i + 1}</button>)}</span>
+                </div>
+                {wk.map((d) => { const v = byDay[d] || 0; const n = visitsOn(d); return (
+                  <button key={d} type="button" onClick={() => { if (!v) return; setDayPick(dayPick === d ? null : d); setOpenPart('services'); }} aria-pressed={dayPick === d} className="flex w-full items-center gap-3 text-left">
+                    <span className="w-9 text-[12px] font-bold" style={{ color: MUTED }}>{new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })}</span>
+                    <span className="relative h-[26px] flex-1 overflow-hidden rounded-[8px]" style={{ background: '#f4f4f5' }}>
+                      {v > 0 && <span className="absolute inset-y-0 left-0 rounded-[8px]" style={{ width: `${Math.max(8, (v / max) * 100)}%`, background: accent }} />}
+                      <span className="absolute left-2.5 top-[5px] text-[12px] font-bold" style={{ color: v > 0 && v / max > 0.35 ? '#fff' : MUTED }}>{v > 0 ? `${n} visit${n === 1 ? '' : 's'}` : 'off'}</span>
+                    </span>
+                    <span className="w-14 text-right text-[14px] font-extrabold tabular-nums">{v ? money(v).replace(/\.\d\d$/, '') : '—'}</span>
+                  </button>); })}
+              </div>)}
+          </section>
+          {/* ── Stub E's tiles: the numbers behind the money ── */}
+          <section aria-label="Your numbers" className="grid grid-cols-2 gap-2">
+            {[['Average visit', st.avgVisit != null ? money(st.avgVisit).replace(/\.00$/, '') : '—', delta(st.avgVisit, ps.avgVisit, '$')],
+              ['Rebooked', st.rebookPct != null ? `${st.rebookPct}%` : '—', delta(st.rebookPct, ps.rebookPct, 'pts')],
+              ['Retail per visit', st.retailPerVisit != null ? money(st.retailPerVisit) : '—', delta(st.retailPerVisit, ps.retailPerVisit, '$')],
+              ['Hours', `${stub.hours} h`, stub.overtimeHours ? `${stub.overtimeHours} h overtime` : '']].map(([k, v, d]: any) => (
+              <div key={k} className="space-y-0.5 rounded-[18px] border p-3" style={{ borderColor: LINE }}>
+                <p className="text-[12px]" style={{ color: MUTED }}>{k}</p><p className="text-[22px] font-extrabold tracking-[-0.02em]">{v}</p>
+                {d ? <p className="text-[12px] font-bold" style={{ color: String(d).startsWith('▼') ? '#9a5b00' : accent }}>{d}</p> : null}
+              </div>))}
+          </section>
+        </>);
+      })()}
 
+      {dayPick && <div className="flex items-center justify-between rounded-[14px] px-3.5 py-2.5 text-[14px]" style={{ background: `${accent}12` }}><span className="font-semibold">Showing {dshort(dayPick)} only</span><button type="button" onClick={() => setDayPick(null)} className="font-bold" style={{ color: accent }}>Show all</button></div>}
       <section aria-label="Every line" className="overflow-hidden rounded-[20px] border" style={{ borderColor: LINE }}>
         {groups.map((g, gi) => { const on = openPart === g.key; return (
           <div key={g.key} style={{ borderTop: gi ? `1px solid #f0f0f2` : undefined }}>
@@ -88,7 +113,7 @@ export function PayStubView({ tenantId, from, accent = INK, previousTotal, onBac
               <span className="text-[15px] font-extrabold">{money(g.total)}</span><span aria-hidden style={{ color: '#9a9ca1' }}>{on ? '▾' : '▸'}</span>
             </button>
             {on && <ul className="border-t" style={{ borderColor: '#f0f0f2', background: '#fafafa' }}>
-              {g.lines.map((l: any) => (
+              {g.lines.filter((l: any) => !dayPick || l.date === dayPick).map((l: any) => (
                 <li key={l.ref}><button type="button" onClick={() => setLine(l)} className="flex w-full items-start gap-3 px-3.5 py-2.5 text-left">
                   <span className="w-11 shrink-0 pt-0.5 text-[12px] tabular-nums" style={{ color: MUTED }}>{l.date ? dshort(l.date) : ''}</span>
                   <span className="min-w-0 flex-1"><span className="block truncate text-[14px] font-semibold">{l.title}</span><span className="block truncate text-[12px]" style={{ color: MUTED }}>{l.detail}</span></span>
