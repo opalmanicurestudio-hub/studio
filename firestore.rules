@@ -327,9 +327,10 @@ service cloud.firestore {
       allow write: if false;
     }
     // MAKING IT RIGHT — complaint cases. The desk and managers read them all; a provider reads cases about their own
-    // visits from the portal. Only the server writes (/api/cases), so every step is on the case's record.
+    // visits, and the provider doing a client's fix reads that case, from the portal. Only the server writes (/api/cases), so every step is on the case's record.
     match /tenants/{tenantId}/cases/{caseId} {
-      allow read: if isStaff(tenantId) || (isPortalMember(tenantId) && resource.data.get('visit', {}).get('providerId', '') == portalStaffId());
+      allow read: if isStaff(tenantId) || (isPortalMember(tenantId) && (resource.data.get('visit', {}).get('providerId', '') == portalStaffId()
+        || portalStaffId() in resource.data.get('involvedStaffIds', [])));
       allow write: if false;
     }
     // CLIENT CONDUCT reports from providers: managers only, never the client; only the server writes them.

@@ -3,6 +3,7 @@
 import { NotHappy } from '@/components/staff-portal/NotHappy';
 import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
 import { MyCases } from '@/components/staff-portal/MyCases';
+import { WeekSchedule } from '@/components/staff-portal/WeekSchedule';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
 import { punchState } from '@/lib/punch';
@@ -1367,6 +1368,16 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
 
           {/* What the client told us (running late / on the way / here) + decide on the spot */}
           <ClientStatusCard apt={apt} tenantId={tenantId} />
+          {apt.fixBrief && (
+            <div className="rounded-2xl border-2 border-sky-200 bg-sky-50 p-3 text-sky-950">
+              <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">Making it right · {apt.fixBrief.number}</p>
+              <p className="mt-0.5 text-[13px] font-bold">{apt.fixBrief.handover ? 'You’re fixing a visit someone else did.' : 'This is a free fix of your earlier visit.'} {apt.fixBrief.reason}.</p>
+              {apt.fixBrief.said && <p className="mt-1 text-[12.5px]">They said: “{apt.fixBrief.said}”</p>}
+              {apt.fixBrief.plan && <p className="mt-1 text-[12.5px]"><b>Plan:</b> {apt.fixBrief.plan.join(' → ')}</p>}
+              {apt.fixBrief.note && <p className="mt-1 text-[12.5px]">{apt.fixBrief.note}</p>}
+              <p className="mt-1 text-[12px] text-sky-800">Welcome them warmly and check what they want before you start. The full case is in Me → Client cases.</p>
+            </div>
+          )}
         </div>
 
         {/* Add-on sheet — slides in when toggled */}
@@ -2885,7 +2896,7 @@ const isWorkingWalkIn = (status: any): boolean => WALKIN_WORKING.includes(String
 
 function WalkInLeaderboard({
   allWalkIns, allStaff, allShifts, services,
-  tenantId, firestore, currentStaffId, activityLogs,
+  tenantId, firestore, currentStaffId, activityLogs, compact, onOpen,
 }: any) {
   const { toast } = useToast();
   const [view, setView]             = useState<'floor' | 'queue'>('queue');
@@ -3046,6 +3057,18 @@ function WalkInLeaderboard({
   }, [allStaff, allShifts, todayStr]);
 
   // Early return AFTER all hooks
+  // Today shows ONE line (who's waiting, where you are in line); the full queue is its own screen.
+  if (compact && (queue.length > 0 || inService.length > 0)) {
+    const pos = turnOrder.findIndex((t: any) => t.id === currentStaffId);
+    const line = myQueue.length ? `${myQueue.length === 1 ? `${String(myQueue[0].clientName || 'Someone').split(' ')[0]} is` : `${myQueue.length} are`} waiting for you`
+      : !isAccepting ? 'You’re not taking walk-ins' : pos === 0 ? `You’re next up · ~${Math.round(avgSvcMins / Math.max(1, turnOrder.length))} min` : pos > 0 ? `You’re #${pos + 1} in line` : 'Clock in to join the line';
+    return (
+      <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 rounded-[18px] border border-[#ececee] bg-white px-4 py-3 text-left">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f1f1f3] text-[15px] font-extrabold">{queue.length}</span>
+        <span className="min-w-0 flex-1"><span className="block text-[15px] font-bold">Walk-ins · {queue.length} waiting{inService.length ? ` · ${inService.length} in service` : ''}</span><span className="block truncate text-[13px] text-[#6d7075]">{line}</span></span>
+        <span className="shrink-0 text-[13px] font-semibold">See queue ›</span>
+      </button>);
+  }
   // Nobody waiting: one quiet line, so "taking walk-ins" can still be switched on or off.
   if (totalActive === 0 && inService.length === 0 && queue.length === 0) return (
     <div className="flex items-center gap-3 rounded-[18px] border border-[#ececee] bg-white px-4 py-3">
@@ -4509,6 +4532,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [editingDetails, setEditingDetails] = useState(false);
   const [editingAlerts, setEditingAlerts] = useState(false);
   const [viewingCases, setViewingCases] = useState(false);
+  const [viewingWalkIns, setViewingWalkIns] = useState(false);
   const [todayPick, setTodayPick] = useState<{ view: 'now' | 'day' | 'floor'; visitId: string | null } | null>(null);
   // Calls the front desk passed on to this person (or to managers, if they are one).
   const myCalls = useMyCalls(staffMember.role === 'renter' ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
@@ -5036,7 +5060,14 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             </div>
           )}
 
-          {activeTab==='today' && (
+          {activeTab==='today' && viewingWalkIns && (
+            <div className="space-y-3">
+              <button onClick={() => setViewingWalkIns(false)} className="text-[14px] font-semibold text-[#6d7075]">‹ Today</button>
+              <h2 className="text-[22px] font-extrabold">Walk-ins</h2>
+              <WalkInLeaderboard allWalkIns={todaysWalkIns} allStaff={allStaff || []} allShifts={allShiftsRaw || []} services={services || []} tenantId={tenantId} firestore={firestore} currentStaffId={staffMember?.id} activityLogs={activityLogs || []} />
+            </div>
+          )}
+          {activeTab==='today' && !viewingWalkIns && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
 {!isRenter && <ForgotClockOut firestore={firestore} tenantId={tenantId} staffId={staffMember.id} tenant={portalTenant} shifts={allShiftsRaw || []} accent={accentColor} />}
@@ -5114,6 +5145,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   ))}
                 {todayView === 'day' && <NextBanner appointments={allMyApts} services={services} />}
                 {takesWalkIns && <WalkInLeaderboard
+                  compact onOpen={() => setViewingWalkIns(true)}
                   allWalkIns={todaysWalkIns}
                   allStaff={allStaff || []}
                   allShifts={allShiftsRaw || []}
@@ -5123,12 +5155,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   currentStaffId={staffMember?.id}
                   activityLogs={activityLogs || []}
                 />}
-                {todayView !== 'now' && <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />}
+                {todayView !== 'now' && <p className="px-1 pt-1 text-[13px] font-bold uppercase tracking-wide text-[#6d7075]">{todayView === 'floor' ? 'The floor today' : 'Rest of today'}</p>}
                 {todayView !== 'now' && <DayTimeline
                   mode={todayView === 'floor' ? 'floor' : 'my_day'}
                   appointments={allMyApts}
                   services={services}
-                  selectedDate={selectedDate}
+                  selectedDate={today}
                   onAptTap={apt => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
                   allStaffApts={allTodayApptsRaw || []}
                   allWalkIns={allWalkInsRaw || []}
@@ -5139,86 +5171,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   currentStaffId={staffMember?.id}
                   clockStatus={clockStatus}
                 />}
-                {isSameDay(selectedDate,today) && (
-                  <div className="space-y-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Also Working Today</p>
-                    {todayColleagues.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-3">
-                        {todayColleagues.map((c: any) => (
-                          <div key={c.id} className="flex items-center gap-2 p-3 rounded-2xl border-2 border-slate-100 bg-white">
-                            <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><p className="font-black text-primary text-sm">{c.firstName[0]}</p></div>
-                            <div className="min-w-0"><p className="font-black uppercase text-[10px] truncate">{c.firstName}</p><p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{fmt12(c.startTime)} – {fmt12(c.endTime)}</p></div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="p-4 text-center rounded-2xl border-2 border-dashed opacity-30"><p className="text-[10px] font-black uppercase tracking-widest">No other staff scheduled</p></div>
-                    )}
-                  </div>
+                {todayColleagues.length > 0 && (
+                  <p className="px-1 text-[13px] text-[#6d7075]"><b className="text-[#16171a]">Also on today:</b> {todayColleagues.map((c: any) => `${c.firstName} ${fmt12(c.startTime)}–${fmt12(c.endTime)}`).join(' · ')}</p>
                 )}
-
-                {/* Today's Activity Feed — real-time appointment status changes */}
-                {isSameDay(selectedDate, today) && (() => {
-                  const todayApts = allMyApts
-                    .filter((a: any) => isSameDay(safeDate(a.startTime), today))
-                    .sort((a: any, b: any) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
-                  if (todayApts.length === 0) return null;
-
-                  const statusIcon: Record<string, any> = {
-                    confirmed:          { icon: CheckCircle2,  color: 'text-blue-500',    bg: 'bg-blue-50',    label: 'Confirmed'          },
-                    servicing:          { icon: Play,           color: 'text-primary',     bg: 'bg-primary/5',  label: 'In Service'         },
-                    ready_for_checkout: { icon: ShoppingCart,   color: 'text-emerald-600', bg: 'bg-emerald-50', label: 'Ready for Checkout' },
-                    completed:          { icon: CheckCircle,    color: 'text-green-600',   bg: 'bg-green-50',   label: 'Completed'          },
-                    no_show:            { icon: XCircle,        color: 'text-slate-500',   bg: 'bg-slate-50',   label: 'No Show'            },
-                    cancelled:          { icon: XCircle,        color: 'text-destructive', bg: 'bg-destructive/5', label: 'Cancelled'       },
-                  };
-                  const checkInIcon: Record<string, any> = {
-                    arrived:      { label: 'Client Arrived',    color: 'text-green-600', bg: 'bg-green-50' },
-                    running_late: { label: 'Running Late',      color: 'text-amber-600', bg: 'bg-amber-50' },
-                    on_my_way:    { label: 'Client En Route',   color: 'text-blue-600',  bg: 'bg-blue-50'  },
-                  };
-
-                  return (
-                    <div className="space-y-3">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Today's Activity</p>
-                      <div className="space-y-2">
-                        {todayApts.map((a: any) => {
-                          const svc = (services || []).find((s: any) => s.id === a.serviceId);
-                          const st  = statusIcon[a.status] || statusIcon.confirmed;
-                          const ci  = a.checkInStatus && a.checkInStatus !== 'pending' ? checkInIcon[a.checkInStatus] : null;
-                          const Icon = st.icon;
-                          return (
-                            <div key={a.id}
-                              onClick={() => { setDrawerApt(a); setDrawerSvc(svc); }}
-                              className="flex items-center gap-3 p-3 rounded-2xl border-2 border-slate-100 bg-white cursor-pointer active:scale-[0.98] transition-all">
-                              <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center shrink-0', st.bg)}>
-                                <Icon className={cn('w-4 h-4', st.color)} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-black uppercase text-[11px] text-slate-800 truncate">
-                                  {a.clientName?.split(' ')[0] || 'Guest'} · {svc?.name || 'Service'}
-                                </p>
-                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
-                                  {format(safeDate(a.startTime), 'h:mm a')} · {st.label}
-                                </p>
-                              </div>
-                              {ci && (
-                                <span className={cn('shrink-0 text-[7px] font-black uppercase rounded-lg px-1.5 py-0.5', ci.bg, ci.color)}>
-                                  {ci.label}
-                                </span>
-                              )}
-                              {a.isEscalated && (
-                                <span className="shrink-0 text-[7px] font-black uppercase rounded-lg px-1.5 py-0.5 bg-destructive/10 text-destructive animate-pulse">
-                                  Escalated
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
               </div>
             )
           )}
@@ -5227,30 +5182,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='schedule' && (
             shiftsLoading ? <TabSkeleton /> : (
               <div className="space-y-4">
-                <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />
-                {(() => {
-                  const dayStr   = format(selectedDate,'yyyy-MM-dd');
-                  const dayShift = (myShiftsRaw||[]).find((s: any) => s.date===dayStr&&s.status!=='cancelled'&&s.status!=='draft');
-                  const isPast   = isBefore(selectedDate,startOfDay(today))&&!isToday(selectedDate);
-                  return (
-                    <div className={cn('rounded-[2rem] border-2 overflow-hidden bg-white', isToday(selectedDate) ? 'border-primary/30 shadow-md shadow-primary/10' : 'border-slate-100', isPast && 'opacity-50')}>
-                      <div className={cn('px-4 py-3 flex items-center gap-3 border-b border-dashed', isToday(selectedDate) ? 'bg-primary/5' : 'bg-muted/5')}>
-                        <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0', isToday(selectedDate) ? 'bg-primary text-white' : 'bg-white border-2 text-slate-600')}>{format(selectedDate,'d')}</div>
-                        <div className="flex-1"><p className={cn('font-black uppercase text-sm leading-none', isToday(selectedDate) ? 'text-primary' : 'text-slate-700')}>{format(selectedDate,'EEEE')}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{format(selectedDate,'MMMM d, yyyy')}</p></div>
-                        {isToday(selectedDate) && <Badge className="bg-primary text-white border-none font-black text-[8px] uppercase">Today</Badge>}
-                      </div>
-                      <div className="p-3">
-                        {dayShift ? (
-                          <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/5 border-2 border-primary/10">
-                            <Clock className="w-4 h-4 text-primary/40 shrink-0" />
-                            <div className="flex-1"><p className="font-black uppercase text-[11px] text-primary">{fmt12(dayShift.startTime)} – {fmt12(dayShift.endTime)}</p>{(dayShift.breakMinutes||0)>0&&<p className="text-[9px] font-bold opacity-60 uppercase flex items-center gap-1"><Coffee className="w-2.5 h-2.5"/>{dayShift.breakMinutes}m break</p>}{dayShift.notes&&<p className="text-[9px] italic text-muted-foreground opacity-70 mt-0.5 truncate">{dayShift.notes}</p>}</div>
-                            <p className="font-black font-mono text-sm text-primary shrink-0">{calcHours(dayShift.startTime,dayShift.endTime,dayShift.breakMinutes||0).toFixed(1)}h</p>
-                          </div>
-                        ) : <p className="text-[9px] font-black uppercase text-muted-foreground opacity-30 text-center py-2">No shift scheduled</p>}
-                      </div>
-                    </div>
-                  );
-                })()}
+                <WeekSchedule shifts={myShiftsRaw || []} apts={allMyApts || []} requests={myRequests || []} swapsForMe={incomingSwaps || []} selected={selectedDate} onPick={setSelectedDate}
+                  onTimeOff={() => { setRequestType('day_off'); setActiveTab('requests'); }} onRequests={() => setActiveTab('requests')} accent={accentColor} />
+                <p className="px-1 pt-1 text-[13px] font-bold uppercase tracking-wide text-[#6d7075]">{isToday(selectedDate) ? 'Today' : format(selectedDate, 'EEEE, MMM d')}</p>
                 <DayTimeline
                   {...(canFloor ? {} : { mode: 'my_day' as const })}
                   appointments={allMyApts}

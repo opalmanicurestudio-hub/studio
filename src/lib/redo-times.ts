@@ -10,6 +10,25 @@ import { tenantTimeZone, todayIn, wallToUtc } from '@/lib/tenant-time';
 import { settingsOf } from '@/lib/making-it-right';
 
 const T = (t: string) => `tenants/${t}`;
+/** SHOULD THE FIX GO TO SOMEONE ELSE? Yes when the client asked for someone else, the complaint is about how they were
+ *  treated, it's a safety case, there's a conduct report between them, or they're marked not to be booked together. A
+ *  manager can still choose either way for a case (redoWith). The reason is for the team only — clients are just offered
+ *  someone else. */
+export async function providerAdvice(db: any, tenantId: string, c: any): Promise<{ avoidOriginal: boolean; why: string | null; override: 'original' | 'other' | null }> {
+  const override = c.redoWith === 'original' || c.redoWith === 'other' ? c.redoWith : null;
+  const orig = String(c.visit?.providerId || ''); let why: string | null = null;
+  if (c.preferOther) why = 'They asked for someone else';
+  else if (c.safety) why = 'A safety case';
+  else if (/treat|rude|manner|attitude|behav/i.test(`${c.reasonId} ${c.reasonLabel}`)) why = 'The complaint is about how they were treated';
+  if (!why && orig && c.clientId) {
+    const cl: any = (await db.doc(`${T(tenantId)}/clients/${c.clientId}`).get()).data() || {};
+    if ((cl.excludedStaffIds || []).includes(orig)) why = 'They’re marked not to be booked together';
+    else { const rep = (await db.collection(`${T(tenantId)}/conductReports`).where('clientId', '==', c.clientId).get()).docs.some((d: any) => (d.data() || {}).staffId === orig); if (rep) why = 'There’s a conduct report between them'; }
+  }
+  const avoid = override === 'other' ? true : override === 'original' ? false : !!why;
+  return { avoidOriginal: avoid, why: override === 'other' && !why ? 'A manager chose someone else' : why, override };
+}
+
 export type ProviderTimes = { staffId: string; name: string; original: boolean; days: { date: string; times: string[] }[] };
 
 /** The fix plan: the services the team decided on (the same service again, or e.g. a removal and a new service), how long
@@ -28,14 +47,16 @@ export async function redoPlan(db: any, tenantId: string, c: any): Promise<{ ser
 }
 export async function redoMinutes(db: any, tenantId: string, c: any): Promise<number> { return (await redoPlan(db, tenantId, c)).minutes; }
 
-export async function redoTimes(db: any, tenantId: string, c: any, opts: { staffId?: string; from?: string; others?: boolean; days?: number } = {}): Promise<{ ok: boolean; providers: ProviderTimes[]; minutes: number; error?: string }> {
+export async function redoTimes(db: any, tenantId: string, c: any, opts: { staffId?: string; from?: string; others?: boolean; days?: number } = {}): Promise<{ ok: boolean; providers: ProviderTimes[]; minutes: number; error?: string; advice?: { avoidOriginal: boolean; why: string | null; override: 'original' | 'other' | null } }> {
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant); const tz = tenantTimeZone(tenant);
   const plan = await redoPlan(db, tenantId, c);
   if (!plan.primary) return { ok: false, providers: [], minutes: 0, error: 'Choose the services for the fix first.' };
   const minutes = plan.minutes;
   const from = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.from || '')) ? String(opts.from) : todayIn(tz);
   const days = Math.max(1, Math.min(21, opts.days || S.redoLookDays));
-  const original = String(c.fix?.redo?.staffId || c.visit.providerId || '');
+  const advice = await providerAdvice(db, tenantId, c);
+  const original = String(c.visit?.providerId || '');
+  if (advice.avoidOriginal && !opts.staffId) opts = { ...opts, others: true };
   const staff = (await db.collection(`${T(tenantId)}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((s: any) => s.archived !== true && s.isActive !== false && !s.isRenter && s.role !== 'renter');
   let ids: string[];
   if (opts.staffId) ids = [opts.staffId];
@@ -55,7 +76,7 @@ export async function redoTimes(db: any, tenantId: string, c: any, opts: { staff
     const s = staff.find((x: any) => x.id === id);
     if (r.ok) providers.push({ staffId: id, name: String(s?.name || c.visit.providerName || 'Provider'), original: id === original, days: r.days.filter((d) => d.times.length) });
   }
-  return { ok: true, providers, minutes };
+  return { ok: true, providers, minutes, advice };
 }
 
 /** Is that time still open for that provider right now? Returns the moment it starts. */

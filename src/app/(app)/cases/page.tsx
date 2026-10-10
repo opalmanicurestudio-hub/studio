@@ -32,10 +32,17 @@ const dl = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US',
 /** Open times for the redo — same service, same length, the provider's real calendar. Picks one; the caller books it. */
 function SlotPicker({ tenantId, caseId, onPick, busy, label }: { tenantId: string; caseId: string; onPick: (p: { staffId: string; date: string; time: string }) => void; busy: boolean; label: string }) {
   const [others, setOthers] = React.useState(false); const [data, setData] = React.useState<any>(null); const [who, setWho] = React.useState(''); const [day, setDay] = React.useState(''); const [time, setTime] = React.useState('');
-  React.useEffect(() => { setData(null); payPost('/api/cases', { tenantId, id: caseId, action: 'redo_times', others }).then((d) => { setData(d); const p0 = (d.providers || []).find((p: any) => p.days.length); setWho(p0?.staffId || ''); setDay(p0?.days[0]?.date || ''); setTime(''); }); }, [tenantId, caseId, others]);
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => { setData(null); payPost('/api/cases', { tenantId, id: caseId, action: 'redo_times', others }).then((d) => { setData(d); const p0 = (d.providers || []).find((p: any) => p.days.length); setWho(p0?.staffId || ''); setDay(p0?.days[0]?.date || ''); setTime(''); }); }, [tenantId, caseId, others, tick]);
+  const choose = async (w: string | null) => { await payPost('/api/cases', { tenantId, id: caseId, action: 'redo_with', who: w }); setOthers(false); setTick((t) => t + 1); };
+  const adv = data?.advice;
   const P = data?.providers?.find((p: any) => p.staffId === who); const D = P?.days.find((d: any) => d.date === day); const list = (data?.providers || []).filter((p: any) => p.days.length);
   return (
     <div className="space-y-3 rounded-2xl p-3.5" style={{ background: SOFT }}>
+      {adv?.avoidOriginal && <div className="rounded-xl bg-white p-3 text-[13.5px]"><b>Suggesting someone else for the fix.</b> {adv.why}. The client is only offered other providers{adv.override === 'other' ? '' : ' — the person who did the visit isn’t shown'}.
+        <button type="button" onClick={() => choose('original')} className="ml-1 font-semibold underline">Offer the original provider anyway</button></div>}
+      {!adv?.avoidOriginal && adv?.override === 'original' && <p className="text-[13px]" style={{ color: MUTED }}>Offering the original provider (chosen by the team). <button type="button" onClick={() => choose(null)} className="underline">Undo</button></p>}
+      {!adv?.avoidOriginal && !adv?.override && data && <button type="button" onClick={() => choose('other')} className="text-[13px] underline" style={{ color: MUTED }}>Only offer other providers for this fix</button>}
       {!data ? <p className="text-[14px]" style={{ color: MUTED }}>Finding open times…</p> : !list.length ? <p className="text-[14px]">{data.error || (others ? 'No one else has an opening soon.' : 'No openings soon with the original provider.')}</p> : <>
         <div className="flex flex-wrap gap-2">{list.map((p: any) => <button key={p.staffId} type="button" onClick={() => { setWho(p.staffId); setDay(p.days[0].date); setTime(''); }} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={who === p.staffId ? { background: INK, color: '#fff' } : { background: '#fff' }}>{p.name}{p.original ? ' (did the visit)' : ''}</button>)}</div>
         <div className="flex gap-1.5 overflow-x-auto pb-1">{(P?.days || []).map((d: any) => <button key={d.date} type="button" onClick={() => { setDay(d.date); setTime(''); }} className="h-10 shrink-0 rounded-xl px-3 text-[13.5px] font-semibold" style={day === d.date ? { background: INK, color: '#fff' } : { background: '#fff' }}>{dl(d.date)}</button>)}</div>
@@ -43,7 +50,7 @@ function SlotPicker({ tenantId, caseId, onPick, busy, label }: { tenantId: strin
         {data.minutes ? <p className="text-[12.5px]" style={{ color: MUTED }}>{data.minutes} min — the same length as the original visit.</p> : null}</>}
       <div className="flex flex-wrap items-center gap-3">
         {time && <button type="button" disabled={busy} onClick={() => onPick({ staffId: who, date: day, time })} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>{busy ? 'Booking…' : `${label} ${dl(day)} at ${tl(time)}`}</button>}
-        <button type="button" onClick={() => setOthers(!others)} className="text-[13.5px] underline" style={{ color: MUTED }}>{others ? 'Back to the original provider' : 'Someone else'}</button>
+        {!adv?.avoidOriginal && <button type="button" onClick={() => setOthers(!others)} className="text-[13.5px] underline" style={{ color: MUTED }}>{others ? 'Back to the original provider' : 'Someone else'}</button>}
       </div>
     </div>);
 }
@@ -159,6 +166,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
         <Card title="WHAT THEY SAID">
           <p className="text-[16px] leading-snug">{c.words ? `“${c.words}”` : !c.voice ? <span style={{ color: MUTED }}>No words recorded.</span> : null}</p>
           {c.wordsEn && <p className="rounded-xl p-3 text-[14.5px]" style={{ background: SOFT }}><b>In English:</b> {c.wordsEn}</p>}
+          {c.preferOther && <p className="text-[14px] font-semibold">They’d prefer someone else for the fix.</p>}
           {c.wants && <p className="text-[14px]" style={{ color: MUTED }}>Hoping for: <b style={{ color: INK }}>{WANTS.find((w) => w.id === c.wants)?.team}</b></p>}
           {(c.photos || []).length > 0 && <div className="flex gap-2 overflow-x-auto">{c.photos.map((u: string) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="Client photo" className="h-20 w-20 rounded-xl object-cover" /></a>)}</div>}
           {c.voice?.url && <div className="space-y-1.5"><p className="text-[13px] font-semibold" style={{ color: MUTED }}>Voice note{c.voice.seconds ? ` · ${c.voice.seconds}s` : ''}</p><audio controls src={c.voice.url} className="w-full" />

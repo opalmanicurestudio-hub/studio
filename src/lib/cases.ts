@@ -77,6 +77,7 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
     timeline: [line(actor.name, `Case opened (${({ call: 'phone call', staff: 'reported by the provider', desk: 'at the desk', survey: '“How was your visit?”', link: 'their visit link' } as any)[via]}): ${reason?.label || 'something else'}${b.words ? ` — “${String(b.words).slice(0, 200)}”` : ''}`),
       ...(ownerId ? [line(actor.name, `${actor.name} took ownership`)] : [])],
     incident: reason?.safety ? { started: now(), whatHappened: String(b.words || ''), present: [], statements: [], checkIn48At: null } : null,
+    preferOther: b.preferOther === true, involvedStaffIds: visit?.providerId ? [visit.providerId] : [],
     kind: b.kind === 'incident' ? 'incident' : 'complaint', incidentType: b.incidentType || null, statements: Array.isArray(b.statements) ? b.statements.slice(0, 3) : [],
     sideWanted: visit?.providerId && visit.providerId !== actor.staffId ? visit.providerId : null,
     createdAt: now(), updatedAt: now(), locked: false,
@@ -123,7 +124,16 @@ export async function bookRedo(db: any, tenantId: string, c: any, o: { staffId: 
   await db.doc(`${T(tenantId)}/cases/${c.id}`).set({ fix: { ...c.fix, redoAppointmentId: r.id, redo: { ...redo, state: 'booked', staffId: o.staffId, startTime: free.start.toISOString(), changes: (Number(redo.changes) || 0) + (o.byClient && moving ? 1 : 0), note: null } }, updatedAt: now(),
     timeline: FieldValue.arrayUnion(line(o.by, `${moving ? 'Redo moved to' : 'Redo booked:'} ${when} with ${String(prov.name || '').split(' ')[0] || 'the provider'}${o.byClient ? ' (the client chose it)' : ''}`)) }, { merge: true });
   const staff = await staffList(db, tenantId);
-  await tell(db, tenantId, [o.staffId, ...(o.byClient && c.ownerId ? [c.ownerId] : [])], 'case_redo', `${moving ? 'Redo moved' : 'Free redo booked'}: ${c.clientName}, ${when} — ${c.reasonLabel}.`, c.id);
+  const origId = String(c.visit?.providerId || ''); const handover = !!origId && o.staffId !== origId;
+  // A different provider takes the fix: they get the full picture before the client arrives — the case, what went wrong,
+  // the plan — and can open the case in the staff app. The brief rides on the booking too.
+  const brief = { caseId: c.id, number: c.number, reason: c.reasonLabel, said: c.wordsEn || c.words ? String(c.wordsEn || c.words).slice(0, 240) : null, plan: plan.same ? null : plan.names, note: plan.note, firstVisit: c.visit?.serviceName || null, handover, safety: !!c.safety };
+  await r.set({ fixBrief: brief }, { merge: true });
+  await db.doc(`${T(tenantId)}/cases/${c.id}`).set({ involvedStaffIds: FieldValue.arrayUnion(o.staffId) }, { merge: true });
+  if (handover) await tell(db, tenantId, [o.staffId], 'case_redo', `You’re doing ${c.clientName}’s fix, ${when}. Their first visit didn’t go right (${c.reasonLabel}) — please read the case before they arrive, in Me → Client cases.`, c.id);
+  else await tell(db, tenantId, [o.staffId], 'case_redo', `${moving ? 'Redo moved' : 'Free redo booked'}: ${c.clientName}, ${when} — ${c.reasonLabel}.`, c.id);
+  if (o.byClient && c.ownerId) await tell(db, tenantId, [c.ownerId], 'case_redo', `${c.clientName} booked their fix: ${when}${handover ? ` with ${String(prov.name || '').split(' ')[0]}` : ''}.`, c.id);
+  if (handover && !moving && origId && staff.some((s: any) => s.id === origId)) await tell(db, tenantId, [origId], 'case_yours', `${c.clientName}’s fix is booked with ${String(prov.name || 'another provider').split(' ')[0]}. Your side is still welcome in Me → Client cases.`, c.id);
   if (moving && redo.staffId && redo.staffId !== o.staffId && staff.some((s: any) => s.id === redo.staffId)) await tell(db, tenantId, [redo.staffId], 'case_redo', `${c.clientName}’s redo moved to someone else.`, c.id);
   return { ok: true, id: r.id, when };
 }
@@ -206,6 +216,10 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       const plan = planOf(b.plan, c); if (plan && S.fairUse.sameServiceOnly && !actor.isManager) return { ok: false as const, error: 'A different service for the fix needs a manager.' };
       await push({ fix: { ...c.fix, redo: { ...(c.fix.redo || {}), plan, state: 'choosing' } } }, plan ? `Fix plan: ${plan.names.join(' then ')}${plan.priceCents ? ` — client pays ${money(plan.priceCents)}` : ' — no charge'}` : 'Fix plan: the same service again');
       if (b.tell !== false && c.statusPath) await textClient(db, tenantId, tenant, c, plan ? `We’ve looked at your photos — here’s how we’ll fix it, and you can pick a time:` : `Pick a time for your free redo:`);
+      return { ok: true as const }; }
+    case 'redo_with': { if (!actor.isManager && actor.role !== 'front_desk') return { ok: false as const, error: 'The desk or a manager decides this.' };
+      const w = b.who === 'original' ? 'original' : b.who === 'other' ? 'other' : null;
+      await push({ redoWith: w }, w === 'original' ? `${actor.name} chose to offer the original provider for the fix` : w === 'other' ? `${actor.name} chose someone else for the fix` : 'Back to the suggested provider for the fix');
       return { ok: true as const }; }
     case 'redo_times': { if (!desk && !isProvider) return { ok: false as const, error: 'You can’t see times for this case.' };
       const { redoTimes } = await import('@/lib/redo-times'); const r = await redoTimes(db, tenantId, c, { staffId: b.staffId || undefined, from: b.from, others: !!b.others }); return r.ok ? { ...r, ok: true as const } : { ok: false as const, error: r.error || 'No times.' }; }

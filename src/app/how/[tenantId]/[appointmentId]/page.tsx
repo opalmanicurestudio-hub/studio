@@ -24,7 +24,7 @@ function RedoPicker({ post, redo, accent, onDone }: { post: (b: any) => Promise<
   if (!open) return <button type="button" onClick={() => setOpen(true)} className="h-12 w-full rounded-2xl text-[15px] font-semibold" style={{ background: SOFT }}>Need a different time?</button>;
   return (
     <div className="space-y-4 rounded-[20px] border p-5" style={{ borderColor: LINE }}>
-      <p className="text-[17px] font-bold">{redo.state === 'booked' ? 'Need a different time?' : others ? 'Times with someone else' : `Pick a time${redo.provider ? ` with ${redo.provider}` : ''}`}</p>
+      <p className="text-[17px] font-bold">{redo.state === 'booked' ? 'Need a different time?' : data?.someoneElse ? 'Pick a time with someone from our team' : others ? 'Times with someone else' : `Pick a time${redo.provider ? ` with ${redo.provider}` : ''}`}</p>
       {data?.minutes ? <p className="-mt-2 text-[13.5px]" style={{ color: MUTED }}>Takes about {data.minutes >= 60 ? `${Math.floor(data.minutes / 60)} h${data.minutes % 60 ? ` ${data.minutes % 60} min` : ''}` : `${data.minutes} min`} — only times with room for all of it are shown.</p> : null}
       {!data ? <p className="text-[14px]" style={{ color: MUTED }}>Finding open times…</p> : !anyTimes ? <p className="text-[15px]">{others ? 'No one else has an opening soon.' : `${redo.provider || 'They'} has no openings in the next couple of weeks.`}</p> : <>
         {(data.providers || []).filter((p: any) => p.days.length).length > 1 && <div className="flex flex-wrap gap-2">{data.providers.filter((p: any) => p.days.length).map((p: any) => <button key={p.staffId} type="button" onClick={() => { setWho(p.staffId); setDay(p.days[0].date); setTime(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={who === p.staffId ? { background: '#16171a', color: '#fff' } : { background: SOFT }}>{p.name}</button>)}</div>}
@@ -33,8 +33,8 @@ function RedoPicker({ post, redo, accent, onDone }: { post: (b: any) => Promise<
         {time && <button type="button" disabled={busy} onClick={book} className="h-14 w-full rounded-2xl text-[16px] font-bold text-white" style={{ background: accent }}>{busy ? 'Booking…' : `Book ${dlabel(day)} at ${tlabel(time)}`}</button>}</>}
       {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
       {data && <div className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
-        {!others && <button type="button" onClick={() => setOthers(true)} className="block text-[15px] font-semibold underline underline-offset-2">None of these work — see someone else</button>}
-        {others && <button type="button" onClick={() => setOthers(false)} className="block text-[15px] font-semibold underline underline-offset-2">Back to {redo.provider || 'the original provider'}</button>}
+        {!data.someoneElse && !others && <button type="button" onClick={() => setOthers(true)} className="block text-[15px] font-semibold underline underline-offset-2">None of these work — see someone else</button>}
+        {!data.someoneElse && others && <button type="button" onClick={() => setOthers(false)} className="block text-[15px] font-semibold underline underline-offset-2">Back to {redo.provider || 'the original provider'}</button>}
         {!none ? <button type="button" onClick={() => setNone(true)} className="block text-[15px] underline underline-offset-2" style={{ color: MUTED }}>Still nothing? Tell us when suits you</button> : <div className="space-y-2">
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="e.g. Weekday evenings after 5, or Saturday mornings" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: LINE }} />
           <button type="button" disabled={busy || !note.trim()} onClick={async () => { setBusy(true); await post({ action: 'redo_none', note }); setBusy(false); onDone(); }} className="h-12 w-full rounded-2xl text-[15px] font-bold" style={{ background: SOFT }}>Send — we’ll find a time with you</button></div>}
@@ -49,6 +49,7 @@ export default function HowWasItPage() {
   const [info, setInfo] = React.useState<Info | null>(null); const [err, setErr] = React.useState('');
   const [step, setStep] = React.useState<'ask' | 'loved' | 'okay' | 'report' | 'sent'>(start === 'report' ? 'report' : 'ask');
   const [reason, setReason] = React.useState(''); const [words, setWords] = React.useState(''); const [wants, setWants] = React.useState('');
+  const [preferOther, setPreferOther] = React.useState<boolean | null>(null);
   const [photos, setPhotos] = React.useState<string[]>([]); const [voice, setVoice] = React.useState<any>(null); const [busy, setBusy] = React.useState(''); const [cb, setCb] = React.useState('');
   const lang = typeof navigator !== 'undefined' ? (navigator.language || 'en') : 'en';
   const load = React.useCallback(() => fetch(`/api/feedback?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(id)}&k=${encodeURIComponent(k)}&t=${encodeURIComponent(t)}`).then((r) => r.json()).then((d) => (d.ok ? setInfo(d) : setErr(d.error || 'This link isn’t valid any more.'))).catch(() => setErr('We couldn’t load this page — check your connection.')), [tenantId, id, k, t]);
@@ -123,7 +124,7 @@ export default function HowWasItPage() {
   const send = async () => {
     setBusy('send'); let v: any = null;
     if (voice) { const up = await post({ action: 'upload', dataUrl: await blobToDataUrl(voice.blob, voice.mime) }); if (up.ok) v = { url: up.url, transcript: voice.transcript, seconds: voice.seconds }; }
-    const d = await post({ action: 'report', via, reasonId: reason, words, wants, photos, voice: v, lang: lang.slice(0, 2) }); setBusy('');
+    const d = await post({ action: 'report', via, reasonId: reason, words, wants, preferOther: preferOther === true, photos, voice: v, lang: lang.slice(0, 2) }); setBusy('');
     if (d.ok) { setStep('sent'); load(); } else alert(d.error || 'That didn’t send — try again.');
   };
   return shell(<>
@@ -141,6 +142,9 @@ export default function HowWasItPage() {
         {photos.length < 6 && <label className="flex h-20 w-20 cursor-pointer items-center justify-center rounded-2xl border-2 border-dashed text-[28px]" style={{ borderColor: LINE, color: MUTED }}>{busy === 'photo' ? '…' : '+'}<input type="file" accept="image/*" multiple className="hidden" onChange={(e) => addPhotos(e.target.files)} /></label>}</div></section>
     <section className="space-y-3"><p className="text-[13px] font-bold tracking-wide" style={{ color: MUTED }}>WHAT WOULD HELP MOST?</p>
       <div className="grid gap-2">{(info.wants || []).map((w: any) => [w.id, w.label]).map(([k2, l]: string[]) => <button key={k2} type="button" onClick={() => setWants(k2)} className="h-12 rounded-2xl text-left px-4 text-[15.5px] font-semibold" style={wants === k2 ? { background: '#16171a', color: '#fff' } : { background: SOFT }}>{l}</button>)}</div></section>
+    {P.redo && info.visit.provider && <section className="space-y-3"><p className="text-[13px] font-bold tracking-wide" style={{ color: MUTED }}>IF WE FIX IT</p>
+      <div className="grid gap-2">{[[false, `${info.visit.provider} is fine`], [true, 'I’d prefer someone else']].map(([v, l]) => <button key={String(v)} type="button" onClick={() => setPreferOther(v as boolean)} className="h-12 rounded-2xl px-4 text-left text-[15.5px] font-semibold" style={preferOther === v ? { background: '#16171a', color: '#fff' } : { background: SOFT }}>{l as string}</button>)}</div>
+      <p className="text-[13px]" style={{ color: MUTED }}>Either is completely fine — we just want you to feel comfortable.</p></section>}
     <section className="space-y-1.5 rounded-[20px] border p-4 text-[14.5px] leading-relaxed" style={{ borderColor: LINE }}>
       <p className="font-bold">How this works</p>
       <p>{P.replyHours ? `We’ll reply within ${P.replyHours} hours.` : 'Someone from the team will be in touch.'}</p>

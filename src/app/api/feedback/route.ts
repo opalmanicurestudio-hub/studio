@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     if (!info.case.redo.canChange) return bad('This redo can’t be changed online — please message us.');
     const c: any = (await db.doc(`tenants/${tenantId}/cases/${info.case.id}`).get()).data();
     if (b.action === 'redo_times') { const { redoTimes } = await import('@/lib/redo-times'); const r = await redoTimes(db, tenantId, c, { others: !!b.others, from: b.from });
-      return NextResponse.json({ ok: r.ok, minutes: r.minutes, error: r.error, providers: r.providers.map((p) => ({ staffId: p.staffId, name: String(p.name).split(' ')[0], original: p.original, days: p.days })) }); }
+      return NextResponse.json({ ok: r.ok, minutes: r.minutes, error: r.error, someoneElse: !!r.advice?.avoidOriginal, providers: r.providers.map((p) => ({ staffId: p.staffId, name: String(p.name).split(' ')[0], original: p.original, days: p.days })) }); }
     if (b.action === 'redo_none') return NextResponse.json(await redoNone(db, tenantId, c, String(b.note || '')));
     const r = await bookRedo(db, tenantId, c, { staffId: String(b.staffId || ''), date: String(b.date || ''), time: String(b.time || ''), by: c.clientName || 'Client', byClient: true });
     return NextResponse.json(r, { status: r.ok ? 200 : 409 });
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     }
     const actor: any = { staffId: 'client', name: String(v.a.clientName || 'Client'), role: 'client', isManager: false, isOwner: false, portal: false, caps: [] };
     const r = await openCase(db, tenantId, actor, { via: b.via === 'link' ? 'link' : 'survey', appointmentId: id, clientId: v.a.clientId || '', clientName: v.a.clientName || '', reasonId: b.reasonId, words, wordsEn, wordsLang: lang !== 'en' ? lang : null,
-      wants: b.wants, photos, voice, statusPath: feedbackPath(tenantId, id) });
+      wants: b.wants, preferOther: b.preferOther === true, photos, voice, statusPath: feedbackPath(tenantId, id) });
     if (!r.ok) return bad(r.error);
     await v.ref.set({ feedback: { rating: 'not_right', at: now, caseId: r.id } }, { merge: true });
     return NextResponse.json({ ok: true, number: r.number });
