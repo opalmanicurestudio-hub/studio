@@ -26,6 +26,7 @@
 // 5 attempts max per code.
 
 import { can } from '@/lib/permissions';
+import { brandAccent, brandLogo } from '@/lib/brand-accent';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
@@ -115,10 +116,15 @@ export async function POST(req: NextRequest) {
       // One PIN library (lib/pin): strong store first; older stores recognised once and converted.
       let hitId: string | null = null; let hitData: any = null;
       { const { findStaffByPin } = await import('@/lib/pin'); const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
-      await recordAttempt(db, tenantId, !!hitId);
-      if (!hitId) {
-        return NextResponse.json({ ok: false, error: 'Incorrect PIN. Try again.' }, { status: 401 });
+      // Signing in as a chosen person (a face on the shared tablet, or "Welcome back" on a personal phone): the PIN
+      // must be theirs — it counts as a wrong PIN otherwise.
+      const expect = String(body.expectStaffId || '');
+      const wrongPerson = !!hitId && !!expect && hitId !== expect;
+      await recordAttempt(db, tenantId, !!hitId && !wrongPerson);
+      if (!hitId || wrongPerson) {
+        return NextResponse.json({ ok: false, error: wrongPerson ? 'That PIN isn’t theirs. Try again.' : 'Incorrect PIN. Try again.' }, { status: 401 });
       }
+      if (hitData?.archived === true) return NextResponse.json({ ok: false, error: 'This sign-in has been turned off. Ask your manager.' }, { status: 403 });
 
       const staff = safeStaff(hitId, hitData);
 
@@ -232,6 +238,38 @@ export async function POST(req: NextRequest) {
         };
       });
       return NextResponse.json({ ok: true, staff: roster });
+    }
+
+    // ── BRAND — name, logo and colour for the sign-in screen (nothing about people).
+    if (action === 'brand') {
+      const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      return NextResponse.json({ ok: true, business: { name: tenant.name || tenant.businessName || '', logoUrl: brandLogo(tenant), accent: brandAccent(tenant), sharedBoard: tenant?.portal?.sharedBoard !== false } });
+    }
+
+    // ── TODAY BOARD — the shared tablet's sign-in screen ───────────────
+    // Who is working today: first name, photo, whether they're working / on a break, and today's shift times. Nothing
+    // else (no contact details, no pay). A business can switch it off (portal.sharedBoard === false) and the tablet
+    // falls back to PIN only.
+    if (action === 'today-board') {
+      const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      if (tenant?.portal?.sharedBoard === false) return NextResponse.json({ ok: true, off: true, people: [] });
+      const tz = String(tenant.timezone || tenant.timeZone || 'America/New_York');
+      const { localDay } = await import('@/lib/timeclock');
+      const day = localDay(Date.now(), tz);
+      const [staffSnap, shiftSnap] = await Promise.all([db.collection(`tenants/${tenantId}/staff`).get(), db.collection(`tenants/${tenantId}/shifts`).where('date', '==', day).get()]);
+      const shifts = shiftSnap.docs.map((d: any) => d.data() || {}).filter((x: any) => !['cancelled', 'draft'].includes(String(x.status || '')));
+      const people = staffSnap.docs.map((d: any) => ({ id: d.id, s: d.data() || {} })).filter(({ s }: any) => s.archived !== true)
+        .map(({ id, s }: any) => {
+          const mine = shifts.filter((x: any) => x.staffId === id).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)));
+          const working = s.active === true || s.status === 'available' || s.status === 'busy' || s.status === 'on_break' || s.onBreak === true;
+          return { id, name: String(s.name || '').split(' ')[0] || 'Team member', avatarUrl: s.avatarUrl || null,
+            state: s.onBreak === true || s.status === 'on_break' ? 'break' : working ? 'working' : 'off',
+            since: working ? (s.lastClockIn || null) : null, breakSince: s.onBreak ? (s.lastBreakStart || null) : null,
+            shifts: mine.map((x: any) => ({ start: String(x.startTime || ''), end: String(x.endTime || ''), kind: String(x.kind || 'work') })),
+            isRenter: !!s.isRenter || s.role === 'renter' };
+        })
+        .filter((p: any) => p.shifts.length || p.state !== 'off');
+      return NextResponse.json({ ok: true, day, timeZone: tz, business: { name: tenant.name || tenant.businessName || '', logoUrl: brandLogo(tenant), accent: brandAccent(tenant) }, people });
     }
 
     // ── VERIFY MANAGER (v79) ───────────────────────────────────────────

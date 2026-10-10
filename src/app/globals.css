@@ -817,3 +817,10 @@ html.studio [role="dialog"] .bg-background, html.studio [data-radix-popper-conte
   html.studio .uppercase { text-transform: uppercase; }
   html.studio .font-black { font-weight: 800; }
 }
+
+/* ── STAFF PORTAL — a bolder, app-like hierarchy for the team's phones and the shared tablet (.cf-portal). The rest of
+   the app keeps its calmer weights. */
+:root .cf-portal .font-extrabold { font-weight: 800; }
+:root .cf-portal .font-bold { font-weight: 700; }
+:root .cf-portal .font-semibold { font-weight: 600; }
+:root .cf-portal .font-black { font-weight: 800; }

@@ -109,6 +109,7 @@ import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc, 
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
+import { PortalSignIn, isSharedDevice } from '@/components/staff-portal/PortalSignIn';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -2598,9 +2599,9 @@ function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-xs space-y-8">
-        <button onClick={onBack} className="flex items-center gap-2 text-white/40 font-black uppercase text-[9px] tracking-widest hover:text-white/60 transition-colors">
+        <button onClick={onBack} className="flex items-center gap-2 text-[#6d7075] font-black text-[9px] tracking-widest hover:text-[#16171a] transition-colors">
           <ChevronLeft className="w-4 h-4" />Back to PIN
         </button>
 
@@ -2610,15 +2611,15 @@ function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
               <div className="w-14 h-14 rounded-[2rem] bg-amber-500/20 border-2 border-amber-500/30 flex items-center justify-center mx-auto">
                 <User className="w-7 h-7 text-amber-400" />
               </div>
-              <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Forgot PIN</h2>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Enter your name to continue</p>
+              <h2 className="text-2xl font-black tracking-tight text-[#16171a]">Forgot PIN</h2>
+              <p className="text-[10px] font-black tracking-[0.2em] text-[#6d7075]">Enter your name to continue</p>
             </div>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Your full name"
               onKeyDown={e => e.key === 'Enter' && lookupByName()}
-              className="w-full h-14 rounded-2xl bg-white/10 border-2 border-white/10 px-4 text-white font-bold placeholder:text-white/30 outline-none focus:border-primary/50" />
-            {error && <p className="text-[10px] font-black uppercase text-destructive text-center">{error}</p>}
+              className="w-full h-14 rounded-2xl bg-[#f6f6f7] border border-[#ececee] px-4 text-[#16171a] font-bold placeholder:text-[#9a9ca1] outline-none focus:border-primary/50" />
+            {error && <p className="text-[10px] font-black text-destructive text-center">{error}</p>}
             <button onClick={lookupByName} disabled={loading || !name.trim()}
-              className="w-full h-14 rounded-2xl bg-primary font-black uppercase tracking-widest text-white disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2">
+              className="w-full h-14 rounded-2xl bg-[#16171a] font-bold text-white disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2">
               {loading ? <Loader className="w-4 h-4 animate-spin" /> : <>Continue <ChevronRight className="w-4 h-4" /></>}
             </button>
           </motion.div>
@@ -2630,19 +2631,19 @@ function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
               <div className="w-14 h-14 rounded-[2rem] bg-blue-500/20 border-2 border-blue-500/30 flex items-center justify-center mx-auto">
                 <Lock className="w-7 h-7 text-blue-400" />
               </div>
-              <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Enter Reset Code</h2>
-              <p className="text-[10px] font-black uppercase tracking-[0.15em] text-white/40 leading-relaxed">
+              <h2 className="text-2xl font-black tracking-tight text-[#16171a]">Enter Reset Code</h2>
+              <p className="text-[10px] font-black tracking-[0.15em] text-[#6d7075] leading-relaxed">
                 A 6-digit code was sent to your manager{hint ? ` (on file: ${hint})` : ''}.<br />Ask them for it, then set a new PIN.
               </p>
             </div>
             <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit code" inputMode="numeric"
-              className="w-full h-14 rounded-2xl bg-white/10 border-2 border-white/10 px-4 text-white font-black text-center text-2xl tracking-[0.4em] placeholder:text-white/30 placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
+              className="w-full h-14 rounded-2xl bg-[#f6f6f7] border border-[#ececee] px-4 text-[#16171a] font-black text-center text-2xl tracking-[0.4em] placeholder:text-[#9a9ca1] placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
             <input value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="new 4-digit PIN" inputMode="numeric" type="password"
               onKeyDown={e => e.key === 'Enter' && confirmReset()}
-              className="w-full h-14 rounded-2xl bg-white/10 border-2 border-white/10 px-4 text-white font-black text-center text-2xl tracking-[0.4em] placeholder:text-white/30 placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
-            {error && <p className="text-[10px] font-black uppercase text-destructive text-center">{error}</p>}
+              className="w-full h-14 rounded-2xl bg-[#f6f6f7] border border-[#ececee] px-4 text-[#16171a] font-black text-center text-2xl tracking-[0.4em] placeholder:text-[#9a9ca1] placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
+            {error && <p className="text-[10px] font-black text-destructive text-center">{error}</p>}
             <button onClick={confirmReset} disabled={loading || code.length !== 6 || newPin.length !== 4}
-              className="w-full h-14 rounded-2xl bg-primary font-black uppercase tracking-widest text-white disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2">
+              className="w-full h-14 rounded-2xl bg-[#16171a] font-bold text-white disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2">
               {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Set New PIN'}
             </button>
           </motion.div>
@@ -5431,8 +5432,8 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
 
   const resetTimeout = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setSignedInStaff(null), 15 * 60 * 1000);
-  }, []);
+    timeoutRef.current = setTimeout(() => setSignedInStaff(null), (isSharedDevice(tenantId) ? 2 : 15) * 60 * 1000);   // a shared tablet signs people out after 2 quiet minutes
+  }, [tenantId]);
 
   useEffect(() => {
     if (!signedInStaff) return;
@@ -5465,7 +5466,8 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
     </div>
   );
 
-  if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} notice={authNotice} onSuccess={(s: any) => { setAuthNotice(''); setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); }} />;
+  const onSignedIn = (s: any) => { setAuthNotice(''); setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); };
+  if (!signedInStaff) return <PortalSignIn tenantId={tenantId} notice={authNotice} onSuccess={onSignedIn} renderForgot={(back) => <ForgotPinFlow tenantId={tenantId} firestore={firestore} onBack={back} onSuccess={onSignedIn} />} />;
 
   return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); import('@/lib/push-client').then(({ releasePush }) => releasePush(tenantId)).finally(() => import('firebase/auth').then(({ getAuth, signOut }) => signOut(getAuth()).catch(() => {}))); }} /></ErrorBoundary>;
 }
