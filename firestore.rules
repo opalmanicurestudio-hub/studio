@@ -326,6 +326,15 @@ service cloud.firestore {
       allow read: if isManager(tenantId) || isSelf(tenantId, resource.data.staffId) || (isPortalMember(tenantId) && resource.data.staffId == portalStaffId());
       allow write: if false;
     }
+    // MAKING IT RIGHT — complaint cases. The desk and managers read them all; a provider reads cases about their own
+    // visits from the portal. Only the server writes (/api/cases), so every step is on the case's record.
+    match /tenants/{tenantId}/cases/{caseId} {
+      allow read: if isStaff(tenantId) || (isPortalMember(tenantId) && resource.data.get('visit', {}).get('providerId', '') == portalStaffId());
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/counters/{counterId} {
+      allow read, write: if false;
+    }
     // Finished payroll runs (from the payroll connection): managers only — never readable from a staff phone.
     match /tenants/{tenantId}/payrollRuns/{runId} {
       allow read: if isManager(tenantId);
@@ -487,7 +496,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments',
+          'payStubs', 'payQuestions', 'payAdjustments', 'cases', 'counters',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',

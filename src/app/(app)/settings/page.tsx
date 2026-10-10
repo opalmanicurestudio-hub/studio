@@ -690,6 +690,9 @@ function SettingsPageImpl() {
                   onChange={(e) => { const v = e.target.value === '' ? undefined : (int ? parseInt(e.target.value) : parseFloat(e.target.value)); setTenantData((prev) => ({ ...prev, [field]: Number.isFinite(v as any) ? v : 0 } as any)); }} className={`${cfInput} ${width} text-center`} style={cfInputStyle} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
               const T = (field: string, label: string, help?: string, invert = false) => <Row key={field} label={label} help={help} inline><Toggle checked={invert ? (tenantData as any)[field] !== false : !!(tenantData as any)[field]} onChange={(v) => setTenantData((prev) => ({ ...prev, [field]: v } as any))} label={label} /></Row>;
               return (<>
+              <a href="/settings/making-it-right" className="cf-sheet flex items-center justify-between gap-3 px-5 py-4">
+                <span className="min-w-0"><span className="block text-[15px] font-medium">Making it right</span><span className="block text-[13.5px] cf-muted">Complaints, redos and refunds — your redo window, who decides, and fair-use limits.</span></span>
+                <span className="shrink-0 text-[14px] font-medium">Open →</span></a>
               <Section title="Fees and credit" help="Missed-visit fees and store credit.">
                 {T('allowGuestFeeDeferral', 'Let clients pay fees later', 'They can book again while a fee is still open.')}
                 <a href="/settings/automations#sw:fee-collection" className="flex items-center justify-between gap-3 px-5 py-4 [&+&]:border-t" style={{ borderColor: 'var(--line)' }}>

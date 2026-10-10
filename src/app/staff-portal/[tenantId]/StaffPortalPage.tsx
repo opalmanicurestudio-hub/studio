@@ -1,5 +1,6 @@
 'use client';
 
+import { NotHappy } from '@/components/staff-portal/NotHappy';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
 import { punchState } from '@/lib/punch';
@@ -1423,7 +1424,8 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </button>
             )}
 
-            {['completed','cancelled','no_show'].includes(st) && (
+            {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} />}
+            {['cancelled','no_show'].includes(st) && (
               <p className="text-center text-[11px] font-black uppercase text-muted-foreground opacity-30 py-2">
                 No actions available
               </p>
