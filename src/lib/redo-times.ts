@@ -1,6 +1,7 @@
 // src/lib/redo-times.ts — WHEN CAN THE REDO HAPPEN? The same availability engine the booking page and reschedules use
 // (the provider's hours, shifts, days off, blocks, other bookings, rooms and equipment, and the business's normal client
-// rules), for the SAME service at the SAME length as the original visit, over the next few days the business set.
+// rules) for the FIX PLAN — the original service at its original length, or the services the team chose (e.g. a removal and
+// a new service) at their combined length — over the next few days the business set.
 // The original provider is asked first (when the business says so); "someone else" lists the other people who do that
 // service and can see this client. bookRedo checks the time is still free at the moment it's booked.
 import { clientOpenTimes } from '@/lib/reschedule-slots';
@@ -11,18 +12,27 @@ import { settingsOf } from '@/lib/making-it-right';
 const T = (t: string) => `tenants/${t}`;
 export type ProviderTimes = { staffId: string; name: string; original: boolean; days: { date: string; times: string[] }[] };
 
-/** How long the redo takes: the original visit's length (or what the team set). */
-export async function redoMinutes(db: any, tenantId: string, c: any): Promise<number> {
-  if (Number(c.fix?.redo?.minutes) > 0) return Number(c.fix.redo.minutes);
+/** The fix plan: the services the team decided on (the same service again, or e.g. a removal and a new service), how long
+ *  it takes in all, and what (if anything) the client pays. Without a plan it's the original service at the original length. */
+export async function redoPlan(db: any, tenantId: string, c: any): Promise<{ serviceIds: string[]; primary: string; names: string[]; minutes: number; priceCents: number; note: string | null; same: boolean }> {
+  const plan = c.fix?.redo?.plan;
+  if (plan && Array.isArray(plan.serviceIds) && plan.serviceIds.length) {
+    const svcs = await Promise.all(plan.serviceIds.map(async (id: string) => ({ id, ...((await db.doc(`${T(tenantId)}/services/${id}`).get()).data() || {}) })));
+    const minutes = Number(plan.minutes) > 0 ? Number(plan.minutes) : svcs.reduce((x: number, s: any) => x + (Number(s.duration) || 30), 0);
+    return { serviceIds: plan.serviceIds, primary: plan.serviceIds[plan.serviceIds.length - 1], names: svcs.map((s: any) => s.name || 'Service'), minutes: Math.min(600, Math.max(15, minutes)), priceCents: Math.max(0, Number(plan.priceCents) || 0), note: plan.note || null, same: false };
+  }
   const a: any = c.visit?.appointmentId ? (await db.doc(`${T(tenantId)}/appointments/${c.visit.appointmentId}`).get()).data() || {} : {};
   const m = Math.round((Date.parse(a.endTime) - Date.parse(a.startTime)) / 60000);
-  return Number.isFinite(m) && m >= 15 ? Math.min(480, m) : Math.max(15, Number(a.duration) || 60);
+  const minutes = Number(c.fix?.redo?.minutes) > 0 ? Number(c.fix.redo.minutes) : Number.isFinite(m) && m >= 15 ? Math.min(480, m) : Math.max(15, Number(a.duration) || 60);
+  return { serviceIds: [c.visit?.serviceId].filter(Boolean), primary: c.visit?.serviceId, names: [c.visit?.serviceName || 'Service'], minutes, priceCents: 0, note: null, same: true };
 }
+export async function redoMinutes(db: any, tenantId: string, c: any): Promise<number> { return (await redoPlan(db, tenantId, c)).minutes; }
 
 export async function redoTimes(db: any, tenantId: string, c: any, opts: { staffId?: string; from?: string; others?: boolean; days?: number } = {}): Promise<{ ok: boolean; providers: ProviderTimes[]; minutes: number; error?: string }> {
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant); const tz = tenantTimeZone(tenant);
-  if (!c.visit?.serviceId) return { ok: false, providers: [], minutes: 0, error: 'This case has no service to redo.' };
-  const minutes = await redoMinutes(db, tenantId, c);
+  const plan = await redoPlan(db, tenantId, c);
+  if (!plan.primary) return { ok: false, providers: [], minutes: 0, error: 'Choose the services for the fix first.' };
+  const minutes = plan.minutes;
   const from = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.from || '')) ? String(opts.from) : todayIn(tz);
   const days = Math.max(1, Math.min(21, opts.days || S.redoLookDays));
   const original = String(c.fix?.redo?.staffId || c.visit.providerId || '');
@@ -31,15 +41,17 @@ export async function redoTimes(db: any, tenantId: string, c: any, opts: { staff
   if (opts.staffId) ids = [opts.staffId];
   else if (!opts.others) ids = original ? [original] : [];
   else {
-    const svc: any = (await db.doc(`${T(tenantId)}/services/${c.visit.serviceId}`).get()).data() || {};
+    // Someone who can do EVERY service in the plan, and who may see this client.
     const client: any = c.clientId ? (await db.doc(`${T(tenantId)}/clients/${c.clientId}`).get()).data() || {} : {};
-    const allowed = Array.isArray(svc.staffIds) && svc.staffIds.length ? staff.filter((s: any) => svc.staffIds.includes(s.id)) : staff;
-    ids = eligibleFor(svc, allowed, client).map((s: any) => s.id).filter((id: string) => id !== original).slice(0, 4);
+    let pool = staff;
+    for (const sid of plan.serviceIds) { const svc: any = (await db.doc(`${T(tenantId)}/services/${sid}`).get()).data() || {};
+      if (Array.isArray(svc.staffIds) && svc.staffIds.length) pool = pool.filter((s: any) => svc.staffIds.includes(s.id)); pool = eligibleFor(svc, pool, client); }
+    ids = pool.map((s: any) => s.id).filter((id: string) => id !== original).slice(0, 4);
   }
   const start = new Date(Date.now()).toISOString(); const end = new Date(Date.now() + minutes * 60000).toISOString();
   const providers: ProviderTimes[] = [];
   for (const id of ids) {
-    const r = await clientOpenTimes(db, tenantId, '__redo__', { serviceId: c.visit.serviceId, staffId: id, startTime: start, endTime: end }, from, days);
+    const r = await clientOpenTimes(db, tenantId, '__redo__', { serviceId: plan.primary, staffId: id, startTime: start, endTime: end }, from, days);
     const s = staff.find((x: any) => x.id === id);
     if (r.ok) providers.push({ staffId: id, name: String(s?.name || c.visit.providerName || 'Provider'), original: id === original, days: r.days.filter((d) => d.times.length) });
   }

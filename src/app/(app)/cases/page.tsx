@@ -48,6 +48,37 @@ function SlotPicker({ tenantId, caseId, onPick, busy, label }: { tenantId: strin
     </div>);
 }
 
+
+/** WHAT THE FIX IS: the same service again, or what the team decided from the photos — e.g. a removal, then a new service —
+ *  with what the client pays (if anything) and a note for them. The times offered fit the whole plan. */
+function PlanEditor({ v, services, value, onChange }: { v: any; services: any[]; value: any; onChange: (p: any) => void }) {
+  const [diff, setDiff] = React.useState(!!value); const [ids, setIds] = React.useState<string[]>(value?.serviceIds || []); const [pay, setPay] = React.useState(value?.priceCents ? String(value.priceCents / 100) : ''); const [note, setNote] = React.useState(value?.note || ''); const [add, setAdd] = React.useState('');
+  const list = (services || []).filter((x: any) => !x.archived && x.isActive !== false).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+  const picked = ids.map((id) => list.find((x: any) => x.id === id)).filter(Boolean) as any[];
+  const minutes = picked.reduce((x, sv) => x + (Number(sv.duration) || 30), 0); const listPrice = picked.reduce((x, sv) => x + (Number(sv.price) || 0), 0);
+  React.useEffect(() => { onChange(diff && ids.length ? { serviceIds: ids, names: picked.map((x) => x.name), minutes, priceCents: Math.round((Number(pay) || 0) * 100), note: note.trim() || null } : null); }, [diff, ids.join(','), pay, note]);   // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="space-y-2.5 rounded-2xl border p-3.5" style={{ borderColor: LINE }}>
+      <p className="text-[13px] font-bold" style={{ color: MUTED }}>WHAT WE’LL DO</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => setDiff(false)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={!diff ? { background: INK, color: '#fff' } : { background: SOFT }}>The same service again{v.serviceName ? ` (${v.serviceName})` : ''}</button>
+        <button type="button" onClick={() => setDiff(true)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={diff ? { background: INK, color: '#fff' } : { background: SOFT }}>Something different</button>
+      </div>
+      {diff && <>
+        <p className="text-[13px]" style={{ color: MUTED }}>From the photos, what does it need? Add the services in the order they’ll be done — e.g. a removal, then the new service.</p>
+        <ol className="space-y-1.5">{picked.map((sv, i) => <li key={sv.id} className="flex items-center gap-2 rounded-xl px-3 py-2 text-[14.5px]" style={{ background: SOFT }}><b>{i + 1}.</b><span className="flex-1">{sv.name} <span style={{ color: MUTED }}>· {Number(sv.duration) || 30} min</span></span>
+          {i > 0 && <button type="button" aria-label="Move up" onClick={() => setIds(ids.map((x, j) => (j === i - 1 ? ids[i] : j === i ? ids[i - 1] : x)))} className="px-1">↑</button>}
+          <button type="button" aria-label="Remove" onClick={() => setIds(ids.filter((x) => x !== sv.id))} className="px-1" style={{ color: RED }}>×</button></li>)}</ol>
+        {ids.length < 4 && <select value={add} onChange={(e) => { if (e.target.value) setIds([...ids, e.target.value]); setAdd(''); }} className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }}>
+          <option value="">Add a service…</option>{list.filter((x: any) => !ids.includes(x.id)).map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>}
+        {ids.length > 0 && <p className="text-[13.5px]">Takes about <b>{minutes} min</b> in all — only times with room for all of it are offered.</p>}
+        <label className="flex flex-wrap items-center gap-2 text-[14.5px]">Client pays $<input type="number" inputMode="decimal" min={0} value={pay} onChange={(e) => setPay(e.target.value)} placeholder="0" className="h-10 w-24 rounded-xl border px-3" style={{ borderColor: LINE }} />
+          <span className="text-[12.5px]" style={{ color: MUTED }}>{listPrice ? `Listed at $${listPrice.toFixed(2)}` : ''}{v.paid ? `${listPrice ? '; ' : ''}they paid $${Number(v.paid).toFixed(2)} for the visit` : ''}. Leave 0 for no charge.</span></label>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="A note for them, e.g. From your photos the product needs to come off first so the new set lasts." className="w-full rounded-xl border p-3 text-[14.5px]" style={{ borderColor: LINE }} />
+      </>}
+    </div>);
+}
+
 function StageRail({ status }: { status: string }) {
   const at = stageIndex(status);
   return (
@@ -89,9 +120,9 @@ function NewCase({ firestore, tenantId, S, onDone }: { firestore: any; tenantId:
     </div>);
 }
 
-function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: string; S: any; me: string; isManager: boolean; tz: string }) {
+function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; tenantId: string; S: any; me: string; isManager: boolean; tz: string; services: any[] }) {
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [ok, setOk] = React.useState('');
-  const [kind, setKind] = React.useState<FixKind | ''>(''); const [amt, setAmt] = React.useState(''); const [redoMode, setRedoMode] = React.useState<'client' | 'book'>('client'); const [move, setMove] = React.useState(false);
+  const [kind, setKind] = React.useState<FixKind | ''>(''); const [amt, setAmt] = React.useState(''); const [redoMode, setRedoMode] = React.useState<'client' | 'book'>('client'); const [move, setMove] = React.useState(false); const [plan, setPlan] = React.useState<any>(null); const [editPlan, setEditPlan] = React.useState(false);
   const [msg, setMsg] = React.useState(''); const [note, setNote] = React.useState(''); const [inc, setInc] = React.useState<any>({}); const [stmt, setStmt] = React.useState(''); const [cb, setCb] = React.useState('');
   React.useEffect(() => { setKind(''); setAmt(''); setRedoMode('client'); setMove(false); setErr(''); setOk(''); setInc({}); }, [c.id]);
   const act = async (action: string, extra: any = {}, done = 'Saved.') => { setBusy(true); setErr(''); setOk(''); const r = await payPost('/api/cases', { tenantId, id: c.id, action, ...extra }); setBusy(false); if (r.ok) { setOk(r.pending ? `Sent to a manager — ${r.why}` : action === 'message' && r.sent === false ? 'Saved on the case — we couldn’t text them, so call or message them too.' : done); return true; } setErr(r.error || 'That didn’t work.'); return false; };
@@ -161,17 +192,21 @@ function CaseView({ c, tenantId, S, me, isManager, tz }: { c: any; tenantId: str
         {(kind === 'refund' || kind === 'credit') && <label className="flex items-center gap-2 text-[15px]">Amount $<input type="number" inputMode="decimal" min={0} value={amt} onChange={(e) => setAmt(e.target.value)} placeholder={v.paid ? Number(v.paid).toFixed(2) : '0.00'} className="h-11 w-32 rounded-xl border px-3" style={{ borderColor: LINE }} />
           {kind === 'refund' && v.paid ? <span className="text-[13px]" style={{ color: MUTED }}>of ${Number(v.paid).toFixed(2)} paid</span> : null}</label>}
         {kind === 'redo' && <div className="space-y-2.5">
+          <PlanEditor v={v} services={services} value={null} onChange={setPlan} />
           <div className="flex flex-wrap gap-2">{([['client', 'Let them pick a time'], ['book', 'Book it now']] as const).map(([m, l]) => <button key={m} type="button" onClick={() => setRedoMode(m)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={redoMode === m ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div>
           <p className="text-[13px]" style={{ color: MUTED }}>{redoMode === 'client' ? `We text them a link to choose from ${v.providerName ? `${v.providerName.split(' ')[0]}’s` : 'the'} open times. If none work, they can see someone else or tell you when suits them.` : 'Already agreed a time with them? Pick it here.'}</p>
-          {redoMode === 'book' && <SlotPicker tenantId={tenantId} caseId={c.id} busy={busy} label="Book" onPick={async (pk) => { if (await act('choose_fix', { kind: 'redo', redo: { mode: 'book', ...pk } }, 'Redo booked.')) setKind(''); }} />}
+          {redoMode === 'book' && (plan ? <p className="text-[13px]" style={{ color: MUTED }}>Save the plan first (Offer the fix), then use “Book it for them” to pick a time that fits it.</p> : <SlotPicker tenantId={tenantId} caseId={c.id} busy={busy} label="Book" onPick={async (pk) => { if (await act('choose_fix', { kind: 'redo', redo: { mode: 'book', ...pk } }, 'Redo booked.')) setKind(''); }} />)}
         </div>}
-        {kind && !(kind === 'redo' && redoMode === 'book') && <button type="button" disabled={busy || ((kind === 'refund' || kind === 'credit') && !(Number(amt) > 0))} onClick={async () => { if (await act('choose_fix', { kind, amountCents: Math.round((Number(amt) || 0) * 100), redo: kind === 'redo' ? { mode: 'client' } : null }, kind === 'redo' ? 'Free redo offered — they’ll pick a time.' : 'Fix chosen.')) setKind(''); }} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : kind === 'redo' ? 'Offer the free redo' : `Go with ${FIX_LABEL[kind].toLowerCase()}`}</button>}
+        {kind && !(kind === 'redo' && redoMode === 'book' && !plan) && <button type="button" disabled={busy || ((kind === 'refund' || kind === 'credit') && !(Number(amt) > 0))} onClick={async () => { if (await act('choose_fix', { kind, amountCents: Math.round((Number(amt) || 0) * 100), redo: kind === 'redo' ? { mode: redoMode === 'book' ? 'team' : 'client', plan } : null }, kind === 'redo' ? (redoMode === 'book' ? 'Fix saved — now book it for them.' : 'Fix offered — they’ll pick a time.') : 'Fix chosen.')) setKind(''); }} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : kind === 'redo' ? (redoMode === 'book' ? 'Save the fix' : plan ? 'Offer the fix' : 'Offer the free redo') : `Go with ${FIX_LABEL[kind].toLowerCase()}`}</button>}
       </Card>}
 
       {c.fix && <Card title="THE FIX">
         <p className="text-[16px]"><b>{c.fix.label}{c.fix.amountCents ? ` $${(c.fix.amountCents / 100).toFixed(2)}` : ''}</b> · chosen by {c.fix.by}{c.fix.approvedBy && c.fix.approvedBy !== c.fix.by ? `, approved by ${c.fix.approvedBy}` : ''}</p>
         {c.fix.kind === 'redo' && (() => { const r = c.fix.redo || {}; const booked = !!c.fix.redoAppointmentId;
           return <div className="space-y-2">
+            {r.plan && <p className="text-[14.5px]"><b>Plan:</b> {(r.plan.names || []).join(' → ')} · {r.plan.priceCents ? `client pays $${(r.plan.priceCents / 100).toFixed(2)}` : 'no charge'}{r.plan.note ? <span style={{ color: MUTED }}> — “{r.plan.note}”</span> : null}</p>}
+            {!booked && !c.locked && (editPlan ? <div className="space-y-2"><PlanEditor v={v} services={services} value={r.plan || null} onChange={setPlan} /><button type="button" disabled={busy} onClick={async () => { if (await act('plan', { plan }, 'Plan updated — we’ve texted them.')) setEditPlan(false); }} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Save the plan</button></div>
+              : <button type="button" onClick={() => setEditPlan(true)} className="text-[14px] font-semibold underline">Change what we’ll do</button>)}
             <p className="text-[14.5px]">{booked ? <>Booked: <b>{r.startTime ? fmt(r.startTime) : ''}</b>{r.changes ? ` · moved by the client ${r.changes}×` : ''}</> : r.state === 'needs_time' ? <><b style={{ color: RED }}>None of the times work for them.</b>{r.note ? ` They said: “${r.note}”` : ''}</> : 'Waiting for them to pick a time.'}</p>
             {!c.locked && c.status === 'fix_chosen' && (move || (!booked && r.state === 'needs_time') ? <SlotPicker tenantId={tenantId} caseId={c.id} busy={busy} label={booked ? 'Move to' : 'Book'} onPick={async (pk) => { if (await act('redo_book', pk, booked ? 'Redo moved — we’ve texted them.' : 'Redo booked — we’ve texted them.')) setMove(false); }} />
               : <button type="button" onClick={() => setMove(true)} className="text-[14px] font-semibold underline">{booked ? 'Move it' : 'Book it for them'}</button>)}
@@ -228,6 +263,8 @@ export default function CasesPage() {
   const S = React.useMemo(() => settingsOf(selectedTenant), [selectedTenant]); const tz = selectedTenant?.timezone || 'America/New_York';
   const cQ = useMemoFirebase(() => (firestore && tenantId && allowed ? collection(firestore as Firestore, `tenants/${tenantId}/cases`) : null), [firestore, tenantId, allowed]);
   const { data, isLoading } = useCollection<any>(cQ);
+  const sQ = useMemoFirebase(() => (firestore && tenantId && allowed ? collection(firestore as Firestore, `tenants/${tenantId}/services`) : null), [firestore, tenantId, allowed]);
+  const { data: services } = useCollection<any>(sQ);
   const [pick, setPick] = React.useState<string>(''); const [starting, setStarting] = React.useState(false); const [showClosed, setShowClosed] = React.useState(false);
   React.useEffect(() => { const id = new URLSearchParams(window.location.search).get('id'); if (id) setPick(id); }, []);
   const all = data || []; const open = all.filter((c: any) => !c.locked).sort((a: any, b: any) => (b.safety ? 1 : 0) - (a.safety ? 1 : 0) || (a.firstReplyAt ? 1 : 0) - (b.firstReplyAt ? 1 : 0) || String(a.createdAt).localeCompare(String(b.createdAt)));
@@ -258,7 +295,7 @@ export default function CasesPage() {
         </aside>
         <section className="p-4 md:p-8">
           {starting ? <NewCase firestore={firestore} tenantId={tenantId} S={S} onDone={(id) => { setStarting(false); setPick(id); }} />
-            : c ? <CaseView c={c} tenantId={tenantId} S={S} me={user?.uid || ''} isManager={isManager} tz={tz} />
+            : c ? <CaseView c={c} tenantId={tenantId} S={S} me={user?.uid || ''} isManager={isManager} tz={tz} services={services || []} />
             : <div className="mx-auto max-w-md space-y-2 pt-16 text-center"><p className="text-[20px] font-bold">Pick a case</p><p className="text-[15px]" style={{ color: MUTED }}>Every complaint gets an owner, a fix, and a check-back — and a record you can download.</p></div>}
         </section>
       </main>
