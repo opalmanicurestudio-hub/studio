@@ -124,6 +124,7 @@ import { AlertSettings } from '@/components/staff-portal/AlertSettings';
 import { PayHome } from '@/components/pay/PayHome';
 import { PortalSplash, shouldShowSplash } from '@/components/staff-portal/PortalSplash';
 import { PortalBoot, rememberBrand } from '@/components/staff-portal/PortalBoot';
+import { isStaleCopy, reloadOnce, reportCrash } from '@/lib/client-crash';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -707,24 +708,27 @@ class ErrorBoundary extends React.Component<
 > {
   state = { error: null };
   static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error) {
+    // An outdated copy after an update: reload once. Anything else: report it so it gets fixed.
+    if (isStaleCopy(error) && reloadOnce()) return;
+    reportCrash(error, 'portal-screen', { tenantId: (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '') });
+  }
   render() {
     if (this.state.error) {
+      const e = this.state.error as Error;
       return (
-        <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 gap-4">
-          <div className="text-destructive font-black uppercase text-[10px] tracking-widest">Something went wrong</div>
-          <div className="bg-white/10 rounded-2xl p-4 max-w-sm w-full">
-            <p className="text-white text-xs font-mono break-all">{(this.state.error as Error).message}</p>
-            <p className="text-white/40 text-[9px] font-mono mt-2 break-all">{(this.state.error as Error).stack?.split('\n').slice(0,3).join('\n')}</p>
-          </div>
-          <button onClick={() => this.setState({ error: null })} className="text-white/60 text-[10px] font-black uppercase tracking-widest">Try Again</button>
+        <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-white px-8 text-center" style={{ color: '#16171a' }}>
+          <p className="text-[22px] font-extrabold">Something on this screen broke</p>
+          <p className="max-w-xs text-[15px]" style={{ color: '#6d7075' }}>We’ve been sent the details. Reloading usually fixes it.</p>
+          <button type="button" onClick={() => window.location.reload()} className="h-12 rounded-[16px] px-6 text-[16px] font-bold text-white" style={{ background: '#16171a' }}>Reload</button>
+          <button type="button" onClick={() => this.setState({ error: null })} className="text-[14px] font-semibold" style={{ color: '#6d7075' }}>Try again</button>
+          <p className="max-w-xs break-words text-[12px]" style={{ color: '#9a9ca1' }}>{String(e?.message || '').slice(0, 160)}</p>
         </div>
       );
     }
     return this.props.children;
   }
 }
-
-
 
 const STATUS_SWAP: Record<string, { label: string; color: string }> = {
   pending:              { label: 'Pending Review',          color: 'bg-amber-100 text-amber-700'   },
@@ -4284,6 +4288,8 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
 }
 
 /** The desk files each walk-in's visit as apt-walkin-{id}; older walk-ins may carry the id themselves. */
+/** A local day key (YYYY-MM-DD) in the business's time zone — never crashes on a mistyped zone. */
+const localKey = (tz?: string, t = Date.now()): string => { try { return new Date(t).toLocaleDateString('en-CA', { timeZone: tz || 'America/New_York' }); } catch { return new Date(t).toLocaleDateString('en-CA'); } };
 const walkInAptId = (w: any): string => String(w?.appointmentId || (w?.id ? `apt-walkin-${w.id}` : ''));
 
 // ─── RENTER RENT TAB (v78) ────────────────────────────────────────────────────
@@ -4652,7 +4658,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
   // Filter incomingSwaps client-side (single-field query avoids composite index)
   // Only days still to come — a swap or approval for a day that's gone can't be acted on.
-  const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: (portalTenant as any)?.timezone || 'America/New_York' });
+  const todayKey = localKey((portalTenant as any)?.timezone);
   const incomingSwaps = useMemo(() => (incomingSwapsRaw||[]).filter((r: any) => r.status === 'pending_swap_consent' && (!r.date || String(r.date) >= todayKey)), [incomingSwapsRaw, todayKey]);
   const pendingApprovals = useMemo(() => (pendingApprovalsRaw||[]).filter((r: any) => !r.date || String(r.date) >= todayKey), [pendingApprovalsRaw, todayKey]);
 
@@ -4898,8 +4904,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   };
 
   // ── Walk-ins: only for businesses that take them, and only today's (yesterday's leftovers never keep the panel up) ──
-  const todayLocalKey = new Date().toLocaleDateString('en-CA', { timeZone: (portalTenant as any)?.timezone || 'America/New_York' });
-  const todaysWalkIns = (allWalkInsRaw || []).filter((w: any) => { const v: any = w.checkInTime || w.createdAt; const t = v?.toDate ? v.toDate().getTime() : typeof v?.seconds === 'number' ? v.seconds * 1000 : Date.parse(String(v || '')); return !Number.isFinite(t) || new Date(t).toLocaleDateString('en-CA', { timeZone: (portalTenant as any)?.timezone || 'America/New_York' }) === todayLocalKey; });
+  const todayLocalKey = localKey((portalTenant as any)?.timezone);
+  const todaysWalkIns = (allWalkInsRaw || []).filter((w: any) => { const v: any = w.checkInTime || w.createdAt; const t = v?.toDate ? v.toDate().getTime() : typeof v?.seconds === 'number' ? v.seconds * 1000 : Date.parse(String(v || '')); return !Number.isFinite(t) || localKey((portalTenant as any)?.timezone, t) === todayLocalKey; });
   const takesWalkIns = (portalTenant as any)?.walkInEnabled !== false || todaysWalkIns.length > 0;
   // ── Portal frame (bottom bar, Today's views) ──
   const [splashOn, setSplashOn] = useState(() => typeof window !== 'undefined' && shouldShowSplash(`cf_portal_splash_${tenantId}_${staffMember.id}`));
