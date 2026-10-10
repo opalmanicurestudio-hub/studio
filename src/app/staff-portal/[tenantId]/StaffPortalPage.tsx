@@ -3712,6 +3712,20 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   // count, matched by phone (appointments carry clientPhone, not
   // clientId). Loads once per opened client thread.
   const [guestCtx, setGuestCtx] = useState<any>(null);
+  // One channel: an open Making it right case with this client is handled through the case, so it's all on the record.
+  const [openCase, setOpenCase] = useState<any>(null);
+  useEffect(() => {
+    const phone = String(openClientThread?.clientPhone || ''); const name = String(openClientThread?.clientName || '').trim().toLowerCase();
+    if (!firestore || !tenantId || !openClientId || (!phone && !name)) { setOpenCase(null); return; }
+    let off = false;
+    (async () => { try {
+      const ids = phone ? (await getDocs(query(collection(firestore, `tenants/${tenantId}/clients`), where('phone', '==', phone)))).docs.map((d) => d.id) : [];
+      const cs = (await getDocs(query(collection(firestore, `tenants/${tenantId}/cases`), where('visit.providerId', '==', staffMember.id)))).docs.map((d) => d.data() as any)
+        .filter((c: any) => !c.locked && ((c.clientId && ids.includes(c.clientId)) || (name && String(c.clientName || '').trim().toLowerCase() === name)));
+      if (!off) setOpenCase(cs[0] || null);
+    } catch { if (!off) setOpenCase(null); } })();
+    return () => { off = true; };
+  }, [firestore, tenantId, openClientId, staffMember.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const phone = openClientThread?.clientPhone;
     if (!firestore || !tenantId || !openClientId || !phone) { setGuestCtx(null); return; }
@@ -4046,6 +4060,13 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             {guestCtx.visitCount > 0 && (
               <span className="text-[9px] font-bold uppercase text-white/50 shrink-0">{guestCtx.visitCount} visits</span>
             )}
+          </div>
+        )}
+        {isClient && openCase && (
+          <div className="mb-2 rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-[12.5px] text-amber-900">
+            <p className="font-bold">There’s an open case with this client ({openCase.number}).</p>
+            <p>The desk is handling it — please don’t discuss the complaint here. Add anything you know as your side, so it’s all on the record.</p>
+            <p className="mt-1 font-bold">Me → Client cases</p>
           </div>
         )}
         {isClient && guestCtx && (guestCtx.banned || guestCtx.membership || guestCtx.cancels > 0 || guestCtx.noShows > 0 || guestCtx.hasCareNotes) && (

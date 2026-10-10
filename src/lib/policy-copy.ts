@@ -1,3 +1,4 @@
+import { settingsOf, clientPolicyLine } from '@/lib/making-it-right';
 // src/lib/policy-copy.ts — WHAT CLIENTS ARE TOLD ABOUT YOUR POLICIES, in one place.
 //
 // Every client message (confirmation, hold, reminder, reschedule, deposit link,
@@ -67,6 +68,7 @@ export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCe
   // What happens if a change fee can't be charged — only when the business charges change fees.
   if (Number(t.rescheduleFee) > 0 || resolvePolicy(t).cancel.feeMode.value !== 'none') out.push(unpaidFeeLine(unpaidFeeRuleOf(t)));
   out.push(...graceLines(t));   // the grace allowances, so clients know what flexibility exists
+  if (t.makingItRight) out.push(clientPolicyLine(settingsOf(t)));   // Making it right — agreed to with the rest when booking
   return out;
 }
 

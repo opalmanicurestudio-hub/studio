@@ -29,6 +29,7 @@ async function visitOf(db: any, tenantId: string, appointmentId: string, staff: 
   const products = (a.checkoutState?.formula || []).map((f: any) => [f.name, f.batch || f.lot].filter(Boolean).join(' batch ')).filter(Boolean).slice(0, 6);
   return { appointmentId, startTime: a.startTime || null, serviceId: a.serviceId || null, serviceName: a.serviceName || null, providerId: a.staffId || null, providerName: provider?.name || a.staffName || null,
     paid: Math.round(paid * 100) / 100, tip: Math.round(tip * 100) / 100, cardLast4: card ? String(card.cardLast4 || card.last4) : null, products, station: a.stationName || null, clientId: a.clientId || null, clientName: a.clientName || null, discounted: Number(a.checkoutState?.discountTotal || a.discountTotal || 0) > 0,
+    agreedAtBooking: await (async () => { const t: any = (await db.doc(T(tenantId)).get()).data() || {}; const since = t.makingItRight?.policySince; return !!since && ['online', 'client_self_service'].includes(String(a.source || '')) && String(a.createdAt || '') >= String(since); })(),
     afterPhotos: (a.afterPhotoUrls || []).filter((u: any) => typeof u === 'string').slice(0, 6), aftercareSentAt: a.aftercareSentAt || null, aftercare: a.aftercareText || null,
     consents: await (async () => { if (!a.clientId) return []; try { return (await db.collection(`${T(tenantId)}/clients/${a.clientId}/signedConsents`).get()).docs.map((d: any) => d.data() || {}).filter((x: any) => !x.revokedAt && x.signedAt && (!a.startTime || Date.parse(x.signedAt) <= Date.parse(a.startTime) + 86400000)).map((x: any) => ({ title: String(x.formTitle || x.title || 'Consent form'), signedAt: x.signedAt })).slice(0, 6); } catch { return []; } })() };
 }
@@ -214,6 +215,7 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       if (b.tell !== false) await textClient(db, tenantId, tenant, c, `Your free redo is booked: ${r.when}.`);
       return { ok: true as const, redoId: r.id }; }
     case 'done': if (!desk && !isProvider) return { ok: false as const, error: 'You can’t mark this done.' };
+      if (c.fix?.kind === 'refund') { const { refundKeepsPay } = await import('@/lib/redo-pay'); await refundKeepsPay(db, tenantId, tenant, c).catch(() => {}); }
       await push({ status: 'done', doneAt: now(), followUpAt: S.followUpDays ? new Date(Date.now() + S.followUpDays * 86400000).toISOString() : null }, `Marked done${text ? `: ${text}` : ''}${c.fix?.todo ? ` (${c.fix.todo} — done)` : ''}`); return { ok: true as const };
     case 'checked_back': { if (!desk) return { ok: false as const, error: 'The desk or a manager records this.' }; const good = b.answer !== 'no';
       if (!good) { await push({ status: 'owned', reopenedAt: now() }, `Checked back: still not right${text ? ` — “${text}”` : ''}. Reopened.`); if (c.ownerId) await tell(db, tenantId, [c.ownerId], 'case_reopened', `${c.clientName} says it’s still not right. The case is open again.`, c.id); return { ok: true as const }; }

@@ -173,6 +173,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
             <p className="text-[14px]">Paid <b>${Number(v.paid || 0).toFixed(2)}</b>{v.tip ? ` + $${Number(v.tip).toFixed(2)} tip` : ''}{v.cardLast4 ? ` · card ending ${v.cardLast4}` : ''}</p>
             {(v.products || []).length > 0 && <p className="text-[13.5px]" style={{ color: MUTED }}>Products: {v.products.join(', ')}</p>}
             <div className="space-y-1 border-t pt-2 text-[13.5px]" style={{ borderColor: LINE }}>
+              {v.agreedAtBooking && <p>✓ Agreed to the Making it right policy when booking</p>}
               <p>{(v.consents || []).length ? <>✓ Signed: {(v.consents || []).map((x: any) => x.title).join(', ')}</> : <span style={{ color: MUTED }}>No signed consent on file</span>}</p>
               <p>{v.aftercareSentAt ? <>✓ Aftercare sent {fmt(v.aftercareSentAt)}</> : <span style={{ color: MUTED }}>No aftercare on record</span>}</p>
               {(v.afterPhotos || []).length ? <div className="space-y-1"><p>✓ After photo{v.afterPhotos.length === 1 ? '' : 's'} from the visit</p><div className="flex gap-2 overflow-x-auto">{v.afterPhotos.map((u: string) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="After the visit" className="h-20 w-20 rounded-xl object-cover" /></a>)}</div></div> : <p style={{ color: MUTED }}>No after photo</p>}

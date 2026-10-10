@@ -129,3 +129,29 @@ export function providerCaseStats(cases: any[], staffId: string) {
 
 /** The aftercare a client gets for a visit (that service's own, or the business's default). */
 export const aftercareFor = (S: MirSettings, serviceId?: string | null) => String((serviceId && S.aftercare.byService[serviceId]) || S.aftercare.text || '').trim();
+
+/** THE POLICY, in plain words, written from the business's own settings. Providers read and sign it in the staff app
+ *  (Handbook and documents); the client's short version is shown when they book. */
+export function policySections(S: MirSettings, businessName: string, serviceName: (id: string) => string = () => 'that service'): { heading: string; body: string; type?: string }[] {
+  const money = (c: number) => `$${(c / 100).toFixed(0)}`;
+  const windows = Object.entries(S.serviceWindows).map(([id, d]) => `${serviceName(id)}: ${d} days`).join('; ');
+  const pay = { none: 'is not paid for it', half: 'is paid half their usual rate for it', normal: 'is paid as usual for it' }[S.payRules.redoProvider];
+  const orig = { keep: 'keeps their pay for the original visit', split: 'shares the cost of the redo', pays: 'covers the cost of the redo' }[S.payRules.originalProvider];
+  const out = [
+    { heading: 'When a client isn’t happy', body: `Listen, stay calm and don’t argue or promise anything yourself. Tell the desk the same day — on a finished visit, tap “They weren’t happy” in the staff app; during a visit, “Something happened”. All replies to the client about it go through the case, so everything is on the record.` },
+    { heading: 'Redos', body: `${S.fixes.redo ? `Free redos are offered within ${S.redoWindowDays} days of the visit${windows ? ` (${windows})` : ''}.` : 'We don’t offer redos.'}${S.fixes.redo && S.fairUse.sameServiceOnly ? ' A redo is the same service — anything different (e.g. a removal and a new service) is decided by a manager.' : ''}${S.fixes.redo && S.fairUse.originalProviderFirst ? ' The provider who did the visit is offered it first.' : ''}${S.fixes.redo && S.providersCanOfferRedo ? ' You can offer a redo yourself when the checks pass.' : ''} Redos are booked at times from the real calendar, and the client can pick the time.` },
+    { heading: 'Refunds and credit', body: `${S.fixes.refund || S.fixes.credit ? `The desk can give up to ${money(S.deskLimitCents)}; anything more needs a manager.` : 'Refunds and credit are decided by a manager.'}${S.fairUse.refundToOriginalCard ? ' Refunds always go back to the card the client paid with.' : ''}` },
+    { heading: 'Your pay', body: `If you’re paid by commission: whoever does a free redo ${pay}, and the original provider ${orig}. When there’s a refund, commission on it ${S.payRules.refund === 'take_back' ? 'comes back off' : 'stays'}. These show on your pay stub as corrections, with the case number. Hourly pay covers your time as usual. A fix the client pays for is paid like any visit.` },
+    { heading: 'Safety', body: `If anyone is hurt or has a reaction: stop, give first aid, and tell a manager straight away with “Something happened”. The kit you were using comes out of service until a manager checks it. Give your statement in your own words before the end of your shift${S.safetyCheckInHours ? `; a manager checks on the client within ${S.safetyCheckInHours} hours` : ''}.`, type: 'warning' },
+    { heading: 'Fair to you', body: `You’re told when a client complains about your visit and asked for your side before anything is decided. A manager marks what caused it — only “the work itself” counts in your numbers. If a client behaves badly, report it; a manager decides what happens and the client never sees your report.` },
+    { heading: 'Keeping it fair for everyone', body: `Clients can have up to ${S.fairUse.maxFixes} fix${S.fairUse.maxFixes === 1 ? '' : 'es'} in ${S.fairUse.perMonths} months${S.fairUse.requirePhotos ? ', with photos' : ''}. After ${S.fairUse.wearDays} days it’s usually normal wear. Anything outside these goes to a manager — it’s never an automatic no.` },
+    { heading: 'Records', body: `Every case is kept for ${S.retentionYears} years, closed and locked. Later notes are added with a date.` },
+  ];
+  if (S.afterPhotos.services.length) out.splice(5, 0, { heading: 'After photos', body: `Take an after photo when you finish ${S.afterPhotos.services.length > 3 ? 'the services that ask for one' : S.afterPhotos.services.map(serviceName).join(', ')}${S.afterPhotos.required ? ' — you can’t finish without one' : ''}. It protects you and the client if there’s a question later.` });
+  return out.map((x) => ({ ...x, body: x.body.replace(/\s+/g, ' ').trim() })).map((x) => ({ ...x, heading: x.heading }));
+}
+/** The client's version, shown when they book ("By confirming, you agree…"). */
+export function clientPolicyLine(S: MirSettings): string {
+  const fixes = [S.fixes.redo ? 'a free redo' : null, S.fixes.refund ? 'a refund' : null, S.fixes.credit ? 'credit' : null].filter(Boolean) as string[];
+  return `Not happy with something? Tell us within ${S.redoWindowDays} days from your visit link and we’ll make it right${fixes.length ? ` — ${fixes.join(', ').replace(/, ([^,]*)$/, ' or $1')}, depending on what happened` : ''}.${S.fairUse.requirePhotos ? ' Photos help us fix it faster.' : ''}${S.fixes.refund && S.fairUse.refundToOriginalCard ? ' Refunds go back to the card you paid with.' : ''}`;
+}

@@ -5,12 +5,13 @@
 // offered, the redo window (per service too), who can decide what, how fast to reply, fair-use limits, how a redo or
 // refund touches pay, and how long records are kept.
 import * as React from 'react';
-import { collection, doc, updateDoc, type Firestore } from 'firebase/firestore';
+import { collection, doc, updateDoc, getDoc, setDoc, type Firestore } from 'firebase/firestore';
+import { rolesFor } from '@/lib/permissions';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { SettingsPage, Section, Row, Toggle, Choice, More, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
-import { settingsOf, PRESETS, FIX_LABEL, FIX_HINT, type MirSettings, type FixKind, type Reason } from '@/lib/making-it-right';
+import { settingsOf, PRESETS, FIX_LABEL, FIX_HINT, policySections, clientPolicyLine, type MirSettings, type FixKind, type Reason } from '@/lib/making-it-right';
 
 export default function MakingItRightSettings() {
   const { selectedTenant, role } = useTenant() as any; const { firestore } = useFirebase(); const { toast } = useToast();
@@ -27,7 +28,17 @@ export default function MakingItRightSettings() {
     <span className="inline-flex items-center gap-2">{prefix && <span className="text-[14px] cf-muted">{prefix}</span>}<input type="number" inputMode="numeric" min={0} value={value} onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} className={`${cfInput} ${width} text-center`} style={cfInputStyle} disabled={!canEdit} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
   const save = async () => {
     if (!firestore || !tenantId) return; setSaving(true);
-    try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { makingItRight: JSON.parse(JSON.stringify(s)) }); setDirty(false); toast({ title: 'Making it right saved' }); }
+    try {
+      // The written policy goes to the team's Handbook and documents to read and sign; a change asks them to sign again.
+      const sections = policySections(s, selectedTenant?.name || 'We', svcName);
+      const dref = doc(firestore as Firestore, `tenants/${tenantId}/documents/making-it-right`); const cur: any = (await getDoc(dref)).data() || null;
+      const same = cur && JSON.stringify(cur.sections) === JSON.stringify(sections); const version = cur ? (same ? Number(cur.version) || 1 : (Number(cur.version) || 1) + 1) : 1;
+      const roles = Object.keys(rolesFor(selectedTenant)).filter((r) => !['renter', 'owner'].includes(r));
+      const since = (selectedTenant as any)?.makingItRight?.policySince || new Date().toISOString();
+      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { makingItRight: { ...JSON.parse(JSON.stringify(s)), policySince: since, policyVersion: version } });
+      if (!same) await setDoc(dref, { id: 'making-it-right', title: 'Making it right — complaints, redos and refunds', category: 'policy', status: 'published', assignedRoles: roles, sections, version, updatedAt: new Date().toISOString(), createdAt: cur?.createdAt || new Date().toISOString(), source: 'making_it_right', requiresAck: true }, { merge: true });
+      setDirty(false); toast({ title: 'Making it right saved', description: same ? undefined : version > 1 ? 'The team is asked to sign the updated policy.' : 'The policy is in the team’s Handbook and documents to sign.' });
+    }
     catch { toast({ title: 'That didn’t save', description: 'Only the owner can change these.', variant: 'destructive' }); }
     setSaving(false);
   };
@@ -129,6 +140,12 @@ export default function MakingItRightSettings() {
         <Row label="Original provider gets the first chance" inline><Toggle checked={s.fairUse.originalProviderFirst} onChange={(v) => fu({ originalProviderFirst: v })} label="Original provider first" disabled={!canEdit} /></Row>
         <Row label="Refunds go back to the card they paid with" help="Never cash or a different card." inline><Toggle checked={s.fairUse.refundToOriginalCard} onChange={(v) => fu({ refundToOriginalCard: v })} label="Refund to original card" disabled={!canEdit} /></Row>
         <Row label="Client confirms it’s fixed" help="Closing a case asks them, so it can’t be reopened later for the same thing." inline><Toggle checked={s.fairUse.clientConfirms} onChange={(v) => fu({ clientConfirms: v })} label="Client confirms" disabled={!canEdit} /></Row>
+      </Section>
+
+      <Section title="The written policy" help="Saved with your settings. The team reads and signs it in the staff app (Handbook and documents); when you change something, they’re asked to sign again. Who has signed: Documents.">
+        <div className="space-y-3 px-5 py-4">{policySections(s, selectedTenant?.name || 'We', svcName).map((x) => <div key={x.heading}><p className="text-[15px] font-semibold">{x.heading}</p><p className="text-[14px] cf-muted">{x.body}</p></div>)}
+          <div className="rounded-xl p-3 text-[14px]" style={{ background: 'var(--soft)' }}><b>What clients agree to when they book:</b> {clientPolicyLine(s)}</div>
+          <a href="/documents" className="text-[14px] font-medium underline">See who has signed →</a></div>
       </Section>
 
       <More label="Pay and records" help="How a redo or refund shows on pay stubs, and how long cases are kept.">
