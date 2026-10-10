@@ -11,7 +11,7 @@ const TYPES: { id: string; label: string; short: string; tone: string; steps: st
   { id: 'reaction', label: 'Reaction', short: 'To a product', tone: '#b42318', steps: ['Stop and take the product off.', 'Rinse with cool water.', 'Ask about itching, swelling or breathing.', 'Trouble breathing or a swollen face or lips — call 911 now.'] },
   { id: 'unwell', label: 'Client unwell', short: 'Faint, dizzy, sick', tone: '#b42318', steps: ['Stop. Help them sit or lie down.', 'Offer water and fresh air.', 'Stay with them.', 'Chest pain, fainting or confusion — call 911 now.'] },
   { id: 'equipment', label: 'Equipment or product', short: 'Broke, faulty, wrong', tone: '#b54708', steps: ['Stop using it and set it aside.', 'Tell the client what happened.', 'Don’t use it again until a manager checks it.'] },
-  { id: 'behaviour', label: 'Client behaviour', short: 'Rude, unsafe, inappropriate', tone: '#55585e', steps: ['You can stop the service.', 'Step away to somewhere you feel safe.', 'Get a manager or the desk.', 'If you feel unsafe, call 911.'] },
+  { id: 'behaviour', label: 'Client behavior', short: 'Rude, unsafe, inappropriate', tone: '#55585e', steps: ['You can stop the service.', 'Step away to somewhere you feel safe.', 'Get a manager or the desk.', 'If you feel unsafe, call 911.'] },
 ];
 
 export function SomethingHappened({ apt, tenantId, onDone }: { apt: any; tenantId: string; onDone?: () => void }) {

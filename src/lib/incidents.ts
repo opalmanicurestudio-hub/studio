@@ -5,7 +5,7 @@
 //     straight away for anything to do with someone's health;
 //   • "I need a few minutes" adds the time to the visit, so the running-late alerts tell the next clients and providers;
 //   • the kit in use is pulled out of service until a manager puts it back;
-//   • client behaviour → a CONDUCT REPORT (tenants/{t}/conductReports), never seen by the client; a manager decides what
+//   • client behavior → a CONDUCT REPORT (tenants/{t}/conductReports), never seen by the client; a manager decides what
 //     happens next (a note on their profile, a deposit for future bookings, a manager on site, or not booking them with
 //     this provider again).
 import { FieldValue } from 'firebase-admin/firestore';
@@ -22,7 +22,7 @@ export const INCIDENT_TYPES = {
   reaction: { label: 'Reaction to a product', safety: true, match: /reaction|allerg/i },
   unwell: { label: 'Client felt unwell', safety: true, match: /unwell|faint|ill/i },
   equipment: { label: 'Equipment or product problem', safety: false, match: /equipment|product/i },
-  behaviour: { label: 'Client behaviour', safety: false, match: /$^/ },
+  behaviour: { label: 'Client behavior', safety: false, match: /$^/ },
 } as const;
 export type IncidentType = keyof typeof INCIDENT_TYPES;
 
@@ -54,7 +54,7 @@ export async function reportIncident(db: any, tenantId: string, actor: RequestAc
     const r = db.collection(`${T(tenantId)}/conductReports`).doc();
     await r.set({ id: r.id, clientId: a.clientId || null, clientName: a.clientName || 'Client', appointmentId: aid, serviceName: a.serviceName || null, staffId: actor.staffId, staffName: actor.name,
       words, wordsEn, lang: lang !== 'en' ? lang : null, voice, stopped: !!b.stopped, status: 'open', decision: null, createdAt: now() });
-    const bt = db.batch(); for (const u of [...new Set(mgrs)]) { const n = db.collection(`${T(tenantId)}/notifications`).doc(); bt.set(n, { id: n.id, userId: u, type: 'conduct_report', message: `${actor.name.split(' ')[0]} reported ${a.clientName || 'a client'}’s behaviour${b.stopped ? ' and stopped the service' : ''}. A manager should look now.`, link: `/cases?conduct=${r.id}`, createdAt: now(), read: false }); } await bt.commit();
+    const bt = db.batch(); for (const u of [...new Set(mgrs)]) { const n = db.collection(`${T(tenantId)}/notifications`).doc(); bt.set(n, { id: n.id, userId: u, type: 'conduct_report', message: `${actor.name.split(' ')[0]} reported ${a.clientName || 'a client'}’s behavior${b.stopped ? ' and stopped the service' : ''}. A manager should look now.`, link: `/cases?conduct=${r.id}`, createdAt: now(), read: false }); } await bt.commit();
     return { ...out, conductId: r.id };
   }
 
