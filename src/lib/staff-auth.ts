@@ -37,6 +37,8 @@ export type StaffActor = {
   isManager: boolean;
   isTenantOwner: boolean;
   caps?: string[];
+  /** Signed in through the staff portal with their PIN. */
+  portal?: boolean;
   employmentModel: EmploymentModel | null;
   decisionAuthority: DecisionAuthority | null;
 };
@@ -55,10 +57,10 @@ export async function verifyStaffActor(
     return { ok: false, error: 'Sign in to record that decision.', status: 401 };
   }
 
-  let uid: string;
+  let uid: string; let portalClaims = false;
   try {
     const decoded = await getAdminAuth().verifyIdToken(idToken);
-    uid = decoded.uid;
+    uid = decoded.uid; portalClaims = (decoded as any).portal === true && (decoded as any).tenantId === tenantId;
   } catch {
     return { ok: false, error: 'Your session expired — sign in and try again.', status: 401 };
   }
@@ -69,7 +71,10 @@ export async function verifyStaffActor(
     return { ok: false, error: 'Studio not found.', status: 404 };
   }
 
-  let staffSnap = await db.doc(`tenants/${tenantId}/staff/${uid}`).get();
+  // A staff-portal sign-in (PIN): uid is portal:{tenant}:{staffId}, signed by the server for this business only.
+  const portalPrefix = `portal:${tenantId}:`;
+  const viaPortal = portalClaims && uid.startsWith(portalPrefix);
+  let staffSnap = await db.doc(`tenants/${tenantId}/staff/${viaPortal ? uid.slice(portalPrefix.length) : uid}`).get();
   // A team member invited to the app: their login is linked to their staff record through staffDirectory.
   if (!staffSnap.exists) { const dir: any = (await db.doc(`staffDirectory/${uid}`).get()).data(); if (dir?.tenantId === tenantId && dir.staffId) staffSnap = await db.doc(`tenants/${tenantId}/staff/${String(dir.staffId)}`).get(); }
   const staff = staffSnap.exists ? (staffSnap.data() as any) : null;
@@ -79,7 +84,7 @@ export async function verifyStaffActor(
   if (!isTenantOwner && !staff) {
     return { ok: false, error: 'You do not have access to this studio.', status: 403 };
   }
-  if (!isTenantOwner && (staff?.archived === true || staff?.appAccess === 'off')) {
+  if (!isTenantOwner && (staff?.archived === true || (!viaPortal && staff?.appAccess === 'off'))) {
     return { ok: false, error: 'Your access to this business has been turned off.', status: 403 };
   }
 
@@ -94,6 +99,7 @@ export async function verifyStaffActor(
       role,
       isManager: isTenantOwner || (MANAGER_ROLES as readonly string[]).includes(role) || isManagerRole(tenantSnap.data(), role),
       isTenantOwner,
+      ...(viaPortal ? { portal: true } : {}),
       caps: isTenantOwner ? ALL_CAPS : capsFor(tenantSnap.data(), role),
       employmentModel: (staff?.employmentModel as EmploymentModel) || null,
       decisionAuthority: (staff?.decisionAuthority as DecisionAuthority) || null,

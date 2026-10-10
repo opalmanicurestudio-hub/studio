@@ -116,6 +116,7 @@ import { brandAccent } from '@/lib/brand-accent';
 import { can } from '@/lib/permissions';
 import { StepEdge } from '@/components/planner/StepTimeline';
 import { Star } from 'lucide-react';
+import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -4490,6 +4491,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   // Today's view: Now / Day / Floor. Chosen by hand it holds until the next visit starts; otherwise it follows the day.
   const [todayPick, setTodayPick] = useState<{ view: 'now' | 'day' | 'floor'; visitId: string | null } | null>(null);
+  // Calls the front desk passed on to this person (or to managers, if they are one).
+  const myCalls = useMyCalls(staffMember.role === 'renter' ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
   const [reviewApt, setReviewApt]   = useState<any>(null);
@@ -4770,6 +4773,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
   const handleNotifClick = async (n: any) => {
     if (!n.read) { try { await updateDoc(doc(firestore,`tenants/${tenantId}/notifications`,n.id),{ read:true }); } catch {} }
+    if (n.type === 'call_message') { setActiveTab('today'); return; }
     const map: Record<string,typeof activeTab> = { '/staff-portal?tab=schedule':'schedule', '/staff-portal?tab=messages':'messages', requests:'requests', schedule:'schedule', '/my-schedule':'schedule', '/schedule/requests':'requests', earnings:'earnings', today:'today' };
     if (n.link && map[n.link]) {
       setActiveTab(map[n.link]);
@@ -5003,6 +5007,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
+<PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} accent={accentColor} />
 {todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} accent={accentColor} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={() => setActiveTab('documents')} />
 <TasksForYou tenantId={tenantId} staffMember={staffMember} />
@@ -5294,6 +5299,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <RenterRentTab tenantId={tenantId} firestore={firestore} staffMember={staffMember} renter={myRenter} />
           )}
 
+          {activeTab==='messages' && <div className="pt-1"><PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} accent={accentColor} /></div>}
           {activeTab==='messages' && (incomingSwaps||[]).length > 0 && (
             <div className="space-y-2 pt-1">
               <p className="px-1 text-[15px] font-bold">Needs your answer</p>
@@ -5513,7 +5519,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <BottomNav items={navItems} active={navKey} onPick={goNav} accent={accentColor} badges={{ schedule: requestsBadge, team: messagesBadge + teamBadge + unreadCount }} />
+      <BottomNav items={navItems} active={navKey} onPick={goNav} accent={accentColor} badges={{ schedule: requestsBadge, team: messagesBadge + teamBadge + unreadCount, today: myCalls.filter((c: any) => !(c.recipients || []).some((r: any) => r.id === staffMember.id && r.ackedAt)).length }} />
     </div>
   );
 }
