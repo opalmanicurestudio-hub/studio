@@ -432,6 +432,8 @@ const CompletedView = ({ tenant, client, appointment, service, brand }: { brand:
             ) : (
                 <VisitCard tone="ok"><p className="text-[15px]">Thank you — we’ve received your review.</p></VisitCard>
             )}
+            {(() => { const mir = (tenant as any)?.makingItRight; if (!mir) return null; const sid = (appointment as any).serviceId; const care = String((sid && mir.aftercare?.byService?.[sid]) || mir.aftercare?.text || '').trim();
+                return care ? <VisitCard><p className="text-[15px] font-semibold">Caring for it at home</p><p className="whitespace-pre-line text-[14.5px]">{care}</p></VisitCard> : null; })()}
             {(() => { const mir = (tenant as any)?.makingItRight; const tok = (appointment as any).checkInToken; const tid = (tenant as any)?.id; const aid = (appointment as any).id;
                 if (!mir || mir.channels?.visitLink === false || !tok || !tid || !aid) return null;
                 const href = `/how/${tid}/${aid}?t=${encodeURIComponent(String(tok))}&from=visit&start=report`;

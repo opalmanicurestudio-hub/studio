@@ -19,7 +19,7 @@ export default function MakingItRightSettings() {
   React.useEffect(() => { if (selectedTenant && !s) setS(settingsOf(selectedTenant)); }, [selectedTenant, s]);
   const svcQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore as Firestore, `tenants/${tenantId}/services`) : null), [firestore, tenantId]);
   const { data: services } = useCollection<any>(svcQ);
-  const [newReason, setNewReason] = React.useState(''); const [svcPick, setSvcPick] = React.useState('');
+  const [newReason, setNewReason] = React.useState(''); const [svcPick, setSvcPick] = React.useState(''); const [careSvc, setCareSvc] = React.useState('');
   if (!s) return <SettingsPage title="Making it right"><p className="cf-muted">Loading…</p></SettingsPage>;
   const set = (patch: Partial<MirSettings>) => { setS({ ...s, ...patch }); setDirty(true); };
   const fu = (patch: Partial<MirSettings['fairUse']>) => set({ fairUse: { ...s.fairUse, ...patch } });
@@ -103,6 +103,22 @@ export default function MakingItRightSettings() {
         <Row label="Providers" help="“They weren’t happy” on a finished visit in the staff app." inline><Toggle checked={s.channels.staff} onChange={(v) => set({ channels: { ...s.channels, staff: v } })} label="Providers" disabled={!canEdit} /></Row>
         <Row label="“How was your visit?” text" help="The thank-you text the day after a visit links to a private page: happy clients are sent on to leave a review, unhappy ones reach you here." inline><Toggle checked={s.channels.survey} onChange={(v) => set({ channels: { ...s.channels, survey: v } })} label="How was your visit text" disabled={!canEdit} /></Row>
         <Row label="“Not quite right?” on the visit link" help="On the visit link clients already have, once the visit is finished." inline><Toggle checked={s.channels.visitLink} onChange={(v) => set({ channels: { ...s.channels, visitLink: v } })} label="Not quite right on the visit link" disabled={!canEdit} /></Row>
+      </Section>
+
+      <Section title="After photos" help="A photo of the work as it leaves, taken by the provider when they finish. Fair evidence for both sides if there’s a question later.">
+        {(services || []).filter((x: any) => !x.archived).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))).map((x: any) => { const on = s.afterPhotos.services.includes(x.id);
+          return <Row key={x.id} label={x.name} inline><Toggle checked={on} onChange={(v) => set({ afterPhotos: { ...s.afterPhotos, services: v ? [...s.afterPhotos.services, x.id] : s.afterPhotos.services.filter((i) => i !== x.id) } })} label={`After photo for ${x.name}`} disabled={!canEdit} /></Row>; })}
+        <Row label="Can’t finish without one" help="Off: the photo is asked for but can be skipped." inline><Toggle checked={s.afterPhotos.required} onChange={(v) => set({ afterPhotos: { ...s.afterPhotos, required: v } })} label="After photo required" disabled={!canEdit} /></Row>
+      </Section>
+
+      <Section title="Aftercare" help="Sent with the thank-you text and shown on the client’s visit page. It goes on the case record as proof it was given.">
+        <Row label="For every service"><textarea value={s.aftercare.text} disabled={!canEdit} onChange={(e) => set({ aftercare: { ...s.aftercare, text: e.target.value } })} rows={4} placeholder="e.g. Avoid hot water for 24 hours. Use cuticle oil daily. Wear gloves for cleaning." className={`${cfInput} h-auto py-3`} style={cfInputStyle} /></Row>
+        {Object.entries(s.aftercare.byService).map(([id, t]) => <Row key={id} label={svcName(id)}><div className="space-y-2"><textarea value={t} disabled={!canEdit} onChange={(e) => set({ aftercare: { ...s.aftercare, byService: { ...s.aftercare.byService, [id]: e.target.value } } })} rows={3} className={`${cfInput} h-auto py-3`} style={cfInputStyle} />
+          {canEdit && <button type="button" className="text-[14px] cf-muted underline" onClick={() => { const m = { ...s.aftercare.byService }; delete m[id]; set({ aftercare: { ...s.aftercare, byService: m } }); }}>Remove</button>}</div></Row>)}
+        {canEdit && <div className="flex gap-2 border-t px-5 py-3" style={{ borderColor: 'var(--line)' }}>
+          <select value={careSvc} onChange={(e) => setCareSvc(e.target.value)} className={`${cfInput} h-10 flex-1`} style={cfInputStyle} aria-label="Service"><option value="">Different aftercare for one service…</option>
+            {(services || []).filter((x: any) => !(x.id in s.aftercare.byService) && !x.archived).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))).map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <button type="button" disabled={!careSvc} onClick={() => { set({ aftercare: { ...s.aftercare, byService: { ...s.aftercare.byService, [careSvc]: s.aftercare.text } } }); setCareSvc(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--soft)' }}>Add</button></div>}
       </Section>
 
       <Section title="Keeping it fair" help="Checked on every case. A case that doesn’t pass still opens — it just goes to a manager with the reason shown, never an automatic no.">

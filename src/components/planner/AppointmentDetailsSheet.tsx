@@ -1,4 +1,5 @@
 'use client';
+import { shrink } from '@/components/making-it-right/VoiceNote';
 
 import { AssistPicker } from '@/components/planner/AssistPicker';
 import { StepTimeline } from '@/components/planner/StepTimeline';
@@ -954,10 +955,11 @@ const AfterPhotoPanel = ({ appointment, tenantId, firestore }: { appointment: an
     setUploading(true);
     try {
       const formData = new FormData();
-      Array.from(files).forEach(f => formData.append('files', f));
+      for (const f of Array.from(files)) { const small = await shrink(f); formData.append('files', new File([await (await fetch(small)).blob()], f.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' })); }
       formData.append('tenantId', tenantId);
       formData.append('appointmentId', appointment.id);
-      const res = await fetch('/api/upload/appointment-photos', { method: 'POST', body: formData });
+      const tk = await getAuth().currentUser?.getIdToken().catch(() => '');
+      const res = await fetch('/api/upload/appointment-photos', { method: 'POST', body: formData, headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
       const { urls } = await res.json();
       if (urls?.length) {
         await updateDocumentNonBlocking(
@@ -2072,7 +2074,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         formData.append('files', new File([blob], `markup-${appointment.id}-${Date.now()}.png`, { type: 'image/png' }));
         formData.append('tenantId', tenantId);
         formData.append('appointmentId', appointment.id);
-        const res = await fetch('/api/upload/appointment-photos', { method: 'POST', body: formData });
+        const tk = await getAuth().currentUser?.getIdToken().catch(() => '');
+        const res = await fetch('/api/upload/appointment-photos', { method: 'POST', body: formData, headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
         const out = await res.json().catch(() => null);
         if (!out?.urls?.[0]) throw new Error('Upload failed');
         finalUrl = out.urls[0];

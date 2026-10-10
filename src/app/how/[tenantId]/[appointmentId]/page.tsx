@@ -102,7 +102,10 @@ export default function HowWasItPage() {
   </section>);
   if (step === 'sent') return shell(<p className="pt-10 text-center" style={{ color: MUTED }}>Sending…</p>);
 
+  const care = info.aftercare ? <details className="rounded-[20px] border p-4" style={{ borderColor: LINE }} open={!info.surveyOn}><summary className="cursor-pointer text-[15px] font-bold">Caring for it at home</summary><p className="mt-2 whitespace-pre-line text-[15px] leading-relaxed">{info.aftercare}</p></details> : null;
+  if (step === 'ask' && !info.surveyOn) return shell(<>{care}{info.reviewUrl && <a href={info.reviewUrl} className="flex h-14 items-center justify-center rounded-2xl text-[16px] font-bold text-white" style={{ background: A }}>Leave a review</a>}</>);
   if (step === 'ask') return shell(<>
+    {care}
     <h1 className="text-[32px] font-bold leading-tight tracking-tight">How was your visit{info.visit.clientFirst ? `, ${info.visit.clientFirst}` : ''}?</h1>
     <div className="space-y-3">
       {[['loved', 'Loved it', '♥'], ['okay', 'It was okay', '~'], ['report', 'Something wasn’t right', '!']].map(([k2, l, ic]) => (

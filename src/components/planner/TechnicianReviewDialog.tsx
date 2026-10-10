@@ -99,6 +99,7 @@ import { Badge } from '@/components/ui/badge';
 // FIX #2: Added updateDocumentNonBlocking to the firebase import
 import { useUser, useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { AfterPhoto } from '@/components/making-it-right/AfterPhoto';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
@@ -183,6 +184,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const tenantId = tenantIdOverride || selectedTenant?.id;
   const meId: string = actorStaffId || ctxStaffId || currentUser?.uid || '';   // the person's STAFF id (never a portal sign-in id)
   const [finishing, setFinishing] = useState(false);
+  const [afterPhotoMissing, setAfterPhotoMissing] = useState(false);
   const tmhr = selectedTenant?.tmhr || 50;
   const isMobile = useIsMobile();
   const { toast } = useToast();
@@ -901,9 +903,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </ScrollArea>
             <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-6" : "p-8 pt-4")}>
                 <div className="flex flex-col gap-3 w-full">
+                    {tenantId && <AfterPhoto firestore={firestore} tenantId={tenantId} appointment={appointment} serviceIds={allServiceIds} onRequiredMissing={setAfterPhotoMissing} />}
                     <Button 
                         onClick={handleCompleteMyPart} 
-                        disabled={completedServiceIds.length === 0 || (saveAsCustomFormula && !customFormulaName.trim())}
+                        disabled={completedServiceIds.length === 0 || afterPhotoMissing || (saveAsCustomFormula && !customFormulaName.trim())}
                         className="w-full h-14 sm:h-16 rounded-[1.5rem] md:rounded-[2rem] text-xs sm:text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all group whitespace-normal leading-tight px-4"
                     >
                         {buttonLabel} <ArrowRight className="ml-2 sm:ml-3 w-4 h-4 sm:w-6 sm:h-6 transition-transform group-hover:translate-x-2 shrink-0" />

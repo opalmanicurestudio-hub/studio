@@ -42,6 +42,10 @@ export type MirSettings = {
   replyHours: number | null; followUpDays: number | null; safetyCheckInHours: number | null;
   /** Redo booking: how far ahead to look for times, and how many times a client may move their redo themselves. */
   redoLookDays: number; redoChanges: number;
+  /** After photos at finish, for the services listed (required = can't finish without one). */
+  afterPhotos: { services: string[]; required: boolean };
+  /** Aftercare the client gets with their thank-you and on their visit page: a default, and per service. */
+  aftercare: { text: string; byService: Record<string, string> };
   channels: { survey: boolean; visitLink: boolean; calls: boolean; staff: boolean };
   fairUse: { maxFixes: number; perMonths: number; requirePhotos: boolean; sameServiceOnly: boolean; originalProviderFirst: boolean; refundToOriginalCard: boolean; wearDays: number; wearDaysByService: Record<string, number>; clientConfirms: boolean };
   retentionYears: number; payRules: { redoProvider: 'none' | 'half' | 'normal'; originalProvider: 'keep' | 'pays' | 'split'; refund: 'take_back' | 'keep' };
@@ -57,6 +61,8 @@ export function settingsOf(tenant: any): MirSettings {
     redoWindowDays: num(s.redoWindowDays, P.window), serviceWindows: s.serviceWindows || {},
     deskLimitCents: num(s.deskLimitCents, 2500), deskRedos: num(s.deskRedos, 1), providersCanOfferRedo: s.providersCanOfferRedo !== false,
     replyHours: opt(s.replyHours), followUpDays: opt(s.followUpDays), safetyCheckInHours: opt(s.safetyCheckInHours),
+    afterPhotos: { services: Array.isArray(s.afterPhotos?.services) ? s.afterPhotos.services : [], required: s.afterPhotos?.required === true },
+    aftercare: { text: String(s.aftercare?.text || ''), byService: s.aftercare?.byService || {} },
     redoLookDays: Math.min(21, Math.max(3, num(s.redoLookDays, 14))), redoChanges: Math.min(5, num(s.redoChanges, 1)),
     channels: { survey: true, visitLink: true, calls: true, staff: true, ...(s.channels || {}) },
     fairUse: { maxFixes: 2, perMonths: 6, requirePhotos: true, sameServiceOnly: true, originalProviderFirst: true, refundToOriginalCard: true, wearDays: P.wearDays, wearDaysByService: {}, clientConfirms: true, ...(s.fairUse || {}) },
@@ -120,3 +126,6 @@ export function providerCaseStats(cases: any[], staffId: string) {
   const mine = cases.filter((c) => c.visit?.providerId === staffId && c.kind !== 'incident');
   return { total: mine.length, counted: mine.filter((c) => c.cause && (CAUSES as any)[c.cause]?.counts).length, unmarked: mine.filter((c) => !c.cause).length, incidents: cases.filter((c) => c.visit?.providerId === staffId && c.kind === 'incident').length };
 }
+
+/** The aftercare a client gets for a visit (that service's own, or the business's default). */
+export const aftercareFor = (S: MirSettings, serviceId?: string | null) => String((serviceId && S.aftercare.byService[serviceId]) || S.aftercare.text || '').trim();

@@ -28,7 +28,9 @@ async function visitOf(db: any, tenantId: string, appointmentId: string, staff: 
   const card = tx.find((t: any) => t.cardLast4 || t.last4); const provider = staff.find((m: any) => m.id === a.staffId);
   const products = (a.checkoutState?.formula || []).map((f: any) => [f.name, f.batch || f.lot].filter(Boolean).join(' batch ')).filter(Boolean).slice(0, 6);
   return { appointmentId, startTime: a.startTime || null, serviceId: a.serviceId || null, serviceName: a.serviceName || null, providerId: a.staffId || null, providerName: provider?.name || a.staffName || null,
-    paid: Math.round(paid * 100) / 100, tip: Math.round(tip * 100) / 100, cardLast4: card ? String(card.cardLast4 || card.last4) : null, products, station: a.stationName || null, clientId: a.clientId || null, clientName: a.clientName || null, discounted: Number(a.checkoutState?.discountTotal || a.discountTotal || 0) > 0 };
+    paid: Math.round(paid * 100) / 100, tip: Math.round(tip * 100) / 100, cardLast4: card ? String(card.cardLast4 || card.last4) : null, products, station: a.stationName || null, clientId: a.clientId || null, clientName: a.clientName || null, discounted: Number(a.checkoutState?.discountTotal || a.discountTotal || 0) > 0,
+    afterPhotos: (a.afterPhotoUrls || []).filter((u: any) => typeof u === 'string').slice(0, 6), aftercareSentAt: a.aftercareSentAt || null, aftercare: a.aftercareText || null,
+    consents: await (async () => { if (!a.clientId) return []; try { return (await db.collection(`${T(tenantId)}/clients/${a.clientId}/signedConsents`).get()).docs.map((d: any) => d.data() || {}).filter((x: any) => !x.revokedAt && x.signedAt && (!a.startTime || Date.parse(x.signedAt) <= Date.parse(a.startTime) + 86400000)).map((x: any) => ({ title: String(x.formTitle || x.title || 'Consent form'), signedAt: x.signedAt })).slice(0, 6); } catch { return []; } })() };
 }
 
 /** A fix plan from the team: services in order (e.g. removal, then a new service), what the client pays, a note for them.
