@@ -76,7 +76,8 @@ export default function BookingRequestsPage() {
       where('status', '==', 'requested'),
     );
     const unsub = onSnapshot(q, (snap) => {
-      setRows(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+      // A request whose time has already passed can't be accepted — it leaves the list (the nightly sweep closes it).
+      setRows(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => { const t = Date.parse(String(r.startTime || '')); return !Number.isFinite(t) || t > Date.now(); }));
       setLoading(false);
     }, () => setLoading(false));
     return () => unsub();

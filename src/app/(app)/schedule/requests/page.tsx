@@ -103,18 +103,22 @@ export default function ScheduleRequestsPage() {
     );
   }, [allRequestsRaw]);
 
+  // A request for a day that's gone can't be decided any more — it counts as expired, not waiting.
+  const todayKey = new Date().toLocaleDateString('en-CA');
+  const live = (r: any) => !r.date || String(r.date) >= todayKey;
   const filtered = useMemo(() => {
     if (filter === 'pending') return allRequests.filter(r =>
-      r.status === 'pending' || r.status === 'pending_swap_consent' || r.status === 'swap_consent_given'
+      (r.status === 'pending' || r.status === 'pending_swap_consent' || r.status === 'swap_consent_given') && live(r)
     );
     if (filter === 'resolved') return allRequests.filter(r =>
-      r.status === 'approved' || r.status === 'denied' || r.status === 'swap_consent_denied'
+      r.status === 'approved' || r.status === 'denied' || r.status === 'swap_consent_denied' || r.status === 'expired'
+      || (['pending', 'pending_swap_consent', 'swap_consent_given'].includes(r.status) && !live(r))
     );
     return allRequests;
   }, [allRequests, filter]);
 
   const pendingCount = useMemo(() =>
-    allRequests.filter(r => ['pending', 'pending_swap_consent', 'swap_consent_given'].includes(r.status)).length,
+    allRequests.filter(r => ['pending', 'pending_swap_consent', 'swap_consent_given'].includes(r.status) && live(r)).length,
     [allRequests]
   );
 

@@ -1402,6 +1402,14 @@ export async function GET(req: NextRequest) {
   // A parcel that stopped scanning, a filed claim whose window is closing,
   // and a resolved case nobody has touched. Each is marker-guarded inside
   // the sweep, so a re-run of this cron sends nothing twice.
+  // ── NOTHING LEFT OPEN AFTER ITS TIME (lib/stale-sweep): visits never finished, shift and booking requests whose
+  // day has gone, calls nobody closed, notices past their expiry.
+  for (const tDoc of allTenantsSnap.docs) {
+    try { const { sweepStale } = await import('@/lib/stale-sweep'); const r = await sweepStale(db, tDoc.id, tDoc.data() || {});
+      if (r.visits || r.shiftRequests || r.bookingRequests || r.calls || r.notifications) results[`stale:${tDoc.id}`] = r; }
+    catch (e) { results[`stale:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) }; }
+  }
+
   const retailTotals = { stalled: 0, stalledEmailed: 0, deadlines: 0, deadlineDigests: 0, casesClosed: 0, requestsExpired: 0, requestNudges: 0, unpaidHandled: 0 };
   for (const tDoc of allTenantsSnap.docs) {
     try {

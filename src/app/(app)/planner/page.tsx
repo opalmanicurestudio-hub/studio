@@ -55,6 +55,7 @@ import { submitCalendarBlock } from '@/lib/block-submit';
 import { computeServiceProfitability } from '@/lib/service-cost';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { AlertCircle, XCircle } from 'lucide-react';
+import { LeftOpen, useLeftOpen } from '@/components/ops/LeftOpen';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -887,14 +888,9 @@ function PlannerPageContent() {
     return { weeklyRevenue: revenue, projectedRevenue: projected, weeklyBreakEven, weeklyNetProfit: revenue - weeklyBreakEven, absorbedCosts: absorbed + waivedTotal };
   }, [transactions, appointments, services, currentDate, selectedTenant]);
 
-  // ── Stuck appointments: servicing or ready_for_checkout from a previous day ──
-  const stuckAppointments = useMemo(() => {
-    if (!appointments) return [];
-    return appointments.filter(a =>
-      ['servicing', 'ready_for_checkout'].includes(a.status) &&
-      !isSameDay(safeDate(a.startTime), currentDate)
-    );
-  }, [appointments, currentDate]);
+  // ── Visits from earlier days that were never finished — closed overnight, settled here (components/ops/LeftOpen) ──
+  const leftOpenList = useLeftOpen(firestore, tenantId);
+  const [leftOpenSheet, setLeftOpenSheet] = useState(false);
 
   const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
     if (!firestore || !tenantId || !selectedTenant) return;
@@ -1455,6 +1451,13 @@ function PlannerPageContent() {
                   <label className="flex items-center justify-between gap-3 text-[15px]">Card colour<select value={prefs.colourBy} onChange={(e) => savePrefs({ colourBy: e.target.value })} className="h-11 rounded-xl border px-3" style={{ borderColor: 'var(--line)' }}><option value="state">By state (done, in the chair…)</option><option value="provider">By provider</option></select></label>
                   <button type="button" onClick={() => setPrefsOpen(false)} className="h-11 w-full rounded-full text-[15px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Done</button>
                 </div></div>}
+      {leftOpenSheet && tenantId && (
+        <div role="dialog" aria-modal="true" aria-label="Left open from earlier days" className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 sm:items-center" onClick={() => setLeftOpenSheet(false)}>
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-[24px] bg-white p-5 sm:rounded-[24px]" onClick={(ev) => ev.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between"><p className="text-[18px] font-bold">Left open from earlier days</p><button type="button" onClick={() => setLeftOpenSheet(false)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: '#f4f4f5' }}>Close</button></div>
+            <LeftOpen firestore={firestore} tenantId={tenantId} items={leftOpenList} staff={allStaff || []} who={(currentUser as any)?.displayName || 'Planner'} />
+          </div>
+        </div>)}
       {findOpen && tenantId && <FindATime tenantId={tenantId} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} from={currentDate < new Date() ? new Date() : currentDate} isMobile={isMobile} onClose={() => setFindOpen(false)}
         onBookGroup={(x) => { setFindOpen(false); setCurrentDate(x.date); const [lead, ...rest] = x.people; setBookPreset({ date: x.date, time: x.time, staffId: lead.staffId, serviceId: lead.serviceId }); setBookGuests(rest); setBookMode('group'); setAppointmentToRebook(null); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
         onBook={(x) => { setFindOpen(false); setCurrentDate(x.date); setBookPreset({ date: x.date, time: x.time, staffId: x.staffId, serviceId: x.serviceId }); setAppointmentToRebook(null); setClientForNewApt(null); setIsAddAppointmentOpen(true); }} />}
@@ -1463,6 +1466,7 @@ function PlannerPageContent() {
         figures={{ visits: dayAppointments.filter((a: any) => !['cancelled', 'declined'].includes(String(a.status))).length, booked: dayPulse ? dayPulse.booked : null, goal: Number((selectedTenant as any)?.dailyGoal) || null }}
         onFigures={can('money.view') ? () => setIsKpiSheetOpen(true) : undefined}
         needsYou={[
+          ...(leftOpenList.length ? [{ key: 'left-open', label: `${leftOpenList.length} visit${leftOpenList.length === 1 ? '' : 's'} left open from earlier days`, onClick: () => setLeftOpenSheet(true), tone: 'warn' as const }] : []),
           ...(awaitingUpcoming.length ? [{ key: 'awaiting', label: `${awaitingUpcoming.length} booking${awaitingUpcoming.length === 1 ? '' : 's'} awaiting your answer`, onClick: jumpToNextAwaiting, tone: 'warn' as const }] : []),
           ...(can('money.view') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
           ...(cancelledToday > 0 ? [{ key: 'cancelled', label: `${cancelledToday} cancelled today — ${showCancelled ? 'hide' : 'show'}`, onClick: revealCancelled }] : []),

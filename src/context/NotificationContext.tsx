@@ -224,7 +224,9 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             ...billsDueSoonNotifications,
             ...userSpecificNotifications,
         ].filter(n => !clearedNotificationIds.has(String(n.id)))
-         .sort((a,b) => (a.read ? 1 : 0) - (b.read ? 1 : 0));
+         // Settled or out-of-date notices (a no-show already answered, an offer that ran out) stop showing.
+         .filter((n: any) => n.resolved !== true && !(n.expiresAt && Date.parse(String(n.expiresAt)) < Date.now() && n.actions))
+         .sort((a: any, b: any) => ((a.read ? 1 : 0) - (b.read ? 1 : 0)) || (Date.parse(String(b.createdAt || '')) || 0) - (Date.parse(String(a.createdAt || '')) || 0));
         
     }, [eventRequestNotifications, licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications, userSpecificNotifications, clearedNotificationIds]);
 

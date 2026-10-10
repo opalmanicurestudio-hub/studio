@@ -166,7 +166,8 @@ export default function SchedulePage() {
   }, [firestore, tenantId]);
 
   const { data: shifts } = useCollection<Shift>(shiftsQuery);
-  const { data: pendingRequests } = useCollection<ShiftRequest>(requestsQuery);
+  const { data: pendingRequestsRaw } = useCollection<ShiftRequest>(requestsQuery);
+  const pendingRequests = useMemo(() => (pendingRequestsRaw || []).filter((r: any) => !r.date || String(r.date) >= new Date().toLocaleDateString('en-CA')), [pendingRequestsRaw]);
   const { data: availabilityData } = useCollection<StaffAvailability>(availabilityQuery);
 
   const minRestHours = safeNumber(selectedTenant?.minRestBetweenShifts) || 10;

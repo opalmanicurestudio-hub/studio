@@ -36,6 +36,7 @@ import { CollectRent } from '@/components/pos/desk/CollectRent';
 import { OrderPickup } from '@/components/pos/desk/OrderPickup';
 import { AddWalkIn } from '@/components/pos/desk/AddWalkIn';
 import { openVisit, registerVisitActions } from '@/lib/visit-client';
+import { LeftOpen, useLeftOpen } from '@/components/ops/LeftOpen';
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { useClientScreen, ClientScreenPanel } from '@/components/pos/ClientScreen';
 import { TodaysSales } from '@/components/pos/desk/TodaysSales';
@@ -96,7 +97,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const opsBase = opsAttentionCount(todaysAppts, e.selectedTenant);
   const callbacks = usePendingCallbacks(e.tenantId);                       // overdue call-backs count too
   const openCalls = useOpenCalls(e.tenantId);                              // urgent / overdue / unacknowledged calls count too
-  const opsCount = { ...opsBase, attention: opsBase.attention + overdueCallbacks(callbacks) + callsNeedingAttention(openCalls.calls) };
+  const leftOpen = useLeftOpen(e.firestore, e.tenantId);
+  const opsCount = { ...opsBase, attention: opsBase.attention + overdueCallbacks(callbacks) + callsNeedingAttention(openCalls.calls) + leftOpen.length };
   const [logCallOpen, setLogCallOpen] = useState(false);
   const [salesOpen, setSalesOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
@@ -514,6 +516,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={walkInOpen} onClose={() => setWalkInOpen(false)} title="Add a walk-in"><AddWalkIn tenantId={e.tenantId} tenant={tenant} services={e.services || []} staff={e.staff || []} onDone={() => setWalkInOpen(false)} /></Drawer>
       <Drawer accent={accent} open={screenOpen} onClose={() => setScreenOpen(false)} title="Client screen"><ClientScreenPanel tenantId={e.tenantId} /></Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
+        {attnOpen && leftOpen.length > 0 && <section aria-label="Left open from earlier days" className="mb-5 space-y-2"><p className="text-[16px] font-bold">Left open from earlier days · {leftOpen.length}</p><LeftOpen firestore={e.firestore} tenantId={e.tenantId} items={leftOpen} staff={e.staff || []} who={e.currentUser?.displayName || 'Front desk'} /></section>}
         {attnOpen && <OpsBoard appts={todaysAppts} staff={(e.staff || []).filter((s: any) => s.isActive !== false)} tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} uid={e.currentUser?.uid} />}
       </Drawer>
       <DeskCancel e={e} accent={accent} onReschedule={(a: any) => setMoveAppt(a)} onOfferSlot={() => { setMoreTab('waitlist'); setMoreOpen(true); }} />

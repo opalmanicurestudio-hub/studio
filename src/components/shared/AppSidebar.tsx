@@ -350,9 +350,9 @@ export function AppSidebar() {
     // Online bookings stuck before 5a (bookingRequests still 'pending') count too,
     // so the Requests entry shows until they're answered.
     let appts = 0, stranded = 0; const push = () => setRequestBadgeCount(appts + stranded);
-    const unsub = onSnapshot(q, (snap) => { appts = snap.size; push(); }, () => { /* non-fatal */ });
+    const unsub = onSnapshot(q, (snap) => { appts = snap.docs.filter((d) => { const t = Date.parse(String((d.data() as any).startTime || '')); return !Number.isFinite(t) || t > Date.now(); }).length; push(); }, () => { /* non-fatal */ });
     const unsub2 = onSnapshot(query(collection(firestore, `tenants/${tenantId}/bookingRequests`), where('status', '==', 'pending')),
-      (snap) => { stranded = snap.docs.filter((d) => { const c: any = (d.data() as any).createdAt; const ms = c?.toMillis ? c.toMillis() : Date.parse(c || ''); return !ms || Date.now() - ms > 20 * 60000; }).length; push(); }, () => { /* non-fatal */ });
+      (snap) => { stranded = snap.docs.filter((d) => { const c: any = (d.data() as any).createdAt; const ms = c?.toMillis ? c.toMillis() : Date.parse(c || ''); return !ms || (Date.now() - ms > 20 * 60000 && Date.now() - ms < 2 * 86400000); }).length; push(); }, () => { /* non-fatal */ });
     return () => { unsub(); unsub2(); };
   }, [firestore, tenantId]);
 

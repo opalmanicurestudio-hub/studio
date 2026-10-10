@@ -329,8 +329,11 @@ export async function sweepExpiredRequests(
       const apt = d.data() as any;
       res.scanned += 1;
       try {
-        const exp = Date.parse(String(apt.requestExpiresAt || ''));
+        // A request can never outlive its own time: whichever comes first, its stated expiry or the start time.
+        const stated = Date.parse(String(apt.requestExpiresAt || '')); const startMs = Date.parse(String(apt.startTime || ''));
+        const exp = Math.min(Number.isFinite(stated) ? stated : Infinity, Number.isFinite(startMs) ? startMs : Infinity);
         if (!Number.isFinite(exp) || now < exp) continue;
+        const longGone = Number.isFinite(startMs) && now - startMs > 2 * 86400000;   // an old backlog — close quietly, no email
 
         await d.ref.set({
           status: 'expired',
@@ -339,6 +342,7 @@ export async function sweepExpiredRequests(
           declineReason: 'The studio did not respond before the request expired',
         }, { merge: true });
         res.actioned += 1;
+        if (longGone) continue;
 
         const email = String(apt.clientEmail || '').trim()
           || (apt.clientId

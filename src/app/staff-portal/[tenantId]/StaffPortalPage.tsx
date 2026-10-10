@@ -4569,7 +4569,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: allEventsRaw }                          = useCollection<any>(eventsQ);
   const { data: myRequests }                            = useCollection<any>(myRequestsQ);
   const { data: incomingSwapsRaw }                      = useCollection<any>(incomingSwapQ);
-  const { data: pendingApprovals }                      = useCollection<any>(pendingApprovalQ);
+  const { data: pendingApprovalsRaw }                   = useCollection<any>(pendingApprovalQ);
   const { data: allStaff }                              = useCollection<any>(allStaffQ);
   const { data: services,     isLoading: svcsLoading }    = useCollection<any>(servicesQ);
   const { data: notifs }                                = useCollection<any>(notifsQ);
@@ -4641,7 +4641,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const isLoadingToday = apptsLoading || svcsLoading;
 
   // Filter incomingSwaps client-side (single-field query avoids composite index)
-  const incomingSwaps = useMemo(() => (incomingSwapsRaw||[]).filter((r: any) => r.status === 'pending_swap_consent'), [incomingSwapsRaw]);
+  // Only days still to come — a swap or approval for a day that's gone can't be acted on.
+  const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: (portalTenant as any)?.timezone || 'America/New_York' });
+  const incomingSwaps = useMemo(() => (incomingSwapsRaw||[]).filter((r: any) => r.status === 'pending_swap_consent' && (!r.date || String(r.date) >= todayKey)), [incomingSwapsRaw, todayKey]);
+  const pendingApprovals = useMemo(() => (pendingApprovalsRaw||[]).filter((r: any) => !r.date || String(r.date) >= todayKey), [pendingApprovalsRaw, todayKey]);
 
   // ── Derived state ──
   const todayShift = useMemo(() => {
@@ -4681,7 +4684,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   }, [activityLogs, clockNow, portalTenant]);
 
 
-  const sortedNotifs   = useMemo(() => notifs ? [...notifs].sort((a,b) => new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime()) : [], [notifs]);
+  const sortedNotifs   = useMemo(() => notifs ? [...notifs].filter((n: any) => n.resolved !== true && !(n.expiresAt && Date.parse(String(n.expiresAt)) < Date.now() && n.actions)).sort((a,b) => new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime()) : [], [notifs]);
   const unreadCount    = useMemo(() => sortedNotifs.filter(n => !n.read).length, [sortedNotifs]);
   const sortedRequests = useMemo(() => myRequests ? [...myRequests].sort((a,b) => new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime()) : [], [myRequests]);
   const requestsBadge  = (incomingSwaps||[]).length + (isOwnerOrAdmin ? (pendingApprovals||[]).length : 0);
@@ -5028,7 +5031,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   </div>
                 )}
                 {allMyApts
-                  .filter((a: any) => a.status === 'requested' || a.voiceApproval === 'pending' || a.issue?.status === 'open')
+                  .filter((a: any) => (a.status === 'requested' || a.voiceApproval === 'pending' || a.issue?.status === 'open') && !(Date.parse(String(a.startTime || '')) < Date.now() && a.issue?.status !== 'open'))
                   .slice(0, 5)
                   .map((a: any) => (
                     <div key={`decide-${a.id}`} className="rounded-2xl border-2 border-primary/40 bg-primary/[0.03] p-3">
