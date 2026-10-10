@@ -29,6 +29,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
 import { sessionsFrom, clockPolicy, localDay, zonedEpoch } from '@/lib/timeclock';
+import { ClockFixReview } from '@/components/staff/ClockFixReview';
 import { dayCompare } from '@/lib/shift-check';
 import { logAuditClient } from '@/lib/audit-client';
 import { getAuth } from 'firebase/auth';
@@ -350,6 +351,7 @@ export default function TimesheetsPage() {
     <div className="flex min-h-screen flex-col bg-slate-50/50">
       <AppHeader title="Timesheets" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto space-y-8">
+        <ClockFixReview firestore={firestore} tenantId={tenantId || ""} />
 
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">

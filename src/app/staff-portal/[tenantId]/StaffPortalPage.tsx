@@ -67,6 +67,7 @@ import { registerPushForStaff } from '@/lib/push-notifications';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
 import { RenterDocumentsTab } from '@/components/shared/RenterDocumentsTab';
+import { useMyRent } from '@/components/staff-portal/useMyRent';
 import { W9Form } from '@/components/shared/W9Form';
 import { canSeeFinancials } from '@/lib/privacy';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -117,6 +118,8 @@ import { can } from '@/lib/permissions';
 import { StepEdge } from '@/components/planner/StepTimeline';
 import { Star } from 'lucide-react';
 import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
+import { ForgotClockOut } from '@/components/staff-portal/ForgotClockOut';
+import { MyDetails } from '@/components/staff-portal/MyDetails';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -4275,61 +4278,24 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
   const fmtC = (c: number) => `$${((c || 0) / 100).toFixed(2)}`;
   const todayLocal = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
 
-  const leasesQ = useMemoFirebase(() => (!firestore || !tenantId || !renter?.id) ? null
-    : query(collection(firestore, `tenants/${tenantId}/leases`), where('renterId', '==', renter.id)), [firestore, tenantId, renter?.id]);
-  const { data: myLeases } = useCollection<any>(leasesQ);
+  const rent = useMyRent(tenantId, staffMember?.id);
+  const myLeases = rent?.leases || [];
   const activeLease = useMemo(() =>
     (myLeases || []).find((l: any) => ['active', 'on_leave', 'pending_signature'].includes(l.status)) || null,
     [myLeases]);
-
-  const invoicesQ = useMemoFirebase(() => (!firestore || !tenantId || !activeLease?.id) ? null
-    : query(collection(firestore, `tenants/${tenantId}/rentInvoices`), where('leaseId', '==', activeLease.id)), [firestore, tenantId, activeLease?.id]);
-  const { data: myInvoices } = useCollection<any>(invoicesQ);
+  const myInvoices = rent?.invoices || [];
   const openInvoice = useMemo(() =>
     (myInvoices || []).filter((i: any) => i.status === 'due' || i.status === 'late')
       .sort((a: any, b: any) => String(a.dueDate || '').localeCompare(String(b.dueDate || '')))[0] || null,
     [myInvoices]);
-
-  const boothsQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/booths`), [firestore, tenantId]);
-  const { data: booths } = useCollection<any>(boothsQ);
-  const myBooth = useMemo(() => (booths || []).find((b: any) => b.id === activeLease?.boothId) || null, [booths, activeLease?.boothId]);
-
-  const creditsQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/boothCredits`), [firestore, tenantId]);
-  const { data: allCredits } = useCollection<any>(creditsQ);
-  const myCredits = useMemo(() => {
-    const digits = (v: any) => String(v || '').replace(/\D/g, '');
-    const norm = (v: any) => String(v || '').trim().toLowerCase();
-    const keys = [norm(renter?.email), norm(staffMember?.email), digits(renter?.phone), digits(staffMember?.phone)].filter(Boolean);
-    return (allCredits || []).filter((c: any) => {
-      const k = String(c.contactKey || '');
-      return keys.includes(norm(k)) || keys.includes(digits(k));
-    });
-  }, [allCredits, renter, staffMember]);
+  const myBooth = rent?.booth || null;
+  const myCredits = rent?.credits || [];
   const availableCreditCents = myCredits.filter((c: any) => c.status === 'available').reduce((s: number, c: any) => s + (c.amountCents || 0), 0);
-
-  const resQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/boothReservations`), [firestore, tenantId]);
-  const { data: allRes } = useCollection<any>(resQ);
-  const myUpcoming = useMemo(() => {
-    const digits = (v: any) => String(v || '').replace(/\D/g, '');
-    const norm = (v: any) => String(v || '').trim().toLowerCase();
-    const emails = [norm(renter?.email), norm(staffMember?.email)].filter(Boolean);
-    const phones = [digits(renter?.phone), digits(staffMember?.phone)].filter(Boolean);
-    return (allRes || [])
-      .filter((r: any) => (emails.includes(norm(r.email)) || phones.includes(digits(r.phone)))
-        && ['confirmed', 'checked_in'].includes(r.status) && String(r.endDate || '') >= todayLocal)
-      .sort((a: any, b: any) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
-  }, [allRes, renter, staffMember, todayLocal]);
-
-  const txnsQ = useMemoFirebase(() => (!firestore || !tenantId) ? null
-    : query(collection(firestore, `tenants/${tenantId}/transactions`), where('source', '==', 'booth_rent')), [firestore, tenantId]);
-  const { data: rentTxns } = useCollection<any>(txnsQ);
-  const myPayments = useMemo(() => {
-    const names = [renter ? `${renter.firstName || ''} ${renter.lastName || ''}`.trim() : '', staffMember?.name || ''].map(n => n.toLowerCase()).filter(Boolean);
-    return (rentTxns || [])
-      .filter((t: any) => t.type === 'income' && names.includes(String(t.clientOrVendor || '').toLowerCase()))
-      .sort((a: any, b: any) => String(b.date || '').localeCompare(String(a.date || '')))
-      .slice(0, 12);
-  }, [rentTxns, renter, staffMember?.name]);
+  const myUpcoming = useMemo(() => (rent?.reservations || [])
+    .filter((r: any) => ['confirmed', 'checked_in'].includes(r.status) && String(r.endDate || '') >= todayLocal)
+    .sort((a: any, b: any) => String(a.startDate || '').localeCompare(String(b.startDate || ''))), [rent, todayLocal]);
+  const myPayments = useMemo(() => (rent?.payments || [])
+    .sort((a: any, b: any) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 12), [rent]);
 
   const FREQ_LABEL: Record<string, string> = { weekly: '/wk', biweekly: '/2wk', monthly: '/mo', daily: '/day', hourly: '/hr' };
   const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -4490,6 +4456,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [selectedDate, setSelectedDate] = useState(new Date());
   // Today's view: Now / Day / Floor. Chosen by hand it holds until the next visit starts; otherwise it follows the day.
+  const [editingDetails, setEditingDetails] = useState(false);
   const [todayPick, setTodayPick] = useState<{ view: 'now' | 'day' | 'floor'; visitId: string | null } | null>(null);
   // Calls the front desk passed on to this person (or to managers, if they are one).
   const myCalls = useMyCalls(staffMember.role === 'renter' ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
@@ -4838,17 +4805,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // their renter doc resolved for the Rent tab; STAFF with a linked
   // renter record are hybrids — chair renters who also work the book —
   // and get the union of both worlds: all staff tabs + Rent + Documents.
-  const rentersColQ = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/renters`), [firestore,tenantId]);
-  const { data: allRenters } = useCollection<any>(rentersColQ);
-  const myRenter = useMemo(() => {
-    const list = (allRenters || []) as any[];
-    const norm = (v: any) => String(v || '').trim().toLowerCase();
-    const digits = (v: any) => String(v || '').replace(/\D/g, '');
-    return list.find(r => r.linkedStaffId === staffMember.id)
-      || (staffMember.email ? list.find(r => norm(r.email) && norm(r.email) === norm(staffMember.email)) : null)
-      || (staffMember.phone ? list.find(r => digits(r.phone) && digits(r.phone) === digits(staffMember.phone)) : null)
-      || null;
-  }, [allRenters, staffMember.id, staffMember.email, staffMember.phone]);
+  const myRenter = useMyRent(tenantId, staffMember.id)?.renter || null;
   const isHybrid = !isRenter && !!myRenter;
 
   const ALL_TABS = [
@@ -5007,6 +4964,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
+{!isRenter && <ForgotClockOut firestore={firestore} tenantId={tenantId} staffId={staffMember.id} tenant={portalTenant} shifts={allShiftsRaw || []} accent={accentColor} />}
 <PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} accent={accentColor} />
 {todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} accent={accentColor} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={() => setActiveTab('documents')} />
@@ -5331,7 +5289,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               ))}
             </div>
           )}
-          {activeTab==='me' && (
+          {activeTab==='me' && editingDetails && (
+            <div className="pt-1"><MyDetails firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={staffMember.name || 'A team member'} managerIds={(allStaff || []).filter((x: any) => ['owner', 'admin', 'manager'].includes(String(x.role)) && !x.archived).map((x: any) => x.id)} onDone={() => setEditingDetails(false)} /></div>
+          )}
+          {activeTab==='me' && !editingDetails && (
             <div className="space-y-4 pt-1">
               <div className="flex items-center gap-4 rounded-[24px] border border-[#ececee] bg-white p-4">
                 <div className="h-16 w-16 shrink-0 rounded-full p-[3px]" style={{ background: `conic-gradient(${accentColor}, #d7e6e4, ${accentColor})` }}>
@@ -5343,12 +5304,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               </div>
               <div className="overflow-hidden rounded-[24px] border border-[#ececee] bg-white divide-y divide-[#f0f0f2]">
                 {[
+                  { k: 'details', label: 'My details', sub: 'Phone, address, emergency contact', show: true },
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
                   { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
                   { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: !!fulfilmentPerms.canPick },
                   { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
                 ].filter((r) => r.show).map((r) => (
-                  <button key={r.k} type="button" onClick={() => setActiveTab(r.k as any)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
                     <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{r.label}</span><span className="block text-[13px] text-[#6d7075]">{r.sub}</span></span>
                     <ChevronRight className="h-4 w-4 text-[#9a9ca1]" />
                   </button>))}

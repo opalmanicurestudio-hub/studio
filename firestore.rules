@@ -94,7 +94,8 @@ service cloud.firestore {
           && (request.resource.data.get('role', 'staff') == resource.data.get('role', 'staff') || !(request.resource.data.get('role', 'staff') in ['owner', 'admin']) || isOwner(tenantId))
           && (resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId || isOwner(tenantId)))
         || (isStaff(tenantId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffStatusFields()))
-        || (isStaff(tenantId) && isSelf(tenantId, staffId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffSelfFields()));
+        || (isStaff(tenantId) && isSelf(tenantId, staffId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffSelfFields()))
+        || (isPortalMember(tenantId) && portalStaffId() == staffId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffSelfFields()));
       match /private/{docId} {
         allow read, write: if false;
       }
