@@ -110,6 +110,11 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { PortalSignIn, isSharedDevice } from '@/components/staff-portal/PortalSignIn';
+import { NowPanel, currentVisit } from '@/components/staff-portal/NowPanel';
+import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-portal/PortalChrome';
+import { brandAccent } from '@/lib/brand-accent';
+import { can } from '@/lib/permissions';
+import { StepEdge } from '@/components/planner/StepTimeline';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -1548,10 +1553,11 @@ function TechPeekSheet({ apt, tech, service, onClose }: any) {
 
 // ─── FULL 24H DAY TIMELINE ────────────────────────────────────────────────────
 function DayTimeline({
-  appointments, services, selectedDate, onAptTap,
+  mode, appointments, services, selectedDate, onAptTap,
   allStaffApts, allWalkIns, allStaff, allStaffBlocks,
   allEvents, allShiftsForDay, currentStaffId, clockStatus,
 }: {
+  mode?: 'my_day' | 'floor';  // set by the Today tab's Now · Day · Floor switch (then this card's own toggle hides)
   appointments: any[]; services: any[]; selectedDate: Date;
   onAptTap: (apt: any) => void;
   allStaffApts?: any[];    // all staff's appointments for floor view
@@ -1565,7 +1571,8 @@ function DayTimeline({
 }) {
   const scrollRef    = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(new Date());
-  const [viewMode, setViewMode] = useState<'my_day' | 'floor'>('my_day');
+  const [viewModeOwn, setViewMode] = useState<'my_day' | 'floor'>('my_day');
+  const viewMode = mode ?? viewModeOwn;
   const [peekApt, setPeekApt]   = useState<any>(null);   // read-only peek for other tech's apt
   const isToday_     = isSameDay(selectedDate, now);
 
@@ -1712,7 +1719,7 @@ function DayTimeline({
             {dayApts.length} apt{dayApts.length !== 1 ? 's' : ''}
           </p>
           {/* View mode toggle — only shown when floor data is available */}
-          {(allStaff?.length ?? 0) > 1 && (
+          {!mode && (allStaff?.length ?? 0) > 1 && (
             <div className="flex items-center bg-slate-100 rounded-xl p-0.5 ml-1">
               <button
                 onClick={() => setViewMode('my_day')}
@@ -1920,7 +1927,7 @@ function DayTimeline({
                   <button
                     onClick={() => onAptTap(apt)}
                     className={cn(
-                      'flex-1 text-left pointer-events-auto cursor-pointer transition-all active:scale-[0.97] active:brightness-95',
+                      'relative flex-1 text-left pointer-events-auto cursor-pointer transition-all active:scale-[0.97] active:brightness-95',
                       padBefore > 0 && padAfter > 0 ? 'rounded-none border-x-2 border-b-0 border-t-0' :
                       padBefore > 0 ? 'rounded-b-2xl border-2 border-t-0' :
                       padAfter  > 0 ? 'rounded-t-2xl border-2 border-b-0' : 'rounded-2xl border-2',
@@ -1930,7 +1937,8 @@ function DayTimeline({
                     )}
                     style={{ height: svcH }}
                   >
-                    <div className="p-3 h-full flex flex-col gap-1 overflow-hidden">
+                    <StepEdge service={(services || []).find((s: any) => s.id === apt.serviceId)} appointment={apt} />
+                    <div className="p-3 pr-4 h-full flex flex-col gap-1 overflow-hidden">
                       {/* Escalated banner */}
                       {apt.isEscalated && (
                         <div className="flex items-center gap-1 mb-0.5">
@@ -2790,8 +2798,8 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
   if (!isClockedIn) {
     return (
       <button onClick={handleClockInOut} disabled={processing}
-        className="flex items-center gap-1.5 h-8 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest transition-all active:scale-95 disabled:opacity-50 bg-green-500/20 border border-green-400/30 text-green-300 hover:bg-green-500/30">
-        {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><LogIn className="w-3 h-3" />Clock In</>}
+        className="flex items-center gap-1.5 h-10 px-4 rounded-[14px] font-bold text-[14px] transition-all active:scale-95 disabled:opacity-50 bg-[#16171a] text-white">
+        {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><LogIn className="w-4 h-4" />Clock in</>}
       </button>
     );
   }
@@ -2800,16 +2808,16 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
     <div className="flex items-center gap-1.5">
       {/* Break toggle */}
       <button onClick={handleBreak} disabled={processing}
-        className={cn('flex items-center gap-1 h-8 px-2.5 rounded-xl font-black uppercase text-[9px] tracking-widest transition-all active:scale-95 disabled:opacity-50',
+        className={cn('flex items-center gap-1 h-10 px-3 rounded-[14px] font-bold text-[13px] transition-all active:scale-95 disabled:opacity-50',
           isOnBreak
-            ? 'bg-amber-500/20 border border-amber-400/30 text-amber-300 hover:bg-amber-500/30 animate-pulse'
-            : 'bg-white/10 border border-white/10 text-white/50 hover:bg-white/20')}>
-        {processing ? <Loader className="w-3 h-3 animate-spin" /> : isOnBreak ? <><Coffee className="w-3 h-3" />End Break</> : <><Coffee className="w-3 h-3" />Break</>}
+            ? 'bg-amber-100 text-amber-800'
+            : 'bg-[#16171a] text-white')}>
+        {processing ? <Loader className="w-3 h-3 animate-spin" /> : isOnBreak ? <><Coffee className="w-3.5 h-3.5" />End break</> : <><Coffee className="w-3.5 h-3.5" />Break</>}
       </button>
       {/* Clock out */}
       <button onClick={handleClockInOut} disabled={processing || isOnBreak}
-        className="flex items-center gap-1 h-8 px-2.5 rounded-xl font-black uppercase text-[9px] tracking-widest transition-all active:scale-95 disabled:opacity-50 bg-rose-500/20 border border-rose-400/30 text-rose-300 hover:bg-rose-500/30">
-        {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><LogOut className="w-3 h-3" />Out</>}
+        className="flex items-center gap-1 h-10 px-3 rounded-[14px] font-semibold text-[13px] transition-all active:scale-95 disabled:opacity-50 border border-[#e6e6e8] bg-white text-[#16171a]">
+        {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><LogOut className="w-3.5 h-3.5" />Out</>}
       </button>
     </div>
   );
@@ -4432,14 +4440,16 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'|'orders'>(staffMember.role === 'renter' ? 'rent' : 'today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'|'orders'|'me'>(staffMember.role === 'renter' ? 'rent' : 'today');
   // Opened from a phone notification (?tab=…) → that tab. Only the portal's own tabs; anything else is ignored.
   useEffect(() => {
     try { const t = new URLSearchParams(window.location.search).get('tab') as any;
-      const allowed = staffMember.role === 'renter' ? ['rent', 'messages', 'inbox', 'documents'] : ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'orders'];
+      const allowed = staffMember.role === 'renter' ? ['rent', 'messages', 'inbox', 'documents', 'me'] : ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'orders', 'me', 'rent'];
       if (t && allowed.includes(t)) setActiveTab(t); } catch { /* fine */ }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [selectedDate, setSelectedDate] = useState(new Date());
+  // Today's view: Now / Day / Floor. Chosen by hand it holds until the next visit starts; otherwise it follows the day.
+  const [todayPick, setTodayPick] = useState<{ view: 'now' | 'day' | 'floor'; visitId: string | null } | null>(null);
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
   const [reviewApt, setReviewApt]   = useState<any>(null);
@@ -4849,13 +4859,26 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     staff_message: <MessageSquare className="w-4 h-4 text-indigo-500" />,
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col max-w-lg mx-auto">
+  // ── Portal frame (bottom bar, Today's views) ──
+  const accentColor = brandAccent(portalTenant);
+  const todaysMine = (allMyApts || []).filter((a: any) => isSameDay(safeDate(a.startTime), new Date()));
+  const liveVisit = currentVisit(todaysMine);
+  const canFloor = can(portalTenant, staffMember.role, 'bookings.all') || ['owner', 'admin', 'manager'].includes(String(staffMember.role));
+  const autoView: 'now' | 'day' = liveVisit ? 'now' : 'day';
+  const todayView: 'now' | 'day' | 'floor' = todayPick && todayPick.visitId === (liveVisit?.id || null) && (todayPick.view !== 'floor' || canFloor) ? todayPick.view : autoView;
+  const pickToday = (v: 'now' | 'day' | 'floor') => setTodayPick({ view: v, visitId: liveVisit?.id || null });
+  const navKey = navOf(activeTab, isRenter);
+  const navItems: NavKey[] = isRenter ? ['rent', 'team', 'me'] : ['today', 'schedule', 'team', 'pay', 'me'];
+  const goNav = (k: NavKey) => setActiveTab(({ today: 'today', schedule: 'schedule', team: 'messages', pay: 'earnings', me: 'me', rent: 'rent' } as const)[k] as any);
+  const firstName = String(staffMember.name || '').split(' ')[0] || 'there';
+  const hello = (() => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })();
 
-      {/* Header */}
-      <div className="bg-slate-900 px-5 pt-6 pb-5 space-y-4 shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+  return (
+    <div className="cf-portal min-h-screen bg-white text-[#16171a] flex flex-col max-w-lg mx-auto pb-28">
+
+      <header className="bg-white px-5 pt-6 pb-3 space-y-3 shrink-0">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <AvatarUpload
               url={staffMember.avatarUrl}
               name={staffMember.name}
@@ -4863,72 +4886,61 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               onUploaded={async (newUrl) => {
                 await updateDoc(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id), { avatarUrl: newUrl });
               }}
-              className="w-11 h-11 rounded-2xl border-2 border-white/10"
-              fallbackClassName="bg-primary/20 text-primary font-black"
+              className="w-12 h-12 rounded-full border-2 border-white shadow-sm"
+              fallbackClassName="bg-[#f1f1f3] text-[#16171a] font-bold"
             />
-            <div>
-              <p className="font-black uppercase text-white text-sm leading-none">{staffMember.name}</p>
-              <p className="text-[9px] font-black uppercase text-primary/60 mt-0.5">{staffMember.role} · {format(today,'EEE, MMM d')}</p>
+            <div className="min-w-0">
+              <p className="text-[13px] text-[#6d7075]">{format(today,'EEE, MMM d')}</p>
+              <p className="truncate text-[22px] font-bold tracking-tight leading-tight">{hello}, {firstName}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {staffMember.role !== 'renter' && (
-              <button onClick={() => setIsRequestOpen(true)} className="h-9 px-3 rounded-xl bg-primary/20 border border-primary/30 text-primary font-black uppercase text-[9px] tracking-widest flex items-center gap-1.5 hover:bg-primary/30 transition-colors">
-                <Plus className="w-3.5 h-3.5" />Request
+              <button onClick={() => setIsRequestOpen(true)} aria-label="New request" className="h-10 w-10 rounded-full border border-[#ececee] bg-white flex items-center justify-center">
+                <Plus className="w-[18px] h-[18px]" />
               </button>
             )}
-            <button onClick={onSignOut} className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 transition-colors">
-              <LogOut className="w-4 h-4" />
+            <button onClick={() => setActiveTab('inbox')} aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} new` : 'Notifications'} className="relative h-10 w-10 rounded-full border border-[#ececee] bg-white flex items-center justify-center">
+              <Bell className="w-[18px] h-[18px]" />
+              {unreadCount > 0 && <span className="absolute top-2 right-2.5 h-2 w-2 rounded-full border-2 border-white" style={{ background: accentColor }} />}
             </button>
           </div>
         </div>
-        <PushPrompt tenantId={tenantId} tone="dark" />
-        {staffMember.role !== 'renter' && <StaffOverruns tenantId={tenantId} tone="dark" />}
-        {staffMember.role !== 'renter' && <MyTimes tenantId={tenantId} tone="dark" />}
-        {staffMember.role !== 'renter' && <MyTips tenantId={tenantId} tone="dark" />}
-        {staffMember.role !== 'renter' && (
-        <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10">
-          <div className={cn('w-2.5 h-2.5 rounded-full shrink-0',
-            clockStatus.isOnBreak ? 'bg-amber-400 animate-pulse' :
-            clockStatus.isClockedIn ? 'bg-green-400 animate-pulse' : 'bg-white/20')} />
+        {staffMember.role !== 'renter' && navKey === 'today' && (
+        <div className="flex items-center gap-3 rounded-[20px] border border-[#ececee] bg-white p-3" style={{ boxShadow: '0 10px 24px -20px rgba(22,23,26,.5)' }}>
+          <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', clockStatus.isOnBreak ? 'bg-amber-500 animate-pulse' : clockStatus.isClockedIn ? 'bg-emerald-600' : 'bg-slate-300')} />
           <div className="flex-1 min-w-0">
-            <p className="text-[9px] font-black uppercase text-white/40">Status</p>
-            <p className="font-black text-white text-sm">
+            <p className="text-[15px] font-semibold">
               {clockStatus.isOnBreak
-                ? `On Break · ${clockStatus.breakMinutes}m`
+                ? `On a break · ${clockStatus.breakMinutes} min`
                 : clockStatus.isClockedIn
-                  ? `Clocked In · ${Math.floor(clockStatus.minutesWorked/60)}h ${clockStatus.minutesWorked%60}m`
-                  : 'Not Clocked In'}
+                  ? `On the clock · ${Math.floor(clockStatus.minutesWorked/60)}h ${clockStatus.minutesWorked%60}m`
+                  : 'Not clocked in'}
             </p>
+            {todayShift && <p className="text-[13px] text-[#6d7075]">Shift {fmt12(todayShift.startTime)} – {fmt12(todayShift.endTime)}</p>}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {todayShift && <div className="text-right"><p className="text-[9px] font-black uppercase text-white/40">Shift</p><p className="font-black text-primary text-sm">{fmt12(todayShift.startTime)} – {fmt12(todayShift.endTime)}</p></div>}
-            <ClockButton staffMember={staffMember} tenantId={tenantId} firestore={firestore} clockStatus={clockStatus} />
-          </div>
+          <ClockButton staffMember={staffMember} tenantId={tenantId} firestore={firestore} clockStatus={clockStatus} />
         </div>
         )}
-      </div>
-
-      {/* Tab bar */}
-      <div className="flex bg-white border-b-2 border-slate-100 shrink-0">
-        {VISIBLE_TABS.map((tab: any) => (
-          <button key={tab.id} onClick={() => { if ((tab as any).external) { setActiveStaffId(staffMember.id); router.push((tab as any).external); } else { setActiveTab(tab.id as any); } }}
-            className={cn('flex-1 flex flex-col items-center gap-1 py-3 text-[8px] font-black uppercase tracking-widest transition-all relative shrink-0 min-w-[56px]', activeTab===tab.id ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground')}>
-            <div className="relative">
-              <tab.icon className="w-4 h-4" />
-              {(tab as any).badge > 0 && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-destructive text-white text-[7px] font-black rounded-full flex items-center justify-center">{(tab as any).badge}</span>}
-            </div>
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Refresh button */}
-      <div className="flex justify-end px-4 py-1.5 bg-slate-50 shrink-0">
-        <button onClick={() => setRefreshKey(k => k+1)} className="flex items-center gap-1 text-[8px] font-black uppercase text-muted-foreground opacity-30 hover:opacity-60 transition-opacity">
-          <RefreshCw className="w-2.5 h-2.5" />Refresh
-        </button>
-      </div>
+        {navKey === 'today' && <PushPrompt tenantId={tenantId} />}
+        {staffMember.role !== 'renter' && navKey === 'today' && <StaffOverruns tenantId={tenantId} />}
+        {navKey === 'today' && !isRenter && (
+          <Segments label="Today's view" value={todayView} onChange={pickToday}
+            options={[{ value: 'now', label: 'Now' }, { value: 'day', label: 'Day' }, ...(canFloor ? [{ value: 'floor' as const, label: 'Floor' }] : [])]} />
+        )}
+        {navKey === 'schedule' && (
+          <Segments label="Schedule" value={activeTab === 'requests' ? 'requests' : 'schedule'} onChange={(v) => setActiveTab(v as any)}
+            options={[{ value: 'schedule', label: 'Shifts' }, { value: 'requests', label: 'Requests', badge: requestsBadge }]} />
+        )}
+        {navKey === 'team' && (
+          <Segments label="Team" value={activeTab === 'inbox' ? 'inbox' : 'messages'} onChange={(v) => setActiveTab(v as any)}
+            options={[{ value: 'messages', label: 'Chats', badge: messagesBadge + teamBadge }, { value: 'inbox', label: 'Notices', badge: unreadCount }]} />
+        )}
+        {navKey === 'pay' && staffMember.role !== 'renter' && <MyTips tenantId={tenantId} />}
+        {navKey === 'me' && activeTab !== 'me' && (
+          <button onClick={() => setActiveTab('me')} className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#6d7075]"><ChevronLeft className="w-4 h-4" />Me</button>
+        )}
+      </header>
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
@@ -4944,6 +4956,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
+{todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} accent={accentColor} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={() => setActiveTab('documents')} />
 <TasksForYou tenantId={tenantId} staffMember={staffMember} />
 <PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />
@@ -5014,7 +5027,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                       />
                     </div>
                   ))}
-                <NextBanner appointments={allMyApts} services={services} />
+                {todayView === 'day' && <NextBanner appointments={allMyApts} services={services} />}
                 <WalkInLeaderboard
                   allWalkIns={allWalkInsRaw || []}
                   allStaff={allStaff || []}
@@ -5025,8 +5038,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   currentStaffId={staffMember?.id}
                   activityLogs={activityLogs || []}
                 />
-                <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />
-                <DayTimeline
+                {todayView !== 'now' && <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />}
+                {todayView !== 'now' && <DayTimeline
+                  mode={todayView === 'floor' ? 'floor' : 'my_day'}
                   appointments={allMyApts}
                   services={services}
                   selectedDate={selectedDate}
@@ -5039,7 +5053,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   allShiftsForDay={allShiftsRaw || []}
                   currentStaffId={staffMember?.id}
                   clockStatus={clockStatus}
-                />
+                />}
                 {isSameDay(selectedDate,today) && (
                   <div className="space-y-3">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Also Working Today</p>
@@ -5258,6 +5272,34 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               ))}
             </div>
           )}
+          {activeTab==='me' && (
+            <div className="space-y-4 pt-1">
+              <div className="flex items-center gap-4 rounded-[24px] border border-[#ececee] bg-white p-4">
+                <div className="h-16 w-16 shrink-0 rounded-full p-[3px]" style={{ background: `conic-gradient(${accentColor}, #d7e6e4, ${accentColor})` }}>
+                  <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-[3px] border-white bg-[#f1f1f3] text-[20px] font-extrabold">
+                    {staffMember.avatarUrl ? <img src={staffMember.avatarUrl} alt="" className="h-full w-full object-cover" /> : (staffMember.name || '?').split(' ').map((x: string) => x[0]).join('').slice(0, 2)}
+                  </div>
+                </div>
+                <div className="min-w-0"><p className="truncate text-[20px] font-extrabold">{staffMember.name}</p><p className="text-[14px] text-[#6d7075] capitalize">{String(staffMember.role || 'team').replace(/_/g, ' ')}</p></div>
+              </div>
+              <div className="overflow-hidden rounded-[24px] border border-[#ececee] bg-white divide-y divide-[#f0f0f2]">
+                {[
+                  { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
+                  { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
+                  { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: !!fulfilmentPerms.canPick },
+                  { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
+                ].filter((r) => r.show).map((r) => (
+                  <button key={r.k} type="button" onClick={() => setActiveTab(r.k as any)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+                    <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{r.label}</span><span className="block text-[13px] text-[#6d7075]">{r.sub}</span></span>
+                    <ChevronRight className="h-4 w-4 text-[#9a9ca1]" />
+                  </button>))}
+              </div>
+              {!isRenter && <MyTimes tenantId={tenantId} />}
+              <PushPrompt tenantId={tenantId} />
+              <button type="button" onClick={onSignOut} className="h-12 w-full rounded-[16px] border border-[#e6e6e8] bg-white text-[15px] font-semibold text-[#b42318]">Sign out</button>
+            </div>
+          )}
+
           {activeTab==='documents' && (
             <TeamDocumentsSection tenantId={tenantId} staffMember={staffMember} />
           )}
@@ -5418,6 +5460,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <BottomNav items={navItems} active={navKey} onPick={goNav} accent={accentColor} badges={{ schedule: requestsBadge, team: messagesBadge + teamBadge + unreadCount }} />
     </div>
   );
 }
