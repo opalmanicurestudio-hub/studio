@@ -42,8 +42,10 @@ export default function GiftShopPage() {
   const [done, setDone] = React.useState<{ manage?: string } | null>(null);
 
   React.useEffect(() => { if (!shop) return; setAmount(shop.amounts[Math.min(1, shop.amounts.length - 1)] ?? null);
-    const want = Number(new URLSearchParams(window.location.search).get('amount')); if (want > 0) { if (shop.amounts.includes(want)) setAmount(want); else if (shop.custom && want >= shop.min && want <= shop.max) setOther(String(want)); }
-    const firstOcc = designs.find((d) => d.collection === 'Occasions' && d.season); setDesignId((firstOcc || designs[0])?.id || ''); setCol(designs.some((d) => d.collection === 'Occasions') ? 'Occasions' : designs[0]?.collection || ''); }, [shop]); // eslint-disable-line react-hooks/exhaustive-deps
+    const sp = new URLSearchParams(window.location.search); const wd = designs.find((d) => d.id === sp.get('design'));
+    const firstOcc = designs.find((d) => d.collection === 'Occasions' && d.season); const pick = wd || firstOcc || designs[0];
+    setDesignId(pick?.id || ''); setCol(pick?.collection || '');
+    const want = Number(sp.get('amount')); if (want > 0) { if (shop.amounts.includes(want)) setAmount(want); else if (shop.custom && want >= shop.min && want <= shop.max) setOther(String(want)); } }, [shop]); // eslint-disable-line react-hooks/exhaustive-deps
   const design = designs.find((d) => d.id === designId) || designs[0];
   const amt = other ? Number(other) : amount || 0;
   const amtOk = !!shop && amt >= shop.min && amt <= shop.max;

@@ -14,8 +14,9 @@ const field = 'h-11 w-full rounded-xl border px-3 text-[15px]';
 const fs = { borderColor: 'var(--line, #ececee)', background: 'var(--card, #fff)' } as const;
 const muted = { color: 'var(--muted, #6d7075)' } as const;
 
-export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, applied, setApplied, holdId, addGiftCardToCart, brandName, brandLogo, brandAccent }: {
+export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, applied, setApplied, holdId, addGiftCardToCart, brandName, brandLogo, brandAccent, screen }: {
   brandName?: string | null; brandLogo?: string | null; brandAccent?: string | null;
+  screen?: { connected: boolean; ask: (kind: string, extra?: any) => Promise<string | null>; response: any } | null;
   tenantId: string; clientId: string | null; clientName?: string | null; owedBeforeGift: number;
   applied: { id: string; code: string; cents: number; label?: string | null }[]; setApplied: (v: any) => void; holdId: string;
   addGiftCardToCart: (x: { amount: number; gift: any }) => void;
@@ -38,11 +39,16 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
   const [via, setVia] = React.useState<'text' | 'email' | 'print' | 'code'>('text'); const [phone, setPhone] = React.useState(''); const [email, setEmail] = React.useState(''); const [later, setLater] = React.useState(''); const [forSelf, setForSelf] = React.useState(false);
   const designs = React.useMemo(() => { const all = designsSync().filter((d) => inSeason(d)); return [...all.filter((d) => d.collection === 'Occasions' && d.season), ...all.filter((d) => !(d.collection === 'Occasions' && d.season))]; }, []);
   const [design, setDesign] = React.useState('frost'); const dz = designs.find((d) => d.id === design);
+  const [line, setLine] = React.useState<string | null>(null); const [sendAtIso, setSendAtIso] = React.useState<string | null>(null);
+  // "Let them fill it in": the client screen shows the card; they pick the design, the line, a note and when it arrives.
+  const [askId, setAskId] = React.useState<string | null>(null); const [filled, setFilled] = React.useState(false);
+  React.useEffect(() => { const r = screen?.response; if (!askId || !r || r.requestId !== askId || r.kind !== 'gift') return;
+    if (r.design) setDesign(r.design); setLine(r.line ?? null); if (r.message) setNote(r.message); setSendAtIso(r.sendAt || null); if (r.sendAt) setLater(String(r.sendAt).slice(0, 10)); setAskId(null); setFilled(true); }, [screen?.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
   const brand = { name: brandName || 'Gift card', logo: brandLogo || null, accent: brandAccent || null };
   const amount = other ? Number(other) : amt; const okAmt = amount >= 1 && amount <= 5000;
   const okSend = via === 'text' ? phone.replace(/\D/g, '').length >= 10 : via === 'email' ? /\S+@\S+\.\S+/.test(email) : true;
-  const sell = () => { addGiftCardToCart({ amount, gift: { recipientName: forSelf ? clientName || null : to.trim() || null, recipientId: forSelf ? clientId : null, recipientPhone: via === 'text' ? phone : null, recipientEmail: via === 'email' ? email : null, message: note.trim() || null, design, line: dz?.line || null, sendVia: via, sendAt: later ? new Date(`${later}T10:00:00`).toISOString() : null } });
-    setTab(''); setTo(''); setNote(''); setDesign('frost'); setPhone(''); setEmail(''); setLater(''); setOther(''); };
+  const sell = () => { addGiftCardToCart({ amount, gift: { recipientName: forSelf ? clientName || null : to.trim() || null, recipientId: forSelf ? clientId : null, recipientPhone: via === 'text' ? phone : null, recipientEmail: via === 'email' ? email : null, message: note.trim() || null, design, line: line === null ? dz?.line || null : line || null, sendVia: via, sendAt: sendAtIso && later === sendAtIso.slice(0, 10) ? sendAtIso : later ? new Date(`${later}T10:00:00`).toISOString() : null } });
+    setTab(''); setTo(''); setNote(''); setDesign('frost'); setLine(null); setSendAtIso(null); setFilled(false); setPhone(''); setEmail(''); setLater(''); setOther(''); };
 
   return (
     <section className="space-y-3 rounded-[20px] p-4" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #ececee)' }} aria-label="Gift cards">
@@ -63,7 +69,7 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
         <div className="grid grid-cols-5 gap-1.5">{[25, 50, 75, 100].map((v) => <button key={v} type="button" onClick={() => { setAmt(v); setOther(''); }} className="h-11 rounded-xl text-[15px] font-semibold" style={!other && amt === v ? { background: 'var(--ink, #16171a)', color: '#fff' } : { border: '1px solid var(--line, #ececee)', background: 'var(--card, #fff)' }}>${v}</button>)}
           <input value={other} onChange={(e) => setOther(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="$ other" aria-label="Other amount" className="h-11 rounded-xl border px-2 text-center text-[14px]" style={fs} /></div>
         <div><p className="mb-1.5 text-[13px] font-semibold" style={muted}>Design{dz ? ` — ${dz.name}` : ''}</p>
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{designs.map((d) => <button key={d.id} type="button" aria-pressed={design === d.id} aria-label={d.name} onClick={() => setDesign(d.id)} className="shrink-0 rounded-[9px] p-[2px]" style={{ outline: design === d.id ? '2px solid var(--ink, #16171a)' : 'none', outlineOffset: 1 }}><GiftCardFace design={d} brand={brand} amount={okAmt ? money(amount).replace('.00', '') : '$'} name=" " width={104} /></button>)}</div></div>
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{designs.map((d) => <button key={d.id} type="button" aria-pressed={design === d.id} aria-label={d.name} onClick={() => { setDesign(d.id); setLine(null); }} className="shrink-0 rounded-[9px] p-[2px]" style={{ outline: design === d.id ? '2px solid var(--ink, #16171a)' : 'none', outlineOffset: 1 }}><GiftCardFace design={d} brand={brand} amount={okAmt ? money(amount).replace('.00', '') : '$'} name=" " width={104} /></button>)}</div></div>
         <label className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={forSelf} onChange={(e) => setForSelf(e.target.checked)} className="h-4 w-4" /> It’s for {clientName ? String(clientName).split(' ')[0] : 'them'} themselves</label>
         {!forSelf && <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Who it’s for" aria-label="Who it’s for" className={field} style={fs} />}
         <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 400))} placeholder="A note to them (optional)" aria-label="A note" className={field} style={fs} />
@@ -71,6 +77,11 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
         {via === 'text' && <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Their mobile number" aria-label="Their mobile number" className={field} style={fs} />}
         {via === 'email' && <input value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" placeholder="Their email" aria-label="Their email" className={field} style={fs} />}
         {(via === 'text' || via === 'email') && <label className="flex items-center gap-2 text-[13.5px]" style={muted}>Send on <input type="date" value={later} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setLater(e.target.value)} className="h-9 rounded-lg border px-2 text-[13.5px]" style={fs} /> {later ? <button type="button" onClick={() => setLater('')} className="underline">today instead</button> : '(or leave for right away)'}</label>}
+        {screen?.connected && (askId
+          ? <div className="flex items-center justify-between gap-2 rounded-2xl p-3 text-[14px]" style={{ background: 'var(--soft, #f3f3f5)' }}><span>Waiting for them on the client screen…</span><button type="button" onClick={() => { setAskId(null); screen.ask('idle', { soft: true }); }} className="text-[13px] font-semibold underline underline-offset-4">Cancel</button></div>
+          : <button type="button" disabled={!okAmt} onClick={async () => { setFilled(false); const id = await screen.ask('gift', { amount, to: forSelf ? clientName || null : to.trim() || null, via, design, designs: designs.slice(0, 24).map((d) => d.id) }); if (id) setAskId(id); else setErr('The client screen didn’t answer — check it’s on.'); }} className="h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--soft, #f3f3f5)' }}>Let them fill it in on the client screen</button>)}
+        {filled && <p className="text-[13.5px] font-semibold" style={{ color: 'var(--ok, #1f7a4d)' }}>Filled in on the client screen{sendAtIso ? ` — arrives ${new Date(sendAtIso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}. Check it, then add it.</p>}
+        {err && tab === 'sell' && <p className="text-[13.5px] font-semibold" style={{ color: 'var(--warn, #b42318)' }}>{err}</p>}
         <button type="button" disabled={!okAmt || !okSend || (!forSelf && !to.trim() && via !== 'code')} onClick={sell} className="h-11 w-full rounded-full text-[14.5px] font-semibold disabled:opacity-40" style={{ background: 'var(--ink, #16171a)', color: '#fff' }}>Add a {okAmt ? money(amount).replace('.00', '') : ''} gift card to the sale</button>
       </div>}
     </section>);

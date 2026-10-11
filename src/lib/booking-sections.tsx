@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { type PageSection } from '@/lib/data';
 import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
+import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { cn } from '@/lib/utils';
 import {
   Calendar, Clock, Clock3, MapPin, Phone, Mail, Instagram,
@@ -4539,48 +4540,55 @@ function WaitlistSection({ config, style, data, isPreview, sectionId, onFieldTap
 // link out to wherever cards are actually sold). It does not pretend to take a
 // payment on its own.
 // When the business sells gift cards online (Gift cards → Online shop), each card's button opens that page with its
-// amount already chosen — unless the owner pointed the button somewhere else themselves.
+// amount and design already chosen — unless the owner pointed the button somewhere else themselves. The cards are drawn
+// as real cards in the business's designs (lib/gift-designs: card1Design… — Frosted, Polish pour and Midnight velvet
+// until the owner picks others), so the section matches the gift card page, the emails and the desk.
 function GiftCardsSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const shopOn = !!data?.tenant?.giftCardSettings?.online && !!data?.tenantId && !config.ctaUrl && !config.ctaLink;
-  const shopHref = (amount: string) => { const n = Number(String(amount).replace(/[^0-9.]/g, '')); return `/gift/${encodeURIComponent(data.tenantId)}${n > 0 ? `?amount=${n}` : ''}`; };
+  const shopHref = (amount: string, design: string) => { const n = Number(String(amount).replace(/[^0-9.]/g, '')); const q = new URLSearchParams(); if (n > 0) q.set('amount', String(n)); q.set('design', design); return `/gift/${encodeURIComponent(data.tenantId)}?${q}`; };
+  const brand = { name: data?.tenant?.name || data?.tenant?.businessName || 'Gift card', logo: data?.tenant?.logoUrl || null, accent: ac(style) };
   const cards = [1, 2, 3].map(n => ({
     amount: config[`card${n}Amount`] || ['$50', '$100', '$200'][n - 1],
     label: config[`card${n}Label`] || ['A little treat', 'The classic', 'The whole day'][n - 1],
     note: config[`card${n}Note`] || '',
+    design: config[`card${n}Design`] || ['frost', 'pour', 'velvet'][n - 1],
     featured: n === 2 ? (config.card2Featured !== undefined ? !!config.card2Featured : true) : false,
   }));
   return (
     <section className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Gift Cards'}</FieldTap>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
+      <div className="max-w-6xl mx-auto px-6 md:px-12">
+        <div className="text-center mb-12 space-y-3">
+          <p className="text-[12px] uppercase tracking-[0.16em]" style={{ fontFamily: bf(style), color: '#78716c' }}>Gift cards</p>
+          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Give the gift of a visit'}</FieldTap>
+          <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading || (shopOn ? 'Sent by text or email — now, or on the day. Never expires.' : '')}</p>
         </div>
-        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6">
+        <div className="-mx-6 flex snap-x snap-mandatory gap-6 overflow-x-auto px-6 pb-4 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0">
           {cards.map((card, i) => (
-            <div
-              key={i}
-              className={cn('p-8 text-center space-y-4 hover:shadow-xl hover:-translate-y-1 transition-all duration-300', card.featured && 'md:scale-105')}
-              style={{ borderRadius: br(style, 1.5), border: `2px solid ${card.featured ? ac(style) : ac(style) + '25'}`, background: card.featured ? ac(style) : 'white' }}
-            >
-              <Gift className="w-6 h-6 mx-auto" style={{ color: card.featured ? 'rgba(255,255,255,0.8)' : ac(style) }}/>
-              <p className="text-4xl font-light" style={{ fontFamily: hf(style), color: card.featured ? 'white' : '#0f172a' }}>{card.amount}</p>
-              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: card.featured ? 'rgba(255,255,255,0.65)' : ac(style) }}>{card.label}</p>
-              {card.note && <p className="text-xs" style={{ fontFamily: bf(style), color: card.featured ? 'rgba(255,255,255,0.7)' : '#94a3b8' }}>{card.note}</p>}
+            <div key={i} className={cn('flex shrink-0 snap-center flex-col items-center gap-4', card.featured && 'md:-translate-y-2')}>
+              <GiftCardTile design={card.design} brand={brand} amount={card.amount} />
+              <p className="text-[15px] font-semibold" style={{ fontFamily: bf(style), color: '#0f172a' }}>{card.label}</p>
+              {card.note && <p className="-mt-2 text-xs" style={{ fontFamily: bf(style), color: '#94a3b8' }}>{card.note}</p>}
               <button
-                onClick={shopOn && !isPreview ? () => { window.location.href = shopHref(card.amount); } : cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
-                className="block w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all"
-                style={{ background: card.featured ? 'white' : ac(style), color: card.featured ? ac(style) : 'white', borderRadius: br(style), fontFamily: bf(style) }}
+                onClick={shopOn && !isPreview ? () => { window.location.href = shopHref(card.amount, card.design); } : cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
+                className="h-11 rounded-full px-6 text-[14px] font-semibold transition-all hover:opacity-90"
+                style={card.featured ? { background: ac(style), color: '#fff', fontFamily: bf(style) } : { background: '#fff', color: '#0f172a', border: '1px solid #e7e2dc', fontFamily: bf(style) }}
               >
-                {config.ctaText || 'Get this card'}
+                {config.ctaText || 'Give this card'}
               </button>
             </div>
           ))}
         </div>
-        {config.footnote && <p className="text-center text-xs text-slate-400 mt-10" style={{ fontFamily: bf(style) }}>{config.footnote}</p>}
+        {shopOn && !isPreview && <p className="mt-8 text-center text-[14px]" style={{ fontFamily: bf(style), color: '#78716c' }}><a href={`/gift/${encodeURIComponent(data.tenantId)}`} className="underline-offset-4 hover:underline">Or choose your own amount and design →</a></p>}
+        {config.footnote && <p className="text-center text-xs text-slate-400 mt-6" style={{ fontFamily: bf(style) }}>{config.footnote}</p>}
       </div>
     </section>
   );
+}
+/** A gift card that fills its column (up to 340px), drawn in the chosen design. */
+function GiftCardTile({ design, brand, amount }: { design: string; brand: any; amount: string }) {
+  const ref = useRef<HTMLDivElement>(null); const [w, setW] = useState(300);
+  useEffect(() => { const el = ref.current; if (!el) return; const f = () => setW(Math.max(240, Math.min(340, Math.floor(el.clientWidth || 300)))); f(); const ro = new ResizeObserver(f); ro.observe(el); return () => ro.disconnect(); }, []);
+  return <div ref={ref} className="flex w-[300px] justify-center md:w-full"><GiftCardFace design={design} brand={brand} amount={amount} name="Someone special" width={w} /></div>;
 }
 
 // ─── EventsSection ────────────────────────────────────────────────────────────

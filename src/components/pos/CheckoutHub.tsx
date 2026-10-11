@@ -1262,7 +1262,7 @@ export const CheckoutHub = ({
            }}
          />
        )}
-       {setGiftApplied && addGiftCardToCart && <GiftCardPanel tenantId={tenantId} clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} owedBeforeGift={Math.max(0, beforeGiftTotal - giftInCart)} applied={giftApplied} setApplied={setGiftApplied} holdId={giftHoldId} addGiftCardToCart={addGiftCardToCart} brandName={(selectedTenant as any)?.name || null} brandLogo={(selectedTenant as any)?.logoUrl || null} brandAccent={brandAccent(selectedTenant)} />}
+       {setGiftApplied && addGiftCardToCart && <GiftCardPanel tenantId={tenantId} clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} owedBeforeGift={Math.max(0, beforeGiftTotal - giftInCart)} applied={giftApplied} setApplied={setGiftApplied} holdId={giftHoldId} addGiftCardToCart={addGiftCardToCart} brandName={(selectedTenant as any)?.name || null} brandLogo={(selectedTenant as any)?.logoUrl || null} brandAccent={brandAccent(selectedTenant)} screen={{ connected: cs.connected, ask: cs.ask, response: cs.response }} />}
         </div>
         <div className="co-right min-w-0 space-y-3">
           {/* EXTRA PRODUCT — suggested, never automatic: the provider recorded more than the recipe on "Products used". */}

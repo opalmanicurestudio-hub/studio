@@ -6,6 +6,7 @@
 // Motion is gentle, follows the business's setting (lively / calm / off) and the iPad's "Reduce Motion".
 import * as React from 'react';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { designById } from '@/lib/gift-designs';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { ClientPayForm } from '@/components/pay/ClientPayForm';
@@ -105,6 +106,10 @@ export default function ClientScreenPage() {
   React.useEffect(() => { lastTouch.current = Date.now(); }, [q?.id, step, payWay]);
   React.useEffect(() => { if (q?.kind !== 'pay' || q.answeredAt) return; const mins = Math.max(2, Number(q.timeoutMin) || 5);
     const t = setInterval(() => { if (Date.now() - lastTouch.current > mins * 60000) { clearInterval(t); call({ action: 'pay_abandon', screenId: id, requestId: q.id }); } }, 15000); return () => clearInterval(t); }, [q?.id, q?.kind, q?.answeredAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A gift card they're buying: the design, the line on the card, a note, and when it arrives.
+  const [gDesign, setGDesign] = React.useState(''); const [gLine, setGLine] = React.useState<string | null>(null); const [gNote, setGNote] = React.useState('');
+  const [gLater, setGLater] = React.useState(false); const [gDay, setGDay] = React.useState(''); const [gTime, setGTime] = React.useState('09:00');
+  React.useEffect(() => { if (q?.kind !== 'gift') return; setGDesign(q.design || q.designs?.[0] || 'frost'); setGLine(null); setGNote(''); setGLater(false); setGDay(''); setGTime('09:00'); }, [q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const rbStage = q?.kind === 'thanks' ? q?.rebook?.stage || null : null;
   const booking = rbStage === 'choose' || rbStage === 'pay' || rbBusy;
   React.useEffect(() => { if (q?.kind !== 'thanks' || !q.id || booking || rch) return; const ms = q.idleWhenDone ? (rbStage === 'done' ? 8000 : 4000) : (Number(q.returnAfter) || 20) * 1000 + (rbStage === 'done' ? 10000 : 0);
@@ -163,6 +168,23 @@ export default function ClientScreenPage() {
   </>, { glow: true });
   if (deskGone && (!q || ['tip', 'approve', 'cash', 'change', 'sign'].includes(q.kind))) return idleScreen();
   // ── Membership terms (or other terms) to sign ──
+  // ── A gift card they're buying: make it theirs ──
+  if (q?.kind === 'gift' && !q.answeredAt) {
+    const dz = designById(gDesign); const line = gLine === null ? dz.line || '' : gLine; const sends = q.via === 'text' || q.via === 'email';
+    const at = gLater && gDay ? new Date(`${gDay}T${gTime || '09:00'}:00`) : null; const pad = (n: number) => String(n).padStart(2, '0'); const ld = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const amt = `$${Number(q.amount || 0).toFixed(Number(q.amount) % 1 ? 2 : 0)}`;
+    return shell(<>
+      <p className="text-center text-[34px] font-semibold">Make it yours</p>
+      <p className="-mt-3 text-center text-[19px]" style={{ color: '#78716c' }}>{q.to ? `Your gift card for ${String(q.to).split(' ')[0]}` : 'Your gift card'} — choose a design{sends ? ' and when it arrives' : ''}</p>
+      <div className="flex justify-center"><GiftCardFace design={dz} brand={{ name: s.brand?.name || '', logo: s.brand?.logo || null, accent: s.brand?.accent || null }} amount={amt} name={q.to || ' '} line={line} width={440} /></div>
+      <div className="-mx-8 flex gap-3 overflow-x-auto px-8 pb-2">{(q.designs || []).map((dId: string) => <button key={dId} type="button" aria-pressed={gDesign === dId} aria-label={designById(dId).name} onClick={() => { setGDesign(dId); setGLine(null); }} className="shrink-0 rounded-[12px] p-[3px]" style={{ outline: gDesign === dId ? '3px solid #1c1917' : 'none', outlineOffset: 2 }}><GiftCardFace design={dId} brand={{ name: s.brand?.name || '', logo: s.brand?.logo || null, accent: s.brand?.accent || null }} amount={amt} name=" " width={132} /></button>)}</div>
+      <input value={line} onChange={(e) => setGLine(e.target.value.slice(0, 30))} placeholder="Line on the card, e.g. Happy birthday" aria-label="Line on the card" className="h-16 w-full rounded-2xl border bg-white px-5 text-[20px]" style={{ borderColor: '#e7e2dc' }} />
+      <textarea value={gNote} onChange={(e) => setGNote(e.target.value.slice(0, 400))} rows={3} placeholder="A note to them (optional)" aria-label="A note to them" className="w-full rounded-2xl border bg-white px-5 py-4 text-[20px] leading-relaxed" style={{ borderColor: '#e7e2dc' }} />
+      {sends && <div className="space-y-3"><div className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setGLater(false)} className={big} style={!gLater ? solid : ghost}>Right away</button><button type="button" onClick={() => { setGLater(true); if (!gDay) setGDay(ld(new Date(Date.now() + 864e5))); }} className={big} style={gLater ? solid : ghost}>On a day I choose</button></div>
+        {gLater && <div className="grid grid-cols-[1.4fr_1fr] gap-3"><input type="date" value={gDay} min={ld(new Date())} onChange={(e) => setGDay(e.target.value)} aria-label="Day" className="h-16 rounded-2xl border bg-white px-4 text-[20px]" style={{ borderColor: '#e7e2dc' }} /><input type="time" value={gTime} onChange={(e) => setGTime(e.target.value)} aria-label="Time" className="h-16 rounded-2xl border bg-white px-4 text-[20px]" style={{ borderColor: '#e7e2dc' }} /></div>}</div>}
+      <button type="button" disabled={busy || (gLater && !at)} onClick={() => respond({ design: gDesign, line, message: gNote, sendAt: at ? at.toISOString() : null })} className={`${big} w-full`} style={solid}>{busy ? <Dots /> : 'Done'}</button>
+    </>, { glow: true });
+  }
   if (q?.kind === 'sign' && !q.answeredAt) return shell(<>{brandTop}
     <p className="text-center text-[30px] font-semibold">{q.title}</p>
     <div className="max-h-[32vh] overflow-y-auto whitespace-pre-line rounded-3xl p-5 text-[17px] leading-relaxed" style={{ background: '#fff', border: '1px solid #e7e2dc', color: '#44403c' }}>{q.text}</div>

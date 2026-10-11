@@ -4,7 +4,7 @@ import { CircleUserRound, Loader, Lock, Minus, Package, Plus, ShoppingBag, Store
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,8 @@ import {
 import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
 import { ShopMenu } from '@/components/shop/ShopMenu';
 import { cn } from '@/lib/utils';
+import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { designsSync } from '@/lib/gift-designs';
 
 // ─── /shop/[tenantId]/page.tsx ────────────────────────────────────────────────
 // Public storefront. Catalog comes from /api/retail/catalog (Admin SDK —
@@ -79,6 +81,29 @@ type Method = 'counter' | 'curbside' | 'ship';
 const fmt = (cents: number) =>
   (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
+/** The gift card tile: two of the business's own designs, fanned, and "From $25" — opens the gift card page. */
+function GiftCardShopTile({ tenantId, gift, wide }: { tenantId: string; gift: any; wide?: boolean }) {
+  const pick = designsSync().filter((d) => gift.designs.includes(d.id));
+  const a = pick.find((d) => d.collection === 'Occasions' && d.season) || pick[0]; const b = pick.find((d) => d !== a && d.collection !== 'Occasions') || pick[1] || a;
+  const from = Math.min(...(gift.amounts || [25]));
+  const ref = useRef<HTMLDivElement>(null); const [w, setW] = useState(200);
+  useEffect(() => { const el = ref.current; if (!el) return; const f = () => setW(Math.max(110, Math.min(200, Math.floor(el.clientWidth * 0.72)))); f(); const ro = new ResizeObserver(f); ro.observe(el); return () => ro.disconnect(); }, []);
+  const h = Math.round(w * 265 / 420);
+  return (
+    <a href={`/gift/${encodeURIComponent(tenantId)}`} className={cn('group flex flex-col justify-between gap-4 overflow-hidden rounded-3xl border-2 bg-white p-4 transition-all hover:shadow-lg', wide && 'sm:flex-row sm:items-center')} style={{ background: 'linear-gradient(160deg,#fff,#f7f4fb)' }}>
+      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Gift cards</p>
+      <div ref={ref} className="w-full"><div className="relative mx-auto" style={{ width: Math.round(w * 1.24), height: h + Math.round(h * 0.45) }}>
+        {b && <div className="absolute left-0 top-0 -rotate-6 transition-transform group-hover:-rotate-[8deg]"><GiftCardFace design={b} brand={gift.brand} amount={`$${from}`} name="For you" width={w} /></div>}
+        {a && <div className="absolute rotate-3 transition-transform group-hover:rotate-[5deg]" style={{ left: Math.round(w * 0.22), top: Math.round(h * 0.42) }}><GiftCardFace design={a} brand={gift.brand} amount={`$${gift.amounts?.[1] || 100}`} name="Someone special" width={w} /></div>}
+      </div></div>
+      <div className="space-y-2">
+        <p className="text-lg font-light leading-tight">Give a gift card</p>
+        <p className="text-[11px] font-bold text-muted-foreground">Sent by text or email, now or on the day. Never expires.</p>
+        <span className="flex h-10 items-center justify-center rounded-full bg-foreground text-[12px] font-bold text-background">From ${from}</span>
+      </div>
+    </a>);
+}
+
 export default function ShopPage() {
   const params = useParams<{ tenantId: string }>();
   const search = useSearchParams();
@@ -90,6 +115,10 @@ export default function ShopPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [category, setCategory] = useState('all');
+  // Gift cards sold online (lib/gift-shop): shown first in the shop and as their own filter. They open the gift card
+  // page rather than going in the cart — a gift card is sent, not shipped.
+  const [gift, setGift] = useState<any>(null);
+  useEffect(() => { if (!tenantId) return; fetch(`/api/gift-cards/shop?tenantId=${encodeURIComponent(tenantId)}`).then((r) => r.json()).then((x) => setGift(x?.ok && x.open ? x : null)).catch(() => {}); }, [tenantId]);
 
   // Wholesale
   const [wholesaleCode, setWholesaleCode] = useState('');
@@ -219,7 +248,7 @@ export default function ShopPage() {
     [products]
   );
   const shown = useMemo(
-    () => (category === 'all' ? products : products.filter((p) => p.category === category)),
+    () => (category === 'all' ? products : category === '__gift' ? [] : products.filter((p) => p.category === category)),
     [products, category]
   );
 
@@ -412,7 +441,7 @@ export default function ShopPage() {
       />
 
       <div id="shop-catalog" className="max-w-5xl mx-auto px-4 pt-6 pb-2 flex gap-2 overflow-x-auto scroll-mt-24">
-        {categories.map((c) => (
+        {(gift ? [...categories.slice(0, 1), '__gift', ...categories.slice(1)] : categories).map((c) => (
           <button
             key={c}
             type="button"
@@ -423,7 +452,7 @@ export default function ShopPage() {
               category === c ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40'
             )}
           >
-            {c === 'all' ? 'Everything' : c}
+            {c === 'all' ? 'Everything' : c === '__gift' ? 'Gift cards' : c}
           </button>
         ))}
       </div>
@@ -434,7 +463,8 @@ export default function ShopPage() {
         shop.layout === 'showcase' && 'grid grid-cols-1 md:grid-cols-2',
         shop.layout === 'list' && 'flex flex-col'
       )}>
-        {shown.length === 0 && (
+        {gift && (category === 'all' || category === '__gift') && <GiftCardShopTile tenantId={tenantId} gift={gift} wide={shop.layout === 'list'} />}
+        {shown.length === 0 && category !== '__gift' && (
           <div className="col-span-full text-center py-24 space-y-3">
             <Package className="w-10 h-10 mx-auto opacity-20" />
             <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Nothing here yet</p>

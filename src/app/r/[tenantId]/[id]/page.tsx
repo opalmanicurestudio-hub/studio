@@ -2,6 +2,8 @@
 // /r/[tenantId]/[id]?k=… — a RECEIPT, or a VOID SLIP once the sale is voided. Printable (the buttons don't print).
 import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
+import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { designsSync } from '@/lib/gift-designs';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 export default function ReceiptPage() {
@@ -9,6 +11,9 @@ export default function ReceiptPage() {
   const k = useSearchParams().get('k') || '';
   const [d, setD] = React.useState<any>(null); const [err, setErr] = React.useState<string | null>(null);
   React.useEffect(() => { fetch(`/api/receipts?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(id)}&k=${encodeURIComponent(k)}`).then((r) => r.json()).then((x) => (x.ok ? setD(x) : setErr(x.error || 'This receipt isn’t available.'))).catch(() => setErr('We couldn’t load this receipt.')); }, [tenantId, id, k]);
+  // "Give one to a friend" — when the business sells gift cards online (lib/gift-shop). Never printed.
+  const [gift, setGift] = React.useState<any>(null);
+  React.useEffect(() => { fetch(`/api/gift-cards/shop?tenantId=${encodeURIComponent(tenantId)}`).then((r) => r.json()).then((x) => setGift(x?.ok && x.open ? x : null)).catch(() => {}); }, [tenantId]);
   if (!d) return <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>{err || 'Loading…'}</main>;
   const { business: b, receipt: r } = d; const tz = b.timezone || undefined;
   const when = (iso: string) => new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: tz });
@@ -101,6 +106,10 @@ export default function ReceiptPage() {
       <div className="no-print" style={{ maxWidth: 380, margin: '12px auto 0', display: 'flex', gap: 8 }}>
         <button type="button" onClick={() => window.print()} style={{ flex: 1, height: 44, borderRadius: 999, border: 0, background: '#1c1917', color: '#fff', fontWeight: 600 }}>Print</button>
       </div>
+      {gift && !r.voided && (() => { const ds = designsSync().filter((x) => gift.designs.includes(x.id)); const pick = ds.find((x) => x.id === 'o-thanks') || ds.find((x) => x.collection !== 'Occasions') || ds[0]; return pick ? (
+        <a href={`/gift/${encodeURIComponent(tenantId)}`} className="no-print" style={{ maxWidth: 380, margin: '14px auto 0', display: 'flex', gap: 14, alignItems: 'center', background: '#fff', borderRadius: 16, padding: 14, border: '1px solid #ece6df', textDecoration: 'none', color: '#1c1917' }}>
+          <GiftCardFace design={pick} brand={gift.brand} amount={`$${gift.amounts?.[1] || 50}`} name="A friend" width={128} />
+          <span style={{ fontSize: 14, lineHeight: 1.45 }}><b>Give one to a friend</b><br /><span style={{ color: '#78716c' }}>A gift card, sent by text or email — now or on the day.</span></span></a>) : null; })()}
     </main>
   );
 }
