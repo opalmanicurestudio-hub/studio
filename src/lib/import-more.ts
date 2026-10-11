@@ -157,4 +157,73 @@ export async function savePackages(db: any, tenantId: string, rows: any[], o: { 
   return { added, clientsAdded, made, fills };
 }
 
-export const MORE_KINDS: ImportKind[] = ['appointments', 'giftcards', 'packages'];
+// ─────────────── MOVING IN, PART 3: memberships, balances, formula notes, discount codes ───────────────
+type Fill = { docId: string; patch: any; before: any; col?: string };
+async function clientFor(db: any, tenantId: string, idx: any, r: any, o: { importId: string; app: string }) {
+  let client = idx.find(r); let made = false;
+  if (!client) { const ref = db.collection(`${T(tenantId)}/clients`).doc(); client = newClientDoc(ref, r, o); await ref.set(client); idx.add(client); made = true; }
+  return { client, made };
+}
+
+/** Members: each one's plan (one of yours, matched by name, or made — hidden from sale) and their next charge date. Card
+ *  details can't come over, so they show on Cards on file to add theirs; renewals wait for that card (lib/memberships/renewals). */
+export async function saveMemberships(db: any, tenantId: string, rows: any[], o: { importId: string; app: string }) {
+  const ms = await db.collection(`${T(tenantId)}/memberships`).get(); const plans = ms.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  const idx = await clientIndex(db, tenantId); let added = 0, clientsAdded = 0, made = 0, skipped = 0; const fills: Fill[] = [];
+  for (const r of rows) {
+    let plan = plans.find((p: any) => svcNorm(p.name) === svcNorm(r.plan) && (r.price == null || Math.abs(Number(p.price) - Number(r.price)) < 0.01));
+    if (!plan) { const ref = db.collection(`${T(tenantId)}/memberships`).doc();
+      plan = { id: ref.id, name: String(r.plan).slice(0, 120), price: Number(r.price) || 0, interval: r.interval === 'yearly' ? 'yearly' : 'monthly', isPrivate: true, description: '', includedServices: [], importId: o.importId, importedFrom: o.app || null, createdAt: now() };
+      await ref.set(plan); plans.push(plan); made++; }
+    const { client, made: newOne } = await clientFor(db, tenantId, idx, r, o); if (newOne) clientsAdded++;
+    const ref = db.doc(`${T(tenantId)}/clients/${client.id}`); const cur: any = (await ref.get()).data() || {};
+    if (cur.subscription && ['active', 'past_due'].includes(cur.subscription.status)) { skipped++; continue; }   // already a member here — left as it is
+    const patch = { activeMembershipId: plan.id, subscription: { membershipId: plan.id, status: 'active', startedAt: r.started ? `${r.started}T12:00:00.000Z` : now(), nextBillingDate: `${r.next}T15:00:00.000Z`, perkUsage: {}, source: 'import', importId: o.importId, importedFrom: o.app || null } };
+    await ref.set(patch, { merge: true }); fills.push({ docId: client.id, patch, before: { activeMembershipId: cur.activeMembershipId ?? null, subscription: cur.subscription ?? null } }); added++;
+  }
+  return { added, clientsAdded, made, skipped, fills };
+}
+
+/** Balances: store credit becomes credit they can use here; what they owe goes on their account (paid at a visit or by link). */
+export async function saveBalances(db: any, tenantId: string, rows: any[], o: { importId: string; app: string }) {
+  const idx = await clientIndex(db, tenantId); let added = 0, clientsAdded = 0, creditCents = 0, owedCents = 0; const fills: Fill[] = [];
+  for (const r of rows) {
+    const { client, made } = await clientFor(db, tenantId, idx, r, o); if (made) clientsAdded++;
+    if (Number(r.credit) > 0) { const cRef = db.collection(`${T(tenantId)}/depositCredits`).doc(); const cents = Math.round(Number(r.credit) * 100);
+      await cRef.set({ id: cRef.id, tenantId, clientId: client.id, clientEmail: String(client.email || '').toLowerCase(), clientName: client.name || null, amountCents: cents, usedCents: 0, status: 'available',
+        source: 'import', reason: r.note || `Credit brought over from ${o.app || 'your old app'}`, importId: o.importId, importedFrom: o.app || null, createdAt: now() }); creditCents += cents; }
+    if (Number(r.owed) > 0) { const ref = db.doc(`${T(tenantId)}/clients/${client.id}`); const cur: any = (await ref.get()).data() || {}; const owed = Math.round(Number(r.owed) * 100) / 100;
+      const fee = { feeId: `imp_${o.importId}_${client.id}`, appointmentId: '', appointmentDate: now().slice(0, 10), feeAmount: owed, reason: r.note || `Balance brought over from ${o.app || 'your old app'}` };
+      const list = Array.isArray(cur.unpaidFees) ? cur.unpaidFees : []; if (list.some((x: any) => x.feeId === fee.feeId)) continue;
+      const patch = { outstandingBalance: Math.round(((Number(cur.outstandingBalance) || 0) + owed) * 100) / 100, unpaidFees: [...list, fee], balanceVersion: now() };
+      await ref.set(patch, { merge: true }); fills.push({ docId: client.id, patch, before: { outstandingBalance: cur.outstandingBalance ?? 0, unpaidFees: list, balanceVersion: cur.balanceVersion ?? null }, col: 'clients' }); owedCents += Math.round(owed * 100); }
+    added++;
+  }
+  return { added, clientsAdded, creditCents, owedCents, fills };
+}
+
+/** Formula notes: kept on the client with the date, service and who did it — they show in the visit's formula history. */
+export async function saveFormulas(db: any, tenantId: string, rows: any[], o: { importId: string; app: string }) {
+  const idx = await clientIndex(db, tenantId); let added = 0, clientsAdded = 0; const fills: Fill[] = []; const byClient = new Map<string, any[]>(); const clients = new Map<string, any>();
+  for (const r of rows) { const { client, made } = await clientFor(db, tenantId, idx, r, o); if (made) clientsAdded++; clients.set(client.id, client); byClient.set(client.id, [...(byClient.get(client.id) || []), r]); }
+  for (const [cid, list] of byClient) {
+    const ref = db.doc(`${T(tenantId)}/clients/${cid}`); const cur: any = (await ref.get()).data() || {}; const had = Array.isArray(cur.customFormulas) ? cur.customFormulas : [];
+    const fresh = list.filter((r: any) => !had.some((f: any) => f.text === r.formula && (f.date || '').slice(0, 10) === (r.date || ''))).map((r: any, i: number) => ({
+      id: `imp_${o.importId}_${cid}_${i}`, name: [r.service, r.staff].filter(Boolean).join(' · ') || 'Formula', date: r.date ? `${r.date}T12:00:00.000Z` : now(), items: [], text: r.formula, imported: true, importId: o.importId, importedFrom: o.app || null }));
+    if (!fresh.length) continue;
+    const next = [...fresh, ...had].sort((a: any, b: any) => String(b.date).localeCompare(String(a.date))).slice(0, 200);
+    await ref.set({ customFormulas: next }, { merge: true }); fills.push({ docId: cid, patch: { customFormulas: next }, before: { customFormulas: had } }); added += fresh.length;
+  }
+  return { added, clientsAdded, fills };
+}
+
+/** Discount codes: each code keeps working here, with its dates, limits and uses so far. A code already here is skipped. */
+export async function saveDiscounts(db: any, tenantId: string, rows: any[], o: { importId: string; app: string }) {
+  const have = new Set((await db.collection(`${T(tenantId)}/discounts`).get()).docs.map((d: any) => String((d.data() as any)?.code || '').toUpperCase())); let added = 0, skipped = 0;
+  for (const r of rows) { if (have.has(r.code)) { skipped++; continue; } const ref = db.collection(`${T(tenantId)}/discounts`).doc();
+    await ref.set(JSON.parse(JSON.stringify({ id: ref.id, code: r.code, description: r.description || `Brought over from ${o.app || 'your old app'}`, type: r.type, value: r.value, usageLimit: r.limit || 0, usageCount: r.used || 0, importedUsed: r.used || 0, isActive: true,
+      validFrom: r.starts || undefined, validUntil: r.ends || undefined, limitOnePerCustomer: !!r.once, usedByClientIds: [], importId: o.importId, importedFrom: o.app || null, createdAt: now() }))); have.add(r.code); added++; }
+  return { added, skipped };
+}
+
+export const MORE_KINDS: ImportKind[] = ['appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts'];

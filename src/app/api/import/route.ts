@@ -6,7 +6,7 @@
 //                                                           since), and takes back what it filled in on existing ones
 //   { action: 'list',   tenantId }                       → recent imports
 //   { action: 'questions', kind: 'appointments', rows }   → staff and service names to match (lib/import-more)
-// Appointments, gift card balances and packages are saved by lib/import-more.
+// Appointments, gift card balances, packages, memberships, client balances, formula notes and discount codes are saved by lib/import-more.
 // Matching: a client by email, then mobile; a product by SKU, then name; a service by name. A match is filled in, never
 // overwritten. A renter's own clients are never matched or touched.
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,8 +16,8 @@ import { sameKeys, fillIn, type ImportKind } from '@/lib/import-records';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-const KINDS: ImportKind[] = ['clients', 'services', 'products', 'appointments', 'giftcards', 'packages'];
-const COL: Record<ImportKind, string> = { clients: 'clients', services: 'services', products: 'inventory', appointments: 'appointments', giftcards: 'giftCards', packages: 'clients' };
+const KINDS: ImportKind[] = ['clients', 'services', 'products', 'appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts'];
+const COL: Record<ImportKind, string> = { clients: 'clients', services: 'services', products: 'inventory', appointments: 'appointments', giftcards: 'giftCards', packages: 'clients', memberships: 'clients', balances: 'depositCredits', formulas: 'clients', discounts: 'discounts' };
 const now = () => new Date().toISOString();
 
 async function existingIndex(db: any, tenantId: string, kind: ImportKind) {
@@ -91,8 +91,8 @@ export async function POST(req: NextRequest) {
     if (imp.undoneAt) return NextResponse.json({ ok: true, removed: 0, kept: 0 });
     const kind = imp.kind as ImportKind; const col = `${T}/${COL[kind]}`;
     const addedMain = await db.collection(col).where('importId', '==', imp.id).get();
-    const addedClients = ['appointments', 'giftcards'].includes(kind) ? (await db.collection(`${T}/clients`).where('importId', '==', imp.id).get()).docs : [];
-    const addedPkgs = kind === 'packages' ? (await db.collection(`${T}/packages`).where('importId', '==', imp.id).get()).docs : [];
+    const addedClients = ['appointments', 'giftcards', 'balances'].includes(kind) ? (await db.collection(`${T}/clients`).where('importId', '==', imp.id).get()).docs : [];
+    const addedPkgs = kind === 'packages' ? (await db.collection(`${T}/packages`).where('importId', '==', imp.id).get()).docs : kind === 'memberships' ? (await db.collection(`${T}/memberships`).where('importId', '==', imp.id).get()).docs : [];
     const added = { docs: [...addedMain.docs, ...addedClients, ...addedPkgs] }; let removed = 0, kept = 0;
     let batch = db.batch(); let n = 0; const gone = new Set<string>();
     for (const d of added.docs) {
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       // Kept: anything used since (a visit booked, a sale, an edit) — removing it would lose real work.
       const since = imp.finishedAt || imp.startedAt; const edited = !!x.updatedAt && x.updatedAt > since;
       const isClient = d.ref.path.includes('/clients/'); const isAppt = d.ref.path.includes('/appointments/');
-      const gcUsed = d.ref.path.includes('/giftCards/') && (x.history || []).some((h: any) => h.type === 'spend');
+      const gcUsed = (d.ref.path.includes('/giftCards/') && (x.history || []).some((h: any) => h.type === 'spend')) || (d.ref.path.includes('/depositCredits/') && (Number(x.usedCents) > 0 || x.status !== 'available')) || (d.ref.path.includes('/discounts/') && Number(x.usageCount) > Number(x.importedUsed ?? x.usageCount));
       const apptTouched = isAppt && ((x.updatedAt && x.updatedAt > since) || !!x.checkoutSessionId || (x.reminderSentAt && x.reminderSentBy !== 'import'));
       const touched = gcUsed || apptTouched ? true : isClient ? edited || Number(x.lifetimeValue || 0) !== Number(x.importedSpent || 0) || (x.lastAppointment || null) !== (x.importedLastVisit || null) : edited;
       if (touched) { kept++; continue; }
@@ -108,20 +108,23 @@ export async function POST(req: NextRequest) {
     }
     // Filled-in fields on existing records go back to empty — only where they still hold what the import put there.
     const fills = await db.collection(`${T}/imports/${imp.id}/fills`).get();
-    for (const f of fills.docs) { const x: any = f.data() || {}; if (gone.has(x.docId)) continue; const cur: any = (await db.doc(`${col}/${x.docId}`).get()).data(); if (!cur) continue;
+    for (const f of fills.docs) { const x: any = f.data() || {}; if (gone.has(x.docId)) continue; const fcol = x.col ? `${T}/${x.col}` : col; const cur: any = (await db.doc(`${fcol}/${x.docId}`).get()).data(); if (!cur) continue;
       const back: any = {}; for (const [k, v] of Object.entries(x.patch || {})) if (JSON.stringify(cur[k]) === JSON.stringify(v)) back[k] = x.before?.[k] ?? null;
-      if (Object.keys(back).length) { batch.set(db.doc(`${col}/${x.docId}`), back, { merge: true }); if (++n >= 400) { await batch.commit(); batch = db.batch(); n = 0; } } }
+      if (Object.keys(back).length) { batch.set(db.doc(`${fcol}/${x.docId}`), back, { merge: true }); if (++n >= 400) { await batch.commit(); batch = db.batch(); n = 0; } } }
     if (n) await batch.commit();
     await ref.set({ undoneAt: now(), undoneBy: g.actor?.name || null, removed, kept }, { merge: true });
     return NextResponse.json({ ok: true, removed, kept });
   }
   const kind = String(b.kind) as ImportKind; if (!KINDS.includes(kind)) return NextResponse.json({ ok: false, error: 'Choose what you’re bringing in.' }, { status: 400 });
   const rows: any[] = (Array.isArray(b.rows) ? b.rows : []).slice(0, 400).filter((r: any) => r && typeof r === 'object' && r.name);
-  if (['appointments', 'giftcards', 'packages'].includes(kind)) {
+  if (['appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts'].includes(kind)) {
     const more = await import('@/lib/import-more');
     if (b.action === 'questions' && kind === 'appointments') return NextResponse.json({ ok: true, ...(await more.appointmentQuestions(db, tenantId, rows)) });
     if (b.action === 'check') {
       if (kind === 'giftcards') { const { findByCode } = await import('@/lib/gift-cards'); let fresh = 0, matched = 0, owed = 0; for (const r of rows) { if (await findByCode(db, tenantId, r.code)) matched++; else { fresh++; if (!r.voided) owed += Math.round(Number(r.balance) * 100); } } return NextResponse.json({ ok: true, fresh, matched, fills: 0, samples: [], owedCents: owed }); }
+      if (kind === 'discounts') { const have = new Set((await db.collection(`${T}/discounts`).get()).docs.map((d: any) => String((d.data() as any)?.code || '').toUpperCase())); let matched = 0; for (const r of rows) if (have.has(r.code)) matched++; return NextResponse.json({ ok: true, fresh: rows.length - matched, matched, fills: 0, samples: [] }); }
+      if (kind === 'balances') { const idx3 = await more.clientIndex(db, tenantId); let known = 0, credit = 0, owed = 0; for (const r of rows) { if (idx3.find(r)) known++; credit += Math.round(Number(r.credit || 0) * 100); owed += Math.round(Number(r.owed || 0) * 100); }
+        return NextResponse.json({ ok: true, fresh: rows.length, matched: 0, fills: 0, samples: [], knownClients: known, newClients: rows.length - known, creditCents: credit, owedCents: owed }); }
       const idx2 = await more.clientIndex(db, tenantId); let known = 0; for (const r of rows) if (idx2.find(r)) known++;
       return NextResponse.json({ ok: true, fresh: rows.length, matched: 0, fills: 0, samples: [], knownClients: known, newClients: rows.length - known });
     }
@@ -135,10 +138,12 @@ export async function POST(req: NextRequest) {
         if (!imp) await more.rememberMaps(db, tenantId, staffMap, serviceMap);
         out = await more.saveAppointments(db, tenantId, t, rows, { importId, app, staffMap, serviceMap, reminders: b.reminders === true }); }
       else if (kind === 'giftcards') out = await more.saveGiftCards(db, tenantId, rows, { importId, app, by: g.actor?.name || 'Import' });
-      else { out = await more.savePackages(db, tenantId, rows, { importId, app, packageMap: b.packageMap || {} });
+      else if (kind === 'discounts') out = await more.saveDiscounts(db, tenantId, rows, { importId, app });
+      else { out = kind === 'memberships' ? await more.saveMemberships(db, tenantId, rows, { importId, app }) : kind === 'balances' ? await more.saveBalances(db, tenantId, rows, { importId, app })
+          : kind === 'formulas' ? await more.saveFormulas(db, tenantId, rows, { importId, app }) : await more.savePackages(db, tenantId, rows, { importId, app, packageMap: b.packageMap || {} });
         for (const f of out.fills) await db.collection(`${T}/imports/${importId}/fills`).doc().set(clean(f)); delete out.fills; }
       const { FieldValue } = await import('firebase-admin/firestore');
-      await iRef.set({ added: FieldValue.increment(out.added || 0), skipped: FieldValue.increment((out.skipped || 0) + Math.max(0, Number(b.skipped) || 0)), clientsAdded: FieldValue.increment(out.clientsAdded || 0), ...(out.owedCents ? { owedCents: FieldValue.increment(out.owedCents) } : {}), finishedAt: now() }, { merge: true });
+      await iRef.set({ added: FieldValue.increment(out.added || 0), skipped: FieldValue.increment((out.skipped || 0) + Math.max(0, Number(b.skipped) || 0)), clientsAdded: FieldValue.increment(out.clientsAdded || 0), ...(out.owedCents && kind === 'giftcards' ? { owedCents: FieldValue.increment(out.owedCents) } : {}), ...(kind === 'balances' ? { creditCents: FieldValue.increment(out.creditCents || 0), balanceOwedCents: FieldValue.increment(out.owedCents || 0) } : {}), finishedAt: now() }, { merge: true });
       return NextResponse.json({ ok: true, filled: 0, ...out });
     }
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });

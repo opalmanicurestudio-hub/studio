@@ -2,7 +2,7 @@
 // read a CSV export, match its columns to ours (by the names other booking apps use), and clean each row into a client,
 // service or product. Nothing here writes; /api/import does that after the owner has seen the preview.
 
-export type ImportKind = 'clients' | 'services' | 'products' | 'appointments' | 'giftcards' | 'packages';
+export type ImportKind = 'clients' | 'services' | 'products' | 'appointments' | 'giftcards' | 'packages' | 'memberships' | 'balances' | 'formulas' | 'discounts';
 export type FieldDef = { key: string; label: string; names: string[]; required?: boolean };
 
 /** Read CSV text (commas, semicolons or tabs; quoted fields; line breaks inside quotes; a BOM). */
@@ -98,6 +98,52 @@ export const FIELDS: Record<ImportKind, FieldDef[]> = {
     { key: 'service', label: 'For which service', names: ['service', 'service name', 'applies to', 'for'] },
     { key: 'expires', label: 'Expires', names: ['expires', 'expiration', 'expiration date', 'expiry', 'expiry date', 'valid until', 'expires on'] },
     { key: 'bought', label: 'Bought on', names: ['purchased', 'purchase date', 'bought', 'date', 'sold on', 'created'] },
+  ],
+  memberships: [
+    { key: 'client', label: 'Client name', names: ['client', 'client name', 'customer', 'customer name', 'name', 'full name', 'member', 'member name'] },
+    { key: 'firstName', label: 'Client first name', names: ['first name', 'first', 'client first name'] },
+    { key: 'lastName', label: 'Client last name', names: ['last name', 'last', 'client last name'] },
+    { key: 'email', label: 'Client email', names: ['email', 'client email', 'customer email', 'email address'] },
+    { key: 'phone', label: 'Client phone', names: ['phone', 'mobile', 'cell', 'phone number', 'mobile phone'] },
+    { key: 'plan', label: 'Membership', names: ['membership', 'membership name', 'plan', 'plan name', 'subscription', 'contract', 'pricing option', 'autopay'], required: true },
+    { key: 'price', label: 'Price', names: ['price', 'amount', 'monthly price', 'rate', 'billing amount', 'recurring amount', 'payment amount'] },
+    { key: 'interval', label: 'How often', names: ['frequency', 'billing frequency', 'interval', 'billing cycle', 'period', 'cycle', 'billing period'] },
+    { key: 'next', label: 'Next charge', names: ['next billing date', 'next charge', 'next charge date', 'next payment', 'next payment date', 'renewal date', 'next billing', 'next autopay', 'next bill date'], required: true },
+    { key: 'started', label: 'Started', names: ['start date', 'started', 'member since', 'start', 'activation date', 'created'] },
+    { key: 'status', label: 'Status', names: ['status', 'membership status', 'state'] },
+  ],
+  balances: [
+    { key: 'client', label: 'Client name', names: ['client', 'client name', 'customer', 'customer name', 'name', 'full name', 'member', 'member name'] },
+    { key: 'firstName', label: 'Client first name', names: ['first name', 'first', 'client first name'] },
+    { key: 'lastName', label: 'Client last name', names: ['last name', 'last', 'client last name'] },
+    { key: 'email', label: 'Client email', names: ['email', 'client email', 'customer email', 'email address'] },
+    { key: 'phone', label: 'Client phone', names: ['phone', 'mobile', 'cell', 'phone number', 'mobile phone'] },
+    { key: 'credit', label: 'Credit they have', names: ['credit', 'store credit', 'account credit', 'credit balance', 'available credit', 'prepaid balance', 'account balance credit'] },
+    { key: 'owed', label: 'What they owe', names: ['owed', 'amount owed', 'balance due', 'outstanding', 'outstanding balance', 'unpaid', 'due', 'past due', 'balance owing'] },
+    { key: 'balance', label: 'Balance (+ credit, − owed)', names: ['balance', 'account balance', 'current balance'] },
+    { key: 'note', label: 'What it’s for', names: ['note', 'notes', 'reason', 'memo', 'description'] },
+  ],
+  formulas: [
+    { key: 'client', label: 'Client name', names: ['client', 'client name', 'customer', 'customer name', 'name', 'full name', 'member', 'member name'] },
+    { key: 'firstName', label: 'Client first name', names: ['first name', 'first', 'client first name'] },
+    { key: 'lastName', label: 'Client last name', names: ['last name', 'last', 'client last name'] },
+    { key: 'email', label: 'Client email', names: ['email', 'client email', 'customer email', 'email address'] },
+    { key: 'phone', label: 'Client phone', names: ['phone', 'mobile', 'cell', 'phone number', 'mobile phone'] },
+    { key: 'formula', label: 'Formula', names: ['formula', 'formula notes', 'color formula', 'colour formula', 'mix', 'recipe', 'technical notes', 'service notes', 'notes'], required: true },
+    { key: 'date', label: 'Date', names: ['date', 'visit date', 'service date', 'created', 'created at'] },
+    { key: 'service', label: 'Service', names: ['service', 'service name', 'treatment'] },
+    { key: 'staff', label: 'By', names: ['staff', 'stylist', 'provider', 'employee', 'technician', 'by', 'artist'] },
+  ],
+  discounts: [
+    { key: 'code', label: 'Code', names: ['code', 'discount code', 'promo code', 'coupon', 'coupon code', 'promotion code', 'voucher'], required: true },
+    { key: 'amount', label: 'Amount off', names: ['amount', 'discount', 'value', 'discount amount', 'percent', 'percentage', 'amount off', 'discount value'], required: true },
+    { key: 'type', label: 'Percent or dollars', names: ['type', 'discount type', 'kind', 'amount type'] },
+    { key: 'description', label: 'Description', names: ['description', 'name', 'title', 'promotion', 'promotion name'] },
+    { key: 'starts', label: 'Starts', names: ['start', 'start date', 'starts', 'valid from', 'begins'] },
+    { key: 'ends', label: 'Ends', names: ['end', 'end date', 'ends', 'expires', 'expiration', 'expiration date', 'valid until', 'expiry'] },
+    { key: 'limit', label: 'Uses allowed', names: ['limit', 'usage limit', 'max uses', 'uses allowed', 'maximum uses', 'redemption limit'] },
+    { key: 'used', label: 'Times used', names: ['used', 'uses', 'times used', 'redemptions', 'usage count', 'redeemed'] },
+    { key: 'once', label: 'Once per client', names: ['once per customer', 'one per customer', 'one per client', 'single use per customer', 'limit one per customer'] },
   ],
   products: [
     { key: 'name', label: 'Product name', names: ['name', 'product', 'product name', 'item', 'item name', 'title'], required: true },
@@ -241,6 +287,42 @@ export function cleanRow(kind: ImportKind, cells: string[], map: Record<string, 
     if (d.expires && d.expires < new Date().toISOString().slice(0, 10)) return { row, data: {}, problems, skip: `Expired ${d.expires}` };
     return { row, data: d, problems };
   }
+  if (kind === 'memberships' || kind === 'balances' || kind === 'formulas') {
+    const first = titleCase(g('firstName')), last = titleCase(g('lastName')); const client = (first || last ? `${first} ${last}` : titleCase(g('client'))).replace(/\s+/g, ' ').trim();
+    const email = cleanEmail(g('email')); const phone = cleanPhone(g('phone'));
+    if (!client && !email && !phone) return { row, data: {}, problems, skip: 'No client' };
+    const who: any = { client: client || email || phone, name: client || email || phone }; if (email) who.email = email; if (phone) who.phone = phone;
+    if (kind === 'memberships') {
+      const plan = g('plan').slice(0, 120); if (!plan) return { row, data: {}, problems, skip: 'No membership named' };
+      const st = g('status').toLowerCase(); if (/cancel|ended|expired|terminated|inactive|frozen|suspend|paused|hold/.test(st)) return { row, data: {}, problems, skip: `${titleCase(st)} in the old app` };
+      const next = cleanDate(g('next')); if (!next) return { row, data: {}, problems, skip: g('next') ? `Next charge “${g('next')}” wasn’t a date we could read` : 'No next charge date' };
+      const iv = g('interval').toLowerCase(); const interval = /year|annual|12 ?month/.test(iv) ? 'yearly' : 'monthly';
+      if (iv && !/month|year|annual|4 ?week|four week|30 ?day/.test(iv)) problems.push(`“${g('interval')}” — set up as monthly`);
+      const price = cleanMoney(g('price')); const d: any = { ...who, plan, interval, next, started: cleanDate(g('started')) };
+      if (price != null && price >= 0) d.price = price; else problems.push('No price — the plan’s price is used');
+      return { row, data: d, problems };
+    }
+    if (kind === 'balances') {
+      let credit = cleanMoney(g('credit')) || 0, owed = cleanMoney(g('owed')) || 0; const bal = cleanMoney(g('balance'));
+      if (!credit && !owed && bal) { if (bal > 0) credit = bal; else owed = -bal; }
+      credit = Math.max(0, credit); owed = Math.max(0, Math.abs(owed));
+      if (!credit && !owed) return { row, data: {}, problems, skip: 'Nothing owed either way' };
+      return { row, data: { ...who, credit, owed, note: g('note').slice(0, 200) || null }, problems };
+    }
+    const text = g('formula').slice(0, 2000); if (!text) return { row, data: {}, problems, skip: 'No formula' };
+    return { row, data: { ...who, formula: text, date: cleanDate(g('date')), service: g('service').slice(0, 120) || null, staff: titleCase(g('staff')).slice(0, 80) || null }, problems };
+  }
+  if (kind === 'discounts') {
+    const code = g('code').replace(/\s+/g, '').toUpperCase().slice(0, 30); if (!code) return { row, data: {}, problems, skip: 'No code' };
+    const raw = g('amount'); const n = cleanMoney(raw); if (n == null || n <= 0) return { row, data: {}, problems, skip: `No amount for ${code}` };
+    const hint = `${raw} ${g('type')}`; const saysPct = /%|percent|pct/i.test(hint); const saysFixed = /\$|dollar|fixed|flat|amount off|usd/i.test(hint);
+    const pct = saysPct || (!saysFixed && n <= 100 && Number.isInteger(n));   // "20" with nothing else is read as 20%
+    if (!saysPct && !saysFixed) problems.push(`“${raw}” — read as ${pct ? `${n}%` : `$${n}`} off; check it`);
+    const ends = cleanDate(g('ends')); if (ends && ends < new Date().toISOString().slice(0, 10)) return { row, data: {}, problems, skip: `Ended ${ends}` };
+    const lim = cleanMoney(g('limit')); const used = cleanMoney(g('used'));
+    return { row, data: { code, name: code, type: pct ? 'percentage' : 'fixed', value: pct ? Math.min(100, n) : n, description: g('description').slice(0, 200) || null, starts: cleanDate(g('starts')), ends,
+      limit: lim != null && lim > 0 ? Math.round(lim) : null, used: used != null && used > 0 ? Math.round(used) : 0, once: map.once !== undefined ? yes(g('once')) : false }, problems };
+  }
   if (kind === 'services') {
     const name = g('name'); if (!name) return { row, data: {}, problems, skip: 'No service name' };
     const d: any = { name: name.slice(0, 120) }; if (g('category')) d.category = g('category').slice(0, 60);
@@ -263,6 +345,9 @@ export function sameKeys(kind: ImportKind, d: any): string[] {
   if (kind === 'appointments') return [`a:${String(d.when)}|${norm(d.client)}|${norm(d.service || '')}`];
   if (kind === 'giftcards') return [`g:${String(d.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '')}`];
   if (kind === 'packages') return [`k:${norm(d.client)}|${norm(d.package)}`];
+  if (kind === 'memberships') return [`m:${norm(d.client)}|${norm(d.plan)}`];
+  if (kind === 'discounts') return [`d:${String(d.code || '').toUpperCase()}`];
+  if (kind === 'balances' || kind === 'formulas') return [`r:${Math.random()}`];   // every row stands on its own
   if (kind === 'products') return [d.sku ? `s:${String(d.sku).toLowerCase()}` : '', `n:${norm(d.name)}`].filter(Boolean);
   return [`n:${norm(d.name)}`];
 }
@@ -304,22 +389,26 @@ export const APPS: { id: string; name: string; how: string }[] = [
   { id: 'other', name: 'Something else', how: 'Most apps have Export on the client list or under Reports. A spreadsheet works too — save it as CSV.' },
 ];
 
-const KIND_WORD: Record<ImportKind, string> = { clients: 'client list', services: 'service menu', products: 'items or inventory list', appointments: 'appointments or bookings report', giftcards: 'gift cards report', packages: 'packages or series report' };
+const KIND_WORD: Record<ImportKind, string> = { clients: 'client list', services: 'service menu', products: 'items or inventory list', appointments: 'appointments or bookings report', giftcards: 'gift cards report', packages: 'packages or series report', memberships: 'memberships or autopay report', balances: 'client account balances report', formulas: 'formula or client notes report', discounts: 'discount or promo codes list' };
 /** Where to find the file, for this app and this kind of record. */
 export function howToGet(kind: ImportKind, appId: string): string {
   const A = APPS.find((a) => a.id === appId);
   if (kind === 'clients' && A) return A.how;
   const name = A && A.id !== 'other' ? A.name : 'your old app';
-  const extra = kind === 'appointments' ? ' Choose dates from a year ago to as far ahead as you’re booked.' : kind === 'giftcards' ? ' Include cards that still have money on them.' : kind === 'packages' ? ' It should show sessions left for each client.' : '';
+  const extra = kind === 'appointments' ? ' Choose dates from a year ago to as far ahead as you’re booked.' : kind === 'giftcards' ? ' Include cards that still have money on them.' : kind === 'packages' ? ' It should show sessions left for each client.' : kind === 'memberships' ? ' It should show each member’s plan and next charge date.' : kind === 'balances' ? ' It should show credit and amounts owed for each client.' : '';
   return `Look for Export on the ${KIND_WORD[kind]} in ${name}.${extra} If you can’t find it, their support team can send it to you.`;
 }
 
 /** What a file probably is, from its column names (for “drop any file”). */
 export function guessKind(headers: string[]): ImportKind {
   const H = headers.map(norm); const score = (k: ImportKind) => FIELDS[k].reduce((n, f) => n + (H.some((h) => f.names.includes(h)) ? (f.required ? 3 : 1) : 0), 0);
-  const kinds: ImportKind[] = ['clients', 'appointments', 'giftcards', 'packages', 'services', 'products'];
+  const kinds: ImportKind[] = ['clients', 'appointments', 'giftcards', 'packages', 'services', 'products', 'memberships', 'balances', 'formulas', 'discounts'];
   const has = (re: RegExp) => H.some((h) => re.test(h));
-  if (has(/gift|certificate/)) return 'giftcards'; if (has(/remaining|sessions/) && has(/package|series|pass/)) return 'packages';
+  if (has(/gift|certificate/)) return 'giftcards';
+  if (has(/next (billing|charge|payment|autopay|bill)|renewal/) && has(/membership|plan|subscription|contract/)) return 'memberships';
+  if (has(/formula|colou?r formula|mix|recipe/)) return 'formulas';
+  if (has(/promo|coupon|discount code|voucher/)) return 'discounts';
+  if (has(/store credit|account credit|balance due|amount owed|outstanding/)) return 'balances'; if (has(/remaining|sessions/) && has(/package|series|pass/)) return 'packages';
   if (has(/^(start|time|appointment date|start time)$/) || (has(/date/) && has(/staff|provider|stylist|employee/))) return 'appointments';
   return kinds.map((k) => [k, score(k)] as const).sort((a, b) => b[1] - a[1])[0][0];
 }

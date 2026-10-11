@@ -3199,6 +3199,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         <div className="min-w-0">
                           <span className="text-[12px] font-semibold tracking-tight truncate block">{f.name}</span>
                           <span className="text-[12px] font-bold text-muted-foreground opacity-60">{fmtDT(f.date, 'MMM d, yyyy')}</span>
+                          {f.text && <span className="mt-1 block whitespace-pre-wrap font-mono text-[12px] text-slate-700">{f.text}</span>}
                         </div>
                         <ArrowRight className="w-3 h-3 text-primary opacity-20" />
                       </div>

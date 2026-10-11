@@ -75,6 +75,44 @@ import { makeDb, check, failures } from './fake-db';
     check('a hidden service isn’t offered', v2.again === null);
     check('the link is signed per client', W.helloKey(T, 'm') !== W.helloKey(T, 'n') && W.helloPath(T, 'm').endsWith(`k=${W.helloKey(T, 'm')}`)); }
 
+  console.log('Moving in, part 3 — reading files');
+  { const IR = await import('../../src/lib/import-records');
+    const read = (kind: any, csv: string) => { const rows = IR.parseCsv(csv); const map = IR.autoMatch(kind, rows[0]); return rows.slice(1).map((c, i) => IR.cleanRow(kind, c, map, i + 2)); };
+    const m = read('memberships', 'Member Name,Email,Membership,Price,Billing Frequency,Next Billing Date,Status\nMaria Lopez,maria@x.com,Gel monthly,$65.00,Monthly,10/28/2026,Active\nKeisha Moore,k@x.com,Mani club,45,Every 2 weeks,11/02/2026,Active\nOld One,o@x.com,Gel monthly,65,Monthly,10/28/2026,Cancelled\nNo Date,n@x.com,Gel monthly,65,Monthly,,Active');
+    check('members: plan, price, monthly, next charge', m[0].data.plan === 'Gel monthly' && m[0].data.price === 65 && m[0].data.interval === 'monthly' && m[0].data.next === '2026-10-28', m[0]);
+    check('an unusual billing cycle is flagged (set up as monthly)', m[1].problems.some((p: string) => /monthly/.test(p)));
+    check('cancelled members and members with no next date are left out', !!m[2].skip && !!m[3].skip, [m[2].skip, m[3].skip]);
+    const b = read('balances', 'Client,Email,Account Balance,Notes\nAna Ruiz,ana@x.com,25.00,Refund credit\nBen Ortiz,ben@x.com,-40,No-show fee\nCara Lee,cara@x.com,0,');
+    check('a positive balance is credit, a negative one is owed, zero is left out', b[0].data.credit === 25 && b[1].data.owed === 40 && !!b[2].skip, b.map((x: any) => x.data));
+    const b2 = read('balances', 'Client,Store Credit,Amount Owed\nDee,10,5');
+    check('credit and owed in separate columns', b2[0].data.credit === 10 && b2[0].data.owed === 5);
+    const f = read('formulas', 'Client,Date,Stylist,Formula\nMaria Lopez,2026-09-01,Ana,6N + 20 vol 35 min');
+    check('formula notes with date and who did it', f[0].data.formula === '6N + 20 vol 35 min' && f[0].data.date === '2026-09-01' && f[0].data.staff === 'Ana', f[0].data);
+    const d = read('discounts', 'Promo Code,Discount,Type,Expiration Date,Usage Limit,Times Used\nWELCOME10,10%,,,100,12\nSAVE5,5,Fixed,,,\nTWENTY,20,,,,\nOLD,15%,,2020-01-01,,');
+    check('discount codes: percent, dollars, a bare number read as percent (flagged), ended ones left out', d[0].data.type === 'percentage' && d[0].data.value === 10 && d[0].data.limit === 100 && d[0].data.used === 12 && d[1].data.type === 'fixed' && d[1].data.value === 5 && d[2].data.type === 'percentage' && d[2].problems.length === 1 && !!d[3].skip, d.map((x: any) => x.data));
+    check('files are recognized by their columns', IR.guessKind(['Client', 'Membership', 'Next Billing Date']) === 'memberships' && IR.guessKind(['Promo Code', 'Discount']) === 'discounts' && IR.guessKind(['Client', 'Color Formula']) === 'formulas' && IR.guessKind(['Client', 'Store Credit']) === 'balances'); }
+
+  console.log('Moving in, part 3 — saving');
+  { const M = await import('../../src/lib/import-more'); const db = fresh(); const o = { importId: 'imp1', app: 'Vagaro' };
+    db._store.set('tenants/t1/clients/maria', { name: 'Maria Lopez', email: 'maria@x.com' });
+    const mm: any = await M.saveMemberships(db, T, [{ client: 'Maria Lopez', name: 'Maria Lopez', email: 'maria@x.com', plan: 'Gel monthly', price: 65, interval: 'monthly', next: '2026-10-28' }, { client: 'New Member', name: 'New Member', email: 'nm@x.com', plan: 'VIP club', price: 99, interval: 'monthly', next: '2026-11-05' }], o);
+    const maria = db._store.get('tenants/t1/clients/maria');
+    check('a member joins your existing plan with their next charge', maria.subscription?.membershipId === 'gel' && maria.subscription.nextBillingDate.startsWith('2026-10-28') && maria.activeMembershipId === 'gel', maria.subscription);
+    const vip: any = [...db._store.values()].find((v: any) => v?.name === 'VIP club'); check('a plan that isn’t here is made, hidden from sale', vip?.isPrivate === true && vip.price === 99 && mm.made === 1 && mm.clientsAdded === 1);
+    const cards: any[] = await C.membersCards(db, T); check('they show on Cards on file without a card', cards.length === 2 && cards.every((c) => !c.card));
+    const again: any = await M.saveMemberships(db, T, [{ client: 'Maria Lopez', name: 'Maria Lopez', email: 'maria@x.com', plan: 'Gel monthly', price: 65, interval: 'monthly', next: '2026-12-01' }], { importId: 'imp2', app: 'Vagaro' });
+    check('someone already a member here is left as they are', again.skipped === 1 && db._store.get('tenants/t1/clients/maria').subscription.nextBillingDate.startsWith('2026-10-28'));
+    const bb: any = await M.saveBalances(db, T, [{ client: 'Maria Lopez', name: 'Maria Lopez', email: 'maria@x.com', credit: 25, owed: 0, note: 'Refund credit' }, { client: 'Ben', name: 'Ben', email: 'ben@x.com', credit: 0, owed: 40, note: 'No-show fee' }], o);
+    const credit: any = [...db._store.entries()].find(([k]) => k.includes('/depositCredits/'))?.[1]; const ben: any = [...db._store.values()].find((v: any) => v?.name === 'Ben');
+    check('store credit becomes credit they can use', credit?.amountCents === 2500 && credit.status === 'available' && credit.clientId === 'maria' && bb.creditCents === 2500, credit);
+    check('what they owe goes on their balance', ben?.outstandingBalance === 40 && ben.unpaidFees?.[0]?.feeAmount === 40 && /No-show/.test(ben.unpaidFees[0].reason), ben);
+    const ff: any = await M.saveFormulas(db, T, [{ client: 'Maria Lopez', name: 'Maria Lopez', email: 'maria@x.com', formula: '6N + 20 vol', date: '2026-09-01', staff: 'Ana', service: 'Color' }], o);
+    const mf = db._store.get('tenants/t1/clients/maria').customFormulas; check('formula notes are kept on the client, newest first', ff.added === 1 && mf[0].text === '6N + 20 vol' && mf[0].name === 'Color · Ana', mf);
+    const ff2: any = await M.saveFormulas(db, T, [{ client: 'Maria Lopez', name: 'Maria Lopez', email: 'maria@x.com', formula: '6N + 20 vol', date: '2026-09-01' }], o); check('the same note isn’t added twice', ff2.added === 0);
+    db._store.set('tenants/t1/discounts/x', { code: 'WELCOME10' });
+    const dd: any = await M.saveDiscounts(db, T, [{ code: 'WELCOME10', type: 'percentage', value: 10 }, { code: 'SAVE5', type: 'fixed', value: 5, limit: 50, used: 3, ends: '2027-01-31' }], o);
+    const save5: any = [...db._store.values()].find((v: any) => v?.code === 'SAVE5'); check('codes come in with limits and uses; one already here is skipped', dd.added === 1 && dd.skipped === 1 && save5.usageLimit === 50 && save5.usageCount === 3 && save5.validUntil === '2027-01-31' && save5.isActive === true, save5); }
+
   console.log('Starter menus');
   { check('five menus, every service with a length and no price', S.STARTER_MENUS.length === 5 && S.STARTER_MENUS.every((m) => m.services.every((x: any) => x.duration > 0 && !('price' in x))));
     check('the nail menu has 18 services', S.STARTER_MENUS.find((m) => m.id === 'nails')?.services.length === 18);
