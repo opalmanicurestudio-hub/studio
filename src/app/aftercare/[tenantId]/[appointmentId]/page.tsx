@@ -7,6 +7,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { feedbackVisit, feedbackPath, visitAftercare } from '@/lib/visit-feedback';
 import { settingsOf, aftercareFor } from '@/lib/making-it-right';
 import { brandAccent } from '@/lib/brand-accent';
+import { rebookSettingsOf } from '@/lib/client-screen';
 import { aftercareSettingsOf, productsUsed, providerNoteOf, rebookWeeksOf } from '@/lib/aftercare';
 import { AftercareView } from '@/components/documents/AftercareView';
 
@@ -40,5 +41,6 @@ export default async function AftercarePage({ params, searchParams }: { params: 
     reportHref: mir ? `/how/${tenantId}/${appointmentId}?${visitQ}&start=report` : '' } : null;
   return <AftercareView name={name} logo={logo} accent={accent} service={service} from={from} when={when} doc={care.doc} text={care.text} howHref={howHref} note={note} used={used} checkIn={sp.c === '1' ? checkIn : null}
     bookLabel={weeks ? `Book again in ${weeks} week${weeks === 1 ? '' : 's'}` : undefined}
+    rebookToken={!isRenterVisit && a.checkInToken && a.status === 'completed' && rebookSettingsOf(tenant).on && rebookSettingsOf(tenant).visitLink ? String(a.checkInToken) : null}
     bookHref={!isRenterVisit && a.serviceId ? `/book/${tenantId}?service=${encodeURIComponent(String(a.serviceId))}` : ''} />;
 }
