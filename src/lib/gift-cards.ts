@@ -127,14 +127,15 @@ async function adjustTx(db: any, ref: any, o: any) {
 /** What a client or the desk may see of a card (never the holds' details or history). */
 export function pub(g: any) {
   if (!g) return null;
-  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, kind: g.kind || 'amount', serviceId: g.serviceId || null, serviceName: g.serviceName || null, promo: g.promo === true, offerName: g.offerName || null, usableFrom: g.usableFrom || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
+  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, kind: g.kind || 'amount', serviceId: g.serviceId || null, serviceName: g.serviceName || null, promo: g.promo === true, offerName: g.offerName || null, notes: Array.isArray(g.notes) ? g.notes.slice(0, 60) : null, givers: g.givers || null, usableFrom: g.usableFrom || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
 }
 
 /** Text or email the card to the person it's for (now, or on the day chosen — the cron sends those). */
 export async function deliverGiftCard(db: any, tenantId: string, tenant: any, g: any) {
   const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(tenant, '');
   const link = origin ? `${origin}${giftPath(tenantId, g.id)}` : ''; const biz = g.ownerName ? `${g.ownerName}${tenant?.name ? ` at ${tenant.name}` : ''}` : tenant?.name || 'us';
-  const from = g.purchaserName ? String(g.purchaserName).split(' ')[0] : null; const amount = `$${(g.initialCents / 100).toFixed(g.initialCents % 100 ? 2 : 0)}`;
+  // A chip-in (g.givers) is from everyone: "Jess, Maya and 4 others sent you…"
+  const from = g.purchaserName ? (g.givers ? String(g.purchaserName) : String(g.purchaserName).split(' ')[0]) : null; const amount = `$${(g.initialCents / 100).toFixed(g.initialCents % 100 ? 2 : 0)}`;
   if (g.promo) return deliverBonus(db, tenantId, tenant, g, link, biz, amount);
   const text = `${from ? `${from} sent you` : 'You’ve got'} a ${amount} gift card for ${biz}!${g.message ? ` “${String(g.message).slice(0, 160)}”` : ''} Your code: ${g.code}.${link ? ` See it and book: ${link}` : ''}`;
   const { sendNotification } = await import('@/lib/notify');

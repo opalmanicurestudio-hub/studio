@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
-  const mgrOnly = ['list', 'adjust', 'issue', 'settings', 'transfer', 'report'].includes(action);
+  const mgrOnly = ['list', 'adjust', 'issue', 'settings', 'transfer', 'report', 'bulk-list', 'bulk-save', 'bulk-send', 'bulk-paid', 'bulk-cancel'].includes(action);
   const g = await requireRole(req, tenantId, mgrOnly ? 'manager' : 'staff'); if (g.deny) return g.deny;
   const db = getAdminDb(); const by = g.actor?.name || 'Staff'; const T = `tenants/${tenantId}`;
   // Wrong codes are counted per person: after 8 misses in 15 minutes they wait 15 minutes, and managers hear about it.
@@ -68,6 +68,17 @@ export async function POST(req: NextRequest) {
     return j(r, r.ok ? 200 : 400); }
   // THE MONEY REPORT: by month — sold, brought in, used, corrected, cancelled and what's still owed at the end of each
   // month — plus balances nobody has touched in a long time. The studio's cards only (a renter's cards are their money).
+  // COMPANY ORDERS (lib/gift-bulk): many cards for one buyer, one invoice.
+  if (action.startsWith('bulk-')) { const B = await import('@/lib/gift-bulk');
+    if (action === 'bulk-list') { const sn = await db.collection(`${T}/giftBulk`).get();
+      return j({ ok: true, orders: sn.docs.map((d: any) => ({ ...d.data(), path: B.bulkPath(tenantId, d.id) })).filter((o: any) => o.status !== 'cancelled').sort((a: any, z: any) => String(z.createdAt).localeCompare(String(a.createdAt))) }); }
+    if (action === 'bulk-save') { const r: any = await B.saveBulk(db, tenantId, b.order || {}, by); return j(r, r.ok ? 200 : 400); }
+    const id = String(b.id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60); if (!id) return j({ ok: false, error: 'That order wasn’t found.' }, 404);
+    if (action === 'bulk-send') { const r: any = await B.sendBulkInvoice(db, tenantId, id, req.nextUrl.origin); return j(r, r.ok ? 200 : 400); }
+    if (action === 'bulk-paid') { const via = ['check', 'transfer', 'cash', 'card'].includes(b.via) ? b.via : 'check'; const r: any = await B.markBulkPaid(db, tenantId, id, { via, by });
+      if (r.ok) await alertManagers(db, tenantId, `${by} marked a company gift card order paid (${via}) — ${r.made} cards made.`, '/gift-cards', g.actor?.uid || null).catch(() => {}); return j(r, r.ok ? 200 : 400); }
+    if (action === 'bulk-cancel') { const r: any = await B.cancelBulk(db, tenantId, id, by); return j(r, r.ok ? 200 : 400); }
+  }
   if (action === 'report') {
     const snap = await db.collection(`${T}/giftCards`).get(); const m: Record<string, any> = {}; const row = (k: string) => (m[k] ||= { month: k, sold: 0, imported: 0, used: 0, adjusted: 0, voided: 0, soldCount: 0 });
     const idle = { y1: { n: 0, cents: 0 }, y2: { n: 0, cents: 0 }, y3: { n: 0, cents: 0 } }; const nowMs = Date.now(); let owedNow = 0;

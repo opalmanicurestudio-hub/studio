@@ -148,6 +148,60 @@ import { makeDb, check, failures } from './fake-db';
     await gs.completeGiftOrder(db2, T, 'o8', { sessionId: 's8', amountTotal: 10000 });
     check('no offer, no bonus', ![...db2._store.values()].some((v: any) => v?.promo)); }
 
+  console.log('Chip in');
+  { const G = await import('../../src/lib/gift-groups'); const db = fresh();
+    const soon = new Date(Date.now() + 3 * 864e5).toISOString();
+    db._store.set('tenants/t1/giftGroups/g1', { id: 'g1', status: 'collecting', design: 'o-birthday', line: 'HAPPY BIRTHDAY', organizerName: 'Jess Marshall', organizerEmail: 'jess@x.com', recipientName: 'Tia Grant', via: 'me', recipientEmail: null, recipientPhone: null, message: 'Happy birthday!', sendAt: soon, goalCents: 25000, totalCents: 0, count: 0, names: [] });
+    const chip = (id: string, name: string, cents: number, msg: string | null, organizer = false) => db._store.set(`tenants/t1/giftOrders/${id}`, { id, status: 'pending', kind: 'chip', groupId: 'g1', organizer, amountCents: cents, design: 'o-birthday', buyerName: name, buyerEmail: `${id}@x.com`, message: msg, recipientName: 'Tia Grant', via: 'me', stripeAccountId: 'acct_1' });
+    chip('c1', 'Jess Marshall', 5000, null, true); chip('c2', 'Maya Lee', 3000, 'Can’t wait to see the new set'); chip('c3', 'Ana Ruiz', 2000, 'Love you!'); chip('c4', 'Rosa Diaz', 4000, null);
+    for (const [id, c] of [['c1', 5000], ['c2', 3000], ['c3', 2000]] as const) await gs.completeGiftOrder(db, T, id, { sessionId: `s_${id}`, paymentIntent: `pi_${id}`, amountTotal: c });
+    await gs.completeGiftOrder(db, T, 'c2', { sessionId: 's_c2', amountTotal: 3000 });
+    const g: any = db._store.get('tenants/t1/giftGroups/g1');
+    check('three shares add up to $100 (a repeat confirm counts once)', g.totalCents === 10000 && g.count === 3, g);
+    check('no card yet — it’s made on the day', ![...db._store.keys()].some((k) => k.startsWith('tenants/t1/giftCards/')));
+    const tx = [...db._store.entries()].filter(([k]) => k.startsWith('tenants/t1/transactions/')).map(([, v]) => v as any);
+    check('each share is recorded as gift card money held', tx.length === 3 && tx.every((x) => x.category === 'Gift Card Sales' && x.taxBucket === 'transfer'), tx);
+    const share: any = await G.groupView(db, T, 'g1', 'share'); const org: any = await G.groupView(db, T, 'g1', 'org');
+    check('friends see names, not amounts', share.names.join(',') === 'Jess,Maya,Ana' && !share.chips, share);
+    check('the organizer sees each share', org.chips.length === 3 && org.chips.some((c: any) => c.cents === 3000 && c.name === 'Maya Lee'), org.chips);
+    check('the two links are different, and a made-up one fails', G.roleFor(T, 'g1', G.groupKey(T, 'g1', 'share'), null) === 'share' && G.roleFor(T, 'g1', null, G.groupKey(T, 'g1', 'org')) === 'org' && G.roleFor(T, 'g1', 'nope', 'nope') === null && G.roleFor(T, 'g1', G.groupKey(T, 'g1', 'share'), G.groupKey(T, 'g1', 'share')) === 'share');
+    const f: any = await G.finishGroup(db, T, 'g1'); const card: any = db._store.get(`tenants/t1/giftCards/${f.cardId}`);
+    check('one $100 card for Tia', f.ok && card.initialCents === 10000 && card.recipientName === 'Tia Grant', { f, card });
+    check('it’s from everyone, with their notes', card.purchaserName === 'Jess, Maya and Ana' && card.givers === 3 && card.notes.length === 2, card);
+    check('only the shares were sales — making the card adds nothing', [...db._store.entries()].filter(([k]) => k.startsWith('tenants/t1/transactions/')).length === 3);
+    check('sent once only', !(await G.finishGroup(db, T, 'g1') as any).ok);
+    await gs.completeGiftOrder(db, T, 'c4', { sessionId: 's_c4', amountTotal: 4000 });
+    const late: any = db._store.get('tenants/t1/giftOrders/c4'); check('a share paid after it was sent isn’t added (it’s refunded)', late.late === true && db._store.get(`tenants/t1/giftCards/${f.cardId}`).balanceCents === 10000, late);
+    check('the names line', G.namesLine(['Jess M', 'Maya', 'Ana', 'Rosa', 'Kim']) === 'Jess, Maya, Ana and 2 others' && G.namesLine(['Jess', 'Maya']) === 'Jess and Maya');
+    // nobody paid → cancelled, no card
+    db._store.set('tenants/t1/giftGroups/g2', { id: 'g2', status: 'collecting', design: 'frost', organizerName: 'J', organizerEmail: 'j@x.com', recipientName: 'Kim', via: 'me', sendAt: soon, totalCents: 0, count: 0, names: [] });
+    const e: any = await G.finishGroup(db, T, 'g2'); check('nothing paid → nothing made', !e.ok && db._store.get('tenants/t1/giftGroups/g2').status === 'cancelled');
+    const mv: any = await G.moveGroup(db, T, 'g1', new Date(Date.now() + 864e5).toISOString()); check('can’t move a gift that’s been sent', !mv.ok); }
+
+  console.log('Company orders');
+  { const B = await import('../../src/lib/gift-bulk'); const db = fresh();
+    const rows = B.parseList('Name\tEmail\tAmount\nAna Ruiz\tana@acme.co\t75\nBen Ortiz\t(713) 555-0142\nCara Lee, cara@acme\n, dev@acme.co, 50\n"Park, Eli", eli@acme.co, $150', 5000);
+    check('reads a pasted list (tabs or commas, header skipped)', rows.length === 5 && rows[0].cents === 7500 && rows[1].phone && rows[1].cents === 5000 && rows[4].name === 'Park, Eli' && rows[4].cents === 15000, rows);
+    check('flags a bad email and a missing name', rows[2].problem === 'Check the email or number' && rows[3].problem === 'Add a name', rows);
+    const bad: any = await B.saveBulk(db, T, { company: 'Acme', contactEmail: 'dana@acme.co', defaultAmount: 50, rows }, 'Jess'); const id = bad.order.id;
+    check('saved: 3 good rows, $275, 2 to fix', bad.ok && bad.order.count === 3 && bad.order.totalCents === 27500 && bad.order.problems === 2, bad.order);
+    const inv: any = await B.sendBulkInvoice(db, T, id, ''); check('no invoice while rows need fixing', !inv.ok && /Fix the 2/.test(inv.error), inv);
+    const ok: any = await B.saveBulk(db, T, { id, company: 'Acme', contactEmail: 'dana@acme.co', defaultAmount: 50, message: 'Thank you for a great year', design: 'marble', line: 'THANK YOU', rows: rows.filter((r) => !r.problem).map((r) => ({ name: r.name, contact: r.email || r.phone, cents: r.cents })) }, 'Jess');
+    check('fixed: 3 cards, $275, nothing to fix', ok.order.count === 3 && ok.order.problems === 0);
+    check('no cards until it’s paid', ![...db._store.keys()].some((k) => k.startsWith('tenants/t1/giftCards/')));
+    const view: any = await B.bulkView(db, T, id); check('the company’s page hides the contacts', view.rows[0].to === 'a•••@acme.co' && /•••\d{4}/.test(view.rows[1].to), view.rows);
+    const paid: any = await B.markBulkPaid(db, T, id, { via: 'check', by: 'Jess' });
+    const cards = [...db._store.entries()].filter(([k]) => k.startsWith('tenants/t1/giftCards/')).map(([, v]) => v as any);
+    check('paid by check: one card each', paid.ok && paid.made === 3 && cards.length === 3 && cards.every((c) => c.purchaserName === 'Acme' && c.bulkId === id && c.message === 'Thank you for a great year'), paid);
+    check('each person’s own amount', cards.map((c) => c.initialCents).sort().join(',') === '15000,5000,7500', cards.map((c) => c.initialCents));
+    const tx = [...db._store.entries()].filter(([k]) => k.startsWith('tenants/t1/transactions/')).map(([, v]) => v as any);
+    check('the money is recorded once, as gift card money held', tx.length === 1 && tx[0].amount === 275 && tx[0].paymentMethod === 'Check' && tx[0].taxBucket === 'transfer', tx);
+    check('paying twice makes nothing more', !(await B.markBulkPaid(db, T, id, { via: 'card', by: 'Online' }) as any).ok && [...db._store.keys()].filter((k) => k.startsWith('tenants/t1/giftCards/')).length === 3);
+    check('a paid order can’t be changed or cancelled', !(await B.saveBulk(db, T, { id, company: 'Acme', rows: [] }, 'x') as any).ok && !(await B.cancelBulk(db, T, id, 'x') as any).ok);
+    const req: any = await B.requestBulk(db, T, { company: 'Bayou Dental', contactName: 'Dana', contactEmail: 'dana@bayou.com', count: 24, each: 75 });
+    const r: any = [...db._store.values()].find((v: any) => v?.company === 'Bayou Dental'); check('a company can ask from the shop', req.ok && r.status === 'requested' && r.askedCount === 24 && r.defaultCents === 7500, r);
+    check('…and its page isn’t open until it’s set up', (await B.bulkView(db, T, r.id)) === null); }
+
   console.log('Find my card + wallet');
   { const db = fresh(); db._store.set('tenants/t1/clients/c1', { name: 'Tia', phone: '(832) 555-0100', email: 'tia@x.com' });
     await gc.issueGiftCard(db, T, { amountCents: 3000, by: 'x', source: 'desk', recipient: { name: 'Tia', email: 'tia@x.com' } });

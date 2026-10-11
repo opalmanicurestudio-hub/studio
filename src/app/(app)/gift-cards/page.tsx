@@ -10,6 +10,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { GiftShopSettings } from '@/components/gift/GiftShopSettings';
+import { GiftBulkDrawer } from '@/components/gift/GiftBulkDrawer';
 import { brandAccent } from '@/lib/brand-accent';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
@@ -25,6 +26,7 @@ export default function GiftCardsPage() {
   const [open, setOpen] = React.useState<any>(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const [adj, setAdj] = React.useState(''); const [note, setNote] = React.useState('');
   const [tf, setTf] = React.useState<{ name: string; phone: string; email: string; send: '' | 'text' | 'email' } | null>(null); const [shop, setShop] = React.useState(false);
+  const [bulk, setBulk] = React.useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('company') === '1');   // company orders (lib/gift-bulk)
   const brand = { name: selectedTenant?.name || 'Gift card', logo: selectedTenant?.logoUrl || null, accent: brandAccent(selectedTenant) };
   const load = React.useCallback(() => { if (tenantId && isManager) payPost('/api/gift-cards', { tenantId, action: 'list' }).then((r) => setCards(r.ok ? r.cards : [])); }, [tenantId, isManager]);
   React.useEffect(() => { load(); }, [load]);
@@ -43,7 +45,7 @@ export default function GiftCardsPage() {
       <AppHeader title="Gift cards" />
       <main className="mx-auto max-w-5xl space-y-4 p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>money</p><h1 className="text-[34px] font-normal tracking-[-0.03em]">Gift cards</h1></div>
-          <div className="flex flex-wrap gap-2"><a href="/gift-cards/report" className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: LINE }}>Money report</a><button type="button" onClick={() => setShop(true)} className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: LINE }}>Online shop &amp; designs</button><a href="/import?kind=giftcards" className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px]" style={{ borderColor: LINE }}>Bring in from old app</a><a href="/pos" className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-medium text-white" style={{ background: INK }}>Sell a gift card</a></div></div>
+          <div className="flex flex-wrap gap-2"><a href="/gift-cards/report" className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: LINE }}>Money report</a><button type="button" onClick={() => setShop(true)} className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: LINE }}>Online shop &amp; designs</button><button type="button" onClick={() => setBulk(true)} className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: LINE }}>Company orders</button><a href="/import?kind=giftcards" className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px]" style={{ borderColor: LINE }}>Bring in from old app</a><a href="/pos" className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-medium text-white" style={{ background: INK }}>Sell a gift card</a></div></div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{[[$(owed), `owed on ${owedN} card${owedN === 1 ? '' : 's'}`], [$(soldMonth), 'sold this month'], [$(usedMonth), 'used this month'], [$(stale), 'unused over 2 years']].map(([n, l]) => <div key={l} className="p-4" style={card}><p className="text-[26px] font-normal tracking-[-0.03em]">{n}</p><p className="text-[13px]" style={{ color: MUTED }}>{l}</p></div>)}</div>
         <div className="flex flex-wrap items-center gap-2"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a code or a name" aria-label="Find a gift card" className="h-11 min-w-0 flex-1 rounded-full border bg-white px-4 text-[15px]" style={{ borderColor: LINE }} />
           {(['left', 'all'] as const).map((k) => <button key={k} type="button" onClick={() => setShow(k)} className="h-11 rounded-full px-4 text-[14px] font-medium" style={show === k ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` }}>{k === 'left' ? 'With money left' : 'All cards'}</button>)}</div>
@@ -83,6 +85,7 @@ export default function GiftCardsPage() {
             <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Cancel gift card ${cur.code}? The ${$(cur.balanceCents)} left on it can’t be spent after this.`)) act({ action: 'adjust', id: cur.id, kind: 'void' }, 'Cancelled.'); }} className="text-[14px] font-semibold underline underline-offset-4" style={{ color: RED }}>Cancel this card</button></>}
           {msg && <p className="text-[14px] font-semibold">{msg}</p>}
         </div></div>}
+      {bulk && <GiftBulkDrawer tenantId={tenantId} brand={brand} onClose={() => setBulk(false)} />}
       {shop && <GiftShopSettings tenantId={tenantId} brand={brand} services={services || []} onClose={() => setShop(false)} />}
     </div>);
 }

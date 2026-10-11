@@ -120,6 +120,13 @@ export async function POST(req: NextRequest) {
           break;
         }
         // A gift card bought online → make the card, record it, send it (lib/gift-shop; safe to run twice).
+        // A company's gift card order paid online → make every card (lib/gift-bulk; safe to run twice).
+        if (sessionType === 'gift_bulk') {
+          try { if (session.payment_status === 'paid' && session.metadata?.giftBulkId) { const { markBulkPaid } = await import('@/lib/gift-bulk');
+              await markBulkPaid(getAdminDb(), tenant.id, String(session.metadata.giftBulkId), { via: 'card', sessionId: session.id, amountCents: session.amount_total, by: 'Online' }); }
+          } catch (e: any) { console.error('[connect-webhook] company gift cards failed', e?.message); }
+          break;
+        }
         if (sessionType === 'gift_card') {
           try { const { completeGiftOrder } = await import('@/lib/gift-shop');
             if (session.payment_status === 'paid' && session.metadata?.giftOrderId) await completeGiftOrder(getAdminDb(), tenant.id, String(session.metadata.giftOrderId), { sessionId: session.id, paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent as any)?.id || null, amountTotal: session.amount_total });

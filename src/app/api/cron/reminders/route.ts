@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
     // Daily safety net for payment deadlines (the booking page also runs this while busy).
     try { await releaseUnpaidHolds(db, tid); } catch (e) { console.error('[cron] release-unpaid', tid, e); }
     // Gift cards set to send on a chosen day (a birthday) go out on the hour they're due.
+    try { const { giftGroupSweep } = await import('@/lib/gift-groups'); await giftGroupSweep(db, tid); } catch (e) { console.error('[cron] gift groups', e); }
     try { const { giftSendSweep } = await import('@/lib/gift-cards'); await giftSendSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] gift cards', tid, e); }
     try {
       const cfg = ((tDoc.data() as any)?.clientNotify) || {};

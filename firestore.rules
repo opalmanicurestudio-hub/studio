@@ -378,6 +378,15 @@ service cloud.firestore {
       allow read: if isManager(tenantId);
       allow write: if false;
     }
+    // CHIP-IN GIFTS (lib/gift-groups) and COMPANY ORDERS (lib/gift-bulk): managers can look; only the server writes.
+    match /tenants/{tenantId}/giftGroups/{groupId} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/giftBulk/{bulkId} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
     // IMPORTS from another app (/api/import): managers see the history; only the server writes.
     match /tenants/{tenantId}/imports/{importId} {
       allow read: if isManager(tenantId);
@@ -553,7 +562,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',

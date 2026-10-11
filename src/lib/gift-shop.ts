@@ -93,13 +93,14 @@ export async function startGiftOrder(db: any, tenantId: string, b: Start, origin
 /** The page asks after paying: if the payment has gone through, make the card (the webhook may already have). */
 export async function confirmGiftOrder(db: any, tenantId: string, orderId: string, origin?: string | null) {
   const ref = db.doc(`${T(tenantId)}/giftOrders/${orderId}`); const o: any = (await ref.get()).data(); if (!o) return { ok: false as const, error: 'That order wasn’t found.' };
-  if (o.status === 'paid' && o.cardId) return { ok: true as const, paid: true, manage: orderPath(tenantId, orderId) };
+  const manageOf = async () => (o.groupId ? (await import('@/lib/gift-groups')).groupPath(tenantId, o.groupId, o.organizer ? 'org' : 'share') : orderPath(tenantId, orderId));
+  if (o.status === 'paid' && (o.cardId || o.groupId)) return { ok: true as const, paid: true, manage: await manageOf() };
   const t: any = (await db.doc(T(tenantId)).get()).data() || {};
   const acct = o.stripeAccountId || t.stripeAccountId; if (!o.checkoutSessionId || !acct) return { ok: true as const, paid: false };
   const sess: any = await stripe().checkout.sessions.retrieve(o.checkoutSessionId, {}, { stripeAccount: acct });
   if (sess.payment_status !== 'paid') return { ok: true as const, paid: false };
   await completeGiftOrder(db, tenantId, orderId, { sessionId: sess.id, paymentIntent: typeof sess.payment_intent === 'string' ? sess.payment_intent : sess.payment_intent?.id || null, amountTotal: sess.amount_total, origin });
-  return { ok: true as const, paid: true, manage: orderPath(tenantId, orderId) };
+  return { ok: true as const, paid: true, manage: await manageOf() };
 }
 
 /** Paid → make the card, record the money, send it (or schedule it), and send the buyer their receipt. Runs once per order. */
@@ -107,6 +108,7 @@ export async function completeGiftOrder(db: any, tenantId: string, orderId: stri
   const ref = db.doc(`${T(tenantId)}/giftOrders/${orderId}`);
   const claimed = await db.runTransaction(async (tx: any) => { const o = (await tx.get(ref)).data(); if (!o || o.status !== 'pending') return null; tx.update(ref, { status: 'issuing', paidAt: now(), paymentIntentId: p.paymentIntent || null }); return o; });
   if (!claimed) return { ok: true as const, already: true };
+  if ((claimed as any).groupId) { const { completeChip } = await import('@/lib/gift-groups'); return completeChip(db, tenantId, orderId, claimed, p); }   // a share of a chip-in
   const o: any = claimed; const t: any = (await db.doc(T(tenantId)).get()).data() || {};
   const cents = Number(p.amountTotal) > 0 ? Number(p.amountTotal) : o.amountCents;
   // The buyer may already be a client here (matched by email) — the card then shows on their profile.

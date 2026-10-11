@@ -51,17 +51,19 @@ export default function GiftShopPage() {
     const want = Number(sp.get('amount')); if (want > 0) { if (shop.amounts.includes(want)) setAmount(want); else if (shop.custom && want >= shop.min && want <= shop.max) setOther(String(want)); } }, [shop]); // eslint-disable-line react-hooks/exhaustive-deps
   const design = designs.find((d) => d.id === designId) || designs[0];
   // A SERVICE gift card ("a gel manicure"): picked from the business's live menu, priced at today's price.
+  // Chip in with others (lib/gift-groups): their amount is their share; friends add theirs from a link until the day.
+  const [group, setGroup] = React.useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('chip') === '1'); const [goal, setGoal] = React.useState('');
   const [kind, setKind] = React.useState<'amount' | 'service'>('amount'); const [svc, setSvc] = React.useState<any>(null); const [menu, setMenu] = React.useState<any[]>([]);
   React.useEffect(() => { if (!shop?.serviceCards || provider) return; fetch(`/api/public/menu?business=${encodeURIComponent(tenantId)}`).then((r) => r.json()).then((x) => { if (x?.ok) setMenu((x.categories || []).flatMap((c: any) => (c.services || []).map((sv: any) => ({ ...sv, category: c.name })))); }).catch(() => {}); }, [shop, tenantId, provider]);
   const amt = kind === 'service' ? Number(svc?.price) || 0 : other ? Number(other) : amount || 0;
   // An offer running online ("buy $100, get $20 for you" — lib/gift-offers): the bonus this amount earns the buyer.
   const bonusOf = (d: number) => { let b = 0; for (const t of shop?.offer?.tiers || []) if (Math.round(d * 100) >= t.buyCents) b = t.bonusCents; return b; };
-  const bonusC = kind === 'service' || provider ? 0 : bonusOf(amt);
+  const bonusC = kind === 'service' || provider || group ? 0 : bonusOf(amt);
   const amtOk = !!shop && (kind === 'service' ? !!svc && amt > 0 : amt >= shop.min && amt <= shop.max);
   const amtLabel = kind === 'service' ? '1 visit' : money(amt);
-  const sendAt = via !== 'me' && when === 'later' && day ? new Date(`${day}T${time || '09:00'}:00`) : null;
+  const sendAt = (group || (via !== 'me' && when === 'later')) && day ? new Date(`${day}T${time || '09:00'}:00`) : null;
   const lineShown = line === null ? (kind === 'service' && svc ? String(svc.name).toUpperCase().slice(0, 30) : design?.line || '') : line;
-  const stepOk = [amtOk, !!design, forSelf || !!to.trim(), via === 'me' ? true : via === 'email' ? /\S+@\S+\.\S+/.test(forSelf ? email : toEmail) : toPhone.replace(/\D/g, '').length >= 10, true];
+  const stepOk = [amtOk && (!group || amt >= 5), !!design, forSelf || !!to.trim(), (via === 'me' ? true : via === 'email' ? /\S+@\S+\.\S+/.test(forSelf ? email : toEmail) : toPhone.replace(/\D/g, '').length >= 10) && (!group || (!!sendAt && sendAt.getTime() > Date.now() + 3600e3)), true];
   const whoOk = from.trim() && /\S+@\S+\.\S+/.test(email);
   const go = (n: number) => { setStepErr(''); setStep(n); if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
@@ -70,7 +72,7 @@ export default function GiftShopPage() {
     if (!whoOk) { setStepErr('Add your name and email for the receipt.'); return; }
     if (sendAt && sendAt.getTime() < Date.now() + 5 * 60000) { setStepErr('Choose a send time later than now.'); return; }
     setBusy(true); setStepErr('');
-    const r = await fetch('/api/gift-cards/shop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'start', tenantId, provider, serviceId: kind === 'service' ? svc?.id || null : null, amount: amt, design: design.id, line: lineShown,
+    const r = await fetch('/api/gift-cards/shop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: group ? 'group-start' : 'start', goal: group && goal ? Number(goal) : null, tenantId, provider, serviceId: kind === 'service' ? svc?.id || null : null, amount: amt, design: design.id, line: lineShown,
       buyerName: from.trim(), buyerEmail: email.trim(), forSelf, recipientName: to.trim(), via, recipientEmail: forSelf ? email.trim() : toEmail.trim(), recipientPhone: toPhone, message: note.trim(), sendAt: sendAt ? sendAt.toISOString() : null }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'Check your connection and try again.' }));
     setBusy(false); if (!r.ok) { setStepErr(r.error || 'Something went wrong.'); return; } setPay(r);
   };
@@ -96,9 +98,11 @@ export default function GiftShopPage() {
         <div className="mx-auto flex max-w-md flex-col items-center gap-6 px-5 pb-16 pt-14 text-center">
           <div className="gcf-float">{preview}</div>
           {done.manage ? <>
+            {group ? <div><h1 className="text-[30px] font-normal tracking-[-0.03em]">You’ve started {to.split(' ')[0]}’s gift</h1>
+              <p className="mt-2 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Now share the link so others can chip in and sign the card. We’ve emailed it to you too.</p></div> :
             <div><h1 className="text-[30px] font-normal tracking-[-0.03em]">Thank you, {from.split(' ')[0]}</h1>
-              <p className="mt-2 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{via === 'me' ? 'Your gift card is ready — open it to print it or forward the link.' : sendAt ? `It will be ${via === 'text' ? 'texted' : 'emailed'} to ${forSelf ? 'you' : to.split(' ')[0]} on ${sendAt.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` : `We’ve ${via === 'text' ? 'texted' : 'emailed'} it to ${forSelf ? 'you' : to.split(' ')[0]}.`} Your receipt is on its way to {email}.</p></div>
-            <a href={done.manage} className="flex h-13 w-full items-center justify-center rounded-full py-3.5 text-[15.5px] font-semibold text-white" style={{ background: INK }}>See or change your gift</a>
+              <p className="mt-2 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{via === 'me' ? 'Your gift card is ready — open it to print it or forward the link.' : sendAt ? `It will be ${via === 'text' ? 'texted' : 'emailed'} to ${forSelf ? 'you' : to.split(' ')[0]} on ${sendAt.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` : `We’ve ${via === 'text' ? 'texted' : 'emailed'} it to ${forSelf ? 'you' : to.split(' ')[0]}.`} Your receipt is on its way to {email}.</p></div>}
+            <a href={done.manage} className="flex h-13 w-full items-center justify-center rounded-full py-3.5 text-[15.5px] font-semibold text-white" style={{ background: INK }}>{group ? 'Open your gift page' : 'See or change your gift'}</a>
             <button type="button" onClick={() => window.location.reload()} className="text-[14px] font-semibold underline underline-offset-4">Send another</button>
           </> : <p className="text-[15px]" style={{ color: MUTED }}>Confirming your payment…</p>}
         </div>
@@ -111,6 +115,7 @@ export default function GiftShopPage() {
             <p className="mt-2 hidden max-w-sm text-[15px] md:block" style={{ color: MUTED }}>Choose a design, write a note, and pick the moment it arrives.</p>
             <div className="mt-6 flex justify-center md:mt-10 md:justify-start"><div className="gcf-float">{preview}</div></div>
             {!provider && <p className="mt-4 hidden text-[13.5px] md:block" style={{ color: MUTED }}>Already have one? <a href={`/gift/${encodeURIComponent(tenantId)}/find`} className="font-semibold underline underline-offset-4">Find my gift card</a></p>}
+            {!provider && <TeamAsk tenantId={tenantId} />}
             {note.trim() && step >= 2 ? <p className="mx-auto mt-5 max-w-[340px] text-center text-[14.5px] italic leading-relaxed md:mx-0 md:text-left" style={{ color: MUTED }}>“{note.trim()}”{from ? ` — ${from.split(' ')[0]}` : ''}</p> : null}
           </div>
 
@@ -120,9 +125,10 @@ export default function GiftShopPage() {
               <span className="block h-1 rounded-full" style={{ background: i <= step ? INK : LINE }} /><span className="mt-1.5 block text-[11.5px] font-semibold" style={{ color: i === step ? INK : MUTED }}>{s}</span></button></li>)}</ol>
 
             {step === 0 && <section className="space-y-4" aria-label="Amount">
-              <h2 className="text-[24px] font-normal tracking-[-0.02em]">{kind === 'service' ? 'Which treat?' : 'How much?'}</h2>
-              {shop.offer && !provider && kind !== 'service' && <div className="rounded-2xl px-4 py-3" style={{ background: '#e9f3ed', color: '#1f7a4d' }}><p className="text-[14.5px] font-semibold">{shop.offer.name}</p><p className="text-[13.5px]">{shop.offer.line}{shop.offer.usableFrom ? ` — yours to use from ${new Date(`${shop.offer.usableFrom}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}` : ''}.</p></div>}
-              {menu.length > 0 && <div className="flex gap-1.5"><Pill on={kind === 'amount'} onClick={() => setKind('amount')}>An amount</Pill><Pill on={kind === 'service'} onClick={() => setKind('service')}>A service</Pill></div>}
+              <h2 className="text-[24px] font-normal tracking-[-0.02em]">{group ? 'Your share' : kind === 'service' ? 'Which treat?' : 'How much?'}</h2>
+              {!provider && <div className="grid grid-cols-2 gap-2">{([[false, 'Just me', 'Pay for it now'], [true, 'Chip in with others', 'Share a link; friends add theirs']] as const).map(([g, l, h]) => <button key={l} type="button" aria-pressed={group === g} onClick={() => { setGroup(g); if (g) { setKind('amount'); setForSelf(false); if (!day) setDay(localDay(new Date(Date.now() + 7 * 864e5))); } }} className="rounded-2xl p-3 text-left" style={group === g ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}><span className="block text-[15px] font-semibold">{l}</span><span className="block text-[12.5px] opacity-70">{h}</span></button>)}</div>}
+              {shop.offer && !provider && !group && kind !== 'service' && <div className="rounded-2xl px-4 py-3" style={{ background: '#e9f3ed', color: '#1f7a4d' }}><p className="text-[14.5px] font-semibold">{shop.offer.name}</p><p className="text-[13.5px]">{shop.offer.line}{shop.offer.usableFrom ? ` — yours to use from ${new Date(`${shop.offer.usableFrom}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}` : ''}.</p></div>}
+              {menu.length > 0 && !group && <div className="flex gap-1.5"><Pill on={kind === 'amount'} onClick={() => setKind('amount')}>An amount</Pill><Pill on={kind === 'service'} onClick={() => setKind('service')}>A service</Pill></div>}
               {kind === 'service' ? <div className="space-y-2">
                 <p className="text-[13.5px]" style={{ color: MUTED }}>Give the visit itself — it’s covered even if the price goes up before they book.</p>
                 <div className="max-h-[360px] space-y-1.5 overflow-y-auto pr-1">{menu.filter((m) => m.price > 0 && !m.from).map((m) => <button key={m.id} type="button" aria-pressed={svc?.id === m.id} onClick={() => { setSvc(m); setLine(null); }} className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left" style={svc?.id === m.id ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>
@@ -131,6 +137,8 @@ export default function GiftShopPage() {
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{shop.amounts.map((v: number) => <button key={v} type="button" aria-pressed={!other && amount === v} onClick={() => { setAmount(v); setOther(''); }} className="h-16 rounded-2xl text-[22px] font-normal tracking-[-0.02em]" style={!other && amount === v ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>{money(v)}{!provider && bonusOf(v) > 0 && <span className="block text-[12px] font-semibold" style={{ color: !other && amount === v ? '#bfe5cf' : '#1f7a4d' }}>+{money(bonusOf(v) / 100)} for you</span>}</button>)}</div>
               {shop.custom && <label className="block"><span className="mb-1.5 block text-[13px] font-semibold" style={{ color: MUTED }}>Or another amount ({money(shop.min)}–{money(shop.max)})</span>
                 <input value={other} onChange={(e) => setOther(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))} inputMode="decimal" placeholder="$" className={field} style={fs} /></label>}
+              {group && <label className="block"><span className="mb-1.5 block text-[13px] font-semibold" style={{ color: MUTED }}>Hoping everyone reaches a total? (optional)</span>
+                <input value={goal} onChange={(e) => setGoal(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))} inputMode="numeric" placeholder="$ e.g. 250" className={field} style={fs} /></label>}
               {other && !amtOk && <p className="text-[13.5px] font-semibold" style={{ color: RED }}>Choose an amount from {money(shop.min)} to {money(shop.max)}.</p>}
               </>}
             </section>}
@@ -146,7 +154,7 @@ export default function GiftShopPage() {
 
             {step === 2 && <section className="space-y-4" aria-label="Message">
               <h2 className="text-[24px] font-normal tracking-[-0.02em]">Who’s it for?</h2>
-              <div className="flex gap-1.5"><Pill on={!forSelf} onClick={() => setForSelf(false)}>Someone else</Pill><Pill on={forSelf} onClick={() => setForSelf(true)}>Me</Pill></div>
+              {!group && <div className="flex gap-1.5"><Pill on={!forSelf} onClick={() => setForSelf(false)}>Someone else</Pill><Pill on={forSelf} onClick={() => setForSelf(true)}>Me</Pill></div>}
               {!forSelf && <input value={to} onChange={(e) => setTo(e.target.value.slice(0, 80))} placeholder="Their name" aria-label="Their name" className={field} style={fs} />}
               <label className="block"><span className="mb-1.5 block text-[13px] font-semibold" style={{ color: MUTED }}>Line on the card</span>
                 <input value={lineShown} onChange={(e) => setLine(e.target.value.slice(0, 30))} placeholder="e.g. Happy birthday" className={field} style={fs} /></label>
@@ -161,7 +169,13 @@ export default function GiftShopPage() {
               {via === 'email' && forSelf && <input value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" autoComplete="email" placeholder="Your email" aria-label="Your email" className={field} style={fs} />}
               {via === 'text' && <input value={toPhone} onChange={(e) => setToPhone(e.target.value)} inputMode="tel" placeholder={forSelf ? 'Your mobile number' : 'Their mobile number'} aria-label="Mobile number" className={field} style={fs} />}
               {via === 'me' && <p className="text-[14px] leading-relaxed" style={{ color: MUTED }}>You’ll get the card by email — print it, forward it, or show the code.</p>}
-              {via !== 'me' && <div className="space-y-3 rounded-2xl p-4" style={{ background: SOFT }}>
+              {group && <div className="space-y-3 rounded-2xl p-4" style={{ background: SOFT }}>
+                <p className="text-[15px] font-semibold">When should it be sent?</p>
+                <p className="text-[13px]" style={{ color: MUTED }}>Friends can chip in until then. It goes {via === 'me' ? 'to you to hand over' : `to ${to.split(' ')[0] || 'them'}`} with every name on it — and you can send it early.</p>
+                <div className="grid grid-cols-[1.4fr_1fr] gap-2">
+                  <input type="date" value={day} min={localDay(new Date())} max={localDay(new Date(Date.now() + 120 * 864e5))} onChange={(e) => setDay(e.target.value)} aria-label="Day" className={field} style={fs} />
+                  <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Time" className={field} style={fs} /></div></div>}
+              {via !== 'me' && !group && <div className="space-y-3 rounded-2xl p-4" style={{ background: SOFT }}>
                 <div className="flex gap-1.5"><Pill on={when === 'now'} onClick={() => setWhen('now')}>Right away</Pill><Pill on={when === 'later'} onClick={() => { setWhen('later'); if (!day) setDay(localDay(new Date(Date.now() + 864e5))); }}>On a day I choose</Pill></div>
                 {when === 'later' && <div className="grid grid-cols-[1.4fr_1fr] gap-2">
                   <input type="date" value={day} min={localDay(new Date())} max={localDay(new Date(Date.now() + 365 * 864e5))} onChange={(e) => setDay(e.target.value)} aria-label="Day" className={field} style={fs} />
@@ -203,4 +217,28 @@ function DesignThumb({ d, brand }: { d: GiftDesign; brand: any }) {
   const ref = React.useRef<HTMLDivElement>(null); const [w, setW] = React.useState(150);
   React.useLayoutEffect(() => { const el = ref.current; if (!el) return; const ro = new ResizeObserver(() => setW(Math.max(80, Math.floor(el.clientWidth)))); ro.observe(el); return () => ro.disconnect(); }, []);
   return <div ref={ref} className="w-full"><GiftCardFace design={d} brand={brand} amount="$100" name=" " line={d.line || ''} width={w} /></div>;
+}
+
+/** "Buying for a team?" — a company asks for many cards; the business sets it up and sends an invoice (lib/gift-bulk). */
+function TeamAsk({ tenantId }: { tenantId: string }) {
+  const [open, setOpen] = React.useState(false); const [f, setF] = React.useState({ company: '', contactName: '', contactEmail: '', count: '', each: '', note: '' });
+  const [busy, setBusy] = React.useState(false); const [done, setDone] = React.useState(false); const [err, setErr] = React.useState('');
+  const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }));
+  const send = async () => { setBusy(true); setErr(''); const r = await fetch('/api/gift-cards/shop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'bulk-request', tenantId, ...f }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'Check your connection and try again.' }));
+    setBusy(false); if (r.ok) setDone(true); else setErr(r.error || 'That didn’t send.'); };
+  if (done) return <p className="mt-4 rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#e9f3ed', color: '#1f7a4d' }}><b>Thank you!</b> We’ll email you an invoice and ask for your list.</p>;
+  if (!open) return <p className="mt-3 text-[13.5px]" style={{ color: MUTED }}>Buying for a team or your clients? <button type="button" onClick={() => setOpen(true)} className="font-semibold underline underline-offset-4" style={{ color: INK }}>Ask for an invoice</button></p>;
+  return (
+    <div className="mt-4 space-y-2 rounded-[18px] bg-white p-4" style={{ border: `1px solid ${LINE}` }}>
+      <p className="text-[15px] font-semibold">Gift cards for a team</p>
+      <p className="text-[13px]" style={{ color: MUTED }}>Tell us roughly what you need — we’ll send an invoice and a place for your list. Everyone gets their own card.</p>
+      <input value={f.company} onChange={(e) => set('company', e.target.value.slice(0, 80))} placeholder="Company name" aria-label="Company name" className={field} style={fs} />
+      <input value={f.contactName} onChange={(e) => set('contactName', e.target.value.slice(0, 80))} autoComplete="name" placeholder="Your name" aria-label="Your name" className={field} style={fs} />
+      <input value={f.contactEmail} onChange={(e) => set('contactEmail', e.target.value)} inputMode="email" autoComplete="email" placeholder="Your email" aria-label="Your email" className={field} style={fs} />
+      <div className="grid grid-cols-2 gap-2"><input value={f.count} onChange={(e) => set('count', e.target.value.replace(/\D/g, '').slice(0, 3))} inputMode="numeric" placeholder="How many?" aria-label="How many" className={field} style={fs} />
+        <input value={f.each} onChange={(e) => set('each', e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="$ each" aria-label="Amount each" className={field} style={fs} /></div>
+      <textarea value={f.note} onChange={(e) => set('note', e.target.value.slice(0, 600))} rows={2} placeholder="Anything else? (when you need them, a note to include)" className="w-full rounded-2xl border px-4 py-3 text-[15px]" style={fs} />
+      {err && <p className="text-[13.5px] font-semibold" style={{ color: RED }}>{err}</p>}
+      <button type="button" disabled={busy || !f.company.trim() || !f.contactName.trim() || !/\S+@\S+\.\S+/.test(f.contactEmail) || !f.count} onClick={send} className="h-12 w-full rounded-full text-[15px] font-semibold text-white disabled:opacity-35" style={{ background: INK }}>{busy ? 'Sending…' : 'Ask for an invoice'}</button>
+    </div>);
 }
