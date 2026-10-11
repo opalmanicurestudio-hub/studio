@@ -1,6 +1,7 @@
 'use client';
 import { VisitTicketHost } from '@/components/visit/VisitTicketHost';
 import { StudioTheme } from '@/components/shared/StudioTheme';
+import { StaffPayOverlay } from '@/components/shared/StaffPayOverlay';
 import { HelpDesk } from '@/components/support/HelpDesk';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
@@ -86,6 +87,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <a href="#main" className="skip-link">Skip to content</a>
       <TenantProvider>
         <StudioTheme />
+        <StaffPayOverlay />
         <LocationProvider>
           <SidebarProvider>
             <AppSidebar />

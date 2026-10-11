@@ -5,6 +5,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { useFirebase, useUser, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc, setDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { saveStaffPay } from '@/lib/staff-pay-client';
 import { nanoid } from 'nanoid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -949,12 +950,11 @@ export default function ApplicantsPage() {
       specialties: [],
       services: [],
       assignedFormIds: opts.assignedFormIds || [],
-      commissionRate: 40,
-      retailCommissionRate: 10,
       showOnPublicPage: true,
       hiredFromApplicationId: app.id,
     };
     await setDoc(doc(firestore, 'tenants', tenantId, 'staff', staffId), JSON.parse(JSON.stringify(record)));
+    await saveStaffPay(firestore, tenantId, staffId, { commissionRate: 40, retailCommissionRate: 10 });   // rates live in staffPay
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/applications/${app.id}`), {
       status: 'hired',
       staffId,

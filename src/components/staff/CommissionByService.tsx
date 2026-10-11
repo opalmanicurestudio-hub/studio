@@ -8,7 +8,7 @@
 // applies to new sales, never to past pay.
 import * as React from 'react';
 import { getAuth } from 'firebase/auth';
-import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { saveStaffPay } from '@/lib/staff-pay-client';
 import { useFirebase } from '@/firebase';
 import { logAuditClient } from '@/lib/audit-client';
 import { earnsCommission, usualRate, paidPerService, payForService } from '@/lib/commission';
@@ -37,8 +37,9 @@ export function CommissionByService({ tenantId, staffMember, services = [] }: { 
     setBusy(serviceId);
     try {
       const v = value == null ? null : perService ? Math.round(value * 100) / 100 : Math.round(value * 10) / 10;
-      await updateDoc(doc(firestore, 'tenants', tenantId, 'staff', staffMember.id), { [`${field}.${serviceId}`]: v == null ? deleteField() : v });
-      setOwn((o) => { const n = { ...o }; if (v == null) delete n[serviceId]; else n[serviceId] = v; return n; });
+      const next: Record<string, number> = { ...own }; if (v == null) delete next[serviceId]; else next[serviceId] = v;
+      await saveStaffPay(firestore, tenantId, staffMember.id, { [field]: next });   // rates live in staffPay
+      setOwn(next);
       setDraft((x) => { const n = { ...x }; delete n[serviceId]; return n; });
       const name = String(svc(serviceId)?.name || 'a service');
       void logAuditClient(firestore, tenantId, { action: perService ? 'staff.service_pay' : 'staff.service_commission', targetType: 'staff', targetId: staffMember.id, actor: { type: 'user', id: getAuth().currentUser?.uid },
@@ -97,7 +98,7 @@ function TierEditor({ tenantId, staffMember, usual, first }: { tenantId: string;
   const save = async () => {
     if (!firestore) return;
     const tiers = rows.map((r) => ({ over: Math.round(Number(r.over) || 0), rate: Math.round((Number(r.rate) || 0) * 10) / 10 })).filter((r) => r.over > 0 && r.rate > 0 && r.rate <= 100).sort((a, b) => a.over - b.over);
-    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'staff', staffMember.id), { commissionTiers: tiers });
+    try { await saveStaffPay(firestore, tenantId, staffMember.id, { commissionTiers: tiers });
       void logAuditClient(firestore, tenantId, { action: 'staff.commission_tiers', targetType: 'staff', targetId: staffMember.id, actor: { type: 'user', id: getAuth().currentUser?.uid }, summary: tiers.length ? `${first}'s sales tiers: ${tiers.map((t) => `${t.rate}% over $${t.over}`).join(', ')}` : `${first}'s sales tiers removed` } as any);
       setSaved('Saved'); setTimeout(() => setSaved(''), 2000); } catch { setSaved('Couldn’t save'); }
   };

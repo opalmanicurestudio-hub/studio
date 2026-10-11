@@ -6,6 +6,7 @@ import { buildStatement } from '@/lib/pay-statement';
 import { auditOf, type Audit } from '@/lib/pay-audit';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { recentPeriods, periodRange, isPaid, type PayPeriod } from '@/lib/pay-periods';
+import { staffWithPay } from '@/lib/staff-pay-server';
 
 export type Stub = { staffId: string; name: string; role: string; period: PayPeriod; paid: boolean; frozen: boolean; payStructure: string;
   total: number; parts: { services: number; tips: number; retail: number; time: number; other: number; adjustments: number };
@@ -18,7 +19,7 @@ export async function buildStub(db: any, tenantId: string, staffId: string, peri
   const T = `tenants/${tenantId}`;
   const [tSnap, mSnap] = await Promise.all([db.doc(T).get(), db.doc(`${T}/staff/${staffId}`).get()]);
   if (!mSnap.exists) return null;
-  const tenant: any = tSnap.data() || {}; const member: any = { id: staffId, ...(mSnap.data() || {}) };
+  const tenant: any = tSnap.data() || {}; const member: any = (await staffWithPay(db, tenantId, staffId)) || { id: staffId, ...(mSnap.data() || {}) };
   const { fromIso, toIso } = periodRange(tenant, period);
   const [svcSnap, txSnap, pSnap, shSnap, adjSnap] = await Promise.all([
     db.collection(`${T}/services`).get(),

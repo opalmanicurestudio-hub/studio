@@ -17,6 +17,7 @@
 import { periodPay, payrollFields } from './pay-period';
 import { sessionsFrom, clockPolicy, localDay, weekOf } from './timeclock';
 import { getStateProfile, estimateEmployerPayrollTax, GENERIC_US_PROFILE } from './state-tax-profiles';
+import { withPay } from '@/lib/staff-pay-server';
 
 export type DraftLine = {
   staffId: string;
@@ -91,7 +92,7 @@ export async function buildPayrollDraft(
   // employer — so the guard lives HERE, at the source, not in whichever
   // screen happens to render the draft. Their money already went to them;
   // they pay rent for the chair.
-  const staff = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+  const staff = (await withPay(db, tenantId, staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))))
     .filter((m: any) => m.isRenter !== true);
   const txns = txnSnap.docs.map((d: any) => d.data() as any)
     .map((t: any) => ({

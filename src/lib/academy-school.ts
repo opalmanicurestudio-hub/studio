@@ -48,8 +48,9 @@ export async function enrollInProgram(opts: { tenantId: string; programId: strin
     const sRef = db.collection(`tenants/${opts.tenantId}/staff`).doc();
     staffId = sRef.id;
     await sRef.set({ id: staffId, tenantId: opts.tenantId, name: opts.name, email: opts.email.trim().toLowerCase(), role: 'staff', isStudent: true, studentId, programId: opts.programId,
-      tipPolicy: p.tipPolicy || 'school', employmentModel: 'employee', decisionAuthority: 'none', payStructure: 'hourly', hourlyRate: 0, commissionRate: 0, retailCommissionRate: 0, avatarUrl: '', status: 'active',
+      tipPolicy: p.tipPolicy || 'school', employmentModel: 'employee', decisionAuthority: 'none', payStructure: 'hourly', avatarUrl: '', status: 'active',
       bio: `Student — ${p.name}`, createdAt: new Date().toISOString() });
+    { const { savePay } = await import('@/lib/staff-pay-server'); await savePay(db, opts.tenantId, staffId, { hourlyRate: 0, commissionRate: 0, retailCommissionRate: 0 }); }
   } else {
     await db.doc(`tenants/${opts.tenantId}/staff/${staffId}`).set({ status: 'active', tipPolicy: p.tipPolicy || 'school' }, { merge: true });
   }

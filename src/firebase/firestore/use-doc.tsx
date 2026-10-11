@@ -1,6 +1,6 @@
 'use client';
     
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   DocumentReference,
   onSnapshot,
@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import { usePayOverlay, overlayList, overlayDoc } from '@/firebase/firestore/pay-overlay';
 
 /** Utility type to add an 'id' field to a given type T. */
 type WithId<T> = T & { id: string };
@@ -97,5 +98,7 @@ export function useDoc<T = any>(
     return () => unsubscribe();
   }, [memoizedDocRef]);
 
-  return { data, isLoading: isLoading || (!!memoizedDocRef && answeredFor !== memoizedDocRef), error };
+  const pay = usePayOverlay();
+  const shown = useMemo(() => overlayDoc(memoizedDocRef?.path || null, data, pay), [memoizedDocRef, data, pay]);
+  return { data: shown, isLoading: isLoading || (!!memoizedDocRef && answeredFor !== memoizedDocRef), error };
 }

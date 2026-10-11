@@ -29,6 +29,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { getGustoAuth, gustoFetch } from '@/lib/gusto-server';
+import { withPay } from '@/lib/staff-pay-server';
 
 const dollars = (n: any) => (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
 const hoursStr = (n: any) => String(Math.round((Number(n) || 0) * 1000) / 1000);
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     // ── Resolve gustoEmployeeId for every line (draft value, else staff doc) ──
     const staffSnap = await db.collection(`tenants/${tenantId}/staff`).get();
-    const staffById = new Map(staffSnap.docs.map((d: any) => [d.id, d.data() as any]));
+    const staffById = new Map((await withPay(db, tenantId, staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })))).map((m: any) => [m.id, m]));
     const lines = draft.lines.map((l: any) => ({
       ...l,
       gustoEmployeeId: l.gustoEmployeeId || (staffById.get(l.staffId) as any)?.gustoEmployeeId || null,

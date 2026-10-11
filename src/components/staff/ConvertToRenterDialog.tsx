@@ -8,6 +8,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { collection, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { saveStaffPay, splitPay } from '@/lib/staff-pay-client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -73,7 +74,9 @@ export function ConvertToRenterDialog({ open, onOpenChange, member, firestore, t
 
       // The staff record becomes a provider record: employedUntil preserves
       // their history, pay structure is cleared so payroll can never reach them.
-      await updateDoc(doc(firestore, 'tenants', tenantId, 'staff', member.id), staffPatchForConversion(renterId, effectiveDate));
+      { const { rest, pay } = splitPay(staffPatchForConversion(renterId, effectiveDate));
+        await updateDoc(doc(firestore, 'tenants', tenantId, 'staff', member.id), rest);
+        await saveStaffPay(firestore, tenantId, member.id, pay); }
       await setDoc(doc(firestore, 'tenants', tenantId, 'renters', renterId), {
         photoUrl: member.photoUrl || member.avatarUrl || '', bio: member.bio || '',
         convertedFromStaffId: member.id, convertedAt: new Date().toISOString(),

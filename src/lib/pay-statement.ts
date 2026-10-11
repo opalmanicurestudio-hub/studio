@@ -12,6 +12,7 @@
 import { periodPay, type PayLine } from '@/lib/pay-period';
 import { serviceCommission, perServicePay, earnsCommission, paidPerService, payExtras } from '@/lib/commission';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
+import { staffWithPay } from '@/lib/staff-pay-server';
 
 export type StatementLine = { label: string; detail?: string; amount: number };
 export type Statement = { staffId: string; name: string; from: string; to: string; payStructure: string; sections: { title: string; lines: StatementLine[] }[]; total: number; tips: number; notes: string[]; line: PayLine };
@@ -71,7 +72,7 @@ export async function statementFor(db: any, tenantId: string, staffId: string, f
     db.collection(`${T}/activityLogs`).where('timestamp', '>=', new Date(Date.parse(from) - 86400000).toISOString()).where('timestamp', '<=', new Date(Date.parse(to) + 86400000).toISOString()).get(),
   ]);
   if (!mSnap.exists) return null;
-  const tenant: any = tSnap.data() || {}; const member = { id: staffId, ...(mSnap.data() || {}) };
+  const tenant: any = tSnap.data() || {}; const member: any = (await staffWithPay(db, tenantId, staffId)) || { id: staffId, ...(mSnap.data() || {}) };
   const income = txSnap.docs.map((d: any) => d.data() || {}).map((t: any) => ({ ...t, amount: typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100, type: t.type || 'income' }));   // refunds included: they carry take-backs
   const punches = pSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((p: any) => p.staffId === staffId);
   // Shared tips: their approved share for runs inside the period.

@@ -10,6 +10,7 @@
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
 import { saleStamp } from '@/lib/commission';
+import { withPay } from '@/lib/staff-pay-server';
 import { tuitionAccount, applyTuitionPayment } from '@/lib/tuition-desk';
 import { renterAccount, applyRentPayment } from '@/lib/rent-desk';
 import { syncVisitCopies } from '@/lib/visit-sync';
@@ -154,7 +155,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const tenant: any = tSnap.data() || {}; const client: any = cSnap.exists ? { id: clientId, ...(cSnap.data() as any) } : null;
   if (!client) return json({ ok: false, error: 'That client wasn’t found.' }, 404);
   const rows = (s: any) => s.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
-  const staff = rows(stSnap), services = rows(svSnap), inventory = rows(invSnap), memberships = rows(mSnap), packages = rows(pSnap), allDiscounts = rows(dSnap);
+  const staff = await withPay(db, tenantId, rows(stSnap)), services = rows(svSnap), inventory = rows(invSnap), memberships = rows(mSnap), packages = rows(pSnap), allDiscounts = rows(dSnap);
   const svc = (id: string) => services.find((s: any) => s.id === id);
   const visits: any[] = [];
   for (const id of apptIds) {

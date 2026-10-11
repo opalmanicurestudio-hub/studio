@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
+import { staffWithPay } from '@/lib/staff-pay-server';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
         const idx0 = ((await db.doc(`tenants/${tenantId}/private/pinIndex`).get()).data() as any) || {};
         const hasPin = sd.hasPin === true || !!sd.pin || !!sd.pinHash || !!priv?.pinHash || Object.values(idx0).includes(s.id);
         if (hasPin) return NextResponse.json({ ok: false, error: 'This team member has a PIN — enter it.' }, { status: 401 });
-        const staff0 = safeStaff(s.id, sd);
+        const staff0 = safeStaff(s.id, (await staffWithPay(db, tenantId, s.id)) || sd);   // their own rates (they can see their pay)
         await logAuditAdmin(db, tenantId, {
           action: 'portal.login', targetType: 'staff', targetId: staff0.id,
           summary: `${staff0.name || 'Team member'} signed in (no-PIN name tap)`,
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
       }
       if (hitData?.archived === true) return NextResponse.json({ ok: false, error: 'This sign-in has been turned off. Ask your manager.' }, { status: 403 });
 
-      const staff = safeStaff(hitId, hitData);
+      const staff = safeStaff(hitId, (await staffWithPay(db, tenantId, hitId)) || hitData);
 
       // Best-effort Firebase custom token — lets the client sign into the
       // SDK with tenant/role claims so Firestore rules can enforce scope.

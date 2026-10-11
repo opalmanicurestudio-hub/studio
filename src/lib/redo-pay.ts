@@ -8,6 +8,7 @@
 // Each is written once (redoPaidAt / refundPayAt on the case).
 import { settingsOf } from '@/lib/making-it-right';
 import { earnsCommission, usualRate } from '@/lib/commission';
+import { staffWithPay } from '@/lib/staff-pay-server';
 
 const T = (t: string) => `tenants/${t}`;
 const now = () => new Date().toISOString();
@@ -25,7 +26,7 @@ export async function redoPaySweep(db: any, tenantId: string, tenant: any) {
     const a: any = d.data(); const cSnap = await db.doc(`${T(tenantId)}/cases/${a.caseId}`).get(); const c: any = cSnap.data();
     await d.ref.set({ redoPaidAt: now() }, { merge: true });
     if (!c || Number(a.price) > 0) continue;
-    const staffDoc = async (id: string) => (id ? (await db.doc(`${T(tenantId)}/staff/${id}`).get()).data() || null : null);
+    const staffDoc = async (id: string) => (id ? await staffWithPay(db, tenantId, id) : null);
     const base = Number(c.visit?.paid) || 0; const who = c.clientName || 'a client';
     const doer: any = await staffDoc(a.staffId);
     if (doer && earnsCommission(doer) && S.payRules.redoProvider !== 'none' && base > 0) {
@@ -45,7 +46,7 @@ export async function redoPaySweep(db: any, tenantId: string, tenant: any) {
 /** A refund marked done, when the business keeps the provider's commission: add back what Money took off. */
 export async function refundKeepsPay(db: any, tenantId: string, tenant: any, c: any) {
   const S = settingsOf(tenant); if (S.payRules.refund !== 'keep' || c.fix?.kind !== 'refund' || c.refundPayAt) return;
-  const origId = c.visit?.providerId; const orig: any = origId ? (await db.doc(`${T(tenantId)}/staff/${origId}`).get()).data() : null;
+  const origId = c.visit?.providerId; const orig: any = origId ? await staffWithPay(db, tenantId, origId) : null;
   if (orig && earnsCommission(orig) && c.fix.amountCents > 0) await adjust(db, tenantId, origId, Math.round(c.fix.amountCents * usualRate(orig) / 100), `Commission kept on ${c.clientName || 'a client'}’s refund (${c.number})`, c.id);
   await db.doc(`${T(tenantId)}/cases/${c.id}`).set({ refundPayAt: now() }, { merge: true });
 }

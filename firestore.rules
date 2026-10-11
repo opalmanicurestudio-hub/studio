@@ -56,6 +56,11 @@ service cloud.firestore {
       return ['avatarUrl', 'photoURL', 'phone', 'phoneNumber', 'bio', 'specialties', 'pronouns', 'preferredName', 'emergencyContact',
               'address', 'notificationPrefs', 'notificationAvailability', 'quietHours', 'fcmTokens', 'language', 'updatedAt'];
     }
+    // Pay rates live in staffPay (managers and the person only) — never on the staff record the team reads.
+    function payKeys() {
+      return ['commissionRate', 'retailCommissionRate', 'hourlyRate', 'serviceHourRate', 'servicePay', 'serviceCommission', 'nonServiceRate',
+              'commissionTiers', 'salaryAmount', 'salaryPer', 'salaryWeekly', 'overtimeExempt', 'overtimeNonExempt'];
+    }
     function isManager(tenantId) {
       return isSignedIn() && (
         request.auth.uid == tenantDoc(tenantId).data.userId ||
@@ -87,10 +92,12 @@ service cloud.firestore {
       allow list: if isTeam(tenantId);
       // Who can sign in is the server's job (authUid / appAccess), and only the business owner hands out the owner role.
       allow create: if isManager(tenantId) && !('authUid' in request.resource.data) && !('appAccess' in request.resource.data)
+        && !request.resource.data.keys().hasAny(payKeys())
         && (!(request.resource.data.get('role', 'staff') in ['owner', 'admin']) || isOwner(tenantId));
       allow delete: if isManager(tenantId);
       allow update: if (isManager(tenantId)
           && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['authUid', 'appAccess', 'appInvitedAt', 'appInvitedBy', 'appAccessOffAt'])
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(payKeys())
           && (request.resource.data.get('role', 'staff') == resource.data.get('role', 'staff') || !(request.resource.data.get('role', 'staff') in ['owner', 'admin']) || isOwner(tenantId))
           && (resource.data.get('role', 'staff') != 'owner' || request.auth.uid == tenantDoc(tenantId).data.userId || isOwner(tenantId)))
         || (isStaff(tenantId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(staffStatusFields()))
@@ -101,6 +108,11 @@ service cloud.firestore {
       match /private/{docId} {
         allow read, write: if false;
       }
+    }
+    // PAY RATES (lib/staff-pay): managers read and change them; each person reads their own.
+    match /tenants/{tenantId}/staffPay/{staffId} {
+      allow read: if isManager(tenantId) || isSelf(tenantId, staffId) || (isPortalMember(tenantId) && portalStaffId() == staffId);
+      allow write: if isManager(tenantId);
     }
     match /tenants/{tenantId}/consentForms/{formId} {
       allow get, list: if true;
@@ -512,7 +524,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'cases', 'counters', 'conductReports', 'refundPayouts', 'refundCodes',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'conductReports', 'refundPayouts', 'refundCodes',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   onSnapshot,
   DocumentData,
@@ -10,6 +10,7 @@ import {
   Query,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
+import { usePayOverlay, overlayList, overlayDoc } from '@/firebase/firestore/pay-overlay';
 import { FirestorePermissionError } from '@/firebase/errors';
 
 /** Utility type to add an 'id' field to a given type T. */
@@ -117,5 +118,9 @@ export function useCollection<T = any>(
   if(memoizedTargetRefOrQuery && !memoizedTargetRefOrQuery.__memo) {
     throw new Error(memoizedTargetRefOrQuery + ' was not properly memoized using useMemoFirebase');
   }
-  return { data, isLoading: isLoading || (!!memoizedTargetRefOrQuery && answeredFor !== memoizedTargetRefOrQuery), error };
+  // Pay rates for managers (pay-overlay): staff lists get them merged back on.
+  const pay = usePayOverlay();
+  const path = useMemo(() => { try { const q: any = memoizedTargetRefOrQuery; if (!q) return null; return q.type === 'collection' ? (q as CollectionReference).path : (q as InternalQuery)._query.path.canonicalString(); } catch { return null; } }, [memoizedTargetRefOrQuery]);
+  const shown = useMemo(() => overlayList(path, data, pay), [path, data, pay]);
+  return { data: shown, isLoading: isLoading || (!!memoizedTargetRefOrQuery && answeredFor !== memoizedTargetRefOrQuery), error };
 }

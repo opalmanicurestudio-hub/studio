@@ -13,7 +13,7 @@ export function ownerProfileFor(tenant: any, tenantId: string, owner: { uid: str
   return {
     id: owner.uid, tenantId, name, firstName: name.split(' ')[0], lastName: name.split(' ').slice(1).join(' '),
     email: owner.email || '', phone: owner.phone || '', role: 'owner', avatarUrl: '', status: 'active', isActive: true,
-    payStructure: 'salary', commissionRate: 0, decisionAuthority: 'full',
+    payStructure: 'salary', decisionAuthority: 'full',
     showOnPublicPage: solo,
     ...(solo ? {} : { availability: { week: Object.fromEntries(DAYS.map((d) => [d, { enabled: false, start: '09:00 AM', end: '05:00 PM' }])) } }),
     addedAutomatically: true, createdAt: new Date().toISOString(),

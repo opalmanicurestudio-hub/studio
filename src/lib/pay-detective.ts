@@ -9,6 +9,7 @@
 import { periodRange } from '@/lib/pay-periods';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { stageOf } from '@/lib/visit';
+import { staffWithPay } from '@/lib/staff-pay-server';
 
 export type Finding = { tone: 'explains' | 'likely' | 'info'; text: string; suggestAmount?: number };
 const money = (v: number) => `$${(Math.round((v || 0) * 100) / 100).toFixed(2)}`;
@@ -74,7 +75,7 @@ export function findings(input: { q: any; me: any; tz: string; staffNames: Recor
 export async function investigate(db: any, tenantId: string, q: any): Promise<Finding[]> {
   const T = `tenants/${tenantId}`;
   const [tSnap, mSnap, stSnap] = await Promise.all([db.doc(T).get(), db.doc(`${T}/staff/${q.staffId}`).get(), db.collection(`${T}/staff`).get()]);
-  const tenant: any = tSnap.data() || {}; const me = { id: q.staffId, ...(mSnap.data() || {}) }; const tz = tenant.timezone || 'America/New_York';
+  const tenant: any = tSnap.data() || {}; const me: any = (await staffWithPay(db, tenantId, q.staffId)) || { id: q.staffId, ...(mSnap.data() || {}) }; const tz = tenant.timezone || 'America/New_York';
   const { fromIso, toIso } = periodRange(tenant, q.period);
   const [tx, ap, pu] = await Promise.all([
     db.collection(`${T}/transactions`).where('date', '>=', fromIso).where('date', '<=', new Date(Date.now()).toISOString()).get(),

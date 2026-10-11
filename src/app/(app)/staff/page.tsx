@@ -60,6 +60,8 @@ import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
 import { FULFILMENT_ROLES, describeRole, permissionsFor, type FulfilmentRole } from '@/lib/fulfilment-access';
 import { collection, doc, writeBatch, deleteField, setDoc, updateDoc } from 'firebase/firestore';
+import { saveStaffPay, splitPay } from '@/lib/staff-pay-client';
+import { payPost } from '@/components/pay/pay-client';
 import { syncAppAccess } from '@/components/staff/AppAccess';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import { PrintableStaffReport } from '@/components/staff/PrintableStaffReport';
@@ -593,6 +595,7 @@ export default function StaffPage() {
       await fetch('/api/pin/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }); } catch { /* tries again next visit */ } })();
   }, [tenantId, role]); // eslint-disable-line react-hooks/exhaustive-deps
   const studioName = selectedTenant?.name || 'the studio';
+  const [movingPay, setMovingPay] = useState(false); const [payMoved, setPayMoved] = useState(false);
   const canManage = can('team.manage');
   const { toast: uiToast } = useToast();
   
@@ -893,9 +896,11 @@ export default function StaffPage() {
       // Is the PIN free? Checked on the server before anything is saved (nobody's PIN is ever sent to this screen).
       const free = await setStaffPinServer(tenantId, staffId, data.pin, true);
       if (!free.ok) { uiToast({ variant: 'destructive', title: 'Choose another PIN', description: free.error || 'That PIN is already in use.' }); return; }
-      const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
+      const { rest: profile0, pay: pay0 } = splitPay(fullStaffObject as any);   // rates live in staffPay, not on the record the team can read
+      const sanitizedData = JSON.parse(JSON.stringify(profile0));
       const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
       await setDoc(staffDocRef, sanitizedData);
+      await saveStaffPay(firestore, tenantId, staffId, pay0);
       const pinSaved = await setStaffPinServer(tenantId, staffId, data.pin);
       if (!pinSaved.ok) uiToast({ variant: 'destructive', title: 'Added, but the PIN wasn’t set', description: `${pinSaved.error || 'Try again'} — set it from their card.` });
 
@@ -922,8 +927,10 @@ export default function StaffPage() {
     if (!firestore || !tenantId) return;
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', updatedStaffData.id);
     // A changed PIN goes to the server only — it's never saved on the team member's record.
-    const { pin: newPin, pinHash: _ph, ...rest } = updatedStaffData as any;
+    const { pin: newPin, pinHash: _ph, ...rest0 } = updatedStaffData as any;
+    const { rest, pay: payPart } = splitPay(rest0);   // rates go to staffPay
     const sanitizedData = JSON.parse(JSON.stringify(rest));
+    void saveStaffPay(firestore, tenantId, updatedStaffData.id, payPart).catch(() => uiToast({ variant: 'destructive', title: 'Pay not saved', description: 'Only managers can change pay.' }));
     // Saved first, then the server copies the role across to their app login (if they have one).
     const prev: any = (staff || []).find((m: any) => m.id === updatedStaffData.id) || {};
     const roleChanged = prev.role !== (sanitizedData as any).role || !!prev.archived !== !!(sanitizedData as any).archived;
@@ -1042,6 +1049,12 @@ export default function StaffPage() {
     <div className={cn("flex min-h-screen w-full flex-col bg-slate-50/50", reviewFor && "print:hidden")}>
       <AppHeader title="Team Intelligence" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
+        {String(role || '').toLowerCase() === 'owner' && !(selectedTenant as any)?.payMovedAt && !payMoved && (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white p-4" style={{ borderColor: 'var(--line, #ececee)' }}>
+            <div className="min-w-0 flex-1"><p className="text-[15px] font-medium">Make pay rates private</p><p className="text-[13.5px] text-muted-foreground">Rates are stored on team records that everyone on the team can read. Move them to a place only managers and each person can see. Nothing else changes.</p></div>
+            <button type="button" disabled={movingPay} onClick={async () => { setMovingPay(true); const r = await payPost('/api/staff/move-pay', { tenantId }); setMovingPay(false); if (r.ok) { setPayMoved(true); uiToast({ title: 'Pay rates are private now', description: `${r.moved} team record${r.moved === 1 ? '' : 's'} updated.` }); } else uiToast({ variant: 'destructive', title: 'Couldn’t move pay', description: r.error }); }} className="h-11 rounded-full px-5 text-[14.5px] font-medium text-white disabled:opacity-40" style={{ background: '#16171a' }}>{movingPay ? 'Moving…' : 'Make private'}</button>
+          </div>
+        )}
         {isLoading || staffLoading || pricingTiersLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[400px]">
                 <Loader className="h-8 w-8 animate-spin text-primary" />
