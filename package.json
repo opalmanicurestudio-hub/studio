@@ -52,6 +52,7 @@
     "nanoid": "^5.1.6",
     "next": "15.5.27",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
     "qrcode": "^1.5.4",
     "react": "^19.2.1",
     "react-day-picker": "^9.11.3",

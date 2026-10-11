@@ -10,6 +10,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
+import { PhotosDrawer } from '@/components/import/PhotosDrawer';
 import { parseCsv, autoMatch, cleanRow, mergeWithin, guessKind, howToGet, FIELDS, APPS, type ImportKind, type CleanRow } from '@/lib/import-records';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -30,8 +31,10 @@ const TILES: { kind: Kind | 'team'; title: string; sub: string }[] = [
   { kind: 'balances', title: 'Client balances', sub: 'Store credit clients have, and what they owe' },
   { kind: 'formulas', title: 'Formula notes', sub: 'Color and treatment notes, kept with each client' },
   { kind: 'discounts', title: 'Discount codes', sub: 'Promo codes that should keep working' },
+  { kind: 'files', title: 'Client photos and files', sub: 'Photos and forms, matched to each client' },
+  { kind: 'sales', title: 'Past sales totals', sub: 'By day or month — for last-year comparisons' },
 ];
-const NOUN: Record<ImportKind, [string, string]> = { clients: ['client', 'clients'], services: ['service', 'services'], products: ['product', 'products'], appointments: ['appointment', 'appointments'], giftcards: ['gift card', 'gift cards'], packages: ['package balance', 'package balances'], memberships: ['member', 'members'], balances: ['client balance', 'client balances'], formulas: ['formula note', 'formula notes'], discounts: ['discount code', 'discount codes'] };
+const NOUN: Record<ImportKind, [string, string]> = { clients: ['client', 'clients'], services: ['service', 'services'], products: ['product', 'products'], appointments: ['appointment', 'appointments'], giftcards: ['gift card', 'gift cards'], packages: ['package balance', 'package balances'], memberships: ['member', 'members'], balances: ['client balance', 'client balances'], formulas: ['formula note', 'formula notes'], discounts: ['discount code', 'discount codes'], sales: ['sales total', 'sales totals'], files: ['file', 'files'] };
 const pill = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` });
 
 async function readRows(f: File): Promise<string[][]> {
@@ -40,6 +43,7 @@ async function readRows(f: File): Promise<string[][]> {
     const cell = (v: any) => v instanceof Date ? `${v.getUTCFullYear()}-${String(v.getUTCMonth() + 1).padStart(2, '0')}-${String(v.getUTCDate()).padStart(2, '0')}${v.getUTCHours() || v.getUTCMinutes() ? ` ${String(v.getUTCHours()).padStart(2, '0')}:${String(v.getUTCMinutes()).padStart(2, '0')}` : ''}` : v == null ? '' : String(v).trim();
     return data.map((r) => r.map(cell)).filter((r) => r.some((x) => x !== ''));
   }
+  if (/\.pdf$/i.test(f.name)) { const { readPdfRows } = await import('@/lib/pdf-table'); return readPdfRows(f); }   // a report only given as a PDF
   if (/\.(xls|numbers)$/i.test(f.name)) throw new Error('This older spreadsheet type can’t be read here — open it and save it as .xlsx or CSV, then choose that file.');
   return parseCsv(await f.text());
 }
@@ -56,7 +60,7 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
   const cleaned = React.useMemo(() => (body.length ? mergeWithin(kind, body.map((c, i) => cleanRow(kind, c, map, i + 2))) : null), [body, map, kind]);
   const good = (cleaned?.rows || []).filter((r) => !r.skip); const skipped = (cleaned?.rows || []).filter((r) => r.skip); const problems = good.filter((r) => r.problems.length);
   const fields = FIELDS[kind]; const missingRequired = fields.filter((f) => f.required && map[f.key] === undefined);
-  const nameOk = kind === 'clients' ? ['name', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) : kind === 'appointments' ? (map.start !== undefined || map.date !== undefined) && ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) : ['packages', 'memberships', 'formulas'].includes(kind) ? ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) && !missingRequired.length : kind === 'balances' ? ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) && ['credit', 'owed', 'balance'].some((k) => map[k] !== undefined) : !missingRequired.length;
+  const nameOk = kind === 'sales' ? map.date !== undefined && map.total !== undefined : kind === 'clients' ? ['name', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) : kind === 'appointments' ? (map.start !== undefined || map.date !== undefined) && ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) : ['packages', 'memberships', 'formulas'].includes(kind) ? ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) && !missingRequired.length : kind === 'balances' ? ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) && ['credit', 'owed', 'balance'].some((k) => map[k] !== undefined) : !missingRequired.length;
 
   const read = async (f?: File | null) => {
     if (!f) return; setErr(''); setCheck(null); setQs(null); setDone(null);
@@ -83,10 +87,10 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
     if (needs) setStep(2); else await toCheck();
   };
   const toCheck = async () => {
-    setBusy(true); setErr(''); let fresh = 0, matched = 0, fills = 0, owed = 0, known = 0, creditC = 0, owedC = 0; const samples: any[] = [];
+    setBusy(true); setErr(''); let fresh = 0, matched = 0, fills = 0, owed = 0, known = 0, creditC = 0, owedC = 0, totalC = 0; const monthsS = new Set<string>(), overlapS = new Set<string>(); const samples: any[] = [];
     for (let i = 0; i < good.length; i += 400) { const r = await payPost('/api/import', { tenantId, action: 'check', kind, rows: good.slice(i, i + 400).map((x) => x.data) }); if (!r.ok) { setErr(r.error || 'That didn’t work.'); setBusy(false); return; }
-      fresh += r.fresh; matched += r.matched; fills += r.fills; owed += kind === 'giftcards' ? r.owedCents || 0 : 0; creditC += r.creditCents || 0; owedC += kind === 'balances' ? r.owedCents || 0 : 0; known += r.knownClients || 0; samples.push(...(r.samples || [])); }
-    setCheck({ fresh, matched, fills, owed, known, creditCents: creditC, owedCents: owedC, samples: samples.slice(0, 4) }); setBusy(false); setStep(3);
+      fresh += r.fresh; matched += r.matched; fills += r.fills; owed += kind === 'giftcards' ? r.owedCents || 0 : 0; creditC += r.creditCents || 0; totalC += r.totalCents || 0; for (const m of r.months || []) monthsS.add(m); for (const m of r.overlap || []) overlapS.add(m); owedC += kind === 'balances' ? r.owedCents || 0 : 0; known += r.knownClients || 0; samples.push(...(r.samples || [])); }
+    setCheck({ fresh, matched, fills, owed, known, creditCents: creditC, owedCents: owedC, totalCents: totalC, months: [...monthsS].sort(), overlap: [...overlapS].sort(), samples: samples.slice(0, 4) }); setBusy(false); setStep(3);
   };
   const save = async () => {
     const importId = `imp${Date.now().toString(36)}`; const appName = APPS.find((a) => a.id === app)?.name || ''; const tot: any = { added: 0, filled: 0, skipped: 0, clientsAdded: 0, owedCents: 0, made: 0 }; setProgress(0); setErr('');
@@ -111,6 +115,7 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
     if (kind === 'memberships') return <div className="p-3" style={card}><div className="flex justify-between"><p className="text-[14px] font-semibold">{d.client}</p><p className="text-[14px]">{d.price != null ? `${$(d.price)}/${d.interval === 'yearly' ? 'yr' : 'mo'}` : ''}</p></div>{line(`${d.plan} · next charge ${d.next}`)}{probs}</div>;
     if (kind === 'balances') return <div className="p-3" style={card}><p className="text-[14px] font-semibold">{d.client}</p>{line([d.credit ? `${$(d.credit)} credit` : '', d.owed ? `owes ${$(d.owed)}` : ''].filter(Boolean).join(' · '), d.owed ? AMBER : GREEN)}{line(d.note)}{probs}</div>;
     if (kind === 'formulas') return <div className="p-3" style={card}><div className="flex justify-between"><p className="text-[14px] font-semibold">{d.client}</p><p className="text-[12.5px]" style={{ color: MUTED }}>{d.date || ''}</p></div>{line([d.service, d.staff].filter(Boolean).join(' · '))}<p className="mt-1 line-clamp-3 whitespace-pre-wrap font-mono text-[12.5px]">{d.formula}</p>{probs}</div>;
+    if (kind === 'sales') return <div className="p-3" style={card}><div className="flex justify-between"><p className="text-[14px] font-semibold">{d.month}</p><p className="text-[15px] font-bold">{$(d.total)}</p></div>{line([d.services != null ? `services ${$(d.services)}` : '', d.products != null ? `products ${$(d.products)}` : '', d.visits != null ? `${d.visits} visits` : ''].filter(Boolean).join(' · '))}{probs}</div>;
     if (kind === 'discounts') return <div className="p-3" style={card}><div className="flex justify-between"><p className="font-mono text-[13px]">{d.code}</p><p className="text-[15px] font-bold">{d.type === 'percentage' ? `${d.value}%` : $(d.value)} off</p></div>{line([d.description, d.ends ? `until ${d.ends}` : '', d.limit ? `${d.used || 0} of ${d.limit} used` : ''].filter(Boolean).join(' · '))}{probs}</div>;
     if (kind === 'services') return <div className="p-3" style={card}><div className="flex justify-between"><p className="text-[14px] font-semibold">{d.name}</p><p className="text-[14px]">{$(Number(d.price) || 0)}</p></div>{line(`${d.duration} min${d.category ? ` · ${d.category}` : ''} · hidden from booking until you check it`)}{probs}</div>;
     if (kind === 'products') return <div className="p-3" style={card}><div className="flex justify-between"><p className="text-[14px] font-semibold">{d.name}</p><p className="text-[14px]">{d.price != null ? $(d.price) : '—'}</p></div>{line(`${d.sku ? `SKU ${d.sku} · ` : ''}${d.stock != null ? `${d.stock} in stock` : 'no stock count'}`)}{probs}</div>;
@@ -133,8 +138,8 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
             : <p className="rounded-2xl p-3.5 text-[14px] leading-relaxed" style={{ background: SOFT }}><b>Getting the file:</b> {howToGet(kind, app)}</p>}
           <label onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); read(e.dataTransfer.files?.[0]); }}
             className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-[18px] border-2 border-dashed px-4 py-12 text-center" style={{ borderColor: drag ? INK : '#c9cacd', background: drag ? SOFT : '#fff' }}>
-            <span className="text-[16px] font-semibold">{reading ? 'Reading…' : 'Drop the file here'}</span><span className="text-[13px]" style={{ color: MUTED }}>CSV or Excel — or <u>choose a file</u></span>
-            <input type="file" accept=".csv,.txt,.tsv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={(e) => { read(e.target.files?.[0]); e.target.value = ''; }} /></label>
+            <span className="text-[16px] font-semibold">{reading ? 'Reading…' : 'Drop the file here'}</span><span className="text-[13px]" style={{ color: MUTED }}>CSV, Excel or a PDF report — or <u>choose a file</u></span>
+            <input type="file" accept=".csv,.txt,.tsv,.xlsx,.pdf,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={(e) => { read(e.target.files?.[0]); e.target.value = ''; }} /></label>
           {kind === 'appointments' && startKind !== 'other' && <p className="text-[13px] leading-relaxed" style={{ color: MUTED }}>Upcoming visits come over exactly as booked. Nobody gets a text about it unless you choose to.</p>}
           {kind === 'giftcards' && startKind !== 'other' && <p className="text-[13px] leading-relaxed" style={{ color: MUTED }}>The codes on cards people already have keep working here. Balances count as money owed to clients, not new sales.</p>}
           {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
@@ -142,7 +147,7 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
 
         {step === 1 && cleaned && <>
           {guessed && <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl p-3 text-[14px]" style={{ background: SOFT }}><span>This looks like <b>{NOUN[kind][1]}</b>.</span>
-            <select value={kind} onChange={(e) => setKind(e.target.value as ImportKind)} aria-label="What this file is" className="h-9 rounded-full border bg-white px-3 text-[13.5px]" style={{ borderColor: LINE }}>{(Object.keys(NOUN) as ImportKind[]).map((k) => <option key={k} value={k}>{NOUN[k][1][0].toUpperCase() + NOUN[k][1].slice(1)}</option>)}</select></div>}
+            <select value={kind} onChange={(e) => setKind(e.target.value as ImportKind)} aria-label="What this file is" className="h-9 rounded-full border bg-white px-3 text-[13.5px]" style={{ borderColor: LINE }}>{(Object.keys(NOUN) as ImportKind[]).filter((k) => k !== 'files').map((k) => <option key={k} value={k}>{NOUN[k][1][0].toUpperCase() + NOUN[k][1].slice(1)}</option>)}</select></div>}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="min-w-0 space-y-2"><p className="text-[12px] font-semibold" style={{ color: MUTED }}>YOUR FILE</p>
               <div className="overflow-x-auto" style={card}><table className="w-full text-[11.5px]"><thead><tr>{showCols.map(({ h, i }) => <th key={i} className="whitespace-nowrap px-2 py-1.5 text-left font-semibold" style={matchedCols.has(i) ? { background: '#e9f3ed', color: GREEN } : { background: SOFT, color: MUTED }}>{h || `Column ${i + 1}`}</th>)}</tr></thead>
@@ -173,7 +178,8 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
           {qs && qs.services.some((s: any) => !s.sure) && <div className="space-y-1"><p className="pt-2 text-[17px] font-medium">Which service is it?</p><p className="text-[13.5px]" style={{ color: MUTED }}>Names in the file that aren’t exactly on your menu.</p>
             {qs.services.filter((s: any) => !s.sure).map((s: any) => <div key={s.name} className="grid grid-cols-[1fr_20px_1fr] items-center gap-2 py-2" style={{ borderTop: `1px solid ${LINE}` }}><span className="text-[14px]">{s.name} <span style={{ color: MUTED }}>· {s.count}</span></span><span style={{ color: MUTED }}>→</span>
               <select value={serviceMap[s.name] || '__keep'} onChange={(e) => setServiceMap({ ...serviceMap, [s.name]: e.target.value })} aria-label={`Which service is ${s.name}`} className="h-10 rounded-xl border bg-white px-3 text-[14px]" style={{ borderColor: LINE }}>
-                <option value="__keep">Keep the name “{s.name}”</option>{qs.menu.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>)}</div>}
+                <option value="__keep">Keep the name “{s.name}”</option>{s.split && <option value={s.suggest}>Split: {s.split}</option>}{qs.menu.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>)}
+            {qs.services.some((s: any) => s.split) && <p className="pt-1 text-[12.5px]" style={{ color: MUTED }}>“Split” books the first as the visit’s service and the rest as add-ons, so each is priced and paid on its own.</p>}</div>}
           {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
         </>}
 
@@ -184,6 +190,7 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
               : kind === 'memberships' ? <><p><b>{check.fresh.toLocaleString()}</b> members come in with their next charge date.</p>{check.fresh - check.known > 0 && <p>{check.fresh - check.known} aren’t in your clients yet — they’re added.</p>}<p>Card details can’t be moved between apps, so after this, send members their add-your-card link from <a href="/import/cards" className="font-semibold underline underline-offset-4">Cards on file</a>. A charge with no card yet waits — it doesn’t fail.</p><p style={{ color: MUTED }}>A plan that isn’t on your list yet is made, hidden from sale. Someone who’s already a member here is left as they are.</p></>
               : kind === 'balances' ? <><p><b>{$(((check as any).creditCents || 0) / 100)}</b> in store credit goes on clients’ accounts, to use at checkout.</p><p><b>{$(((check as any).owedCents || 0) / 100)}</b> owed goes on their balance, to pay at a visit or by link.</p>{check.fresh - check.known > 0 && <p>{check.fresh - check.known} aren’t in your clients yet — they’re added.</p>}</>
               : kind === 'formulas' ? <><p><b>{check.fresh.toLocaleString()}</b> formula notes go on clients’ records — they show in the formula history on each visit.</p>{check.fresh - check.known > 0 && <p>{check.fresh - check.known} are for people not in your clients yet — they’re added.</p>}</>
+              : kind === 'sales' ? <><p><b>{$(((check as any).totalCents || 0) / 100)}</b> in sales across <b>{((check as any).months || []).length}</b> month{((check as any).months || []).length === 1 ? '' : 's'}{((check as any).months || []).length ? ` (${(check as any).months[0]} to ${(check as any).months[(check as any).months.length - 1]})` : ''}.</p><p>They’re kept apart from your books — they never count as income here, in taxes or in pay. Reports show them as “same time last year”.</p>{((check as any).overlap || []).length > 0 && <p style={{ color: AMBER }}>{(check as any).overlap.length} of these months were already brought in — bringing them in again counts them twice. Undo the earlier one first if it was the same report.</p>}</>
               : kind === 'discounts' ? <><p><b>{check.fresh.toLocaleString()}</b> codes come in and keep working, with their dates and uses so far.</p>{check.matched > 0 && <p>{check.matched} are already here (same code) and are skipped.</p>}</>
               : kind === 'packages' ? <><p><b>{check.fresh.toLocaleString()}</b> package balances go on clients’ accounts.</p>{check.fresh - check.known > 0 && <p>{check.fresh - check.known} are for people not in your clients yet — they’re added.</p>}<p style={{ color: MUTED }}>A package that isn’t on your list yet is made, hidden from sale.</p></>
               : <><p><b>{check.fresh.toLocaleString()}</b> new {check.fresh === 1 ? NOUN[kind][0] : NOUN[kind][1]} will be added.</p><p><b>{check.matched.toLocaleString()}</b> already here{check.fills ? <> — <b>{check.fills}</b> get missing details filled in. Nothing already here is overwritten.</> : '.'}</p>
@@ -244,7 +251,7 @@ const SWITCH: { key: string; title: string; sub: string; href?: string; cta?: st
 export default function MovingInPage() {
   const { selectedTenant, role } = useTenant() as any; const { firestore } = useFirebase() as any; const tenantId = selectedTenant?.id || '';
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
-  const [st, setSt] = React.useState<any>(null); const [drawer, setDrawer] = React.useState<Kind | null>(null); const [svcCheck, setSvcCheck] = React.useState(false);
+  const [st, setSt] = React.useState<any>(null); const [drawer, setDrawer] = React.useState<Kind | null>(null); const [svcCheck, setSvcCheck] = React.useState(false); const [photos, setPhotos] = React.useState(false);
   const [history, setHistory] = React.useState<any[]>([]); const [showSwitch, setShowSwitch] = React.useState(false); const [copied, setCopied] = React.useState(false);
   const load = React.useCallback(() => { if (!tenantId || !isManager) return; payPost('/api/import', { tenantId, action: 'status' }).then((r) => r.ok && setSt(r)); payPost('/api/import', { tenantId, action: 'list' }).then((r) => r.ok && setHistory(r.imports)); }, [tenantId, isManager]);
   React.useEffect(() => { load(); }, [load]);
@@ -254,7 +261,7 @@ export default function MovingInPage() {
   if (!isManager) return <div className="p-6"><AppHeader title="Moving in" /><p className="mt-6" style={{ color: MUTED }}>Moving in is for managers.</p></div>;
   const app = st?.moving?.app || ''; const moved = st?.moved || {};
   const stateOf = (k: Kind | 'team') => k === 'team' ? ((st?.team || 0) > 1 ? 'done' : 'todo') : k === 'services' && st?.servicesHidden ? 'review' : (moved[k] || 0) > 0 ? 'done' : 'todo';
-  const OPTIONAL = ['memberships', 'balances', 'formulas', 'discounts'];   // only if the old app had them — not counted in the progress
+  const OPTIONAL = ['memberships', 'balances', 'formulas', 'discounts', 'files', 'sales'];   // only if the old app had them — not counted in the progress
   const core = TILES.map((t) => t.kind).filter((k) => !OPTIONAL.includes(k as string)); const doneN = core.filter((k) => stateOf(k) === 'done').length; const next = core.find((k) => stateOf(k) === 'todo');
   const switchDone = SWITCH.filter((x) => st?.moving?.switch?.[x.key]).length; const allIn = ['clients', 'services', 'appointments'].every((k) => stateOf(k as Kind) !== 'todo');
   const bookingUrl = typeof window !== 'undefined' && st ? `${window.location.origin}${st.bookingPath}` : '';
@@ -275,7 +282,7 @@ export default function MovingInPage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {TILES.map((t) => { const s = stateOf(t.kind); const isNext = t.kind === next; const badge = s === 'done' ? ['Moved', GREEN, '#e9f3ed'] : s === 'review' ? ['Needs a look', AMBER, '#fdf3e6'] : isNext ? ['Next', '#fff', INK] : OPTIONAL.includes(t.kind as string) ? ['If you had them', MUTED, SOFT] : ['Not started', INK, SOFT];
             const cta = t.kind === 'team' ? (s === 'done' ? 'See your team' : 'Add your team') : t.kind === 'services' && s === 'review' ? `Review ${st?.servicesHidden}` : s === 'done' ? 'Bring in more' : 'Upload a file';
-            const go = () => { if (t.kind === 'team') window.location.href = '/staff'; else if (t.kind === 'services' && s === 'review') setSvcCheck(true); else setDrawer(t.kind as Kind); };
+            const go = () => { if (t.kind === 'team') window.location.href = '/staff'; else if (t.kind === 'services' && s === 'review') setSvcCheck(true); else if (t.kind === 'files') setPhotos(true); else setDrawer(t.kind as Kind); };
             return <div key={t.kind} className="flex flex-col gap-2 p-4" style={{ ...card, boxShadow: isNext ? `0 0 0 2px ${INK}` : undefined }}>
               <div className="flex items-center justify-between gap-2"><span className="text-[15.5px] font-semibold">{t.title}</span><span className="inline-flex h-6 items-center rounded-full px-2.5 text-[11.5px] font-semibold" style={{ color: badge[1], background: badge[2] }}>{badge[0]}</span></div>
               <p className="min-h-[34px] text-[12.5px] leading-snug" style={{ color: MUTED }}>{t.kind === 'team' ? (s === 'done' ? 'Usually quicker to add by hand than to export' : 'Usually quicker to add by hand — then they show up in appointments') : t.sub}</p>
@@ -300,6 +307,7 @@ export default function MovingInPage() {
             {!h.undoneAt && <button type="button" onClick={() => undo(h.id)} className="h-9 shrink-0 rounded-full px-3.5 text-[13.5px] font-semibold" style={{ background: SOFT }}>Undo</button>}</div>)}</section>}
         <p className="pb-6 text-[12.5px]" style={{ color: MUTED }}>Your old app isn’t changed by any of this — keep it until you’re comfortable.</p>
       </main>
+      {photos && <PhotosDrawer tenantId={tenantId} app={app} appName={APPS.find((a) => a.id === app)?.name || ''} onClose={() => { setPhotos(false); load(); }} onDone={load} />}
       {drawer && <Drawer key={drawer} tenantId={tenantId} startKind={drawer} app={app} onClose={() => { setDrawer(null); load(); }} onDone={load} />}
       {svcCheck && <ServicesCheck tenantId={tenantId} firestore={firestore} onClose={() => setSvcCheck(false)} onDone={load} />}
     </div>);

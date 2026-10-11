@@ -2,7 +2,7 @@
 // read a CSV export, match its columns to ours (by the names other booking apps use), and clean each row into a client,
 // service or product. Nothing here writes; /api/import does that after the owner has seen the preview.
 
-export type ImportKind = 'clients' | 'services' | 'products' | 'appointments' | 'giftcards' | 'packages' | 'memberships' | 'balances' | 'formulas' | 'discounts';
+export type ImportKind = 'clients' | 'services' | 'products' | 'appointments' | 'giftcards' | 'packages' | 'memberships' | 'balances' | 'formulas' | 'discounts' | 'sales' | 'files';
 export type FieldDef = { key: string; label: string; names: string[]; required?: boolean };
 
 /** Read CSV text (commas, semicolons or tabs; quoted fields; line breaks inside quotes; a BOM). */
@@ -144,6 +144,15 @@ export const FIELDS: Record<ImportKind, FieldDef[]> = {
     { key: 'limit', label: 'Uses allowed', names: ['limit', 'usage limit', 'max uses', 'uses allowed', 'maximum uses', 'redemption limit'] },
     { key: 'used', label: 'Times used', names: ['used', 'uses', 'times used', 'redemptions', 'usage count', 'redeemed'] },
     { key: 'once', label: 'Once per client', names: ['once per customer', 'one per customer', 'one per client', 'single use per customer', 'limit one per customer'] },
+  ],
+  files: [],   // client photos and files — not a spreadsheet (lib/import-files)
+  sales: [
+    { key: 'date', label: 'Date or month', names: ['date', 'day', 'month', 'period', 'sale date', 'transaction date', 'date time', 'created', 'week'], required: true },
+    { key: 'total', label: 'Total sales', names: ['total', 'total sales', 'gross sales', 'net sales', 'sales', 'revenue', 'amount', 'total collected', 'collected'], required: true },
+    { key: 'services', label: 'Services', names: ['services', 'service sales', 'service revenue', 'services total'] },
+    { key: 'products', label: 'Products', names: ['products', 'product sales', 'retail', 'retail sales', 'products total'] },
+    { key: 'tips', label: 'Tips', names: ['tips', 'tip', 'gratuity', 'gratuities'] },
+    { key: 'visits', label: 'Visits or sales', names: ['visits', 'appointments', 'transactions', 'tickets', 'count', 'number of sales', 'orders'] },
   ],
   products: [
     { key: 'name', label: 'Product name', names: ['name', 'product', 'product name', 'item', 'item name', 'title'], required: true },
@@ -312,6 +321,18 @@ export function cleanRow(kind: ImportKind, cells: string[], map: Record<string, 
     const text = g('formula').slice(0, 2000); if (!text) return { row, data: {}, problems, skip: 'No formula' };
     return { row, data: { ...who, formula: text, date: cleanDate(g('date')), service: g('service').slice(0, 120) || null, staff: titleCase(g('staff')).slice(0, 80) || null }, problems };
   }
+  if (kind === 'sales') {
+    const raw = g('date'); if (/^(total|totals|grand total|subtotal)/i.test(raw)) return { row, data: {}, problems, skip: 'A total row' };
+    const MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    let month: string | null = null; const ym = raw.match(/^(\d{4})[-/](\d{1,2})$/); const my = raw.match(/^([a-z]{3})[a-z]*\.?\s+(\d{4})$/i); const my2 = raw.match(/^(\d{1,2})[-/](\d{4})$/);
+    if (ym) month = `${ym[1]}-${ym[2].padStart(2, '0')}`; else if (my && MON.includes(my[1].toLowerCase())) month = `${my[2]}-${String(MON.indexOf(my[1].toLowerCase()) + 1).padStart(2, '0')}`; else if (my2) month = `${my2[2]}-${my2[1].padStart(2, '0')}`;
+    else { const d = cleanDate(raw) || (cleanDateTime(raw) || '').slice(0, 10) || null; if (d) month = d.slice(0, 7); }
+    if (!month) return { row, data: {}, problems, skip: raw ? `“${raw}” isn’t a date we could read` : 'No date' };
+    const total = cleanMoney(g('total')); if (total == null) return { row, data: {}, problems, skip: `No total for ${raw}` };
+    const d: any = { month, name: month, total }; for (const k of ['services', 'products', 'tips']) { const v = cleanMoney(g(k)); if (v != null) d[k] = v; }
+    const v = cleanMoney(g('visits')); if (v != null && v >= 0) d.visits = Math.round(v);
+    return { row, data: d, problems };
+  }
   if (kind === 'discounts') {
     const code = g('code').replace(/\s+/g, '').toUpperCase().slice(0, 30); if (!code) return { row, data: {}, problems, skip: 'No code' };
     const raw = g('amount'); const n = cleanMoney(raw); if (n == null || n <= 0) return { row, data: {}, problems, skip: `No amount for ${code}` };
@@ -347,7 +368,7 @@ export function sameKeys(kind: ImportKind, d: any): string[] {
   if (kind === 'packages') return [`k:${norm(d.client)}|${norm(d.package)}`];
   if (kind === 'memberships') return [`m:${norm(d.client)}|${norm(d.plan)}`];
   if (kind === 'discounts') return [`d:${String(d.code || '').toUpperCase()}`];
-  if (kind === 'balances' || kind === 'formulas') return [`r:${Math.random()}`];   // every row stands on its own
+  if (kind === 'balances' || kind === 'formulas' || kind === 'sales') return [`r:${Math.random()}`];   // every row stands on its own
   if (kind === 'products') return [d.sku ? `s:${String(d.sku).toLowerCase()}` : '', `n:${norm(d.name)}`].filter(Boolean);
   return [`n:${norm(d.name)}`];
 }
@@ -389,7 +410,7 @@ export const APPS: { id: string; name: string; how: string }[] = [
   { id: 'other', name: 'Something else', how: 'Most apps have Export on the client list or under Reports. A spreadsheet works too — save it as CSV.' },
 ];
 
-const KIND_WORD: Record<ImportKind, string> = { clients: 'client list', services: 'service menu', products: 'items or inventory list', appointments: 'appointments or bookings report', giftcards: 'gift cards report', packages: 'packages or series report', memberships: 'memberships or autopay report', balances: 'client account balances report', formulas: 'formula or client notes report', discounts: 'discount or promo codes list' };
+const KIND_WORD: Record<ImportKind, string> = { clients: 'client list', services: 'service menu', products: 'items or inventory list', appointments: 'appointments or bookings report', giftcards: 'gift cards report', packages: 'packages or series report', memberships: 'memberships or autopay report', balances: 'client account balances report', formulas: 'formula or client notes report', discounts: 'discount or promo codes list', sales: 'sales summary report (by day or month)', files: 'client photos or files' };
 /** Where to find the file, for this app and this kind of record. */
 export function howToGet(kind: ImportKind, appId: string): string {
   const A = APPS.find((a) => a.id === appId);
@@ -402,12 +423,13 @@ export function howToGet(kind: ImportKind, appId: string): string {
 /** What a file probably is, from its column names (for “drop any file”). */
 export function guessKind(headers: string[]): ImportKind {
   const H = headers.map(norm); const score = (k: ImportKind) => FIELDS[k].reduce((n, f) => n + (H.some((h) => f.names.includes(h)) ? (f.required ? 3 : 1) : 0), 0);
-  const kinds: ImportKind[] = ['clients', 'appointments', 'giftcards', 'packages', 'services', 'products', 'memberships', 'balances', 'formulas', 'discounts'];
+  const kinds: ImportKind[] = ['clients', 'appointments', 'giftcards', 'packages', 'services', 'products', 'memberships', 'balances', 'formulas', 'discounts', 'sales'];
   const has = (re: RegExp) => H.some((h) => re.test(h));
   if (has(/gift|certificate/)) return 'giftcards';
   if (has(/next (billing|charge|payment|autopay|bill)|renewal/) && has(/membership|plan|subscription|contract/)) return 'memberships';
   if (has(/formula|colou?r formula|mix|recipe/)) return 'formulas';
   if (has(/promo|coupon|discount code|voucher/)) return 'discounts';
+  if (has(/^(gross sales|net sales|total sales|revenue)$/) && has(/^(date|day|month|period)$/) && !has(/client|customer/)) return 'sales';
   if (has(/store credit|account credit|balance due|amount owed|outstanding/)) return 'balances'; if (has(/remaining|sessions/) && has(/package|series|pass/)) return 'packages';
   if (has(/^(start|time|appointment date|start time)$/) || (has(/date/) && has(/staff|provider|stylist|employee/))) return 'appointments';
   return kinds.map((k) => [k, score(k)] as const).sort((a, b) => b[1] - a[1])[0][0];

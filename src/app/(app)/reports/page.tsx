@@ -6,6 +6,7 @@ import { serviceCommission, perServicePay } from '@/lib/commission';
 import { VisitProfit } from '@/components/reports/VisitProfit';
 import { HousekeepingStats } from '@/components/reports/HousekeepingStats';
 import { RebookingReport } from '@/components/reports/RebookingReport';
+import { LastYearSales } from '@/components/reports/LastYearSales';
 import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
@@ -318,6 +319,7 @@ export default function ReportsPage() {
           <KpiStat label="Labor Load" value={`$${analyticsData.overall.totalLaborLoad?.toFixed(0) || 0}`} subLabel="Payroll + Tax Burden" icon={Users} colorClass="text-amber-600" />
           <KpiStat label="Fixed Overhead" value={`$${analyticsData.overall.totalReconciledOpEx?.toFixed(0) || 0}`} subLabel="Reconciled OpEx" icon={Landmark} colorClass="text-indigo-600" />
         </div>
+        {['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase()) && <LastYearSales tenantId={selectedTenant?.id || ''} from={effectiveFrom} to={effectiveTo} current={Number(analyticsData.overall.totalRevenue) || 0} />}
 
         {/* Rebooking — booked their next visit before leaving */}
         <section className="space-y-6">

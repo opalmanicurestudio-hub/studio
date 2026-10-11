@@ -16,8 +16,8 @@ import { sameKeys, fillIn, type ImportKind } from '@/lib/import-records';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-const KINDS: ImportKind[] = ['clients', 'services', 'products', 'appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts'];
-const COL: Record<ImportKind, string> = { clients: 'clients', services: 'services', products: 'inventory', appointments: 'appointments', giftcards: 'giftCards', packages: 'clients', memberships: 'clients', balances: 'depositCredits', formulas: 'clients', discounts: 'discounts' };
+const KINDS: ImportKind[] = ['clients', 'services', 'products', 'appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts', 'sales', 'files'];
+const COL: Record<ImportKind, string> = { clients: 'clients', services: 'services', products: 'inventory', appointments: 'appointments', giftcards: 'giftCards', packages: 'clients', memberships: 'clients', balances: 'depositCredits', formulas: 'clients', discounts: 'discounts', sales: 'salesHistory', files: 'clients' };
 const now = () => new Date().toISOString();
 
 async function existingIndex(db: any, tenantId: string, kind: ImportKind) {
@@ -75,6 +75,33 @@ export async function POST(req: NextRequest) {
       team: st.docs.filter((d: any) => (d.data() as any)?.archived !== true && (d.data() as any)?.role !== 'renter').length,
       bookingPath: `/book/${encodeURIComponent(tenantId)}` });
   }
+  if (b.action === 'clients-lite') {   // photos and files: who's who, to match file names to clients (lib/import-files)
+    const s = await db.collection(`${T}/clients`).get();
+    return NextResponse.json({ ok: true, clients: s.docs.map((d: any) => { const x: any = d.data() || {}; return x.ownerRenterId || x.status === 'archived' ? null : { id: d.id, name: x.name || '', email: x.email || null }; }).filter(Boolean) });
+  }
+  if (b.action === 'files-save') {   // photos and files uploaded from the page: recorded on each client (undoable)
+    const importId = String(b.importId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40); if (!importId) return NextResponse.json({ ok: false, error: 'Missing the import.' }, { status: 400 });
+    const iRef = db.doc(`${T}/imports/${importId}`); const imp: any = (await iRef.get()).data(); if (imp && imp.kind !== 'files') return NextResponse.json({ ok: false, error: 'That import is for something else.' }, { status: 400 });
+    if (!imp) await iRef.set({ id: importId, kind: 'files', app: String(b.app || '').slice(0, 40) || null, startedAt: now(), by: g.actor?.name || null, byId: g.actor?.staffId || null, added: 0, filled: 0, skipped: 0 });
+    const prefix = `tenants/${tenantId}/client-files/`; const items = (Array.isArray(b.files) ? b.files : []).slice(0, 100)
+      .filter((x: any) => x && typeof x.clientId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(x.clientId) && typeof x.url === 'string' && /^https:\/\/(firebasestorage\.googleapis\.com|storage\.googleapis\.com)\//.test(x.url) && decodeURIComponent(x.url).includes(prefix));
+    const byClient = new Map<string, any[]>(); for (const x of items) byClient.set(x.clientId, [...(byClient.get(x.clientId) || []), x]); let added = 0;
+    for (const [cid, list] of byClient) { const ref = db.doc(`${T}/clients/${cid}`); const cur: any = (await ref.get()).data(); if (!cur || cur.ownerRenterId) continue;
+      const had: any[] = Array.isArray(cur.importedFiles) ? cur.importedFiles : [];
+      const fresh = list.filter((x: any) => !had.some((h: any) => h.url === x.url)).map((x: any) => ({ url: x.url, name: String(x.name || 'File').slice(0, 160), kind: x.kind === 'photo' ? 'photo' : 'file', size: Number(x.size) || null, takenAt: x.takenAt || null, importId, importedFrom: String(b.appName || '').slice(0, 40) || null, at: now() }));
+      if (!fresh.length) continue; const next = [...had, ...fresh].slice(-400);
+      await ref.set({ importedFiles: next }, { merge: true }); await db.collection(`${T}/imports/${importId}/fills`).doc().set(clean({ docId: cid, patch: { importedFiles: next }, before: { importedFiles: had } })); added += fresh.length; }
+    const { FieldValue } = await import('firebase-admin/firestore');
+    await iRef.set({ added: FieldValue.increment(added), finishedAt: now() }, { merge: true });
+    return NextResponse.json({ ok: true, added });
+  }
+  if (b.action === 'sales-history') {   // Reports: the same months a year earlier, from an old app's sales totals (lib/import-more saveSales)
+    const from = String(b.from || '').slice(0, 7), to = String(b.to || '').slice(0, 7); if (!/^\d{4}-\d{2}$/.test(from) || !/^\d{4}-\d{2}$/.test(to)) return NextResponse.json({ ok: false, error: 'Missing the dates.' }, { status: 400 });
+    const back = (m: string) => `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`; const lo = back(from), hi = back(to);
+    const s = await db.collection(`${T}/salesHistory`).get(); const months: Record<string, number> = {}; let any = false;
+    for (const d of s.docs) { const x: any = d.data() || {}; any = true; if (x.month >= lo && x.month <= hi) months[x.month] = (months[x.month] || 0) + (Number(x.total) || 0); }
+    return NextResponse.json({ ok: true, any, months, total: Object.values(months).reduce((t, v) => t + v, 0), from: lo, to: hi });
+  }
   if (b.action === 'moving') {   // where they're coming from, switch-over day and its list, or "I'm starting fresh"
     const patch: any = {}; const m = b.moving || {};
     if (typeof m.app === 'string') patch['movingIn.app'] = m.app.slice(0, 40);
@@ -117,12 +144,14 @@ export async function POST(req: NextRequest) {
   }
   const kind = String(b.kind) as ImportKind; if (!KINDS.includes(kind)) return NextResponse.json({ ok: false, error: 'Choose what you’re bringing in.' }, { status: 400 });
   const rows: any[] = (Array.isArray(b.rows) ? b.rows : []).slice(0, 400).filter((r: any) => r && typeof r === 'object' && r.name);
-  if (['appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts'].includes(kind)) {
+  if (['appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts', 'sales'].includes(kind)) {
     const more = await import('@/lib/import-more');
     if (b.action === 'questions' && kind === 'appointments') return NextResponse.json({ ok: true, ...(await more.appointmentQuestions(db, tenantId, rows)) });
     if (b.action === 'check') {
       if (kind === 'giftcards') { const { findByCode } = await import('@/lib/gift-cards'); let fresh = 0, matched = 0, owed = 0; for (const r of rows) { if (await findByCode(db, tenantId, r.code)) matched++; else { fresh++; if (!r.voided) owed += Math.round(Number(r.balance) * 100); } } return NextResponse.json({ ok: true, fresh, matched, fills: 0, samples: [], owedCents: owed }); }
       if (kind === 'discounts') { const have = new Set((await db.collection(`${T}/discounts`).get()).docs.map((d: any) => String((d.data() as any)?.code || '').toUpperCase())); let matched = 0; for (const r of rows) if (have.has(r.code)) matched++; return NextResponse.json({ ok: true, fresh: rows.length - matched, matched, fills: 0, samples: [] }); }
+      if (kind === 'sales') { const here = await more.salesMonthsHere(db, tenantId); const months = new Set(rows.map((r) => r.month)); const total = rows.reduce((t, r) => t + (Number(r.total) || 0), 0);
+        return NextResponse.json({ ok: true, fresh: rows.length, matched: 0, fills: 0, samples: [], months: [...months].sort(), overlap: [...months].filter((m) => here.has(m)).sort(), totalCents: Math.round(total * 100) }); }
       if (kind === 'balances') { const idx3 = await more.clientIndex(db, tenantId); let known = 0, credit = 0, owed = 0; for (const r of rows) { if (idx3.find(r)) known++; credit += Math.round(Number(r.credit || 0) * 100); owed += Math.round(Number(r.owed || 0) * 100); }
         return NextResponse.json({ ok: true, fresh: rows.length, matched: 0, fills: 0, samples: [], knownClients: known, newClients: rows.length - known, creditCents: credit, owedCents: owed }); }
       const idx2 = await more.clientIndex(db, tenantId); let known = 0; for (const r of rows) if (idx2.find(r)) known++;
@@ -139,6 +168,7 @@ export async function POST(req: NextRequest) {
         out = await more.saveAppointments(db, tenantId, t, rows, { importId, app, staffMap, serviceMap, reminders: b.reminders === true }); }
       else if (kind === 'giftcards') out = await more.saveGiftCards(db, tenantId, rows, { importId, app, by: g.actor?.name || 'Import' });
       else if (kind === 'discounts') out = await more.saveDiscounts(db, tenantId, rows, { importId, app });
+      else if (kind === 'sales') out = await more.saveSales(db, tenantId, rows, { importId, app });
       else { out = kind === 'memberships' ? await more.saveMemberships(db, tenantId, rows, { importId, app }) : kind === 'balances' ? await more.saveBalances(db, tenantId, rows, { importId, app })
           : kind === 'formulas' ? await more.saveFormulas(db, tenantId, rows, { importId, app }) : await more.savePackages(db, tenantId, rows, { importId, app, packageMap: b.packageMap || {} });
         for (const f of out.fills) await db.collection(`${T}/imports/${importId}/fills`).doc().set(clean(f)); delete out.fills; }

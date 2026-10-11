@@ -39,6 +39,19 @@ export function matchService(name: string, services: any[]): any | null {
   return score >= 0.6 ? best : null;
 }
 
+/** A combo in the old app ("Pedi + Art", "Gel mani & French", "Haircut w/ blowout") that's two (or more) of your services:
+ *  every part has to match one, or it isn't a combo. Returns the services, main first. */
+export function splitCombo(name: string, services: any[]): any[] | null {
+  const raw = String(name || ''); if (!/[+&,/]|\bw\/|\bwith\b|\band\b/i.test(raw)) return null;
+  const SHORT: [RegExp, string][] = [[/^art$/i, 'nail art'], [/^french$/i, 'french tips'], [/^blow ?out$/i, 'blowout'], [/^brows?$/i, 'brow shaping'], [/^tint$/i, 'brow tint'], [/^beard$/i, 'beard trim']];
+  const parts = raw.split(/\s*(?:\+|&|,|\/|\bw\/|\bwith\b|\band\b)\s*/i).map((p) => p.trim()).filter(Boolean); if (parts.length < 2 || parts.length > 4) return null;
+  const out: any[] = [];
+  // A part matches its closest service, or — short names like "Pedi" — the one service that has every word of it.
+  const within = (p: string) => { const a = [...tokens(p)]; const hits = services.filter((sv: any) => sv.status !== 'archived' && a.length && a.every((w) => tokens(sv.name).has(w))); return hits.length === 1 ? hits[0] : null; };
+  for (const p0 of parts) { let p = p0; for (const [re, to] of SHORT) if (re.test(p)) p = to; const m = matchService(p, services) || within(p); if (!m || out.some((x) => x.id === m.id)) return null; out.push(m); }
+  return out;
+}
+
 /** Everyone already here, indexed so a row can find its client fast. */
 export async function clientIndex(db: any, tenantId: string) {
   const s = await db.collection(`${T(tenantId)}/clients`).get(); const byEmail = new Map<string, any>(), byPhone = new Map<string, any>(), byName = new Map<string, any[]>();
@@ -62,8 +75,13 @@ export async function appointmentQuestions(db: any, tenantId: string, rows: any[
   const count = (k: string) => { const m = new Map<string, number>(); for (const r of rows) { const v = String(r[k] || '').trim(); if (v) m.set(v, (m.get(v) || 0) + 1); } return [...m.entries()].sort((a, b) => b[1] - a[1]); };
   const staffQ = count('staff').map(([name, n]) => { const remembered = saved.staff?.[mapKey(name)]; const m = remembered ? staff.find((s: any) => s.id === remembered) : matchStaff(name, staff);
     return { name, count: n, suggest: remembered === '__past' ? '__past' : m?.id || null, sure: !!remembered || (!!m && norm(m.name) === norm(name)) }; });
-  const serviceQ = count('service').map(([name, n]) => { const remembered = saved.services?.[mapKey(name, true)]; const m = remembered && remembered !== '__keep' ? services.find((s: any) => s.id === remembered) : remembered ? null : matchService(name, services);
-    return { name, count: n, suggest: remembered === '__keep' ? '__keep' : m?.id || null, sure: !!remembered || (!!m && svcNorm(m.name) === svcNorm(name)) }; });
+  const serviceQ = count('service').map(([name, n]) => { const remembered = saved.services?.[mapKey(name, true)];
+    const exact = services.find((s: any) => s.status !== 'archived' && svcNorm(s.name) === svcNorm(name));
+    // Not on the menu as one service, but every part is: a combo, split into the main service and add-ons.
+    const combo = !exact && !remembered ? splitCombo(name, services) : null;
+    const m = remembered && remembered !== '__keep' && !String(remembered).startsWith('split:') ? services.find((s: any) => s.id === remembered) : remembered ? null : combo ? null : matchService(name, services);
+    const split = String(remembered || '').startsWith('split:') ? String(remembered) : combo ? `split:${combo.map((c: any) => c.id).join('|')}` : null;
+    return { name, count: n, suggest: remembered === '__keep' ? '__keep' : split || m?.id || null, split: split ? split.slice(6).split('|').map((id) => services.find((s: any) => s.id === id)?.name || '?').join(' + ') : null, sure: !!remembered || (!!m && svcNorm(m.name) === svcNorm(name)) }; });
   const idx = await clientIndex(db, tenantId); const nowIso = new Date().toISOString().slice(0, 16);
   const newClients = new Set<string>(); let upcoming = 0, past = 0;
   for (const r of rows) { if (!idx.find(r)) newClients.add(norm(r.email || r.phone || r.client)); if (String(r.when) >= nowIso && r.status !== 'cancelled' && r.status !== 'no_show' && r.status !== 'done') upcoming++; else past++; }
@@ -93,8 +111,11 @@ export async function saveAppointments(db: any, tenantId: string, tenant: any, r
   const there = new Set<string>(); for (let i = 0; i < pre.length; i += 300) { const snaps = await db.getAll(...pre.slice(i, i + 300).map((k) => db.doc(`${T(tenantId)}/appointments/${k}`))); for (const x of snaps) if (x.exists) there.add(x.id); }
   for (const r of rows) {
     const [d, hm] = String(r.when).split('T'); const [h, mi] = String(hm || '00:00').split(':').map(Number); const start = wallToUtc(d, h, mi, tz); if (isNaN(+start)) { skipped++; continue; }
-    const sMap = o.serviceMap[r.service || ''] || null; const svc = sMap && sMap !== '__keep' ? services.get(sMap) : null;
-    const mins = Number(r.minutes) || Number(svc?.duration) || 60; const end = new Date(+start + mins * 60000);
+    const sMap = o.serviceMap[r.service || ''] || null;
+    // A combo split into your services: the first is the visit's service, the rest are its add-ons.
+    const parts = sMap && sMap.startsWith('split:') ? sMap.slice(6).split('|').map((id: string) => services.get(id)).filter(Boolean) : null;
+    const svc = parts?.length ? parts[0] : sMap && sMap !== '__keep' ? services.get(sMap) : null; const addOns = parts ? parts.slice(1) : [];
+    const mins = Number(r.minutes) || (parts?.length ? parts.reduce((t: number, p: any) => t + (Number(p.duration) || 0), 0) : 0) || Number(svc?.duration) || 60; const end = new Date(+start + mins * 60000);
     let client = idx.find(r);
     if (!client) { const ref = db.collection(`${T(tenantId)}/clients`).doc(); client = newClientDoc(ref, r, o); batch.set(ref, client); n++; idx.add(client); clientsAdded++; }
     const id = keyOf(r, client.id, start); if (there.has(id)) { skipped++; continue; } there.add(id);
@@ -102,10 +123,10 @@ export async function saveAppointments(db: any, tenantId: string, tenant: any, r
     const stId = o.staffMap[r.staff || ''] || null; const who = stId && stId !== '__past' ? staff.get(stId) : null;
     const isPast = +start < nowMs; const st0 = r.status || (isPast ? 'done' : 'booked');
     const status = st0 === 'cancelled' ? 'cancelled' : st0 === 'no_show' ? 'no_show' : isPast ? 'completed' : 'confirmed';
-    const price = r.price != null ? Number(r.price) : Number(svc?.price) || 0;
+    const price = r.price != null ? Number(r.price) : (parts?.length ? parts.reduce((t: number, p: any) => t + (Number(p.price) || 0), 0) : Number(svc?.price) || 0);
     batch.set(ref, JSON.parse(JSON.stringify({ id: ref.id, clientId: client.id, clientName: client.name, clientEmail: client.email || null, clientPhone: client.phone || null,
       staffId: who?.id || null, staffName: who?.name || (stId === '__past' ? `${r.staff} (past team member)` : r.staff || null),
-      serviceId: svc?.id || null, serviceName: svc?.name || r.service || 'Appointment', startTime: start.toISOString(), endTime: end.toISOString(), duration: mins, price,
+      serviceId: svc?.id || null, serviceName: svc?.name || r.service || 'Appointment', ...(addOns.length ? { addOnIds: addOns.map((x: any) => x.id), importedServiceName: r.service } : {}), startTime: start.toISOString(), endTime: end.toISOString(), duration: mins, price,
       status, ...(status === 'completed' ? { revenue: price, checkedOutAt: start.toISOString() } : {}), notes: r.notes || '', source: 'import', bookedBy: 'import', importId: o.importId, importedFrom: o.app || null, createdAt: now(),
       // Nothing is sent about an imported visit unless the business chose reminders for upcoming ones.
       followUpSentAt: now(), aftercareSentAt: now(), ...(isPast || !o.reminders ? { reminderSentAt: now(), reminderSentBy: 'import' } : {}), confirmationSentAt: now() })));
@@ -226,4 +247,21 @@ export async function saveDiscounts(db: any, tenantId: string, rows: any[], o: {
   return { added, skipped };
 }
 
-export const MORE_KINDS: ImportKind[] = ['appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts'];
+/** Past sales totals: added up by month and kept apart from the books (salesHistory) — they never count as income here,
+ *  in taxes or in pay. Reports show them as "same time last year". Each import's months are their own records, so an
+ *  import can be undone; a chunk of a file adds to its month. */
+export async function saveSales(db: any, tenantId: string, rows: any[], o: { importId: string; app: string }) {
+  const { FieldValue } = await import('firebase-admin/firestore'); const by = new Map<string, any>();
+  for (const r of rows) { const m = by.get(r.month) || { total: 0, services: 0, products: 0, tips: 0, visits: 0, rows: 0 };
+    m.total += Number(r.total) || 0; m.services += Number(r.services) || 0; m.products += Number(r.products) || 0; m.tips += Number(r.tips) || 0; m.visits += Number(r.visits) || 0; m.rows++; by.set(r.month, m); }
+  for (const [month, m] of by) await db.doc(`${T(tenantId)}/salesHistory/${month}_${o.importId}`).set({ month, importId: o.importId, importedFrom: o.app || null, createdAt: now(),
+    total: FieldValue.increment(Math.round(m.total * 100) / 100), services: FieldValue.increment(m.services), products: FieldValue.increment(m.products), tips: FieldValue.increment(m.tips), visits: FieldValue.increment(m.visits), rows: FieldValue.increment(m.rows) }, { merge: true });
+  return { added: rows.length, months: by.size };
+}
+
+/** Months already brought in by an earlier import (bringing them in again would count them twice). */
+export async function salesMonthsHere(db: any, tenantId: string) {
+  const s = await db.collection(`${T(tenantId)}/salesHistory`).get(); return new Set<string>(s.docs.map((d: any) => String((d.data() as any)?.month || '')));
+}
+
+export const MORE_KINDS: ImportKind[] = ['appointments', 'giftcards', 'packages', 'memberships', 'balances', 'formulas', 'discounts', 'sales'];

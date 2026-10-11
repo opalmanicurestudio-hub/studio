@@ -113,6 +113,39 @@ import { makeDb, check, failures } from './fake-db';
     const dd: any = await M.saveDiscounts(db, T, [{ code: 'WELCOME10', type: 'percentage', value: 10 }, { code: 'SAVE5', type: 'fixed', value: 5, limit: 50, used: 3, ends: '2027-01-31' }], o);
     const save5: any = [...db._store.values()].find((v: any) => v?.code === 'SAVE5'); check('codes come in with limits and uses; one already here is skipped', dd.added === 1 && dd.skipped === 1 && save5.usageLimit === 50 && save5.usageCount === 3 && save5.validUntil === '2027-01-31' && save5.isActive === true, save5); }
 
+  console.log('Moving in, part 3 — combos, PDFs, photos, past sales');
+  { const M = await import('../../src/lib/import-more'); const P = await import('../../src/lib/pdf-table'); const F = await import('../../src/lib/import-files'); const IR = await import('../../src/lib/import-records');
+    const menu = [{ id: 'pedi', name: 'Classic pedicure' }, { id: 'art', name: 'Nail art — simple' }, { id: 'gel', name: 'Gel manicure' }, { id: 'fr', name: 'French tips' }, { id: 'cut', name: 'Haircut' }, { id: 'blow', name: 'Blowout' }];
+    const n = (x: any) => x?.map((s: any) => s.id).join('+');
+    check('“Pedi + Art” splits into pedicure and nail art', n(M.splitCombo('Pedi + Art', menu)) === 'pedi+art', M.splitCombo('Pedi + Art', menu));
+    check('“Gel mani & French” and “Haircut w/ blowout” split too', n(M.splitCombo('Gel mani & French', menu)) === 'gel+fr' && n(M.splitCombo('Haircut w/ blowout', menu)) === 'cut+blow');
+    check('a name with no join isn’t a combo, and one part we don’t have stops the split', M.splitCombo('Gel manicure', menu) === null && M.splitCombo('Pedi + Massage', menu) === null);
+    // PDF: words on a page → rows (a title line, a header, two rows, a footer and a total are handled)
+    const w = (str: string, x: number, y: number, page = 1) => ({ str, x, y, w: str.length * 5, page });
+    const rows = P.wordsToRows([w('Gift', 40, 800), w('Card', 64, 800), w('Liability', 88, 800),
+      w('Code', 40, 760), w('Customer', 160, 760), w('Balance', 320, 760),
+      w('K7QX-M2PA', 40, 740), w('Maria', 160, 740), w('Lopez', 192, 740), w('$40.00', 320, 740),
+      w('ABCD-1234', 40, 725), w('Tia', 160, 725), w('Grant', 180, 725), w('$75.00', 320, 725),
+      w('Total', 40, 700), w('$115.00', 320, 700), w('Page', 280, 40), w('1', 306, 40),
+      w('Code', 40, 760, 2), w('Customer', 160, 760, 2), w('Balance', 320, 760, 2), w('ZZZZ-9999', 40, 740, 2), w('Ana', 160, 740, 2), w('$10.00', 320, 740, 2)]);
+    check('a PDF table becomes rows: header, names joined, totals and page numbers dropped, header not repeated', JSON.stringify(rows) === JSON.stringify([['Code', 'Customer', 'Balance'], ['K7QX-M2PA', 'Maria Lopez', '$40.00'], ['ABCD-1234', 'Tia Grant', '$75.00'], ['ZZZZ-9999', 'Ana', '$10.00']]), rows);
+    // Photos: matching a file to a client
+    const people = [{ id: 'm', name: 'Maria Lopez', email: 'maria@x.com' }, { id: 't', name: 'Tia Grant' }, { id: 'a1', name: 'Ana Ruiz' }, { id: 'a2', name: 'Ana Ruiz' }];
+    const who = (p: string) => F.matchFile(p, people)?.id || null;
+    check('a folder per client', who('Exports/Maria Lopez/IMG_2231.jpg') === 'm');
+    check('files named after the client (any order or style)', who('maria-lopez_2023-04-02_before.jpg') === 'm' && who('Grant, Tia - consent.pdf') === 't' && who('maria@x.com.jpg') === 'm' && who('TIA_GRANT (2).png') === 't');
+    check('two clients with the same name, or no name at all, isn’t a match', who('Ana Ruiz/after.jpg') === null && who('IMG_0001.jpg') === null);
+    check('photos and other files told apart', F.fileKind('a.HEIC') === 'photo' && F.fileKind('form.pdf') === 'file');
+    // Past sales totals
+    const read = (csv: string) => { const r = IR.parseCsv(csv); const map = IR.autoMatch('sales', r[0]); return r.slice(1).map((c, i) => IR.cleanRow('sales', c, map, i + 2)); };
+    const sr = read('Date,Gross Sales,Services,Products\n2025-10-03,820.50,700,120.50\n2025-10-04,410,400,10\nNov 2025,9500,,\nTotal,10730.50,,');
+    check('sales rows by day or month, the total row left out', sr[0].data.month === '2025-10' && sr[0].data.total === 820.5 && sr[2].data.month === '2025-11' && !!sr[3].skip, sr.map((x: any) => x.data));
+    check('a sales report is recognized', IR.guessKind(['Date', 'Gross Sales', 'Services']) === 'sales');
+    const db = fresh(); const out: any = await M.saveSales(db, T, sr.filter((x: any) => !x.skip).map((x: any) => x.data), { importId: 'imp9', app: 'Square' });
+    const oct0: any = db._store.get('tenants/t1/salesHistory/2025-10_imp9'); const oct: any = Object.fromEntries(Object.entries(oct0 || {}).map(([k, v]: any) => [k, v && typeof v === 'object' && 'operand' in v ? v.operand : v]));   // the test database keeps increments as-is
+    check('added up by month, kept apart from the books', out.months === 2 && oct.total === 1230.5 && oct.services === 1100 && ![...db._store.keys()].some((k) => k.includes('/transactions/')), oct);
+    check('months already brought in are known (so they aren’t counted twice)', (await M.salesMonthsHere(db, T)).has('2025-11')); }
+
   console.log('Starter menus');
   { check('five menus, every service with a length and no price', S.STARTER_MENUS.length === 5 && S.STARTER_MENUS.every((m) => m.services.every((x: any) => x.duration > 0 && !('price' in x))));
     check('the nail menu has 18 services', S.STARTER_MENUS.find((m) => m.id === 'nails')?.services.length === 18);
