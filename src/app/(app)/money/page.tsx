@@ -1,5 +1,6 @@
 'use client';
 
+import { getAuth } from 'firebase/auth';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras, reversalsFor } from '@/lib/commission';
 import { periodPay, payrollFields } from '@/lib/pay-period';
@@ -1243,11 +1244,21 @@ const LedgerTab = () => {
     const isCash = transactionToRefund.paymentMethod?.toLowerCase() === 'cash';
     if (isCash && !activeTill) { toast({ variant: 'destructive', title: 'Till Required' }); return; }
     if ((transactionToRefund as any).refundedAt || (transactionToRefund as any).voided) { toast({ variant: 'destructive', title: 'Already refunded', description: 'This sale was already refunded or voided.' }); return; }
+    let refundTotal = data.amount + (data.refundTip ? (transactionToRefund.tipAmount || 0) : 0);
+    // Card sales go back to the card first; the books only change once the card refund went through.
+    let toCard: { card: boolean; cents?: number } = { card: false };
+    if (!isCash) {
+      try {
+        const tk = await getAuth().currentUser?.getIdToken().catch(() => '');
+        const r = await fetch('/api/money/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, transactionId: transactionToRefund.id, amountCents: Math.round(refundTotal * 100) }) }).then((x) => x.json());
+        if (!r?.ok) { toast({ variant: 'destructive', title: 'Card refund didn’t go through', description: r?.error || 'Nothing was changed. Try again.' }); return; }
+        if (r.card) { toCard = { card: true, cents: r.refundedCents }; if (r.shortCents > 0) refundTotal = Math.round(r.refundedCents) / 100; }
+      } catch { toast({ variant: 'destructive', title: 'Card refund didn’t go through', description: 'Nothing was changed. Try again.' }); return; }
+    }
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
-    const refundTotal = data.amount + (data.refundTip ? (transactionToRefund.tipAmount || 0) : 0);
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-    batch.set(txnRef, { id: txnRef.id, date: now, description: `Refund for: ${transactionToRefund.description}`, clientOrVendor: transactionToRefund.clientOrVendor, clientId: transactionToRefund.clientId, type: 'reversal', context: transactionToRefund.context, category: 'Refunds', amount: refundTotal, paymentMethod: transactionToRefund.paymentMethod, reversalOf: transactionToRefund.id, appointmentId: transactionToRefund.appointmentId || null, hasReceipt: false, notes: `Refund Reason: ${data.reason}` , ...(data.refundTip && (transactionToRefund.tipAmount || 0) > 0 && data.tipStrategy !== 'absorb' && transactionToRefund.staffId ? { tipReversal: { staffId: transactionToRefund.staffId, amount: Number(transactionToRefund.tipAmount) || 0 } } : {}), ...(data.takeBack ? (() => { const r = reversalsFor(transactionToRefund, data.amount, staff || [], services || []); return r.length ? { payReversals: r, staffId: transactionToRefund.staffId } : {}; })() : {}) });
+    batch.set(txnRef, { id: txnRef.id, date: now, description: `Refund for: ${transactionToRefund.description}`, clientOrVendor: transactionToRefund.clientOrVendor, clientId: transactionToRefund.clientId, type: 'reversal', context: transactionToRefund.context, category: 'Refunds', amount: refundTotal, paymentMethod: transactionToRefund.paymentMethod, reversalOf: transactionToRefund.id, appointmentId: transactionToRefund.appointmentId || null, hasReceipt: false, notes: `Refund Reason: ${data.reason}`, ...(toCard.card ? { refundedToCard: true } : {}), ...(data.refundTip && (transactionToRefund.tipAmount || 0) > 0 && data.tipStrategy !== 'absorb' && transactionToRefund.staffId ? { tipReversal: { staffId: transactionToRefund.staffId, amount: Number(transactionToRefund.tipAmount) || 0 } } : {}), ...(data.takeBack ? (() => { const r = reversalsFor(transactionToRefund, data.amount, staff || [], services || []); return r.length ? { payReversals: r, staffId: transactionToRefund.staffId } : {}; })() : {}) });
     if (isCash && activeTill) {
       const updates: any = { expectedCash: increment(-refundTotal), totalCashRefunds: increment(refundTotal) };
       if (data.refundTip && data.tipStrategy === 'clawback' && transactionToRefund.staffId) { updates[`cashTipsByStaff.${transactionToRefund.staffId}`] = increment(-(transactionToRefund.tipAmount || 0)); updates.totalCashTips = increment(-(transactionToRefund.tipAmount || 0)); }
@@ -1261,7 +1272,7 @@ const LedgerTab = () => {
     batch.update(doc(firestore, `tenants/${tenantId}/transactions`, transactionToRefund.id), { refundedAt: now, refundTransactionId: txnRef.id });
     try {
       await batch.commit();
-      toast({ title: 'Refund Authorized', description: `$${refundTotal.toFixed(2)} reversed.` });
+      toast({ title: 'Refund Authorized', description: toCard.card ? `$${refundTotal.toFixed(2)} sent back to the card. It shows on their statement in 5–10 days.` : `$${refundTotal.toFixed(2)} reversed.` });
       // Refunds are PIN-authorized — credit the authorizing manager by name.
       const authorizer = (staff || []).find(s => s.id === data.authorizerId);
       writeAudit(firestore, tenantId, {

@@ -200,7 +200,7 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       const provId = String(p.redo?.staffId || c.visit?.providerId || '');
       const redo = kind === 'redo' ? { state: 'choosing', staffId: provId || null, minutes: Number(p.redo?.minutes) || null, changes: 0, note: null, plan: planOf(p.redo?.plan, c) } : null;
       const fix = { kind, label: FIX_LABEL[kind], amountCents, redoAppointmentId: null, redo, by: action === 'approve' ? c.pending?.askedBy : actor.name, approvedBy: action === 'approve' || actor.isManager ? actor.name : null, at: now(),
-        todo: kind === 'refund' ? `Refund ${money(amountCents)} to the card${c.visit?.cardLast4 ? ` ending ${c.visit.cardLast4}` : ''} in Money` : kind === 'credit' ? `Add ${money(amountCents)} credit to ${c.clientName}’s account` : null };
+        todo: kind === 'refund' ? `Refund ${money(amountCents)} to the card${c.visit?.cardLast4 ? ` ending ${c.visit.cardLast4}` : ''} — send it from here or from Money` : kind === 'credit' ? `Add ${money(amountCents)} credit to ${c.clientName}’s account` : null };
       await push({ fix, pending: null, status: kind === 'note' ? 'done' : 'fix_chosen', ownerId: c.ownerId || actor.staffId, ownerName: c.ownerName || actor.name },
         `${action === 'approve' ? `${actor.name} approved: ` : 'Fix chosen: '}${FIX_LABEL[kind]}${amountCents ? ` ${money(amountCents)}` : ''}`);
       if (kind === 'redo') {
@@ -229,6 +229,22 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       if (!r.ok) return { ok: false as const, error: r.error };
       if (b.tell !== false) await textClient(db, tenantId, tenant, c, `Your free redo is booked: ${r.when}.`);
       return { ok: true as const, redoId: r.id }; }
+    case 'refund_card': { if (!desk) return { ok: false as const, error: 'The desk or a manager sends refunds.' };
+      if (c.fix?.kind !== 'refund' || !(c.fix.amountCents > 0)) return { ok: false as const, error: 'Choose a refund first.' };
+      if (c.fix.refundedAt) return { ok: false as const, error: 'This refund was already sent.' };
+      const { refundSaleToCard, saleForVisit } = await import('@/lib/money-refund');
+      const sale: any = await saleForVisit(db, tenantId, c.visit?.appointmentId || c.appointmentId || '');
+      if (!sale) return { ok: false as const, error: 'We couldn’t find the payment for this visit. Refund it from Money.' };
+      const r = await refundSaleToCard(db, tenantId, tenant, sale.id, c.fix.amountCents, actor.name);
+      if (!r.ok) return { ok: false as const, error: r.error };
+      if (!r.card) return { ok: false as const, error: 'This visit wasn’t paid by card here. Refund it from Money.' };
+      const cents = r.refundedCents; const at = now(); const T0 = `tenants/${tenantId}`;
+      const rev = db.collection(`${T0}/transactions`).doc();
+      await rev.set({ id: rev.id, date: at, description: `Refund for: ${sale.description || 'visit'}`, clientOrVendor: sale.clientOrVendor || c.clientName || null, clientId: sale.clientId || c.clientId || null, type: 'reversal', context: sale.context || null, category: 'Refunds', amount: cents / 100, paymentMethod: sale.paymentMethod || 'card', reversalOf: sale.id, appointmentId: sale.appointmentId || null, hasReceipt: false, notes: `Making it right ${c.number || ''}`.trim(), refundedToCard: true, caseId: c.id, by: actor.name });
+      await db.doc(`${T0}/transactions/${sale.id}`).set({ refundedAt: at, refundTransactionId: rev.id }, { merge: true });
+      await push({ fix: { refundedAt: at, refundedCents: cents, todo: null } }, `Refunded ${money(cents)} to the card${r.shortCents > 0 ? ` (${money(r.shortCents)} couldn’t go back — refund the rest from Money)` : ''}`);
+      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `We’ve refunded ${money(cents)} to your card. It can take 5–10 days to show on your statement.`);
+      return { ok: true as const, refundedCents: cents }; }
     case 'done': if (!desk && !isProvider) return { ok: false as const, error: 'You can’t mark this done.' };
       if (c.fix?.kind === 'refund') { const { refundKeepsPay } = await import('@/lib/redo-pay'); await refundKeepsPay(db, tenantId, tenant, c).catch(() => {}); }
       await push({ status: 'done', doneAt: now(), followUpAt: S.followUpDays ? new Date(Date.now() + S.followUpDays * 86400000).toISOString() : null }, `Marked done${text ? `: ${text}` : ''}${c.fix?.todo ? ` (${c.fix.todo} — done)` : ''}`); return { ok: true as const };
