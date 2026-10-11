@@ -2,6 +2,8 @@
 
 export const dynamic = 'force-dynamic';
 
+import { giftCentsFor } from '@/lib/gift-visit';
+import { GiftCoverBar } from '@/components/gift/GiftCoverBar';
 import { channelFrom, catSlug } from '@/lib/share-links';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getFirestore } from 'firebase/firestore';
@@ -162,6 +164,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [configReady,     setConfigReady]     = useState(false);
   const [dialogOpen,      setDialogOpen]      = useState(false);
   const [dialogService,   setDialogService]   = useState<any>(null);
+  const [giftCents, setGiftCents] = useState(0);   // came from their gift card (lib/gift-visit) — mark what it covers
+  useEffect(() => { setGiftCents(giftCentsFor(String(tenantId || ''))); }, [tenantId]);
   const [showPicker,      setShowPicker]      = useState(false);
 
   const [loadingStyle] = useState<StyleConfig>(() => {
@@ -1095,7 +1099,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     return (
       <StudioBookingPage tenant={tenant} accent={resolvedStyle.accentColor}
         focus={(() => { try { const id = new URLSearchParams(window.location.search).get('service'); return id ? services.find((sv: any) => sv.id === id) || null : null; } catch { return null; } })()}
-        services={services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true)} staff={staff} sections={sections}
+        services={services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true)} staff={staff} sections={sections} giftCents={giftCents}
         onBook={(svc, staffId) => { setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
     );
   }
@@ -1211,6 +1215,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           <a href={`/gift/${tenantId}`} className="glass ml-2 inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium shadow-sm active:scale-[0.98]">Buy a gift card</a>
         )}
       </div>
+      {giftCents > 0 && <div className="mx-auto max-w-3xl px-4 pt-3"><GiftCoverBar cents={giftCents} services={services.filter((sv: any) => sv.membersOnly !== true)} accent={resolvedStyle.accentColor} onPick={(sv) => { setDialogService(sv); setDialogOpen(true); }} /></div>}
       {activeSections.map(section => (
         <SectionWrapper key={section.id} section={section} isPreview={false}
           onEdit={() => {}} onFieldTap={() => {}}>

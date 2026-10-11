@@ -225,7 +225,7 @@ export async function syncClientGift(db: any, tenantId: string, clientId?: strin
   if (!clientId) return;
   const s = await db.collection(`${T(tenantId)}/giftCards`).where('recipientId', '==', clientId).get();
   const live = s.docs.map((d: any) => d.data()).filter((g: any) => g.status === 'active' && !g.ownerRenterId && g.balanceCents > 0 && !(g.expiresAt && Date.parse(g.expiresAt) < Date.now()));
-  await db.doc(`${T(tenantId)}/clients/${clientId}`).set({ giftBalanceCents: live.reduce((a: number, g: any) => a + g.balanceCents, 0), giftCardCount: live.length }, { merge: true }).catch(() => {});
+  await db.doc(`${T(tenantId)}/clients/${clientId}`).set({ giftBalanceCents: live.reduce((a: number, g: any) => a + g.balanceCents, 0), giftAmountCents: live.filter((g: any) => g.kind !== 'service').reduce((a: number, g: any) => a + g.balanceCents, 0), giftCardCount: live.length }, { merge: true }).catch(() => {});
 }
 
 /** A gentle note about money left on a card (Gift cards → "Remind people about money left"): only for cards with money

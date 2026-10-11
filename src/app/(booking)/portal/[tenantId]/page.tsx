@@ -124,6 +124,7 @@ export default function ClientPortalPage() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number } | null>(null);
     const [settlementSuccess, setSettlementSuccess] = useState(false);
+    const [payNote, setPayNote] = useState('');
     const [expandedImage, setExpandedImage] = useState<string | null>(null);
     
     // Booking flow within portal
@@ -337,17 +338,19 @@ export default function ClientPortalPage() {
 
     // Paying what they owe goes through the server: it charges their saved card
     // for the balance ON RECORD, and clears it only once Stripe confirms.
-    const handleSettleArrears = async () => {
+    const handleSettleArrears = async (opts: { useGift?: boolean; cardToo?: boolean } = {}) => {
         if (!client || !tenantId) return;
-        setIsProcessing(true);
+        setIsProcessing(true); setPayNote('');
         try {
-            const res = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: client.id }) });
+            const res = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: client.id, ...opts }) });
             const d = await res.json().catch(() => ({}));
-            if (!res.ok || !d?.ok) { toast({ variant: 'destructive', title: 'Not paid', description: d?.error || 'The payment didn’t go through. You can settle it at your next visit instead.' }); return; }
+            const $ = (n: number) => `$${Number(n).toFixed(2)}`;
+            if (!res.ok || !d?.ok) { setPayNote(d?.error || 'The payment didn’t go through. You can settle it at your next visit instead.'); return; }
+            if (d.partial) { setPayNote(`Your gift card paid ${$(d.giftDollars)}. ${$(d.leftDollars)} is left — pay it at your next visit.`); setSettlementSuccess(true); return; }
             setSettlementSuccess(true);
-            toast({ title: 'Paid — thank you', description: d.paidDollars ? `$${Number(d.paidDollars).toFixed(2)} charged to your card${d.last4 ? ` ending ${d.last4}` : ''}. You’re all clear.` : (d.message || 'You’re all clear.') });
+            toast({ title: 'Paid — thank you', description: [d.giftDollars ? `${$(d.giftDollars)} from your gift card` : '', d.paidDollars ? `${$(d.paidDollars)} on your card${d.last4 ? ` ending ${d.last4}` : ''}` : ''].filter(Boolean).join(' and ') || d.message || 'You’re all clear.' });
         } catch {
-            toast({ variant: 'destructive', title: 'Not paid', description: 'Please check your connection and try again.' });
+            setPayNote('Please check your connection and try again.');
         } finally {
             setIsProcessing(false);
         }
@@ -378,6 +381,7 @@ export default function ClientPortalPage() {
     };
 
     const safeBalance = useMemo(() => safeNumber(client?.outstandingBalance), [client]);
+    const giftCents = Math.max(0, Number((client as any)?.giftAmountCents ?? 0) || 0);   // gift cards in their name that can pay a balance
 
     if (clientLoading || appointmentsLoading) {
         return (
@@ -478,27 +482,15 @@ export default function ClientPortalPage() {
 
                 <AnimatePresence>
                     {safeBalance > 0 && (
-                        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}>
-                            <Alert variant="destructive" className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-[2.5rem] p-6 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6 text-left">
-                                <div className="flex items-start gap-4 md:gap-6 text-left">
-                                    <div className="p-3 md:p-4 bg-destructive text-white rounded-2xl shadow-xl shadow-destructive/20 shrink-0 mt-1">
-                                        <Wallet className="w-6 h-6 md:w-8 md:h-8" />
-                                    </div>
-                                    <div className="space-y-1 text-left">
-                                        <AlertTitle className="text-lg md:text-xl font-black uppercase tracking-tighter text-destructive leading-none text-left">Accounting Balance</AlertTitle>
-                                        <AlertDescription className="text-[10px] md:text-sm font-bold text-slate-600 uppercase tracking-tight opacity-80 mt-2 text-left">
-                                            A total of <strong>${safeBalance.toFixed(2)}</strong> in outstanding fees is recorded. Reconcile now to maintain active status.
-                                        </AlertDescription>
-                                        <div className="pt-4 text-left">
-                                            <Button variant="outline" onClick={() => setIsSettlementOpen(true)} className="h-9 md:h-10 rounded-xl border-destructive/30 bg-white text-destructive font-black uppercase text-[10px] tracking-widest hover:bg-destructive hover:text-white transition-all shadow-sm"><Zap className="w-3.5 h-3.5 mr-2" />Settle Balance Now</Button>
-                                        </div>
-                                    </div>
+                        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                            <div className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] border bg-white p-5 text-left" style={{ borderColor: '#ececee', color: '#16171a' }}>
+                                <div className="min-w-0">
+                                    <p className="text-[13px] font-semibold" style={{ color: '#b45309' }}>You have a balance</p>
+                                    <p className="mt-0.5 text-[26px] font-normal tracking-[-0.02em]">${safeBalance.toFixed(2)}</p>
+                                    <p className="text-[13.5px]" style={{ color: '#6d7075' }}>{giftCents > 0 ? `You have $${(giftCents / 100).toFixed(2)} on a gift card you can use for it.` : 'From fees on a past visit. Pay it here, or at your next visit.'}</p>
                                 </div>
-                                <div className="text-right shrink-0">
-                                    <p className="text-[9px] md:text-[10px] font-black uppercase text-destructive tracking-[0.2em] mb-1 text-right">Total Arrears</p>
-                                    <p className="text-2xl md:text-4xl font-black font-mono tracking-tighter text-destructive text-right">${safeBalance.toFixed(2)}</p>
-                                </div>
-                            </Alert>
+                                <button type="button" onClick={() => setIsSettlementOpen(true)} className="h-11 rounded-full px-5 text-[14.5px] font-semibold text-white" style={{ background: '#16171a' }}>Pay it now</button>
+                            </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -817,41 +809,39 @@ export default function ClientPortalPage() {
                 )}
             </AnimatePresence>
 
-            <Dialog open={isSettlementOpen} onOpenChange={setIsSettlementOpen}>
-                <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background text-left">
-                    <AnimatePresence mode="wait">
-                        {!settlementSuccess ? (
-                            <motion.div key="pay-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                                <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left"><div className="flex items-center gap-3 mb-2"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Settlement</span></div><DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Account Reconciliation</DialogTitle></DialogHeader>
-                                <div className="p-8 space-y-8">
-                                    <div className="p-8 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-inner">
-                                        <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Total Arrears Balance</p>
-                                        <p className="text-6xl font-black text-primary tracking-tighter font-mono">${safeBalance.toFixed(2)}</p>
-                                    </div>
-                                    <div className="space-y-6 text-left">
-                                        <div className="space-y-3">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Method</Label>
-                                            {client.cardOnFile ? (
-                                                <div className="p-5 rounded-2xl border-2 bg-primary/[0.02] border-primary/10 flex items-center justify-between shadow-sm">
-                                                    <div className="flex items-center gap-4 text-left">
-                                                        <div className="p-2 bg-white rounded-xl shadow-sm border shrink-0"><CreditCard className="w-5 h-5 text-primary" /></div>
-                                                        <div className="text-left"><p className="font-black text-sm uppercase tracking-tight text-slate-900">{client.cardOnFile.brand} •••• {client.cardOnFile.last4}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Authorized Vault Card</p></div>
-                                                    </div>
-                                                    <Lock className="w-4 h-4 text-primary opacity-20" />
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-4">
-                                                    <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
-                                                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center" /></div><div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center" /></div></div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
+            <Dialog open={isSettlementOpen} onOpenChange={(o) => { setIsSettlementOpen(o); if (!o) { setSettlementSuccess(false); setPayNote(''); } }}>
+                <DialogContent className="sm:max-w-md rounded-[18px] p-0 overflow-hidden bg-white text-left" style={{ color: '#16171a', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+                    {!settlementSuccess ? (
+                        <div className="space-y-5 p-6">
+                            <DialogHeader className="text-left"><DialogTitle className="text-[24px] font-normal tracking-[-0.02em]">Pay your balance</DialogTitle></DialogHeader>
+                            <div className="rounded-2xl p-5 text-center" style={{ background: '#f3f3f5' }}>
+                                <p className="text-[13px]" style={{ color: '#6d7075' }}>You owe</p>
+                                <p className="text-[40px] font-normal leading-none tracking-[-0.03em]">${safeBalance.toFixed(2)}</p>
+                            </div>
+                            {giftCents > 0 && (
+                                <div className="space-y-2 rounded-2xl border p-4" style={{ borderColor: '#ececee' }}>
+                                    <p className="text-[15px] font-semibold">Your gift card</p>
+                                    <p className="text-[13.5px]" style={{ color: '#6d7075' }}>{giftCents >= Math.round(safeBalance * 100) ? `$${(giftCents / 100).toFixed(2)} on it — enough to pay all of this.` : `$${(giftCents / 100).toFixed(2)} on it — it pays that much${client?.cardOnFile ? `, and your ${client.cardOnFile.brand || 'card'} ending ${client.cardOnFile.last4} pays the rest` : ''}.`}</p>
+                                    <button type="button" disabled={isProcessing} onClick={() => handleSettleArrears({ useGift: true, cardToo: !!client?.cardOnFile })} className="h-12 w-full rounded-full text-[15px] font-semibold text-white disabled:opacity-50" style={{ background: '#16171a' }}>{isProcessing ? 'Paying…' : giftCents >= Math.round(safeBalance * 100) ? 'Pay with my gift card' : client?.cardOnFile ? 'Use my gift card, then my card' : `Use $${(giftCents / 100).toFixed(2)} from my gift card`}</button>
                                 </div>
-                                <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 text-left"><Button onClick={handleSettleArrears} disabled={isProcessing} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">{isProcessing ? <Loader className="animate-spin" /> : `Authorize $${safeBalance.toFixed(2)}`}</Button><Button variant="ghost" onClick={() => setIsSettlementOpen(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button></DialogFooter>
-                            </motion.div>
-                        ) : (<motion.div key="pay-success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 md:p-20 text-center space-y-10"><div className="w-32 h-32 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6"><CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" /></div><div className="space-y-2"><h3 className="text-3xl font-black uppercase tracking-tighter">Settlement Certified</h3><p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed">Your studio account has been reconciled.</p></div><Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20" onClick={() => { setIsSettlementOpen(false); setSettlementSuccess(false); }}>Return to Dashboard</Button></motion.div>)}
-                    </AnimatePresence>
+                            )}
+                            {client?.cardOnFile ? (
+                                <div className="space-y-2">
+                                    {giftCents > 0 && <p className="text-[13px] font-semibold" style={{ color: '#6d7075' }}>Or pay it all by card</p>}
+                                    <button type="button" disabled={isProcessing} onClick={() => handleSettleArrears()} className="flex h-12 w-full items-center justify-center gap-2 rounded-full border text-[15px] font-semibold disabled:opacity-50" style={giftCents > 0 ? { borderColor: '#ececee' } : { background: '#16171a', color: '#fff', borderColor: '#16171a' }}><CreditCard className="h-4 w-4" /> Pay ${safeBalance.toFixed(2)} with {client.cardOnFile.brand || 'card'} •••• {client.cardOnFile.last4}</button>
+                                </div>
+                            ) : giftCents <= 0 && <p className="rounded-2xl p-4 text-[14px]" style={{ background: '#f3f3f5' }}>There’s no card saved on your account, so you can settle this at your next visit.</p>}
+                            {payNote && <p className="text-[13.5px] font-semibold" style={{ color: '#b42318' }}>{payNote}</p>}
+                            <button type="button" onClick={() => setIsSettlementOpen(false)} className="w-full text-[14px] font-semibold underline underline-offset-4" style={{ color: '#6d7075' }}>Not now</button>
+                        </div>
+                    ) : (
+                        <div className="space-y-3 p-8 text-center">
+                            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full" style={{ background: '#e9f3ed' }}><CheckCircle2 className="h-7 w-7" style={{ color: '#1f7a4d' }} /></div>
+                            <p className="text-[24px] font-normal tracking-[-0.02em]">{payNote ? 'Part paid' : 'You’re all clear'}</p>
+                            <p className="text-[14px]" style={{ color: '#6d7075' }}>{payNote || 'Thank you — your receipt is on its way.'}</p>
+                            <button type="button" onClick={() => setIsSettlementOpen(false)} className="mt-2 h-11 rounded-full px-6 text-[14.5px] font-semibold text-white" style={{ background: '#16171a' }}>Done</button>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
 

@@ -9,6 +9,7 @@
 // with the times clients can book). Booking itself is the same flow, with
 // deposits, forms, text consent, memberships and packages unchanged.
 
+import { GiftCoverBar } from '@/components/gift/GiftCoverBar';
 import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
 import { GiftCardShowcase } from '@/components/gift/GiftCardShowcase';
 import { catSlug } from '@/lib/share-links';
@@ -18,8 +19,9 @@ import { PublicFrame, Section, PrimaryButton, QuietButton, money, minutes } from
 const DAYS: [string, string][] = [['monday', 'Mon'], ['tuesday', 'Tue'], ['wednesday', 'Wed'], ['thursday', 'Thu'], ['friday', 'Fri'], ['saturday', 'Sat'], ['sunday', 'Sun']];
 const clock = (t: string) => { const [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'pm' : 'am'; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, '0')}${ap}` : `${hh}${ap}`; };
 
-export function StudioBookingPage({ tenant, services, staff, sections, accent, onBook, focus }: {
+export function StudioBookingPage({ tenant, services, staff, sections, accent, onBook, focus, giftCents = 0 }: {
   tenant: any; services: any[]; staff: any[]; sections: any[]; accent: string;
+  giftCents?: number;   // came from their gift card: the bar on top + a ✓ on the services it covers
   onBook: (service: any, staffId?: string) => void;
   focus?: any | null;   // a shared link to ONE service → the page is about that service (from a website, a QR code, a bio)
 }) {
@@ -87,6 +89,7 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
 
         <Section id="services" eyebrow="Services" title={<>Choose your <b>service</b></>}>
           {withWho && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-[15px] shadow-sm" role="status"><span>Booking with <b>{withWho.name}</b> — choose a service</span><button type="button" onClick={() => setWithId(null)} className="text-[14px] underline underline-offset-4">Anyone is fine</button></div>}
+          {giftCents > 0 && <div className="mb-5"><GiftCoverBar studio cents={giftCents} services={bookable} accent={accent} onPick={(s) => onBook(s, withId || undefined)} /></div>}
           {bookable.length === 0 ? <p className="text-stone-600">Online booking is coming soon — please check back shortly.</p> : (
             <div className="space-y-8">{groups.map(([cat, list]) => (
               <div key={cat} id={`cat-${catSlug(cat)}`} className="space-y-3 scroll-mt-24">
@@ -96,6 +99,7 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
                     {s.imageUrl && <img src={s.imageUrl} alt="" className="h-16 w-16 shrink-0 rounded-2xl object-cover" />}
                     <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">{s.name}</span>
                       <span className="mt-0.5 block text-[13px] text-stone-500">{[minutes(s.duration), money(s.price) && `${s.priceIsFrom || (s.serviceTiers || []).length ? 'from ' : ''}${money(s.price)}`].filter(Boolean).join(' · ')}</span>
+                      {giftCents > 0 && Number(s.price) > 0 && Number(s.price) * 100 <= giftCents && <span className="mt-1 inline-block rounded-full px-2.5 py-0.5 text-[12px] font-medium" style={{ background: '#e9f3ed', color: '#1f7a4d' }}>Covered by your gift card</span>}
                       {s.description && <span className="mt-1 line-clamp-2 block text-[13px] text-stone-600">{s.description}</span>}</span>
                     <span className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Book</span>
                   </button>

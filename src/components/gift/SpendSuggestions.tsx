@@ -14,7 +14,7 @@ export function SpendSuggestions({ tenantId, balanceCents, accent = '#16171a' }:
   const stretch = svcs.filter((s) => s.price > bal && s.price - bal <= Math.max(15, bal * 0.25)).sort((a, b) => a.price - b.price)[0];
   if (!fits.length && !stretch) return null;
   const row = (s: any, extra?: number) => (
-    <a key={s.id} href={`${base}?service=${encodeURIComponent(s.id)}&src=gift`} className="flex items-center justify-between gap-3 py-3" style={{ borderTop: '1px solid #ececee' }}>
+    <a key={s.id} href={`${base}?service=${encodeURIComponent(s.id)}&src=gift&gift=${balanceCents}`} className="flex items-center justify-between gap-3 py-3" style={{ borderTop: '1px solid #ececee' }}>
       <span className="min-w-0"><span className="block truncate text-[15px] font-semibold">{s.name}</span><span className="block text-[12.5px]" style={{ color: '#6d7075' }}>{s.from ? 'from ' : ''}{money(s.price)}{s.duration ? ` · ${s.duration} min` : ''}{extra ? ` · ${money(extra)} more than your card` : ' · covered'}</span></span>
       <span className="shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-semibold text-white" style={{ background: accent }}>Book</span></a>);
   return (

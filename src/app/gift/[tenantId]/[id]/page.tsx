@@ -5,12 +5,15 @@ import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { SpendSuggestions } from '@/components/gift/SpendSuggestions';
+import { withGift, rememberGiftCode } from '@/lib/gift-visit';
 
 const MUTED = '#6d7075', LINE = '#ececee';
 export default function GiftCardPage() {
   const p = useParams<{ tenantId: string; id: string }>(); const sp = useSearchParams();
   const [d, setD] = React.useState<any>(null); const [err, setErr] = React.useState('');
   React.useEffect(() => { fetch(`/api/gift-cards?tenantId=${encodeURIComponent(String(p?.tenantId || ''))}&id=${encodeURIComponent(String(p?.id || ''))}&k=${encodeURIComponent(sp?.get('k') || '')}`).then((r) => r.json()).then((x) => (x.ok ? setD(x) : setErr(x.error || 'This link isn’t valid.'))).catch(() => setErr('We couldn’t load this — check your connection.')); }, [p, sp]);
+  // Booking from here: the deposit step can fill in this card's code (same tab only — never put in a link).
+  React.useEffect(() => { const cd = d?.card; if (!cd?.code || cd.ownerRenterId || cd.kind === 'service' || !(cd.balanceCents > 0)) return; rememberGiftCode(String(p?.tenantId || ''), cd.code); }, [d, p]);
   const A = d?.brand?.accent || '#16171a'; const c = d?.card; const $ = (cents: number) => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
   return (
     <div className="min-h-dvh px-5 pb-12 pt-8" style={{ color: '#16171a', fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, Segoe UI, sans-serif", background: '#f7f7f8' }}>
@@ -23,7 +26,7 @@ export default function GiftCardPage() {
           <div className="text-center"><p className="text-[12.5px]" style={{ color: MUTED }}>Your code</p><p className="mt-1 font-mono text-[24px] tracking-[0.08em]">{c.code}</p>
             <p className="mt-2 text-[14px]">{c.status === 'void' ? 'This card was cancelled.' : c.balanceCents > 0 ? (c.kind === 'service' ? <>Good for one <b>{c.serviceName}</b> — covered even if the price goes up</> : <><b>{$(c.balanceCents)}</b> left to spend</>) : 'This card has been used up.'}</p></div>
           {c.status !== 'void' && c.balanceCents > 0 && !c.ownerRenterId && c.kind !== 'service' && <SpendSuggestions tenantId={String(p?.tenantId || '')} balanceCents={c.balanceCents} accent={A} />}
-          {c.status !== 'void' && c.balanceCents > 0 && <a href={d.bookUrl} className="flex h-14 items-center justify-center rounded-[18px] text-[16px] font-bold text-white" style={{ background: A }}>Book with it</a>}
+          {c.status !== 'void' && c.balanceCents > 0 && <a href={c.kind === 'service' ? d.bookUrl : withGift(d.bookUrl, c.balanceCents)} className="flex h-14 items-center justify-center rounded-[18px] text-[16px] font-bold text-white" style={{ background: A }}>Book with it</a>}
           <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Show this code when you pay. Keep this link — it always shows what’s left. <a href={`/gift/${encodeURIComponent(String(p?.tenantId || ''))}/find`} className="underline underline-offset-4">Have another card?</a>{d.brand.phone ? ` Questions? ${d.brand.phone}` : ''}</p>
         </>}
       </div>
