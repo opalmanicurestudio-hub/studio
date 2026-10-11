@@ -51,6 +51,8 @@ export type MirSettings = {
   retentionYears: number; payRules: { redoProvider: 'none' | 'half' | 'normal'; originalProvider: 'keep' | 'pays' | 'split'; refund: 'take_back' | 'keep' };
   /** Refunds on cash sales: the ways a client can get the money back, and the pickup rules. */
   cashRefund: CashRefundSettings;
+  /** Reviews on Google: a low one (this many stars or fewer) asks the desk to follow up as a case. */
+  reviews: { on: boolean; googlePlaceId: string; maxStars: number };
 };
 export type PayApp = 'venmo' | 'zelle' | 'cashapp' | 'applecash';
 export type CashRefundSettings = {
@@ -88,6 +90,7 @@ export function settingsOf(tenant: any): MirSettings {
     retentionYears: num(s.retentionYears, 7),
     payRules: { redoProvider: 'half', originalProvider: 'keep', refund: 'take_back', ...(s.payRules || {}) },
     cashRefund: cashRefundOf(s.cashRefund),
+    reviews: { on: s.reviews?.on === true, googlePlaceId: String(s.reviews?.googlePlaceId || '').trim().slice(0, 200), maxStars: Math.min(4, Math.max(1, Number(s.reviews?.maxStars) || 3)) },
   };
 }
 

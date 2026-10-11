@@ -16,7 +16,7 @@ import { settingsOf, FIX_LABEL, FIX_HINT, STAGES, stageIndex, WANTS, wantsFor, C
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f6', RED = '#b42318', PINK = '#fdecec', GREEN = '#1f6b3a';
 const ago = (iso: string) => { const m = Math.max(0, (Date.now() - Date.parse(iso)) / 60000); return m < 60 ? `${Math.round(m)} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
 const left = (iso: string) => { const m = (Date.parse(iso) - Date.now()) / 60000; if (m <= 0) return { text: `Reply overdue by ${ago(iso)}`, late: true }; return { text: m < 60 ? `Reply within ${Math.round(m)} min` : `Reply within ${Math.round(m / 60)} h`, late: false }; };
-const VIA: Record<string, string> = { text: 'Text message', call: 'Phone call', staff: 'Provider', desk: 'Front desk', survey: 'Visit rating', link: 'Visit link' };
+const VIA: Record<string, string> = { review: 'Online review', text: 'Text message', call: 'Phone call', staff: 'Provider', desk: 'Front desk', survey: 'Visit rating', link: 'Visit link' };
 const btn = 'h-11 rounded-full px-5 text-[15px] font-semibold disabled:opacity-40';
 
 async function download(tenantId: string, id: string, kind: 'record' | 'incident', number: string) {
@@ -96,26 +96,29 @@ function StageRail({ status }: { status: string }) {
     </ol>);
 }
 
-function NewCase({ firestore, tenantId, S, onDone, inboxId = '' }: { firestore: any; tenantId: string; S: any; onDone: (id: string) => void; inboxId?: string }) {
+function NewCase({ firestore, tenantId, S, onDone, inboxId = '', reviewId = '' }: { firestore: any; tenantId: string; S: any; onDone: (id: string) => void; inboxId?: string; reviewId?: string }) {
   const since = React.useMemo(() => new Date(Date.now() - 60 * 86400000).toISOString(), []);
   const aQ = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore as Firestore, `tenants/${tenantId}/appointments`), where('startTime', '>=', since)) : null), [firestore, tenantId, since]);
   const { data: appts } = useCollection<any>(aQ);
   const [find, setFind] = React.useState(''); const [visit, setVisit] = React.useState<any>(null); const [reason, setReason] = React.useState(''); const [words, setWords] = React.useState('');
-  const [via, setVia] = React.useState<'call' | 'desk' | 'text'>(inboxId ? 'text' : 'call'); const [wants, setWants] = React.useState(''); const [name, setName] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const [via, setVia] = React.useState<'call' | 'desk' | 'text' | 'review'>(reviewId ? 'review' : inboxId ? 'text' : 'call'); const [wants, setWants] = React.useState(''); const [name, setName] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const past = (appts || []).filter((a: any) => Date.parse(a.startTime) < Date.now() && !['cancelled', 'no_show', 'expired'].includes(String(a.status)));
   // Started from a client's text ("Sounds like a complaint"): their words, and their latest visit, filled in.
   const iRef = useMemoFirebase(() => (firestore && tenantId && inboxId ? doc(firestore as Firestore, `tenants/${tenantId}/smsInbox/${inboxId}`) : null), [firestore, tenantId, inboxId]);
-  const { data: inbox } = useDoc<any>(iRef); const filled = React.useRef(false);
-  React.useEffect(() => { if (!inbox || filled.current || !appts) return; filled.current = true; setWords(String(inbox.body || '')); setVia('text');
+  const rRef = useMemoFirebase(() => (firestore && tenantId && reviewId ? doc(firestore as Firestore, `tenants/${tenantId}/externalReviews/${reviewId}`) : null), [firestore, tenantId, reviewId]);
+  const { data: inboxDoc } = useDoc<any>(iRef); const { data: review } = useDoc<any>(rRef); const filled = React.useRef(false);
+  const inbox = inboxDoc || (review ? { body: review.text, clientId: review.clientId, clientName: review.clientName || review.author } : null);
+  React.useEffect(() => { if (!inbox || filled.current || !appts) return; filled.current = true; setWords(String(inbox.body || '')); setVia(reviewId ? 'review' : 'text');
     const last = past.filter((a: any) => a.clientId && a.clientId === inbox.clientId).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime)))[0];
     if (last) setVisit(last); else if (inbox.clientName) { setFind(String(inbox.clientName)); setName(String(inbox.clientName)); } }, [inbox, appts]); // eslint-disable-line react-hooks/exhaustive-deps
   const hits = find.trim().length < 2 ? [] : past.filter((a: any) => `${a.clientName} ${a.serviceName}`.toLowerCase().includes(find.toLowerCase())).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime))).slice(0, 6);
-  const go = async () => { setBusy(true); setErr(''); const r = await payPost('/api/cases', { tenantId, action: 'open', appointmentId: visit?.id || '', clientId: visit?.clientId || '', clientName: visit?.clientName || name, reasonId: reason, words, via, wants: wants || null }); setBusy(false); if (r.ok) onDone(r.id); else setErr(r.error || 'That didn’t work.'); };
+  const go = async () => { setBusy(true); setErr(''); const r = await payPost('/api/cases', { tenantId, action: 'open', appointmentId: visit?.id || '', clientId: visit?.clientId || inbox?.clientId || '', clientName: visit?.clientName || name, reasonId: reason, words, via, wants: wants || null, inboxId: inboxId || null, reviewId: reviewId || null }); setBusy(false); if (r.ok) onDone(r.id); else setErr(r.error || 'That didn’t work.'); };
   return (
     <div className="space-y-5">
       <h2 className="text-[22px] font-bold tracking-tight">Start a case</h2>
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>HOW DID YOU HEAR?</p>
-        <div className="flex flex-wrap gap-2">{(['call', 'desk', 'text'] as const).map((v) => <button key={v} type="button" onClick={() => setVia(v)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={via === v ? { background: INK, color: '#fff' } : { background: SOFT }}>{v === 'call' ? 'Phone call' : v === 'desk' ? 'At the desk' : 'A text'}</button>)}</div>
+        <div className="flex flex-wrap gap-2">{(['call', 'desk', 'text', 'review'] as const).map((v) => <button key={v} type="button" onClick={() => setVia(v)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={via === v ? { background: INK, color: '#fff' } : { background: SOFT }}>{v === 'call' ? 'Phone call' : v === 'desk' ? 'At the desk' : v === 'text' ? 'A text' : 'A review'}</button>)}</div>
+        {review && <div className="rounded-2xl p-3.5 text-[14px]" style={{ background: SOFT }}><b>{'★'.repeat(review.rating)}{'☆'.repeat(Math.max(0, 5 - review.rating))}</b> · {review.author} on Google{review.publishedAt ? ` · ${new Date(review.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}{review.url && <> · <a href={review.url} target="_blank" rel="noreferrer" className="underline">See it</a></>}{review.caseId && <p className="mt-1 font-semibold">There’s already a case for this review.</p>}</div>}
         {inbox?.complaint?.safety && <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: PINK, color: RED }}>Their text mentions something that could be a safety concern. If it is, choose the safety reason below so a manager is told now.</p>}</div>
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>WHICH VISIT?</p>
         {visit ? <div className="flex items-center justify-between gap-3 rounded-2xl p-3.5" style={{ background: SOFT }}><span><b>{visit.clientName}</b> · {visit.serviceName}<br /><span className="text-[13px]" style={{ color: MUTED }}>{new Date(visit.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {visit.staffName || ''}</span></span><button type="button" className="text-[14px] underline" onClick={() => setVisit(null)}>Change</button></div> : <>
@@ -374,8 +377,10 @@ export default function CasesPage() {
   const solo = !!staffRows && staffRows.filter((m: any) => m.archived !== true && m.isActive !== false && m.role !== 'renter').length <= 1;
   const { data: services } = useCollection<any>(sQ);
   const [pick, setPick] = React.useState<string>(''); const [starting, setStarting] = React.useState(false); const [showClosed, setShowClosed] = React.useState(false);
-  const [inboxId, setInboxId] = React.useState('');
-  React.useEffect(() => { const q = new URLSearchParams(window.location.search); const id = q.get('id'); if (id) setPick(id); if (q.get('start') === 'text' && q.get('inbox')) { setInboxId(String(q.get('inbox'))); setStarting(true); } }, []);
+  const [inboxId, setInboxId] = React.useState(''); const [reviewId, setReviewId] = React.useState('');
+  React.useEffect(() => { const q = new URLSearchParams(window.location.search); const id = q.get('id'); if (id) setPick(id);
+    if (q.get('start') === 'text' && q.get('inbox')) { setInboxId(String(q.get('inbox'))); setStarting(true); }
+    if (q.get('start') === 'review' && q.get('review')) { setReviewId(String(q.get('review'))); setStarting(true); } }, []);
   // A renter's client is the renter's case (they run it in their app) — the salon sees renter cases only for safety or equipment.
   const all = (data || []).filter((x: any) => !x.renterCase); const open = all.filter((c: any) => !c.locked).sort((a: any, b: any) => (b.safety ? 1 : 0) - (a.safety ? 1 : 0) || (a.firstReplyAt ? 1 : 0) - (b.firstReplyAt ? 1 : 0) || String(a.createdAt).localeCompare(String(b.createdAt)));
   const closed = all.filter((c: any) => c.locked).sort((a: any, b: any) => String(b.closedAt).localeCompare(String(a.closedAt)));
@@ -395,7 +400,7 @@ export default function CasesPage() {
       <main className="grid flex-1 md:grid-cols-[360px_1fr]">
         <aside className="space-y-2.5 border-r p-4 md:p-6" style={{ borderColor: LINE, background: '#fafafa' }} aria-label="Cases">
           <div className="flex items-center justify-between gap-2 pb-1"><h1 className="text-[22px] font-bold tracking-tight">{open.length ? `${open.length} open` : 'All caught up'}</h1>
-            <button type="button" onClick={() => { setStarting(true); setInboxId(''); setPick(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Start a case</button></div>
+            <button type="button" onClick={() => { setStarting(true); setInboxId(''); setReviewId(''); setPick(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Start a case</button></div>
           {isLoading && <p className="text-[14px]" style={{ color: MUTED }}>Loading…</p>}
           {!isLoading && !open.length && <p className="text-[14px]" style={{ color: MUTED }}>No open cases. When a client isn’t happy, start one here — or a provider can from the staff app.</p>}
           {open.map((x: any) => <Row key={x.id} x={x} />)}
@@ -407,7 +412,7 @@ export default function CasesPage() {
           {isManager && <a href="/settings/making-it-right" className="block pt-3 text-[14px] underline" style={{ color: MUTED }}>Your rules for making it right</a>}
         </aside>
         <section className="p-4 md:p-8">
-          {starting ? <NewCase key={inboxId || 'new'} firestore={firestore} tenantId={tenantId} S={S} inboxId={inboxId} onDone={(id) => { setStarting(false); setInboxId(''); setPick(id); }} />
+          {starting ? <NewCase key={inboxId || reviewId || 'new'} firestore={firestore} tenantId={tenantId} S={S} inboxId={inboxId} reviewId={reviewId} onDone={(id) => { setStarting(false); setInboxId(''); setReviewId(''); setPick(id); }} />
             : c ? <CaseView c={c} tenantId={tenantId} S={S} me={user?.uid || ''} isManager={isManager} tz={tz} services={services || []} solo={solo} />
             : <div className="mx-auto max-w-md space-y-2 pt-16 text-center"><p className="text-[20px] font-bold">Pick a case</p><p className="text-[15px]" style={{ color: MUTED }}>Every complaint gets an owner, a fix, and a check-back — and a record you can download.</p></div>}
         </section>

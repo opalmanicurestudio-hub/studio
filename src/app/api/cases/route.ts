@@ -24,6 +24,11 @@ export async function POST(req: NextRequest) {
     const S = renterSettingsOf(t, await renterSettingsRaw(db, tenantId, who.actor.staffId));
     return NextResponse.json({ ok: true, settings: { reasons: S.reasons, fixes: { redo: S.fixes.redo, refund: S.fixes.refund, note: S.fixes.note }, redoWindowDays: S.redoWindowDays, replyHours: S.replyHours, followUpDays: S.followUpDays, aftercare: { text: S.aftercare.text }, fairUse: { requirePhotos: S.fairUse.requirePhotos, maxFixes: S.fairUse.maxFixes, perMonths: S.fairUse.perMonths } } });
   }
+  if (b.action === 'reviews_check') {   // Settings → Making it right → Reviews: "Check now"
+    if (!who.actor.isManager) return NextResponse.json({ ok: false, error: 'A manager checks reviews.' }, { status: 403 });
+    const { reviewSweep } = await import('@/lib/review-watch'); const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+    const r = await reviewSweep(db, tenantId, t, { force: true }); return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+  }
   if (b.action === 'incident') { const { reportIncident } = await import('@/lib/incidents'); const r = await reportIncident(db, tenantId, who.actor, b); return NextResponse.json(r, { status: r.ok ? 200 : 400 }); }
   if (b.action === 'conduct_decide') { const { decideConduct } = await import('@/lib/incidents'); const r = await decideConduct(db, tenantId, who.actor, b); return NextResponse.json(r, { status: r.ok ? 200 : 400 }); }
   const r = b.action === 'open' ? await openCase(db, tenantId, who.actor, b) : await actOnCase(db, tenantId, who.actor, b);

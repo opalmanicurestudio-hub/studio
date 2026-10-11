@@ -10,6 +10,7 @@ import { rolesFor } from '@/lib/permissions';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { payPost } from '@/components/pay/pay-client';
 import { SettingsPage, Section, Row, Toggle, Choice, More, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 import { settingsOf, PRESETS, FIX_LABEL, FIX_HINT, policySections, clientPolicyLine, PAY_APPS, type MirSettings, type FixKind, type Reason, type PayApp } from '@/lib/making-it-right';
 
@@ -20,11 +21,14 @@ export default function MakingItRightSettings() {
   React.useEffect(() => { if (selectedTenant && !s) setS(settingsOf(selectedTenant)); }, [selectedTenant, s]);
   const svcQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore as Firestore, `tenants/${tenantId}/services`) : null), [firestore, tenantId]);
   const { data: services } = useCollection<any>(svcQ);
+  const [checking, setChecking] = React.useState(false); const [checkNote, setCheckNote] = React.useState('');
   const [newReason, setNewReason] = React.useState(''); const [svcPick, setSvcPick] = React.useState(''); const [careSvc, setCareSvc] = React.useState('');
   if (!s) return <SettingsPage title="Making it right"><p className="cf-muted">Loading…</p></SettingsPage>;
   const set = (patch: Partial<MirSettings>) => { setS({ ...s, ...patch }); setDirty(true); };
   const fu = (patch: Partial<MirSettings['fairUse']>) => set({ fairUse: { ...s.fairUse, ...patch } });
   const cr = (patch: Partial<MirSettings['cashRefund']>) => set({ cashRefund: { ...s.cashRefund, ...patch } });
+  const rv = (patch: Partial<MirSettings['reviews']>) => set({ reviews: { ...s.reviews, ...patch } });
+  const checkNow = async () => { setChecking(true); setCheckNote(''); const r = await payPost('/api/cases', { tenantId, action: 'reviews_check' }); setChecking(false); setCheckNote(r.ok ? (r.raised ? `${r.raised} new low review${r.raised === 1 ? '' : 's'} sent to the desk.` : 'Checked — nothing new at or below your star line.') : (r.error || 'That didn’t work.')); };
   const crApp = (k: PayApp, patch: Partial<{ on: boolean; from: string }>) => cr({ apps: { ...s.cashRefund.apps, [k]: { ...s.cashRefund.apps[k], ...patch } } });
   const Num = ({ value, onChange, suffix, prefix, width = 'w-20' }: { value: number; onChange: (n: number) => void; suffix?: string; prefix?: string; width?: string }) => (
     <span className="inline-flex items-center gap-2">{prefix && <span className="text-[14px] cf-muted">{prefix}</span>}<input type="number" inputMode="numeric" min={0} value={value} onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} className={`${cfInput} ${width} text-center`} style={cfInputStyle} disabled={!canEdit} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
@@ -130,6 +134,15 @@ export default function MakingItRightSettings() {
         <Row label="Providers" help="“They weren’t happy” on a finished visit in the staff app." inline><Toggle checked={s.channels.staff} onChange={(v) => set({ channels: { ...s.channels, staff: v } })} label="Providers" disabled={!canEdit} /></Row>
         <Row label="“How was your visit?” text" help="The thank-you text the day after a visit links to a private page: happy clients are sent on to leave a review, unhappy ones reach you here." inline><Toggle checked={s.channels.survey} onChange={(v) => set({ channels: { ...s.channels, survey: v } })} label="How was your visit text" disabled={!canEdit} /></Row>
         <Row label="“Not quite right?” on the visit link" help="On the visit link clients already have, once the visit is finished." inline><Toggle checked={s.channels.visitLink} onChange={(v) => set({ channels: { ...s.channels, visitLink: v } })} label="Not quite right on the visit link" disabled={!canEdit} /></Row>
+      </Section>
+
+      <Section title="Reviews" help="A low review on Google asks the desk to follow up: they get “Start a case” with the reviewer’s words, and the client’s latest visit when the name matches. Nothing is posted to Google.">
+        <Row label="Watch our Google reviews" help="Checked once a day. Google shares the five reviews it thinks are most relevant, which are usually but not always the newest." inline><Toggle checked={s.reviews.on} onChange={(v) => rv({ on: v })} label="Watch Google reviews" disabled={!canEdit} /></Row>
+        <Row label="Google Place ID" help={<>Find yours with Google’s Place ID Finder (search “Place ID Finder”), then paste it here. It starts with ChIJ.</>}><input value={s.reviews.googlePlaceId} onChange={(e) => rv({ googlePlaceId: e.target.value.trim().slice(0, 200) })} placeholder="ChIJ…" aria-label="Google Place ID" className={`${cfInput} w-full max-w-md`} style={cfInputStyle} disabled={!canEdit} /></Row>
+        <Row label="Follow up on reviews of" inline><Choice value={String(s.reviews.maxStars)} onChange={(v) => rv({ maxStars: Number(v) })} label="Star line" options={[{ value: '1', label: '1 star' }, { value: '2', label: '2 or less' }, { value: '3', label: '3 or less' }, { value: '4', label: '4 or less' }]} /></Row>
+        {s.reviews.googlePlaceId && <div className="flex flex-wrap items-center gap-3 border-t px-5 py-3 text-[14px]" style={{ borderColor: 'var(--line)' }}>
+          <button type="button" onClick={checkNow} disabled={checking || dirty} className="h-10 rounded-full px-4 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--soft)' }}>{checking ? 'Checking…' : 'Check now'}</button>
+          <span className="cf-muted">{dirty ? 'Save first, then check.' : checkNote || ((selectedTenant as any)?.reviewWatch?.checkedAt ? `Last checked ${new Date((selectedTenant as any).reviewWatch.checkedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${(selectedTenant as any).reviewWatch.rating ? ` · ${(selectedTenant as any).reviewWatch.rating}★ from ${(selectedTenant as any).reviewWatch.count} reviews` : ''}${(selectedTenant as any).reviewWatch.error ? ` · ${(selectedTenant as any).reviewWatch.error}` : ''}` : 'Not checked yet.')}</span></div>}
       </Section>
 
       <Section title="After photos" help="A photo of the work as it leaves, taken by the provider when they finish. Fair evidence for both sides if there’s a question later.">

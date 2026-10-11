@@ -1483,9 +1483,11 @@ export async function GET(req: NextRequest) {
   try { const { buildTimingStats } = await import('@/lib/timing-stats');
     for (const tDoc of (await db.collection('tenants').get()).docs) { try { const r = await buildTimingStats(db, tDoc.id, tDoc.data() || {}); timingGroups += r.groups; } catch (e: any) { console.error('[nightly] timing stats', tDoc.id, e?.message); } }
   } catch { /* never stops the rest of the night */ }
-  // Making it right: last month's report is ready (on the 1st, business time).
+  // Making it right: last month's report is ready (on the 1st, business time); low Google reviews to follow up.
   let mirReports = 0;
   try { const { monthlyReportNotice } = await import('@/lib/mir-report-server');
-    for (const tDoc of (await db.collection('tenants').get()).docs) { try { if (await monthlyReportNotice(db, tDoc.id, tDoc.data())) mirReports++; } catch (e) { console.error('[nightly] mir report', tDoc.id, e); } } } catch (e) { console.error('[nightly] mir reports', e); }
+    const { reviewSweep } = await import('@/lib/review-watch');
+    for (const tDoc of (await db.collection('tenants').get()).docs) { try { if (await monthlyReportNotice(db, tDoc.id, tDoc.data())) mirReports++; } catch (e) { console.error('[nightly] mir report', tDoc.id, e); }
+      if ((tDoc.data() as any)?.makingItRight?.reviews?.on) { try { await reviewSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] reviews', tDoc.id, e); } } } } catch (e) { console.error('[nightly] mir reports', e); }
   return NextResponse.json({ ok: true, timingGroups, mirReports, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }

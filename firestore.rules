@@ -367,6 +367,12 @@ service cloud.firestore {
     match /tenants/{tenantId}/refundCodes/{payoutId} {
       allow read, write: if false;
     }
+    // LOW REVIEWS from Google (lib/review-watch): the front desk and managers read them; only the server writes.
+    match /tenants/{tenantId}/externalReviews/{reviewId} {
+      allow read: if isManager(tenantId) || (hasStaffDoc(tenantId) && staffDoc(tenantId).data.get('role', '') == 'front_desk')
+        || (inDirectory(tenantId) && dirEntry().data.get('role', '') == 'front_desk');
+      allow write: if false;
+    }
     // Finished payroll runs (from the payroll connection): managers only — never readable from a staff phone.
     match /tenants/{tenantId}/payrollRuns/{runId} {
       allow read: if isManager(tenantId);
@@ -528,7 +534,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
