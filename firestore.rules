@@ -344,7 +344,8 @@ service cloud.firestore {
     // REFUNDS ON CASH SALES (pickup envelopes, app refunds): the front desk and managers read them; only the server
     // writes (/api/refund-payouts). Pickup codes are server-only, so a staff device can never read one.
     match /tenants/{tenantId}/refundPayouts/{payoutId} {
-      allow read: if isManager(tenantId) || (hasStaffDoc(tenantId) && staffDoc(tenantId).data.get('role', '') == 'front_desk');
+      allow read: if isManager(tenantId) || (hasStaffDoc(tenantId) && staffDoc(tenantId).data.get('role', '') == 'front_desk')
+        || (inDirectory(tenantId) && dirEntry().data.get('role', '') == 'front_desk');
       allow write: if false;
     }
     match /tenants/{tenantId}/refundCodes/{payoutId} {
