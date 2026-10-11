@@ -39,6 +39,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // ClarityFlow HQ is running the PLATFORM, not a studio — its own full
   // screen (HqShell), without the studio sidebar.
   const isHq = pathname.startsWith('/admin');
+  // Printed pieces (the refund envelope slip and note): the business's data, none of the app's chrome.
+  const isPrintSheet = pathname.startsWith('/refunds/print/');
 
   // If on a public-facing page, render a simple layout without the app shell.
   // Neither TenantProvider nor LocationProvider are mounted here: public
@@ -50,6 +52,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <AuthGuard>
         <a href="#main" className="skip-link">Skip to content</a>
         <div id="main"><StaleCopyBanner />{children}</div>
+      </AuthGuard>
+    );
+  }
+
+  if (isPrintSheet) {
+    return (
+      <AuthGuard>
+        <TenantProvider><main id="main">{children}</main></TenantProvider>
       </AuthGuard>
     );
   }

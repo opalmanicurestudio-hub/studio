@@ -245,8 +245,8 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
               : <button type="button" onClick={() => setMove(true)} className="text-[14px] font-semibold underline">{booked ? 'Move it' : 'Book it for them'}</button>)}
           </div>; })()}
         {c.fix.todo && c.status === 'fix_chosen' && <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: '#fff7e6' }}>To do: {c.fix.todo}</p>}
-        {c.fix.kind === 'refund' && c.fix.amountCents > 0 && c.status === 'fix_chosen' && !c.fix.refundedAt && <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Send $${(c.fix.amountCents / 100).toFixed(2)} back to their card now?`)) act('refund_card', {}, 'Refunded to their card — we’ve texted them.'); }} className={btn} style={{ background: GREEN, color: '#fff' }}>Refund ${(c.fix.amountCents / 100).toFixed(2)} to their card</button>}
-        {c.fix.refundedAt && <p className="rounded-xl p-3 text-[14px]" style={{ background: '#eef8f1' }}><b>Refunded ${((c.fix.refundedCents || 0) / 100).toFixed(2)} to their card</b> · {new Date(c.fix.refundedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. It’s in Money as a refund.</p>}
+        {c.fix.kind === 'refund' && c.fix.amountCents > 0 && c.status === 'fix_chosen' && !c.fix.refundedAt && <RefundGiving c={c} tenantId={tenantId} busy={busy} onCard={() => { if (window.confirm(`Send $${(c.fix.amountCents / 100).toFixed(2)} back to their card now?`)) act('refund_card', {}, 'Refunded to their card — we’ve texted them.'); }} />}
+        {c.fix.refundedAt && <p className="rounded-xl p-3 text-[14px]" style={{ background: '#eef8f1' }}><b>{c.fix.refundVia === 'Store credit' ? `Gave $${((c.fix.refundedCents || 0) / 100).toFixed(2)} as store credit` : `Refunded $${((c.fix.refundedCents || 0) / 100).toFixed(2)} ${c.fix.refundVia ? (c.fix.refundVia === 'Cash' ? 'in cash' : `by ${c.fix.refundVia}`) : 'to their card'}`}</b> · {new Date(c.fix.refundedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.{c.fix.refundVia === 'Store credit' ? ' It’s on their account.' : ' It’s in Money as a refund.'}</p>}
         {c.status === 'fix_chosen' && <button type="button" disabled={busy} onClick={() => act('done', {}, S.followUpDays ? 'Marked done. We’ll remind you to check back.' : 'Marked done. Their page now asks if we made it right.')} className={btn} style={{ background: INK, color: '#fff' }}>It’s done</button>}
         {c.status === 'done' && <div className="space-y-2"><p className="text-[14.5px]">Check back{c.followUpAt ? ` around ${new Date(c.followUpAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}: <b>did we make it right?</b></p>
           <input value={cb} onChange={(e) => setCb(e.target.value)} placeholder="What they said (optional)" className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} />
@@ -321,6 +321,34 @@ function Conduct({ firestore, tenantId }: { firestore: any; tenantId: string }) 
           <p className="text-[12px]" style={{ color: MUTED }}>The provider is told a manager looked at it. The client never sees this.</p></> : <p className="text-[13.5px]">Decided by {r.decision?.by}{r.decision?.note ? ` — “${r.decision.note}”` : ''}</p>}
       </div>}
     </div>);
+}
+
+/** Giving a refund fix: back to the card for card sales; for cash sales, pickup / app / credit — staff pick or the client chooses. */
+function RefundGiving({ c, tenantId, busy, onCard }: { c: any; tenantId: string; busy: boolean; onCard: () => void }) {
+  const [info, setInfo] = React.useState<any>(null); const [mode, setMode] = React.useState<'client' | 'staff'>('client'); const [m, setM] = React.useState('');
+  const [wins, setWins] = React.useState<any[] | null>(null); const [w, setW] = React.useState<any>(null); const [handle, setHandle] = React.useState(''); const [name, setName] = React.useState('');
+  const [saving, setSaving] = React.useState(false); const [err, setErr] = React.useState(''); const [done, setDone] = React.useState('');
+  React.useEffect(() => { payPost('/api/refund-payouts', { tenantId, action: 'sale_kind', caseId: c.id }).then(setInfo); }, [tenantId, c.id]);
+  React.useEffect(() => { if (m === 'pickup' && !wins) payPost('/api/refund-payouts', { tenantId, action: 'windows' }).then((r) => setWins(r.windows || [])); }, [m, wins, tenantId]);
+  const amt = `$${(c.fix.amountCents / 100).toFixed(2)}`;
+  if (c.payoutId) return <a href={`/refunds?id=${c.payoutId}`} className="block rounded-xl p-3 text-[14px]" style={{ background: SOFT }}><b>Cash refund is set up.</b> Follow it in Refunds to give →</a>;
+  if (!info) return <p className="text-[13.5px]" style={{ color: MUTED }}>Checking how they paid…</p>;
+  if (info.kind === 'card') return <button type="button" disabled={busy} onClick={onCard} className={btn} style={{ background: GREEN, color: '#fff' }}>Refund {amt} to their card</button>;
+  const M = (info.methods || []).find((x: any) => x.id === m);
+  const tl2 = (t: string) => { const h = Number(t.slice(0, 2)); const mm = t.slice(3, 5); return `${h % 12 || 12}${mm === '00' ? '' : `:${mm}`}${h < 12 ? 'am' : 'pm'}`; };
+  const save = async () => { setSaving(true); setErr(''); const r = await payPost('/api/refund-payouts', { tenantId, action: 'create', caseId: c.id, mode, method: m, pickup: w, handle, accountName: name }); setSaving(false); if (r.ok) setDone(mode === 'client' ? (r.sent ? 'Texted them the choices.' : 'Saved — we couldn’t text them, so share the link from Refunds to give.') : 'Set up — follow it in Refunds to give.'); else setErr(r.error || 'That didn’t work.'); };
+  if (done) return <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: '#eef8f1' }}>{done}</p>;
+  if (!(info.methods || []).length) return <p className="rounded-xl p-3 text-[14px]" style={{ background: '#fff7e6' }}>{info.kind === 'cash' ? 'They paid in cash.' : 'No card payment was found for this visit.'} Turn on a way to give cash refunds in Settings → Making it right.</p>;
+  return <div className="space-y-3 rounded-2xl border p-4" style={{ borderColor: LINE }}>
+    <p className="text-[14.5px]"><b>{info.kind === 'cash' ? 'They paid in cash' : 'No card payment found for this visit'}</b>, so {amt} can’t go back to a card.</p>
+    <div className="inline-flex rounded-full p-1" style={{ background: SOFT }}>{(['client', 'staff'] as const).map((x) => <button key={x} type="button" onClick={() => setMode(x)} className="h-10 rounded-full px-4 text-[14px]" style={mode === x ? { background: INK, color: '#fff' } : { color: MUTED }}>{x === 'client' ? `Let ${String(c.clientName || 'them').split(' ')[0]} choose` : 'I’ll pick'}</button>)}</div>
+    {mode === 'client' ? <p className="text-[13.5px]" style={{ color: MUTED }}>They’ll get a text with: {(info.methods || []).map((x: any) => x.label).join(', ')}.</p> : <>
+      <div className="flex flex-wrap gap-2">{info.methods.map((x: any) => <button key={x.id} type="button" onClick={() => { setM(x.id); setW(null); }} className="h-10 rounded-full border px-4 text-[14px]" style={m === x.id ? { background: INK, color: '#fff', borderColor: INK } : { borderColor: LINE }}>{x.label}</button>)}</div>
+      {m === 'pickup' && (wins === null ? <p className="text-[13.5px]" style={{ color: MUTED }}>Finding times…</p> : <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setW(null)} className="h-10 rounded-full border px-3.5 text-[13.5px]" style={!w ? { background: INK, color: '#fff', borderColor: INK } : { borderColor: LINE }}>Let them pick a time</button>{wins.slice(0, 10).map((x: any) => { const on = w && w.date === x.date && w.start === x.start; return <button key={x.date + x.start} type="button" onClick={() => setW(x)} className="h-10 rounded-full border px-3.5 text-[13.5px]" style={on ? { background: INK, color: '#fff', borderColor: INK } : { borderColor: LINE }}>{x.dayLabel} {tl2(x.start)}–{tl2(x.end)}</button>; })}</div>)}
+      {M?.ask && <div className="grid gap-2 sm:grid-cols-2"><input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder={M.placeholder || M.ask} aria-label={M.ask} className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name on the account" aria-label="Name on the account" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /></div>}</>}
+    {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
+    <button type="button" disabled={saving || (mode === 'staff' && (!m || (!!M?.ask && !handle)))} onClick={save} className={btn} style={{ background: INK, color: '#fff' }}>{saving ? 'Saving…' : mode === 'client' ? 'Text them the choices' : m === 'credit' ? `Add ${amt} as credit` : m === 'pickup' ? (w ? 'Book pickup and text them' : 'Text them to pick a time') : 'Save and text them'}</button>
+  </div>;
 }
 
 export default function CasesPage() {

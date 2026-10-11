@@ -49,7 +49,26 @@ export type MirSettings = {
   channels: { survey: boolean; visitLink: boolean; calls: boolean; staff: boolean };
   fairUse: { maxFixes: number; perMonths: number; requirePhotos: boolean; sameServiceOnly: boolean; originalProviderFirst: boolean; refundToOriginalCard: boolean; wearDays: number; wearDaysByService: Record<string, number>; clientConfirms: boolean };
   retentionYears: number; payRules: { redoProvider: 'none' | 'half' | 'normal'; originalProvider: 'keep' | 'pays' | 'split'; refund: 'take_back' | 'keep' };
+  /** Refunds on cash sales: the ways a client can get the money back, and the pickup rules. */
+  cashRefund: CashRefundSettings;
 };
+export type PayApp = 'venmo' | 'zelle' | 'cashapp' | 'applecash';
+export type CashRefundSettings = {
+  pickup: boolean; credit: boolean; apps: Record<PayApp, { on: boolean; from: string }>;
+  twoPerson: boolean; onTheWay: boolean; liveLocation: boolean; missedLimit: number; sendRole: 'manager' | 'desk'; signer: string;
+};
+export const PAY_APPS: Record<PayApp, { label: string; ask: string; placeholder: string; hint: string }> = {
+  venmo: { label: 'Venmo', ask: 'Your Venmo username', placeholder: '@username', hint: 'Sent from the business account' },
+  zelle: { label: 'Zelle', ask: 'Email or phone on your Zelle', placeholder: 'name@email.com', hint: 'From the business bank app' },
+  cashapp: { label: 'Cash App', ask: 'Your $Cashtag', placeholder: '$cashtag', hint: 'Sent from the business account' },
+  applecash: { label: 'Apple Cash', ask: 'Your iPhone number', placeholder: '(555) 555-0100', hint: 'Sent in Messages from the business iPhone' },
+};
+export function cashRefundOf(raw: any): CashRefundSettings {
+  const c: any = raw || {}; const app = (k: PayApp) => ({ on: c.apps?.[k]?.on === true, from: String(c.apps?.[k]?.from || '') });
+  return { pickup: c.pickup !== false, credit: c.credit !== false, apps: { venmo: app('venmo'), zelle: app('zelle'), cashapp: app('cashapp'), applecash: app('applecash') },
+    twoPerson: c.twoPerson !== false, onTheWay: c.onTheWay !== false, liveLocation: c.liveLocation !== false, missedLimit: Math.min(5, Math.max(1, Number(c.missedLimit) || 2)),
+    sendRole: c.sendRole === 'desk' ? 'desk' : 'manager', signer: String(c.signer || '') };
+}
 /** The business's settings, with anything not set yet filled from its starting set. */
 export function settingsOf(tenant: any): MirSettings {
   const key = presetKey(tenant); const P = PRESETS[key]; const s: any = tenant?.makingItRight || {};
@@ -68,6 +87,7 @@ export function settingsOf(tenant: any): MirSettings {
     fairUse: { maxFixes: 2, perMonths: 6, requirePhotos: true, sameServiceOnly: true, originalProviderFirst: true, refundToOriginalCard: true, wearDays: P.wearDays, wearDaysByService: {}, clientConfirms: true, ...(s.fairUse || {}) },
     retentionYears: num(s.retentionYears, 7),
     payRules: { redoProvider: 'half', originalProvider: 'keep', refund: 'take_back', ...(s.payRules || {}) },
+    cashRefund: cashRefundOf(s.cashRefund),
   };
 }
 

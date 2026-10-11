@@ -11,7 +11,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { SettingsPage, Section, Row, Toggle, Choice, More, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
-import { settingsOf, PRESETS, FIX_LABEL, FIX_HINT, policySections, clientPolicyLine, type MirSettings, type FixKind, type Reason } from '@/lib/making-it-right';
+import { settingsOf, PRESETS, FIX_LABEL, FIX_HINT, policySections, clientPolicyLine, PAY_APPS, type MirSettings, type FixKind, type Reason, type PayApp } from '@/lib/making-it-right';
 
 export default function MakingItRightSettings() {
   const { selectedTenant, role } = useTenant() as any; const { firestore } = useFirebase(); const { toast } = useToast();
@@ -24,6 +24,8 @@ export default function MakingItRightSettings() {
   if (!s) return <SettingsPage title="Making it right"><p className="cf-muted">Loading…</p></SettingsPage>;
   const set = (patch: Partial<MirSettings>) => { setS({ ...s, ...patch }); setDirty(true); };
   const fu = (patch: Partial<MirSettings['fairUse']>) => set({ fairUse: { ...s.fairUse, ...patch } });
+  const cr = (patch: Partial<MirSettings['cashRefund']>) => set({ cashRefund: { ...s.cashRefund, ...patch } });
+  const crApp = (k: PayApp, patch: Partial<{ on: boolean; from: string }>) => cr({ apps: { ...s.cashRefund.apps, [k]: { ...s.cashRefund.apps[k], ...patch } } });
   const Num = ({ value, onChange, suffix, prefix, width = 'w-20' }: { value: number; onChange: (n: number) => void; suffix?: string; prefix?: string; width?: string }) => (
     <span className="inline-flex items-center gap-2">{prefix && <span className="text-[14px] cf-muted">{prefix}</span>}<input type="number" inputMode="numeric" min={0} value={value} onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} className={`${cfInput} ${width} text-center`} style={cfInputStyle} disabled={!canEdit} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
   const save = async () => {
@@ -107,6 +109,20 @@ export default function MakingItRightSettings() {
       <Section title="Booking the redo" help="Times come from the provider’s real calendar — their hours, days off and other bookings — for the same service at the same length as the original visit.">
         <Row label="Show open times for the next" inline><Num value={s.redoLookDays} onChange={(n) => set({ redoLookDays: Math.min(21, Math.max(3, n)) })} suffix="days" /></Row>
         <Row label="Times a client can move their redo themselves" help="After that, they message you to change it." inline><Num value={s.redoChanges} onChange={(n) => set({ redoChanges: Math.min(5, n) })} width="w-16" /></Row>
+      </Section>
+
+      <Section title="Refunds on cash sales" help="Card sales always go back to the card. These are the ways a client who paid in cash can get their money back. Staff can pick one for them or text them a link to choose. Refunds to give lists them for the desk.">
+        <Row label="Cash pickup" help="They book a time inside your hours and get a pickup code. The desk prints an envelope slip and note, takes the cash from the till that day, and the client signs when they collect it." inline><Toggle checked={s.cashRefund.pickup} onChange={(v) => cr({ pickup: v })} label="Cash pickup" disabled={!canEdit} /></Row>
+        <Row label="Store credit" help="Added to their account straight away." inline><Toggle checked={s.cashRefund.credit} onChange={(v) => cr({ credit: v })} label="Store credit" disabled={!canEdit} /></Row>
+        {(Object.keys(PAY_APPS) as PayApp[]).map((k) => <Row key={k} label={PAY_APPS[k].label} help={s.cashRefund.apps[k].on ? `${PAY_APPS[k].hint}. Staff send it, then record it here.` : `${PAY_APPS[k].hint}.`}>
+          <div className="flex flex-wrap items-center gap-3"><Toggle checked={s.cashRefund.apps[k].on} onChange={(v) => crApp(k, { on: v })} label={PAY_APPS[k].label} disabled={!canEdit} />
+            {s.cashRefund.apps[k].on && <input value={s.cashRefund.apps[k].from} onChange={(e) => crApp(k, { from: e.target.value.slice(0, 80) })} placeholder={k === 'venmo' ? '@YourBusiness' : k === 'cashapp' ? '$YourBusiness' : k === 'zelle' ? 'Business bank / email' : 'Business iPhone number'} aria-label={`${PAY_APPS[k].label} sent from`} className={`${cfInput} w-64`} style={cfInputStyle} disabled={!canEdit} />}</div></Row>)}
+        <Row label="A second person counts the envelope" help="Whoever takes the cash out can’t also be the one who counts it." inline><Toggle checked={s.cashRefund.twoPerson} onChange={(v) => cr({ twoPerson: v })} label="Second person counts" disabled={!canEdit} /></Row>
+        <Row label="Clients can say they’re on the way" help="The desk gets an alert so the envelope is ready when they walk in." inline><Toggle checked={s.cashRefund.onTheWay} onChange={(v) => cr({ onTheWay: v })} label="On the way" disabled={!canEdit} /></Row>
+        {s.cashRefund.onTheWay && <Row label="…and share how far away they are" help={(selectedTenant as any)?.studioLocation ? 'Their choice each time. The desk sees distance and minutes away, never where they are. It stops when they arrive or after an hour, and nothing about their location is kept.' : 'Needs your studio address with a map pin — set it in Settings → Business details.'} inline><Toggle checked={s.cashRefund.liveLocation} onChange={(v) => cr({ liveLocation: v })} label="Share distance" disabled={!canEdit} /></Row>}
+        <Row label="Missed pickups before pickup stops being offered" help="Each missed pickup puts the cash back in the till and asks them for a new time. After this many, they choose another way." inline><Num value={s.cashRefund.missedLimit} onChange={(n) => cr({ missedLimit: Math.min(5, Math.max(1, n)) })} width="w-16" /></Row>
+        <Row label="Who can mark app refunds sent" inline><Choice value={s.cashRefund.sendRole} options={[{ value: 'manager', label: 'Managers' }, { value: 'desk', label: 'Front desk too' }]} onChange={(v) => cr({ sendRole: v as any })} label="Who sends app refunds" /></Row>
+        <Row label="Note card signed by" help="The name at the bottom of the note in the envelope. Leave empty to sign with the business name." inline><input value={s.cashRefund.signer} onChange={(e) => cr({ signer: e.target.value.slice(0, 60) })} placeholder="e.g. Jessica, Owner" aria-label="Note card signed by" className={`${cfInput} w-64`} style={cfInputStyle} disabled={!canEdit} /></Row>
       </Section>
 
       <Section title="How complaints come in">

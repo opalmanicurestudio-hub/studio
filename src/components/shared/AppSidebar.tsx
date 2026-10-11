@@ -55,6 +55,7 @@ const DAILY_HUB = [
 const CLIENT_GROWTH = [
   { href: '/clients',   icon: User,      label: 'Clients' },
   { href: '/cases',     icon: LifeBuoy,  label: 'Making it right' },
+  { href: '/refunds',   icon: HandCoins, label: 'Refunds to give' },
   { href: '/quotes',    icon: FileText,  label: 'Quotes'        },
   { href: '/campaigns', icon: Megaphone, label: 'Outreach'      },
   { href: '/reviews',   icon: Star,      label: 'Reputation'    },
