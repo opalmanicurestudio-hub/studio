@@ -67,6 +67,15 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, ta
           {v.flags?.balanceDue && <span className="rounded-full px-2.5 py-1" style={soft}>Balance due</span>}
         </div>}
         {v.notes && <p className="rounded-2xl p-3 text-[14px]" style={soft}>{v.notes}</p>}
+        {v.fixBrief && <div className="space-y-1 rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
+          <p className="text-[12px] tracking-[0.1em]" style={muted}>making it right{v.fixBrief.number ? ` · ${String(v.fixBrief.number).toLowerCase()}` : ''}</p>
+          <p className="font-semibold">{v.fixBrief.handover ? 'Fixing a visit someone else did.' : 'A free fix of an earlier visit.'}{v.fixBrief.reason ? ` ${v.fixBrief.reason}.` : ''}</p>
+          {v.fixBrief.said && <p>They said: “{v.fixBrief.said}”</p>}
+          {Array.isArray(v.fixBrief.plan) && v.fixBrief.plan.length > 0 && <p><b>Plan:</b> {v.fixBrief.plan.join(' → ')}</p>}
+          {v.fixBrief.note && <p>{v.fixBrief.note}</p>}
+          {v.fixBrief.safety && <p className="font-semibold" style={{ color: 'var(--warn)' }}>A safety case — read it before they arrive.</p>}
+          {v.fixBrief.caseId && !tabs && <a href={`/cases?id=${v.fixBrief.caseId}`} className="text-[13.5px] underline underline-offset-2">Open the case</a>}
+        </div>}
       </section>
       {/* Stage + the next step */}
       <section className={card} style={cardStyle} aria-label="Where the visit is">

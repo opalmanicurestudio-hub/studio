@@ -2479,6 +2479,15 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               ? <RequestDecisionPanel appointment={appointment} firestore={firestore} tenantId={String(selectedTenant?.id || appointment?.tenantId || '')}
                   actorUid={currentUser?.uid || null} actorName={String(currentUser?.displayName || currentUser?.email || selectedTenant?.name || 'The studio')} studioName={selectedTenant?.name || null} />
               : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured} />}
+          {(appointment as any)?.fixBrief && (() => { const f: any = (appointment as any).fixBrief; return (
+            <div className="space-y-1 rounded-2xl border p-3 text-[14px]" style={{ borderColor: 'var(--line)' }}>
+              <p className="text-[12px] tracking-[0.1em] text-muted-foreground">making it right{f.number ? ` · ${String(f.number).toLowerCase()}` : ''}</p>
+              <p className="font-semibold">{f.handover ? 'Fixing a visit someone else did.' : 'A free fix of an earlier visit.'}{f.reason ? ` ${f.reason}.` : ''}</p>
+              {f.said && <p>They said: “{f.said}”</p>}
+              {Array.isArray(f.plan) && f.plan.length > 0 && <p><b>Plan:</b> {f.plan.join(' → ')}</p>}
+              {f.note && <p>{f.note}</p>}
+              {f.caseId && <a href={`/cases?id=${f.caseId}`} className="text-[13.5px] underline underline-offset-2">Open the case</a>}
+            </div>); })()}
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">

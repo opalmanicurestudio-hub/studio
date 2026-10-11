@@ -338,6 +338,7 @@ export function AppointmentCard({
       if (exp > st0 + 60000 && !['servicing', 'completed', 'cancelled', 'no_show', 'declined'].includes(String(appointment.status)) && !ax.actualStartTime) push('behind', 'alert', Clock, `Starts ~${Math.round((exp - st0) / 60000)} min late${ax.delayTold?.at ? ' · told' : ''}`); }
     // What the desk needs to know at a glance — first visit, a form still to sign, add-ons, a group, a renter's client.
     const a1: any = appointment; const c1: any = client || {};
+    if (a1.fixBrief || a1.isRedo) push('fix', a1.fixBrief?.safety ? 'alert' : 'info', Sparkles, a1.fixBrief?.handover ? 'Fix · read the case' : 'Free fix');
     if (c1.id && (c1.totalVisits === 0 || c1.visitCount === 0 || c1.isNew === true || (Array.isArray(c1.visitHistory) && c1.visitHistory.length === 0))) push('first', 'info', Sparkles, 'First visit');
     { const ex = Number(a1.clientExtraMinutes) || extraMinutesFor(c1, a1.serviceId); if (ex > 0) push('usual-time', 'info', Sparkles, `Usually +${ex} min`); }
     const need: string[] = [...((service as any)?.requiredFormIds || []), ...(a1.requiredFormIds || [])]; const signed = new Set((a1.signedForms || []).map((f: any) => f.formId));
