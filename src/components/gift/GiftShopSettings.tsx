@@ -83,6 +83,7 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
           <section className="space-y-1 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
             <p className="text-[15px] font-semibold">Renters</p>
             <p className="text-[13px]" style={{ color: MUTED }}>For booth renters who run their own business here.</p>
+            <Toggle on={s.balanceReminders !== false} onChange={(v) => set('balanceReminders', v)} label="Remind people about money left on their card" hint="A gentle note after 60 days unused — at most every 90 days, 3 times in all, never to anyone who turned messages off." />
             <Toggle on={s.buyerThanks !== false} onChange={(v) => set('buyerThanks', v)} label="Tell the buyer when their gift is used" hint="One short email the first time — a thank-you that brings them back too." />
             <Toggle on={s.renters?.salonCards !== false} onChange={(v) => set('renters', { ...(s.renters || {}), salonCards: v })} label="Renters take your gift cards"
               hint="A client can pay a renter with your gift card. You hold the money, so it’s credited against the renter’s next rent automatically." />

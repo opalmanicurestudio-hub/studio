@@ -226,3 +226,29 @@ export async function syncClientGift(db: any, tenantId: string, clientId?: strin
   const live = s.docs.map((d: any) => d.data()).filter((g: any) => g.status === 'active' && !g.ownerRenterId && g.balanceCents > 0 && !(g.expiresAt && Date.parse(g.expiresAt) < Date.now()));
   await db.doc(`${T(tenantId)}/clients/${clientId}`).set({ giftBalanceCents: live.reduce((a: number, g: any) => a + g.balanceCents, 0), giftCardCount: live.length }, { merge: true }).catch(() => {});
 }
+
+/** A gentle note about money left on a card (Gift cards → "Remind people about money left"): only for cards with money
+ *  on them that haven't been used in 60 days, at most every 90 days and 3 times in all, never to someone who has
+ *  turned messages off, and only during the day. The nightly run calls it. */
+export async function giftReminderSweep(db: any, tenantId: string, tenant: any) {
+  if (tenant?.giftCardSettings?.balanceReminders === false) return 0;
+  const s = await db.collection(`${T(tenantId)}/giftCards`).where('status', '==', 'active').get(); let n = 0; const nowMs = Date.now();
+  const { sendNotification } = await import('@/lib/notify'); const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(tenant, '');
+  for (const d of s.docs) { if (n >= 100) break; const g: any = { id: d.id, ...d.data() };
+    if (!(g.balanceCents > 0) || g.ownerRenterId || (g.reminders || 0) >= 3 || (g.expiresAt && Date.parse(g.expiresAt) < nowMs)) continue;
+    const last = Date.parse(g.lastUsedAt || g.sentAt || g.createdAt || ''); if (!Number.isFinite(last) || nowMs - last < 60 * 864e5) continue;
+    if (g.lastReminderAt && nowMs - Date.parse(g.lastReminderAt) < 90 * 864e5) continue;
+    if (g.sendAt && Date.parse(g.sendAt) > nowMs) continue;   // not even delivered yet
+    let cl: any = null; if (g.recipientId) cl = ((await db.doc(`${T(tenantId)}/clients/${g.recipientId}`).get()).data() as any) || null;
+    const email = g.recipientEmail || cl?.email || null; const phone = g.recipientPhone || cl?.phone || null;
+    // Their message choices: nobody who unsubscribed; texts only to clients who agreed to texts from us.
+    if (cl?.marketingOptOut === true) continue;
+    const okEmail = !!email; const okText = !email && !!phone && cl?.smsMarketingOptIn === true;
+    if (!okEmail && !okText) continue;
+    const $ = (c: number) => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`; const link = origin ? `${origin}${giftPath(tenantId, g.id)}` : '';
+    const text = `A little reminder: you have ${$(g.balanceCents)} on your gift card at ${tenant?.name || 'us'}.${link ? ` See what it covers and book: ${link}` : ''}`;
+    const r: any = okEmail ? await sendNotification(db, { tenantId, channel: 'email', to: String(email), subject: `You have ${$(g.balanceCents)} on your gift card`, text, html: `<p style="font-size:16px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">${text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]).replace(link, `<a href="${link}">${link}</a>`)}</p>`, kind: 'gift_card_balance', recipientType: 'client', recipientId: g.recipientId || null, recipientName: g.recipientName || null } as any).catch(() => null)
+      : await sendNotification(db, { tenantId, channel: 'sms', to: String(phone), text, kind: 'gift_card_balance', recipientType: 'client', recipientId: g.recipientId || null, recipientName: g.recipientName || null } as any).catch(() => null);
+    if (r && ['sent', 'queued', 'delivered'].includes(String(r.status))) { await d.ref.set({ lastReminderAt: new Date().toISOString(), reminders: (g.reminders || 0) + 1 }, { merge: true }); n++; } }
+  return n;
+}

@@ -78,13 +78,24 @@ export async function POST(req: NextRequest) {
         if (age >= 3) { idle.y3.n++; idle.y3.cents += x.balanceCents; } else if (age >= 2) { idle.y2.n++; idle.y2.cents += x.balanceCents; } else if (age >= 1) { idle.y1.n++; idle.y1.cents += x.balanceCents; } } }
     const months = Object.values(m).sort((a: any, c: any) => a.month.localeCompare(c.month)); let run = 0;
     for (const r of months as any[]) { run += r.sold + r.imported - r.used + r.adjusted - r.voided; r.owedEnd = run; }
-    return j({ ok: true, months: months.reverse(), owedNow, idle }); }
+    // NEW CLIENTS FROM GIFT CARDS: everyone who used a card someone else bought — was it their first visit here, have they
+    // come back since, and what have they spent on later visits (beyond the card).
+    const firstUse = new Map<string, { at: string; apptId: string | null; given: boolean }>();
+    for (const d of snap.docs) { const x: any = d.data(); if (x.ownerRenterId || !x.recipientId) continue; const sp = (x.history || []).filter((h: any) => h.type === 'spend').sort((a: any, c: any) => String(a.at).localeCompare(String(c.at)))[0]; if (!sp) continue;
+      const given = !!x.purchaserName && x.purchaserId !== x.recipientId; const cur = firstUse.get(x.recipientId); if (!cur || String(sp.at) < cur.at) firstUse.set(x.recipientId, { at: String(sp.at), apptId: sp.appointmentId || null, given: given || !!cur?.given }); }
+    const gifted = { recipients: 0, newClients: 0, cameBack: 0, laterVisits: 0, laterSpendCents: 0 };
+    for (const [cid, f] of [...firstUse.entries()].filter(([, f]) => f.given).slice(0, 300)) {
+      const ap = (await db.collection(`${T}/appointments`).where('clientId', '==', cid).get()).docs.map((x: any) => x.data()).filter((a: any) => a.status === 'completed');
+      const t0 = Date.parse(f.at); const before = ap.filter((a: any) => Date.parse(a.startTime) < t0 - 6 * 3600e3); const after = ap.filter((a: any) => Date.parse(a.startTime) > t0 + 6 * 3600e3);
+      gifted.recipients++; if (!before.length) gifted.newClients++; if (after.length) gifted.cameBack++; gifted.laterVisits += after.length;
+      gifted.laterSpendCents += Math.round(after.reduce((t: number, a: any) => t + (Number(a.revenue) || 0), 0) * 100); }
+    return j({ ok: true, months: months.reverse(), owedNow, idle, gifted }); }
   if (action === 'settings') { const { shopSettings, cleanShowcase } = await import('@/lib/gift-designs'); const tref = db.doc(T); const t: any = (await tref.get()).data() || {};
     if (b.save && typeof b.save === 'object') { const v = b.save; const cur = shopSettings(t);
       const next = { online: v.online === true, designs: Array.isArray(v.designs) ? v.designs.map(String).filter((x: string) => /^[a-z0-9-]{2,30}$/.test(x)).slice(0, 80) : null,
         amounts: Array.isArray(v.amounts) ? v.amounts.map(Number).filter((n: number) => n >= 1 && n <= 5000).slice(0, 6) : cur.amounts, custom: v.custom !== false,
         min: Math.max(1, Math.min(5000, Number(v.min) || cur.min)), max: Math.max(1, Math.min(5000, Number(v.max) || cur.max)), seasonalOnly: v.seasonalOnly !== false,
-        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, buyerThanks: v.buyerThanks !== false, showcase: cleanShowcase(v.showcase), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, expiryYears: [0, 5, 6, 7, 10].includes(Number(v.expiryYears)) ? Number(v.expiryYears) : 0, paysFor: { services: v.paysFor?.services !== false, products: v.paysFor?.products !== false, tips: v.paysFor?.tips !== false }, cashBackUnderCents: [0, 500, 1000].includes(Number(v.cashBackUnderCents)) ? Number(v.cashBackUnderCents) : 0, refundDays: [0, 7, 14, 30].includes(Number(v.refundDays)) ? Number(v.refundDays) : 0, updatedAt: new Date().toISOString(), updatedBy: by };
+        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, buyerThanks: v.buyerThanks !== false, balanceReminders: v.balanceReminders !== false, showcase: cleanShowcase(v.showcase), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, expiryYears: [0, 5, 6, 7, 10].includes(Number(v.expiryYears)) ? Number(v.expiryYears) : 0, paysFor: { services: v.paysFor?.services !== false, products: v.paysFor?.products !== false, tips: v.paysFor?.tips !== false }, cashBackUnderCents: [0, 500, 1000].includes(Number(v.cashBackUnderCents)) ? Number(v.cashBackUnderCents) : 0, refundDays: [0, 7, 14, 30].includes(Number(v.refundDays)) ? Number(v.refundDays) : 0, updatedAt: new Date().toISOString(), updatedBy: by };
       if (next.max < next.min) return j({ ok: false, error: 'The most someone can spend has to be more than the least.' }, 400);
       if (next.designs && !next.designs.length) return j({ ok: false, error: 'Keep at least one design on.' }, 400);
       await tref.set({ giftCardSettings: next }, { merge: true }); return j({ ok: true, settings: shopSettings({ giftCardSettings: next }), paymentsReady: !!t.stripeAccountId }); }
