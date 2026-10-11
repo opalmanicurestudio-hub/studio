@@ -6,6 +6,7 @@ import { NotHappy } from '@/components/staff-portal/NotHappy';
 import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
 import { MyCases } from '@/components/staff-portal/MyCases';
 import { RefundsDesk } from '@/components/refunds/RefundsDesk';
+import { MyWork } from '@/components/staff-portal/MyWork';
 import { WeekSchedule, MonthPlanner } from '@/components/staff-portal/WeekSchedule';
 import { PortalTicket, PortalScan } from '@/components/staff-portal/PortalTicket';
 import { StudioCard } from '@/components/staff-portal/StudioCard';
@@ -317,6 +318,7 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
           {ackCurrent && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
           {ackStale && <span className="rounded-lg border-2 border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-900">Updated</span>}
           {!myAck && <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-700">To read</span>}
+          {!ackCurrent && /^\d{4}-\d{2}-\d{2}$/.test(String(d.signBy || '')) && <span className={cn('rounded-lg px-2 py-0.5 text-[10px] font-bold', String(d.signBy) < bizKey() ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800')}>Sign by {new Date(`${d.signBy}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}</span>}
           <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
         </div>
       </button>
@@ -4559,6 +4561,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [editingAlerts, setEditingAlerts] = useState(false);
   const [viewingCases, setViewingCases] = useState(false);
   const [viewingRefunds, setViewingRefunds] = useState(false);
+  const [viewingWork, setViewingWork] = useState(false);
   const [viewingWalkIns, setViewingWalkIns] = useState(false);
   // Schedule's calendar: Day · Week · Month, remembered on this phone.
   const [calView, setCalView] = useState<'day' | 'week' | 'month'>('week');
@@ -5361,13 +5364,16 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='me' && editingAlerts && !editingDetails && (
             <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>
           )}
+          {activeTab==='me' && viewingWork && !viewingRefunds && (
+            <MyWork firestore={firestore} tenantId={tenantId} staff={{ id: staffMember.id, role: staffMember.role }} accent={accentColor} onBack={() => setViewingWork(false)} onOpen={(w) => { setViewingWork(false); setActiveTab(w); }} />
+          )}
           {activeTab==='me' && viewingRefunds && (
             <RefundsDesk firestore={firestore} tenantId={tenantId} tenant={portalTenant} phone onBack={() => setViewingRefunds(false)} />
           )}
-          {activeTab==='me' && viewingCases && !editingDetails && !editingAlerts && !viewingRefunds && (
+          {activeTab==='me' && viewingCases && !editingDetails && !editingAlerts && !viewingRefunds && !viewingWork && (
             <MyCases firestore={firestore} tenantId={tenantId} staffId={staffMember.id} accent={accentColor} onBack={() => setViewingCases(false)} isRenter={isRenter} />
           )}
-          {activeTab==='me' && !editingDetails && !editingAlerts && !viewingCases && !viewingRefunds && (
+          {activeTab==='me' && !editingDetails && !editingAlerts && !viewingCases && !viewingRefunds && !viewingWork && (
             <div className="space-y-4 pt-1">
               <div className="flex items-center gap-4 rounded-[24px] border border-[#ececee] bg-white p-4">
                 <div className="h-16 w-16 shrink-0 rounded-full p-[3px]" style={{ background: `conic-gradient(${accentColor}, #d7e6e4, ${accentColor})` }}>
@@ -5381,6 +5387,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                 {[
                   { k: 'details', label: 'My details', sub: 'Phone, address, emergency contact', show: true },
                   { k: 'alerts', label: 'Alerts', sub: 'What buzzes your phone, quiet hours, away', show: true },
+                  { k: 'work', label: 'My work', sub: 'Tasks, SOPs to sign and checklist turns', show: !isRenter },
                   { k: 'refunds', label: 'Refunds to give', sub: 'Cash pickups and refunds to send', show: canRefunds },
                   { k: 'cases', label: 'Client cases', sub: 'Complaints and incidents on your visits — add your side', show: !isRenter },
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
@@ -5388,7 +5395,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: showOrders },
                   { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
                 ].filter((r) => r.show).map((r) => (
-                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : r.k === 'cases' ? setViewingCases(true) : r.k === 'refunds' ? setViewingRefunds(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : r.k === 'cases' ? setViewingCases(true) : r.k === 'refunds' ? setViewingRefunds(true) : r.k === 'work' ? setViewingWork(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
                     <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{r.label}</span><span className="block text-[13px] text-[#6d7075]">{r.sub}</span></span>
                     <ChevronRight className="h-4 w-4 text-[#9a9ca1]" />
                   </button>))}

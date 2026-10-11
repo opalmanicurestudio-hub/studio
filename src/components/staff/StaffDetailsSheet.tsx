@@ -57,6 +57,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { TrainingTasksPanel } from '@/components/staff/TrainingTasksPanel';
 import { doc, setDoc } from 'firebase/firestore';
 import { MessageCircle } from 'lucide-react';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
@@ -396,9 +397,14 @@ export const StaffDetailsSheet = ({
                       <TabsTrigger value="transactions" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Ledger</TabsTrigger>
                       <TabsTrigger value="effectiveness" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Metrics</TabsTrigger>
                       <TabsTrigger value="profile" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Dossier</TabsTrigger>
+                      <TabsTrigger value="training" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Training &amp; tasks</TabsTrigger>
                   </TabsList>
               </div>
               
+              <TabsContent value="training" className="mt-0">
+                  {tenantId && staffMember?.id && <TrainingTasksPanel firestore={firestore} tenantId={tenantId} staff={{ id: staffMember.id, role: staffMember.role, name: staffMember.name }} today={new Intl.DateTimeFormat('en-CA', { timeZone: (selectedTenant as any)?.timezone || 'America/New_York' }).format(new Date())} />}
+              </TabsContent>
+
               <TabsContent value="activity" className="mt-0 space-y-4">
                   <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />

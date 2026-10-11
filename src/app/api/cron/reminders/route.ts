@@ -66,6 +66,8 @@ export async function GET(req: NextRequest) {
     try { const { giftSendSweep } = await import('@/lib/gift-cards'); await giftSendSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] gift cards', tid, e); }
     // Pay questions nobody has answered for 2+ days nudge the managers again (lib/pay-questions).
     try { const { payQuestionNudges } = await import('@/lib/pay-questions'); await payQuestionNudges(db, tid); } catch (e) { console.error('[cron] pay questions', tid, e); }
+    // SOPs with a sign-by date: a reminder the day before, managers told once it's passed (lib/sop-reminders).
+    try { const { sopReminderSweep } = await import('@/lib/sop-reminders'); await sopReminderSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] sop reminders', tid, e); }
     try {
       const cfg = ((tDoc.data() as any)?.clientNotify) || {};
       if (cfg.enabled === false) { results[tid] = 'disabled'; continue; }

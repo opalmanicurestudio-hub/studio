@@ -258,6 +258,9 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
   const [sections, setSections] = useState<any[]>(docItem.sections?.length ? docItem.sections : [{ id: nanoid(), heading: '', body: '' }]);
   const [assignedRoles, setAssignedRoles] = useState<string[]>(docItem.assignedRoles || ['all']);
   const [assignedStaffIds, setAssignedStaffIds] = useState<string[]>(docItem.assignedStaffIds || []);
+  // Sign by (optional): shows on each person's My work, turns overdue after it, and a reminder goes the day before.
+  const [signBy, setSignBy] = useState<string>(/^\d{4}-\d{2}-\d{2}$/.test(String(docItem.signBy || '')) ? docItem.signBy : '');
+  const [remindBefore, setRemindBefore] = useState<boolean>(docItem.remindBefore !== false);
   const [err, setErr] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -296,7 +299,7 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
       .filter(x => x.heading || x.body);
     if (cleanSections.length === 0) { setErr('Add at least one section with content.'); return null; }
     setErr('');
-    return { title: cleanTitle, category, sections: cleanSections, assignedRoles, assignedStaffIds };
+    return { title: cleanTitle, category, sections: cleanSections, assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore };
   };
 
   return (
@@ -395,6 +398,13 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
             </div>
           </>
         )}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="space-y-1.5"><span className="block text-[10px] font-black uppercase tracking-widest text-muted-foreground">Sign by (optional)</span>
+          <input type="date" value={signBy} onChange={(e) => setSignBy(e.target.value)} className="h-10 rounded-xl border-2 px-3 text-[13px] font-bold" /></label>
+        {signBy && <label className="flex h-10 items-center gap-2 text-[12px] font-bold"><input type="checkbox" checked={remindBefore} onChange={(e) => setRemindBefore(e.target.checked)} className="h-4 w-4" />Remind them the day before</label>}
+        {signBy && <button type="button" onClick={() => setSignBy('')} className="h-10 text-[11px] font-bold text-muted-foreground underline">No date</button>}
       </div>
 
       {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
@@ -888,6 +898,10 @@ const TasksCard = ({ tenantId, staff, actorName, focusTaskId }: { tenantId: stri
   useEffect(() => {
     if (focusTaskId) setOpen(true);
   }, [focusTaskId]);
+  // From a staff profile ("Give a task"): ?assign=<staffId> opens the form with them picked.
+  useEffect(() => {
+    try { const who = new URLSearchParams(window.location.search).get('assign'); if (who) { setOpen(true); setCreating(true); setAssignees([who]); } } catch { /* fine */ }
+  }, []);
   useEffect(() => {
     if (!focusTaskId) return;
     const t = setTimeout(() => {
