@@ -3,7 +3,7 @@
 import { NotHappy } from '@/components/staff-portal/NotHappy';
 import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
 import { MyCases } from '@/components/staff-portal/MyCases';
-import { WeekSchedule } from '@/components/staff-portal/WeekSchedule';
+import { WeekSchedule, MonthPlanner } from '@/components/staff-portal/WeekSchedule';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
 import { punchState } from '@/lib/punch';
@@ -4533,6 +4533,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [editingAlerts, setEditingAlerts] = useState(false);
   const [viewingCases, setViewingCases] = useState(false);
   const [viewingWalkIns, setViewingWalkIns] = useState(false);
+  // Schedule's calendar: Day · Week · Month, remembered on this phone.
+  const [calView, setCalView] = useState<'day' | 'week' | 'month'>('week');
+  useEffect(() => { try { const v = localStorage.getItem('cf_portal_cal'); if (v === 'day' || v === 'month' || v === 'week') setCalView(v); } catch { /* default */ } }, []);
+  const pickCalView = (v: 'day' | 'week' | 'month') => { setCalView(v); try { localStorage.setItem('cf_portal_cal', v); } catch { /* not saved */ } };
   const [todayPick, setTodayPick] = useState<{ view: 'now' | 'day' | 'floor'; visitId: string | null } | null>(null);
   // Calls the front desk passed on to this person (or to managers, if they are one).
   const myCalls = useMyCalls(staffMember.role === 'renter' ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
@@ -5182,10 +5186,16 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='schedule' && (
             shiftsLoading ? <TabSkeleton /> : (
               <div className="space-y-4">
-                <WeekSchedule shifts={myShiftsRaw || []} apts={allMyApts || []} requests={myRequests || []} swapsForMe={incomingSwaps || []} selected={selectedDate} onPick={setSelectedDate}
-                  onTimeOff={() => { setRequestType('day_off'); setActiveTab('requests'); }} onRequests={() => setActiveTab('requests')} accent={accentColor} />
-                <p className="px-1 pt-1 text-[13px] font-bold uppercase tracking-wide text-[#6d7075]">{isToday(selectedDate) ? 'Today' : format(selectedDate, 'EEEE, MMM d')}</p>
-                <DayTimeline
+                <div className="flex rounded-full bg-[#f1f1f3] p-1" role="tablist" aria-label="Calendar view">
+                  {(['day', 'week', 'month'] as const).map((v) => <button key={v} role="tab" aria-selected={calView === v} onClick={() => pickCalView(v)} className="h-9 flex-1 rounded-full text-[14px] font-semibold capitalize" style={calView === v ? { background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: '#6d7075' }}>{v}</button>)}
+                </div>
+                {calView === 'week' && <WeekSchedule layout="columns" shifts={myShiftsRaw || []} apts={allMyApts || []} requests={myRequests || []} swapsForMe={incomingSwaps || []} selected={selectedDate} onPick={(d) => { setSelectedDate(d); pickCalView('day'); }}
+                  onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
+                  onTimeOff={() => { setRequestType('day_off'); setActiveTab('requests'); }} onRequests={() => setActiveTab('requests')} accent={accentColor} />}
+                {calView === 'month' && <MonthPlanner shifts={myShiftsRaw || []} apts={allMyApts || []} requests={myRequests || []} events={allEventsRaw || []} staffId={staffMember.id} selected={selectedDate}
+                  onPick={(d) => { if (isSameDay(d, selectedDate)) pickCalView('day'); setSelectedDate(d); }} accent={accentColor} />}
+                {calView === 'day' && <DateNavigator selectedDate={selectedDate} onChange={setSelectedDate} />}
+                {calView === 'day' && <DayTimeline
                   {...(canFloor ? {} : { mode: 'my_day' as const })}
                   appointments={allMyApts}
                   services={services}
@@ -5199,7 +5209,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   allShiftsForDay={allShiftsRaw || []}
                   currentStaffId={staffMember?.id}
                   clockStatus={clockStatus}
-                />
+                />}
               </div>
             )
           )}
