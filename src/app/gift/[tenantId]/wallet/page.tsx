@@ -4,6 +4,7 @@
 import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { SpendSuggestions } from '@/components/gift/SpendSuggestions';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 const money = (c: number) => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`;
@@ -25,6 +26,7 @@ export default function GiftWalletPage() {
               <div className="flex justify-center"><GiftCardFace design={c.design} brand={{ ...d.brand, name: c.ownerName || d.brand.name }} amount={money(c.initialCents)} name={c.recipientName} code={c.code} line={c.line || ''} expires={c.expiresAt} width={w} /></div>
               <p className="text-center text-[14px]">{c.balanceCents > 0 ? <><b>{money(c.balanceCents)}</b> left</> : 'All used'}{c.purchaserName ? <span style={{ color: MUTED }}> · from {String(c.purchaserName).split(' ')[0]}</span> : null}</p>
             </a>))}
+          {left.length > 0 && <SpendSuggestions tenantId={tenantId} balanceCents={left.filter((c: any) => !c.ownerName).reduce((s: number, c: any) => s + c.balanceCents, 0)} accent={d.brand.accent || INK} />}
           {left.length > 0 && <a href={d.bookUrl} className="flex h-14 items-center justify-center rounded-[18px] text-[16px] font-bold text-white" style={{ background: d.brand.accent || INK }}>Book with them</a>}
           <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Show a code when you pay. <span style={{ borderBottom: `1px solid ${LINE}` }}>Keep this link — it always shows what’s left.</span></p>
         </>}

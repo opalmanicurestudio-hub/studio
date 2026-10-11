@@ -187,7 +187,7 @@ export function StudioFlow({ c }: { c: any }) {
       <section className={`${card} space-y-1`}><p className="text-[15px] text-stone-600">A deposit holds your time and comes off your total at your visit.</p>{c.depositAmount > 0 && <p className="text-3xl font-light">${Number(c.depositAmount).toFixed(2)}</p>}</section>
       <section className={`${card} min-h-[320px]`} aria-label="Secure payment">
         {c.depositError ? <div className="space-y-3 text-center"><p className="text-[15px] text-red-800" role="alert">{c.depositError}</p><button type="button" onClick={() => c.retryPayment()} className="rounded-full px-5 py-2.5 text-[15px] text-white" style={{ background: accent }}>Try again</button></div>
-          : <>{(c.depositLoading || !c.depositClientSecret) && <p className="py-10 text-center text-[14px] text-stone-500" role="status">Opening secure payment…</p>}<div ref={c.embeddedMountRef} /></>}
+          : <>{c.giftPay}{(c.depositLoading || !c.depositClientSecret) && <p className="py-10 text-center text-[14px] text-stone-500" role="status">Opening secure payment…</p>}<div ref={c.embeddedMountRef} /></>}
       </section>
       <p className="text-center text-[12px] text-stone-500">Payments are handled securely by Stripe.</p>
     </div>

@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
-import { shopInfo, startGiftOrder, confirmGiftOrder, orderView, changeOrder, orderKey, findMyCards, walletView } from '@/lib/gift-shop';
+import { shopInfo, startGiftOrder, confirmGiftOrder, orderView, changeOrder, orderKey, findMyCards, walletView, payDepositWithGiftCard } from '@/lib/gift-shop';
 
 export const dynamic = 'force-dynamic';
 const j = (b: any, status = 200) => NextResponse.json(b, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -38,6 +38,12 @@ export async function POST(req: NextRequest) {
   }
   if (action === 'find') { const limited = await limitPublic(req, 'gift_find', tenantId, { perHour: 5, perDay: 15 }); if (limited) return limited;
     const r = await findMyCards(db, tenantId, String(b.contact || '').slice(0, 120), req.nextUrl.origin); return j(r, r.ok ? 200 : 400); }
+  if (action === 'deposit') {   // pay a held booking's deposit with a gift card (the online booking page)
+    const limited = await limitPublic(req, 'gift_deposit', tenantId, { perHour: 15, perDay: 40 }); if (limited) return limited;
+    if (!okId(b.appointmentId)) return j({ ok: false, error: 'We couldn’t find that booking.' }, 404);
+    try { const r: any = await payDepositWithGiftCard(db, tenantId, b.appointmentId, String(b.code || '').slice(0, 40), req.nextUrl.origin); return j(r, r.ok ? 200 : 400); }
+    catch (e: any) { console.error('[gift shop] deposit', e?.message); return j({ ok: false, error: 'That didn’t go through — nothing was taken. Please try again.' }, 500); }
+  }
   if (!okId(b.orderId)) return j({ ok: false, error: 'That order wasn’t found.' }, 404);
   if (action === 'confirm') { try { return j(await confirmGiftOrder(db, tenantId, b.orderId, req.nextUrl.origin)); } catch (e: any) { console.error('[gift shop] confirm', e?.message); return j({ ok: true, paid: false }); } }
   if (action === 'change') {

@@ -4,6 +4,7 @@
 import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { SpendSuggestions } from '@/components/gift/SpendSuggestions';
 
 const MUTED = '#6d7075', LINE = '#ececee';
 export default function GiftCardPage() {
@@ -21,6 +22,7 @@ export default function GiftCardPage() {
           {c.message && <div className="rounded-[18px] border p-4 text-[15.5px] leading-relaxed" style={{ borderColor: LINE }}>“{c.message}”{c.purchaserName && <p className="mt-1.5 text-[13px]" style={{ color: MUTED }}>— {String(c.purchaserName).split(' ')[0]}</p>}</div>}
           <div className="text-center"><p className="text-[12.5px]" style={{ color: MUTED }}>Your code</p><p className="mt-1 font-mono text-[24px] tracking-[0.08em]">{c.code}</p>
             <p className="mt-2 text-[14px]">{c.status === 'void' ? 'This card was cancelled.' : c.balanceCents > 0 ? <><b>{$(c.balanceCents)}</b> left to spend</> : 'This card has been used up.'}</p></div>
+          {c.status !== 'void' && c.balanceCents > 0 && !c.ownerRenterId && <SpendSuggestions tenantId={String(p?.tenantId || '')} balanceCents={c.balanceCents} accent={A} />}
           {c.status !== 'void' && c.balanceCents > 0 && <a href={d.bookUrl} className="flex h-14 items-center justify-center rounded-[18px] text-[16px] font-bold text-white" style={{ background: A }}>Book with it</a>}
           <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Show this code when you pay. Keep this link — it always shows what’s left. <a href={`/gift/${encodeURIComponent(String(p?.tenantId || ''))}/find`} className="underline underline-offset-4">Have another card?</a>{d.brand.phone ? ` Questions? ${d.brand.phone}` : ''}</p>
         </>}

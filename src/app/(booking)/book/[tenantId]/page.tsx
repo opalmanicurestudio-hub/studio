@@ -48,7 +48,7 @@ function usePageFonts() {
 // ─── Result type returned by handleConfirm ────────────────────────────────────
 type ConfirmResult =
   | { requiresPayment: false }
-  | { requiresPayment: true; clientSecret: string; stripeAccountId?: string }
+  | { requiresPayment: true; clientSecret: string; stripeAccountId?: string; appointmentId?: string }
   | { requiresPayment: true; error: string };
 
 /**
@@ -523,7 +523,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       const payFor = async (appointmentId: string): Promise<ConfirmResult> => {
         const dres = await fetch('/api/stripe/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId }) }).catch(() => null);
         const d: any = dres ? await dres.json().catch(() => null) : null;
-        if (d?.clientSecret) return { requiresPayment: true, clientSecret: d.clientSecret, stripeAccountId: d.stripeAccountId };
+        if (d?.clientSecret) return { requiresPayment: true, clientSecret: d.clientSecret, stripeAccountId: d.stripeAccountId, appointmentId };
         return { requiresPayment: true, error: d?.error || 'Your time is held, but the payment step didn’t open. Please try again — or use the pay link in your email.' };
       };
       // Retrying the same booking while its deposit is pending → pay for the held one.

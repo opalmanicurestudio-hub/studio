@@ -41,6 +41,7 @@ import { z } from 'zod';
 import { PhoneInput } from '../ui/phone-input';
 import { useToast } from '@/hooks/use-toast';
 import { StudioFlow } from './StudioFlow';
+import { DepositGiftCard } from '@/components/gift/DepositGiftCard';
 import type { InspoPhoto } from './PhotoMarkup';
 import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { Separator } from '../ui/separator';
@@ -300,6 +301,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   // ── Embedded checkout state ───────────────────────────────────────────────
   const [depositClientSecret,    setDepositClientSecret]    = useState<string | null>(null);
+  const [depositApptId, setDepositApptId] = useState<string | null>(null);   // the held visit — a gift card can pay its deposit instead
   // The SERVER can require a deposit the page couldn't predict (e.g. a client
   // with missed visits). Then the payment step is added and shown.
   const [serverNeedsPayment,     setServerNeedsPayment]     = useState(false);
@@ -732,7 +734,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       if (result && 'requiresPayment' in result && result.requiresPayment) {
         if ('clientSecret' in result && result.clientSecret) {
           setDepositClientSecret(result.clientSecret);
-          setDepositStripeAccountId(result.stripeAccountId || null);
+          setDepositStripeAccountId(result.stripeAccountId || null); setDepositApptId((result as any).appointmentId || null);
         } else if ('error' in result) {
           setDepositError(result.error);
         }
@@ -947,6 +949,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance,
       requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, accentHex: 'var(--accent, #7c3aed)',
       price, previewLines, bookingPreview, confirming, depositAmount, depositClientSecret, depositLoading, depositError, embeddedMountRef, initiateCheckout, bookingOutcome,
+      giftPay: depositApptId && !(service as any)?.renterProviderId ? <DepositGiftCard tenantId={String(tenantIdProp || (tenant as any)?.id || '')} appointmentId={depositApptId} studio onPaid={() => setCurrentStepIndex(steps.indexOf('confirmation'))} /> : null,
       rescheduleOf, providerId: (service as any)?.renterProviderId || null,
       retryPayment: () => { setDepositError(null); if (depositClientSecret) setMountTry((n) => n + 1); else void initiateCheckout(); },
     }} />);
@@ -1517,7 +1520,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             <RefreshCw className={cn('w-3.5 h-3.5 mr-1.5', depositLoading && 'animate-spin')} /> Try Again
                           </Button>
                         </Alert>
-                      ) : (
+                      ) : (<>
+                        {depositApptId && !(service as any)?.renterProviderId && <DepositGiftCard tenantId={String(tenantIdProp || (tenant as any)?.id || '')} appointmentId={depositApptId} onPaid={() => setCurrentStepIndex(steps.indexOf('confirmation'))} />}
                         <div className="rounded-2xl border-2 bg-white shadow-inner overflow-hidden relative" style={{ minHeight: 320 }}>
                           {(depositLoading || !depositClientSecret) && (
                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-white z-10">
@@ -1527,7 +1531,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                           )}
                           <div ref={embeddedMountRef} />
                         </div>
-                      )}
+                      </>)}
 
                       <div className="flex items-center gap-2.5 p-3 bg-muted/20 text-[10px] text-muted-foreground font-medium italic rounded-xl">
                         <Lock className="w-3.5 h-3.5 shrink-0" />
