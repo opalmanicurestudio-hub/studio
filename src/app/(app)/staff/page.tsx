@@ -61,6 +61,7 @@ import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocu
 import { FULFILMENT_ROLES, describeRole, permissionsFor, type FulfilmentRole } from '@/lib/fulfilment-access';
 import { collection, doc, writeBatch, deleteField, setDoc, updateDoc } from 'firebase/firestore';
 import { saveStaffPay, splitPay } from '@/lib/staff-pay-client';
+import { payOverlayReady } from '@/firebase/firestore/pay-overlay';
 import { payPost } from '@/components/pay/pay-client';
 import { syncAppAccess } from '@/components/staff/AppAccess';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
@@ -928,9 +929,15 @@ export default function StaffPage() {
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', updatedStaffData.id);
     // A changed PIN goes to the server only — it's never saved on the team member's record.
     const { pin: newPin, pinHash: _ph, ...rest0 } = updatedStaffData as any;
-    const { rest, pay: payPart } = splitPay(rest0);   // rates go to staffPay
+    const { rest, pay: payAll } = splitPay(rest0);   // rates go to staffPay
     const sanitizedData = JSON.parse(JSON.stringify(rest));
-    void saveStaffPay(firestore, tenantId, updatedStaffData.id, payPart).catch(() => uiToast({ variant: 'destructive', title: 'Pay not saved', description: 'Only managers can change pay.' }));
+    // Only the rates someone actually changed — never a whole set of blanks from a screen that hadn't loaded them.
+    const before: any = (staff || []).find((m: any) => m.id === updatedStaffData.id) || {};
+    const payPart: any = {}; for (const [k, v] of Object.entries(payAll)) if (JSON.stringify(v ?? null) !== JSON.stringify(before[k] ?? null)) payPart[k] = v;
+    if (Object.keys(payPart).length) {
+      if (!payOverlayReady(tenantId)) uiToast({ variant: 'destructive', title: 'Pay not saved', description: 'Pay rates hadn’t loaded yet. Reopen their card and try again.' });
+      else void saveStaffPay(firestore, tenantId, updatedStaffData.id, payPart).catch(() => uiToast({ variant: 'destructive', title: 'Pay not saved', description: 'Only managers can change pay.' }));
+    }
     // Saved first, then the server copies the role across to their app login (if they have one).
     const prev: any = (staff || []).find((m: any) => m.id === updatedStaffData.id) || {};
     const roleChanged = prev.role !== (sanitizedData as any).role || !!prev.archived !== !!(sanitizedData as any).archived;

@@ -57,6 +57,7 @@ import { differenceInHours, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { useDepositCredit } from '@/hooks/useDepositCredit';
+import { rateFor } from '@/lib/commission';
 
 // Who is performing the cancellation. Drives the audit trail's actorType.
 type ActorType = 'studio' | 'client' | 'no_show';
@@ -205,7 +206,7 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
         s.serviceTiers?.find(t => t.tierId === pro?.pricingTierId)?.price || s.price;
 
       let labor = 0;
-      if (pro?.payStructure === 'commission') labor = price * (pro.commissionRate / 100);
+      if (pro?.payStructure === 'commission') labor = (Number(price) || 0) * (rateFor(pro, s, 40) / 100);   // rates are managers-only; the usual 40% stands in for anyone else
       else if (pro?.payStructure === 'hourly' && pro.hourlyRate)
         labor = (duration / 60) * pro.hourlyRate;
       const burdenedLabor = labor * (1 + taxBurden / 100);

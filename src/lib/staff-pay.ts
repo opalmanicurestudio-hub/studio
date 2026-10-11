@@ -23,7 +23,8 @@ export function splitPay<T extends Record<string, any>>(o: T): { rest: Omit<T, P
 /** Put pay back on a staff record. The staffPay doc wins; a record that hasn't been moved yet keeps its own rates. */
 export function mergePay<S extends Record<string, any>>(s: S, pay?: Record<string, any> | null): S {
   if (!s || !pay) return s; const out: any = { ...s };
-  for (const k of PAY_FIELDS) if (pay[k] !== undefined) out[k] = pay[k];
+  // A key present in staffPay is the answer — null means it was cleared on purpose (not "fall back to the old record").
+  for (const k of PAY_FIELDS) if (k in pay) { if (pay[k] === null) delete out[k]; else out[k] = pay[k]; }
   return out;
 }
 export function mergePayAll<S = any>(list: S[], byId: Record<string, any>): S[] { return (list || []).map((s: any) => mergePay(s, s?.id ? byId[s.id] : null)); }

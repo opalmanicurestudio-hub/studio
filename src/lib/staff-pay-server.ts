@@ -17,7 +17,8 @@ export async function withPay<S = any>(db: any, tenantId: string, list: S[]): Pr
 /** Write someone's pay (server). Merges; a null value clears that field. */
 export async function savePay(db: any, tenantId: string, staffId: string, pay: Record<string, any>, by?: string) {
   const { pay: clean } = splitPay(pay); if (!Object.keys(clean).length) return;
-  await db.doc(`tenants/${tenantId}/staffPay/${staffId}`).set({ ...clean, staffId, updatedAt: new Date().toISOString(), ...(by ? { updatedBy: by } : {}) }, { merge: true });
+  const out: any = { ...clean, staffId, updatedAt: new Date().toISOString(), ...(by ? { updatedBy: by } : {}) };   // null = cleared on purpose
+  await db.doc(`tenants/${tenantId}/staffPay/${staffId}`).set(out, { mergeFields: Object.keys(out) });   // each field replaced whole
 }
 
 /** Move rates off the readable staff records into staffPay (once per business; safe to run again). */
@@ -27,7 +28,7 @@ export async function movePayOff(db: any, tenantId: string): Promise<number> {
   for (const d of staff.docs) {
     const { pay } = splitPay(d.data() || {}); if (!Object.keys(pay).length) continue;
     const ref = db.doc(`tenants/${tenantId}/staffPay/${d.id}`); const existing = (await ref.get()).data() || {};
-    const fill: any = {}; for (const [k, v] of Object.entries(pay)) if (existing[k] === undefined) fill[k] = v;   // a newer value already moved wins
+    const fill: any = {}; for (const [k, v] of Object.entries(pay)) if (!(k in existing)) fill[k] = v;   // a newer value already moved wins
     await ref.set({ ...fill, staffId: d.id, movedAt: new Date().toISOString() }, { merge: true });
     const del: any = {}; for (const k of Object.keys(pay)) del[k] = FieldValue.delete();
     await d.ref.update(del); moved++;

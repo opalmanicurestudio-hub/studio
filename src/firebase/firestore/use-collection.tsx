@@ -10,7 +10,7 @@ import {
   Query,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
-import { usePayOverlay, overlayList, overlayDoc } from '@/firebase/firestore/pay-overlay';
+import { usePayOverlay, overlayList, payPendingFor } from '@/firebase/firestore/pay-overlay';
 import { FirestorePermissionError } from '@/firebase/errors';
 
 /** Utility type to add an 'id' field to a given type T. */
@@ -122,5 +122,5 @@ export function useCollection<T = any>(
   const pay = usePayOverlay();
   const path = useMemo(() => { try { const q: any = memoizedTargetRefOrQuery; if (!q) return null; return q.type === 'collection' ? (q as CollectionReference).path : (q as InternalQuery)._query.path.canonicalString(); } catch { return null; } }, [memoizedTargetRefOrQuery]);
   const shown = useMemo(() => overlayList(path, data, pay), [path, data, pay]);
-  return { data: shown, isLoading: isLoading || (!!memoizedTargetRefOrQuery && answeredFor !== memoizedTargetRefOrQuery), error };
+  return { data: shown, isLoading: isLoading || (!!memoizedTargetRefOrQuery && answeredFor !== memoizedTargetRefOrQuery) || payPendingFor(path, pay), error };
 }
