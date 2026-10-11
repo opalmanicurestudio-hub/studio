@@ -139,6 +139,8 @@ const EVENTS = [
 const PUBLIC_PORTALS = [
   { href: '/book',         icon: Globe,       label: 'Booking page'     },
   { href: '/shop',         icon: ShoppingBag, label: 'Online shop'      },
+  // The gift card page (/gift/{tenantId}): buy one online — turned on in Gift cards → Online shop & designs.
+  { href: '/gift',         icon: Gift,        label: 'Gift card page'   },
   // Walk-in APPOINTMENT kiosk (rebuilt) lives at /walk-in/[tenantId].
   { href: '/walk-in',      icon: Fingerprint, label: 'Walk-in kiosk'    },
   // The waiting-room wall screen: who is next, roughly how long, who is free.

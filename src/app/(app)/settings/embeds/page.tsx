@@ -33,6 +33,9 @@ export default function EmbedsPage() {
         <Row label="Front door" help="For your Google Business Profile (“Book online”), Instagram bio and emails. Add a service, category or provider link from the Services page’s row menu.">
           <code className="break-all text-[14px]">{bookingLink(bookOrigin, tenantId, {})}</code>
         </Row>
+        <Row label="Gift cards" help={(selectedTenant as any)?.giftCardSettings?.online ? 'Where anyone can buy a gift card — add it to your website menu, Instagram bio and Google profile.' : 'Turn on selling online in Gift cards → Online shop & designs, then share this link.'}>
+          <code className="break-all text-[14px]">{`${bookOrigin.replace(/\/+$/, '')}/gift/${encodeURIComponent(tenantId)}`}</code>
+        </Row>
       </Section>
       <Section title="A Book button for your website" help="Paste this where you want the button — Squarespace, Wix, WordPress and Shopify all accept a code block. Style it however you like; the class “cf-book” is what makes it work.">
         <Row label="Which service?" help="Leave it blank for a button that opens your whole menu."><select value={svc} onChange={(e) => setSvc(e.target.value)} className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line)' }}><option value="">Any service — opens the menu</option>{bookable.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Row>

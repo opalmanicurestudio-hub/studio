@@ -5,6 +5,7 @@
 // Everything it shows comes from its own document; everything the client does goes through the server.
 // Motion is gentle, follows the business's setting (lively / calm / off) and the iPad's "Reduce Motion".
 import * as React from 'react';
+import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { ClientPayForm } from '@/components/pay/ClientPayForm';
@@ -150,6 +151,8 @@ export default function ClientScreenPage() {
   const tk = s.ticket;
   const celebrating = (tk?.moments || []).length > 0;
   const momentBanner = (tk?.moments || []).length ? <div className="cs-pop space-y-1 rounded-3xl p-5 text-center" style={{ background: `color-mix(in srgb, ${accent} 12%, #fff)` }}>{tk.moments.map((m: string, i: number) => <p key={i} className="text-[22px] font-semibold">{m}</p>)}</div> : null;
+  // A gift card being bought: the client sees the actual card they're giving (design, occasion line, who it's for).
+  const giftCards = (lines: any[]) => { const g = (lines || []).filter((l: any) => l.gift); return g.length ? <div className="cs-in flex flex-wrap justify-center gap-4 py-2">{g.map((l: any, i: number) => <GiftCardFace key={i} design={l.gift.design} brand={{ name: s.brand?.name || '', logo: s.brand?.logo || null, accent: s.brand?.accent || null }} amount={`$${Number(l.gift.amount || 0).toFixed(Number(l.gift.amount) % 1 ? 2 : 0)}`} name={l.gift.to || ' '} line={l.gift.line || ''} width={g.length > 1 ? 260 : 340} />)}</div> : null; };
   const ticketLines = (lines: any[]) => lines.map((l: any, i: number) => <div key={`${l.label}-${i}`} className="cs-in flex justify-between gap-4 text-[20px]" style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}><span>{l.label}{l.note ? <span style={{ color: '#78716c' }}> · {l.note}</span> : null}</span><span className="tabular-nums">{money(l.amount)}</span></div>);
 
   const deskGone = !!s.deskAliveAt && Date.now() - Date.parse(s.deskAliveAt) > 150000 && !!clock;
@@ -172,7 +175,8 @@ export default function ClientScreenPage() {
     if (step === 'review') return shell(<>{brandTop}
       <p className="text-center text-[30px] font-semibold">{q.shareLabel ? `Your share — ${q.shareLabel}` : tk?.clientFirst ? `Here’s your total, ${tk.clientFirst}` : 'Here’s your total'}</p>
       {tk?.lines?.length && !q.shareLabel ? <div className="space-y-3 rounded-3xl p-6" style={{ background: '#fff', border: '1px solid #e7e2dc' }}>{ticketLines(tk.lines)}
-        {(tk.discount > 0 || tk.tax > 0) && <div className="space-y-1 border-t pt-2 text-[18px]" style={{ borderColor: '#e7e2dc', color: '#57534e' }}>{tk.discount > 0 && <div className="flex justify-between"><span>Discounts</span><span>−{money(tk.discount)}</span></div>}{tk.tax > 0 && <div className="flex justify-between"><span>{tk.taxLabel}</span><span>{money(tk.tax)}</span></div>}</div>}</div> : null}
+        {(tk.discount > 0 || tk.tax > 0) && <div className="space-y-1 border-t pt-2 text-[18px]" style={{ borderColor: '#e7e2dc', color: '#57534e' }}>{tk.discount > 0 && <div className="flex justify-between"><span>Discounts</span><span>−{money(tk.discount)}</span></div>}{tk.tax > 0 && <div className="flex justify-between"><span>{tk.taxLabel}</span><span>{money(tk.tax)}</span></div>}</div>}
+        {tk.giftCard > 0 && <div className="flex justify-between border-t pt-2 text-[18px]" style={{ borderColor: '#e7e2dc', color: '#57534e' }}><span>Gift card</span><span>−{money(tk.giftCard)}</span></div>}</div> : null}
       <p className="text-center text-[56px] font-semibold tabular-nums"><CountUp value={Number(q.amount) || 0} /></p>
       <button type="button" onClick={() => setStep(q.askTip && !q.tipChosen ? 'tip' : 'pay')} className={`${big} w-full`} style={solid}>Looks right</button>
     </>, { glow: true });
@@ -376,12 +380,14 @@ export default function ClientScreenPage() {
     <div className="flex items-center justify-between">{s.brand?.logo ? <img src={s.brand.logo} alt="" className="max-h-12 max-w-[40%] object-contain" /> : <p className="text-[20px] font-semibold">{s.brand?.name}</p>}{tk.clientFirst ? <p className="text-[20px]" style={{ color: '#57534e' }}>Hi {tk.clientFirst}</p> : null}</div>
     <div className="space-y-3 rounded-3xl p-6" style={{ background: '#fff', border: '1px solid #e7e2dc' }}>
       {ticketLines(tk.lines)}
+      {giftCards(tk.lines)}
       <hr style={{ borderColor: '#e7e2dc' }} />
       <div className="space-y-1.5 text-[18px]" style={{ color: '#57534e' }}>
         <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{money(tk.subtotal)}</span></div>
         {tk.discount > 0 && <div className="flex justify-between"><span>Discounts</span><span className="tabular-nums">−{money(tk.discount)}</span></div>}
         {tk.tax > 0 && <div className="flex justify-between"><span>{tk.taxLabel}</span><span className="tabular-nums">{money(tk.tax)}</span></div>}
         {tk.tip > 0 && <div className="flex justify-between"><span>Tip</span><span className="tabular-nums">{money(tk.tip)}</span></div>}
+        {tk.giftCard > 0 && <div className="flex justify-between"><span>Gift card</span><span className="tabular-nums">−{money(tk.giftCard)}</span></div>}
         {tk.paid > 0 && <div className="flex justify-between"><span>Already paid</span><span className="tabular-nums">−{money(tk.paid)}</span></div>}
       </div>
       <div className="flex justify-between pt-1 text-[30px] font-semibold"><span>Total</span><span className="tabular-nums"><CountUp value={Number(tk.due ?? tk.total) || 0} /></span></div>
