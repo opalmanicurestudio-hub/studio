@@ -16,7 +16,7 @@ export function RenterCaseRun({ c, tenantId, accent }: { c: any; tenantId: strin
   const paid = Number(c.visit?.paid || 0);
   if (c.locked) return <p className="rounded-[18px] bg-[#f5f5f6] p-4 text-[14px]">Closed{c.fix ? ` · ${c.fix.label}` : ''}.</p>;
   return <div className="space-y-3">
-    <div className="rounded-[18px] border border-sky-200 bg-sky-50 p-4 text-[14px] text-sky-950"><p className="font-bold">Your client, your case.</p><p>You decide how to make it right, under your own settings. The salon doesn’t see this case.</p></div>
+    <div className="rounded-[18px] border border-sky-200 bg-sky-50 p-4 text-[14px] text-sky-950"><p className="font-bold">Your client, your case.</p><p>You decide how to make it right, under your own settings. It isn’t in the salon’s case list, and only you can act on it.</p></div>
     {err && <p className="rounded-xl bg-red-50 p-3 text-[13.5px] font-semibold text-red-800">{err}</p>}
     {msg && <p className="rounded-xl bg-emerald-50 p-3 text-[13.5px] font-semibold text-emerald-800">{msg}</p>}
 
