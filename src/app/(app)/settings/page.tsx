@@ -514,6 +514,9 @@ function SettingsPageImpl() {
 
             {/* ── PROFILE ── */}
             <TabsContent value="profile" className="mt-0 space-y-10 text-left">
+              <a href="/import" className="cf-sheet flex items-center justify-between gap-3 px-5 py-4">
+                <span className="min-w-0"><span className="block text-[15px] font-medium">Bring your records from another app</span><span className="block text-[13.5px] cf-muted">Clients, services and products from Square, Vagaro, Fresha, Mindbody, GlossGenius and others — from their CSV export.</span></span>
+                <span className="shrink-0 text-[14px] font-medium">Open →</span></a>
               <Section title="What clients see" help="Shown on your booking page, kiosk, receipts and messages.">
                 <Row label="Business name"><input className={cfInput} style={cfInputStyle} value={tenantData.name || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, name: e.target.value }))} placeholder="e.g. Opal Manicure Studio" autoComplete="organization" /></Row>
                 <Row label="Logo" help="A square image works best."><ImageUpload label="Upload your logo" onImageUploaded={(url) => setTenantData((prev) => ({ ...prev, logoUrl: url } as any))} initialImage={(tenantData as any).logoUrl} /></Row>

@@ -367,6 +367,14 @@ service cloud.firestore {
     match /tenants/{tenantId}/refundCodes/{payoutId} {
       allow read, write: if false;
     }
+    // IMPORTS from another app (/api/import): managers see the history; only the server writes.
+    match /tenants/{tenantId}/imports/{importId} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+      match /fills/{fillId} {
+        allow read, write: if false;
+      }
+    }
     // LOW REVIEWS from Google (lib/review-watch): the front desk and managers read them; only the server writes.
     match /tenants/{tenantId}/externalReviews/{reviewId} {
       allow read: if isManager(tenantId) || (hasStaffDoc(tenantId) && staffDoc(tenantId).data.get('role', '') == 'front_desk')
@@ -534,7 +542,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
