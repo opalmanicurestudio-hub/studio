@@ -7,6 +7,7 @@ import * as React from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { useDoc, useMemoFirebase } from '@/firebase';
 import { GROUPS, type NotifyGroup } from '@/lib/notify-prefs';
+import { bizKey } from '@/lib/biz-clock';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 
@@ -33,7 +34,7 @@ export function AlertSettings({ firestore, tenantId, staffId, isManager, isRente
 
   const groups = GROUPS.filter((g) => isRenter ? ['clients', 'team', 'rent'].includes(g.id)
     : g.id === 'rent' ? hasRent : g.id === 'business' ? isManager : true);
-  const today = new Date().toLocaleDateString('en-CA');
+  const today = bizKey();
 
   const save = async () => {
     if (!ref) return; setBusy(true); setErr('');

@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
     // ── BRAND — name, logo and colour for the sign-in screen (nothing about people).
     if (action === 'brand') {
       const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-      return NextResponse.json({ ok: true, business: { name: tenant.name || tenant.businessName || '', logoUrl: brandLogo(tenant), accent: brandAccent(tenant), sharedBoard: tenant?.portal?.sharedBoard !== false } });
+      return NextResponse.json({ ok: true, business: { name: tenant.name || tenant.businessName || '', logoUrl: brandLogo(tenant), accent: brandAccent(tenant), sharedBoard: tenant?.portal?.sharedBoard !== false, timeZone: String(tenant.timezone || tenant.timeZone || '') } });
     }
 
     // ── TODAY BOARD — the shared tablet's sign-in screen ───────────────
@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
             isRenter: !!s.isRenter || s.role === 'renter' };
         })
         .filter((p: any) => p.shifts.length || p.state !== 'off');
-      return NextResponse.json({ ok: true, day, timeZone: tz, business: { name: tenant.name || tenant.businessName || '', logoUrl: brandLogo(tenant), accent: brandAccent(tenant) }, people });
+      return NextResponse.json({ ok: true, day, timeZone: tz, business: { name: tenant.name || tenant.businessName || '', logoUrl: brandLogo(tenant), accent: brandAccent(tenant), timeZone: tz }, people });
     }
 
     // ── VERIFY MANAGER (v79) ───────────────────────────────────────────

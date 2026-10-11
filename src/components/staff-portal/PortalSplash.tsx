@@ -4,6 +4,7 @@
 // then "Hi Maya — 5 visits today · First up: Kim at 9:15". Plays once per sign-in session (about 2.6 s); a tap skips
 // it; people who've asked their phone for less motion get a still version for a moment.
 import * as React from 'react';
+import { biz } from '@/lib/biz-clock';   // times in the business's zone
 
 const INK = '#16171a', MUTED = '#6d7075';
 const ms = (v: any) => { const t = v?.toDate ? v.toDate().getTime() : Date.parse(String(v || '')); return Number.isFinite(t) ? t : NaN; };
@@ -25,7 +26,7 @@ export function PortalSplash({ name, business, logo, accent = INK, visits, loadi
   const next = day.find((a) => ms(a.startTime) + (Number(a.duration) || 60) * 60000 > now) || null;
   const first = String(name || '').split(' ')[0] || 'there';
   const initials = String(business || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '·';
-  const hm = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const hm = (t: number) => biz(new Date(t)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   // Bars: up to five visits, widths from their length (or a gentle placeholder pattern while the day loads / is empty).
   const longest = Math.max(60, ...day.map((a) => Number(a.duration) || 60));
   const bars = (day.length ? day.slice(0, 5).map((a) => Math.max(0.3, (Number(a.duration) || 60) / longest)) : [1, 0.82, 0.4, 0.92, 0.66]).map((w, i) => ({ w, gap: !day.length && i === 2 }));

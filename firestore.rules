@@ -361,7 +361,9 @@ service cloud.firestore {
     // writes (/api/refund-payouts). Pickup codes are server-only, so a staff device can never read one.
     match /tenants/{tenantId}/refundPayouts/{payoutId} {
       allow read: if isManager(tenantId) || (hasStaffDoc(tenantId) && staffDoc(tenantId).data.get('role', '') == 'front_desk')
-        || (inDirectory(tenantId) && dirEntry().data.get('role', '') == 'front_desk');
+        || (inDirectory(tenantId) && dirEntry().data.get('role', '') == 'front_desk')
+        // the staff app on a phone (Me → Refunds to give): front desk and managers signed in with their PIN
+        || (isPortalMember(tenantId) && request.auth.token.get('role', '') in ['owner', 'admin', 'manager', 'front_desk']);
       allow write: if false;
     }
     match /tenants/{tenantId}/refundCodes/{payoutId} {

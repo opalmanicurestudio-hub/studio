@@ -8,9 +8,10 @@
 // that person's is refused rather than signing someone else in.
 import * as React from 'react';
 import { rememberBrand } from '@/components/staff-portal/PortalBoot';
+import { bizNow, setBizZone } from '@/lib/biz-clock';
 
 type Person = { id: string; name: string; avatarUrl?: string | null; state: 'working' | 'break' | 'off'; since?: string | null; breakSince?: string | null; shifts: { start: string; end: string; kind: string }[]; isRenter?: boolean };
-type Brand = { name: string; logoUrl?: string | null; accent: string; sharedBoard?: boolean };
+type Brand = { name: string; logoUrl?: string | null; accent: string; sharedBoard?: boolean; timeZone?: string };
 type Last = { id: string; name: string; avatarUrl?: string | null };
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT_BG = '#f6f6f7';
@@ -18,14 +19,15 @@ const key = (t: string, k: string) => `cf_portal_${k}_${t}`;
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const write = (k: string, v: string | null) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* private mode */ } };
 const mins = (hhmm: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(hhmm || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
-const nowMins = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+const nowMins = () => { const d = bizNow(); return d.getHours() * 60 + d.getMinutes(); };
 const fmt = (m: number) => { const h = Math.floor(m / 60), mm = m % 60; return `${h % 12 || 12}${mm ? `:${String(mm).padStart(2, '0')}` : ''}${h < 12 ? 'a' : 'p'}`; };
 const clockText = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M$/i, '');
 const dayText = (d: Date) => d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
-const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
+const greeting = () => { const h = bizNow().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 const initials = (n: string) => n.split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || '·';
 
-function useClock() { const [d, setD] = React.useState(() => new Date()); React.useEffect(() => { const t = setInterval(() => setD(new Date()), 15000); return () => clearInterval(t); }, []); return d; }
+// The business's clock (its time zone, once the sign-in screen knows it) — shifts on the board are in the business's time.
+function useClock() { const [d, setD] = React.useState(() => bizNow()); React.useEffect(() => { const t = setInterval(() => setD(bizNow()), 15000); return () => clearInterval(t); }, []); return d; }
 
 function Face({ p, size = 80, ring }: { p: { name: string; avatarUrl?: string | null }; size?: number; ring: string }) {
   return (
@@ -175,13 +177,13 @@ export function PortalSignIn({ tenantId, notice, onSuccess, renderForgot }: { te
     setShared(read(key(tenantId, 'mode')) === 'shared');
     try { const l = JSON.parse(read(key(tenantId, 'last')) || 'null'); if (l?.id) setLast(l); } catch { /* none */ }
     fetch('/api/portal/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'brand', tenantId }) })
-      .then((r) => r.json()).then((d) => { if (d?.business) { setBrand(d.business); rememberBrand(tenantId, d.business); } }).catch(() => {});
+      .then((r) => r.json()).then((d) => { if (d?.business) { setBizZone(d.business.timeZone); setBrand(d.business); rememberBrand(tenantId, d.business); } }).catch(() => {});
   }, [tenantId]);
 
   React.useEffect(() => {
     if (!shared) return; let stop = false;
     const load = () => fetch('/api/portal/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'today-board', tenantId }) })
-      .then((r) => r.json()).then((d) => { if (stop) return; if (d?.business) { setBrand(d.business); rememberBrand(tenantId, d.business); } if (d?.off) { setShared(false); return; } setPeople(Array.isArray(d?.people) ? d.people : []); }).catch(() => {});
+      .then((r) => r.json()).then((d) => { if (stop) return; if (d?.business) { setBizZone(d.business.timeZone); setBrand(d.business); rememberBrand(tenantId, d.business); } if (d?.off) { setShared(false); return; } setPeople(Array.isArray(d?.people) ? d.people : []); }).catch(() => {});
     load(); const t = setInterval(load, 60000); return () => { stop = true; clearInterval(t); };
   }, [shared, tenantId]);
 

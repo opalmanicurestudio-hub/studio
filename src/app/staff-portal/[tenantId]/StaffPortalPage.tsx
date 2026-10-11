@@ -1,8 +1,11 @@
 'use client';
 
+import { biz, bizNow, bizKey, bizDayStart, setBizZone } from '@/lib/biz-clock';
+import { tenantTimeZone, hasTimeZone } from '@/lib/tenant-time';
 import { NotHappy } from '@/components/staff-portal/NotHappy';
 import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
 import { MyCases } from '@/components/staff-portal/MyCases';
+import { RefundsDesk } from '@/components/refunds/RefundsDesk';
 import { WeekSchedule, MonthPlanner } from '@/components/staff-portal/WeekSchedule';
 import { PortalTicket, PortalScan } from '@/components/staff-portal/PortalTicket';
 import { StudioCard } from '@/components/staff-portal/StudioCard';
@@ -206,7 +209,7 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
   );
   const { data: acks } = useCollection<any>(acksQ);
 
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const todayStr = bizKey();
   const runId = `${staffMember.id}_${todayStr}`;
   const hasChecklists = (d.sections || []).some((x: any) => x.type === 'checklist');
   const runsQ = useMemoFirebase(
@@ -333,7 +336,7 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
           {hasChecklists && totalItems > 0 && (
             <div className="rounded-xl border-2 bg-slate-50 p-3">
               <div className="flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">Today&apos;s run · {format(new Date(), 'EEE, MMM d')}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">Today&apos;s run · {format(bizNow(), 'EEE, MMM d')}</p>
                 <p className={cn('text-[11px] font-black', checkedCount >= totalItems ? 'text-emerald-700' : 'text-slate-700')}>{checkedCount}/{totalItems}{checkedCount >= totalItems ? ' ✓' : ''}</p>
               </div>
               <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200">
@@ -410,7 +413,7 @@ const RotationRow = ({ r, tenantId, staffMember, onOpenDoc, todayStr }: { r: any
     const last = String(r.lastDoneDate || '');
     if (!last) return false;
     if (r.cadence === 'weekly') {
-      const weekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+      const weekStart = format(startOfWeek(bizNow(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
       return last >= weekStart;
     }
     if (r.cadence === 'per-shift') return false;
@@ -515,7 +518,7 @@ const RotationsToday = ({ tenantId, staffMember, onOpenDoc }: { tenantId: string
     [firestore, tenantId]
   );
   const { data: rotations } = useCollection<any>(rotationsQ);
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const todayStr = bizKey();
 
   const relevant = useMemo(() => ((rotations || []) as any[])
     .filter(r => (r.memberIds || []).includes(staffMember.id))
@@ -769,8 +772,8 @@ const calcHours = (start: string, end: string, brk = 0) => {
 };
 
 // Convert Date → pixel offset from top of 24h timeline
-const timeToPx = (d: Date) =>
-  ((d.getHours() * 60 + d.getMinutes()) / TOTAL_MINS) * TIMELINE_H;
+const timeToPx = (d0: Date) => { const d = biz(d0);   // the business's clock, not the phone's
+  return ((d.getHours() * 60 + d.getMinutes()) / TOTAL_MINS) * TIMELINE_H; };
 
 // ─── SKELETON ─────────────────────────────────────────────────────────────────
 function Skel({ className }: { className?: string }) {
@@ -829,7 +832,7 @@ function getTechAvailability(
   excludeAptId: string,
 ): { available: boolean; reason: string; nextApt: any | null; conflictMinutes: number } {
   const now = new Date();
-  const today = format(now, 'yyyy-MM-dd');
+  const today = bizKey(now);
 
   // 1. Check shift
   const shift = allShifts.find((s: any) => s.staffId === tech.id && s.date === today && s.status !== 'cancelled');
@@ -1062,7 +1065,7 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
             <span className="font-black text-amber-900">{conflict?.overlapMins} min</span> into{' '}
             {isSelfConflict ? 'your' : 'their'} next appointment
             {conflict?.nextApt?.clientName ? ` with ${conflict.nextApt.clientName}` : ''} at{' '}
-            {conflict?.nextApt ? format(safeDate(conflict.nextApt.startTime), 'h:mm a') : ''}.
+            {conflict?.nextApt ? format(biz(safeDate(conflict.nextApt.startTime)), 'h:mm a') : ''}.
           </p>
           <p className="text-[10px] font-bold text-amber-700 uppercase opacity-70">
             Consider reassigning or adjusting the schedule.
@@ -1334,7 +1337,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
             <div className="flex-1 min-w-0">
               <p className="font-black text-xl uppercase tracking-tight text-slate-900 truncate">{service?.name || 'Service'}</p>
               <p className="text-sm font-bold text-muted-foreground mt-0.5">
-                {apt.clientName || 'Guest'} · {format(start, 'h:mm a')} – {format(end, 'h:mm a')}
+                {apt.clientName || 'Guest'} · {format(biz(start), 'h:mm a')} – {format(biz(end), 'h:mm a')}
                 {(padBefore > 0 || padAfter > 0) && (
                   <span className="text-[10px] font-bold opacity-50 ml-1">
                     ({svcDur}m svc{padBefore > 0 ? ` · ${padBefore}m pre` : ''}{padAfter > 0 ? ` · ${padAfter}m post` : ''})
@@ -1562,8 +1565,8 @@ function TechPeekSheet({ apt, tech, service, onClose }: any) {
               </p>
             </div>
             <div className="ml-auto text-right">
-              <p className="font-black text-sm text-slate-900">{format(start, 'h:mm a')}</p>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">→ {format(end, 'h:mm a')}</p>
+              <p className="font-black text-sm text-slate-900">{format(biz(start), 'h:mm a')}</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">→ {format(biz(end), 'h:mm a')}</p>
             </div>
           </div>
           {/* Service category shown but NOT client name */}
@@ -1612,7 +1615,7 @@ function DayTimeline({
   const [viewModeOwn, setViewMode] = useState<'my_day' | 'floor'>('my_day');
   const viewMode = mode ?? viewModeOwn;
   const [peekApt, setPeekApt]   = useState<any>(null);   // read-only peek for other tech's apt
-  const isToday_     = isSameDay(selectedDate, now);
+  const isToday_     = isSameDay(selectedDate, biz(now));
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60_000);
@@ -1631,7 +1634,7 @@ function DayTimeline({
   const dayApts = useMemo(() => {
     if (!appointments) return [];
     return appointments
-      .filter(a => isSameDay(safeDate(a.startTime), selectedDate) && a.status !== 'cancelled')
+      .filter(a => isSameDay(biz(safeDate(a.startTime)), selectedDate) && a.status !== 'cancelled')
       .sort((a, b) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime());
   }, [appointments, selectedDate]);
 
@@ -1651,7 +1654,7 @@ function DayTimeline({
       const techApts = (allStaffApts || [])
         .filter((a: any) =>
           a.staffId === tech.id &&
-          isSameDay(safeDate(a.startTime), selectedDate) &&
+          isSameDay(biz(safeDate(a.startTime)), selectedDate) &&
           a.status !== 'cancelled'
         )
         .map((a: any) => {
@@ -1670,7 +1673,7 @@ function DayTimeline({
       const techWalkIns = (allWalkIns || [])
         .filter((w: any) =>
           w.staffId === tech.id &&
-          isSameDay(safeDate(w.checkInTime || w.startTime || new Date()), selectedDate) &&
+          isSameDay(biz(safeDate(w.checkInTime || w.startTime || new Date())), selectedDate) &&
           !['cancelled'].includes(w.status)
         )
         .map((w: any) => ({
@@ -1686,7 +1689,7 @@ function DayTimeline({
       const techBlocks = (allStaffBlocks || [])
         .filter((b: any) =>
           b.staffId === tech.id &&
-          isSameDay(safeDate(b.startTime), selectedDate)
+          isSameDay(biz(safeDate(b.startTime)), selectedDate)
         )
         .map((b: any) => ({
           ...b,
@@ -1801,7 +1804,7 @@ function DayTimeline({
               <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: timeToPx(now) }}>
                 <div className="w-3 h-3 rounded-full bg-rose-500 ml-10 shrink-0 ring-2 ring-white shadow-md shadow-rose-400/60" />
                 <div className="flex-1 h-[2px] bg-rose-500 opacity-80" />
-                <span className="text-[8px] font-black text-rose-500 pr-2 shrink-0 bg-white/90 rounded px-1">{format(now, 'h:mm a')}</span>
+                <span className="text-[8px] font-black text-rose-500 pr-2 shrink-0 bg-white/90 rounded px-1">{format(biz(now), 'h:mm a')}</span>
               </div>
             )}
 
@@ -1826,14 +1829,14 @@ function DayTimeline({
                 // Include if event covers selectedDate at all
                 const evS = safeDate(e.startTime || e.date || e.start);
                 const evE = e.endTime ? safeDate(e.endTime) : e.allDay ? addMinutes(evS, 1440) : addMinutes(evS, e.duration || 60);
-                const dayStart = startOfDay(selectedDate);
+                const dayStart = bizDayStart(format(selectedDate, 'yyyy-MM-dd'));
                 const dayEnd   = addMinutes(dayStart, 1440);
                 return evS < dayEnd && evE > dayStart;
               })
               .map((e: any) => {
                 const evS    = safeDate(e.startTime || e.date || e.start);
                 const evE    = e.endTime ? safeDate(e.endTime) : e.allDay ? addMinutes(evS, 1440) : addMinutes(evS, e.duration || 60);
-                const dayStart = startOfDay(selectedDate);
+                const dayStart = bizDayStart(format(selectedDate, 'yyyy-MM-dd'));
                 const dayEnd   = addMinutes(dayStart, 1440);
 
                 // Is this an all-day or multi-day event?
@@ -1879,7 +1882,7 @@ function DayTimeline({
                       </p>
                       {!spansDays && (
                         <p className={cn('text-[6px] font-bold uppercase shrink-0 ml-auto opacity-70', evText)}>
-                          {format(clampedStart, 'h:mm')}–{format(clampedEnd, 'h:mm a')}
+                          {format(biz(clampedStart), 'h:mm')}–{format(biz(clampedEnd), 'h:mm a')}
                         </p>
                       )}
                     </div>
@@ -1997,7 +2000,7 @@ function DayTimeline({
                       </div>
                       {/* Time + client */}
                       <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
-                        {format(start, 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
+                        {format(biz(start), 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
                       </p>
                       {/* Padding summary */}
                       {(padBefore > 0 || padAfter > 0) && (
@@ -2158,7 +2161,7 @@ if (!allStaff) return null;
                 .filter((e: any) => {
                   // Cross-column banner: only truly global events (no staffIds assigned)
                   const staffIds: string[] = e.staffIds || [];
-                  return staffIds.length === 0 && isSameDay(safeDate(e.startTime || e.date), selectedDate);
+                  return staffIds.length === 0 && isSameDay(biz(safeDate(e.startTime || e.date)), selectedDate);
                 })
                 .map((e: any) => {
                   const evStart  = safeDate(e.startTime || e.date);
@@ -2191,7 +2194,7 @@ if (!allStaff) return null;
                       </p>
                       {!e.allDay && (
                         <p className="text-[6px] font-bold text-white/70 uppercase shrink-0">
-                          {format(evStart, 'h:mm')}–{format(evEnd, 'h:mm')}
+                          {format(biz(evStart), 'h:mm')}–{format(biz(evEnd), 'h:mm')}
                         </p>
                       )}
                     </div>
@@ -2247,7 +2250,7 @@ if (!allStaff) return null;
                         const staffIds: string[] = e.staffIds || [];
                         const isGlobal  = staffIds.length === 0;
                         const isForTech = staffIds.includes(tech.id);
-                        return (isGlobal || isForTech) && isSameDay(safeDate(e.startTime || e.date), selectedDate);
+                        return (isGlobal || isForTech) && isSameDay(biz(safeDate(e.startTime || e.date)), selectedDate);
                       })
                       .map((e: any) => {
                         const evStart = safeDate(e.startTime || e.date);
@@ -2335,7 +2338,7 @@ if (!allStaff) return null;
                                 </div>
                                 {isMe && (
                                   <p className="text-[8px] font-bold text-white/70 uppercase pl-2.5 truncate">
-                                    {format(start, 'h:mm a')} · {dur}m
+                                    {format(biz(start), 'h:mm a')} · {dur}m
                                   </p>
                                 )}
                               </div>
@@ -2424,7 +2427,7 @@ if (!allStaff) return null;
                               {isMe && (
                                 <>
                                   <p className="text-[8px] font-bold text-muted-foreground uppercase pl-2.5 truncate">
-                                    {format(start, 'h:mm')} · {item.clientName?.split(' ')[0] || 'Guest'}
+                                    {format(biz(start), 'h:mm')} · {item.clientName?.split(' ')[0] || 'Guest'}
                                   </p>
                                   {/* Check-in badge */}
                                   {item.checkInStatus === 'arrived'      && <span className="text-[6px] font-black uppercase bg-green-500 text-white rounded px-1 w-fit ml-2.5">HERE</span>}
@@ -2448,7 +2451,7 @@ if (!allStaff) return null;
                               {/* For other techs — just show status dot and time, no client info */}
                               {!isMe && (
                                 <p className="text-[7px] font-bold text-slate-400 uppercase pl-2.5 truncate">
-                                  {format(start, 'h:mm')}–{format(addMinutes(start, dur), 'h:mm')}
+                                  {format(biz(start), 'h:mm')}–{format(biz(addMinutes(start, dur)), 'h:mm')}
                                 </p>
                               )}
                             </div>
@@ -2510,7 +2513,7 @@ if (!allStaff) return null;
 function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChange: (d: Date) => void }) {
   const [monthOffset, setMonthOffset]       = useState(0);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
-  const today = new Date();
+  const today = bizNow();
 
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
   const weekDays  = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
@@ -2544,7 +2547,7 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
       <div className="grid grid-cols-7 gap-1 px-3 pb-3">
         {weekDays.map(day => {
           const isSel = isSameDay(day, selectedDate);
-          const isT   = isToday(day);
+          const isT   = isSameDay(day, today);
           return (
             <button key={day.toISOString()} onClick={() => onChange(day)}
               className={cn('flex flex-col items-center py-2 rounded-xl transition-all active:scale-95',
@@ -2580,7 +2583,7 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
               {Array.from({ length: blankStart }).map((_, i) => <div key={`b${i}`} />)}
               {monthDays.map(day => {
                 const isSel = isSameDay(day, selectedDate);
-                const isT   = isToday(day);
+                const isT   = isSameDay(day, today);
                 return (
                   <button key={day.toISOString()} onClick={() => { onChange(day); setShowMonthPicker(false); }}
                     className={cn('aspect-square rounded-xl flex items-center justify-center text-[11px] font-black transition-all active:scale-95',
@@ -2909,7 +2912,7 @@ function WalkInLeaderboard({
   const [actionSheet, setActionSheet] = useState<{ walkIn: any; type: 'cancel' | 'noshow' | 'skip' } | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [customReason, setCustomReason] = useState('');
-  const today = new Date();
+  const today = bizNow();
   const todayStr = format(today, 'yyyy-MM-dd');
 
   // ── Queue: waiting + notified + arrived, sorted by checkInTime ──
@@ -3439,7 +3442,7 @@ function NextBanner({ appointments, services }: any) {
     // Show the soonest upcoming or very recently started (within 10 min) appointment
     return appointments.filter((a: any) =>
       !['cancelled', 'completed', 'no_show'].includes(a.status) &&
-      isSameDay(safeDate(a.startTime), now) &&
+      isSameDay(biz(safeDate(a.startTime)), biz(now)) &&
       safeDate(a.startTime) > addMinutes(now, -10)
     ).sort((a: any, b: any) => safeDate(a.startTime).getTime() - safeDate(b.startTime).getTime())[0] || null;
   }, [appointments, now]);
@@ -3506,7 +3509,7 @@ function NextBanner({ appointments, services }: any) {
               <p className="font-black text-lg leading-none">
                 {minsUntil <= 0 ? 'Now' : minsUntil < 60 ? `${minsUntil}m` : `${Math.floor(minsUntil/60)}h ${minsUntil%60}m`}
               </p>
-              <p className="text-[8px] font-black uppercase opacity-60">{format(start, 'h:mm a')}</p>
+              <p className="text-[8px] font-black uppercase opacity-60">{format(biz(start), 'h:mm a')}</p>
             </>
           )}
         </div>
@@ -3521,7 +3524,7 @@ function NextBanner({ appointments, services }: any) {
             </span>
             {estimatedArrival && (
               <span className="text-[10px] font-black uppercase opacity-70">
-                Est. arrival {format(estimatedArrival, 'h:mm a')}
+                Est. arrival {format(biz(estimatedArrival), 'h:mm a')}
               </span>
             )}
           </div>
@@ -3537,7 +3540,7 @@ function NextBanner({ appointments, services }: any) {
       {/* On my way ETA */}
       {isOnMyWay && !isRunningLate && (
         <p className="text-[9px] font-bold uppercase opacity-70 pl-1">
-          Client is heading in · {format(start, 'h:mm a')} appointment
+          Client is heading in · {format(biz(start), 'h:mm a')} appointment
         </p>
       )}
 
@@ -3551,7 +3554,7 @@ function NextBanner({ appointments, services }: any) {
           </p>
           {next.cancelledAt && (
             <p className="text-[8px] font-bold uppercase opacity-60">
-              Cancelled at {format(safeDate(next.cancelledAt), 'h:mm a')}
+              Cancelled at {format(biz(safeDate(next.cancelledAt)), 'h:mm a')}
             </p>
           )}
         </div>
@@ -3709,8 +3712,21 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const recCancelledRef = useRef(false);
   const recExtRef = useRef('webm');
 
-  const allStaffQ = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
-  const { data: allStaff } = useCollection(allStaffQ);
+  // The team reads the staff list directly. Renters can't (those records hold the team's contact details), so their
+  // names, photos and announcements audience come from the server (/api/portal/chat-people).
+  const allStaffQ = useMemoFirebase(() => (!firestore||!tenantId||isRenter) ? null : collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId, isRenter]);
+  const { data: teamStaff } = useCollection(allStaffQ);
+  const [chatPeople, setChatPeople] = useState<any[] | null>(null);
+  const portalFetch = async (url: string, init?: RequestInit) => {
+    const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '');
+    return fetch(url, { ...(init || {}), headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) } }).then((r) => r.json()).catch(() => ({ ok: false }));
+  };
+  useEffect(() => {
+    if (!isRenter || !tenantId) return; let stop = false;
+    portalFetch(`/api/portal/chat-people?tenantId=${encodeURIComponent(tenantId)}`).then((d: any) => { if (!stop && d?.ok) setChatPeople(d.people || []); });
+    return () => { stop = true; };
+  }, [isRenter, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const allStaff: any[] | null = isRenter ? chatPeople : (teamStaff as any[] | null);
 
   const threadsQ = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore, `tenants/${tenantId}/staffThreads`), where('participantIds','array-contains', staffMember.id)), [firestore, tenantId, staffMember.id]);
   const { data: rawThreads } = useCollection(threadsQ);
@@ -4048,7 +4064,12 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   };
 
   const openTeamBroadcast = async () => {
-    const bid = isRenter ? 'building_broadcast' : 'team_broadcast';
+    if (isRenter) {   // the server opens Building Announcements with every renter and the managers in it
+      const d: any = await portalFetch('/api/portal/chat-people', { method: 'POST', body: JSON.stringify({ tenantId, action: 'announcements' }) });
+      if (d?.ok) setOpenId(d.id); else toast({ variant: 'destructive', title: 'Couldn’t open announcements', description: d?.error || 'Please try again.' });
+      return;
+    }
+    const bid = 'team_broadcast';
     const members = (allStaff||[])
       .filter((s:any) => isRenter
         ? (s.isRenter || s.role === 'renter' || (s.role === 'owner' || s.role === 'admin' || s.role === 'manager'))
@@ -4082,7 +4103,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             <CalendarDays className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
             <p className="text-[10px] font-black uppercase tracking-wide text-white flex-1 min-w-0 truncate">
               {guestCtx.next
-                ? `${format(parseISO(guestCtx.next.startTime), 'EEE MMM d · h:mm a')} — ${guestCtx.nextService}`
+                ? `${format(biz(parseISO(guestCtx.next.startTime)), 'EEE MMM d · h:mm a')} — ${guestCtx.nextService}`
                 : 'No upcoming appointment'}
             </p>
             {guestCtx.visitCount > 0 && (
@@ -4161,7 +4182,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                       )}
                       {m.body && <p>{renderBody(m.body)}</p>}
                     </>)}
-                    <p className={cn('text-[9px] font-bold uppercase mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(parseISO(m.sentAt),'h:mm a') : ''}</p>
+                    <p className={cn('text-[9px] font-bold uppercase mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(biz(parseISO(m.sentAt)), 'h:mm a') : ''}</p>
                   </div>
                   {!isClient && reactionForId === m.id && (
                     <div className={cn('flex gap-1 mt-1 bg-white border-2 rounded-full px-2 py-1 w-fit shadow-sm', mine ? 'ml-auto' : '')}>
@@ -4354,7 +4375,7 @@ const walkInAptId = (w: any): string => String(w?.appointmentId || (w?.id ? `apt
 // keeps the renter informed so nothing is a surprise.
 function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
   const fmtC = (c: number) => `$${((c || 0) / 100).toFixed(2)}`;
-  const todayLocal = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const todayLocal = bizKey();
 
   const rent = useMyRent(tenantId, staffMember?.id);
   const myLeases = rent?.leases || [];
@@ -4532,11 +4553,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       const allowed = staffMember.role === 'renter' ? ['rent', 'messages', 'inbox', 'documents', 'me'] : ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'orders', 'me', 'rent'];
       if (t && allowed.includes(t)) setActiveTab(t); } catch { /* fine */ }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => bizNow());
   // Today's view: Now / Day / Floor. Chosen by hand it holds until the next visit starts; otherwise it follows the day.
   const [editingDetails, setEditingDetails] = useState(false);
   const [editingAlerts, setEditingAlerts] = useState(false);
   const [viewingCases, setViewingCases] = useState(false);
+  const [viewingRefunds, setViewingRefunds] = useState(false);
   const [viewingWalkIns, setViewingWalkIns] = useState(false);
   // Schedule's calendar: Day · Week · Month, remembered on this phone.
   const [calView, setCalView] = useState<'day' | 'week' | 'month'>('week');
@@ -4569,9 +4591,14 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     [firestore, tenantId],
   );
   const { data: portalTenant } = useDoc<any>(portalTenantQ);
+  // Every "today", "now" and time on these screens is the business's clock, not the phone's (lib/biz-clock). Set during
+  // render so the screens below read it on this same pass; once it's known, the chosen day starts on the business's today.
+  const bizTz = portalTenant && hasTimeZone(portalTenant) ? tenantTimeZone(portalTenant) : '';
+  setBizZone(bizTz);
+  useEffect(() => { if (bizTz) setSelectedDate(bizNow()); }, [bizTz]); // eslint-disable-line react-hooks/exhaustive-deps
   // Manager-level by what the business's roles allow (a custom role with manager permissions counts), not by name.
   const isMgr = isManagerRole(portalTenant, String(staffMember?.role || '').toLowerCase());
-  const today = new Date();
+  const today = bizNow();
 
   // ── Queries ──
   const myShiftsQ       = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shifts`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
@@ -4736,7 +4763,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const stuckApts = useMemo(() => {
     return allMyApts.filter((a: any) =>
       ['servicing', 'ready_for_checkout'].includes(a.status) &&
-      !isSameDay(safeDate(a.startTime), today)
+      !isSameDay(biz(safeDate(a.startTime)), today)
     );
   }, [allMyApts, today]);
 
@@ -4907,6 +4934,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // A business of one: they get the studio card on Today, like a renter does on their home.
   const isSoloBiz = !isRenter && (allStaff || []).filter((m: any) => m.archived !== true && m.isActive !== false && m.role !== 'renter').length <= 1;
   const isHybrid = !isRenter && !!myRenter;
+  // Refunds to give (cash pickups, app refunds): the front desk and managers, same as the app's Refunds page.
+  const canRefunds = !isRenter && (isMgr || ['owner', 'admin', 'manager', 'front_desk'].includes(String(staffMember?.role || '').toLowerCase()));
 
   const ALL_TABS = [
     { id:'today',    label:'Today',    icon:CalendarDays },
@@ -4977,7 +5006,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [splashOn, setSplashOn] = useState(() => typeof window !== 'undefined' && shouldShowSplash(`cf_portal_splash_${tenantId}_${staffMember.id}`));
   const accentColor = brandAccent(portalTenant);
   useEffect(() => { if (portalTenant) rememberBrand(tenantId, { name: (portalTenant as any).name, accent: accentColor, logoUrl: brandLogo(portalTenant) }); }, [portalTenant, accentColor, tenantId]);
-  const todaysMine = (allMyApts || []).filter((a: any) => isSameDay(safeDate(a.startTime), new Date()));
+  const todaysMine = (allMyApts || []).filter((a: any) => isSameDay(biz(safeDate(a.startTime)), bizNow()));
   const liveVisit = currentVisit(todaysMine);
   const canFloor = can(portalTenant, staffMember.role, 'bookings.all') || isMgr;
   const autoView: 'now' | 'day' = liveVisit ? 'now' : 'day';
@@ -4987,7 +5016,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const navItems: NavKey[] = isRenter ? ['rent', 'team', 'me'] : ['today', 'schedule', 'team', 'pay', 'me'];
   const goNav = (k: NavKey) => setActiveTab(({ today: 'today', schedule: 'schedule', team: 'messages', pay: 'earnings', me: 'me', rent: 'rent' } as const)[k] as any);
   const firstName = String(staffMember.name || '').split(' ')[0] || 'there';
-  const hello = (() => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })();
+  const hello = (() => { const h = bizNow().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })();
 
   return (
     <div className="cf-portal min-h-screen bg-white text-[#16171a] flex flex-col max-w-lg mx-auto pb-28">
@@ -5155,7 +5184,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                       </p>
                       <p className="truncate text-[11px] font-bold text-muted-foreground">
                         {(services || []).find((s: any) => s.id === a.serviceId)?.name || 'Service'}
-                        {a.startTime ? ` · ${format(safeDate(a.startTime), 'EEE d MMM, h:mm a')}` : ''}
+                        {a.startTime ? ` · ${format(biz(safeDate(a.startTime)), 'EEE d MMM, h:mm a')}` : ''}
                       </p>
                       <PortalDecisionBar
                         appointment={a}
@@ -5268,7 +5297,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2">
                             {req.type==='day_off'?<Calendar className="w-4 h-4 text-blue-600"/>:req.type==='swap'?<Repeat className="w-4 h-4 text-purple-600"/>:<Zap className="w-4 h-4 text-amber-600"/>}
-                            <div><p className="font-black uppercase text-[10px] text-slate-900">{req.type==='day_off'?'Day Off':req.type==='swap'?'Shift Swap':'Early Release'}{req.date&&` · ${format(safeDate(req.date),'MMM d')}`}</p><p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{format(safeDate(req.createdAt),'MMM d, p')}</p></div>
+                            <div><p className="font-black uppercase text-[10px] text-slate-900">{req.type==='day_off'?'Day Off':req.type==='swap'?'Shift Swap':'Early Release'}{req.date&&` · ${format(safeDate(req.date),'MMM d')}`}</p><p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{format(biz(safeDate(req.createdAt)), 'MMM d, p')}</p></div>
                           </div>
                           <Badge className={cn('font-black text-[8px] uppercase border-none h-5 px-2 shrink-0',si.color)}>{si.label}</Badge>
                         </div>
@@ -5319,7 +5348,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   <div className="p-2 rounded-xl bg-muted/20 border shrink-0">{NOTIF_ICONS[n.type]||<Bell className="w-4 h-4 text-muted-foreground"/>}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-bold text-slate-700 leading-relaxed">{n.message}</p>
-                    <div className="flex items-center gap-2 mt-1"><p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">{format(safeDate(n.createdAt),'MMM d, h:mm a')}</p>{n.link&&<p className="text-[8px] font-black uppercase text-primary/50 flex items-center gap-0.5"><ChevronRight className="w-2.5 h-2.5"/>View</p>}</div>
+                    <div className="flex items-center gap-2 mt-1"><p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">{format(biz(safeDate(n.createdAt)), 'MMM d, h:mm a')}</p>{n.link&&<p className="text-[8px] font-black uppercase text-primary/50 flex items-center gap-0.5"><ChevronRight className="w-2.5 h-2.5"/>View</p>}</div>
                   </div>
                   {!n.read&&<div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5"/>}
                 </div>
@@ -5332,10 +5361,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='me' && editingAlerts && !editingDetails && (
             <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>
           )}
-          {activeTab==='me' && viewingCases && !editingDetails && !editingAlerts && (
+          {activeTab==='me' && viewingRefunds && (
+            <RefundsDesk firestore={firestore} tenantId={tenantId} tenant={portalTenant} phone onBack={() => setViewingRefunds(false)} />
+          )}
+          {activeTab==='me' && viewingCases && !editingDetails && !editingAlerts && !viewingRefunds && (
             <MyCases firestore={firestore} tenantId={tenantId} staffId={staffMember.id} accent={accentColor} onBack={() => setViewingCases(false)} isRenter={isRenter} />
           )}
-          {activeTab==='me' && !editingDetails && !editingAlerts && !viewingCases && (
+          {activeTab==='me' && !editingDetails && !editingAlerts && !viewingCases && !viewingRefunds && (
             <div className="space-y-4 pt-1">
               <div className="flex items-center gap-4 rounded-[24px] border border-[#ececee] bg-white p-4">
                 <div className="h-16 w-16 shrink-0 rounded-full p-[3px]" style={{ background: `conic-gradient(${accentColor}, #d7e6e4, ${accentColor})` }}>
@@ -5349,13 +5381,14 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                 {[
                   { k: 'details', label: 'My details', sub: 'Phone, address, emergency contact', show: true },
                   { k: 'alerts', label: 'Alerts', sub: 'What buzzes your phone, quiet hours, away', show: true },
+                  { k: 'refunds', label: 'Refunds to give', sub: 'Cash pickups and refunds to send', show: canRefunds },
                   { k: 'cases', label: 'Client cases', sub: 'Complaints and incidents on your visits — add your side', show: !isRenter },
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
                   { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
                   { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: showOrders },
                   { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
                 ].filter((r) => r.show).map((r) => (
-                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : r.k === 'cases' ? setViewingCases(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+                  <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : r.k === 'cases' ? setViewingCases(true) : r.k === 'refunds' ? setViewingRefunds(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
                     <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{r.label}</span><span className="block text-[13px] text-[#6d7075]">{r.sub}</span></span>
                     <ChevronRight className="h-4 w-4 text-[#9a9ca1]" />
                   </button>))}

@@ -3,11 +3,12 @@
 // step (StepTimeline — Next step and +5 min move the later steps and warn the next client's provider), or the next
 // visit if nothing is under way; then the rest of today with each visit's step ribbon and the free gaps between them.
 import * as React from 'react';
+import { biz } from '@/lib/biz-clock';   // times in the business's zone
 import { StepTimeline, StepRibbon } from '@/components/planner/StepTimeline';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 const ms = (v: any) => { const t = v?.toDate ? v.toDate().getTime() : Date.parse(String(v || '')); return Number.isFinite(t) ? t : NaN; };
-const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const clock = (t: number) => biz(new Date(t)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const OFF = ['cancelled', 'no_show', 'declined'];
 export const isLive = (a: any) => ['servicing', 'in_service'].includes(String(a?.status)) || (!!a?.actualStartTime && !['completed', ...OFF].includes(String(a?.status)));
 

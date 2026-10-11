@@ -4,6 +4,8 @@
 // how much is still open, and anything waiting on you that day (a swap someone asked for, your own request). Tap a day to
 // see it in full below.
 import * as React from 'react';
+import { bizNow, bizKey, biz } from '@/lib/biz-clock';
+
 
 const DAY = 86400000;
 const keyOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -13,7 +15,7 @@ const ms = (v: any) => (v?.toDate ? v.toDate().getTime() : typeof v?.seconds ===
 
 export function WeekSchedule({ shifts, apts, requests, swapsForMe, selected, onPick, onTimeOff, onRequests, accent, layout = 'rows', onOpen }: { shifts: any[]; apts: any[]; requests: any[]; swapsForMe: any[]; selected: Date; onPick: (d: Date) => void; onTimeOff: () => void; onRequests: () => void; accent: string; layout?: 'rows' | 'columns'; onOpen?: (apt: any) => void }) {
   const [week, setWeek] = React.useState(0);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = bizNow(); today.setHours(0, 0, 0, 0);   // the business's today
   const start = new Date(today.getTime() + week * 7 * DAY);
   const days = Array.from({ length: 7 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
   const open = (requests || []).filter((r: any) => ['pending', 'pending_swap_consent', 'pending_manager'].includes(String(r.status))).length + (swapsForMe || []).length;
@@ -21,7 +23,7 @@ export function WeekSchedule({ shifts, apts, requests, swapsForMe, selected, onP
     const k = keyOf(d);
     const shift = (shifts || []).find((s: any) => s.date === k && !['cancelled', 'draft'].includes(String(s.status)));
     const off = (requests || []).find((r: any) => r.type === 'day_off' && String(r.date || '').slice(0, 10) === k && r.status === 'approved');
-    const mine = (apts || []).filter((a: any) => { const t = ms(a.startTime); return Number.isFinite(t) && keyOf(new Date(t)) === k && !['cancelled', 'canceled', 'no_show', 'expired'].includes(String(a.status)); });
+    const mine = (apts || []).filter((a: any) => { const t = ms(a.startTime); return Number.isFinite(t) && bizKey(new Date(t)) === k && !['cancelled', 'canceled', 'no_show', 'expired'].includes(String(a.status)); });
     const booked = mine.reduce((x: number, a: any) => x + Math.max(0, (ms(a.endTime) - ms(a.startTime)) / 60000 || Number(a.duration) || 0), 0);
     const work = shift ? mins(shift.startTime, shift.endTime, Number(shift.breakMinutes) || 0) : 0;
     const swap = (swapsForMe || []).find((r: any) => String(r.date || '').slice(0, 10) === k);
@@ -79,7 +81,7 @@ export function MiniCard({ a, onOpen }: { a: any; onOpen?: (apt: any) => void })
   const st = String(a.status || ''); const ci = String(a.checkInStatus || '');
   const edge = st === 'ready_for_checkout' ? '#1f7a4d' : ['deposit_pending', 'pending_payment'].includes(st) ? '#b45309' : ['completed', 'cancelled', 'no_show'].includes(st) ? '#c7cad1' : st === 'requested' ? '#9a9ca1' : '#16171a';
   const late = Number.isFinite(ms(a.expectedStartAt)) && ms(a.expectedStartAt) - ms(a.startTime) >= 5 * 60000 ? Math.round((ms(a.expectedStartAt) - ms(a.startTime)) / 60000) : 0;
-  const t = new Date(ms(a.startTime)).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(':00', '').replace(' ', '').toLowerCase();
+  const t = biz(new Date(ms(a.startTime))).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(':00', '').replace(' ', '').toLowerCase();
   return (
     <button onClick={() => onOpen?.(a)} className="block w-full rounded-[10px] border border-[#ececee] bg-white py-1.5 pl-2 pr-1.5 text-left" style={{ borderLeft: `3px ${st === 'requested' ? 'dashed' : 'solid'} ${edge}`, opacity: ['cancelled', 'no_show'].includes(st) ? 0.55 : 1 }}>
       <span className="block text-[11.5px] font-bold leading-tight">{t} · {String(a.clientName || 'Guest').split(' ')[0]}</span>
@@ -100,19 +102,19 @@ export function MiniCard({ a, onOpen }: { a: any; onOpen?: (apt: any) => void })
  *  blank, events ringed. Tap a day to open it. */
 export function MonthPlanner({ shifts, apts, requests, events, staffId, selected, onPick, accent }: { shifts: any[]; apts: any[]; requests: any[]; events: any[]; staffId: string; selected: Date; onPick: (d: Date) => void; accent: string }) {
   const [off, setOff] = React.useState(0);
-  const base = new Date(); base.setDate(1); base.setHours(0, 0, 0, 0); const m0 = new Date(base.getFullYear(), base.getMonth() + off, 1);
-  const days = new Date(m0.getFullYear(), m0.getMonth() + 1, 0).getDate(); const lead = m0.getDay(); const todayK = keyOf(new Date());
+  const base = bizNow(); base.setDate(1); base.setHours(0, 0, 0, 0); const m0 = new Date(base.getFullYear(), base.getMonth() + off, 1);
+  const days = new Date(m0.getFullYear(), m0.getMonth() + 1, 0).getDate(); const lead = m0.getDay(); const todayK = bizKey();
   const cells: (null | { d: Date; k: string; level: number; timeOff: boolean; dayOff: boolean; event: string | null; visits: number })[] = Array.from({ length: lead }, () => null);
   let total = 0;
   for (let i = 1; i <= days; i++) {
     const d = new Date(m0.getFullYear(), m0.getMonth(), i); const k = keyOf(d);
     const shift = (shifts || []).find((s: any) => s.date === k && !['cancelled', 'draft'].includes(String(s.status)));
     const timeOff = (requests || []).some((r: any) => r.type === 'day_off' && String(r.date || '').slice(0, 10) === k && r.status === 'approved');
-    const mine = (apts || []).filter((a: any) => { const t = ms(a.startTime); return Number.isFinite(t) && keyOf(new Date(t)) === k && !['cancelled', 'canceled', 'no_show', 'expired'].includes(String(a.status)); });
+    const mine = (apts || []).filter((a: any) => { const t = ms(a.startTime); return Number.isFinite(t) && bizKey(new Date(t)) === k && !['cancelled', 'canceled', 'no_show', 'expired'].includes(String(a.status)); });
     const booked = mine.reduce((x: number, a: any) => x + Math.max(0, (ms(a.endTime) - ms(a.startTime)) / 60000 || Number(a.duration) || 0), 0);
     const work = shift ? mins(shift.startTime, shift.endTime, Number(shift.breakMinutes) || 0) : 0;
     const ratio = work ? booked / work : mine.length ? 1 : 0;
-    const ev = (events || []).find((e: any) => { const ids: string[] = e.staffIds || []; if (ids.length && !ids.includes(staffId)) return false; const t = ms(e.startTime || e.date || e.start); return Number.isFinite(t) && keyOf(new Date(t)) === k; });
+    const ev = (events || []).find((e: any) => { const ids: string[] = e.staffIds || []; if (ids.length && !ids.includes(staffId)) return false; const t = ms(e.startTime || e.date || e.start); return Number.isFinite(t) && bizKey(new Date(t)) === k; });
     total += mine.length;
     cells.push({ d, k, level: ratio >= 0.85 ? 3 : ratio >= 0.5 ? 2 : ratio > 0 ? 1 : 0, timeOff, dayOff: !shift && !mine.length, event: ev ? String(ev.title || ev.name || 'Event') : null, visits: mine.length });
   }

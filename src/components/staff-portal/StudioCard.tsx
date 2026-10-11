@@ -6,6 +6,8 @@ import * as React from 'react';
 import { collection, query, where } from 'firebase/firestore';
 import { useCollection, useMemoFirebase } from '@/firebase';
 import { MiniCard } from '@/components/staff-portal/WeekSchedule';
+import { bizKey, bizDayStart } from '@/lib/biz-clock';
+import { addDays } from '@/lib/tenant-time';
 
 const ms = (v: any) => (v?.toDate ? v.toDate().getTime() : typeof v?.seconds === 'number' ? v.seconds * 1000 : Date.parse(String(v || '')));
 const LIVE = (a: any) => !['cancelled', 'canceled', 'no_show', 'expired', 'declined'].includes(String(a.status));
@@ -13,11 +15,12 @@ const LIVE = (a: any) => !['cancelled', 'canceled', 'no_show', 'expired', 'decli
 export function StudioCard({ firestore, tenantId, staffId, name, sub, logo, accent, mine, rentInvoice, onOpen, onCases, onRent }: { firestore: any; tenantId: string; staffId: string; name: string; sub: string; logo?: string | null; accent: string; mine: any[]; rentInvoice?: any; onOpen: (a: any) => void; onCases: () => void; onRent?: () => void }) {
   const q = useMemoFirebase(() => (firestore && tenantId && staffId ? query(collection(firestore, `tenants/${tenantId}/cases`), where('visit.providerId', '==', staffId)) : null), [firestore, tenantId, staffId]);
   const { data: cases } = useCollection<any>(q);
-  const now = Date.now(); const d0 = new Date(); d0.setHours(0, 0, 0, 0); const d1 = d0.getTime() + 86400000;
+  // Today and this month are the business's (lib/biz-clock), not the phone's.
+  const now = Date.now(); const k0 = bizKey(); const d0 = bizDayStart(k0); const d1 = bizDayStart(addDays(k0, 1)).getTime();
   const today = (mine || []).filter((a) => LIVE(a) && ms(a.startTime) >= d0.getTime() && ms(a.startTime) < d1).sort((a, b) => ms(a.startTime) - ms(b.startTime));
   const done = today.filter((a) => a.status === 'completed').length; const value = today.reduce((x, a) => x + (Number(a.price) || 0), 0);
   const next = today.find((a) => a.status === 'servicing') || today.find((a) => a.status !== 'completed' && ms(a.endTime || a.startTime) > now) || null;
-  const m0 = new Date(d0.getFullYear(), d0.getMonth(), 1).getTime();
+  const m0 = bizDayStart(`${k0.slice(0, 8)}01`).getTime();
   const finished = (mine || []).filter((a) => a.status === 'completed' && ms(a.startTime) >= m0 && a.clientId);
   const rebooked = finished.filter((a) => (mine || []).some((b) => b.clientId === a.clientId && LIVE(b) && ms(b.startTime) > ms(a.startTime) && b.id !== a.id)).length;
   const openCases = (cases || []).filter((c: any) => !c.locked).length;

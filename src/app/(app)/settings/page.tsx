@@ -48,6 +48,7 @@ import { StripeConnectSetup } from '@/components/settings/StripeConnectSetup';
 import { TerminalSettings } from '@/components/pos/TerminalSettings';
 import { LocationsSettingsTab } from '@/components/settings/LocationsSettingsTab';
 import { TimezoneSettingCard } from '@/components/settings/TimezoneSettingCard';
+import { PayPeriodSettings } from '@/components/settings/PayPeriodSettings';
 import { releaseSentence } from '@/lib/booking-release';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -464,7 +465,7 @@ function SettingsPageImpl() {
     // Operations
     { value: 'operations',  label: 'Cleaning protocols',       icon: <SprayCan className="w-4 h-4" />    },
     // Team
-    { value: 'timeclock',   label: 'Time clock',               icon: <Timer className="w-4 h-4" />       },
+    { value: 'timeclock',   label: 'Time clock & pay',         icon: <Timer className="w-4 h-4" />       },
   ].filter((t) => !SETTINGS_TAB_MODULE[t.value] || moduleEnabled(selectedTenant, SETTINGS_TAB_MODULE[t.value]));   // only tools on this business's plan
 
   // Tabs that manage their own state — hide global save/cancel for these
@@ -894,6 +895,7 @@ function SettingsPageImpl() {
                 <Row label="Remind people to clock in and out" help="A nudge 10 minutes into a published shift with no clock-in, managers told at 30 minutes, and a reminder to clock out 30 minutes after the shift ends." inline><Toggle checked={(tenantData as any).clockReminders !== false} onChange={(v) => setTenantData((prev: any) => ({ ...prev, clockReminders: v }))} label="Remind people to clock in and out" /></Row>
                 <Row label="Staff can clock in early by" help="Before their published shift starts. Earlier than this and the clock waits. Leave blank to allow any time (early clock-ins are still noted)." inline><Num field="earlyClockInMinutes" suffix="minutes" max={120} /></Row>
               </Section>
+              <PayPeriodSettings tenant={tenantData} onChange={(payroll) => setTenantData((prev: any) => ({ ...prev, payroll }))} />
               <More help="Stricter rules, overtime and breaks — most studios leave these as they are.">
                 <Section title="Stricter rules">
                   {T('requireAppointmentToClockIn', 'Only clock in with an appointment that day')}

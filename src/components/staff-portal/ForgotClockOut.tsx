@@ -7,11 +7,14 @@ import { collection, query, where } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useCollection, useMemoFirebase } from '@/firebase';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
+import { biz, bizKey, bizZone } from '@/lib/biz-clock';
+import { wallToUtc } from '@/lib/tenant-time';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
-const hm = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const day = (t: number) => new Date(t).toLocaleDateString([], { weekday: 'long' });
-const toLocalInput = (t: number) => { const d = new Date(t); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}`; };
+// Times read and typed in the business's time zone (lib/biz-clock) — the shift's end time is the business's.
+const hm = (t: number) => biz(new Date(t)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const day = (t: number) => biz(new Date(t)).toLocaleDateString([], { weekday: 'long' });
+const toLocalInput = (t: number) => { const d = biz(new Date(t)); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}`; };
 
 export function ForgotClockOut({ firestore, tenantId, staffId, tenant, shifts, accent = INK }: { firestore: any; tenantId: string; staffId: string; tenant: any; shifts: any[]; accent?: string }) {
   const punchesQ = useMemoFirebase(() => (!firestore || !tenantId || !staffId) ? null : query(collection(firestore, `tenants/${tenantId}/activityLogs`), where('staffId', '==', staffId)), [firestore, tenantId, staffId]);
@@ -29,9 +32,11 @@ export function ForgotClockOut({ firestore, tenantId, staffId, tenant, shifts, a
   if (!s && !waiting.length) return null;
 
   const inMs = s ? Date.parse(s.inAt) : 0;
-  const localDay = s ? new Date(inMs).toLocaleDateString('en-CA') : '';
+  const localDay = s ? bizKey(new Date(inMs)) : '';
   const shift = s ? (shifts || []).find((x: any) => x.staffId === staffId && x.date === localDay && x.status !== 'cancelled') : null;
-  const at = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); const d = new Date(inMs); d.setHours(h, m, 0, 0); let t = d.getTime(); if (t <= inMs) t += 86400000; return t; };
+  const at = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); let t: number;
+    if (bizZone()) t = wallToUtc(localDay, h, m, bizZone()).getTime(); else { const d = new Date(inMs); d.setHours(h, m, 0, 0); t = d.getTime(); }
+    if (t <= inMs) t += 86400000; return t; };
   const shiftEnd = shift?.endTime ? at(String(shift.endTime)) : null;
   const choices = shiftEnd ? [{ k: 'end', l: hm(shiftEnd), t: shiftEnd }, { k: 'end15', l: hm(shiftEnd + 15 * 60000), t: shiftEnd + 15 * 60000 }] : [];
   const chosenMs = pick === 'other' ? (other ? at(other) : NaN) : choices.find((c) => c.k === pick)?.t ?? NaN;

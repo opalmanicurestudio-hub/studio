@@ -72,3 +72,30 @@ export async function actOnPayQuestion(db: any, tenantId: string, actor: Request
   if (action === 'explain') { if (!text) return { ok: false as const, error: 'Say why it’s right.' }; await push({ status: 'explained', resolution: { kind: 'explain', note: text, by: actor.name, at: now() } }); await toPerson(`${first} answered your pay question: ${text}`); return { ok: true as const }; }
   return { ok: false as const, error: 'Unknown action.' };
 }
+
+/** WAITING TOO LONG (hourly, from the reminders run): a pay question that has sat 2+ days with nobody answering the
+ *  person — still unopened, or their own message is the last word — nudges the managers again. At most once every 2
+ *  days per question (nudgedAt), so it never nags hourly. A question waiting on the PERSON (a manager asked them
+ *  something) isn't nudged. */
+export function payQuestionWaiting(q: any, nowMs = Date.now()) {
+  if (!q || !['open', 'checking'].includes(String(q.status))) return null;
+  const msgs = Array.isArray(q.messages) ? q.messages : []; const last = msgs[msgs.length - 1];
+  const onManager = q.status === 'open' || !last || last.by === q.staffId;
+  if (!onManager) return null;
+  const since = Date.parse(String(last?.at || q.createdAt || q.updatedAt || '')); if (!Number.isFinite(since)) return null;
+  const days = (nowMs - since) / 864e5; if (days < 2) return null;
+  const nudged = Date.parse(String(q.nudgedAt || '')); if (Number.isFinite(nudged) && nowMs - nudged < 2 * 864e5) return null;
+  return { days: Math.floor(days) };
+}
+export async function payQuestionNudges(db: any, tenantId: string) {
+  const snap = await db.collection(`${T(tenantId)}/payQuestions`).where('status', 'in', ['open', 'checking']).get();
+  let sent = 0; let mgrs: string[] | null = null;
+  for (const d of snap.docs) {
+    const q: any = { id: d.id, ...d.data() }; const w = payQuestionWaiting(q); if (!w) continue;
+    mgrs = mgrs || await managersOf(db, tenantId);
+    const to = mgrs.filter((id) => id !== q.staffId); if (!to.length) continue;
+    await tell(db, tenantId, to, 'pay_question', `${String(q.staffName || 'Someone').split(' ')[0]}’s pay question has waited ${w.days} days for an answer${q.reasonLabel ? ` — ${String(q.reasonLabel).toLowerCase()}` : ''}.`, '/payroll/questions', q.id);
+    await d.ref.set({ nudgedAt: now() }, { merge: true }); sent++;
+  }
+  return sent;
+}
