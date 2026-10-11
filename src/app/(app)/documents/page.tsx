@@ -13,7 +13,9 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Loader, FileText, ChevronDown, Plus, CheckCircle2, AlertTriangle, Lightbulb, Square } from 'lucide-react';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
-import { withItemIds } from '@/lib/doc-items';
+import { withItemIds, itemKey } from '@/lib/doc-items';
+import { DocsLibrary } from '@/components/documents/DocsLibrary';
+import { collectionsOf, collectionFor, reviewDue } from '@/lib/doc-collections';
 
 const CATEGORIES = [
   ['sop', 'SOP'],
@@ -266,6 +268,12 @@ const DocumentEditor = ({ docItem: liveItem, staff, onSave, onPublish, onDelete,
   // Sign by (optional): shows on each person's My work, turns overdue after it, and a reminder goes the day before.
   const [signBy, setSignBy] = useState<string>(/^\d{4}-\d{2}-\d{2}$/.test(String(docItem.signBy || '')) ? docItem.signBy : '');
   const [remindBefore, setRemindBefore] = useState<boolean>(docItem.remindBefore !== false);
+  // Where it lives, who looks after it, and how often it's checked (lib/doc-collections).
+  const { selectedTenant: edTenant } = useTenant();
+  const cols = collectionsOf(edTenant);
+  const [collectionId, setCollectionId] = useState<string>(collectionFor(docItem, cols).id);
+  const [ownerId, setOwnerId] = useState<string>(docItem.ownerId || '');
+  const [reviewEvery, setReviewEvery] = useState<number>(Number(docItem.reviewEveryMonths) || 0);
   const [err, setErr] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -304,7 +312,7 @@ const DocumentEditor = ({ docItem: liveItem, staff, onSave, onPublish, onDelete,
       .filter(x => x.heading || x.body);
     if (cleanSections.length === 0) { setErr('Add at least one section with content.'); return null; }
     setErr('');
-    return { title: cleanTitle, category, sections: withItemIds(cleanSections, liveItem.sections || []), assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore, changeNote: changeNote.trim().slice(0, 400) };
+    return { title: cleanTitle, category, sections: withItemIds(cleanSections, liveItem.sections || []), assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore, changeNote: changeNote.trim().slice(0, 400), collectionId, ownerId: ownerId || null, reviewEveryMonths: reviewEvery || null };
   };
 
   return (
@@ -404,6 +412,16 @@ const DocumentEditor = ({ docItem: liveItem, staff, onSave, onPublish, onDelete,
           </>
         )}
       </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="space-y-1.5"><span className="block text-[12.5px] text-muted-foreground">Collection</span>
+          <select value={collectionId} onChange={(e) => setCollectionId(e.target.value)} className="h-11 w-full rounded-xl border bg-white px-3 text-[14px]">{cols.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+        <label className="space-y-1.5"><span className="block text-[12.5px] text-muted-foreground">Owner</span>
+          <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} className="h-11 w-full rounded-xl border bg-white px-3 text-[14px]"><option value="">No one yet</option>{staff.filter((m: any) => !m.archived).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+        <label className="space-y-1.5"><span className="block text-[12.5px] text-muted-foreground">Review it</span>
+          <select value={reviewEvery} onChange={(e) => setReviewEvery(Number(e.target.value))} className="h-11 w-full rounded-xl border bg-white px-3 text-[14px]">{[[0, 'No review date'], [3, 'Every 3 months'], [6, 'Every 6 months'], [12, 'Every year']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+      </div>
+      <p className="text-[12px] text-muted-foreground">The owner is reminded two weeks before a review is due. “Still accurate” keeps this version; a change goes out as a new version.</p>
 
       <div className="flex flex-wrap items-end gap-4">
         <label className="space-y-1.5"><span className="block text-[10px] font-black uppercase tracking-widest text-muted-foreground">Sign by (optional)</span>
@@ -1099,8 +1117,14 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
 
   const version = d.version || 1;
   return (
-    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+    <Card className="overflow-hidden rounded-[18px] border bg-white shadow-none">
       <CardContent className="p-5 space-y-3">
+        {(() => { const due = reviewDue(d); const today = new Date().toISOString().slice(0, 10);
+          return due && due <= today ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-[14px] px-4 py-3 text-[14px]" style={{ background: '#fdf3e6', color: '#7a3e05' }}>
+              <span className="flex-1"><b>Review due.</b> Read it through — if it’s still right, keep it; if not, edit and publish a new version.</span>
+              <button type="button" onClick={() => { if (!tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${d.id}`), { reviewedAt: new Date().toISOString(), reviewedBy: actorName }); }} className="h-10 rounded-full px-4 text-[13.5px] font-semibold text-white" style={{ background: '#16171a' }}>Still accurate</button>
+            </div>) : null; })()}
         <button type="button" onClick={() => setExpandedId(expandedId === d.id ? null : d.id)} aria-expanded={expandedId === d.id} className="flex w-full items-start justify-between gap-3 text-left">
           <div className="min-w-0">
             <p className="truncate text-[15px] font-black tracking-tight text-slate-900">{d.title || 'Untitled document'}</p>
@@ -1190,7 +1214,7 @@ const DocumentCardWithAcks = ({ d, tenantId, canManage, myStaffId, actorName, st
                         <div key={sec.id}>
                           {sec.heading && <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground">{sec.heading}</p>}
                           {items.map((item: string, i: number) => {
-                            const key = `${sec.id}:${i}`;
+                            const key = itemKey(sec, i);
                             const on = !!(openRun.items || {})[key];
                             const photo = (openRun.photos || {})[key];
                             return (
@@ -1277,6 +1301,7 @@ export default function DocumentsPage() {
     if (needle) list = list.filter(d => `${d.title || ''} ${d.category || ''}`.toLowerCase().includes(needle));
     return list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
   }, [documents, canManage, role, myStaffId, q]);
+  const openDoc = expandedId ? (visible.find((d: any) => d.id === expandedId) || null) : null;
 
   const handleCreate = (tpl?: typeof TEMPLATES[number]) => {
     if (!tenantId) return;
@@ -1337,43 +1362,38 @@ export default function DocumentsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Documents" />
-      <main className="flex-1 space-y-6 p-4 md:p-8 mx-auto w-full max-w-3xl">
-        {canManage && (
-          <Card className="rounded-[2rem] border-2 bg-slate-950 text-white overflow-hidden">
-            <CardContent className="p-5 space-y-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Your operating library</p>
-                <p className="mt-1 text-[13px] font-bold text-slate-200">SOPs, handbooks, and policies — written once, assigned to roles or people, versioned when they change.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => handleCreate()} className="h-11 rounded-xl bg-white px-4 text-[11px] font-black uppercase tracking-widest text-slate-900 hover:bg-slate-200">
-                  <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Blank document
-                </Button>
-                <Button onClick={() => setTemplatesOpen(v => !v)} variant="outline" className="h-11 rounded-xl border-2 border-white/30 bg-transparent px-4 text-[11px] font-black uppercase tracking-widest text-white hover:bg-white/10">
-                  Start from a template
-                </Button>
-              </div>
-              {templatesOpen && (
-                <div className="space-y-2 border-t-2 border-dashed border-white/20 pt-3">
-                  {TEMPLATES.map(t => (
-                    <button key={t.key} type="button" onClick={() => { handleCreate(t); setTemplatesOpen(false); }} className="w-full rounded-2xl border-2 border-white/20 bg-white/5 p-3 text-left hover:bg-white/10">
-                      <p className="text-[13px] font-black tracking-tight text-white">{t.title}</p>
-                      <p className="text-[11px] font-bold text-slate-400">{categoryLabel(t.category)} · {t.sections.length} sections — {t.blurb}</p>
-                    </button>
-                  ))}
-                  <p className="text-[11px] font-bold text-slate-400">Templates land as drafts — edit every line to match how your business actually runs, then publish.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+      <main className="mx-auto w-full max-w-6xl flex-1 space-y-5 p-4 md:p-8" style={{ color: '#16171a', letterSpacing: '-0.01em' }}>
+        {/* Header: the library's name and the two ways to start a document. */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[12px] tracking-[0.1em]" style={{ color: '#6d7075' }}>documents</p>
+            <h1 className="mt-1 text-[30px] font-normal tracking-[-0.03em] md:text-[34px]">{canManage ? 'Your playbook' : 'Handbook and SOPs'}</h1>
+          </div>
+          {canManage && (
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setTemplatesOpen(v => !v)} aria-expanded={templatesOpen} className="h-11 rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: '#ececee' }}>Templates</button>
+              <button type="button" onClick={() => { handleCreate(); setPageTab('library'); }} className="h-11 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: '#16171a' }}>New document</button>
+            </div>
+          )}
+        </div>
+        {canManage && templatesOpen && (
+          <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: '#ececee' }}>
+            <div className="mb-3 flex items-baseline justify-between"><p className="text-[15px] font-semibold">Start from a template</p><p className="text-[12.5px]" style={{ color: '#6d7075' }}>Templates land as drafts — make every line match how you work, then publish.</p></div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {TEMPLATES.map(t => (
+                <button key={t.key} type="button" onClick={() => { handleCreate(t); setTemplatesOpen(false); setPageTab('library'); }} className="rounded-[14px] p-3.5 text-left hover:bg-[#ececee]" style={{ background: '#f3f3f5' }}>
+                  <p className="text-[14.5px] font-semibold">{t.title}</p>
+                  <p className="mt-0.5 text-[12.5px]" style={{ color: '#6d7075' }}>{categoryLabel(t.category)} · {t.sections.length} sections — {t.blurb}</p>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
         {canManage && (
-          <div className="flex gap-1.5 overflow-x-auto pb-1">
-            {([['library', 'Library'], ['tasks', 'Tasks'], ['rotations', 'Rotations'], ['audit', 'Audit trail']] as const).map(([v, l]) => (
-              <button key={v} type="button" aria-pressed={pageTab === v} onClick={() => setPageTab(v)} className={cn('h-11 shrink-0 rounded-xl border-2 px-4 text-[11px] font-black uppercase tracking-widest', pageTab === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
-                {l}
-              </button>
+          <div role="tablist" aria-label="Documents" className="flex gap-1 overflow-x-auto border-b" style={{ borderColor: '#ececee' }}>
+            {([['library', 'Library'], ['tasks', 'Tasks'], ['rotations', 'Rotations'], ['audit', 'Activity']] as const).map(([v, l]) => (
+              <button key={v} type="button" role="tab" aria-selected={pageTab === v} onClick={() => { setPageTab(v); setExpandedId(null); }} className="-mb-px h-11 shrink-0 px-3.5 text-[14px]" style={pageTab === v ? { fontWeight: 700, borderBottom: '2px solid #16171a' } : { color: '#6d7075' }}>{l}</button>
             ))}
           </div>
         )}
@@ -1387,49 +1407,32 @@ export default function DocumentsPage() {
           <TasksCard tenantId={tenantId || ''} staff={(staff || []) as any[]} actorName={actorName} focusTaskId={focusTaskId} />
         )}
 
-        {(!canManage || pageTab === 'library') && (
-        <Input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          aria-label="Search documents"
-          placeholder="Search by title or type"
-          className="h-12 rounded-2xl border-2 bg-white px-4 font-bold text-sm"
-        />
-        )}
-
         {(!canManage || pageTab === 'library') && (isLoading ? (
           <div className="flex min-h-[200px] items-center justify-center">
-            <Loader className="h-7 w-7 animate-spin text-slate-900" aria-label="Loading documents" />
+            <Loader className="h-7 w-7 animate-spin" aria-label="Loading documents" />
           </div>
-        ) : visible.length > 0 ? (
-          <div className="space-y-4">
-            {visible.map((d: any) => (
-              <DocumentCardWithAcks
-                key={d.id}
-                d={d}
-                tenantId={tenantId}
-                canManage={canManage}
-                myStaffId={myStaffId}
-                actorName={actorName}
-                staff={(staff || []) as any[]}
-                expandedId={expandedId}
-                setExpandedId={setExpandedId}
-                onSave={handleSave}
-                onPrint={() => { if (d.status !== 'published') { window.alert('Publish it first — only published documents print.'); return; } window.open(`/print/document/${tenantId}/${d.id}`, '_blank', 'noopener'); }}
-                onDelete={() => { if (tenantId) { deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${d.id}`)); setExpandedId(null); } }}
-              />
-            ))}
+        ) : openDoc ? (
+          // One document: who has signed, recent checklist runs, and (for managers) the editor.
+          <div className="space-y-3">
+            <button type="button" onClick={() => setExpandedId(null)} className="text-[14px]" style={{ color: '#6d7075' }}>‹ All documents</button>
+            <DocumentCardWithAcks
+              key={openDoc.id}
+              d={openDoc}
+              tenantId={tenantId}
+              canManage={canManage}
+              myStaffId={myStaffId}
+              actorName={actorName}
+              staff={(staff || []) as any[]}
+              expandedId={expandedId}
+              setExpandedId={setExpandedId}
+              onSave={handleSave}
+              onPrint={() => { if (openDoc.status !== 'published') { window.alert('Publish it first — only published documents print.'); return; } window.open(`/print/document/${tenantId}/${openDoc.id}`, '_blank', 'noopener'); }}
+              onDelete={() => { if (tenantId) { deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${openDoc.id}`)); setExpandedId(null); } }}
+            />
           </div>
         ) : (
-          <div className="rounded-[2rem] border-2 border-dashed bg-white/60 py-14 text-center">
-            <FileText className="mx-auto h-8 w-8 text-slate-300" aria-hidden="true" />
-            <p className="mt-3 text-sm font-black uppercase tracking-widest text-slate-900">
-              {canManage ? 'No documents yet' : 'Nothing assigned to you yet'}
-            </p>
-            <p className="mt-1 text-[12px] font-bold text-muted-foreground">
-              {canManage ? 'Start with your opening checklist or the employee handbook.' : 'When your manager publishes a handbook or SOP for your role, it shows up here.'}
-            </p>
-          </div>
+          <DocsLibrary tenantId={tenantId || ''} tenant={selectedTenant} docs={visible} staff={(staff || []) as any[]} canManage={canManage} myStaffId={myStaffId} onOpen={(id) => setExpandedId(id)}
+            today={new Intl.DateTimeFormat('en-CA', { timeZone: (selectedTenant as any)?.timezone || 'America/New_York' }).format(new Date())} />
         ))}
       </main>
     </div>

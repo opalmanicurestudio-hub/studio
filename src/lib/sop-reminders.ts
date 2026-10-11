@@ -4,17 +4,28 @@
 // Each happens once per sign-by date and version (remindedFor / overdueToldFor on the document), so changing the date
 // or publishing a new version starts over.
 import { docIsFor } from '@/lib/my-work';
+import { reviewDue } from '@/lib/doc-collections';
 import { dayKey, hourIn, tenantTimeZone, addDays } from '@/lib/tenant-time';
 
 const nice = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 export async function sopReminderSweep(db: any, tenantId: string, tenant: any) {
   const tz = tenantTimeZone(tenant); const now = new Date();
-  if (hourIn(now, tz) < 9) return { reminded: 0, told: 0 };
+  if (hourIn(now, tz) < 9) return { reminded: 0, told: 0, reviews: 0 };
   const today = dayKey(now, tz); const tomorrow = addDays(today, 1);
-  const docs = (await db.collection(`tenants/${tenantId}/documents`).where('status', '==', 'published').get()).docs
-    .map((d: any) => ({ id: d.id, ...d.data() })).filter((d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d.signBy || '')));
-  if (!docs.length) return { reminded: 0, told: 0 };
+  const all = (await db.collection(`tenants/${tenantId}/documents`).where('status', '==', 'published').get()).docs.map((d: any) => ({ id: d.id, ...d.data() }));
+  // Reviews: the owner (or, with no owner, the managers) is told two weeks before a document's review date, once per date.
+  const soon = addDays(today, 14); let reviews = 0;
+  for (const d of all) {
+    const due = reviewDue(d); if (!due || due > soon || d.reviewToldFor === due) continue;
+    const ownerOk = d.ownerId ? (await db.doc(`tenants/${tenantId}/staff/${d.ownerId}`).get().then((x: any) => x.exists && x.data()?.archived !== true).catch(() => false)) : false;
+    const to: string[] = ownerOk ? [d.ownerId] : (await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs.filter((x: any) => x.data()?.archived !== true).map((x: any) => x.id);
+    const b = db.batch(); const stamp = new Date().toISOString();
+    for (const u of to) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: u, type: 'document', message: `“${d.title || 'A document'}” is due for review ${due <= today ? 'now' : `by ${nice(due)}`} — check it’s still right, or update it.`, link: '/documents', documentId: d.id, createdAt: stamp, read: false }); reviews++; }
+    b.set(db.doc(`tenants/${tenantId}/documents/${d.id}`), { reviewToldFor: due }, { merge: true }); await b.commit();
+  }
+  const docs = all.filter((d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d.signBy || '')));
+  if (!docs.length) return { reminded: 0, told: 0, reviews };
   const staff = (await db.collection(`tenants/${tenantId}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...d.data() })).filter((s: any) => s.archived !== true && s.role !== 'renter' && !s.isRenter);
   const managers = staff.filter((s: any) => ['owner', 'admin', 'manager'].includes(String(s.role))).map((s: any) => s.id);
   let reminded = 0, told = 0; const stamp = new Date().toISOString();
@@ -37,5 +48,5 @@ export async function sopReminderSweep(db: any, tenantId: string, tenant: any) {
     }
     await b.commit();
   }
-  return { reminded, told };
+  return { reminded, told, reviews };
 }
