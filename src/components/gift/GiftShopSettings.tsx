@@ -68,7 +68,7 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
               <div className="grid gap-3 sm:grid-cols-3">{show.map((x, i) => <div key={i} className="space-y-2 rounded-2xl p-3" style={{ border: `1px solid ${slot === i ? INK : LINE}` }}>
                 <button type="button" onClick={() => setSlot(slot === i ? null : i)} className="block w-full text-left" aria-label={`Change the design of card ${i + 1}`}><GiftCardFace design={x.design} brand={brand} amount={`$${x.amount}`} name=" " width={170} /></button>
                 <button type="button" onClick={() => setSlot(slot === i ? null : i)} className="text-[13px] font-semibold underline underline-offset-4">{slot === i ? 'Done choosing' : 'Change design'}</button>
-                <div className="grid grid-cols-[80px_1fr] gap-2"><input value={x.amount} onChange={(e) => setShow(i, { amount: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} inputMode="decimal" aria-label={`Card ${i + 1} amount`} className={field} style={{ borderColor: LINE }} />
+                <div className="space-y-2"><input value={x.amount} onChange={(e) => setShow(i, { amount: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} inputMode="decimal" aria-label={`Card ${i + 1} amount`} className={field} style={{ borderColor: LINE }} />
                   <input value={x.label || ''} onChange={(e) => setShow(i, { label: e.target.value.slice(0, 40) })} placeholder="Label" aria-label={`Card ${i + 1} label`} className={field} style={{ borderColor: LINE }} /></div>
               </div>)}</div>
               {slot !== null && <div className="space-y-3 rounded-2xl p-3" style={{ background: SOFT }}>
@@ -81,10 +81,13 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
             </>}
           </section>
           <section className="space-y-1 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
-            <p className="text-[15px] font-semibold">Renters</p>
-            <p className="text-[13px]" style={{ color: MUTED }}>For booth renters who run their own business here.</p>
+            <p className="text-[15px] font-semibold">Messages</p>
             <Toggle on={s.balanceReminders !== false} onChange={(v) => set('balanceReminders', v)} label="Remind people about money left on their card" hint="A gentle note after 60 days unused — at most every 90 days, 3 times in all, never to anyone who turned messages off." />
             <Toggle on={s.buyerThanks !== false} onChange={(v) => set('buyerThanks', v)} label="Tell the buyer when their gift is used" hint="One short email the first time — a thank-you that brings them back too." />
+          </section>
+          <section className="space-y-1 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
+            <p className="text-[15px] font-semibold">Renters</p>
+            <p className="text-[13px]" style={{ color: MUTED }}>For booth renters who run their own business here.</p>
             <Toggle on={s.renters?.salonCards !== false} onChange={(v) => set('renters', { ...(s.renters || {}), salonCards: v })} label="Renters take your gift cards"
               hint="A client can pay a renter with your gift card. You hold the money, so it’s credited against the renter’s next rent automatically." />
             <Toggle on={s.renters?.ownCards === true} onChange={(v) => set('renters', { ...(s.renters || {}), ownCards: v })} label="Renters sell their own gift cards"

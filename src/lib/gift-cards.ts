@@ -252,3 +252,21 @@ export async function giftReminderSweep(db: any, tenantId: string, tenant: any) 
     if (r && ['sent', 'queued', 'delivered'].includes(String(r.status))) { await d.ref.set({ lastReminderAt: new Date().toISOString(), reminders: (g.reminders || 0) + 1 }, { merge: true }); n++; } }
   return n;
 }
+
+/** Which part of a bill each gift card may pay (the front desk): a studio card pays the studio's part first, then a
+ *  renter's visit only when the business allows it (that part is owed to the renter); a renter's own card pays only
+ *  that renter's visits. Amounts in cents; pure, so it can be checked on its own. */
+export function planGiftUse(i: { cards: { id: string; code: string; wantCents: number; holdId: string | null; owner: string | null; ownerName?: string | null }[]; byRenter: Record<string, number>; studioLeft: number; salonForRenters: boolean }) {
+  const byRenter = { ...i.byRenter }; let studioLeft = Math.max(0, i.studioLeft);
+  const uses: { id: string; code: string; cents: number; holdId: string | null; owner: string | null; forRenters: Record<string, number> }[] = [];
+  for (const c of i.cards) {
+    let want = Math.max(0, Math.round(c.wantCents)); const use = { id: c.id, code: c.code, cents: 0, holdId: c.holdId, owner: c.owner, forRenters: {} as Record<string, number> };
+    if (c.owner) { const take = Math.min(want, byRenter[c.owner] || 0); if (take <= 0) return { error: `Gift card ${c.code} is ${c.ownerName || 'a renter'}’s — it pays only for their services.`, uses: [] };
+      byRenter[c.owner] -= take; use.cents = take; use.forRenters[c.owner] = take; }
+    else { const a = Math.min(want, studioLeft); studioLeft -= a; want -= a; use.cents = a;
+      if (want > 0 && i.salonForRenters) for (const rid of Object.keys(byRenter)) { const t = Math.min(want, byRenter[rid]); if (t > 0) { byRenter[rid] -= t; want -= t; use.cents += t; use.forRenters[rid] = (use.forRenters[rid] || 0) + t; } }
+      if (use.cents <= 0 && c.wantCents > 0 && !uses.length) return { error: Object.keys(byRenter).length && !i.salonForRenters ? `Gift card ${c.code} can’t pay for a renter’s service here — take another payment for that part.` : `Nothing on this bill can be paid with gift card ${c.code}.`, uses: [] }; }
+    if (use.cents > 0) uses.push(use);
+  }
+  return { error: null as string | null, uses };
+}

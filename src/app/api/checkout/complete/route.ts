@@ -225,13 +225,13 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const pf = (tenant as any)?.giftCardSettings?.paysFor || {};
     const notFor = Math.round(((pf.products === false ? (items || []).filter((it: any) => it.type === 'product').reduce((s2: number, it: any) => s2 + num(it.price) * num(it.quantity), 0) : 0) + (pf.tips === false ? num(calc0.tip) : 0)) * 100);
     let studioLeft = Math.max(0, Math.round(num(calc0.giftable) * 100) - Object.values(byRenter).reduce((a, c) => a + c, 0) - notFor);
+    const cardsIn: any[] = [];
     for (const g of (Array.isArray(b.giftCards) ? b.giftCards : []).slice(0, 5)) {
       const d: any = (await db.doc(`${T}/giftCards/${String(g?.id || '')}`).get()).data(); if (!d) return 'A gift card on this sale wasn’t found — remove it and try again.';
-      let want = Math.max(0, Math.round(num(g.cents))); const use = { id: String(g.id), code: d.code, cents: 0, holdId: g.holdId ? String(g.holdId) : null, owner: d.ownerRenterId || null, forRenters: {} as Record<string, number> };
-      if (use.owner) { const take = Math.min(want, byRenter[use.owner] || 0); if (take <= 0) return `Gift card ${d.code} is ${d.ownerName || 'a renter'}’s — it pays only for their services.`; byRenter[use.owner] -= take; use.cents = take; use.forRenters[use.owner] = take; }
-      else { const a = Math.min(want, studioLeft); studioLeft -= a; want -= a; use.cents = a;
-        if (want > 0 && salonForRenters) for (const rid of Object.keys(byRenter)) { const t = Math.min(want, byRenter[rid]); if (t > 0) { byRenter[rid] -= t; want -= t; use.cents += t; use.forRenters[rid] = (use.forRenters[rid] || 0) + t; } } }
-      if (use.cents > 0) giftUse.push(use); }
+      cardsIn.push({ id: String(g.id), code: d.code, wantCents: Math.max(0, Math.round(num(g.cents))), holdId: g.holdId ? String(g.holdId) : null, owner: d.ownerRenterId || null, ownerName: d.ownerName || null }); }
+    const { planGiftUse } = await import('@/lib/gift-cards');
+    const plan = planGiftUse({ cards: cardsIn, byRenter, studioLeft, salonForRenters }); if (plan.error) return plan.error;
+    giftUse.push(...plan.uses);
     return null;
   };
   { const sdPre = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
