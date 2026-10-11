@@ -23,11 +23,12 @@ const clock = (iso: any) => { const d = new Date(iso); return Number.isNaN(d.get
 const TRACK = ['booked', 'arrived', 'waiting', 'in_service', 'ready_to_pay', 'complete'];
 const PRIMARY: Record<string, string> = { booked: 'arrived', arrived: 'in_service', waiting: 'in_service', in_service: 'ready_to_pay' };   // Arrived → straight to service (Waiting can be skipped)
 
-export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts }: { tenantId: string; appointmentId: string; onClose?: () => void; hideProducts?: boolean }) {   // hideProducts: inside the full Visit, Products used is on the Service tab
+export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, tabs }: { tenantId: string; appointmentId: string; onClose?: () => void; hideProducts?: boolean; tabs?: boolean }) {   // tabs: the staff app's ticket — who and the next step on top, the rest in Visit · Payment · Timeline · More   // hideProducts: inside the full Visit, Products used is on the Service tab
   const { firestore } = useFirebase() as any;
   const [v, setV] = React.useState<any>(null); const [err, setErr] = React.useState<string | null>(null); const [busy, setBusy] = React.useState<string | null>(null);
   const [note, setNote] = React.useState(''); const [forClient, setForClient] = React.useState(false); const [msg, setMsg] = React.useState<string | null>(null);
-  const [timing, setTiming] = React.useState<any>(null); const [overNote, setOverNote] = React.useState('');   // how long it really took
+  const [timing, setTiming] = React.useState<any>(null); const [overNote, setOverNote] = React.useState('');
+  const [tab, setTab] = React.useState<'visit' | 'payment' | 'timeline' | 'more'>('visit'); const show = (t: string) => !tabs || tab === t;   // how long it really took
   const load = React.useCallback(async () => { const r: any = await post({ tenantId, action: 'get', appointmentId }); if (r?.ok) { setV(r.visit); setTiming(r.timing || null); setErr(null); } else setErr(r?.error || 'Couldn’t load this visit.'); }, [tenantId, appointmentId]);
   React.useEffect(() => { load(); }, [load]);
   // Live: whenever the visit changes (someone else moved it on, a payment landed), refresh.
@@ -79,16 +80,20 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts }: 
         {!closed && act.cancel && <button type="button" onClick={() => { act.cancel!(v.id); onClose?.(); }} className="text-[13px] underline underline-offset-4" style={{ color: 'var(--warn)' }}>Cancel or no-show</button>}
         {msg && <p className="text-[13px] font-semibold" role="status">{msg}</p>}
       </section>
+      {tabs && <div className="flex gap-1 border-b" style={{ borderColor: 'var(--line)' }} role="tablist" aria-label="Visit details">
+        {([['visit', 'Visit'], ['payment', 'Payment'], ['timeline', 'Timeline'], ['more', 'More']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="px-3 py-2 text-[14px] font-semibold" style={tab === k ? { borderBottom: '2px solid var(--ink, #16171a)' } : { color: 'var(--muted)' }}>{l}</button>)}
+      </div>}
+      {tabs && tab === 'payment' && !(v.receipts || []).length && <section className={card} style={cardStyle}><p className="text-[15px] font-semibold">{v.paymentLabel || 'Not paid yet'}</p><p className="text-[14px]" style={muted}>Payments show here once the visit is checked out.</p></section>}
       {/* Paid: receipts + book next */}
-      {(v.receipts || []).length > 0 && <section className={card} style={cardStyle} aria-label="Payments">
+      {show('payment') && (v.receipts || []).length > 0 && <section className={card} style={cardStyle} aria-label="Payments">
         <p className="text-[15px] font-semibold">Payments</p>
         {v.receipts.map((r: any) => <div key={r.id} className="flex items-center justify-between gap-2 text-[14px]"><span>{money(r.total)} · {r.payments?.length ? `split · ${r.payments.length} payments` : String(r.paymentMethod || '').replace(/_/g, ' ')}{r.voided ? ' · voided' : ''}</span>
           <button type="button" onClick={() => openReceipt(tenantId, r.id)} className="text-[13px] font-semibold underline underline-offset-4">{r.voided ? 'Void slip' : 'Receipt'}</button></div>)}
         {v.stage === 'complete' && act.bookNext && <button type="button" onClick={() => act.bookNext!(v.id, v.clientId, v.serviceId)} className="h-10 w-full rounded-full text-[14px] font-semibold" style={soft}>Book {first}’s next visit</button>}
       </section>}
-      {String(v.stage) === 'complete' && !hideProducts && <ProductsUsed tenantId={tenantId} visitId={appointmentId} className={card} style={cardStyle} />}
+      {show('visit') && String(v.stage) === 'complete' && !hideProducts && <ProductsUsed tenantId={tenantId} visitId={appointmentId} className={card} style={cardStyle} />}
       {/* Handoff notes */}
-      {timing && timing.actualMinutes !== null && <section className={card} style={cardStyle} aria-label="How long it took">
+      {show('visit') && timing && timing.actualMinutes !== null && <section className={card} style={cardStyle} aria-label="How long it took">
         <p className="text-[15px]"><b>Took {timing.actualMinutes} min</b> <span style={{ color: 'var(--muted)' }}>· booked {timing.bookedMinutes}{timing.overMinutes > 0 ? ` · ${timing.overMinutes} over` : timing.actualMinutes < timing.bookedMinutes ? ` · ${timing.bookedMinutes - timing.actualMinutes} under` : ''}</span></p>
         {timing.quality !== 'ok' && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{({ auto_closed: 'Finished by the system, not tapped — not counted in anyone’s typical times.', late_tap: '“Done” was tapped after they paid — not counted in typical times.', outlier: 'Very different from the booked time — not counted in typical times.' } as any)[timing.quality] || ''}</p>}
         {timing.overReason && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Why: {timing.overReason.label}{timing.overReason.note ? ` — ${timing.overReason.note}` : ''} ({timing.overReason.by})</p>}
@@ -99,28 +104,28 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts }: 
           <input value={overNote} onChange={(e) => setOverNote(e.target.value)} placeholder="A note (optional)" aria-label="A note about why it ran over" className="h-10 w-full rounded-xl border px-3 text-[14px]" style={{ borderColor: 'var(--line)' }} />
         </div>}
       </section>}
-      <section className={card} style={cardStyle} aria-label="Add a note">
+      {show('visit') && <section className={card} style={cardStyle} aria-label="Add a note">
         <p className="text-[15px] font-semibold">Handoff note</p>
         <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 300))} rows={2} placeholder={forClient ? `A note ${first} will see on their visit link` : 'For the team — e.g. “prefers a softer file”'} aria-label="Note" className="w-full resize-none rounded-2xl p-3 text-[15px] outline-none" style={soft} />
         <div className="flex items-center justify-between gap-2"><label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={forClient} onChange={(e) => setForClient(e.target.checked)} /> Show to {first}</label>
           <button type="button" disabled={busy === 'note' || !note.trim()} onClick={addNote} className="h-9 rounded-full px-4 text-[13px] font-semibold disabled:opacity-40" style={primaryStyle}>{busy === 'note' ? 'Saving…' : 'Add note'}</button></div>
-      </section>
+      </section>}
       {/* The timeline */}
-      <section className={card} style={cardStyle} aria-label="Timeline">
+      {show('timeline') && <section className={card} style={cardStyle} aria-label="Timeline">
         <p className="text-[15px] font-semibold">Timeline</p>
         {!(v.timeline || []).length ? <p className="text-[14px]" style={muted}>Nothing yet — moves, notes and payments appear here.</p>
           : <ol className="space-y-2">{[...v.timeline].reverse().map((e: any, i: number) => <li key={`${e.at}-${i}`} className="flex gap-3 text-[14px]">
               <span className="w-16 shrink-0 tabular-nums" style={muted}>{clock(e.at)}</span>
               <span className="flex-1"><span style={e.kind === 'note' ? { fontStyle: 'italic' } : undefined}>{e.text}</span>{e.forClient ? <span className="ml-1 text-[12px]" style={muted}>· shown to client</span> : null}
                 {(e.by || e.via) && <span className="block text-[12px]" style={muted}>{[e.by, e.via && e.via !== 'desk' ? e.via : null].filter(Boolean).join(' · ')}</span>}</span></li>)}</ol>}
-      </section>
+      </section>}
       {/* Signed approvals */}
-      {(v.consents || []).length > 0 && <section className={card} style={cardStyle} aria-label="Signed">
+      {show('visit') && (v.consents || []).length > 0 && <section className={card} style={cardStyle} aria-label="Signed">
         <p className="text-[15px] font-semibold">Signed</p>
         {v.consents.map((c: any) => <p key={c.id} className="text-[14px]">{c.kind === 'membership_terms' ? (c.title || 'Membership terms') : c.kind === 'card_on_file_charge' ? `Card charge approved${c.amount ? ` · ${money(c.amount)}` : ''}` : c.title || 'Signed'} <span style={muted}>· {when(c.signedAt)}</span></p>)}
       </section>}
       {/* The client's link + more */}
-      <section className={card} style={cardStyle} aria-label="More">
+      {show('more') && <section className={card} style={cardStyle} aria-label="More">
         {(v.shortCode || v.checkInToken) && <div className="flex flex-wrap gap-1.5">
           {(['letter', 'receipt'] as const).map((size) => <button key={size} type="button" onClick={() => {
             const okPrint = printAppointmentTicket({ id: v.id, clientId: v.clientId, clientName: v.clientName, serviceId: v.serviceId, addOnIds: v.addOnIds, staffId: v.staffId, startTime: v.startTime, endTime: v.endTime, status: v.status, checkInStatus: v.checkInStatus, checkInToken: v.checkInToken, shortCode: v.shortCode, notes: v.notes, depositAmountCents: v.depositAmountCents, depositStatus: v.depositStatus },
@@ -133,7 +138,7 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts }: 
           {v.clientPhone && <a href={`sms:${String(v.clientPhone).replace(/[^\d+]/g, '')}?&body=${encodeURIComponent(link)}`} className="inline-flex h-9 items-center rounded-full px-3 text-[13px]" style={soft}>Text it to {first}</a>}
         </div>}
         {act.details && <button type="button" onClick={() => { act.details!(v.id); onClose?.(); }} className="text-[13px] underline underline-offset-4">Booking details</button>}
-      </section>
+      </section>}
     </div>
   );
 }

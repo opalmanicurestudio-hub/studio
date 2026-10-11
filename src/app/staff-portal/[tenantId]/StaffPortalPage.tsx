@@ -4,6 +4,7 @@ import { NotHappy } from '@/components/staff-portal/NotHappy';
 import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
 import { MyCases } from '@/components/staff-portal/MyCases';
 import { WeekSchedule, MonthPlanner } from '@/components/staff-portal/WeekSchedule';
+import { PortalTicket, PortalScan } from '@/components/staff-portal/PortalTicket';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
 import { punchState } from '@/lib/punch';
@@ -1259,7 +1260,8 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
 }
 
 // ─── APPOINTMENT ACTION DRAWER ────────────────────────────────────────────────
-function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, currentStaffId, tenantId, firestore, onClose, onAction, onReview, onEscalate }: {
+function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, currentStaffId, tenantId, firestore, onClose, onAction, onReview, onEscalate, onOpenTicket }: {
+  onOpenTicket?: (id: string) => void;
   apt: any; service: any; allServices: any[]; allStaff: any[]; allShifts: any[]; currentStaffId: string;
   tenantId: string; firestore: any;
   onClose: () => void;
@@ -1445,6 +1447,8 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </p>
             )}
 
+            {onOpenTicket && !String(apt.id || '').startsWith('apt-walkin-') && <button onClick={() => { onOpenTicket(apt.id); onClose(); }}
+              className="w-full h-11 rounded-2xl border-2 border-slate-200 bg-white text-[13px] font-bold text-slate-700 active:scale-[0.97]">Full ticket</button>}
             <button onClick={onClose}
               className="w-full h-11 rounded-2xl border-2 border-slate-200 font-black uppercase text-[11px] text-slate-400 tracking-widest hover:bg-slate-50 transition-all active:scale-[0.97]">
               Dismiss
@@ -4541,6 +4545,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // Calls the front desk passed on to this person (or to managers, if they are one).
   const myCalls = useMyCalls(staffMember.role === 'renter' ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
   const [drawerApt, setDrawerApt]   = useState<any>(null);
+  const [ticketId, setTicketId] = useState<string | null>(null); const [scanOpen, setScanOpen] = useState(false);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
   const [reviewApt, setReviewApt]   = useState<any>(null);
   const [reviewSvc, setReviewSvc]   = useState<any>(null);
@@ -5002,6 +5007,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {staffMember.role !== 'renter' && (
+              <button onClick={() => setScanOpen(true)} aria-label="Scan a ticket" className="h-10 rounded-full border border-[#ececee] bg-white px-3 text-[13px] font-semibold flex items-center gap-1.5">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10" /></svg>Scan
+              </button>
+            )}
+            {staffMember.role !== 'renter' && (
               <button onClick={() => setIsRequestOpen(true)} aria-label="New request" className="h-10 w-10 rounded-full border border-[#ececee] bg-white flex items-center justify-center">
                 <Plus className="w-[18px] h-[18px]" />
               </button>
@@ -5395,6 +5405,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         </div>
       </div>
 
+      <PortalTicket tenantId={tenantId} appointmentId={ticketId} accent={accentColor} onClose={() => setTicketId(null)} />
+      {scanOpen && <PortalScan open={scanOpen} onOpenChange={setScanOpen} firestore={firestore} tenantId={tenantId} appointments={[...(allTodayApptsRaw || []), ...(allMyApts || [])]} services={services || []} staff={allStaff || []} onFound={(a: any) => setTicketId(a.id)} />}
       {/* Appointment action drawer */}
       {drawerApt && (
         <AppointmentDrawer
@@ -5409,6 +5421,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           onClose={() => { setDrawerApt(null); setDrawerSvc(null); }}
           onAction={handleAptAction}
           onEscalate={handleEscalate}
+          onOpenTicket={(id: string) => setTicketId(id)}
           onReview={apt => {
             const svc = (services||[]).find((s: any) => s.id === apt.serviceId);
             setReviewApt(apt);

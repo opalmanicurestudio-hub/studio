@@ -11,12 +11,9 @@
 //      the scanner types into it, and the code is looked up the moment it lands.
 //      Most wedges send Enter at the end; the ones that don't are caught by
 //      timing, since no human types eight characters in a tenth of a second.
-//   2. The device camera — reads the QR on the guest stub. This uses the
-//      browser's own BarcodeDetector, so there is no library to install, but it
-//      does mean the camera option only appears where the browser supports it
-//      (Chrome on Android, ChromeOS, most desktop Chrome). iPhones and iPads do
-//      not, and are told so plainly rather than being shown a button that
-//      silently fails.
+//   2. The device camera — reads the QR on the guest stub, with the browser's own
+//      BarcodeDetector where it has one (Chrome on Android, ChromeOS, desktop
+//      Chrome) and jsQR reading the camera frames everywhere else (iPhone, iPad).
 //   3. Typing the code by hand — always available, always works. This is the
 //      path that matters when a client reads their code over the phone.
 //
@@ -181,7 +178,7 @@ export function ScanCheckInDialog({
   const canUseCamera = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const nav: any = typeof navigator !== 'undefined' ? navigator : null;
-    return !!(nav?.mediaDevices?.getUserMedia) && 'BarcodeDetector' in window;
+    return !!(nav?.mediaDevices?.getUserMedia);   // BarcodeDetector where the browser has it; jsQR reads the frames everywhere else (iPhone, iPad, Firefox)
   }, []);
 
   const stopCamera = useCallback(() => {
@@ -275,6 +272,11 @@ export function ScanCheckInDialog({
       setCamError(null);
       try {
         const win: any = window;
+        if (!detectorRef.current && !('BarcodeDetector' in win)) {
+          const jsQR = (await import('jsqr')).default; const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d', { willReadFrequently: true } as any);
+          detectorRef.current = { detect: async (vid: HTMLVideoElement) => { if (!ctx) return []; const w = Math.min(640, vid.videoWidth || 640); const h = Math.round(w * ((vid.videoHeight || 480) / (vid.videoWidth || 640)));
+            canvas.width = w; canvas.height = h; ctx.drawImage(vid, 0, 0, w, h); const img = ctx.getImageData(0, 0, w, h); const r = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' }); return r?.data ? [{ rawValue: r.data }] : []; } };
+        }
         if (!detectorRef.current) {
           let formats = ['qr_code'];
           try {
