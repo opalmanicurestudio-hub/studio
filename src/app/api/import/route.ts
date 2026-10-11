@@ -5,6 +5,8 @@
 //   { action: 'undo',   tenantId, importId }             → removes what that import added (records no one has changed
 //                                                           since), and takes back what it filled in on existing ones
 //   { action: 'list',   tenantId }                       → recent imports
+//   { action: 'questions', kind: 'appointments', rows }   → staff and service names to match (lib/import-more)
+// Appointments, gift card balances and packages are saved by lib/import-more.
 // Matching: a client by email, then mobile; a product by SKU, then name; a service by name. A match is filled in, never
 // overwritten. A renter's own clients are never matched or touched.
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,8 +16,8 @@ import { sameKeys, fillIn, type ImportKind } from '@/lib/import-records';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-const KINDS: ImportKind[] = ['clients', 'services', 'products'];
-const COL: Record<ImportKind, string> = { clients: 'clients', services: 'services', products: 'inventory' };
+const KINDS: ImportKind[] = ['clients', 'services', 'products', 'appointments', 'giftcards', 'packages'];
+const COL: Record<ImportKind, string> = { clients: 'clients', services: 'services', products: 'inventory', appointments: 'appointments', giftcards: 'giftCards', packages: 'clients' };
 const now = () => new Date().toISOString();
 
 async function existingIndex(db: any, tenantId: string, kind: ImportKind) {
@@ -63,24 +65,50 @@ export async function POST(req: NextRequest) {
     const s = await db.collection(`${T}/imports`).orderBy('startedAt', 'desc').limit(10).get();
     return NextResponse.json({ ok: true, imports: s.docs.map((d: any) => { const x = d.data() || {}; return { id: d.id, kind: x.kind, app: x.app, startedAt: x.startedAt, by: x.by, added: x.added || 0, filled: x.filled || 0, undoneAt: x.undoneAt || null }; }) });
   }
+  if (b.action === 'status') {   // the Moving in checklist
+    const [imps, t, st, sv] = await Promise.all([db.collection(`${T}/imports`).get(), db.doc(T).get(), db.collection(`${T}/staff`).get(), db.collection(`${T}/services`).where('createdVia', '==', 'import').get()]);
+    const moved: Record<string, number> = {}; let owed = 0;
+    for (const d of imps.docs) { const x: any = d.data() || {}; if (x.undoneAt) continue; moved[x.kind] = (moved[x.kind] || 0) + (Number(x.added) || 0) + (Number(x.filled) || 0); owed += Number(x.owedCents) || 0; }
+    const td: any = t.data() || {};
+    return NextResponse.json({ ok: true, moving: td.movingIn || {}, moved, owedCents: owed, imports: imps.size,
+      servicesHidden: sv.docs.filter((d: any) => (d.data() as any)?.isPrivate === true && (d.data() as any)?.status !== 'archived').length, servicesImported: sv.size,
+      team: st.docs.filter((d: any) => (d.data() as any)?.archived !== true && (d.data() as any)?.role !== 'renter').length,
+      bookingPath: `/book/${encodeURIComponent(tenantId)}` });
+  }
+  if (b.action === 'moving') {   // where they're coming from, switch-over day and its list, or "I'm starting fresh"
+    const patch: any = {}; const m = b.moving || {};
+    if (typeof m.app === 'string') patch['movingIn.app'] = m.app.slice(0, 40);
+    if (typeof m.switchDate === 'string') patch['movingIn.switchDate'] = /^\d{4}-\d{2}-\d{2}$/.test(m.switchDate) ? m.switchDate : null;
+    if (typeof m.dismissed === 'boolean') patch['movingIn.dismissed'] = m.dismissed;
+    if (m.switch && typeof m.switch === 'object') for (const [k, v] of Object.entries(m.switch)) if (/^[a-z]{2,20}$/.test(k)) patch[`movingIn.switch.${k}`] = !!v;
+    if (Array.isArray(m.showServices)) { const ids = m.showServices.map(String).slice(0, 500); for (let i = 0; i < ids.length; i += 400) { const bt = db.batch(); for (const id of ids.slice(i, i + 400)) bt.set(db.doc(`${T}/services/${id}`), { isPrivate: false }, { merge: true }); await bt.commit(); } }
+    if (Object.keys(patch).length) await db.doc(T).update(patch);
+    return NextResponse.json({ ok: true });
+  }
   if (b.action === 'undo') {
     const ref = db.doc(`${T}/imports/${String(b.importId || '')}`); const imp: any = (await ref.get()).data();
     if (!imp) return NextResponse.json({ ok: false, error: 'That import wasn’t found.' }, { status: 404 });
     if (imp.undoneAt) return NextResponse.json({ ok: true, removed: 0, kept: 0 });
     const kind = imp.kind as ImportKind; const col = `${T}/${COL[kind]}`;
-    const added = await db.collection(col).where('importId', '==', imp.id).get(); let removed = 0, kept = 0;
-    let batch = db.batch(); let n = 0;
+    const addedMain = await db.collection(col).where('importId', '==', imp.id).get();
+    const addedClients = ['appointments', 'giftcards'].includes(kind) ? (await db.collection(`${T}/clients`).where('importId', '==', imp.id).get()).docs : [];
+    const addedPkgs = kind === 'packages' ? (await db.collection(`${T}/packages`).where('importId', '==', imp.id).get()).docs : [];
+    const added = { docs: [...addedMain.docs, ...addedClients, ...addedPkgs] }; let removed = 0, kept = 0;
+    let batch = db.batch(); let n = 0; const gone = new Set<string>();
     for (const d of added.docs) {
       const x: any = d.data() || {};
       // Kept: anything used since (a visit booked, a sale, an edit) — removing it would lose real work.
       const since = imp.finishedAt || imp.startedAt; const edited = !!x.updatedAt && x.updatedAt > since;
-      const touched = kind === 'clients' ? edited || Number(x.lifetimeValue || 0) !== Number(x.importedSpent || 0) || (x.lastAppointment || null) !== (x.importedLastVisit || null) : edited;
+      const isClient = d.ref.path.includes('/clients/'); const isAppt = d.ref.path.includes('/appointments/');
+      const gcUsed = d.ref.path.includes('/giftCards/') && (x.history || []).some((h: any) => h.type === 'spend');
+      const apptTouched = isAppt && ((x.updatedAt && x.updatedAt > since) || !!x.checkoutSessionId || (x.reminderSentAt && x.reminderSentBy !== 'import'));
+      const touched = gcUsed || apptTouched ? true : isClient ? edited || Number(x.lifetimeValue || 0) !== Number(x.importedSpent || 0) || (x.lastAppointment || null) !== (x.importedLastVisit || null) : edited;
       if (touched) { kept++; continue; }
-      batch.delete(d.ref); removed++; if (++n >= 400) { await batch.commit(); batch = db.batch(); n = 0; }
+      batch.delete(d.ref); gone.add(d.id); removed++; if (++n >= 400) { await batch.commit(); batch = db.batch(); n = 0; }
     }
     // Filled-in fields on existing records go back to empty — only where they still hold what the import put there.
     const fills = await db.collection(`${T}/imports/${imp.id}/fills`).get();
-    for (const f of fills.docs) { const x: any = f.data() || {}; const cur: any = (await db.doc(`${col}/${x.docId}`).get()).data(); if (!cur) continue;
+    for (const f of fills.docs) { const x: any = f.data() || {}; if (gone.has(x.docId)) continue; const cur: any = (await db.doc(`${col}/${x.docId}`).get()).data(); if (!cur) continue;
       const back: any = {}; for (const [k, v] of Object.entries(x.patch || {})) if (JSON.stringify(cur[k]) === JSON.stringify(v)) back[k] = x.before?.[k] ?? null;
       if (Object.keys(back).length) { batch.set(db.doc(`${col}/${x.docId}`), back, { merge: true }); if (++n >= 400) { await batch.commit(); batch = db.batch(); n = 0; } } }
     if (n) await batch.commit();
@@ -89,6 +117,32 @@ export async function POST(req: NextRequest) {
   }
   const kind = String(b.kind) as ImportKind; if (!KINDS.includes(kind)) return NextResponse.json({ ok: false, error: 'Choose what you’re bringing in.' }, { status: 400 });
   const rows: any[] = (Array.isArray(b.rows) ? b.rows : []).slice(0, 400).filter((r: any) => r && typeof r === 'object' && r.name);
+  if (['appointments', 'giftcards', 'packages'].includes(kind)) {
+    const more = await import('@/lib/import-more');
+    if (b.action === 'questions' && kind === 'appointments') return NextResponse.json({ ok: true, ...(await more.appointmentQuestions(db, tenantId, rows)) });
+    if (b.action === 'check') {
+      if (kind === 'giftcards') { const { findByCode } = await import('@/lib/gift-cards'); let fresh = 0, matched = 0, owed = 0; for (const r of rows) { if (await findByCode(db, tenantId, r.code)) matched++; else { fresh++; if (!r.voided) owed += Math.round(Number(r.balance) * 100); } } return NextResponse.json({ ok: true, fresh, matched, fills: 0, samples: [], owedCents: owed }); }
+      const idx2 = await more.clientIndex(db, tenantId); let known = 0; for (const r of rows) if (idx2.find(r)) known++;
+      return NextResponse.json({ ok: true, fresh: rows.length, matched: 0, fills: 0, samples: [], knownClients: known, newClients: rows.length - known });
+    }
+    if (b.action === 'save') {
+      const importId = String(b.importId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40); if (!importId) return NextResponse.json({ ok: false, error: 'Missing the import.' }, { status: 400 });
+      const iRef = db.doc(`${T}/imports/${importId}`); const imp: any = (await iRef.get()).data();
+      if (imp && imp.kind !== kind) return NextResponse.json({ ok: false, error: 'That import is for something else.' }, { status: 400 });
+      if (!imp) await iRef.set({ id: importId, kind, app: String(b.app || '').slice(0, 40) || null, startedAt: now(), by: g.actor?.name || null, byId: g.actor?.staffId || null, added: 0, filled: 0, skipped: 0 });
+      const app = String(b.appName || b.app || '').slice(0, 40); let out: any;
+      if (kind === 'appointments') { const t: any = (await db.doc(T).get()).data() || {}; const staffMap = b.staffMap || {}, serviceMap = b.serviceMap || {};
+        if (!imp) await more.rememberMaps(db, tenantId, staffMap, serviceMap);
+        out = await more.saveAppointments(db, tenantId, t, rows, { importId, app, staffMap, serviceMap, reminders: b.reminders === true }); }
+      else if (kind === 'giftcards') out = await more.saveGiftCards(db, tenantId, rows, { importId, app, by: g.actor?.name || 'Import' });
+      else { out = await more.savePackages(db, tenantId, rows, { importId, app, packageMap: b.packageMap || {} });
+        for (const f of out.fills) await db.collection(`${T}/imports/${importId}/fills`).doc().set(clean(f)); delete out.fills; }
+      const { FieldValue } = await import('firebase-admin/firestore');
+      await iRef.set({ added: FieldValue.increment(out.added || 0), skipped: FieldValue.increment((out.skipped || 0) + Math.max(0, Number(b.skipped) || 0)), clientsAdded: FieldValue.increment(out.clientsAdded || 0), ...(out.owedCents ? { owedCents: FieldValue.increment(out.owedCents) } : {}), finishedAt: now() }, { merge: true });
+      return NextResponse.json({ ok: true, filled: 0, ...out });
+    }
+    return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+  }
   const idx = await existingIndex(db, tenantId, kind);
   const match = (d: any) => sameKeys(kind, d).map((k) => idx.get(k)).find(Boolean) || null;
   if (b.action === 'check') {

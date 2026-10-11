@@ -181,8 +181,11 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       name = `Rent — ${acct.name}${acct.booth?.name ? ` · ${acct.booth.name}` : ''}`; (it as any).__acct = acct; }
     else if (type === 'membership') { const m = memberships.find((x: any) => x.id === id); if (!m) return json({ ok: false, error: 'That membership wasn’t found.' }, 400); price = num(m.price); name = m.name || name; }
     else if (type === 'package') { const p = packages.find((x: any) => x.id === id); if (!p) return json({ ok: false, error: 'That package wasn’t found.' }, 400); price = num(p.price); name = p.name || name; }
+    else if (type === 'giftcard') { const cents = Math.round(num(it.amountCents) || num(it.price) * 100); if (!(cents >= 100 && cents <= 500000)) return json({ ok: false, error: 'Gift cards are from $1 to $5,000.' }, 400);
+      price = cents / 100; const g = it.gift || {}; name = `Gift card${g.recipientName ? ` for ${String(g.recipientName).slice(0, 60)}` : ''}`;
+      (it as any).__gift = { cents, recipientName: g.recipientName ? String(g.recipientName).slice(0, 80) : null, recipientId: g.recipientId ? String(g.recipientId) : null, recipientPhone: g.recipientPhone ? String(g.recipientPhone).slice(0, 30) : null, recipientEmail: g.recipientEmail ? String(g.recipientEmail).slice(0, 120) : null, message: g.message ? String(g.message).slice(0, 400) : null, sendVia: ['text', 'email', 'print', 'code'].includes(g.sendVia) ? g.sendVia : 'code', sendAt: g.sendAt && Date.parse(g.sendAt) > Date.now() + 60000 ? new Date(g.sendAt).toISOString() : null }; }
     else if (type === 'deposit' && it.depositForAppointmentId) { const ap: any = (await db.doc(`${T}/appointments/${String(it.depositForAppointmentId)}`).get()).data() || {}; const max = num(ap.depositAmountCents) / 100; if (max > 0) price = Math.min(price || max, max); }
-    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}) });   // rent carries its renter's account to the payment step
+    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}), ...((it as any).__gift ? { __gift: (it as any).__gift } : {}) });   // rent carries its renter's account to the payment step
   }
   // Everyone on the ticket: the payer, and whoever had each visit (a friend, partner or parent may be paying).
   const people: Record<string, any> = { [clientId]: client };
@@ -208,8 +211,14 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const pre = prebookMoment(visits.map((v: any) => v.appointment));
   const moment = bestMomentReward([...momentsFor(tenant, client, doneBefore, new Date(), visits.length > 0), ...(pre ? [pre] : [])]);
   const sdIn = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
-  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
+  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), giftCard: (Array.isArray(b.giftCards) ? b.giftCards : []).reduce((s: number, g: any) => s + Math.max(0, Math.round(num(g?.cents))) / 100, 0), staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
   const recoveryAmount = Math.min(Math.max(0, num(b.recovery?.amount)), calc.subtotal);
+  // Gift cards paying for this sale — never more than the sale (calc caps it), and each card must exist.
+  const giftUse: { id: string; code: string; cents: number; holdId: string | null; done?: boolean }[] = [];
+  { let left = Math.round(num((calc as any).giftCard) * 100);
+    for (const g of (Array.isArray(b.giftCards) ? b.giftCards : []).slice(0, 5)) { if (left <= 0) break;
+      const d: any = (await db.doc(`${T}/giftCards/${String(g?.id || '')}`).get()).data(); if (!d) return json({ ok: false, error: 'A gift card on this sale wasn’t found — remove it and try again.' }, 400);
+      const cents = Math.min(left, Math.max(0, Math.round(num(g.cents)))); if (cents > 0) { giftUse.push({ id: String(g.id), code: d.code, cents, holdId: g.holdId ? String(g.holdId) : null }); left -= cents; } } }
   const recoveryReason = String(b.recovery?.reason || 'Service Recovery Adjustment').slice(0, 200);
   const cardSurcharge = Math.max(0, num(pay.cardSurcharge));
   // ── Approvals (checked HERE — the browser can't skip them). Managers checking out approve by being signed in. ──
@@ -310,9 +319,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const receiptRef = db.collection(`${T}/receipts`).doc();   // made early: a rent payment points to its receipt
   for (const it of items) {
     const value = it.price * it.quantity;
-    const category = it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
-    const description = it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : it.type === 'rent' ? `Booth rent: ${it.name}` : it.type === 'tuition' ? `Tuition: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
-    txn({ description, type: 'income', context: 'Business', category, amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
+    const category = it.type === 'giftcard' ? 'Gift Card Sales' : it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
+    const description = it.type === 'giftcard' ? `Gift card sold: ${it.name}` : it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : it.type === 'rent' ? `Booth rent: ${it.name}` : it.type === 'tuition' ? `Tuition: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
+    txn({ description, type: 'income', context: 'Business', category, ...(it.type === 'giftcard' ? { taxBucket: 'transfer' } : {}), amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
     if (it.type === 'product') {
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity) }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
@@ -439,6 +448,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   for (const [sid, amt] of Object.entries(alloc)) if (num(amt) > 0) detail.tipShares.push({ name: sid === '__school' ? 'The school' : nameOf(sid) || 'The team', amount: num(amt) });
   detail.payments = split ? split.map((x: any) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payer: x.payerName || null, label: x.label || null, pi: x.stripePaymentIntentId || null }))
     : [{ method, amount: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), pi: pay.stripePaymentIntentId || null }];
+  if (giftUse.length) { detail.giftCards = giftUse.map((g) => ({ code: g.code, amount: g.cents / 100 })); detail.payments.unshift(...giftUse.map((g) => ({ method: 'gift_card', amount: g.cents / 100, label: `Gift card ${g.code}` }))); }
   detail.depositUsed = depositUsed; detail.storeCredit = num((calc as any).storeCredit ?? b.storeCredit); detail.cardSurcharge = cardSurcharge;
   const viewKey = `${rid()}${rid()}`;
   batch.set(receiptRef, clean({ id: receiptRef.id, detail, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
@@ -452,6 +462,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       redeemed: redeemedOffer ? { ...redeemedOffer, clientId: usedBy.id } : null,
       discountIds: (discounts as any[]).map((d) => d.id), groupDiscount: calc.groupDiscount > 0 ? { amount: calc.groupDiscount, month: gMonth, clientId } : null, momentKey: calc.momentDiscount > 0 && calc.moment ? calc.moment.key : null, memberships: items.filter((x) => x.type === 'membership' || x.type === 'package').map((x) => ({ type: x.type, id: x.id, name: x.name })),
       visits: visits.map((v) => ({ id: v.appointment.id, statusBefore: v.appointment.status || 'checked_in', checkInToken: v.appointment.checkInToken || null, clientId: v.appointment.clientId || clientId })),
+      giftCardsUsed: giftUse.map((g) => ({ id: g.id, cents: g.cents })),
       stripePaymentIntentId: pay.stripePaymentIntentId || null },
     // Each discount by name (and any the staff removed for this sale) — so the receipt explains the total.
     discounts: [...(calc.codeDiscount > 0 ? [{ kind: 'code', label: `Code ${(discounts as any[]).map((d) => d.code).filter(Boolean).join(', ')}`, amount: calc.codeDiscount }] : []),
@@ -473,11 +484,30 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       const cid = (w.data() as any).campaignId; if (cid) batch.set(db.doc(`${T}/campaigns/${cid}`), { offersRedeemed: FieldValue.increment(1), offerRevenueCents: FieldValue.increment(Math.round(calc.total * 100)) }, { merge: true }); }
     for (const v of visits) if (v.appointment.pendingDiscountCode) batch.set(db.doc(`${T}/appointments/${v.appointment.id}`), { pendingDiscountCode: FieldValue.delete(), discountCodeUsed: String(d.code) }, { merge: true });
   }
+  // Gift cards: take the money off each card now (each in its own safe step); put it all back if anything fails.
+  const { spendGiftCard, adjustGiftCard } = await import('@/lib/gift-cards');
+  const putBack = async () => { for (const g of giftUse.filter((x) => x.done)) await adjustGiftCard(db, tenantId, { id: g.id, kind: 'add', cents: g.cents, note: 'Checkout didn’t finish — put back', by: 'System' }).catch(() => {}); };
+  for (const g of giftUse) { const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: g.cents, holdId: g.holdId, by: auth.actor.name || 'Front desk', transactionRef: checkoutSessionId, appointmentId: apptIds[0] || null, clientId: visits[0] ? whoHad(visits[0]).id : clientId });
+    if (!r.ok) { await putBack(); await failPending(r.error); return json({ ok: false, error: r.error }, 409); } g.done = true; }
   try { await batch.commit(); }
-  catch (e: any) { console.error('[checkout] save failed', e); await failPending(String(e?.message || e)); return json({ ok: false, error: 'Checkout didn’t save — nothing was recorded. Please try again.' }, 500); }
+  catch (e: any) { console.error('[checkout] save failed', e); await putBack(); await failPending(String(e?.message || e)); return json({ ok: false, error: 'Checkout didn’t save — nothing was recorded. Please try again.' }, 500); }
 
   // After the sale is saved: enrol memberships / packages; confirm next-visit deposits.
   const warnings: string[] = [];
+  // Gift cards sold on this sale: made now, and sent (or set to send on the day chosen).
+  const giftsIssued: { id: string; code: string; amount: number; sendVia: string; sent: boolean }[] = [];
+  for (const it of items.filter((x: any) => x.type === 'giftcard' && x.__gift)) {
+    for (let q = 0; q < Math.max(1, num(it.quantity)); q++) {
+      try { const { issueGiftCard, deliverGiftCard } = await import('@/lib/gift-cards'); const g = it.__gift;
+        const r: any = await issueGiftCard(db, tenantId, { amountCents: g.cents, by: auth.actor.name || 'Front desk', source: 'desk', purchaser: { id: clientId, name: client.name || null }, recipient: { id: g.recipientId, name: g.recipientName, phone: g.recipientPhone, email: g.recipientEmail }, message: g.message, sendVia: g.sendVia, sendAt: g.sendAt, transactionId: checkoutSessionId });
+        if (!r.ok) { warnings.push(`The gift card was paid for but not made: ${r.error} Make it from Money → Gift cards.`); continue; }
+        let sent = false; if (['text', 'email'].includes(g.sendVia) && !g.sendAt) sent = (await deliverGiftCard(db, tenantId, tenant, r.card)).sent;
+        if (['text', 'email'].includes(g.sendVia) && !g.sendAt && !sent) warnings.push(`Gift card ${r.card.code} was made, but it didn’t send — give them the code or resend it from Money → Gift cards.`);
+        giftsIssued.push({ id: r.card.id, code: r.card.code, amount: g.cents / 100, sendVia: g.sendVia, sent });
+      } catch (e: any) { console.error('[checkout] gift card', e); warnings.push('A gift card was paid for but not made — make it from Money → Gift cards.'); }
+    }
+  }
+  if (giftsIssued.length) await receiptRef.set({ giftCardsSold: giftsIssued.map((g) => ({ id: g.id, code: g.code, amount: g.amount })), reversal: { giftCardsSold: giftsIssued.map((g) => g.id) } }, { merge: true }).catch(() => {});
   // Tuition: the Academy's audited, add-only ledger (it writes on its own, so it follows the saved sale).
   const tuitionPayments: any[] = [];
   for (const it of items.filter((x: any) => x.type === 'tuition' && x.__tacct)) {
@@ -560,5 +590,5 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   } catch (e: any) { warnings.push('The receipt couldn’t be sent automatically — use Text or Email below.'); }
   try { await receiptRef.set({ detail: { ...detail, accounts: outcomes.filter((o: any) => o.kind === 'rent' || o.kind === 'tuition').map((o: any) => ({ kind: o.kind, name: o.name, program: o.program || null, paidCents: o.paidCents,
     owedAfterCents: o.owedAfterCents ?? null, creditCents: o.creditCents ?? null, remainingCents: o.remainingCents ?? null })) } }, { merge: true }); } catch { /* best effort */ }
-  return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings, outcomes });
+  return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings, outcomes, giftCards: giftsIssued });
 }

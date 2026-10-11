@@ -3,6 +3,7 @@
 import { deliverRefreshment } from '@/lib/lounge-delivery';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { MovingInCard } from '@/components/import/MovingInCard';
 import {
   Card,
   CardContent,
@@ -405,7 +406,7 @@ const ActiveSessionCard = ({ appointment, service, staffMember }: { appointment:
 
 export default function DashboardPage() {
   const { firestore, user } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: tenantRole } = useTenant() as any;
   const { inventory, clients, transactions, appointments, staff, services, walkIns, refreshmentRequests, isLoading: isInventoryLoading } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
@@ -534,6 +535,7 @@ export default function DashboardPage() {
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Command Hub" />
       <main className="flex-1 p-4 md:p-10 max-w-7xl mx-auto w-full space-y-10">
+        <MovingInCard tenantId={selectedTenant?.id || ''} tenant={selectedTenant} role={String(tenantRole || '')} />
         <BusinessPulse tenantId={selectedTenant?.id || ''} />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5 text-left">

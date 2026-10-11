@@ -15,7 +15,7 @@ export interface CalcItem { id: string; type: string; quantity: number; price: n
 export interface CalcInput {
   tenant: any; visits: CalcVisit[]; staff: any[]; redeemedOffer: { type: string; id: string; itemId?: string } | null; waivedIds: string[];
   items: CalcItem[]; fees: { feeId: string; feeAmount: number }[]; discounts: any[]; client: any | null; memberships: any[];
-  tip: number; storeCredit: number;
+  tip: number; storeCredit: number; giftCard?: number;
   staffDiscount?: { kind: 'pct' | 'amt'; value: number } | null;   // a staff discount — never a price change
   skipGroupDiscount?: boolean;   // "don't apply the team / family discount this time"
   skipMemberDiscount?: boolean;  // "don't apply their member discount this time"
@@ -63,7 +63,7 @@ export function computeCheckout(i: CalcInput) {
   const feeSub = (i.fees || []).reduce((s, f) => s + num(f.feeAmount), 0);
   const subtotal = round2(servicesSub + retailSub + feeSub);
   // Rent and tuition are account payments: no discount code, staff or member discount reduces them.
-  const accountSub = (i.items || []).filter((it) => it.type === 'rent' || it.type === 'tuition').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
+  const accountSub = (i.items || []).filter((it) => it.type === 'rent' || it.type === 'tuition' || it.type === 'giftcard').reduce((s, it) => s + num(it.price) * num(it.quantity), 0);
   const discountable = round2(Math.max(0, subtotal - accountSub - renterSub));   // studio discounts never cut a renter's price
   let codeDiscount = round2((i.discounts || []).reduce((s, d: any) => s + (d.type === 'percentage' ? discountable * (num(d.value) / 100) : Math.min(num(d.value), discountable)), 0));
   // Team / family & friends: services (not fees) and real products only; within the monthly cap; by default it
@@ -88,8 +88,12 @@ export function computeCheckout(i: CalcInput) {
   }
   const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));
-  const total = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
+  const beforeGift = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
+  // Gift cards pay for anything except another gift card.
+  const giftable = round2(Math.max(0, beforeGift - (i.items || []).filter((it) => it.type === 'giftcard').reduce((s, it) => s + num(it.price) * num(it.quantity), 0)));
+  const giftCard = round2(Math.min(giftable, Math.max(0, num(i.giftCard))));
+  const total = round2(beforeGift - giftCard);
   // The share of the discountable total taken off by discounts — commission "on what the client paid" uses it.
   const discountShare = discountable > 0 ? Math.min(1, discount / discountable) : 0;
-  return { discountShare, memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, total };
+  return { discountShare, memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, giftCard, giftable, total };
 }

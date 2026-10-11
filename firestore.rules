@@ -367,6 +367,12 @@ service cloud.firestore {
     match /tenants/{tenantId}/refundCodes/{payoutId} {
       allow read, write: if false;
     }
+    // GIFT CARDS (lib/gift-cards): codes are money, so only the front desk and managers read them; only the server writes.
+    match /tenants/{tenantId}/giftCards/{cardId} {
+      allow read: if isManager(tenantId) || (hasStaffDoc(tenantId) && staffDoc(tenantId).data.get('role', '') == 'front_desk')
+        || (inDirectory(tenantId) && dirEntry().data.get('role', '') == 'front_desk');
+      allow write: if false;
+    }
     // IMPORTS from another app (/api/import): managers see the history; only the server writes.
     match /tenants/{tenantId}/imports/{importId} {
       allow read: if isManager(tenantId);
@@ -542,7 +548,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',

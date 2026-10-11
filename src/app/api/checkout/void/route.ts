@@ -105,6 +105,12 @@ export async function POST(req: NextRequest) {
     if (gc.teamDiscountUsage?.month === R.groupDiscount.month) batch.set(db.doc(`${T}/clients/${R.groupDiscount.clientId}`), { teamDiscountUsage: { amount: FieldValue.increment(-num(R.groupDiscount.amount)) } }, { merge: true }); }
   // A birthday / milestone treat given back (so it can be used again).
   if (R.momentKey && rc.clientId) batch.update(db.doc(`${T}/clients/${rc.clientId}`), { [`momentRewards.${R.momentKey}`]: FieldValue.delete() });
+  // Gift card money spent on this sale goes back on the cards; cards sold on it are cancelled (what's left on them).
+  if ((Array.isArray(R.giftCardsUsed) && R.giftCardsUsed.length) || (Array.isArray(R.giftCardsSold) && R.giftCardsSold.length)) {
+    const { adjustGiftCard } = await import('@/lib/gift-cards');
+    for (const g of R.giftCardsUsed || []) await adjustGiftCard(db, tenantId, { id: String(g.id), kind: 'add', cents: num(g.cents), note: `Sale voided (${receiptId})`, by: approvedBy }).catch(() => {});
+    for (const id of R.giftCardsSold || []) await adjustGiftCard(db, tenantId, { id: String(id), kind: 'void', note: `Sale voided (${receiptId})`, by: approvedBy }).catch(() => {});
+  }
   // Discount-code use reversed.
   for (const id of R.discountIds || []) batch.set(db.doc(`${T}/discounts/${id}`), { usageCount: FieldValue.increment(-1) }, { merge: true });
   // Lifetime value taken back.

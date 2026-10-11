@@ -363,6 +363,9 @@ export function usePosEngine() {
   const scanInputRef = React.useRef<HTMLInputElement>(null);
   const [pendingRefund, setPendingRefund] = useState<any | null>(null);
   const [storeCreditApplied, setStoreCreditApplied] = useState(0);
+  // Gift cards paying for this sale: each one's money is set aside on the server (a hold) until the sale finishes.
+  const [giftApplied, setGiftApplied] = useState<{ id: string; code: string; cents: number; label?: string | null }[]>([]);
+  const giftHoldRef = useRef(`h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
   const [newWalkInAlert, setNewWalkInAlert] = useState<string | null>(null);
   const prevWalkInCountRef = useRef<number>(0);
 
@@ -608,7 +611,10 @@ export function usePosEngine() {
   })();
   const taxCalc = posTaxAmount(selectedTenant, taxPartsRef.current);   // Settings → Payments → Sales tax
   const taxLabel = posTaxLabel(selectedTenant);
-  const totalCalc = Math.max(0, subtotalCalc + taxCalc + tipAmount - discountValue - membershipDiscountValue - storeCreditApplied);
+  const beforeGiftCalc = Math.max(0, subtotalCalc + taxCalc + tipAmount - discountValue - membershipDiscountValue - storeCreditApplied);
+  const giftItemsTotal = retailItems.filter((i: any) => i.type === 'giftcard').reduce((s: number, i: any) => s + safeNumber(i.price) * safeNumber(i.quantity || 1), 0);
+  const giftCardValue = Math.round(Math.min(Math.max(0, beforeGiftCalc - giftItemsTotal), giftApplied.reduce((s, g) => s + g.cents, 0) / 100) * 100) / 100;
+  const totalCalc = Math.max(0, Math.round((beforeGiftCalc - giftCardValue) * 100) / 100);
 
   const payerOptions = useMemo(() => { const clientIds = new Set<string>(); readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).forEach(data => { if (data.client?.id) clientIds.add(data.client.id); }); return (clients || []).filter(c => clientIds.has(c.id)); }, [readyForCheckoutAppointments, selectedAppointmentIds, clients]);
 
@@ -628,6 +634,11 @@ export function usePosEngine() {
   /** Rent at the desk: one rent line for a renter (priced and checked on the server). */
   const addRentToCart = useCallback((x: { renterId: string; name: string; amount: number }) => {
     setRetailItems(prev => [...prev.filter((i: any) => !(i.type === 'rent' && i.renterId === x.renterId)), { id: `rent:${x.renterId}`, renterId: x.renterId, name: `Rent — ${x.name}`, quantity: 1, price: x.amount, type: 'rent' as any }]);
+  }, []);
+
+  /** A gift card sold at the desk: one line per card, with who it's for and how it's sent (made on the server after the sale). */
+  const addGiftCardToCart = useCallback((x: { amount: number; gift: any }) => {
+    setRetailItems(prev => [...prev, { id: `gift:${Date.now().toString(36)}`, name: `Gift card${x.gift?.recipientName ? ` for ${x.gift.recipientName}` : ''}`, quantity: 1, price: Math.round(x.amount * 100) / 100, type: 'giftcard' as any, gift: x.gift } as any]);
   }, []);
 
   /** Tuition at the desk: one tuition line for a student's plan (checked on the server). */
@@ -1123,10 +1134,10 @@ export function usePosEngine() {
   const buildCheckoutPayload = (paymentData?: any) => ({
     tenantId, clientId: checkoutClientId,
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
-    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
+    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
     // A tip chosen on the client screen together with the payment is recorded exactly (it goes to the provider(s) on the ticket).
-    tipAllocations: paymentData?.tipOverride !== undefined ? ((paymentData as any)?.tipAllocationsOverride || {}) : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied,
+    tipAllocations: paymentData?.tipOverride !== undefined ? ((paymentData as any)?.tipAllocationsOverride || {}) : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied, giftCards: giftApplied.map((g) => ({ id: g.id, cents: g.cents, holdId: giftHoldRef.current })),
     skipGroupDiscount, skipMomentReward, skipMemberDiscount,
     staffDiscount: staffDiscount ? { kind: staffDiscount.kind, value: staffDiscount.value, reason: staffDiscount.reason, approvalToken: staffDiscount.approvalToken || null } : null,
     recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '', approvalToken: paymentData?.recoveryApprovalToken || recoveryApprovalRef.current || null },
@@ -1177,7 +1188,7 @@ export function usePosEngine() {
           serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, staffId: firstVisit?.appointment?.staffId || null, addOnIds: firstVisit?.appointment?.addOnIds || [], appointmentId: firstVisit?.appointment?.id || null,
           warnings: out.warnings || [], at: new Date().toISOString() , outcomes: Array.isArray(out.outcomes) ? out.outcomes : []}); }
       setSkipGroupDiscount(false); setSkipMomentReward(false); setSkipMemberDiscount(false);   // removals were for that sale only
-      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null); setSplitActive(false);   // the next sale starts fresh (the client screen goes back to your logo)
+      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setGiftApplied([]); giftHoldRef.current = `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null); setSplitActive(false);   // the next sale starts fresh (the client screen goes back to your logo)
       return true;
     } catch (e: any) {
       console.error('[checkout] failed', e);
@@ -1517,7 +1528,7 @@ export function usePosEngine() {
     onRequestOverride: () => { setIsCartSheetOpen(false); setTimeout(() => setIsRecoveryOverrideOpen(true), 300); },
     tenantId,
     cashierName: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || (staff || []).find((s: any) => s.role === 'owner')?.name || '',
-    storeCreditApplied,
+    storeCreditApplied, giftApplied, setGiftApplied, giftCardValue, giftHoldId: giftHoldRef.current, addGiftCardToCart,
     onStoreCreditApplied: ({ appliedAmount }: { appliedAmount: number; remainingBalance: number }) => {
       setStoreCreditApplied(appliedAmount);
     },

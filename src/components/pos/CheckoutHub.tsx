@@ -109,6 +109,7 @@ import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { StoreCreditPanel } from '@/components/pos/StoreCreditPanel';
+import { GiftCardPanel } from '@/components/pos/GiftCardPanel';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
 let useTerminalSafe: () => any = () => null;
@@ -572,6 +573,7 @@ export const CheckoutHub = ({
   cashierName,
   storeCreditApplied,
   onStoreCreditApplied,
+  giftApplied = [], setGiftApplied, giftCardValue = 0, giftHoldId = '', addGiftCardToCart,
   walletOffers = [],
   offerClientId = null,
   offerServiceIds = [],
@@ -821,9 +823,13 @@ export const CheckoutHub = ({
     }, 0);
   }, [appointmentsData]);
 
-  const finalTotal        = isFullyComped
+  const beforeGiftTotal   = isFullyComped
     ? Math.max(0, tipAmount)
     : Math.max(0, subtotal - totalWithRecovery + (Number(tax) || 0) + tipAmount - totalPaidDeposits);
+  // Gift cards on this sale come off what's left to pay (never more than that — and never toward another gift card).
+  const giftInCart = (cart || []).filter((i: any) => i.type === 'giftcard').reduce((s2: number, i: any) => s2 + safeNumber(i.price) * safeNumber(i.quantity || 1), 0);
+  const giftUsed = Math.round(Math.min(safeNumber(giftCardValue), Math.max(0, beforeGiftTotal - giftInCart)) * 100) / 100;
+  const finalTotal = Math.max(0, Math.round((beforeGiftTotal - giftUsed) * 100) / 100);
 
   // ── Card processing fee passthrough ─────────────────────────────────────────
   // Opt-in per studio via tenant.cardSurchargeEnabled. Rate defaults to 3% if
@@ -1253,6 +1259,7 @@ export const CheckoutHub = ({
            }}
          />
        )}
+       {setGiftApplied && addGiftCardToCart && <GiftCardPanel tenantId={tenantId} clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} owedBeforeGift={Math.max(0, beforeGiftTotal - giftInCart)} applied={giftApplied} setApplied={setGiftApplied} holdId={giftHoldId} addGiftCardToCart={addGiftCardToCart} />}
         </div>
         <div className="co-right min-w-0 space-y-3">
           {/* EXTRA PRODUCT — suggested, never automatic: the provider recorded more than the recipe on "Products used". */}
@@ -1566,6 +1573,7 @@ export const CheckoutHub = ({
               {tipAmount > 0 && <div className="flex justify-between"><span>Tip</span><span className="tabular-nums">{coMoney(tipAmount)}</span></div>}
               {totalPaidDeposits > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Deposit already paid</span><span className="tabular-nums">−{coMoney(totalPaidDeposits)}</span></div>}
               {safeNumber(storeCreditApplied) > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Store credit</span><span className="tabular-nums">−{coMoney(storeCreditApplied)}</span></div>}
+              {giftUsed > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Gift card{giftApplied.length > 1 ? 's' : ''}</span><span className="tabular-nums">−{coMoney(giftUsed)}</span></div>}
               {cardSurcharge > 0 && <div className="flex justify-between"><span>Card fee ({(cardSurchargeRate * 100).toFixed(1)}%)</span><span className="tabular-nums">+{coMoney(cardSurcharge)}</span></div>}
             </div>
           </section>

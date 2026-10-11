@@ -23,6 +23,7 @@ export const CATEGORY_LIBRARY: CategoryDef[] = [
   { name: 'Retail',              type: 'income',  taxBucket: 'revenue',        hint: 'Product sales — usually sales-taxable' },
   { name: 'Membership Sales',    type: 'income',  taxBucket: 'revenue' },
   { name: 'Package Sales',       type: 'income',  taxBucket: 'revenue' },
+  { name: 'Gift Card Sales',     type: 'income',  taxBucket: 'transfer',       hint: 'Money held for clients — it counts as a sale when the card is used' },
   { name: 'Booth Rent Collected',type: 'income',  taxBucket: 'revenue',        hint: 'Rent from booth renters' },
   { name: 'Tips',                type: 'income',  taxBucket: 'gratuity' },
   { name: 'Tax Collected',       type: 'income',  taxBucket: 'tax_collected',  hint: 'Held for the state — not your income' },

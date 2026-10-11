@@ -59,6 +59,7 @@
     "react-hook-form": "^7.54.2",
     "react-phone-number-input": "^3.4.3",
     "react-signature-canvas": "^1.0.6",
+    "read-excel-file": "^9.3.10",
     "recharts": "^2.15.1",
     "stripe": "^16.0.0",
     "tailwind-merge": "^3.0.1",
