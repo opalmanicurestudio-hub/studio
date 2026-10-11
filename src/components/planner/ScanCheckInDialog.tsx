@@ -273,7 +273,7 @@ export function ScanCheckInDialog({
       try {
         const win: any = window;
         if (!detectorRef.current && !('BarcodeDetector' in win)) {
-          const jsQR = (await import('jsqr')).default; const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d', { willReadFrequently: true } as any);
+          const jsQR = (await import('jsqr')).default; const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
           detectorRef.current = { detect: async (vid: HTMLVideoElement) => { if (!ctx) return []; const w = Math.min(640, vid.videoWidth || 640); const h = Math.round(w * ((vid.videoHeight || 480) / (vid.videoWidth || 640)));
             canvas.width = w; canvas.height = h; ctx.drawImage(vid, 0, 0, w, h); const img = ctx.getImageData(0, 0, w, h); const r = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' }); return r?.data ? [{ rawValue: r.data }] : []; } };
         }
