@@ -126,8 +126,10 @@ async function settle(db: any, tenantId: string, tenant: any, p: any, via: strin
   if (p.saleId) { const s = await db.doc(`${T0}/transactions/${p.saleId}`).get(); sale = s.exists ? { id: s.id, ...s.data() } : null; }
   if (via !== 'Store credit') {
     const rev = db.collection(`${T0}/transactions`).doc();
-    await rev.set({ id: rev.id, date: at, description: `Refund for: ${sale?.description || p.serviceName || 'visit'}`, clientOrVendor: p.clientName || null, clientId: p.clientId || null, type: 'reversal', context: sale?.context || null, category: 'Refunds', amount: cents / 100, paymentMethod: via, reversalOf: sale?.id || null, appointmentId: p.appointmentId || null, hasReceipt: false, notes: `${p.number ? `Making it right ${p.number} · ` : ''}${via}${p.app?.ref ? ` · ref ${p.app.ref}` : ''}`, payoutId: p.id, caseId: p.caseId || null, by });
-    if (sale && !sale.refundedAt) await db.doc(`${T0}/transactions/${sale.id}`).set({ refundedAt: at, refundTransactionId: rev.id }, { merge: true });
+    await rev.set({ id: rev.id, date: at, description: `Refund for: ${sale?.description || p.serviceName || 'visit'}`, clientOrVendor: p.clientName || null, clientId: p.clientId || null, type: 'reversal', context: sale?.context || null, category: 'Refunds', amount: cents / 100, paymentMethod: via, reversalOf: sale?.id || null, appointmentId: p.appointmentId || null, hasReceipt: false, notes: `${p.number ? `Making it right ${p.number} · ` : ''}${via}${p.app?.ref ? ` · ref ${p.app.ref}` : ''}`, payoutId: p.id, caseId: p.caseId || null, by, ...(p.ledger || {}) });
+    if (sale && !sale.refundedAt) await db.doc(`${T0}/transactions/${sale.id}`).set({ refundedAt: at, refundTransactionId: rev.id, refundPendingId: null }, { merge: true });
+  } else if (sale) {
+    await db.doc(`${T0}/transactions/${sale.id}`).set({ refundPendingId: null, refundedAsCreditAt: at }, { merge: true });
   }
   if (p.caseId) {
     await db.doc(`${T0}/cases/${p.caseId}`).set({ fix: { refundedAt: at, refundedCents: cents, refundVia: via, todo: null }, updatedAt: at, timeline: FieldValue.arrayUnion(line(by, `Refund of ${money(cents)} given — ${via}`)) }, { merge: true });
@@ -154,17 +156,23 @@ export async function createPayout(db: any, tenantId: string, tenant: any, actor
   const appointmentId = String(b.appointmentId || c?.visit?.appointmentId || c?.appointmentId || '');
   let sale: any = null; if (b.saleId) { const s = await db.doc(`${T0}/transactions/${b.saleId}`).get(); sale = s.exists ? { id: s.id, ...s.data() } : null; }
   else if (appointmentId) { const { saleForVisit } = await import('@/lib/money-refund'); sale = await saleForVisit(db, tenantId, appointmentId); }
+  if (sale) {
+    if (sale.refundedAt || sale.voided) return { ok: false as const, error: 'This sale was already refunded.' };
+    const dup = await db.collection(`${T0}/refundPayouts`).where('saleId', '==', sale.id).get();
+    if (dup.docs.some((d: any) => d.data().status !== 'cancelled')) return { ok: false as const, error: 'A refund is already set up for this sale — see Refunds to give.' };
+  }
   let cl: any = {}; const clientId = String(b.clientId || c?.clientId || sale?.clientId || ''); if (clientId) cl = (await db.doc(`${T0}/clients/${clientId}`).get()).data() || {};
   const clientName = String(c?.clientName || cl.name || sale?.clientOrVendor || 'Client');
   const ref = db.collection(`${T0}/refundPayouts`).doc();
   const p: any = { id: ref.id, number: c?.number || null, caseId: c?.id || null, appointmentId: appointmentId || null, saleId: sale?.id || null, serviceName: c?.visit?.serviceName || null,
     clientId: clientId || null, clientName, clientFirst: clientName.split(' ')[0], phone: cl.phone || cl.phoneNumber || c?.phone || null, email: cl.email || null,
     amountCents: amount, reason: c?.reasonLabel || null, mode: b.mode === 'client' ? 'client' : 'staff', method: null, status: 'choose',
-    missed: 0, createdAt: now(), createdBy: actor.name, updatedAt: now(), timeline: [line(actor.name, `Refund of ${money(amount)} set up`)] };
+    missed: 0, createdAt: now(), createdBy: actor.name, ...(b.ledger && typeof b.ledger === 'object' ? { ledger: { ...(Array.isArray(b.ledger.payReversals) ? { payReversals: b.ledger.payReversals.slice(0, 10), staffId: String(b.ledger.staffId || '') || null } : {}), ...(b.ledger.tipReversal?.staffId ? { tipReversal: { staffId: String(b.ledger.tipReversal.staffId), amount: Number(b.ledger.tipReversal.amount) || 0 } } : {}) } } : {}), ...(b.reason && !c ? { note: String(b.reason).slice(0, 300) } : {}), updatedAt: now(), timeline: [line(actor.name, `Refund of ${money(amount)} set up`)] };
   p.noteText = noteDraft({ ...p, method: 'pickup' }, tenant);
   const allowed = methodsFor(tenant, p); if (!allowed.length) return { ok: false as const, error: 'Turn on a way to give cash refunds in Settings → Making it right.' };
+  const markSale = async () => { if (sale) await db.doc(`${T0}/transactions/${sale.id}`).set({ refundPendingId: ref.id }, { merge: true }); };
   if (p.mode === 'client') {
-    await ref.set(p);
+    await ref.set(p); await markSale();
     const sent = await textClient(db, tenantId, tenant, p, `Hi ${p.clientFirst}, we’re refunding your ${money(amount)}. Choose how you’d like it back here:`);
     await ref.set({ timeline: FieldValue.arrayUnion(line(actor.name, sent ? 'Texted the client to choose how' : 'Couldn’t text the client — share the link')) }, { merge: true });
     if (c) await db.doc(`${T0}/cases/${c.id}`).set({ payoutId: ref.id, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `Cash refund: client chooses how (${money(amount)})`)) }, { merge: true });
@@ -172,7 +180,7 @@ export async function createPayout(db: any, tenantId: string, tenant: any, actor
   }
   const m = String(b.method || '') as Method; if (!allowed.includes(m)) return { ok: false as const, error: 'Choose how they’ll get it back.' };
   p.method = m; p.noteText = noteDraft(p, tenant);
-  await ref.set(p);
+  await ref.set(p); await markSale();
   if (c) await db.doc(`${T0}/cases/${c.id}`).set({ payoutId: ref.id, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `Cash refund: ${METHOD_LABEL[m]} (${money(amount)})`)) }, { merge: true });
   const r = await applyChoice(db, tenantId, tenant, { ...p }, { method: m, pickup: b.pickup, handle: b.handle, accountName: b.accountName }, actor.name, false);
   return r.ok ? { ...r, id: ref.id, link: payoutPath(tenantId, ref.id) } : r;
@@ -358,6 +366,7 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
     case 'cancel': {
       if (done) return { ok: false as const, error: 'Already finished.' }; if (p.prep?.tillAt) return { ok: false as const, error: 'Put the cash back in the till first.' };
       await push({ status: 'cancelled', cancelledAt: now() }, `Cancelled${b.reason ? `: ${String(b.reason).slice(0, 200)}` : ''}`);
+      if (p.saleId) await db.doc(`${T0}/transactions/${p.saleId}`).set({ refundPendingId: null }, { merge: true });
       if (p.caseId) await db.doc(`${T0}/cases/${p.caseId}`).set({ payoutId: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, 'Cash refund set-up cancelled')) }, { merge: true });
       return { ok: true as const };
     }

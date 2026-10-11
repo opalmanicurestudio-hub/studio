@@ -1,6 +1,7 @@
 'use client';
 
 import { getAuth } from 'firebase/auth';
+import { payPost } from '@/components/pay/pay-client';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras, reversalsFor } from '@/lib/commission';
 import { periodPay, payrollFields } from '@/lib/pay-period';
@@ -670,6 +671,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
   // Commission on a refunded service: taken back (or kept) — the business's default, changeable here.
   const isServiceSale = transaction?.category === 'Service Revenue' && !!transaction?.staffId;
   const [takeBack, setTakeBack] = useState<boolean>(true);
+  const [later, setLater] = useState(false);   // a cash sale with the client not here: they choose pickup, an app or credit
   useEffect(() => { setTakeBack(((tenant as any)?.payRules?.refundCommission || 'take_back') !== 'keep'); }, [transaction?.id, (tenant as any)?.payRules?.refundCommission]);
   useEffect(() => {
     if (transaction) { setRefundAmount(transaction.amount); setReason(''); setLogIncident(false); setWithholdOverhead(false); setWithholdMaterials(false); setWithholdLabor(costsBreakdown.staffMember?.payStructure === 'hourly'); }
@@ -708,7 +710,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
       } catch {
         toast({ variant: 'destructive', title: 'No connection', description: 'PINs are checked online — try again.' }); return;   // never compared on this device
       }
-      onConfirm({ amount: refundAmount, refundTip: refundTip && (transaction.tipAmount || 0) > 0, tipStrategy, reason, logIncident, authorizerId, takeBack: isServiceSale && takeBack });
+      onConfirm({ amount: refundAmount, refundTip: refundTip && (transaction.tipAmount || 0) > 0, tipStrategy, reason, logIncident, authorizerId, takeBack: isServiceSale && takeBack, later: !isCard && later });
       setPin('');
     } finally { setVerifying(false); }
   };
@@ -731,6 +733,14 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
                 {isCard ? 'Original Card (Locked)' : transaction.paymentMethod}
               </p>
             </div>
+            {!isCard && (
+              <div className="space-y-2 rounded-2xl border p-4 text-[14px]">
+                <p className="font-semibold">How they get it back</p>
+                <label className="flex items-center gap-2"><input type="radio" name="refund-when" checked={!later} onChange={() => setLater(false)} className="h-4 w-4" /> They’re here — give it from the till now</label>
+                <label className="flex items-center gap-2"><input type="radio" name="refund-when" checked={later} onChange={() => setLater(true)} className="h-4 w-4" /> They’re not here — text them to choose (cash pickup, an app or credit)</label>
+                {later && <p className="text-[12px] text-muted-foreground">It goes on Refunds to give. Money records it when they collect or it’s sent.</p>}
+              </div>
+            )}
             {isServiceSale && (
               <div className="space-y-2 rounded-2xl border p-4 text-[14px]">
                 <p className="font-semibold">The provider’s commission on this service</p>
@@ -1242,8 +1252,18 @@ const LedgerTab = () => {
     if (!transactionToRefund || !firestore || !tenantId) return;
     const activeTill = tillSessions?.find(s => s.status === 'open');
     const isCash = transactionToRefund.paymentMethod?.toLowerCase() === 'cash';
-    if (isCash && !activeTill) { toast({ variant: 'destructive', title: 'Till Required' }); return; }
     if ((transactionToRefund as any).refundedAt || (transactionToRefund as any).voided) { toast({ variant: 'destructive', title: 'Already refunded', description: 'This sale was already refunded or voided.' }); return; }
+    if ((transactionToRefund as any).refundPendingId) { toast({ variant: 'destructive', title: 'Refund already set up', description: 'This sale has a refund on Refunds to give.' }); return; }
+    if (data.later) {   // not here: they choose how (Refunds to give); the books change when the money actually goes
+      const t0: any = transactionToRefund; const total = data.amount + (data.refundTip ? (t0.tipAmount || 0) : 0);
+      const pr = data.takeBack ? reversalsFor(t0, data.amount, staff || [], services || []) : [];
+      const r = await payPost('/api/refund-payouts', { tenantId, action: 'create', mode: 'client', saleId: t0.id, clientId: t0.clientId || null, appointmentId: t0.appointmentId || null, amountCents: Math.round(total * 100), reason: data.reason,
+        ledger: { ...(pr.length ? { payReversals: pr, staffId: t0.staffId } : {}), ...(data.refundTip && (t0.tipAmount || 0) > 0 && data.tipStrategy !== 'absorb' && t0.staffId ? { tipReversal: { staffId: t0.staffId, amount: Number(t0.tipAmount) || 0 } } : {}) } });
+      if (!r.ok) { toast({ variant: 'destructive', title: 'Couldn’t set up the refund', description: r.error }); return; }
+      toast({ title: 'Refund set up', description: r.sent ? 'We’ve texted them to choose how. It’s on Refunds to give.' : 'We couldn’t text them — share the link from Refunds to give.' });
+      setTransactionToRefund(null); return;
+    }
+    if (isCash && !activeTill) { toast({ variant: 'destructive', title: 'Till Required' }); return; }
     let refundTotal = data.amount + (data.refundTip ? (transactionToRefund.tipAmount || 0) : 0);
     // Card sales go back to the card first; the books only change once the card refund went through.
     let toCard: { card: boolean; cents?: number } = { card: false };

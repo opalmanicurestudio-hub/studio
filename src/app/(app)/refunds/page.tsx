@@ -52,7 +52,7 @@ export default function RefundsPage() {
         <aside className="space-y-3 p-4 md:p-6" aria-label="Refunds">
           <div><p className={LABEL} style={{ color: MUTED }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: tz }).toLowerCase()}</p><h1 className="text-[32px] font-normal tracking-[-0.03em]">Refunds today</h1></div>
           {isLoading && <p className="text-[14px]" style={{ color: MUTED }}>Loading…</p>}
-          {!isLoading && !all.some(active) && <p className="text-[14.5px]" style={{ color: MUTED }}>Nothing to give back right now. Cash refunds start from a Making it right case.</p>}
+          {!isLoading && !all.some(active) && <p className="text-[14.5px]" style={{ color: MUTED }}>Nothing to give back right now. Cash refunds start from a Making it right case, or from Money when the client isn’t there.</p>}
           <Group title={`cash pickups · ${todayPick.length}`} items={todayPick} pick={pick} onPick={setPick} />
           {returns.length > 0 && <Group title="cash to put back in the till" items={returns} pick={pick} onPick={setPick} />}
           <Group title={`to send by app · ${toSend.length}`} items={toSend} pick={pick} onPick={setPick} />
