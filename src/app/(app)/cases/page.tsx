@@ -128,13 +128,15 @@ function NewCase({ firestore, tenantId, S, onDone }: { firestore: any; tenantId:
     </div>);
 }
 
-function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; tenantId: string; S: any; me: string; isManager: boolean; tz: string; services: any[] }) {
+function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: any; tenantId: string; S: any; me: string; isManager: boolean; tz: string; services: any[]; solo?: boolean }) {
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [ok, setOk] = React.useState('');
   const [kind, setKind] = React.useState<FixKind | ''>(''); const [amt, setAmt] = React.useState(''); const [redoMode, setRedoMode] = React.useState<'client' | 'book'>('client'); const [move, setMove] = React.useState(false); const [plan, setPlan] = React.useState<any>(null); const [editPlan, setEditPlan] = React.useState(false);
   const [msg, setMsg] = React.useState(''); const [note, setNote] = React.useState(''); const [inc, setInc] = React.useState<any>({}); const [stmt, setStmt] = React.useState(''); const [cb, setCb] = React.useState('');
   React.useEffect(() => { setKind(''); setAmt(''); setRedoMode('client'); setMove(false); setErr(''); setOk(''); setInc({}); }, [c.id]);
   const act = async (action: string, extra: any = {}, done = 'Saved.') => { setBusy(true); setErr(''); setOk(''); const r = await payPost('/api/cases', { tenantId, id: c.id, action, ...extra }); setBusy(false); if (r.ok) { setOk(r.pending ? `Sent to a manager — ${r.why}` : action === 'message' && r.sent === false ? 'Saved on the case — we couldn’t text them, so call or message them too.' : done); return true; } setErr(r.error || 'That didn’t work.'); return false; };
-  const v = c.visit || {}; const fixes = (Object.keys(FIX_LABEL) as FixKind[]).filter((k) => S.fixes[k]);
+  const v = c.visit || {}; const sensitive = !!(c.preferOther || c.safety || /treat|rude|manner|attitude|behav/i.test(`${c.reasonId} ${c.reasonLabel}`));
+  const order: FixKind[] = solo && sensitive ? ['refund', 'credit', 'redo', 'addon', 'replace', 'note'] : (Object.keys(FIX_LABEL) as FixKind[]);
+  const fixes = order.filter((k) => S.fixes[k]); const fixLabel = (k: FixKind) => (solo && k === 'redo' ? 'Fix it myself' : FIX_LABEL[k]);
   const clock = !c.firstReplyAt && c.replyDueAt && c.status !== 'closed' ? left(c.replyDueAt) : null;
   const dl = async (k: 'record' | 'incident') => { try { await download(tenantId, c.id, k, c.number); } catch (e: any) { setErr(e.message); } };
   const fmt = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
@@ -161,7 +163,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
         </div>
       </header>
 
-      {!c.ownerId && !c.locked && (!c.safety || isManager) && <button type="button" disabled={busy} onClick={() => act('own', {}, 'It’s yours.')} className={btn} style={{ background: INK, color: '#fff' }}>I’ll take this</button>}
+      {!solo && !c.ownerId && !c.locked && (!c.safety || isManager) && <button type="button" disabled={busy} onClick={() => act('own', {}, 'It’s yours.')} className={btn} style={{ background: INK, color: '#fff' }}>I’ll take this</button>}
 
       <div className="grid gap-3 md:grid-cols-2">
         <Card title="WHAT THEY SAID">
@@ -191,7 +193,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
         </Card>
       </div>
 
-      <Card title={c.kind === 'incident' ? 'STATEMENTS' : 'EVERYONE’S SIDE'}>
+      {(!solo || c.kind === 'incident' || (c.statements || []).length > 0) && <Card title={c.kind === 'incident' ? 'STATEMENTS' : solo ? 'NOTES' : 'EVERYONE’S SIDE'}>
         {c.sideWanted && !c.locked && <p className="rounded-xl px-3 py-2 text-[14px] font-semibold" style={{ background: '#fff7e6' }}>Waiting for {v.providerName ? v.providerName.split(' ')[0] : 'the provider'}’s side — they’ve been asked in the staff app.</p>}
         {[...(c.statements || []), ...(c.incident?.statements || [])].map((st: any, i: number) => <div key={i} className="space-y-1 border-b pb-2 last:border-0" style={{ borderColor: LINE }}>
           <p className="text-[13px]" style={{ color: MUTED }}><b style={{ color: INK }}>{st.by}</b> · {fmt(st.at)} · signed</p>
@@ -199,11 +201,11 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
           {st.voice?.url && <audio controls src={st.voice.url} className="w-full" />}{st.voice?.translation && <p className="text-[14px]" style={{ color: MUTED }}><b>In English:</b> {st.voice.translation}</p>}</div>)}
         {!(c.statements || []).length && !(c.incident?.statements || []).length && !c.sideWanted && <p className="text-[14px]" style={{ color: MUTED }}>No statements yet.</p>}
         {!c.locked && <div className="flex gap-2"><input value={stmt} onChange={(e) => setStmt(e.target.value)} placeholder="Your account (signed with your name)" className="h-11 flex-1 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><button type="button" disabled={busy || !stmt.trim()} onClick={async () => { if (await act('statement', { text: stmt }, 'Statement signed.')) setStmt(''); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Sign it</button></div>}
-      </Card>
+      </Card>}
 
-      {isManager && c.kind !== 'incident' && <Card title="WHAT CAUSED IT">
+      {isManager && c.kind !== 'incident' && <Card title={solo ? 'WHAT CAUSED IT (JUST FOR YOU)' : 'WHAT CAUSED IT'}>
         <div className="flex flex-wrap gap-2">{Object.entries(CAUSES).map(([k, d]) => <button key={k} type="button" disabled={busy} onClick={() => act('cause', { cause: k }, 'Cause saved.')} className="min-h-10 rounded-full px-4 text-[14px] font-semibold" style={c.cause === k ? { background: INK, color: '#fff' } : { background: SOFT }}>{d.label}</button>)}</div>
-        <p className="text-[13px]" style={{ color: MUTED }}>Only “The work itself” counts in {v.providerName ? `${v.providerName.split(' ')[0]}’s` : 'the provider’s'} numbers. {c.sideWanted ? 'Their side isn’t in yet.' : ''}</p>
+        {!solo && <p className="text-[13px]" style={{ color: MUTED }}>Only “The work itself” counts in {v.providerName ? `${v.providerName.split(' ')[0]}’s` : 'the provider’s'} numbers. {c.sideWanted ? 'Their side isn’t in yet.' : ''}</p>}
       </Card>}
 
       <Card title="FAIR-USE CHECK">
@@ -217,8 +219,9 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
         {isManager ? <button type="button" disabled={busy} onClick={() => act('approve', {}, 'Approved.')} className={btn} style={{ background: INK, color: '#fff' }}>Approve</button> : <p className="text-[14px]" style={{ color: MUTED }}>Waiting for a manager.</p>}
       </div>}
 
-      {!c.locked && !c.fix && !c.pending && <Card title="CHOOSE THE FIX">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{fixes.map((k) => <button key={k} type="button" onClick={() => setKind(k)} className="rounded-2xl border p-3 text-left" style={kind === k ? { borderColor: INK, background: INK, color: '#fff' } : { borderColor: LINE }}><span className="block text-[15px] font-bold">{FIX_LABEL[k]}</span><span className="block text-[12.5px] opacity-75">{FIX_HINT[k]}</span></button>)}</div>
+      {solo && sensitive && !c.locked && !c.fix && <p className="rounded-xl p-3 text-[14px]" style={{ background: '#fff7e6' }}><b>You’re the only provider.</b> {c.preferOther ? 'They asked for someone else, so a' : 'Another visit might not feel right for either of you. A'} refund or credit is listed first; fixing it yourself is still an option.</p>}
+      {!c.locked && !c.fix && !c.pending && <Card title={solo ? 'WHAT WILL YOU DO?' : 'CHOOSE THE FIX'}>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{fixes.map((k) => <button key={k} type="button" onClick={() => setKind(k)} className="rounded-2xl border p-3 text-left" style={kind === k ? { borderColor: INK, background: INK, color: '#fff' } : { borderColor: LINE }}><span className="block text-[15px] font-bold">{fixLabel(k)}</span><span className="block text-[12.5px] opacity-75">{FIX_HINT[k]}</span></button>)}</div>
         {(kind === 'refund' || kind === 'credit') && <label className="flex items-center gap-2 text-[15px]">Amount $<input type="number" inputMode="decimal" min={0} value={amt} onChange={(e) => setAmt(e.target.value)} placeholder={v.paid ? Number(v.paid).toFixed(2) : '0.00'} className="h-11 w-32 rounded-xl border px-3" style={{ borderColor: LINE }} />
           {kind === 'refund' && v.paid ? <span className="text-[13px]" style={{ color: MUTED }}>of ${Number(v.paid).toFixed(2)} paid</span> : null}</label>}
         {kind === 'redo' && <div className="space-y-2.5">
@@ -325,6 +328,9 @@ export default function CasesPage() {
   const cQ = useMemoFirebase(() => (firestore && tenantId && allowed ? collection(firestore as Firestore, `tenants/${tenantId}/cases`) : null), [firestore, tenantId, allowed]);
   const { data, isLoading } = useCollection<any>(cQ);
   const sQ = useMemoFirebase(() => (firestore && tenantId && allowed ? collection(firestore as Firestore, `tenants/${tenantId}/services`) : null), [firestore, tenantId, allowed]);
+  const stQ = useMemoFirebase(() => (firestore && tenantId && allowed ? collection(firestore as Firestore, `tenants/${tenantId}/staff`) : null), [firestore, tenantId, allowed]);
+  const { data: staffRows } = useCollection<any>(stQ);
+  const solo = !!staffRows && staffRows.filter((m: any) => m.archived !== true && m.isActive !== false && m.role !== 'renter').length <= 1;
   const { data: services } = useCollection<any>(sQ);
   const [pick, setPick] = React.useState<string>(''); const [starting, setStarting] = React.useState(false); const [showClosed, setShowClosed] = React.useState(false);
   React.useEffect(() => { const id = new URLSearchParams(window.location.search).get('id'); if (id) setPick(id); }, []);
@@ -358,7 +364,7 @@ export default function CasesPage() {
         </aside>
         <section className="p-4 md:p-8">
           {starting ? <NewCase firestore={firestore} tenantId={tenantId} S={S} onDone={(id) => { setStarting(false); setPick(id); }} />
-            : c ? <CaseView c={c} tenantId={tenantId} S={S} me={user?.uid || ''} isManager={isManager} tz={tz} services={services || []} />
+            : c ? <CaseView c={c} tenantId={tenantId} S={S} me={user?.uid || ''} isManager={isManager} tz={tz} services={services || []} solo={solo} />
             : <div className="mx-auto max-w-md space-y-2 pt-16 text-center"><p className="text-[20px] font-bold">Pick a case</p><p className="text-[15px]" style={{ color: MUTED }}>Every complaint gets an owner, a fix, and a check-back — and a record you can download.</p></div>}
         </section>
       </main>
