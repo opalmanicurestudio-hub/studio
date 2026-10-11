@@ -22,7 +22,7 @@ function Pill({ t, tone }: { t: string; tone: 'ok' | 'warn' | 'blue' | 'grey' })
   const s = { ok: ['#e9f3ed', GREEN], warn: ['#fdf3e6', AMBER], blue: ['#e6ecf7', BLUE], grey: [SOFT, INK] }[tone];
   return <span className="inline-flex h-[26px] items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold" style={{ background: s[0], color: s[1] }}>{t}</span>;
 }
-function Acks({ tenantId, id, onAcks }: { tenantId: string; id: string; onAcks: (id: string, a: any[]) => void }) {
+export function Acks({ tenantId, id, onAcks }: { tenantId: string; id: string; onAcks: (id: string, a: any[]) => void }) {
   const { firestore } = useFirebase() as any;
   const q = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, `tenants/${tenantId}/documents/${id}/acks`) : null), [firestore, tenantId, id]);
   const { data } = useCollection<any>(q); React.useEffect(() => { onAcks(id, data || []); }, [data, id, onAcks]); return null;

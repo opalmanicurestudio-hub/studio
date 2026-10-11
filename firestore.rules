@@ -569,7 +569,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
@@ -619,6 +619,10 @@ service cloud.firestore {
     match /tenants/{tenantId}/documents/{documentId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
       allow create, update, delete: if canManageDocs(tenantId);
+    }
+    // INSPECTOR LINKS (lib/training-proof): made, listed and turned off through the server only.
+    match /tenants/{tenantId}/inspectorLinks/{linkId} {
+      allow read, write: if false;
     }
     // Each published version, kept as it was (with its "what changed" note).
     match /tenants/{tenantId}/documents/{documentId}/versions/{versionId} {
