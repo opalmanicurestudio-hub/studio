@@ -1,4 +1,5 @@
 'use client';
+import { getAuth } from 'firebase/auth';
 
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -138,28 +139,14 @@ export default function ScheduleRequestsPage() {
       });
 
       if (selected.type === 'day_off') {
-        // Write confirmed day-off block
-        const blockRef = doc(collection(firestore, `tenants/${tenantId}/shiftDayOffBlocks`));
-        batch.set(blockRef, {
-          id: blockRef.id, staffId: selected.staffId, date: selected.date,
-          status: 'approved', requestId: selected.id, reason: selected.reason || '', approvedAt: now,
-        });
-        // Write blocked event to planner
-        const eventRef = doc(collection(firestore, `tenants/${tenantId}/events`));
-        const memberName = getStaff(selected.staffId)?.name || 'Staff';
-        batch.set(eventRef, {
-          id: eventRef.id,
-          title: `${memberName} - Day Off`,
-          type: 'blocked', allDay: true,
-          startTime: `${selected.date}T00:00:00`,
-          endTime: `${selected.date}T23:59:59`,
-          staffIds: [selected.staffId],
-          source: 'day_off_approved', requestId: selected.id, createdAt: now,
-        });
-        // Notify staff
-        const n = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-        batch.set(n, { id: n.id, userId: selected.staffId, type: 'day_off_approved', read: false, createdAt: now, link: '/my-schedule', message: `Your day off on ${format(safeDate(selected.date), 'EEE, MMM d')} is confirmed.${managerNote ? ` Note: ${managerNote}` : ''}` });
-      } else {
+        // Day off: decided on the server, which also takes that day's shifts off the schedule and flags visits to move.
+        const tk = await getAuth().currentUser?.getIdToken().catch(() => '');
+        const r = await fetch('/api/shifts/request', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'decide', requestId: selected.id, approve: true, note: managerNote || '' }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
+        if (!r.ok) { toast({ variant: 'destructive', title: 'Not approved', description: r.error || 'That didn’t work.' }); return; }
+        toast({ title: 'Approved', description: 'Day blocked, that day’s shift taken off the schedule, and they’ve been told.' });
+        setSelected(null); setManagerNote(''); return;
+      }
+      {
         const n = doc(collection(firestore, `tenants/${tenantId}/notifications`));
         batch.set(n, { id: n.id, userId: selected.staffId, type: 'request_approved', read: false, createdAt: now, link: '/my-schedule', message: `Your ${TYPE_META[selected.type]?.label || 'request'} for ${selected.date ? format(safeDate(selected.date), 'MMM d') : 'your schedule'} was approved.${managerNote ? ` Note: ${managerNote}` : ''}` });
       }

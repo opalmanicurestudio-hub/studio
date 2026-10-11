@@ -53,6 +53,18 @@ export async function consentToSwap(db: any, tenantId: string, me: RequestActor,
   return { ok: true, message: agree ? 'Agreed — a manager will confirm it.' : 'Declined.' };
 }
 
+/** An approved day off takes that day's shifts off the schedule (kept, marked cancelled, so it can be undone) and counts
+ *  the visits still booked with them that day, so managers can move them. */
+export async function dayOffClears(db: any, T: string, b: any, staffId: string, date: string, requestId: string, now: string) {
+  if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { shifts: 0, visits: 0 };
+  const shifts = (await db.collection(`${T}/shifts`).where('staffId', '==', staffId).where('date', '==', date).get()).docs.filter((d: any) => (d.data() || {}).status !== 'cancelled');
+  for (const d of shifts) b.update(d.ref, { status: 'cancelled', cancelledReason: 'day_off', dayOffRequestId: requestId, statusBefore: (d.data() || {}).status || 'published', cancelledAt: now });
+  const { startOfDay, endOfDay, tenantTimeZone } = await import('@/lib/tenant-time'); const tz = tenantTimeZone((await db.doc(T).get()).data() || {});
+  const visits = (await db.collection(`${T}/appointments`).where('staffId', '==', staffId).where('startTime', '>=', startOfDay(date, tz).toISOString()).where('startTime', '<=', endOfDay(date, tz).toISOString()).get()).docs
+    .filter((d: any) => !['cancelled', 'canceled', 'no_show', 'expired'].includes(String((d.data() || {}).status))).length;
+  return { shifts: shifts.length, visits };
+}
+
 export async function decideRequest(db: any, tenantId: string, me: RequestActor, requestId: string, approve: boolean, managerNote = '', now = new Date().toISOString()): Promise<Out> {
   if (!me.isManager) return { ok: false, error: 'Only a manager can approve requests.' };
   const T = `tenants/${tenantId}`; const ref = db.doc(`${T}/shiftRequests/${requestId}`); const s = await ref.get();
@@ -70,7 +82,9 @@ export async function decideRequest(db: any, tenantId: string, me: RequestActor,
     const blocks = (await db.collection(`${T}/shiftDayOffBlocks`).where('requestId', '==', requestId).get()).docs;
     for (const d of blocks) b.update(d.ref, { status: approve ? 'approved' : 'denied', ...(approve ? { approvedAt: now } : {}) });
     if (approve) { const e = db.collection(`${T}/events`).doc(); const who = (await db.doc(`${T}/staff/${r.staffId}`).get()).data()?.name || 'Team member';
-      b.set(e, { id: e.id, title: `${who} - Day Off`, type: 'blocked', allDay: true, startTime: `${r.date}T00:00:00`, endTime: `${r.date}T23:59:59`, staffIds: [r.staffId], source: 'day_off_approved', requestId, createdAt: now }); }
+      b.set(e, { id: e.id, title: `${who} - Day Off`, type: 'blocked', allDay: true, startTime: `${r.date}T00:00:00`, endTime: `${r.date}T23:59:59`, staffIds: [r.staffId], source: 'day_off_approved', requestId, createdAt: now });
+      const clash = await dayOffClears(db, T, b, r.staffId, String(r.date || '').slice(0, 10), requestId, now);
+      if (clash.visits) for (const m of await managers(db, T)) note(db, b, T, m, 'day_off_approved', `${who} has ${clash.visits} visit${clash.visits === 1 ? '' : 's'} booked on ${day(r.date)}, their approved day off — move ${clash.visits === 1 ? 'it' : 'them'} to someone else or another day.`, '/planner', now); }
   }
   const what = r.type === 'swap' ? 'shift swap' : r.type === 'day_off' ? 'day off' : 'request';
   for (const uid of [r.staffId, ...(r.type === 'swap' ? [r.swapWithStaffId] : [])].filter(Boolean)) note(db, b, T, uid, approve ? 'request_approved' : 'request_denied', `Your ${what} on ${day(r.date)} was ${approve ? 'approved' : 'not approved'}${msgNote ? ` — ${msgNote}` : ''}.`, 'schedule', now);

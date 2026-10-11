@@ -2940,7 +2940,7 @@ function WalkInLeaderboard({
   // Turn order: techs accepting walk-ins, sorted by lastWalkInCompletedAt asc
   const turnOrder = useMemo(() => {
     const onShift = (allShifts || [])
-      .filter((s: any) => s.date === todayStr && s.status !== 'cancelled')
+      .filter((s: any) => s.date === todayStr && s.status !== 'cancelled' && s.status !== 'draft')
       .map((s: any) => s.staffId);
     return (allStaff || [])
       .filter((t: any) => onShift.includes(t.id) && t.acceptingWalkIns !== false)
@@ -3049,7 +3049,7 @@ function WalkInLeaderboard({
 
   // ALL hooks must be before any early return — Rules of Hooks
   const onShiftToday = useMemo(() => {
-    const ids = new Set((allShifts || []).filter((s: any) => s.date === todayStr && s.status !== 'cancelled').map((s: any) => s.staffId));
+    const ids = new Set((allShifts || []).filter((s: any) => s.date === todayStr && s.status !== 'cancelled' && s.status !== 'draft').map((s: any) => s.staffId));
     return (allStaff || []).filter((t: any) => ids.has(t.id)).sort((a: any, b: any) => {
       const as_ = getTechStatus(a).priority;
       const bs_ = getTechStatus(b).priority;
