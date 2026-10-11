@@ -1,0 +1,31 @@
+// Checks lib/certification: rules, steps, who's certified, renewals and what the service carries in each mode.
+// Run: npx tsx scripts/verify/certification.verify.ts
+import { cleanRule, certSteps, stepsDone, certifiedIds, gateFields, isCurrent, renewSoon, addMonths, renewByFor, certWarning, certModeOf, NOBODY } from '../../src/lib/certification';
+let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.log('✗', m); } else console.log('✓', m); };
+const r = cleanRule({ required: true, docIds: ['a', 'a', 'b'], watched: true, renewMonths: 7 });
+ok(r.docIds.join() === 'a,b' && r.renewMonths === 0 && r.watched && r.required, 'rule cleaned (duplicates, odd renew → 0)');
+ok(!cleanRule({ required: 'yes' }).required, 'only a real true turns it on');
+ok(certModeOf({}) === 'warn' && certModeOf({ certificationMode: 'block' }) === 'block', 'warn unless the business chose block');
+ok(addMonths('2026-01-31', 1) === '2026-02-28' && addMonths('2026-10-11', 12) === '2027-10-11', 'months added, end of month safe');
+ok(renewByFor(cleanRule({ renewMonths: 12 }), '2026-10-11') === '2027-10-11' && renewByFor(cleanRule({}), '2026-10-11') === null, 'renew-by date');
+const docs = { a: { title: 'Builder gel', version: 2, status: 'published', quiz: [{}] }, b: { title: 'Draft', version: 1, status: 'draft' } };
+const s0 = certSteps(r, null, {}, docs);
+ok(s0.length === 2 && s0[0].kind === 'doc' && s0[1].kind === 'watched', 'unpublished documents aren’t required; watched step added');
+ok(s0[0].detail.includes('quick check'), 'mentions the quick check');
+const s1 = certSteps(r, null, { a: { version: 1 } }, docs); ok(!s1[0].done && s1[0].detail.includes('v2 to sign'), 'an older sign-off doesn’t count');
+const s2 = certSteps(r, { watchedAt: '2026-10-10T15:00:00Z', watchedBy: 'Jessica' }, { a: { version: 2, quiz: { right: 4, total: 4 } } }, docs);
+ok(stepsDone(s2) && s2[1].detail.includes('Jessica'), 'all done once signed and watched');
+ok(!stepsDone([]), 'nothing to do means a manager certifies by hand');
+const today = '2026-10-11';
+ok(isCurrent({ status: 'certified', renewBy: '2026-10-11' }, today) && !isCurrent({ status: 'certified', renewBy: '2026-10-10' }, today) && !isCurrent({ status: 'lapsed' }, today), 'current until the renew-by day');
+ok(renewSoon({ status: 'certified', renewBy: '2026-11-01' }, today) && !renewSoon({ status: 'certified', renewBy: '2027-01-01' }, today), 'renew soon within 30 days');
+const recs = [{ serviceId: 's', staffId: 'm', status: 'certified' as const }, { serviceId: 's', staffId: 'k', status: 'lapsed' as const }, { serviceId: 'x', staffId: 'k', status: 'certified' as const }];
+ok(certifiedIds(recs, 's', today).join() === 'm', 'certified people for one service');
+ok(gateFields(r, 'block', ['m']).certifiedStaffIds!.join() === 'm', 'block: the engine’s list is the certified people');
+ok(gateFields(r, 'block', [])!.certifiedStaffIds![0] === NOBODY, 'block with nobody certified: nobody (not anyone)');
+ok(gateFields(r, 'block', ['m'], ['rent1']).certifiedStaffIds!.join() === 'm,rent1' && gateFields(r, 'block', ['m'], ['rent1']).certStaffIds.join() === 'm', 'block: renters stay bookable, but aren’t counted as certified');
+ok(gateFields(r, 'warn', ['m']).certifiedStaffIds === null && gateFields(r, 'warn', ['m']).certStaffIds.join() === 'm', 'warn: nothing gated, list kept');
+ok(gateFields(cleanRule({}), 'block', ['m']).certifiedStaffIds === null, 'not required: nothing gated');
+const svc = { name: 'Builder gel', certification: { required: true }, certStaffIds: ['m'] };
+ok(certWarning(svc, 'k', 'Kim Tran') === 'Kim isn’t certified for Builder gel yet.' && certWarning(svc, 'm') === null && certWarning({ name: 'x' }, 'k') === null, 'desk warning');
+console.log(bad ? `${bad} failed` : 'all passed'); process.exit(bad ? 1 : 0);

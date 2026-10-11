@@ -569,7 +569,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks', 'certifications',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
@@ -622,6 +622,10 @@ service cloud.firestore {
     }
     // INSPECTOR LINKS (lib/training-proof): made, listed and turned off through the server only.
     match /tenants/{tenantId}/inspectorLinks/{linkId} {
+      allow read, write: if false;
+    }
+    // CERTIFIED FOR A SERVICE (lib/certification): read and written through the server only (/api/certifications).
+    match /tenants/{tenantId}/certifications/{certId} {
       allow read, write: if false;
     }
     // Each published version, kept as it was (with its "what changed" note).

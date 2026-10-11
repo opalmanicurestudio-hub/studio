@@ -87,26 +87,28 @@ export function TrainingRecord({ tenantId, tenant, docs, staff, today, onOpenDoc
 function InspectorLinks({ tenantId, cols }: { tenantId: string; cols: Array<{ id: string; name: string }> }) {
   const [chosen, setChosen] = React.useState<string[]>(cols.filter((c) => c.id === 'safety').map((c) => c.id));
   const [hours, setHours] = React.useState(8); const [note, setNote] = React.useState(''); const [links, setLinks] = React.useState<any[] | null>(null);
+  const [keepsLog, setKeepsLog] = React.useState(false); const [withLog, setWithLog] = React.useState(false);
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [copied, setCopied] = React.useState('');
-  const load = React.useCallback(async () => { const r = await payPost('/api/documents/links', { tenantId, action: 'inspector-list' }); if (r.ok) setLinks(r.links || []); }, [tenantId]);
+  const load = React.useCallback(async () => { const r = await payPost('/api/documents/links', { tenantId, action: 'inspector-list' }); if (r.ok) { setLinks(r.links || []); setKeepsLog(r.keepsLog === true); } }, [tenantId]);
   React.useEffect(() => { void load(); }, [load]);
-  const make = async () => { setBusy(true); setErr(''); const r = await payPost('/api/documents/links', { tenantId, action: 'inspector-create', hours, collections: chosen, note }); setBusy(false);
+  const make = async () => { setBusy(true); setErr(''); const r = await payPost('/api/documents/links', { tenantId, action: 'inspector-create', hours, collections: chosen, note, sterilization: keepsLog && withLog }); setBusy(false);
     if (!r.ok) { setErr(r.error || 'That didn’t work.'); return; } const url = `${window.location.origin}${r.link.path}`; try { await navigator.clipboard.writeText(url); setCopied(r.link.id); } catch { /* shown below */ } setNote(''); void load(); };
   const off = async (id: string) => { await payPost('/api/documents/links', { tenantId, action: 'inspector-revoke', id }); void load(); };
   const now = Date.now();
   return (
     <div className={`${card} space-y-3 p-4`} style={{ borderColor: LINE }}>
-      <div><p className="text-[15px] font-bold">A read-only link for an inspector</p><p className="text-[13.5px]" style={{ color: MUTED }}>They see your current procedures in the collections you pick, how many of the team are trained on each, and this month’s sterilization log. Nothing else, and only until it expires.</p></div>
+      <div><p className="text-[15px] font-bold">A read-only link for an inspector</p><p className="text-[13.5px]" style={{ color: MUTED }}>They see your current procedures in the collections you pick, and how many of the team are trained on each. Nothing else, and only until it expires.</p></div>
       <div className="flex flex-wrap gap-1.5">{cols.map((c) => { const on = chosen.includes(c.id); return <button key={c.id} type="button" aria-pressed={on} onClick={() => setChosen((p) => (on ? p.filter((x) => x !== c.id) : [...p, c.id]))} className="h-9 rounded-full px-3.5 text-[13.5px] font-medium" style={on ? { background: INK, color: '#fff' } : { background: SOFT }}>{c.name}</button>; })}</div>
       <div className="flex flex-wrap items-center gap-2">
         <select value={hours} onChange={(e) => setHours(Number(e.target.value))} aria-label="How long the link works" className="h-11 rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }}>{[[4, 'Works for 4 hours'], [8, 'Works for 8 hours'], [24, 'Works for a day'], [72, 'Works for 3 days'], [168, 'Works for a week']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
         <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={140} placeholder="Who it’s for (optional) — e.g. State board, Oct visit" aria-label="Who it’s for" className="h-11 min-w-[220px] flex-1 rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }} />
+        {keepsLog && <button type="button" aria-pressed={withLog} onClick={() => setWithLog((v) => !v)} className="h-11 rounded-full px-4 text-[14px]" style={withLog ? { background: '#e9f3ed', color: '#1f7a4d', fontWeight: 600 } : { background: SOFT }}>{withLog ? '✓ ' : '+ '}This month’s sterilization log</button>}
         <button type="button" disabled={busy || !chosen.length} onClick={make} className="h-11 rounded-full px-5 text-[14px] font-semibold text-white disabled:opacity-40" style={{ background: INK }}>{busy ? 'Making it…' : 'Make the link'}</button>
       </div>
       {err && <p className="text-[13.5px]" style={{ color: RED }}>{err}</p>}
       {links && links.length > 0 && <div className="border-t pt-2" style={{ borderColor: LINE }}>{links.map((l) => { const expired = Date.parse(l.expiresAt) < now; const state = l.revokedAt ? 'Turned off' : expired ? 'Expired' : `Open until ${new Date(l.expiresAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`;
         return <div key={l.id} className="flex flex-wrap items-center gap-2 py-2 text-[13.5px]">
-          <span className="min-w-0 flex-1"><b className="font-semibold">{l.note || 'Inspector link'}</b><span className="block text-[12.5px]" style={{ color: MUTED }}>{state} · opened {l.views?.length || 0} time{(l.views?.length || 0) === 1 ? '' : 's'} · by {String(l.createdBy || '').split(' ')[0]}</span></span>
+          <span className="min-w-0 flex-1"><b className="font-semibold">{l.note || 'Inspector link'}</b><span className="block text-[12.5px]" style={{ color: MUTED }}>{state}{l.include?.sterilization ? ' · with the sterilization log' : ''} · opened {l.views?.length || 0} time{(l.views?.length || 0) === 1 ? '' : 's'} · by {String(l.createdBy || '').split(' ')[0]}</span></span>
           {!l.revokedAt && !expired && <><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(`${window.location.origin}${l.path}`); setCopied(l.id); } catch { window.prompt('Copy this link', `${window.location.origin}${l.path}`); } }} className="h-9 rounded-full px-3.5" style={{ background: SOFT }}>{copied === l.id ? 'Copied' : 'Copy link'}</button>
             <a href={l.path} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center rounded-full px-3.5" style={{ background: SOFT }}>Open</a>
             <button type="button" onClick={() => off(l.id)} className="h-9 rounded-full px-3.5" style={{ background: SOFT, color: RED }}>Turn off</button></>}

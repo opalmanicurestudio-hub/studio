@@ -76,6 +76,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
 import { ImageUpload } from '../shared/ImageUpload';
+import { isCertified } from '@/lib/availability';
+import { certWarning } from '@/lib/certification';
 
 const safeDate = (val: any): Date => {
     let d: Date;
@@ -196,8 +198,10 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
   const qualifiedStaff = useMemo(() => {
-    if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return staff || [];
-    return (staff || []).filter(s => selectedService.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)));
+    // Required skills, and — when the business blocks uncertified people — certification (lib/certification).
+    const certOk = (s: any) => isCertified(selectedService, s.id);
+    if (!selectedService?.requiredSkills || selectedService.requiredSkills.length === 0) return (staff || []).filter(certOk);
+    return (staff || []).filter(s => selectedService.requiredSkills!.every(skill => (s.skillSet || []).includes(skill)) && certOk(s));
   }, [selectedService, staff]);
 
   const availableTiersForService = useMemo(() => {
@@ -709,8 +713,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                             );
                                         })}
                                     </div>
+                                    {(() => { const w = certWarning(selectedService, watchStaffId, (staff || []).find((x: any) => x.id === watchStaffId)?.name); return w ? <p className="px-1 text-[12px] font-medium text-amber-700">{w} You can still book it.</p> : null; })()}
                                     {qualifiedStaff.length === 0 && (
-                                        <p className="text-[11px] text-amber-600 px-1">No one is certified for this service — check the service's required skills.</p>
+                                        <p className="text-[11px] text-amber-600 px-1">No one can be booked for this service — check its required skills or who's certified.</p>
                                     )}
                                 </div>
 

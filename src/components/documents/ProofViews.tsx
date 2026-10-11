@@ -63,20 +63,20 @@ export function InspectorView({ data, link, base, open }: { data: any; link: any
           <h1 style={{ margin: '4px 0 18px', fontSize: 30, fontWeight: 400, letterSpacing: '-.03em' }}>{row.title}</h1>
           <DocBlocks sections={d.sections || []} /></div></div></div>;
   }
-  const [y, m] = data.month.split('-').map(Number); const days = new Date(Date.UTC(y, m, 0)).getUTCDate(); const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  const log = !!data.log; const [y, m] = data.month.split('-').map(Number); const days = new Date(Date.UTC(y, m, 0)).getUTCDate(); const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
   return (
     <div style={{ ...font, background: '#f7f7f8', minHeight: '100vh' }}>
       <style>{`@media print { .no-print { display: none !important; } } @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr !important; } }`}</style>
       <div style={{ maxWidth: 1180, margin: '0 auto', padding: '30px 20px 60px', display: 'flex', flexDirection: 'column', gap: 18 }}>
         {header}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}><div><h1 style={{ margin: 0, fontSize: 34, fontWeight: 400, letterSpacing: '-.03em' }}>Safety records</h1><div style={{ fontSize: 14, color: MUTED, marginTop: 4 }}>Current procedures{data.collections.length ? ` (${data.collections.join(', ')})` : ''}, who has been trained on them, and the sterilization log.</div></div><PrintButton label="Print or save as PDF" /></div>
-        <div className="grid2" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16, alignItems: 'start' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}><div><h1 style={{ margin: 0, fontSize: 34, fontWeight: 400, letterSpacing: '-.03em' }}>Safety records</h1><div style={{ fontSize: 14, color: MUTED, marginTop: 4 }}>Current procedures{data.collections.length ? ` (${data.collections.join(', ')})` : ''} and who has been trained on them{log ? ', with the sterilization log' : ''}.</div></div><PrintButton label="Print or save as PDF" /></div>
+        <div className="grid2" style={{ display: 'grid', gridTemplateColumns: log ? '1.2fr 1fr' : '1fr', gap: 16, alignItems: 'start' }}>
           <div style={{ background: '#fff', border: `1px solid ${ILINE}`, borderRadius: 18, overflow: 'hidden' }}>
             {!data.rows.length ? <p style={{ padding: 20, color: MUTED }}>No published procedures in this link.</p> : data.rows.map((r: any, i: number) => <a key={r.id} href={self(`&doc=${encodeURIComponent(r.id)}`)} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 14, alignItems: 'center', padding: '14px 18px', borderTop: i ? `1px solid ${ILINE}` : undefined, color: INK, textDecoration: 'none' }}>
               <span><span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{r.title}</span><span style={{ fontSize: 12.5, color: MUTED }}>{r.collection} · v{r.version}{r.publishedAt ? ` · ${new Date(r.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}</span></span>
               <span style={{ fontSize: 13, color: r.total && r.trained === r.total ? GREEN : INK }}>{r.trained} of {r.total} trained</span><span style={{ fontSize: 13, textDecoration: 'underline' }}>Open</span></a>)}
           </div>
-          <div style={{ background: '#fff', border: `1px solid ${ILINE}`, borderRadius: 18, padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {log && <div style={{ background: '#fff', border: `1px solid ${ILINE}`, borderRadius: 18, padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>Sterilization log · {new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' })}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5 }}>
               {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((x, i) => <span key={i} style={{ fontSize: 11, textAlign: 'center', color: MUTED }}>{x}</span>)}
@@ -86,7 +86,7 @@ export function InspectorView({ data, link, base, open }: { data: any; link: any
                 return <span key={key} title={e ? `${e.passed} passed${e.failed ? `, ${e.failed} failed` : ''}${e.spore ? ', spore test' : ''}` : future ? '' : 'No cycle logged'} style={{ aspectRatio: '1', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, background: future ? 'transparent' : bg, color: future ? '#b6b8bd' : fg, fontWeight: e ? 600 : 400, outline: e?.spore ? `2px solid ${BLUE}` : undefined }}>{i + 1}</span>; })}
             </div>
             <div style={{ fontSize: 12.5, color: MUTED }}>{data.cycleCount} cycle{data.cycleCount === 1 ? '' : 's'} this month. Green: cycles passed that day. Red: a cycle failed. Outlined: spore test recorded.</div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>);

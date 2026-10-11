@@ -1,9 +1,10 @@
 'use client';
 // src/components/staff/TrainingTasksPanel.tsx — STAFF PROFILE → TRAINING & TASKS (main app; lib/my-work): SOPs signed,
-// anything overdue, tasks this month and checklists run, then every SOP, task and checklist turn with its status. The
+// anything overdue, tasks this month and checklists run, what they're certified for (CertifiedFor), then every SOP, task and checklist turn with its status. The
 // buttons go to Documents, where SOPs are assigned (with a sign-by date) and tasks are given.
 import * as React from 'react';
 import { useMyWork } from '@/components/team/useMyWork';
+import { CertifiedFor } from '@/components/documents/CertifiedFor';
 import type { WorkItem, MyWork as MyWorkData } from '@/lib/my-work';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', RED = '#b42318', AMBER = '#9a5b00', GREEN = '#1f7a4d';
@@ -33,6 +34,7 @@ export function TrainingTasksPanel({ firestore, tenantId, staff, today, preview 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {tile('SOPs signed', `${work.sopsSigned} / ${work.sopsTotal}`)}{tile('Overdue', work.overdue, work.overdue ? RED : INK)}{tile('Tasks this month', work.tasksThisMonth)}{tile('Checklists run', work.checklistsRun)}
       </div>
+      {!preview && <CertifiedFor tenantId={tenantId} staffId={staff.id} manageHref="/documents?tab=certification" />}
       {!rows.length ? <p className="rounded-[18px] border p-4 text-[14px]" style={{ borderColor: LINE, color: MUTED }}>Nothing given to {String(staff.name || 'them').split(' ')[0]} yet.</p> :
         <div className="overflow-hidden rounded-[18px] border" style={{ borderColor: LINE }}>
           <div className="hidden grid-cols-[1.6fr_0.8fr_1fr_0.9fr] bg-[#fafafa] px-4 py-2.5 text-[12px] font-bold md:grid" style={{ color: MUTED }}><span>SOP / task</span><span>Kind</span><span>Due</span><span>Status</span></div>

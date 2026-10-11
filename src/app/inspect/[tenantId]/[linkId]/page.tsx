@@ -1,6 +1,6 @@
 // src/app/inspect/[tenantId]/[linkId]/page.tsx — INSPECTOR VIEW (approved design, canvas row 23). A read-only page the
 // owner shares with an inspector: the business's current procedures (in the collections chosen when the link was made),
-// how many of the team are trained on each, and this month's sterilization log. Tap a procedure to read it. The link
+// how many of the team are trained on each, and — only when the owner added it — this month's sterilization log. Tap a procedure to read it. The link
 // expires when the owner said, can be turned off early, and each visit is noted (lib/training-proof).
 import { getAdminDb } from '@/lib/firebase-admin';
 import { inspectorKeyOk, inspectorData } from '@/lib/training-proof';

@@ -4279,6 +4279,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [viewingRefunds, setViewingRefunds] = useState(false);
   const [viewingWork, setViewingWork] = useState(false);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
+  // A station's QR sign opens the staff app with ?station=… — after the PIN, go straight to that station's documents.
+  const [stationId, setStationId] = useState<string | null>(null);
+  useEffect(() => { try { const st = new URLSearchParams(window.location.search).get('station'); if (st && !isRenter) { setStationId(st.slice(0, 120)); setActiveTab('documents'); } } catch { /* no station */ } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [viewingWalkIns, setViewingWalkIns] = useState(false);
   // Schedule's calendar: Day · Week · Month, remembered on this phone.
   const [calView, setCalView] = useState<'day' | 'week' | 'month'>('week');
@@ -4845,7 +4848,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   onCases={() => { setActiveTab('me' as any); setViewingCases(true); }} onRent={() => setActiveTab('rent')} />}
 {!isRenter && <ForgotClockOut firestore={firestore} tenantId={tenantId} staffId={staffMember.id} tenant={portalTenant} shifts={allShiftsRaw || []} accent={accentColor} />}
 <PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} accent={accentColor} />
-{todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} accent={accentColor} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
+{todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} tenant={portalTenant} accent={accentColor} onOpenDoc={isRenter ? undefined : (id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={(id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} />
 <TasksForYou tenantId={tenantId} staffMember={staffMember} />
 <PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />
@@ -5124,7 +5127,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           )}
 
           {activeTab==='documents' && (
-            <StaffDocs firestore={firestore} tenantId={tenantId} tenant={portalTenant} staffMember={staffMember} accent={accentColor} openId={openDocId} onOpened={() => setOpenDocId(null)} />
+            <StaffDocs firestore={firestore} tenantId={tenantId} tenant={portalTenant} staffMember={staffMember} accent={accentColor} openId={openDocId} onOpened={() => setOpenDocId(null)} stationId={stationId} onClearStation={() => { setStationId(null); try { const u = new URL(window.location.href); u.searchParams.delete('station'); window.history.replaceState(null, '', u.toString()); } catch { /* fine */ } }} />
           )}
           {activeTab==='documents' && (isRenter || isHybrid) && (
             <div className="space-y-4">

@@ -68,6 +68,8 @@ export async function GET(req: NextRequest) {
     try { const { payQuestionNudges } = await import('@/lib/pay-questions'); await payQuestionNudges(db, tid); } catch (e) { console.error('[cron] pay questions', tid, e); }
     // SOPs with a sign-by date: a reminder the day before, managers told once it's passed (lib/sop-reminders).
     try { const { sopReminderSweep } = await import('@/lib/sop-reminders'); await sopReminderSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] sop reminders', tid, e); }
+    // Certifications past their renew-by date run out (and come off the service if the business blocks booking).
+    try { const { certificationSweep } = await import('@/lib/certification-server'); await certificationSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] certifications', tid, e); }
     try {
       const cfg = ((tDoc.data() as any)?.clientNotify) || {};
       if (cfg.enabled === false) { results[tid] = 'disabled'; continue; }

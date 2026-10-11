@@ -14,14 +14,16 @@ import { docIsFor } from '@/lib/my-work';
 import { collectionsOf, collectionFor, docStats } from '@/lib/doc-collections';
 import { checklistLines, itemKey, needsPhoto, liveKeys } from '@/lib/doc-items';
 import { checklistFirst, walkthrough } from '@/lib/doc-blocks';
+import { docsForStation } from '@/lib/doc-links';
 import { Cover } from '@/components/documents/DocsLibrary';
 import { DocBlocks, Images, Callout, StepNum, Ico, IC } from '@/components/documents/DocBlocks';
 import { SignFlow } from '@/components/documents/SignFlow';
+import { CertifiedFor } from '@/components/documents/CertifiedFor';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', BLUE = '#3d5a99', RED = '#b42318';
 const nice = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 
-export function StaffDocs({ firestore, tenantId, tenant, staffMember, accent = INK, openId, onOpened }: { firestore: any; tenantId: string; tenant: any; staffMember: any; accent?: string; openId?: string | null; onOpened?: () => void }) {
+export function StaffDocs({ firestore, tenantId, tenant, staffMember, accent = INK, openId, onOpened, stationId, onClearStation }: { firestore: any; tenantId: string; tenant: any; staffMember: any; accent?: string; openId?: string | null; onOpened?: () => void; stationId?: string | null; onClearStation?: () => void }) {
   const me = { id: staffMember.id, role: staffMember.role };
   const dQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, `tenants/${tenantId}/documents`) : null), [firestore, tenantId]);
   const { data: docs, isLoading } = useCollection<any>(dQ);
@@ -37,7 +39,8 @@ export function StaffDocs({ firestore, tenantId, tenant, staffMember, accent = I
     return () => { stop = true; };
   }, [firestore, tenantId, staffMember.id, mine.map((d: any) => `${d.id}:${d.version}`).join('|'), open]); // eslint-disable-line react-hooks/exhaustive-deps
   const cols = collectionsOf(tenant);
-  const d = mine.find((x: any) => x.id === open);
+  // Yours, or any published one opened from a visit or a station (it's for reading during the work, even if not assigned).
+  const d = mine.find((x: any) => x.id === open) || (docs || []).find((x: any) => x.id === open && x.status === 'published');
   if (d) return <DocReader firestore={firestore} tenantId={tenantId} d={d} col={collectionFor(d, cols)} staffMember={staffMember} ack={acks[d.id]} accent={accent} onBack={() => setOpen('')} />;
 
   const rows = mine.map((x: any) => { const a = acks[x.id]; const signed = !!a && Number(a.version) === Number(x.version || 1); return { x, c: collectionFor(x, cols), signed, again: !!a && !signed }; })
@@ -46,6 +49,8 @@ export function StaffDocs({ firestore, tenantId, tenant, staffMember, accent = I
   return (
     <div className="space-y-3.5" style={{ color: INK }}>
       <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>{String(tenant?.name || '').toLowerCase()}</p><h2 className="text-[28px] font-normal tracking-[-0.03em]">Handbook and SOPs</h2></div>
+      {stationId && <AtStation docs={docs || []} stationId={stationId} cols={cols} onOpen={setOpen} onClear={onClearStation} />}
+      {staffMember.role !== 'renter' && <CertifiedFor tenantId={tenantId} onOpenDoc={setOpen} title="Your certifications" />}
       {isLoading ? <p className="text-[14px]" style={{ color: MUTED }}>Loading…</p> : !rows.length ? <p className="rounded-[18px] p-5 text-[14.5px]" style={{ background: SOFT, color: MUTED }}>When a manager publishes a handbook page or SOP for you, it shows here to read and sign.</p> :
         <div className="overflow-hidden rounded-[20px] border bg-white" style={{ borderColor: LINE }}>{rows.map((r, i) => { const s = docStats(r.x); const late = r.x.signBy && r.x.signBy < today;
           return <button key={r.x.id} type="button" onClick={() => setOpen(r.x.id)} className="flex w-full items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}>
@@ -82,6 +87,19 @@ function DocReader({ firestore, tenantId, d, col, staffMember, ack, accent, onBa
         {signed ? <span className="flex h-12 items-center justify-center gap-1.5 rounded-full text-[14.5px] font-semibold" style={{ background: '#e9f3ed', color: GREEN }}><Ico d={IC.check} s={16} c={GREEN} w={2.4} />Signed version {v}</span>
           : <button type="button" onClick={() => setMode('sign')} className="h-12 rounded-full text-[14.5px] font-semibold text-white" style={{ background: INK }}>{ack ? `Read it — sign v${v}` : 'I’ve read it — sign'}</button>}
       </div>
+    </div>);
+}
+
+/** Opened from a station's QR sign: that station's documents first. */
+function AtStation({ docs, stationId, cols, onOpen, onClear }: { docs: any[]; stationId: string; cols: any; onOpen: (id: string) => void; onClear?: () => void }) {
+  const list = docsForStation(docs, stationId);
+  const name = (list[0]?.links || []).find((l: any) => l?.kind === 'station' && l.id === stationId)?.name || 'this station';
+  return (
+    <div className="space-y-2 rounded-[20px] p-3.5" style={{ background: '#e3efed' }}>
+      <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-bold">At {name}</p>{onClear && <button type="button" onClick={onClear} className="text-[13px] underline underline-offset-2" style={{ color: MUTED }}>Show everything</button>}</div>
+      {!list.length ? <p className="text-[13.5px]" style={{ color: MUTED }}>Nothing is linked to this station yet.</p>
+        : list.map((x: any) => <button key={x.id} type="button" onClick={() => onOpen(x.id)} className="flex w-full items-center gap-2.5 rounded-[14px] bg-white p-2.5 text-left">
+          <Cover c={collectionFor(x, cols)} w={40} h={40} r={11} label={false} /><span className="min-w-0 flex-1 truncate text-[14.5px] font-semibold">{x.title || 'Document'}</span><span className="text-[13px] font-semibold">Open</span></button>)}
     </div>);
 }
 

@@ -1,10 +1,11 @@
 'use client';
 // src/components/staff-portal/NowPanel.tsx — "NOW" ON THE STAFF PORTAL'S TODAY TAB: the visit in progress with every
 // step (StepTimeline — Next step and +5 min move the later steps and warn the next client's provider), or the next
-// visit if nothing is under way; then the rest of today with each visit's step ribbon and the free gaps between them.
+// visit if nothing is under way, with the documents linked to it (VisitDocs); then the rest of today with each visit's step ribbon and the free gaps between them.
 import * as React from 'react';
 import { biz } from '@/lib/biz-clock';   // times in the business's zone
 import { StepTimeline, StepRibbon } from '@/components/planner/StepTimeline';
+import { VisitDocs } from '@/components/staff-portal/VisitDocs';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 const ms = (v: any) => { const t = v?.toDate ? v.toDate().getTime() : Date.parse(String(v || '')); return Number.isFinite(t) ? t : NaN; };
@@ -22,7 +23,7 @@ export function currentVisit(apts: any[]): any | null {
   return (apts || []).find((a) => isLive(a)) || null;
 }
 
-export function NowPanel({ apts, services, tenantId, accent = INK, onOpen }: { apts: any[]; services: any[]; tenantId: string; accent?: string; onOpen: (a: any) => void }) {
+export function NowPanel({ apts, services, tenantId, tenant, accent = INK, onOpen, onOpenDoc }: { apts: any[]; services: any[]; tenantId: string; tenant?: any; accent?: string; onOpen: (a: any) => void; onOpenDoc?: (id: string) => void }) {
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   const svcOf = (a: any) => (services || []).find((s: any) => s.id === a?.serviceId) || null;
@@ -47,6 +48,7 @@ export function NowPanel({ apts, services, tenantId, accent = INK, onOpen }: { a
           </button>
           {live && svcOf(focus) ? <StepTimeline service={svcOf(focus)} appointment={focus} tenantId={tenantId} next={after ? { clientName: after.clientName, startMs: ms(after.startTime) } : null} />
             : <StepRibbon service={svcOf(focus)} appointment={focus} height={10} />}
+          {onOpenDoc && <VisitDocs tenantId={tenantId} tenant={tenant} visit={focus} service={svcOf(focus)} live={!!live} onOpenDoc={onOpenDoc} />}
           {!live && <button type="button" onClick={() => onOpen(focus)} className="h-11 w-full rounded-[14px] text-[14px] font-bold text-white" style={{ background: INK }}>Open visit</button>}
         </div>
       ) : (

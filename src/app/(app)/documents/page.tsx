@@ -17,6 +17,7 @@ import { withItemIds, itemKey } from '@/lib/doc-items';
 import { DocsLibrary } from '@/components/documents/DocsLibrary';
 import { DocDetail } from '@/components/documents/DocDetail';
 import { TrainingRecord } from '@/components/documents/TrainingRecord';
+import { Certification } from '@/components/documents/Certification';
 import { collectionsOf, collectionFor, reviewDue } from '@/lib/doc-collections';
 
 const CATEGORIES = [
@@ -762,13 +763,13 @@ export default function DocumentsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [pageTab, setPageTab] = useState<'library' | 'training' | 'tasks' | 'rotations' | 'audit'>('library');
+  const [pageTab, setPageTab] = useState<'library' | 'training' | 'certification' | 'tasks' | 'rotations' | 'audit'>('library');
   const [focusTaskId, setFocusTaskId] = useState('');
   useEffect(() => {
     try {
       const sp = new URLSearchParams(window.location.search);
       const tab = sp.get('tab');
-      if (tab === 'tasks' || tab === 'rotations' || tab === 'audit' || tab === 'library' || tab === 'training') setPageTab(tab);
+      if (tab === 'tasks' || tab === 'rotations' || tab === 'audit' || tab === 'library' || tab === 'training' || tab === 'certification') setPageTab(tab);
       const tk = sp.get('task') || '';
       if (tk) { setPageTab('tasks'); setFocusTaskId(tk); }
     } catch { /* no-op */ }
@@ -832,7 +833,8 @@ export default function DocumentsPage() {
     const targetRef = doc(firestore, `tenants/${tenantId}/documents/${id}`);
     const { id: _id, ...clean } = data || {}; void _id;
     if (!publish) {
-      if (live) updateDocumentNonBlocking(targetRef, { draft: { ...clean, savedAt: now, savedBy: actorName } });
+      // Where it shows up during work isn't part of what people sign, so it changes the live copy straight away.
+      if (live) { const { links, ...rest } = clean; updateDocumentNonBlocking(targetRef, { draft: { ...rest, savedAt: now, savedBy: actorName }, ...(links ? { links } : {}) }); }
       else updateDocumentNonBlocking(targetRef, { ...clean, updatedAt: now, updatedBy: actorName });
       return;
     }
@@ -890,7 +892,7 @@ export default function DocumentsPage() {
 
         {canManage && (
           <div role="tablist" aria-label="Documents" className="flex gap-1 overflow-x-auto border-b" style={{ borderColor: '#ececee' }}>
-            {([['library', 'Library'], ['training', 'Training record'], ['tasks', 'Tasks'], ['rotations', 'Rotations'], ['audit', 'Activity']] as const).map(([v, l]) => (
+            {([['library', 'Library'], ['training', 'Training record'], ['certification', 'Certification'], ['tasks', 'Tasks'], ['rotations', 'Rotations'], ['audit', 'Activity']] as const).map(([v, l]) => (
               <button key={v} type="button" role="tab" aria-selected={pageTab === v} onClick={() => { setPageTab(v); setExpandedId(null); }} className="-mb-px h-11 shrink-0 px-3.5 text-[14px]" style={pageTab === v ? { fontWeight: 700, borderBottom: '2px solid #16171a' } : { color: '#6d7075' }}>{l}</button>
             ))}
           </div>
@@ -899,6 +901,9 @@ export default function DocumentsPage() {
           <TrainingRecord tenantId={tenantId || ''} tenant={selectedTenant} docs={(documents || []) as any[]} staff={(staff || []) as any[]}
             today={new Intl.DateTimeFormat('en-CA', { timeZone: (selectedTenant as any)?.timezone || 'America/New_York' }).format(new Date())}
             onOpenDoc={(id) => { setPageTab('library'); setExpandedId(id); }} />
+        )}
+        {canManage && pageTab === 'certification' && (
+          <Certification tenantId={tenantId || ''} docs={(documents || []) as any[]} onOpenDoc={(id) => { setPageTab('library'); setExpandedId(id); }} />
         )}
         {canManage && pageTab === 'audit' && (
           <AuditCard tenantId={tenantId || ''} staff={(staff || []) as any[]} initialOpen={pageTab === 'audit'} />

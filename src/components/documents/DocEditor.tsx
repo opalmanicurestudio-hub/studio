@@ -2,7 +2,8 @@
 // src/components/documents/DocEditor.tsx — WRITING A DOCUMENT (approved design, canvas row 22 "Editor"). Blocks on the
 // left — steps with photos and a timer, checklists with photo lines, warnings, tips, photos and videos — added from one
 // bar and moved or removed in place. Details on the right: collection, owner, review cycle, who it's for, sign-by and
-// reminder, the quick check before signing, whether to draw a signature, and (for a live document) what changed.
+// reminder, the quick check before signing, whether to draw a signature, where it shows up during work (services, steps,
+// stations, kits — DocLinksEditor) and (for a live document) what changed.
 // A live document's edits are saved as its draft; Publish sends them out as the next version (documents page handleSave).
 import * as React from 'react';
 import { nanoid } from 'nanoid';
@@ -14,6 +15,8 @@ import { collectionsOf, collectionFor } from '@/lib/doc-collections';
 import { rolesFor } from '@/lib/permissions';
 import { Cover } from '@/components/documents/DocsLibrary';
 import { DocBlocks, Ico, IC } from '@/components/documents/DocBlocks';
+import { DocLinksEditor } from '@/components/documents/DocLinksEditor';
+import { cleanLinks } from '@/lib/doc-links';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', BLUE = '#3d5a99', RED = '#b42318';
 const input = 'h-11 w-full rounded-[12px] border bg-white px-3 text-[14.5px] outline-none focus:border-[#16171a]';
@@ -50,6 +53,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
   const [remindBefore, setRemindBefore] = React.useState<boolean>(docItem.remindBefore !== false);
   const [quiz, setQuiz] = React.useState<any[]>(Array.isArray(docItem.quiz) ? docItem.quiz : []);
   const [requireSignature, setRequireSignature] = React.useState<boolean>(docItem.requireSignature === true);
+  const [links, setLinks] = React.useState<any[]>(cleanLinks(docItem.links));
   const [changeNote, setChangeNote] = React.useState<string>(String(liveItem.draft?.changeNote || ''));
   const [selected, setSelected] = React.useState<string>(''); const [preview, setPreview] = React.useState(false);
   const [uploading, setUploading] = React.useState<string>(''); const [err, setErr] = React.useState(''); const [confirmDelete, setConfirmDelete] = React.useState(false);
@@ -73,7 +77,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
     const q = cleanQuiz(quiz); if (quiz.length && q.length !== quiz.length) { setErr('Each quick-check question needs the question and at least two answers.'); return null; }
     setErr('');
     return { title: t, category, sections: withItemIds(clean, liveItem.sections || []), assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore,
-      changeNote: changeNote.trim().slice(0, 400), collectionId, ownerId: ownerId || null, reviewEveryMonths: reviewEvery || null, quiz: q, requireSignature };
+      changeNote: changeNote.trim().slice(0, 400), collectionId, ownerId: ownerId || null, reviewEveryMonths: reviewEvery || null, quiz: q, requireSignature, links: cleanLinks(links) };
   };
 
   const people = staff.filter((m: any) => !m.archived && m.role !== 'renter' && !m.isRenter);
@@ -92,7 +96,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
       <div className="grid md:grid-cols-[1fr_320px]">
         <div className="min-w-0 space-y-3 p-4 md:p-6">
           <div className="flex items-center gap-4"><span className="hidden sm:block"><Cover c={col} w={130} h={74} label={false} /></span>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140} aria-label="Title" placeholder="Title — e.g. Sterilisation and disinfection" className="min-w-0 flex-1 bg-transparent text-[26px] font-normal tracking-[-0.03em] outline-none md:text-[30px]" /></div>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140} aria-label="Title" placeholder="Title — e.g. Opening the studio" className="min-w-0 flex-1 bg-transparent text-[26px] font-normal tracking-[-0.03em] outline-none md:text-[30px]" /></div>
           {preview ? <div className="mx-auto max-w-[560px] py-2"><DocBlocks sections={blocks.map(cleanBlock).filter(blockHasContent)} /></div> : <>
             {blocks.map((b, i) => { const on = selected === b.id; const ph = PH[b.type] || PH.text; const lines = checklistLines(b);
               return <div key={b.id} onClick={() => setSelected(b.id)} className="rounded-[16px] border bg-white p-3.5" style={{ borderColor: on ? INK : LINE, boxShadow: on ? '0 0 0 3px rgba(22,23,26,.07)' : undefined }}>
@@ -125,6 +129,8 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
             <div className="flex flex-wrap gap-1.5">{[['sop', 'SOP'], ['handbook', 'Handbook'], ['policy', 'Policy'], ['other', 'Other']].map(([v, l]) => <Chip key={v} on={category === v} onClick={() => setCategory(v)}>{l}</Chip>)}</div></Side>
           <Side title="Owner and review"><select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} aria-label="Owner" className={input} style={{ borderColor: LINE }}><option value="">No owner yet</option>{people.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
             <select value={reviewEvery} onChange={(e) => setReviewEvery(Number(e.target.value))} aria-label="Review" className={input} style={{ borderColor: LINE }}>{[[0, 'No review date'], [3, 'Review every 3 months'], [6, 'Review every 6 months'], [12, 'Review every year']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Side>
+          <Side title="Shows up during work"><DocLinksEditor tenantId={tenantId} value={links} onChange={setLinks} />
+            {isLive && <p className="text-[12px]" style={{ color: MUTED }}>Changes here apply when you save the draft. Nobody has to sign again.</p>}</Side>
           <Side title="Who it’s for"><div className="flex flex-wrap gap-1.5"><Chip on={assignedRoles.includes('all')} onClick={() => toggleRole('all')}>Everyone</Chip>{roles.map(([id, r]) => <Chip key={id} on={assignedRoles.includes(id)} onClick={() => toggleRole(id)}>{r.name}</Chip>)}</div>
             <details><summary className="cursor-pointer text-[13px] underline underline-offset-2" style={{ color: MUTED }}>Or pick people{assignedStaffIds.length ? ` (${assignedStaffIds.length})` : ''}</summary>
               <div className="mt-2 flex flex-wrap gap-1.5">{people.map((m: any) => <Chip key={m.id} on={assignedStaffIds.includes(m.id)} onClick={() => setAssignedStaffIds((p) => (p.includes(m.id) ? p.filter((x) => x !== m.id) : [...p, m.id]))}>{m.name}</Chip>)}</div></details></Side>

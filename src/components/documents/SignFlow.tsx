@@ -41,6 +41,8 @@ export function SignFlow({ firestore, tenantId, d, staff, onDone, onBack, accent
         id: staff.id, staffId: staff.id, staffName: staff.name || 'Team member', version, acknowledgedAt: new Date().toISOString(),
         ...(signatureUrl ? { signatureUrl } : {}), ...(quiz.length && checked ? { quiz: { right: checked.right, total: checked.total } } : {}),
       }, { merge: true });
+      // Signing may finish a certification for a service — the server checks (lib/certification-server).
+      void import('@/components/pay/pay-client').then(({ payPost }) => payPost('/api/certifications', { tenantId, action: 'evaluate' })).catch(() => { /* checked again later */ });
       onDone();
     } catch { setErr('That didn’t save. Check your connection and try again.'); }
     setBusy(false);
