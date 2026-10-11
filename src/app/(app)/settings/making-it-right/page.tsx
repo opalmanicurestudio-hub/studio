@@ -39,10 +39,15 @@ export default function MakingItRightSettings() {
       const sections = policySections(s, selectedTenant?.name || 'We', svcName);
       const dref = doc(firestore as Firestore, `tenants/${tenantId}/documents/making-it-right`); const cur: any = (await getDoc(dref)).data() || null;
       const same = cur && JSON.stringify(cur.sections) === JSON.stringify(sections); const version = cur ? (same ? Number(cur.version) || 1 : (Number(cur.version) || 1) + 1) : 1;
+      // If someone reworded the policy in Documents since it was written from here, ask before replacing their wording.
+      const sig = (x: any) => JSON.stringify(x || []);
+      const handEdited = !!cur && !!cur.generatedSig && sig(cur.sections) !== cur.generatedSig;
+      const replace = same ? false : !handEdited || window.confirm('The policy document was edited in Documents since it was written from these settings. Replace it with the updated wording? (Cancel keeps your edited version; your settings still save.)');
       const roles = Object.keys(rolesFor(selectedTenant)).filter((r) => !['renter', 'owner'].includes(r));
       const since = (selectedTenant as any)?.makingItRight?.policySince || new Date().toISOString();
-      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { makingItRight: { ...JSON.parse(JSON.stringify(s)), policySince: since, policyVersion: version } });
-      if (!same) await setDoc(dref, { id: 'making-it-right', title: 'Making it right — complaints, redos and refunds', category: 'policy', status: 'published', assignedRoles: roles, sections, version, updatedAt: new Date().toISOString(), createdAt: cur?.createdAt || new Date().toISOString(), source: 'making_it_right', requiresAck: true }, { merge: true });
+      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { makingItRight: { ...JSON.parse(JSON.stringify(s)), policySince: since, policyVersion: (same || replace) ? version : (Number(cur?.version) || 1) } });
+      if (!same && replace) await setDoc(dref, { generatedSig: sig(sections), id: 'making-it-right', title: 'Making it right — complaints, redos and refunds', category: 'policy', status: 'published', assignedRoles: roles, sections, version, updatedAt: new Date().toISOString(), createdAt: cur?.createdAt || new Date().toISOString(), source: 'making_it_right', requiresAck: true }, { merge: true });
+      if (!same && replace) void fetch('/api/comms/dispatch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'document', tenantId, documentId: 'making-it-right' }) }).catch(() => { /* notices are best-effort */ });
       setDirty(false); toast({ title: 'Making it right saved', description: same ? undefined : version > 1 ? 'The team is asked to sign the updated policy.' : 'The policy is in the team’s Handbook and documents to sign.' });
     }
     catch { toast({ title: 'That didn’t save', description: 'Only the owner can change these.', variant: 'destructive' }); }

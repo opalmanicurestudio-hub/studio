@@ -29,7 +29,8 @@ export function rotationTurn(r: any, staffId: string, today: string) {
   const ids: string[] = Array.isArray(r?.memberIds) ? r.memberIds : []; if (!ids.length) return { mine: false, doneThisRound: false };
   const cur = ids[(Number(r.currentIndex) || 0) % ids.length];
   const last = String(r.lastDoneDate || '');
-  const doneThisRound = r.cadence === 'weekly' ? last >= weekStart(today) : last === today;
+  // Per-shift turns are never "done for the day" (the staff app treats them the same way).
+  const doneThisRound = r.cadence === 'per-shift' ? false : r.cadence === 'weekly' ? last >= weekStart(today) : last === today;
   return { mine: cur === staffId, doneThisRound };
 }
 
@@ -53,7 +54,7 @@ export function myWork(o: { staff: { id: string; role?: string }; today: string;
     if (!docIsFor(d, staff)) continue;
     const ack = o.acks?.[d.id]; const signed = !!ack && Number(ack.version) === Number(d.version || 1);
     const signBy = /^\d{4}-\d{2}-\d{2}$/.test(String(d.signBy || '')) ? String(d.signBy) : null;
-    const word = d.category === 'handbook' ? 'Handbook' : 'SOP';
+    const word = d.category === 'handbook' ? 'Handbook' : d.category === 'policy' ? 'Policy' : d.category === 'other' ? 'Document' : 'SOP';
     if (signed) { if (dayOf(ack.acknowledgedAt) >= since) done.push({ key: `d:${d.id}`, kind: 'sop', title: `Signed: ${d.title || 'Document'}`, sub: word, due: signBy, status: 'done', at: ack.acknowledgedAt || null, ref: { id: d.id, docId: d.id } }); continue; }
     const status = signBy && signBy < today ? 'overdue' : signBy === today ? 'due' : 'open';
     const updated = !!ack && Number(ack.version) !== Number(d.version || 1);

@@ -7,6 +7,7 @@ import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
 import { MyCases } from '@/components/staff-portal/MyCases';
 import { RefundsDesk } from '@/components/refunds/RefundsDesk';
 import { MyWork } from '@/components/staff-portal/MyWork';
+import { itemKey, needsPhoto as lineNeedsPhoto, liveKeys } from '@/lib/doc-items';
 import { WeekSchedule, MonthPlanner } from '@/components/staff-portal/WeekSchedule';
 import { PortalTicket, PortalScan } from '@/components/staff-portal/PortalTicket';
 import { StudioCard } from '@/components/staff-portal/StudioCard';
@@ -116,7 +117,7 @@ import { useDoc } from '@/firebase/firestore/use-doc';
 import { PortalHousekeeping } from '@/components/staff/MyTurnovers';
 import { PortalDecisionBar } from '@/components/staff-portal/PortalDecisionBar';
 import { isDeadAppointment } from '@/lib/booking-approval';
-import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
@@ -231,11 +232,14 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
     return acc + String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean).length;
   }, 0), [d.sections]);
 
-  const checkedCount = Object.values(runItems).filter(Boolean).length;
+  // Ticks are saved by each line's id (lib/doc-items), so editing a live checklist can't move them; lines that were
+  // removed since don't count.
+  const lineKeys = useMemo(() => liveKeys(d.sections || []), [d.sections]);
+  const checkedCount = lineKeys.filter((k) => runItems[k]).length;
 
   const writeRun = (nextItems: Record<string, boolean>, nextPhotos: Record<string, string>) => {
     if (!firestore || !tenantId) return;
-    const nextChecked = Object.values(nextItems).filter(Boolean).length;
+    const nextChecked = lineKeys.filter((k) => nextItems[k]).length;
     const full = totalItems > 0 && nextChecked >= totalItems;
     setDoc(doc(firestore, `tenants/${tenantId}/documents/${d.id}/runs/${runId}`), {
       id: runId,
@@ -260,7 +264,9 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
       fileRef.current?.click();
       return;
     }
-    writeRun({ ...runItems, [key]: !isChecked }, runPhotos);
+    // Unticking a photo line takes its photo off too (a new tick asks for a new photo).
+    const nextPhotos = { ...runPhotos }; if (isChecked) delete nextPhotos[key];
+    writeRun({ ...runItems, [key]: !isChecked }, nextPhotos);
   };
 
   const handlePhotoPicked = async (file: File | null) => {
@@ -285,7 +291,7 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
       const friendly = code.includes('unauthorized') || code.includes('permission')
         ? 'The photo was blocked by storage permissions.'
         : 'The photo didn\u2019t upload.';
-      setUploadErr(`${friendly} [diagnostic — code: ${code} \u00b7 auth: ${uid.slice(0, 24)}]`);
+      setUploadErr(`${friendly} Try again, or tell a manager if it keeps happening.`); void uid;
     } finally {
       setUploadingKey(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -356,9 +362,9 @@ const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: st
                   {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
                   <div className="mt-1.5 space-y-1.5">
                     {items.map((item: string, i: number) => {
-                      const key = `${sec.id}:${i}`;
+                      const key = itemKey(sec, i);
                       const on = !!runItems[key];
-                      const needsPhoto = Array.isArray(sec.photoLines) && sec.photoLines.includes(i);
+                      const needsPhoto = lineNeedsPhoto(sec, i);
                       const photoUrl = runPhotos[key];
                       const uploading = uploadingKey === key;
                       return (
@@ -432,10 +438,14 @@ const RotationRow = ({ r, tenantId, staffMember, onOpenDoc, todayStr }: { r: any
       staffId: staffMember.id, staffName: staffMember.name || 'Team member',
     };
     if (action === 'cover' && coveredForId) { entry.coveredForId = coveredForId; entry.coveredForName = coveredForName || 'Team member'; }
-    const history = ([...(r.history || []), entry]).slice(-20);
-    setDoc(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), {
-      currentIndex: nextIndex, history, lastDoneDate: todayStr,
-    }, { merge: true }).catch(err => console.error('rotation advance failed', err));
+    entry.at = new Date().toISOString();
+    // Read-then-write in one transaction, so two taps (or two phones) can't move the turn on twice; history keeps 200.
+    const ref = doc(firestore, `tenants/${tenantId}/rotations/${r.id}`);
+    runTransaction(firestore, async (tx) => {
+      const cur: any = (await tx.get(ref)).data() || {};
+      if (Number(cur.currentIndex || 0) !== Number(r.currentIndex || 0)) return;   // someone already moved it on
+      tx.set(ref, { currentIndex: nextIndex, history: ([...(cur.history || []), entry]).slice(-200), lastDoneDate: todayStr }, { merge: true });
+    }).catch(err => console.error('rotation advance failed', err));
   };
 
   const swapWithNext = () => {
@@ -446,7 +456,7 @@ const RotationRow = ({ r, tenantId, staffMember, onOpenDoc, todayStr }: { r: any
     if (arr.length < 2) return;
     [arr[curI], arr[nxt]] = [arr[nxt], arr[curI]];
     const entry = { date: todayStr, action: 'swap', staffId: staffMember.id, staffName: staffMember.name || 'Team member', withName: (r.memberNames || {})[arr[curI]] || 'the next person' };
-    const history = ([...(r.history || []), entry]).slice(-20);
+    const history = ([...(r.history || []), { ...entry, at: new Date().toISOString() }]).slice(-200);
     setDoc(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), {
       memberIds: arr, history,
     }, { merge: true }).catch(err => console.error('rotation swap failed', err));
@@ -602,7 +612,7 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
       const friendly = code.includes('unauthorized') || code.includes('permission')
         ? 'The photo was blocked by storage permissions.'
         : 'The photo didn\u2019t upload.';
-      setTaskUploadErr(`${friendly} [diagnostic — code: ${code} \u00b7 auth: ${uid.slice(0, 24)}]`);
+      setTaskUploadErr(`${friendly} Try again, or tell a manager if it keeps happening.`); void uid;
     } finally {
       setUploadingId(null);
       if (taskFileRef.current) taskFileRef.current.value = '';

@@ -569,7 +569,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
@@ -612,14 +612,26 @@ service cloud.firestore {
         && request.auth.token.portal == true
         && request.auth.token.tenantId == tenantId;
     }
+    // Who may write documents: managers, plus any role the business lets manage documents (Settings → Roles).
+    function canManageDocs(tenantId) {
+      return isManager(tenantId) || (inDirectory(tenantId) && 'documents.manage' in dirEntry().data.get('caps', []));
+    }
     match /tenants/{tenantId}/documents/{documentId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
-      allow create, update, delete: if isManager(tenantId);
+      allow create, update, delete: if canManageDocs(tenantId);
+    }
+    // Each published version, kept as it was (with its "what changed" note).
+    match /tenants/{tenantId}/documents/{documentId}/versions/{versionId} {
+      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      allow create, update: if canManageDocs(tenantId);
+      allow delete: if false;
     }
     match /tenants/{tenantId}/documents/{documentId}/acks/{ackId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      // A sign-off is your own (or a manager recording one for someone).
       allow create, update: if (
-          isStaff(tenantId)
+          isManager(tenantId)
+          || (isStaff(tenantId) && (ackId == request.auth.uid || (inDirectory(tenantId) && dirEntry().data.staffId == ackId)))
           || (isPortalMember(tenantId) && ackId == request.auth.token.staffId)
         )
         && request.resource.data.version is number

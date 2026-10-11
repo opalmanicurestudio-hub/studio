@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Loader, FileText, ChevronDown, Plus, CheckCircle2, AlertTriangle, Lightbulb, Square } from 'lucide-react';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
+import { withItemIds } from '@/lib/doc-items';
 
 const CATEGORIES = [
   ['sop', 'SOP'],
@@ -252,7 +253,11 @@ const DocumentReadView = ({ docItem, myAck, onAck }: { docItem: any; myAck: any;
   );
 };
 
-const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }: { docItem: any; staff: any[]; onSave: (d: any) => void; onPublish: (d: any) => void; onDelete: () => void; onClose: () => void }) => {
+const DocumentEditor = ({ docItem: liveItem, staff, onSave, onPublish, onDelete, onClose }: { docItem: any; staff: any[]; onSave: (d: any) => void; onPublish: (d: any) => void; onDelete: () => void; onClose: () => void }) => {
+  // A live document's unpublished changes are kept in `draft` — the team keeps reading the live copy until it's published.
+  const docItem = liveItem.draft ? { ...liveItem, ...liveItem.draft } : liveItem;
+  const isLive = liveItem.status === 'published';
+  const [changeNote, setChangeNote] = useState<string>(String(liveItem.draft?.changeNote || ''));
   const [title, setTitle] = useState(docItem.title || '');
   const [category, setCategory] = useState(docItem.category || 'sop');
   const [sections, setSections] = useState<any[]>(docItem.sections?.length ? docItem.sections : [{ id: nanoid(), heading: '', body: '' }]);
@@ -299,7 +304,7 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
       .filter(x => x.heading || x.body);
     if (cleanSections.length === 0) { setErr('Add at least one section with content.'); return null; }
     setErr('');
-    return { title: cleanTitle, category, sections: cleanSections, assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore };
+    return { title: cleanTitle, category, sections: withItemIds(cleanSections, liveItem.sections || []), assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore, changeNote: changeNote.trim().slice(0, 400) };
   };
 
   return (
@@ -409,6 +414,13 @@ const DocumentEditor = ({ docItem, staff, onSave, onPublish, onDelete, onClose }
 
       {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
 
+      {isLive && (
+        <div className="space-y-1.5">
+          <label htmlFor={`doc-change-${liveItem.id}`} className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What changed (shown to the team when they sign again)</label>
+          <Input id={`doc-change-${liveItem.id}`} value={changeNote} onChange={(e) => setChangeNote(e.target.value)} maxLength={400} placeholder="e.g. Soak time is now 10 minutes (was 5)" className="h-11 rounded-xl" />
+          {liveItem.draft && <p className="text-[11px] font-bold text-muted-foreground">Unpublished changes saved {liveItem.draft.savedAt ? format(new Date(liveItem.draft.savedAt), 'MMM d, h:mm a') : ''} — the team still sees version {liveItem.version || 1}.</p>}
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" onClick={onClose} className="h-12 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Close</Button>
         <Button type="button" onClick={() => { const d = collect(); if (d) onSave(d); }} className="h-12 flex-1 rounded-xl border-2 bg-white text-[11px] font-black uppercase tracking-widest text-slate-900" variant="outline">Save draft</Button>
@@ -1273,7 +1285,8 @@ export default function DocumentsPage() {
       id,
       title: tpl ? tpl.title : '',
       category: tpl ? tpl.category : 'sop',
-      sections: tpl ? tpl.sections.map(x => ({ id: nanoid(), heading: x.heading, body: x.body })) : [],
+      // Keep each template section's type (checklist, step, warning, tip) and photo lines — they used to be dropped.
+      sections: tpl ? withItemIds(tpl.sections.map((x: any) => ({ id: nanoid(), type: x.type || 'text', heading: x.heading, body: x.body, photoLines: Array.isArray(x.photoLines) ? x.photoLines : [] }))) : [],
       assignedRoles: ['all'],
       assignedStaffIds: [],
       status: 'draft',
@@ -1285,36 +1298,40 @@ export default function DocumentsPage() {
     setExpandedId(id);
   };
 
+  // Saving a live document keeps the changes in `draft` (the team goes on reading the live copy). Publishing applies them,
+  // bumps the version, keeps a copy of that version (documents/{id}/versions/{n}) with its "what changed" note, and
+  // tells the team once (/api/comms/dispatch).
   const handleSave = (id: string, data: any, publish: boolean) => {
     if (!tenantId) return;
     const existing = ((documents || []) as any[]).find(d => d.id === id);
-    const bumping = publish && existing?.status === 'published';
-    const payload: any = {
-      ...data,
-      status: publish ? 'published' : (existing?.status || 'draft'),
-      version: bumping ? (existing?.version || 1) + 1 : (existing?.version || 1),
-      updatedAt: new Date().toISOString(),
-      updatedBy: actorName,
-    };
-    delete payload.id;
+    const live = existing?.status === 'published';
+    const now = new Date().toISOString();
     const targetRef = doc(firestore, `tenants/${tenantId}/documents/${id}`);
-    if (publish) {
-      import('firebase/firestore')
-        .then(({ updateDoc }) => updateDoc(targetRef, payload))
-        .then(() => {
-          try {
-            void fetch('/api/comms/dispatch', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ kind: 'document', tenantId, documentId: id }),
-            }).catch(() => { /* the publish is saved; notices are best-effort */ });
-          } catch { /* fire-and-forget */ }
-        })
-        .catch(err => console.error('publish failed', err));
-    } else {
-      updateDocumentNonBlocking(targetRef, payload);
+    const { id: _id, ...clean } = data || {}; void _id;
+    if (!publish) {
+      if (live) updateDocumentNonBlocking(targetRef, { draft: { ...clean, savedAt: now, savedBy: actorName } });
+      else updateDocumentNonBlocking(targetRef, { ...clean, updatedAt: now, updatedBy: actorName });
+      return;
     }
-    if (publish) setExpandedId(null);
+    const version = live ? (Number(existing?.version) || 1) + 1 : (Number(existing?.version) || 1);
+    const note = String(clean.changeNote || '').trim() || (version === 1 ? 'First version.' : '');
+    import('firebase/firestore')
+      .then(async ({ updateDoc, setDoc, deleteField, arrayUnion }) => {
+        await updateDoc(targetRef, { ...clean, changeNote: note || null, status: 'published', version, updatedAt: now, updatedBy: actorName, publishedAt: now,
+          draft: deleteField(), history: arrayUnion({ version, at: now, by: actorName, note: note || null }) });
+        await setDoc(doc(firestore, `tenants/${tenantId}/documents/${id}/versions/${version}`), { version, title: clean.title || '', category: clean.category || 'sop', sections: clean.sections || [], changeNote: note || null, publishedAt: now, publishedBy: actorName }).catch(() => { /* the live copy is what matters */ });
+      })
+      .then(() => {
+        try {
+          void fetch('/api/comms/dispatch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'document', tenantId, documentId: id }),
+          }).catch(() => { /* the publish is saved; notices are best-effort */ });
+        } catch { /* fire-and-forget */ }
+      })
+      .catch(err => console.error('publish failed', err));
+    setExpandedId(null);
   };
 
   return (
@@ -1398,7 +1415,7 @@ export default function DocumentsPage() {
                 expandedId={expandedId}
                 setExpandedId={setExpandedId}
                 onSave={handleSave}
-                onPrint={() => window.open(`/print/document/${tenantId}/${d.id}`, '_blank', 'noopener')}
+                onPrint={() => { if (d.status !== 'published') { window.alert('Publish it first — only published documents print.'); return; } window.open(`/print/document/${tenantId}/${d.id}`, '_blank', 'noopener'); }}
                 onDelete={() => { if (tenantId) { deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/documents/${d.id}`)); setExpandedId(null); } }}
               />
             ))}

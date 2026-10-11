@@ -58,7 +58,9 @@ export default async function PrintDocumentPage({
   ]);
 
   const businessName = String((tenantSnap.data() as any)?.name || 'ClarityFlow');
-  const d = docSnap.exists ? (docSnap.data() as any) : null;
+  // Only published documents print from a link — a draft could be half-written or not meant for anyone yet.
+  const raw = docSnap.exists ? (docSnap.data() as any) : null;
+  const d = raw && raw.status === 'published' ? raw : null;
 
   if (!d) {
     return (
