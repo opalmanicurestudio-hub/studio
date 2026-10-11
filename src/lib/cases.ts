@@ -58,6 +58,7 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const salonS = settingsOf(tenant);
   const staff = await staffList(db, tenantId); const me = staff.find((s: any) => s.id === actor.staffId);
   const visit = await visitOf(db, tenantId, String(b.appointmentId || ''), staff);
+  const { withTranscript } = await import('@/lib/voice-transcribe'); const voiceIn = await withTranscript(voiceOf(b.voice), b.wordsLang || null);
   // A renter's client: the case is the renter's (their settings, their app) — unless it's safety or equipment, which is the salon's.
   const { renterProvider, renterSettingsOf, renterSettingsRaw, salonMatter } = await import('@/lib/renter-cases');
   const renter = renterProvider(staff, visit?.providerId);
@@ -78,7 +79,7 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   const id = db.collection(`${T(tenantId)}/cases`).doc().id; const number = await nextNumber(db, tenantId);
   const doc: any = {
     id, number, clientId: clientId || null, clientName, visit, reasonId: reason?.id || 'other', reasonLabel: reason?.label || 'Something else', safety: !!reason?.safety,
-    via, words: String(b.words || '').trim().slice(0, 2000), wordsEn: b.wordsEn ? String(b.wordsEn).slice(0, 2000) : null, wordsLang: b.wordsLang ? String(b.wordsLang).slice(0, 12) : null, photos, voice: voiceOf(b.voice), statusPath: b.statusPath ? String(b.statusPath).slice(0, 300) : null, wants: ['fix', 'talk', 'refund'].includes(b.wants) ? b.wants : null,
+    via, words: String(b.words || '').trim().slice(0, 2000), wordsEn: b.wordsEn ? String(b.wordsEn).slice(0, 2000) : null, wordsLang: b.wordsLang ? String(b.wordsLang).slice(0, 12) : null, photos, voice: voiceIn, statusPath: b.statusPath ? String(b.statusPath).slice(0, 300) : null, wants: ['fix', 'talk', 'refund'].includes(b.wants) ? b.wants : null,
     reportedBy: { id: actor.staffId, name: actor.name }, providerAction: via === 'staff' ? String(b.providerAction || '').slice(0, 40) || null : null,
     ownerId, ownerName: ownerId ? (renterCase ? renter.name || 'Renter' : actor.name) : null, renterCase, renterStaffId: renter ? renter.id : null, renterId: renter?.renterId || null, status: ownerId ? 'owned' : 'heard', checks, needsManager: !renterCase && (!!reason?.safety || checks.some((c) => !c.ok)),
     replyDueAt: S.replyHours ? new Date(Date.now() + S.replyHours * 3600000).toISOString() : null, checkInDueAt: reason?.safety && S.safetyCheckInHours ? new Date(Date.now() + S.safetyCheckInHours * 3600000).toISOString() : null, fix: null, pending: null,
@@ -287,7 +288,7 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
         if (i.signOff) patch['incident.signedOffBy'] = actor.name, patch['incident.signedOffAt'] = now();
         await ref.update({ ...patch, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, i.checkIn48 ? `Follow-up check-in: ${i.checkIn48Note || 'done'}` : i.signOff ? 'Signed off the incident report' : 'Updated the incident report')) }); return { ok: true as const }; }
     case 'statement': { if (!text && !b.voice) return { ok: false as const, error: 'Write or record your side.' };
-      const lang = String(b.lang || 'en').slice(0, 2).toLowerCase(); let en: string | null = null; const voice = voiceOf(b.voice);
+      const lang = String(b.lang || 'en').slice(0, 2).toLowerCase(); let en: string | null = null; const { withTranscript } = await import('@/lib/voice-transcribe'); const voice = await withTranscript(voiceOf(b.voice), lang);
       if (lang !== 'en') { try { const { translateTexts } = await import('@/lib/translate'); const out = await translateTexts(tenantId, [text, voice?.transcript || ''], 'en'); en = text && out[0] !== text ? out[0] : null; if (voice?.transcript && out[1] !== voice.transcript) voice.translation = out[1]; } catch { /* original kept */ } }
       const st = { by: actor.name, staffId: actor.staffId, text, textEn: en, lang: lang !== 'en' ? lang : null, voice, at: now(), signed: true };
       await ref.update({ statements: FieldValue.arrayUnion(st), sideWanted: c.sideWanted === actor.staffId ? null : c.sideWanted || null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `${actor.name} gave ${isProvider ? 'their side' : 'a signed statement'}`)) });

@@ -38,7 +38,8 @@ export async function reportIncident(db: any, tenantId: string, actor: RequestAc
   const mine = a.staffId === actor.staffId || (Array.isArray(a.assignedStaffIds) && a.assignedStaffIds.includes(actor.staffId));
   if (!mine && !actor.isManager && actor.role !== 'front_desk') return { ok: false as const, error: 'You can report things on your own visits.' };
   const words = String(b.words || '').trim().slice(0, 2000); const lang = String(b.lang || 'en').slice(0, 2).toLowerCase();
-  const voice = b.voice && /^https:\/\//.test(String(b.voice.url || '')) ? { url: String(b.voice.url), transcript: b.voice.transcript ? String(b.voice.transcript).slice(0, 4000) : null, language: lang, seconds: Number(b.voice.seconds) || null, translation: null as string | null } : null;
+  const voice0 = b.voice && /^https:\/\//.test(String(b.voice.url || '')) ? { url: String(b.voice.url), transcript: b.voice.transcript ? String(b.voice.transcript).slice(0, 4000) : null, language: lang, seconds: Number(b.voice.seconds) || null, translation: null as string | null } : null;
+  const { withTranscript } = await import('@/lib/voice-transcribe'); const voice = await withTranscript(voice0, lang);
   if (!words && !voice) return { ok: false as const, error: 'Say what happened — type it or record it.' };
   const [wordsEn, tEn] = await translateEn(tenantId, [words, voice?.transcript || ''], lang); if (voice && tEn) voice.translation = tEn;
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {};

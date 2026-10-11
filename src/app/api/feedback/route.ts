@@ -60,11 +60,12 @@ export async function POST(req: NextRequest) {
     const mine = (u: any) => typeof u === 'string' && u.startsWith('https://firebasestorage.googleapis.com/') && u.includes(encodeURIComponent(`tenants/${tenantId}/cases/${id}/`));
     const photos = (Array.isArray(b.photos) ? b.photos : []).filter(mine).slice(0, 6);
     const lang = String(b.lang || 'en').slice(0, 2).toLowerCase(); const words = String(b.words || '').trim().slice(0, 2000);
-    const voice = b.voice && mine(b.voice.url) ? { url: b.voice.url, transcript: String(b.voice.transcript || '').slice(0, 4000) || null, language: lang, seconds: Number(b.voice.seconds) || null, translation: null as string | null } : null;
+    const voice0 = b.voice && mine(b.voice.url) ? { url: b.voice.url, transcript: String(b.voice.transcript || '').slice(0, 4000) || null, language: lang, seconds: Number(b.voice.seconds) || null, translation: null as string | null } : null;
+    const { withTranscript } = await import('@/lib/voice-transcribe'); const voice = await withTranscript(voice0, lang);
     let wordsEn: string | null = null;
     if (lang !== 'en' && (words || voice?.transcript)) {
       try { const { translateTexts } = await import('@/lib/translate'); const out = await translateTexts(tenantId, [words, voice?.transcript || ''], 'en');
-        wordsEn = words && out[0] !== words ? out[0] : null; if (voice?.transcript && out[1] !== voice.transcript) voice.translation = out[1]; } catch { /* the team still sees the original */ }
+        wordsEn = words && out[0] !== words ? out[0] : null; if (voice?.transcript && out[1] !== voice.transcript && !voice.translation) voice.translation = out[1]; } catch { /* the team still sees the original */ }
     }
     const actor: any = { staffId: 'client', name: String(v.a.clientName || 'Client'), role: 'client', isManager: false, isOwner: false, portal: false, caps: [] };
     const r = await openCase(db, tenantId, actor, { via: b.via === 'link' ? 'link' : 'survey', appointmentId: id, clientId: v.a.clientId || '', clientName: v.a.clientName || '', reasonId: b.reasonId, words, wordsEn, wordsLang: lang !== 'en' ? lang : null,

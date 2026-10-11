@@ -1,6 +1,6 @@
 'use client';
-// src/components/making-it-right/VoiceNote.tsx — a voice note in any language (recorded on the phone; the words are heard
-// by the phone's own browser where it can, so the team gets them translated), plus photo shrinking for uploads. Used by
+// src/components/making-it-right/VoiceNote.tsx — a voice note in any language (recorded on the phone; the words are heard live
+// by the phone's own browser where it can, and written out on the server otherwise — lib/voice-transcribe), plus photo shrinking for uploads. Used by
 // the client's "How was your visit?" page and the staff app's incident and "your side" forms.
 import * as React from 'react';
 const MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f6', RED = '#b42318';
