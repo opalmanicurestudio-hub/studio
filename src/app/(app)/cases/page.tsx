@@ -368,7 +368,8 @@ export default function CasesPage() {
   const { data: services } = useCollection<any>(sQ);
   const [pick, setPick] = React.useState<string>(''); const [starting, setStarting] = React.useState(false); const [showClosed, setShowClosed] = React.useState(false);
   React.useEffect(() => { const id = new URLSearchParams(window.location.search).get('id'); if (id) setPick(id); }, []);
-  const all = data || []; const open = all.filter((c: any) => !c.locked).sort((a: any, b: any) => (b.safety ? 1 : 0) - (a.safety ? 1 : 0) || (a.firstReplyAt ? 1 : 0) - (b.firstReplyAt ? 1 : 0) || String(a.createdAt).localeCompare(String(b.createdAt)));
+  // A renter's client is the renter's case (they run it in their app) — the salon sees renter cases only for safety or equipment.
+  const all = (data || []).filter((x: any) => !x.renterCase); const open = all.filter((c: any) => !c.locked).sort((a: any, b: any) => (b.safety ? 1 : 0) - (a.safety ? 1 : 0) || (a.firstReplyAt ? 1 : 0) - (b.firstReplyAt ? 1 : 0) || String(a.createdAt).localeCompare(String(b.createdAt)));
   const closed = all.filter((c: any) => c.locked).sort((a: any, b: any) => String(b.closedAt).localeCompare(String(a.closedAt)));
   const c = all.find((x: any) => x.id === pick) || null;
 

@@ -151,6 +151,7 @@ export async function createPayout(db: any, tenantId: string, tenant: any, actor
   let c: any = null; if (b.caseId) { const s = await db.doc(`${T0}/cases/${b.caseId}`).get(); c = s.exists ? { id: s.id, ...s.data() } : null; if (!c) return { ok: false as const, error: 'Case not found.' }; }
   const amount = cents > 0 ? cents : Math.round(Number(c?.fix?.amountCents) || 0); if (!(amount > 0)) return { ok: false as const, error: 'Enter the amount.' };
   if (c?.fix?.refundedAt) return { ok: false as const, error: 'This refund was already given.' };
+  if (c?.renterCase) return { ok: false as const, error: 'This is a renter’s client — they refund from their own payments.' };
   const open = c ? await db.collection(`${T0}/refundPayouts`).where('caseId', '==', c.id).get() : null;
   if (open && open.docs.some((d: any) => !['cancelled'].includes(d.data().status))) return { ok: false as const, error: 'A refund is already set up for this case — see Refunds.' };
   const appointmentId = String(b.appointmentId || c?.visit?.appointmentId || c?.appointmentId || '');

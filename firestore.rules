@@ -353,6 +353,10 @@ service cloud.firestore {
     match /tenants/{tenantId}/counters/{counterId} {
       allow read, write: if false;
     }
+    // A renter's own Making it right settings: read and saved through the server only (/api/cases).
+    match /tenants/{tenantId}/renterSettings/{staffId} {
+      allow read, write: if false;
+    }
     // REFUNDS ON CASH SALES (pickup envelopes, app refunds): the front desk and managers read them; only the server
     // writes (/api/refund-payouts). Pickup codes are server-only, so a staff device can never read one.
     match /tenants/{tenantId}/refundPayouts/{payoutId} {
@@ -524,7 +528,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'conductReports', 'refundPayouts', 'refundCodes',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',

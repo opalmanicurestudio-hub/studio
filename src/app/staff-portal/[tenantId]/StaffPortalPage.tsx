@@ -5331,7 +5331,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>
           )}
           {activeTab==='me' && viewingCases && !editingDetails && !editingAlerts && (
-            <MyCases firestore={firestore} tenantId={tenantId} staffId={staffMember.id} accent={accentColor} onBack={() => setViewingCases(false)} />
+            <MyCases firestore={firestore} tenantId={tenantId} staffId={staffMember.id} accent={accentColor} onBack={() => setViewingCases(false)} isRenter={isRenter} />
           )}
           {activeTab==='me' && !editingDetails && !editingAlerts && !viewingCases && (
             <div className="space-y-4 pt-1">

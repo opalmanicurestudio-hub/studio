@@ -25,7 +25,7 @@ export async function redoPaySweep(db: any, tenantId: string, tenant: any) {
   for (const d of done) {
     const a: any = d.data(); const cSnap = await db.doc(`${T(tenantId)}/cases/${a.caseId}`).get(); const c: any = cSnap.data();
     await d.ref.set({ redoPaidAt: now() }, { merge: true });
-    if (!c || Number(a.price) > 0) continue;
+    if (!c || c.renterCase || Number(a.price) > 0) continue;
     const staffDoc = async (id: string) => (id ? await staffWithPay(db, tenantId, id) : null);
     const base = Number(c.visit?.paid) || 0; const who = c.clientName || 'a client';
     const doer: any = await staffDoc(a.staffId);

@@ -28,7 +28,12 @@ const firstOf = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
 
 /** What the page shows. Never anything private: first names, the service, the day, and the case in plain words. */
 export async function feedbackInfo(db: any, tenantId: string, v: { id: string; a: any }) {
-  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant); const a = v.a;
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const a = v.a;
+  // A renter's visit follows the renter's own Making it right settings, and only the renter can fix it.
+  const prov: any = a.staffId ? (await db.doc(`${T(tenantId)}/staff/${a.staffId}`).get()).data() || null : null;
+  const isRenterVisit = !!prov && (prov.isRenter === true || prov.role === 'renter');
+  const { renterSettingsOf, renterSettingsRaw } = await import('@/lib/renter-cases');
+  const S = isRenterVisit ? renterSettingsOf(tenant, await renterSettingsRaw(db, tenantId, a.staffId)) : settingsOf(tenant);
   const tz = tenant.timezone || 'America/New_York';
   const caseSnap = (await db.collection(`${T(tenantId)}/cases`).where('visit.appointmentId', '==', v.id).limit(1).get()).docs[0];
   const c: any = caseSnap ? caseSnap.data() : null;
@@ -36,7 +41,7 @@ export async function feedbackInfo(db: any, tenantId: string, v: { id: string; a
   const window = S.serviceWindows[a.serviceId] ?? S.redoWindowDays;
   const brand = { name: tenant.name || tenant.businessName || 'Your visit', accent: brandAccent(tenant), logo: tenant.logoUrl || tenant.logo || null };
   const base = { ok: true as const, brand, visit: { service: a.serviceName || 'Your visit', provider: firstOf(a.staffName), day: a.startTime ? new Date(a.startTime).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz }) : '', clientFirst: firstOf(a.clientName) },
-    answered: a.feedback?.rating || null, team: (await db.collection(`${T(tenantId)}/staff`).get()).docs.filter((d: any) => { const m: any = d.data() || {}; return m.archived !== true && m.isActive !== false && m.role !== 'renter'; }).length > 1, aftercare: aftercareFor(S, a.serviceId) || null, surveyOn: S.channels.survey !== false, reviewUrl: (tenant.clientNotify || {}).reviewUrl || tenant.reviewUrl || null,
+    answered: a.feedback?.rating || null, team: !isRenterVisit && (await db.collection(`${T(tenantId)}/staff`).get()).docs.filter((d: any) => { const m: any = d.data() || {}; return m.archived !== true && m.isActive !== false && m.role !== 'renter'; }).length > 1, aftercare: aftercareFor(S, a.serviceId) || null, surveyOn: S.channels.survey !== false, reviewUrl: (tenant.clientNotify || {}).reviewUrl || tenant.reviewUrl || null,
     open: FINISHED.includes(String(a.status)) && daysSince <= MAX_DAYS && S.channels.survey !== false,
     reasons: S.reasons.filter((r) => r.on !== false).map((r) => ({ id: r.id, label: r.label, safety: !!r.safety })),
     wants: wantsFor(S).map((w) => ({ id: w.id, label: w.client })),
@@ -46,9 +51,11 @@ export async function feedbackInfo(db: any, tenantId: string, v: { id: string; a
   const due = c.replyDueAt ? new Date(c.replyDueAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: tz }) : '';
   let fixLine = '';
   const rd = c.fix?.kind === 'redo' ? (c.fix.redo || {}) : null;
-  const redo = rd ? { state: c.fix.redoAppointmentId ? 'booked' : rd.state || 'choosing', provider: firstOf(c.visit?.providerName), canChange: !c.locked && c.status !== 'done' && (!c.fix.redoAppointmentId || (Number(rd.changes) || 0) < S.redoChanges), note: rd.note || null,
+  const redo = rd && !c.renterCase ? { state: c.fix.redoAppointmentId ? 'booked' : rd.state || 'choosing', provider: firstOf(c.visit?.providerName), canChange: !c.locked && c.status !== 'done' && (!c.fix.redoAppointmentId || (Number(rd.changes) || 0) < S.redoChanges), note: rd.note || null,
     plan: rd.plan ? { names: rd.plan.names || [], priceCents: Number(rd.plan.priceCents) || 0, note: rd.plan.note || null, minutes: rd.plan.minutes || null } : null } : null;
-  if (c.fix) { fixLine = c.fix.kind === 'redo' && !c.fix.redoAppointmentId ? (() => { const what = rd?.plan ? `${rd.plan.names.join(', then ')}${rd.plan.priceCents ? ` ($${(rd.plan.priceCents / 100).toFixed(2)})` : ', no charge'}` : 'A free redo';
+  if (c.fix && c.renterCase) fixLine = c.fix.kind === 'redo' ? (rd?.bookedText ? `A free fix with ${firstOf(c.visit?.providerName) || 'your provider'}: ${rd.bookedText}.` : `A free fix — ${firstOf(c.visit?.providerName) || 'your provider'} will be in touch to set a time.`)
+    : c.fix.kind === 'refund' ? `A refund of $${(c.fix.amountCents / 100).toFixed(2)} from ${firstOf(c.visit?.providerName) || 'your provider'}.` : c.fix.kind === 'note' ? 'It’s been noted, thank you for telling us.' : `${FIX_LABEL[c.fix.kind as keyof typeof FIX_LABEL] || 'A fix'}.`;
+  else if (c.fix) { fixLine = c.fix.kind === 'redo' && !c.fix.redoAppointmentId ? (() => { const what = rd?.plan ? `${rd.plan.names.join(', then ')}${rd.plan.priceCents ? ` ($${(rd.plan.priceCents / 100).toFixed(2)})` : ', no charge'}` : 'A free redo';
       return rd?.state === 'needs_time' ? `${what} — we’ll be in touch to find a time that works.` : `${what} — pick a time below.`; })() : c.fix.kind === 'redo' && c.fix.redoAppointmentId ? await (async () => { const r: any = (await db.doc(`${T(tenantId)}/appointments/${c.fix.redoAppointmentId}`).get()).data() || {};
       return `${rd?.plan ? rd.plan.names.join(', then ') : 'A free redo'}${r.staffName ? ` with ${firstOf(r.staffName)}` : ''}${r.startTime ? `, ${new Date(r.startTime).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz })}` : ''}.`; })()
     : c.fix.kind === 'refund' ? `A refund of $${(c.fix.amountCents / 100).toFixed(2)} back to your card${c.visit?.cardLast4 ? ` ending ${c.visit.cardLast4}` : ''}. Banks usually take 5–10 days to show it.`

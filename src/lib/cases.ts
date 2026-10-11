@@ -55,10 +55,18 @@ async function nextNumber(db: any, tenantId: string) {
 }
 
 export async function openCase(db: any, tenantId: string, actor: RequestActor, b: any) {
-  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant);
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const salonS = settingsOf(tenant);
   const staff = await staffList(db, tenantId); const me = staff.find((s: any) => s.id === actor.staffId);
   const visit = await visitOf(db, tenantId, String(b.appointmentId || ''), staff);
-  const reason = S.reasons.find((x) => x.id === b.reasonId) || (b.reasonOverride && b.reasonOverride.label ? { id: String(b.reasonOverride.id || 'incident'), label: String(b.reasonOverride.label).slice(0, 80), safety: !!b.reasonOverride.safety } : null);
+  // A renter's client: the case is the renter's (their settings, their app) — unless it's safety or equipment, which is the salon's.
+  const { renterProvider, renterSettingsOf, renterSettingsRaw, salonMatter } = await import('@/lib/renter-cases');
+  const renter = renterProvider(staff, visit?.providerId);
+  const renterS = renter ? renterSettingsOf(tenant, await renterSettingsRaw(db, tenantId, renter.id)) : null;
+  const pickReason = (S0: any) => S0.reasons.find((x: any) => x.id === b.reasonId);
+  const reason0 = (renterS && pickReason(renterS)) || pickReason(salonS);
+  const renterCase = !!renter && !salonMatter({ safety: !!reason0?.safety || b.reasonOverride?.safety === true, incidentType: b.incidentType || null });
+  const S = renterCase && renterS ? renterS : salonS;
+  const reason = reason0 || (b.reasonOverride && b.reasonOverride.label ? { id: String(b.reasonOverride.id || 'incident'), label: String(b.reasonOverride.label).slice(0, 80), safety: !!b.reasonOverride.safety } : null);
   if (!reason && !String(b.words || '').trim()) return { ok: false as const, error: 'Pick what went wrong, or write what they said.' };
   const clientId = String(b.clientId || visit?.clientId || ''); const clientName = String(b.clientName || visit?.clientName || '').slice(0, 120) || 'Client';
   const prior = clientId ? (await db.collection(`${T(tenantId)}/cases`).where('clientId', '==', clientId).get()).docs.map((d: any) => d.data() || {}) : [];
@@ -66,26 +74,27 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   const photos: string[] = (Array.isArray(b.photos) ? b.photos : []).map(String).filter((u: string) => /^https:\/\//.test(u)).slice(0, 8);
   const checks = fairUseChecks({ settings: S, visit, reason, photos: photos.length, priorFixes, wants: b.wants, afterDiscount: prior.filter((c: any) => c.visit?.discounted).length + (visit?.discounted ? 1 : 0) });
   const via = ['call', 'staff', 'desk', 'survey', 'link'].includes(b.via) ? b.via : 'desk';
-  const ownerId = (via === 'call' || via === 'desk') && !reason?.safety ? actor.staffId : null;
+  const ownerId = renterCase ? renter.id : (via === 'call' || via === 'desk') && !reason?.safety ? actor.staffId : null;
   const id = db.collection(`${T(tenantId)}/cases`).doc().id; const number = await nextNumber(db, tenantId);
   const doc: any = {
     id, number, clientId: clientId || null, clientName, visit, reasonId: reason?.id || 'other', reasonLabel: reason?.label || 'Something else', safety: !!reason?.safety,
     via, words: String(b.words || '').trim().slice(0, 2000), wordsEn: b.wordsEn ? String(b.wordsEn).slice(0, 2000) : null, wordsLang: b.wordsLang ? String(b.wordsLang).slice(0, 12) : null, photos, voice: voiceOf(b.voice), statusPath: b.statusPath ? String(b.statusPath).slice(0, 300) : null, wants: ['fix', 'talk', 'refund'].includes(b.wants) ? b.wants : null,
     reportedBy: { id: actor.staffId, name: actor.name }, providerAction: via === 'staff' ? String(b.providerAction || '').slice(0, 40) || null : null,
-    ownerId, ownerName: ownerId ? actor.name : null, status: ownerId ? 'owned' : 'heard', checks, needsManager: !!reason?.safety || checks.some((c) => !c.ok),
+    ownerId, ownerName: ownerId ? (renterCase ? renter.name || 'Renter' : actor.name) : null, renterCase, renterStaffId: renter ? renter.id : null, renterId: renter?.renterId || null, status: ownerId ? 'owned' : 'heard', checks, needsManager: !renterCase && (!!reason?.safety || checks.some((c) => !c.ok)),
     replyDueAt: S.replyHours ? new Date(Date.now() + S.replyHours * 3600000).toISOString() : null, checkInDueAt: reason?.safety && S.safetyCheckInHours ? new Date(Date.now() + S.safetyCheckInHours * 3600000).toISOString() : null, fix: null, pending: null,
     timeline: [line(actor.name, `Case opened (${({ call: 'phone call', staff: 'reported by the provider', desk: 'at the desk', survey: '“How was your visit?”', link: 'their visit link' } as any)[via]}): ${reason?.label || 'something else'}${b.words ? ` — “${String(b.words).slice(0, 200)}”` : ''}`),
-      ...(ownerId ? [line(actor.name, `${actor.name} took ownership`)] : [])],
+      ...(renterCase ? [line('System', `${renter.name || 'The renter'}'s client — the case is theirs`)] : ownerId ? [line(actor.name, `${actor.name} took ownership`)] : [])],
     incident: reason?.safety ? { started: now(), whatHappened: String(b.words || ''), present: [], statements: [], checkIn48At: null } : null,
     preferOther: b.preferOther === true, involvedStaffIds: visit?.providerId ? [visit.providerId] : [],
     kind: b.kind === 'incident' ? 'incident' : 'complaint', incidentType: b.incidentType || null, statements: Array.isArray(b.statements) ? b.statements.slice(0, 3) : [],
     // Their side is asked for — unless the provider IS the business (a solo owner), who tells it when they log the case.
-    sideWanted: visit?.providerId && visit.providerId !== actor.staffId && visit.providerId !== tenant.userId && staff.filter((m: any) => m.role !== 'renter' && m.isActive !== false).length > 1 && String(staff.find((m: any) => m.id === visit.providerId)?.role || '') !== 'owner' ? visit.providerId : null,
+    sideWanted: !renterCase && visit?.providerId && visit.providerId !== actor.staffId && visit.providerId !== tenant.userId && staff.filter((m: any) => m.role !== 'renter' && m.isActive !== false).length > 1 && String(staff.find((m: any) => m.id === visit.providerId)?.role || '') !== 'owner' ? visit.providerId : null,
     createdAt: now(), updatedAt: now(), locked: false,
   };
   await db.doc(`${T(tenantId)}/cases/${id}`).set(JSON.parse(JSON.stringify(doc)));
   const mgrs = [...staff.filter((s: any) => MANAGERS.includes(String(s.role))).map((s: any) => s.id), tenant.userId].filter(Boolean); const desk = staff.filter((s: any) => s.role === 'front_desk').map((s: any) => s.id);
-  if (doc.safety) await tell(db, tenantId, mgrs, 'case_safety', `Safety: ${clientName} — ${doc.reasonLabel}. A manager is needed now.`, id);
+  if (renterCase) { if (renter.id !== actor.staffId) await tell(db, tenantId, [renter.id], 'case_new', `${clientName} isn’t happy: ${doc.reasonLabel}. It’s your client — open Client cases to handle it.`, id); return { ok: true as const, id, number }; }
+  if (doc.safety) { await tell(db, tenantId, mgrs, 'case_safety', `Safety: ${clientName} — ${doc.reasonLabel}. A manager is needed now.`, id); if (renter && renter.id !== actor.staffId) await tell(db, tenantId, [renter.id], 'case_yours', `A safety report about ${clientName}'s visit with you — the salon's manager will follow up.`, id); }
   else await tell(db, tenantId, [...mgrs, ...desk].filter((x) => x !== actor.staffId), 'case_new', `${clientName} isn’t happy: ${doc.reasonLabel}${visit?.providerName ? ` (${visit.providerName.split(' ')[0]})` : ''}.`, id);
   if (visit?.providerId && visit.providerId !== actor.staffId && !doc.safety) await tell(db, tenantId, [visit.providerId], 'case_yours', `${clientName} wasn’t happy with their visit: ${doc.reasonLabel}. The desk will be in touch.`, id);
   return { ok: true as const, id, number };
@@ -169,10 +178,15 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
   const ref = db.doc(`${T(tenantId)}/cases/${String(b.id || '')}`); const snap = await ref.get();
   if (!snap.exists) return { ok: false as const, error: 'That case wasn’t found.' };
   const c: any = snap.data(); const action = String(b.action || ''); const text = String(b.note || b.text || '').trim().slice(0, 2000);
-  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant);
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {};
+  const { settingsForCase } = await import('@/lib/renter-cases'); const S = await settingsForCase(db, tenantId, tenant, c);
   if (c.locked && action !== 'addendum') return { ok: false as const, error: 'This case is closed. Add a dated note instead.' };
+  // A renter's case is run by the renter; the salon's team doesn't act on it (safety cases stay the salon's).
+  const renterOwner = !!c.renterCase && c.renterStaffId === actor.staffId;
+  if (c.renterCase && !renterOwner) return { ok: false as const, error: 'This is a renter’s client — they handle it in their app.' };
   const isProvider = c.visit?.providerId === actor.staffId;
-  const desk = actor.isManager || ['front_desk', 'owner', 'admin', 'manager'].includes(actor.role);
+  const desk = renterOwner || actor.isManager || ['front_desk', 'owner', 'admin', 'manager'].includes(actor.role);
+  if (renterOwner && ['refund_card', 'redo_with', 'redo_times', 'redo_book', 'approve', 'own'].includes(action)) return { ok: false as const, error: action === 'refund_card' ? 'Refund the client from your own payments, then mark it done.' : 'Book the fix in your own planner, then add the time here.' };
   const push = (patch: any, msg: string) => ref.set({ ...patch, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, msg)) }, { merge: true });
   const staff = await staffList(db, tenantId); const mgrs = [...staff.filter((s: any) => MANAGERS.includes(String(s.role))).map((s: any) => s.id), tenant.userId].filter(Boolean);
 
@@ -190,8 +204,9 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       if (action === 'approve' && !actor.isManager) return { ok: false as const, error: 'Only a manager can approve this.' };
       if (action === 'choose_fix' && !desk && !isProvider) return { ok: false as const, error: 'You can’t choose the fix for this case.' };
       if (c.safety && !actor.isManager) return { ok: false as const, error: 'A manager decides the fix for safety cases.' };
-      let ok: { ok: boolean; why?: string } = action === 'approve' ? { ok: true } : canDecide(S, { isManager: actor.isManager, role: actor.role, isProvider: isProvider && !desk }, { kind, amountCents }, c.checks || []);
-      if (ok.ok && action !== 'approve' && kind === 'redo' && planOf(p.redo?.plan, c) && S.fairUse.sameServiceOnly && !actor.isManager) ok = { ok: false, why: 'A different service for the fix needs a manager’s OK.' };
+      let ok: { ok: boolean; why?: string } = action === 'approve' ? { ok: true } : canDecide(S, { isManager: actor.isManager || renterOwner, role: actor.role, isProvider: isProvider && !desk }, { kind, amountCents }, c.checks || []);
+      if (renterOwner && !S.fixes[kind]) return { ok: false as const, error: 'That fix isn’t one you offer — change it in your Making it right settings.' };
+      if (ok.ok && action !== 'approve' && kind === 'redo' && planOf(p.redo?.plan, c) && S.fairUse.sameServiceOnly && !actor.isManager && !renterOwner) ok = { ok: false, why: 'A different service for the fix needs a manager’s OK.' };
       if (!ok.ok) {
         await push({ pending: { kind, amountCents, redo: p.redo || null, askedBy: actor.name, at: now(), why: (ok as any).why }, needsManager: true }, `Asked a manager to approve: ${FIX_LABEL[kind]}${amountCents ? ` ${money(amountCents)}` : ''} (${(ok as any).why})`);
         await tell(db, tenantId, mgrs.filter((x: string) => x !== actor.staffId), 'case_approval', `${c.clientName}: ${actor.name.split(' ')[0]} wants to give ${FIX_LABEL[kind].toLowerCase()}${amountCents ? ` (${money(amountCents)})` : ''} — needs your OK.`, c.id);
@@ -200,13 +215,14 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       const provId = String(p.redo?.staffId || c.visit?.providerId || '');
       const redo = kind === 'redo' ? { state: 'choosing', staffId: provId || null, minutes: Number(p.redo?.minutes) || null, changes: 0, note: null, plan: planOf(p.redo?.plan, c) } : null;
       const fix = { kind, label: FIX_LABEL[kind], amountCents, redoAppointmentId: null, redo, by: action === 'approve' ? c.pending?.askedBy : actor.name, approvedBy: action === 'approve' || actor.isManager ? actor.name : null, at: now(),
-        todo: kind === 'refund' ? `Refund ${money(amountCents)} to the card${c.visit?.cardLast4 ? ` ending ${c.visit.cardLast4}` : ''} — send it from here or from Money` : kind === 'credit' ? `Add ${money(amountCents)} credit to ${c.clientName}’s account` : null };
+        todo: kind === 'refund' && c.renterCase ? `Refund ${money(amountCents)} to ${c.clientName} from your own payments, then mark it done` : kind === 'redo' && c.renterCase ? 'Book the fix in your planner, then add the time here' : kind === 'refund' ? `Refund ${money(amountCents)} to the card${c.visit?.cardLast4 ? ` ending ${c.visit.cardLast4}` : ''} — send it from here or from Money` : kind === 'credit' ? `Add ${money(amountCents)} credit to ${c.clientName}’s account` : null };
       await push({ fix, pending: null, status: kind === 'note' ? 'done' : 'fix_chosen', ownerId: c.ownerId || actor.staffId, ownerName: c.ownerName || actor.name },
         `${action === 'approve' ? `${actor.name} approved: ` : 'Fix chosen: '}${FIX_LABEL[kind]}${amountCents ? ` ${money(amountCents)}` : ''}`);
       if (kind === 'redo') {
         const fresh = { ...c, fix };
         if (p.redo?.mode === 'book' && p.redo.date && p.redo.time) { const r = await bookRedo(db, tenantId, fresh, { staffId: provId, date: p.redo.date, time: p.redo.time, by: actor.name, byClient: false }); if (!r.ok) return { ok: true as const, warn: `Fix chosen, but the time didn’t book: ${r.error}` }; return { ok: true as const, redoId: r.id }; }
         if (p.redo?.mode === 'team') return { ok: true as const };
+        if (c.renterCase) { const sent = await textClient(db, tenantId, tenant, c, `${actor.name.split(' ')[0]} would love to fix this for you at no charge and will be in touch to set a time.`); return { ok: true as const, sent }; }
         const pl = redo?.plan; const sent = c.statusPath ? await textClient(db, tenantId, tenant, c, pl ? `We’ve looked at this and here’s how we’ll fix it${pl.priceCents ? '' : ' — no charge'}. Pick a time that suits you:` : `We’d love to fix this for you at no charge. Pick a time that suits you:`) : false;
         return { ok: true as const, offered: true, sent };
       }
@@ -245,8 +261,14 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       await push({ fix: { refundedAt: at, refundedCents: cents, todo: null } }, `Refunded ${money(cents)} to the card${r.shortCents > 0 ? ` (${money(r.shortCents)} couldn’t go back — refund the rest from Money)` : ''}`);
       if (b.tell !== false) await textClient(db, tenantId, tenant, c, `We’ve refunded ${money(cents)} to your card. It can take 5–10 days to show on your statement.`);
       return { ok: true as const, refundedCents: cents }; }
+    case 'redo_set': {   // a renter books the fix in their own planner and records it here
+      if (!renterOwner || c.fix?.kind !== 'redo') return { ok: false as const, error: 'Not available.' };
+      const whenText = String(b.when || '').trim().slice(0, 120); if (!whenText) return { ok: false as const, error: 'Add the day and time.' };
+      await push({ fix: { ...c.fix, todo: null, redo: { ...(c.fix.redo || {}), state: 'booked', bookedText: whenText, bookedAt: now() } } }, `Fix booked: ${whenText}`);
+      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `Your free fix is booked: ${whenText}.`);
+      return { ok: true as const }; }
     case 'done': if (!desk && !isProvider) return { ok: false as const, error: 'You can’t mark this done.' };
-      if (c.fix?.kind === 'refund') { const { refundKeepsPay } = await import('@/lib/redo-pay'); await refundKeepsPay(db, tenantId, tenant, c).catch(() => {}); }
+      if (c.fix?.kind === 'refund' && !c.renterCase) { const { refundKeepsPay } = await import('@/lib/redo-pay'); await refundKeepsPay(db, tenantId, tenant, c).catch(() => {}); }
       await push({ status: 'done', doneAt: now(), followUpAt: S.followUpDays ? new Date(Date.now() + S.followUpDays * 86400000).toISOString() : null }, `Marked done${text ? `: ${text}` : ''}${c.fix?.todo ? ` (${c.fix.todo} — done)` : ''}`); return { ok: true as const };
     case 'checked_back': { if (!desk) return { ok: false as const, error: 'The desk or a manager records this.' }; const good = b.answer !== 'no';
       if (!good) { await push({ status: 'owned', reopenedAt: now() }, `Checked back: still not right${text ? ` — “${text}”` : ''}. Reopened.`); if (c.ownerId) await tell(db, tenantId, [c.ownerId], 'case_reopened', `${c.clientName} says it’s still not right. The case is open again.`, c.id); return { ok: true as const }; }
