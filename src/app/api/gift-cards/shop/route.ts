@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
-import { shopInfo, startGiftOrder, confirmGiftOrder, orderView, changeOrder, orderKey } from '@/lib/gift-shop';
+import { shopInfo, startGiftOrder, confirmGiftOrder, orderView, changeOrder, orderKey, findMyCards, walletView } from '@/lib/gift-shop';
 
 export const dynamic = 'force-dynamic';
 const j = (b: any, status = 200) => NextResponse.json(b, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -17,6 +17,8 @@ const okId = (t: any) => typeof t === 'string' && /^[A-Za-z0-9_-]{1,60}$/.test(t
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams; const tenantId = q.get('tenantId'); if (!okT(tenantId)) return j({ ok: false, error: 'Unknown business.' }, 400);
   const db = getAdminDb(); const order = q.get('order');
+  if (q.get('wallet')) { const cards = await walletView(db, tenantId!, q.get('wallet') || '', q.get('k') || ''); const s = await shopInfo(db, tenantId!);
+    if (!cards || !s) return j({ ok: false, error: 'This link isn’t valid.' }, 404); return j({ ok: true, cards, brand: s.brand, bookUrl: `/book/${encodeURIComponent(tenantId!)}` }); }
   if (order) {
     if (!okId(order) || q.get('k') !== orderKey(tenantId!, order)) return j({ ok: false, error: 'This link isn’t valid.' }, 404);
     const [v, s] = await Promise.all([orderView(db, tenantId!, order), shopInfo(db, tenantId!)]); if (!v || !s) return j({ ok: false, error: 'That gift wasn’t found.' }, 404);
@@ -34,6 +36,8 @@ export async function POST(req: NextRequest) {
     try { const r = await startGiftOrder(db, tenantId, b, req.nextUrl.origin); return j(r, r.ok ? 200 : 400); }
     catch (e: any) { console.error('[gift shop] start', e?.message); return j({ ok: false, error: 'The payment form didn’t open. Please try again.' }, 500); }
   }
+  if (action === 'find') { const limited = await limitPublic(req, 'gift_find', tenantId, { perHour: 5, perDay: 15 }); if (limited) return limited;
+    const r = await findMyCards(db, tenantId, String(b.contact || '').slice(0, 120), req.nextUrl.origin); return j(r, r.ok ? 200 : 400); }
   if (!okId(b.orderId)) return j({ ok: false, error: 'That order wasn’t found.' }, 404);
   if (action === 'confirm') { try { return j(await confirmGiftOrder(db, tenantId, b.orderId, req.nextUrl.origin)); } catch (e: any) { console.error('[gift shop] confirm', e?.message); return j({ ok: true, paid: false }); } }
   if (action === 'change') {

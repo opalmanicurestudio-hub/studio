@@ -111,6 +111,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { StoreCreditPanel } from '@/components/pos/StoreCreditPanel';
 import { GiftCardPanel } from '@/components/pos/GiftCardPanel';
 import { brandAccent } from '@/lib/brand-accent';
+import { deskScript, shopSettings } from '@/lib/gift-designs';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
 let useTerminalSafe: () => any = () => null;
@@ -1262,7 +1263,7 @@ export const CheckoutHub = ({
            }}
          />
        )}
-       {setGiftApplied && addGiftCardToCart && <GiftCardPanel tenantId={tenantId} clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} owedBeforeGift={Math.max(0, beforeGiftTotal - giftInCart)} applied={giftApplied} setApplied={setGiftApplied} holdId={giftHoldId} addGiftCardToCart={addGiftCardToCart} brandName={(selectedTenant as any)?.name || null} brandLogo={(selectedTenant as any)?.logoUrl || null} brandAccent={brandAccent(selectedTenant)} screen={{ connected: cs.connected, ask: cs.ask, response: cs.response }} />}
+       {setGiftApplied && addGiftCardToCart && <GiftCardPanel tenantId={tenantId} clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} owedBeforeGift={Math.max(0, beforeGiftTotal - giftInCart)} applied={giftApplied} setApplied={setGiftApplied} holdId={giftHoldId} addGiftCardToCart={addGiftCardToCart} brandName={(selectedTenant as any)?.name || null} brandLogo={(selectedTenant as any)?.logoUrl || null} brandAccent={brandAccent(selectedTenant)} screen={{ connected: cs.connected, ask: cs.ask, response: cs.response }} script={deskScript(shopSettings(selectedTenant))} />}
         </div>
         <div className="co-right min-w-0 space-y-3">
           {/* EXTRA PRODUCT — suggested, never automatic: the provider recorded more than the recipe on "Products used". */}

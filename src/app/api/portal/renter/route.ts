@@ -2891,6 +2891,7 @@ export async function POST(req: NextRequest) {
         if (!g!.ownerRenterId) { const ref = db.collection(`tenants/${tenantId}/rentLedger`).doc();
           await ref.set({ id: ref.id, renterId: session.renterId, type: 'gift_card_credit', status: 'paid', amountCents: -cents, appliedCents: 0, appointmentId: apptId, giftCardIds: [g!.id], note: `Studio gift card ${g!.code} taken for your service — $${(cents / 100).toFixed(2)} credited to your rent`, date: now2, createdAt: now2, createdBy: by }); }
         if (apptId) await db.doc(`tenants/${tenantId}/appointments/${apptId}`).set({ giftCardsTaken: (await import('firebase-admin/firestore')).FieldValue.arrayUnion({ code: g!.code, cents, studio: !g!.ownerRenterId, at: now2 }) }, { merge: true });
+        void gc.notifyGiftUse(db, tenantId, g!.id, cents, req.nextUrl.origin).catch(() => {});
         return NextResponse.json({ ok: true, cents, balanceAfter: r.balanceAfter, studio: !g!.ownerRenterId });
       }
       if (action === 'gift-sell') {

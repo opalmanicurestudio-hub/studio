@@ -49,12 +49,15 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
   for (let i = 0; i < 5 && (await findByCode(db, tenantId, code)); i++) { if (o.code) return { ok: false as const, error: `A gift card with code ${code} is already here.`, duplicate: true }; code = newCode(); }
   const bal = o.balanceCents == null ? initial : Math.max(0, Math.min(initial, Math.round(Number(o.balanceCents) || 0)));
   const ref = db.collection(`${T(tenantId)}/giftCards`).doc(); const at = now();
+  // The business's expiry rule (never, unless they chose 5+ years) — imported cards keep whatever they had.
+  let expiresAt: string | null = null;
+  if (o.source !== 'import') { const yrs = Number(((await db.doc(T(tenantId)).get()).data() as any)?.giftCardSettings?.expiryYears) || 0; if (yrs >= 5) { const d = new Date(); d.setFullYear(d.getFullYear() + yrs); expiresAt = d.toISOString(); } }
   const doc: any = { id: ref.id, code, codeKey: codeKey(code), initialCents: initial, balanceCents: bal, status: bal > 0 ? 'active' : 'used', source: o.source,
     purchaserId: o.purchaser?.id || null, purchaserName: o.purchaser?.name || null, recipientId: o.recipient?.id || null, recipientName: o.recipient?.name || null,
     recipientPhone: o.recipient?.phone || null, recipientEmail: o.recipient?.email || null,
     ownerRenterId: o.ownerRenterId || null, ownerName: o.ownerRenterId ? o.ownerName || null : null, design: o.design || null, line: o.line ? String(o.line).slice(0, 30) : null, purchaserEmail: o.purchaserEmail || null, orderId: o.orderId || null, message: o.message ? String(o.message).slice(0, 400) : null,
     sendVia: o.sendVia || null, sendAt: o.sendAt || null, sentAt: null, transactionId: o.transactionId || null, importId: o.importId || null, importedFrom: o.importedFrom || null,
-    createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
+    expiresAt, createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
     history: [{ at, type: o.source === 'import' ? 'import' : 'issue', cents: bal, balanceAfter: bal, by: o.by, ...(o.transactionId ? { transactionId: o.transactionId } : {}) }] };
   await ref.set(doc); return { ok: true as const, card: doc as GiftCard };
 }
@@ -64,6 +67,7 @@ export async function holdGiftCard(db: any, tenantId: string, o: { code?: string
   const g = o.id ? await db.doc(`${T(tenantId)}/giftCards/${o.id}`).get().then((d: any) => (d.exists ? { id: d.id, ...d.data() } : null)) : await findByCode(db, tenantId, String(o.code || ''));
   if (!g) return { ok: false as const, error: 'That gift card code wasn’t found. Check it and try again.' };
   if (g.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
+  if (g.expiresAt && Date.parse(g.expiresAt) < Date.now()) return { ok: false as const, error: `That gift card expired on ${new Date(g.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.` };
   const ref = db.doc(`${T(tenantId)}/giftCards/${g.id}`);
   return db.runTransaction(async (tx: any) => {
     const cur: any = (await tx.get(ref)).data(); const free = available(cur, o.holdId);
@@ -85,6 +89,7 @@ export async function spendGiftCard(db: any, tenantId: string, o: { id: string; 
   return db.runTransaction(async (tx: any) => {
     const cur: any = (await tx.get(ref)).data(); if (!cur) return { ok: false as const, error: 'That gift card wasn’t found.' };
     if (cur.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
+    if (cur.expiresAt && Date.parse(cur.expiresAt) < Date.now()) return { ok: false as const, error: `Gift card ${cur.code} has expired.` };
     const want = Math.round(Number(o.cents) || 0); if (want <= 0) return { ok: true as const, cents: 0 };
     if (want > available(cur, o.holdId || null)) return { ok: false as const, error: `Only $${(available(cur, o.holdId || null) / 100).toFixed(2)} is left on gift card ${cur.code}.` };
     const bal = (Number(cur.balanceCents) || 0) - want; const holds = { ...(cur.holds || {}) }; if (o.holdId) delete holds[o.holdId];
@@ -111,7 +116,7 @@ export async function adjustGiftCard(db: any, tenantId: string, o: { id: string;
 /** What a client or the desk may see of a card (never the holds' details or history). */
 export function pub(g: any) {
   if (!g) return null;
-  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
+  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
 }
 
 /** Text or email the card to the person it's for (now, or on the day chosen — the cron sends those). */
@@ -145,4 +150,60 @@ export async function giftSendSweep(db: any, tenantId: string, tenant: any) {
   for (const d of s.docs) { const g: any = { id: d.id, ...d.data() }; if (g.sentAt || !g.sendAt || !['text', 'email'].includes(g.sendVia) || g.status === 'void' || Date.parse(g.sendAt) > Date.now() || g.sendStatus === 'failed') continue;
     const r = await deliverGiftCard(db, tenantId, tenant, g); if (r.sent) n++; }
   return n;
+}
+
+/** After a card is used: tell the person it's for what's left, and — the first time — tell the buyer their gift was
+ *  used (when the business keeps "Tell the buyer" on). Short, no marketing; a send that fails changes nothing. */
+export async function notifyGiftUse(db: any, tenantId: string, id: string, cents: number, reqOrigin?: string | null) {
+  const g: any = (await db.doc(`${T(tenantId)}/giftCards/${id}`).get()).data(); if (!g) return;
+  const t: any = (await db.doc(T(tenantId)).get()).data() || {};
+  const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(t, reqOrigin || ''); const link = origin ? `${origin}${giftPath(tenantId, id)}` : '';
+  const biz = g.ownerName || t.name || 'us'; const $ = (c: number) => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`;
+  const { sendNotification } = await import('@/lib/notify');
+  const used = `You used ${$(cents)} of your gift card at ${biz}. ${g.balanceCents > 0 ? `${$(g.balanceCents)} left` : 'It’s all used up — we hope you loved it'}.${link && g.balanceCents > 0 ? ` See it: ${link}` : ''}`;
+  if (g.recipientEmail) await sendNotification(db, { tenantId, channel: 'email', to: String(g.recipientEmail), subject: `Your gift card — ${g.balanceCents > 0 ? `${$(g.balanceCents)} left` : 'all used'}`, text: used, html: `<p style="font-size:16px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">${used.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]).replace(link, `<a href="${link}">${link}</a>`)}</p>`, kind: 'gift_card_used', recipientType: 'client', recipientName: g.recipientName || null } as any).catch(() => {});
+  else if (g.recipientPhone) await sendNotification(db, { tenantId, channel: 'sms', to: String(g.recipientPhone), text: used, kind: 'gift_card_used', recipientType: 'client', recipientName: g.recipientName || null } as any).catch(() => {});
+  // The buyer, once — the first time their gift is used.
+  const spends = (g.history || []).filter((h: any) => h.type === 'spend').length;
+  if (spends === 1 && !g.buyerToldAt && t.giftCardSettings?.buyerThanks !== false && g.purchaserName && g.purchaserName !== g.recipientName) {
+    let to = g.purchaserEmail || null; if (!to && g.purchaserId) to = (((await db.doc(`${T(tenantId)}/clients/${g.purchaserId}`).get()).data() as any) || {}).email || null;
+    if (to) { const who = String(g.recipientName || 'They').split(' ')[0];
+      const text = `${who} used the gift card you gave them at ${biz}. Thank you for sending them our way!`;
+      await sendNotification(db, { tenantId, channel: 'email', to: String(to), subject: `${who} used your gift`, text, html: `<p style="font-size:16px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">${text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c])}</p>`, kind: 'gift_card_buyer_used', recipientType: 'client', recipientName: g.purchaserName } as any).catch(() => {});
+      await db.doc(`${T(tenantId)}/giftCards/${id}`).set({ buyerToldAt: now() }, { merge: true }); }
+  }
+}
+
+/** Tell the owner and managers (in the app) about something on gift cards worth a look. */
+export async function alertManagers(db: any, tenantId: string, message: string, link = '/gift-cards', except?: string | null) {
+  const t: any = (await db.doc(T(tenantId)).get()).data() || {};
+  const st = await db.collection(`${T(tenantId)}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get();
+  const ids = new Set<string>(st.docs.filter((d: any) => (d.data() as any)?.archived !== true).map((d: any) => d.id)); if (t.userId) ids.add(String(t.userId)); if (except) ids.delete(except);
+  const b = db.batch(); for (const u of ids) { const r = db.collection(`${T(tenantId)}/notifications`).doc(); b.set(r, { id: r.id, userId: u, type: 'gift_alert', message, link, createdAt: now(), read: false }); }
+  if (ids.size) await b.commit();
+}
+
+/** Wrong codes: after 8 misses in 15 minutes from one person (or one visitor), stop for 15 minutes and tell managers once. */
+export async function codeTries(db: any, tenantId: string, who: string, missed: boolean) {
+  const key = `gift_tries_${String(who).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60) || 'anon'}`; const ref = db.doc(`${T(tenantId)}/counters/${key}`);
+  const d: any = (await ref.get()).data() || {}; const nowMs = Date.now();
+  if (d.blockedUntil && Date.parse(d.blockedUntil) > nowMs) return { blocked: true };
+  if (!missed) return { blocked: false };
+  const fresh = !d.windowStart || nowMs - Date.parse(d.windowStart) > 15 * 60000; const count = fresh ? 1 : (Number(d.count) || 0) + 1;
+  const blocked = count >= 8;
+  await ref.set({ windowStart: fresh ? new Date(nowMs).toISOString() : d.windowStart, count: blocked ? 0 : count, ...(blocked ? { blockedUntil: new Date(nowMs + 15 * 60000).toISOString() } : {}) }, { merge: true });
+  return { blocked, justBlocked: blocked };
+}
+
+/** Give a card to someone else (a manager): the new person's details, with the old ones kept in the history. */
+export async function transferGiftCard(db: any, tenantId: string, o: { id: string; name: string; phone?: string | null; email?: string | null; clientId?: string | null; note?: string | null; by: string }) {
+  const ref = db.doc(`${T(tenantId)}/giftCards/${o.id}`);
+  return db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(ref)).data(); if (!cur) return { ok: false as const, error: 'That gift card wasn’t found.' };
+    if (cur.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
+    const name = String(o.name || '').trim().slice(0, 80); if (!name) return { ok: false as const, error: 'Add who it’s going to.' };
+    tx.update(ref, { recipientName: name, recipientId: o.clientId || null, recipientPhone: o.phone ? String(o.phone).slice(0, 30) : null, recipientEmail: o.email ? String(o.email).slice(0, 120) : null,
+      history: [...(cur.history || []).slice(-80), { at: now(), type: 'transfer', cents: 0, balanceAfter: cur.balanceCents, by: o.by, note: `From ${cur.recipientName || 'no one'} to ${name}${o.note ? ` — ${String(o.note).slice(0, 120)}` : ''}`, from: { name: cur.recipientName || null, id: cur.recipientId || null, phone: cur.recipientPhone || null, email: cur.recipientEmail || null } }] });
+    return { ok: true as const };
+  });
 }

@@ -30,14 +30,32 @@ export type GiftShopSettings = {
   online: boolean; designs: string[] | null; amounts: number[]; custom: boolean; min: number; max: number;
   seasonalOnly: boolean; rules: string; buyerThanks: boolean;
   renters: { salonCards: boolean; ownCards: boolean };
+  /** The card's terms (Gift cards → Rules): written into plain words on every card page, receipt and email. */
+  expiryYears: number; paysFor: { services: boolean; products: boolean; tips: boolean }; cashBackUnderCents: number; refundDays: number; customRules: boolean;
   onBooking: boolean; showcase: { design: string; amount: number; label: string | null }[] | null;
 };
 export const DEFAULT_RULES = 'Never expires. Use it for services, products and tips. Not for cash, except where the law requires. Lost it? We can resend it.';
+/** The rules in plain words, from the settings (a business can write its own instead). */
+export function rulesFrom(x: { expiryYears: number; paysFor: { services: boolean; products: boolean; tips: boolean }; cashBackUnderCents: number; refundDays: number }) {
+  const what = [x.paysFor.services && 'services', x.paysFor.products && 'products', x.paysFor.tips && 'tips'].filter(Boolean) as string[];
+  const list = what.length > 1 ? `${what.slice(0, -1).join(', ')} and ${what[what.length - 1]}` : what[0] || 'services';
+  return [x.expiryYears > 0 ? `Expires ${x.expiryYears} years after it’s bought.` : 'Never expires.', `Use it for ${list}.`,
+    x.cashBackUnderCents > 0 ? `Not for cash — except a balance under $${(x.cashBackUnderCents / 100).toFixed(0)}, which we’ll give back in cash if you ask.` : 'Not for cash, except where the law requires.',
+    x.refundDays > 0 ? `Unused cards can be refunded to the buyer within ${x.refundDays} days.` : null, 'Lost it? We can resend it.'].filter(Boolean).join(' ');
+}
+/** The one line the front desk says when selling one. */
+export const deskScript = (s: GiftShopSettings) => { const w = [s.paysFor.services && 'services', s.paysFor.products && 'products', s.paysFor.tips && 'tips'].filter(Boolean) as string[];
+  const list = w.length > 1 ? `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}` : w[0] || 'services';
+  return `${s.expiryYears > 0 ? `It’s good for ${s.expiryYears} years` : 'It never expires'}, it works for ${list}, and we can resend it if it’s ever lost.`; };
+
 export function shopSettings(t: any): GiftShopSettings {
-  const s = t?.giftCardSettings || {}; const nums = (a: any) => (Array.isArray(a) ? a.map(Number).filter((n) => n >= 1 && n <= 5000).slice(0, 6) : null);
+  const s = t?.giftCardSettings || {};
+  const paysFor = { services: s.paysFor?.services !== false, products: s.paysFor?.products !== false, tips: s.paysFor?.tips !== false };
+  const expiryYears = [0, 5, 6, 7, 10].includes(Number(s.expiryYears)) ? Number(s.expiryYears) : 0;
+  const cashBackUnderCents = Math.max(0, Math.min(5000, Math.round(Number(s.cashBackUnderCents) || 0))); const refundDays = [0, 7, 14, 30].includes(Number(s.refundDays)) ? Number(s.refundDays) : 0; const nums = (a: any) => (Array.isArray(a) ? a.map(Number).filter((n) => n >= 1 && n <= 5000).slice(0, 6) : null);
   const min = Math.max(1, Math.min(5000, Number(s.min) || 10)); const max = Math.max(min, Math.min(5000, Number(s.max) || 500));
   return { online: s.online === true, designs: Array.isArray(s.designs) ? s.designs.map(String) : null, amounts: nums(s.amounts)?.length ? nums(s.amounts)! : [25, 50, 100, 150],
-    custom: s.custom !== false, min, max, seasonalOnly: s.seasonalOnly !== false, rules: String(s.rules || DEFAULT_RULES).slice(0, 600), buyerThanks: s.buyerThanks !== false,
+    custom: s.custom !== false, min, max, seasonalOnly: s.seasonalOnly !== false, rules: String(s.rules || rulesFrom({ expiryYears, paysFor, cashBackUnderCents, refundDays })).slice(0, 600), customRules: !!s.rules, expiryYears, paysFor, cashBackUnderCents, refundDays, buyerThanks: s.buyerThanks !== false,
     renters: { salonCards: s.renters?.salonCards !== false, ownCards: s.renters?.ownCards === true },
     onBooking: s.onBooking !== false, showcase: cleanShowcase(s.showcase) };
 }

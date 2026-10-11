@@ -160,3 +160,44 @@ export async function changeOrder(db: any, tenantId: string, id: string, b: { se
   if (b.now) { const t: any = (await db.doc(T(tenantId)).get()).data() || {}; const r = await deliverGiftCard(db, tenantId, t, { ...c, ...patch, id: o.cardId }); if (!r.sent) return { ok: false as const, error: 'It didn’t send — check the email or number.' }; }
   return { ok: true as const };
 }
+
+// ── FIND MY GIFT CARD + THE CLIENT'S WALLET ──────────────────────────────────────────────────────────────────────
+// "Lost the email?" — they type their phone or email; if any cards here are theirs, ONE message goes to that same phone
+// or email with a private link to all of them (never shown on screen, so nobody can look up someone else's cards).
+const contactKey = (c: string) => { const s = String(c || '').trim().toLowerCase(); if (EMAIL.test(s)) return `e:${s}`; const d = s.replace(/\D/g, ''); return d.length >= 10 ? `p:${d.slice(-10)}` : null; };
+const walletKey = (tenantId: string, ck: string) => { const secret = process.env.GIFT_LINK_SECRET || process.env.REFUND_LINK_SECRET || process.env.FIREBASE_ADMIN_PRIVATE_KEY || 'gift'; return createHmac('sha256', secret).update(`wallet:${tenantId}/${ck}`).digest('base64url').slice(0, 22); };
+export const walletPath = (tenantId: string, ck: string) => `/gift/${encodeURIComponent(tenantId)}/wallet?c=${Buffer.from(ck).toString('base64url')}&k=${walletKey(tenantId, ck)}`;
+
+async function cardsFor(db: any, tenantId: string, ck: string) {
+  const isEmail = ck.startsWith('e:'); const v = ck.slice(2); const col = db.collection(`${T(tenantId)}/giftCards`);
+  const found = new Map<string, any>();
+  const add = (s: any) => s.docs.forEach((d: any) => found.set(d.id, { id: d.id, ...d.data() }));
+  if (isEmail) { add(await col.where('recipientEmail', '==', v).get()); add(await col.where('purchaserEmail', '==', v).get()); }
+  const cl = await db.collection(`${T(tenantId)}/clients`).where(isEmail ? 'email' : 'phone', isEmail ? '==' : '!=', isEmail ? v : '').limit(isEmail ? 5 : 2000).get();
+  const ids = cl.docs.filter((d: any) => isEmail || String((d.data() as any).phone || '').replace(/\D/g, '').slice(-10) === v).map((d: any) => d.id).slice(0, 10);
+  for (const id of ids) add(await col.where('recipientId', '==', id).get());
+  if (!isEmail) { const act = await col.where('status', '==', 'active').get(); act.docs.forEach((d: any) => { if (String((d.data() as any).recipientPhone || '').replace(/\D/g, '').slice(-10) === v) found.set(d.id, { id: d.id, ...d.data() }); }); }
+  return [...found.values()].filter((g) => g.status !== 'void');
+}
+
+export async function findMyCards(db: any, tenantId: string, contact: string, reqOrigin?: string | null) {
+  const ck = contactKey(contact); if (!ck) return { ok: false as const, error: 'Enter the mobile number or email the card was sent to.' };
+  const t: any = (await db.doc(T(tenantId)).get()).data(); if (!t) return { ok: false as const, error: 'This business wasn’t found.' };
+  const cards = (await cardsFor(db, tenantId, ck)).filter((g) => g.balanceCents > 0);
+  if (cards.length) {
+    const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(t, reqOrigin || ''); const link = origin ? `${origin}${walletPath(tenantId, ck)}` : '';
+    const total = cards.reduce((s, g) => s + g.balanceCents, 0);
+    const text = `Your gift card${cards.length > 1 ? 's' : ''} at ${t.name || 'us'}: ${money(total)} to spend.${link ? ` See ${cards.length > 1 ? 'them' : 'it'}: ${link}` : ''}`;
+    const { sendNotification } = await import('@/lib/notify');
+    if (ck.startsWith('e:')) await sendNotification(db, { tenantId, channel: 'email', to: ck.slice(2), subject: `Your gift card${cards.length > 1 ? 's' : ''} at ${t.name || 'us'}`, text, html: `<p style="font-size:16px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">${esc(text).replace(esc(link), `<a href="${link}">${esc(link)}</a>`)}</p>`, kind: 'gift_card_find', recipientType: 'client' } as any).catch(() => {});
+    else await sendNotification(db, { tenantId, channel: 'sms', to: ck.slice(2), text, kind: 'gift_card_find', recipientType: 'client' } as any).catch(() => {});
+  }
+  return { ok: true as const };   // the same answer whether or not anything was found
+}
+
+export async function walletView(db: any, tenantId: string, c64: string, k: string) {
+  let ck = ''; try { ck = Buffer.from(String(c64 || ''), 'base64url').toString('utf8'); } catch { return null; }
+  if (!/^[ep]:/.test(ck) || k !== walletKey(tenantId, ck)) return null;
+  const cards = (await cardsFor(db, tenantId, ck)).sort((a, b) => Number(b.balanceCents > 0) - Number(a.balanceCents > 0) || String(b.createdAt).localeCompare(String(a.createdAt)));
+  return cards.map((g) => ({ id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, design: g.design || null, line: g.line || null, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, path: giftPath(tenantId, g.id) }));
+}

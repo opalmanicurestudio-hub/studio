@@ -5,7 +5,7 @@
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
-import { COLLECTIONS, COLLECTION_NOTE, designsSync, inSeason, DEFAULT_RULES } from '@/lib/gift-designs';
+import { COLLECTIONS, COLLECTION_NOTE, designsSync, inSeason, rulesFrom, deskScript } from '@/lib/gift-designs';
 import { GiftCardShowcase, DEFAULT_SHOWCASE } from '@/components/gift/GiftCardShowcase';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
@@ -33,7 +33,7 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
   const save = async () => {
     setBusy(true); setMsg(null);
     const nums = amounts.split(/[,\s]+/).map((x) => Number(x.replace(/[^0-9.]/g, ''))).filter((n) => n >= 1);
-    const r = await payPost('/api/gift-cards', { tenantId, action: 'settings', save: { ...s, amounts: nums, designs: s.designs.length === all.length ? null : s.designs, rules: s.rules === DEFAULT_RULES ? '' : s.rules } });
+    const r = await payPost('/api/gift-cards', { tenantId, action: 'settings', save: { ...s, amounts: nums, designs: s.designs.length === all.length ? null : s.designs, rules: s.customRules ? s.rules : '' } });
     setBusy(false); setMsg({ ok: !!r.ok, t: r.ok ? 'Saved.' : r.error || 'That didn’t save.' });
   };
   return (
@@ -83,15 +83,23 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
           <section className="space-y-1 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
             <p className="text-[15px] font-semibold">Renters</p>
             <p className="text-[13px]" style={{ color: MUTED }}>For booth renters who run their own business here.</p>
+            <Toggle on={s.buyerThanks !== false} onChange={(v) => set('buyerThanks', v)} label="Tell the buyer when their gift is used" hint="One short email the first time — a thank-you that brings them back too." />
             <Toggle on={s.renters?.salonCards !== false} onChange={(v) => set('renters', { ...(s.renters || {}), salonCards: v })} label="Renters take your gift cards"
               hint="A client can pay a renter with your gift card. You hold the money, so it’s credited against the renter’s next rent automatically." />
             <Toggle on={s.renters?.ownCards === true} onChange={(v) => set('renters', { ...(s.renters || {}), ownCards: v })} label="Renters sell their own gift cards"
               hint="Paid to the renter’s own account and used only with them — it’s their money, not yours. They can sell in person and on their booking page." />
           </section>
-          <section className="space-y-2">
-            <p className="text-[15px] font-semibold">Rules buyers see</p>
-            <textarea value={s.rules} onChange={(e) => set('rules', e.target.value.slice(0, 600))} rows={3} className="w-full rounded-xl border px-3 py-2.5 text-[14.5px] leading-relaxed" style={{ borderColor: LINE }} />
-            <p className="text-[12.5px]" style={{ color: MUTED }}>Federal law requires at least five years before a card can expire, and some states (California among them) don’t allow expiry at all. Check with your accountant before changing “Never expires.”</p>
+          <section className="space-y-3 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
+            <p className="text-[15px] font-semibold">Your gift card rules</p>
+            {([['Expires', 'expiryYears', [[0, 'Never'], [5, '5 years'], [7, '7 years'], [10, '10 years']]], ['Cash back for small balances', 'cashBackUnderCents', [[0, 'No'], [500, 'Under $5'], [1000, 'Under $10']]], ['Buyer can get a refund if unused', 'refundDays', [[0, 'No'], [7, '7 days'], [14, '14 days'], [30, '30 days']]]] as [string, string, [number, string][]][]).map(([label, key, opts]) => (
+              <div key={key}><p className="mb-1.5 text-[13px] font-semibold" style={{ color: MUTED }}>{label}</p><div className="flex flex-wrap gap-1.5">{opts.map(([v, l]) => <button key={v} type="button" aria-pressed={s[key] === v} onClick={() => set(key, v)} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={s[key] === v ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div></div>))}
+            <div><p className="mb-1.5 text-[13px] font-semibold" style={{ color: MUTED }}>Works for</p><div className="flex flex-wrap gap-1.5">{(['services', 'products', 'tips'] as const).map((k) => <button key={k} type="button" aria-pressed={s.paysFor?.[k] !== false} onClick={() => set('paysFor', { ...(s.paysFor || {}), [k]: s.paysFor?.[k] === false })} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold capitalize" style={s.paysFor?.[k] !== false ? { background: INK, color: '#fff' } : { background: SOFT }}>{k}</button>)}</div></div>
+            <p className="text-[12.5px] leading-relaxed" style={{ color: MUTED }}>Federal law requires at least five years before a card can expire. Some states don’t allow expiry at all, and California requires cash back for balances under $10. Check your state’s rules with your accountant.</p>
+            <div className="rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[12px] font-semibold" style={{ color: MUTED }}>WHAT BUYERS SEE</p>
+              {s.customRules ? <textarea value={s.rules} onChange={(e) => set('rules', e.target.value.slice(0, 600))} rows={3} className="mt-1 w-full rounded-xl border bg-white px-3 py-2.5 text-[14.5px] leading-relaxed" style={{ borderColor: LINE }} />
+                : <p className="mt-1 text-[14px] leading-relaxed">{rulesFrom(s)}</p>}
+              <button type="button" onClick={() => setS((x: any) => ({ ...x, customRules: !x.customRules, rules: x.customRules ? x.rules : rulesFrom(x) }))} className="mt-2 text-[13px] font-semibold underline underline-offset-4">{s.customRules ? 'Use the rules from my choices' : 'Write my own wording'}</button>
+              <p className="mt-3 text-[12px] font-semibold" style={{ color: MUTED }}>WHAT THE DESK SAYS</p><p className="mt-1 text-[14px]">“{deskScript(s)}”</p></div>
           </section>
           <section className="space-y-3">
             <div className="flex items-end justify-between gap-3"><div><p className="text-[15px] font-semibold">Designs buyers can choose</p><p className="text-[13px]" style={{ color: MUTED }}>{s.designs.length} of {all.length} on</p></div>

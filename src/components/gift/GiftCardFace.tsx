@@ -10,7 +10,8 @@ const CHIP = (a: string, b: string, id: string) => `<svg width="44" height="34" 
 /** Give each drawing's gradient and filter names a unique suffix, so two cards on one page don't borrow each other's. */
 const scope = (svg: string, k: string) => svg.replace(/id="([^"]+)"/g, `id="$1${k}"`).replace(/url\(#([^)]+)\)/g, `url(#$1${k})`);
 
-export function GiftCardFace({ design, width = 340, brand, amount, name, code, line, className, style }: {
+export function GiftCardFace({ design, width = 340, brand, amount, name, code, line, className, style, expires }: {
+  expires?: string | null;   // ISO date, or nothing for "Never"
   design?: string | GiftDesign | null; width?: number; brand: { name: string; logo?: string | null; accent?: string | null };
   amount: string; name?: string | null; code?: string | null; line?: string | null; className?: string; style?: React.CSSProperties;
 }) {
@@ -40,7 +41,7 @@ export function GiftCardFace({ design, width = 340, brand, amount, name, code, l
         <div style={{ position: 'absolute', left: 26, bottom: 56, fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace", fontSize: 19, letterSpacing: '.14em', textShadow: sh }}>{code ? code.replace('-', '  ') : '••••  ••••'}</div>
         <div style={{ position: 'absolute', left: 26, right: 26, bottom: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', textShadow: sh }}>
           <div style={{ minWidth: 0 }}><div style={{ fontSize: 8.5, letterSpacing: '.14em', color: d.sub }}>FOR</div><div style={{ fontSize: 13, letterSpacing: '.08em', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>{(name || 'YOU').toUpperCase()}</div></div>
-          <div style={{ textAlign: 'right' }}><div style={{ fontSize: 8.5, letterSpacing: '.14em', color: d.sub }}>EXPIRES</div><div style={{ fontSize: 13, letterSpacing: '.08em', fontWeight: 600 }}>NEVER</div></div></div>
+          <div style={{ textAlign: 'right' }}><div style={{ fontSize: 8.5, letterSpacing: '.14em', color: d.sub }}>EXPIRES</div><div style={{ fontSize: 13, letterSpacing: '.08em', fontWeight: 600 }}>{expires ? new Date(expires).toLocaleDateString('en-US', { month: '2-digit', year: '2-digit' }) : 'NEVER'}</div></div></div>
       </div>
     </div>);
 }

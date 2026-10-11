@@ -103,6 +103,7 @@ export default function GiftShopPage() {
             <h1 className="mt-5 hidden text-[40px] font-normal leading-[1.05] tracking-[-0.03em] md:block">Give a gift card</h1>
             <p className="mt-2 hidden max-w-sm text-[15px] md:block" style={{ color: MUTED }}>Choose a design, write a note, and pick the moment it arrives.</p>
             <div className="mt-6 flex justify-center md:mt-10 md:justify-start"><div className="gcf-float">{preview}</div></div>
+            {!provider && <p className="mt-4 hidden text-[13.5px] md:block" style={{ color: MUTED }}>Already have one? <a href={`/gift/${encodeURIComponent(tenantId)}/find`} className="font-semibold underline underline-offset-4">Find my gift card</a></p>}
             {note.trim() && step >= 2 ? <p className="mx-auto mt-5 max-w-[340px] text-center text-[14.5px] italic leading-relaxed md:mx-0 md:text-left" style={{ color: MUTED }}>“{note.trim()}”{from ? ` — ${from.split(' ')[0]}` : ''}</p> : null}
           </div>
 

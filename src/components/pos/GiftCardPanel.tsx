@@ -14,7 +14,8 @@ const field = 'h-11 w-full rounded-xl border px-3 text-[15px]';
 const fs = { borderColor: 'var(--line, #ececee)', background: 'var(--card, #fff)' } as const;
 const muted = { color: 'var(--muted, #6d7075)' } as const;
 
-export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, applied, setApplied, holdId, addGiftCardToCart, brandName, brandLogo, brandAccent, screen }: {
+export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, applied, setApplied, holdId, addGiftCardToCart, brandName, brandLogo, brandAccent, screen, script }: {
+  script?: string | null;   // the one line to say when selling one (lib/gift-designs deskScript)
   brandName?: string | null; brandLogo?: string | null; brandAccent?: string | null;
   screen?: { connected: boolean; ask: (kind: string, extra?: any) => Promise<string | null>; response: any } | null;
   tenantId: string; clientId: string | null; clientName?: string | null; owedBeforeGift: number;
@@ -83,6 +84,7 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
         {filled && <p className="text-[13.5px] font-semibold" style={{ color: 'var(--ok, #1f7a4d)' }}>Filled in on the client screen{sendAtIso ? ` — arrives ${new Date(sendAtIso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}. Check it, then add it.</p>}
         {err && tab === 'sell' && <p className="text-[13.5px] font-semibold" style={{ color: 'var(--warn, #b42318)' }}>{err}</p>}
         <button type="button" disabled={!okAmt || !okSend || (!forSelf && !to.trim() && via !== 'code')} onClick={sell} className="h-11 w-full rounded-full text-[14.5px] font-semibold disabled:opacity-40" style={{ background: 'var(--ink, #16171a)', color: '#fff' }}>Add a {okAmt ? money(amount).replace('.00', '') : ''} gift card to the sale</button>
+        {script && <p className="text-[13px]" style={muted}>Say: “{script}”</p>}
       </div>}
     </section>);
 }
