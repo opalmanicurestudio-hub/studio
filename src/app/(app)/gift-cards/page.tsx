@@ -5,6 +5,7 @@
 // through Moving in.
 import * as React from 'react';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
@@ -18,7 +19,7 @@ const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en
 const HIST: Record<string, string> = { issue: 'Sold', import: 'Brought in', spend: 'Used', adjust: 'Balance changed', void: 'Cancelled' };
 
 export default function GiftCardsPage() {
-  const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id || '';
+  const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id || ''; const { services } = useInventory() as any;
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const [cards, setCards] = React.useState<any[] | null>(null); const [q, setQ] = React.useState(''); const [show, setShow] = React.useState<'left' | 'all'>('left');
   const [open, setOpen] = React.useState<any>(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false);
@@ -71,6 +72,6 @@ export default function GiftCardsPage() {
             <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Cancel gift card ${cur.code}? The ${$(cur.balanceCents)} left on it can’t be spent after this.`)) act({ action: 'adjust', id: cur.id, kind: 'void' }, 'Cancelled.'); }} className="text-[14px] font-semibold underline underline-offset-4" style={{ color: RED }}>Cancel this card</button></>}
           {msg && <p className="text-[14px] font-semibold">{msg}</p>}
         </div></div>}
-      {shop && <GiftShopSettings tenantId={tenantId} brand={brand} onClose={() => setShop(false)} />}
+      {shop && <GiftShopSettings tenantId={tenantId} brand={brand} services={services || []} onClose={() => setShop(false)} />}
     </div>);
 }

@@ -10,6 +10,7 @@
 // deposits, forms, text consent, memberships and packages unchanged.
 
 import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
+import { GiftCardShowcase } from '@/components/gift/GiftCardShowcase';
 import { catSlug } from '@/lib/share-links';
 import { useMemo, useState } from 'react';
 import { PublicFrame, Section, PrimaryButton, QuietButton, money, minutes } from '@/components/public/kit';
@@ -57,7 +58,7 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
       <header className="sticky top-0 z-30 border-b border-stone-200/70 bg-[#faf8f5]/90 backdrop-blur" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 items-center gap-2.5">{tenant?.logoUrl && <img src={tenant.logoUrl} alt="" className="h-9 w-9 rounded-xl object-contain" />}<span className="truncate text-[17px] font-semibold">{name}</span></div>
-          <div className="flex shrink-0 items-center gap-2">{tenant?.giftCardSettings?.online && tenant?.id && <a href={`/gift/${tenant.id}`} className="inline-flex h-10 items-center rounded-full px-4 text-sm font-medium text-stone-700 hover:bg-stone-100">Gift cards</a>}
+          <div className="flex shrink-0 items-center gap-2">{tenant?.giftCardSettings?.online && tenant?.id && <a href={tenant.giftCardSettings.onBooking !== false ? '#gift-cards' : `/gift/${tenant.id}`} className="inline-flex h-10 items-center rounded-full px-4 text-sm font-medium text-stone-700 hover:bg-stone-100">Gift cards</a>}
           <PrimaryButton onClick={bookTop} className="h-10 px-5 text-sm">Book</PrimaryButton></div>
         </div>
       </header>
@@ -121,6 +122,11 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
           <div className="grid gap-3 sm:grid-cols-3">{reviews.map((r, i) => (
             <figure key={i} className="pub-card space-y-3 p-5"><p aria-label={`${r.rating} out of 5 stars`} style={{ color: 'var(--accent)' }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</p><blockquote className="text-[15px] text-stone-700">“{r.text}”</blockquote><figcaption className="text-[13px] font-medium text-stone-500">— {r.name}</figcaption></figure>
           ))}</div>
+        </Section>}
+
+        {/* Gift cards — the three the owner chose (Gift cards → Online shop & designs), when selling online is on. */}
+        {tenant?.id && tenant?.giftCardSettings?.online && tenant.giftCardSettings.onBooking !== false && <Section id="gift-cards" eyebrow="Gift cards" title={<>Give the gift of a <b>visit</b></>}>
+          <GiftCardShowcase tenantId={tenant.id} brand={{ name, logo: tenant?.logoUrl || null, accent }} items={tenant.giftCardSettings.showcase || null} services={bookable} offered={tenant.giftCardSettings.designs || null} />
         </Section>}
 
         {(addr || tenant?.phone || tenant?.email || hasHours) && <Section id="visit" eyebrow="Visit us" title={<>Find <b>us</b></>}>

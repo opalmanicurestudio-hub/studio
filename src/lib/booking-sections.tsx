@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { type PageSection } from '@/lib/data';
 import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { GiftCardShowcase } from '@/components/gift/GiftCardShowcase';
 import { cn } from '@/lib/utils';
 import {
   Calendar, Clock, Clock3, MapPin, Phone, Mail, Instagram,
@@ -4560,8 +4561,10 @@ function GiftCardsSection({ config, style, data, isPreview, sectionId, onFieldTa
         <div className="text-center mb-12 space-y-3">
           <p className="text-[12px] uppercase tracking-[0.16em]" style={{ fontFamily: bf(style), color: '#78716c' }}>Gift cards</p>
           <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Give the gift of a visit'}</FieldTap>
-          <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading || (shopOn ? 'Sent by text or email — now, or on the day. Never expires.' : '')}</p>
+          <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading || ''}</p>
         </div>
+        {shopOn ? <GiftCardShowcase tenantId={data.tenantId} brand={brand} preview={isPreview} services={data.services || []} offered={data.tenant.giftCardSettings.designs || null} font={bf(style)}
+          items={data.tenant.giftCardSettings.showcase || cards.map((c) => ({ design: c.design, amount: Number(String(c.amount).replace(/[^0-9.]/g, '')) || 50, label: c.label }))} /> : <>
         <div className="-mx-6 flex snap-x snap-mandatory gap-6 overflow-x-auto px-6 pb-4 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0">
           {cards.map((card, i) => (
             <div key={i} className={cn('flex shrink-0 snap-center flex-col items-center gap-4', card.featured && 'md:-translate-y-2')}>
@@ -4578,7 +4581,7 @@ function GiftCardsSection({ config, style, data, isPreview, sectionId, onFieldTa
             </div>
           ))}
         </div>
-        {shopOn && !isPreview && <p className="mt-8 text-center text-[14px]" style={{ fontFamily: bf(style), color: '#78716c' }}><a href={`/gift/${encodeURIComponent(data.tenantId)}`} className="underline-offset-4 hover:underline">Or choose your own amount and design →</a></p>}
+</>}
         {config.footnote && <p className="text-center text-xs text-slate-400 mt-6" style={{ fontFamily: bf(style) }}>{config.footnote}</p>}
       </div>
     </section>

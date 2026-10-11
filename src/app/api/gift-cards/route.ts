@@ -50,12 +50,12 @@ export async function POST(req: NextRequest) {
   if (action === 'issue') { const r: any = await issueGiftCard(db, tenantId, { amountCents: Math.round(Number(b.amountCents) || 0), by, source: 'recovery', recipient: b.recipient || null, message: b.message || null, sendVia: b.sendVia || 'code' });
     if (r.ok && ['text', 'email'].includes(b.sendVia)) { const t: any = (await db.doc(T).get()).data() || {}; await deliverGiftCard(db, tenantId, t, r.card); }
     return j(r.ok ? { ok: true, card: pub(r.card) } : r, r.ok ? 200 : 400); }
-  if (action === 'settings') { const { shopSettings } = await import('@/lib/gift-designs'); const tref = db.doc(T); const t: any = (await tref.get()).data() || {};
+  if (action === 'settings') { const { shopSettings, cleanShowcase } = await import('@/lib/gift-designs'); const tref = db.doc(T); const t: any = (await tref.get()).data() || {};
     if (b.save && typeof b.save === 'object') { const v = b.save; const cur = shopSettings(t);
       const next = { online: v.online === true, designs: Array.isArray(v.designs) ? v.designs.map(String).filter((x: string) => /^[a-z0-9-]{2,30}$/.test(x)).slice(0, 80) : null,
         amounts: Array.isArray(v.amounts) ? v.amounts.map(Number).filter((n: number) => n >= 1 && n <= 5000).slice(0, 6) : cur.amounts, custom: v.custom !== false,
         min: Math.max(1, Math.min(5000, Number(v.min) || cur.min)), max: Math.max(1, Math.min(5000, Number(v.max) || cur.max)), seasonalOnly: v.seasonalOnly !== false,
-        rules: String(v.rules || '').trim().slice(0, 600) || null, updatedAt: new Date().toISOString(), updatedBy: by };
+        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, showcase: cleanShowcase(v.showcase), updatedAt: new Date().toISOString(), updatedBy: by };
       if (next.max < next.min) return j({ ok: false, error: 'The most someone can spend has to be more than the least.' }, 400);
       if (next.designs && !next.designs.length) return j({ ok: false, error: 'Keep at least one design on.' }, 400);
       await tref.set({ giftCardSettings: next }, { merge: true }); return j({ ok: true, settings: shopSettings({ giftCardSettings: next }), paymentsReady: !!t.stripeAccountId }); }

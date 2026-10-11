@@ -6,6 +6,7 @@ import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { COLLECTIONS, COLLECTION_NOTE, designsSync, inSeason, DEFAULT_RULES } from '@/lib/gift-designs';
+import { GiftCardShowcase, DEFAULT_SHOWCASE } from '@/components/gift/GiftCardShowcase';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
 const field = 'h-11 w-full rounded-xl border px-3 text-[15px]';
@@ -16,11 +17,15 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
     <span className="relative h-7 w-12 shrink-0 rounded-full transition-colors" style={{ background: on ? GREEN : '#d5d6da' }}><span className="absolute top-1 h-5 w-5 rounded-full bg-white transition-all" style={{ left: on ? 24 : 4 }} /></span></button>;
 }
 
-export function GiftShopSettings({ tenantId, brand, onClose }: { tenantId: string; brand: { name: string; logo?: string | null; accent?: string | null }; onClose: () => void }) {
+export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { tenantId: string; brand: { name: string; logo?: string | null; accent?: string | null }; onClose: () => void; services?: any[] }) {
   const all = React.useMemo(() => designsSync(), []);
   const [s, setS] = React.useState<any>(null); const [ready, setReady] = React.useState(true);
   const [amounts, setAmounts] = React.useState(''); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState<{ ok: boolean; t: string } | null>(null);
   const [col, setCol] = React.useState<string>('Occasions'); const [copied, setCopied] = React.useState(false);
+  // The three cards on the booking page — design, amount and label each; one slot's design picker open at a time.
+  const [slot, setSlot] = React.useState<number | null>(null); const [slotCol, setSlotCol] = React.useState<string>('Finishes');
+  const show = (s?.showcase && s.showcase.length ? s.showcase : DEFAULT_SHOWCASE) as { design: string; amount: number; label: string | null }[];
+  const setShow = (i: number, patch: any) => set('showcase', show.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   React.useEffect(() => { payPost('/api/gift-cards', { tenantId, action: 'settings' }).then((r) => { if (r.ok) { setS({ ...r.settings, designs: r.settings.designs || all.map((d) => d.id) }); setAmounts(r.settings.amounts.join(', ')); setReady(r.paymentsReady); } }); }, [tenantId, all]);
   const link = typeof window !== 'undefined' ? `${window.location.origin}/gift/${tenantId}` : `/gift/${tenantId}`;
   const set = (k: string, v: any) => setS((x: any) => ({ ...x, [k]: v }));
@@ -52,6 +57,28 @@ export function GiftShopSettings({ tenantId, brand, onClose }: { tenantId: strin
             <Toggle on={s.custom} onChange={(v) => set('custom', v)} label="Let buyers type their own amount" />
             {s.custom && <div className="grid grid-cols-2 gap-2"><label className="text-[13px]" style={{ color: MUTED }}>Least<input value={s.min} onChange={(e) => set('min', e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" className={`${field} mt-1`} style={{ borderColor: LINE, color: INK }} /></label>
               <label className="text-[13px]" style={{ color: MUTED }}>Most<input value={s.max} onChange={(e) => set('max', e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" className={`${field} mt-1`} style={{ borderColor: LINE, color: INK }} /></label></div>}
+          </section>
+          <section className="space-y-3">
+            <Toggle on={s.onBooking} onChange={(v) => set('onBooking', v)} label="Show gift cards on your booking page" hint="Three cards you choose, with a “Gift cards” link in the header." />
+            {s.onBooking && <>
+              <div className="overflow-hidden rounded-[18px] px-3 py-8" style={{ background: '#faf8f5', border: `1px solid ${LINE}` }}>
+                <p className="mb-1 text-center text-[11px] tracking-[0.14em]" style={{ color: MUTED }}>PREVIEW · HOW IT LOOKS ON YOUR PAGE</p>
+                <GiftCardShowcase tenantId={tenantId} brand={brand} items={show} services={services} offered={s.designs} preview />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">{show.map((x, i) => <div key={i} className="space-y-2 rounded-2xl p-3" style={{ border: `1px solid ${slot === i ? INK : LINE}` }}>
+                <button type="button" onClick={() => setSlot(slot === i ? null : i)} className="block w-full text-left" aria-label={`Change the design of card ${i + 1}`}><GiftCardFace design={x.design} brand={brand} amount={`$${x.amount}`} name=" " width={170} /></button>
+                <button type="button" onClick={() => setSlot(slot === i ? null : i)} className="text-[13px] font-semibold underline underline-offset-4">{slot === i ? 'Done choosing' : 'Change design'}</button>
+                <div className="grid grid-cols-[80px_1fr] gap-2"><input value={x.amount} onChange={(e) => setShow(i, { amount: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} inputMode="decimal" aria-label={`Card ${i + 1} amount`} className={field} style={{ borderColor: LINE }} />
+                  <input value={x.label || ''} onChange={(e) => setShow(i, { label: e.target.value.slice(0, 40) })} placeholder="Label" aria-label={`Card ${i + 1} label`} className={field} style={{ borderColor: LINE }} /></div>
+              </div>)}</div>
+              {slot !== null && <div className="space-y-3 rounded-2xl p-3" style={{ background: SOFT }}>
+                <p className="text-[13.5px] font-semibold">Choose a design for card {slot + 1}</p>
+                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1">{COLLECTIONS.map((c) => <button key={c} type="button" aria-pressed={slotCol === c} onClick={() => setSlotCol(c)} className="h-8 shrink-0 rounded-full px-3 text-[13px] font-semibold" style={slotCol === c ? { background: INK, color: '#fff' } : { background: '#fff' }}>{c}</button>)}</div>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{all.filter((d) => d.collection === slotCol).map((d) => <button key={d.id} type="button" aria-pressed={show[slot]?.design === d.id} onClick={() => setShow(slot, { design: d.id })} className="rounded-[10px] p-[2px] text-left" style={{ outline: show[slot]?.design === d.id ? `2px solid ${INK}` : 'none', outlineOffset: 1 }}>
+                  <GiftCardFace design={d} brand={brand} amount={`$${show[slot]?.amount || 50}`} name=" " width={128} /><span className="mt-1 block text-[11.5px] font-semibold">{d.name}</span></button>)}</div>
+                <p className="text-[12.5px]" style={{ color: MUTED }}>Tip: pick designs that match your page — one light, one bold and one rich works well. The middle card is raised; most people choose it.</p>
+              </div>}
+            </>}
           </section>
           <section className="space-y-2">
             <p className="text-[15px] font-semibold">Rules buyers see</p>

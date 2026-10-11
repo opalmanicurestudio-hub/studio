@@ -29,16 +29,24 @@ export function inSeason(d: GiftDesign, at = new Date()) {
 export type GiftShopSettings = {
   online: boolean; designs: string[] | null; amounts: number[]; custom: boolean; min: number; max: number;
   seasonalOnly: boolean; rules: string; buyerThanks: boolean;
+  onBooking: boolean; showcase: { design: string; amount: number; label: string | null }[] | null;
 };
 export const DEFAULT_RULES = 'Never expires. Use it for services, products and tips. Not for cash, except where the law requires. Lost it? We can resend it.';
 export function shopSettings(t: any): GiftShopSettings {
   const s = t?.giftCardSettings || {}; const nums = (a: any) => (Array.isArray(a) ? a.map(Number).filter((n) => n >= 1 && n <= 5000).slice(0, 6) : null);
   const min = Math.max(1, Math.min(5000, Number(s.min) || 10)); const max = Math.max(min, Math.min(5000, Number(s.max) || 500));
   return { online: s.online === true, designs: Array.isArray(s.designs) ? s.designs.map(String) : null, amounts: nums(s.amounts)?.length ? nums(s.amounts)! : [25, 50, 100, 150],
-    custom: s.custom !== false, min, max, seasonalOnly: s.seasonalOnly !== false, rules: String(s.rules || DEFAULT_RULES).slice(0, 600), buyerThanks: s.buyerThanks !== false };
+    custom: s.custom !== false, min, max, seasonalOnly: s.seasonalOnly !== false, rules: String(s.rules || DEFAULT_RULES).slice(0, 600), buyerThanks: s.buyerThanks !== false,
+    onBooking: s.onBooking !== false, showcase: cleanShowcase(s.showcase) };
 }
 /** The designs a buyer may pick from, in library order; out-of-season occasion cards are left out. */
 export function offered(all: GiftDesign[], s: GiftShopSettings, at = new Date()) {
   return all.filter((d) => (!s.designs || s.designs.includes(d.id)) && (!s.seasonalOnly || inSeason(d, at)));
+}
+/** The three cards on the booking page: a design, an amount and a short label each. */
+export function cleanShowcase(v: any) {
+  if (!Array.isArray(v)) return null;
+  const out = v.slice(0, 3).map((x: any) => ({ design: okDesign(x?.design) || DEFAULT_DESIGN, amount: Math.max(1, Math.min(5000, Math.round(Number(x?.amount) * 100) / 100 || 50)), label: x?.label ? String(x.label).slice(0, 40) : null }));
+  return out.length ? out : null;
 }
 export const okDesign = (id: any) => typeof id === 'string' && /^[a-z0-9-]{2,30}$/.test(id) ? id : null;

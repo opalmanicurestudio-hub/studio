@@ -45,6 +45,7 @@ export default function GiftShopPage() {
     const sp = new URLSearchParams(window.location.search); const wd = designs.find((d) => d.id === sp.get('design'));
     const firstOcc = designs.find((d) => d.collection === 'Occasions' && d.season); const pick = wd || firstOcc || designs[0];
     setDesignId(pick?.id || ''); setCol(pick?.collection || '');
+    const who = (sp.get('to') || '').trim().slice(0, 80); if (who) { setTo(who); setForSelf(false); }
     const want = Number(sp.get('amount')); if (want > 0) { if (shop.amounts.includes(want)) setAmount(want); else if (shop.custom && want >= shop.min && want <= shop.max) setOther(String(want)); } }, [shop]); // eslint-disable-line react-hooks/exhaustive-deps
   const design = designs.find((d) => d.id === designId) || designs[0];
   const amt = other ? Number(other) : amount || 0;
