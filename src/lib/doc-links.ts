@@ -48,7 +48,7 @@ export function docsForVisit(docs: any[], visit: any, service: any, stepNow?: { 
     let best: VisitDoc | null = null;
     for (const l of links) {
       let hit: VisitDoc | null = null;
-      if (l.kind === 'service' && sid && l.id === sid) hit = { doc: d, why: l.stepLabel ? `Step · ${l.stepLabel}` : 'This service', stepId: l.stepId || null, now: isNow(l) };
+      if (l.kind === 'service' && sid && l.id === sid) hit = { doc: d, why: d.category === 'aftercare' ? 'Aftercare to share' : l.stepLabel ? `Step · ${l.stepLabel}` : 'This service', stepId: l.stepId || null, now: isNow(l) };
       else if (l.kind === 'station' && stations.has(l.id)) hit = { doc: d, why: `Station · ${l.name}`, stepId: null, now: false };
       else if (l.kind === 'kit' && kits.has(String(l.name || '').trim().toLowerCase())) hit = { doc: d, why: `Kit · ${l.name}`, stepId: null, now: false };
       if (hit && (!best || (hit.now && !best.now))) best = hit;

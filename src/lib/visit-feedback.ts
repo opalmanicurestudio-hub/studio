@@ -12,6 +12,8 @@ const T = (t: string) => `tenants/${t}`;
 const SECRET = () => process.env.LINK_SECRET || process.env.FIREBASE_ADMIN_PRIVATE_KEY || process.env.FIREBASE_ADMIN_CLIENT_EMAIL || 'clarityflow-links';
 export const feedbackKey = (tenantId: string, appointmentId: string) => createHmac('sha256', SECRET()).update(`how:${tenantId}:${appointmentId}`).digest('base64url').slice(0, 16);
 export const feedbackPath = (tenantId: string, appointmentId: string) => `/how/${tenantId}/${appointmentId}?k=${feedbackKey(tenantId, appointmentId)}`;
+/** The visit's aftercare page (lib/aftercare) — the same key, so either link opens both pages. */
+export const aftercarePath = (tenantId: string, appointmentId: string) => `/aftercare/${tenantId}/${appointmentId}?k=${feedbackKey(tenantId, appointmentId)}`;
 const FINISHED = ['completed', 'checked_out', 'paid', 'ready_for_checkout'];
 const MAX_DAYS = 120;
 
@@ -25,6 +27,16 @@ export async function feedbackVisit(db: any, tenantId: string, appointmentId: st
 }
 
 const firstOf = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
+
+/** A visit's aftercare: the aftercare document for its service (lib/aftercare — a renter's own for a renter's visit),
+ *  else the older plain-text aftercare from Making it right settings. */
+export async function visitAftercare(db: any, tenantId: string, a: any, tenant: any, isRenterVisit: boolean, textFallback: string) {
+  const { aftercareDocFor, clientView } = await import('@/lib/aftercare');
+  let docs: any[] = [];
+  try { docs = (await db.collection(`${T(tenantId)}/documents`).where('category', '==', 'aftercare').get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })); } catch { /* none */ }
+  const d = aftercareDocFor(docs, a.serviceId, isRenterVisit ? a.staffId : null);
+  return { doc: clientView(d), text: d ? null : (textFallback || null) };
+}
 
 /** What the page shows. Never anything private: first names, the service, the day, and the case in plain words. */
 export async function feedbackInfo(db: any, tenantId: string, v: { id: string; a: any }) {
@@ -45,7 +57,7 @@ export async function feedbackInfo(db: any, tenantId: string, v: { id: string; a
   const LN: Record<string, string> = { english: 'en', spanish: 'es', español: 'es', vietnamese: 'vi', korean: 'ko', chinese: 'zh', portuguese: 'pt', french: 'fr', 'haitian creole': 'ht', arabic: 'ar', russian: 'ru' };
   const rawLang = String(cl.preferredLanguage || cl.language || '').trim().toLowerCase(); const clientLang = LN[rawLang] || (rawLang.length === 2 ? rawLang : null);
   const base = { ok: true as const, clientLang, brand, visit: { service: a.serviceName || 'Your visit', provider: firstOf(a.staffName), day: a.startTime ? new Date(a.startTime).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz }) : '', clientFirst: firstOf(a.clientName) },
-    answered: a.feedback?.rating || null, team: !isRenterVisit && (await db.collection(`${T(tenantId)}/staff`).get()).docs.filter((d: any) => { const m: any = d.data() || {}; return m.archived !== true && m.isActive !== false && m.role !== 'renter'; }).length > 1, aftercare: aftercareFor(S, a.serviceId) || null, surveyOn: S.channels.survey !== false, reviewUrl: (tenant.clientNotify || {}).reviewUrl || tenant.reviewUrl || null,
+    answered: a.feedback?.rating || null, team: !isRenterVisit && (await db.collection(`${T(tenantId)}/staff`).get()).docs.filter((d: any) => { const m: any = d.data() || {}; return m.archived !== true && m.isActive !== false && m.role !== 'renter'; }).length > 1, ...(await (async () => { const c = await visitAftercare(db, tenantId, a, tenant, isRenterVisit, aftercareFor(S, a.serviceId)); return { aftercare: c.text, aftercareDoc: c.doc }; })()), surveyOn: S.channels.survey !== false, reviewUrl: (tenant.clientNotify || {}).reviewUrl || tenant.reviewUrl || null,
     open: FINISHED.includes(String(a.status)) && daysSince <= MAX_DAYS && S.channels.survey !== false,
     reasons: S.reasons.filter((r) => r.on !== false).map((r) => ({ id: r.id, label: r.label, safety: !!r.safety })),
     wants: wantsFor(S).map((w) => ({ id: w.id, label: w.client })),

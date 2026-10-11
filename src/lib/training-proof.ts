@@ -68,7 +68,7 @@ export async function inspectorData(db: any, tenantId: string, link: any) {
   const { tenant, staff, business } = await base(db, tenantId);
   const cols = collectionsOf(tenant); const want = new Set(link.collections?.length ? link.collections : cols.map((c) => c.id));
   const docs = (await db.collection(`${T(tenantId)}/documents`).where('status', '==', 'published').get()).docs.map((x: any) => ({ id: x.id, ...(x.data() || {}) }))
-    .filter((d: any) => want.has(collectionFor(d, cols).id) && d.category !== 'handbook');
+    .filter((d: any) => want.has(collectionFor(d, cols).id) && d.category !== 'handbook' && d.category !== 'aftercare');
   const rows = await Promise.all(docs.map(async (d: any) => { const acks = await ackList(db, tenantId, d.id); const people = assignedPeople(d, staff); const v = Number(d.version || 1);
     return { id: d.id, title: String(d.title || 'Document'), version: v, publishedAt: d.publishedAt || d.updatedAt || null, collection: collectionFor(d, cols).name,
       trained: people.filter((p: any) => acks.some((a: any) => a.id === p.id && Number(a.version) === v)).length, total: people.length }; }));

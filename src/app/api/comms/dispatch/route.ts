@@ -398,7 +398,7 @@ async function handleDocument(db: any, tenantId: string, documentId: string) {
     const fresh = await tx.get(docRef);
     if (!fresh.exists) return null;
     const d = fresh.data() as any;
-    if (d.status !== 'published') return null;
+    if (d.status !== 'published' || d.category === 'aftercare') return null;   // aftercare is for clients, not the team
     const version = Number(d.version || 1);
     if (Number(d.notifiedVersion || 0) >= version) return null;
     tx.set(docRef, { notifiedVersion: version }, { merge: true });

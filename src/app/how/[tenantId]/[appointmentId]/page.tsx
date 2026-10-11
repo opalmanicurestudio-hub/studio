@@ -6,6 +6,7 @@ import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Voice, shrink, blobToDataUrl } from '@/components/making-it-right/VoiceNote';
 import { useClientLang, LangPicker, type T } from '@/components/making-it-right/client-lang';
+import { DocBlocks } from '@/components/documents/DocBlocks';
 
 type Info = any;
 const MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f6', RED = '#b42318', GREEN = '#1f6b3a';
@@ -108,7 +109,9 @@ export default function HowWasItPage() {
   </section>);
   if (step === 'sent') return shell(<p className="pt-10 text-center" style={{ color: MUTED }}>{tr('Sending…')}</p>);
 
-  const care = info.aftercare ? <details className="rounded-[20px] border p-4" style={{ borderColor: LINE }} open={!info.surveyOn}><summary className="cursor-pointer text-[15px] font-bold">{tr('Caring for it at home')}</summary><p className="mt-2 whitespace-pre-line text-[15px] leading-relaxed">{tr(info.aftercare)}</p></details> : null;
+  const care = info.aftercareDoc ? <details className="rounded-[20px] border p-4" style={{ borderColor: LINE }} open={!info.surveyOn}><summary className="cursor-pointer text-[15px] font-bold">{tr('Caring for it at home')}</summary>
+      <p className="mt-2 text-[20px] font-normal tracking-[-0.02em]">{info.aftercareDoc.title}</p><div className="mt-3"><DocBlocks sections={info.aftercareDoc.sections || []} /></div></details>
+    : info.aftercare ? <details className="rounded-[20px] border p-4" style={{ borderColor: LINE }} open={!info.surveyOn}><summary className="cursor-pointer text-[15px] font-bold">{tr('Caring for it at home')}</summary><p className="mt-2 whitespace-pre-line text-[15px] leading-relaxed">{tr(info.aftercare)}</p></details> : null;
   if (step === 'ask' && !info.surveyOn) return shell(<>{care}{info.reviewUrl && <a href={info.reviewUrl} className="flex h-14 items-center justify-center rounded-2xl text-[16px] font-bold text-white" style={{ background: A }}>{tr('Leave a review')}</a>}</>);
   if (step === 'ask') return shell(<>
     {care}

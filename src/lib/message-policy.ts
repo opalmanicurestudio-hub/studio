@@ -451,7 +451,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     id: 'post_visit_followup', group: 'After the visit', label: 'Thank you after a visit',
     when: 'The day after a visit (one per client, thanking everyone who looked after them).',
     channels: ['sms', 'email'], canDisable: true,
-    tokens: ['{{client_first}}', '{{team}}', '{{book_link}}', '{{review_link}}', '{{studio}}'],
+    tokens: ['{{client_first}}', '{{team}}', '{{book_link}}', '{{review_link}}', '{{aftercare_link}}', '{{studio}}'],
     requiredTokens: [],
     defaultSubject: 'Thank you for visiting',
     defaultBody: 'Thanks for coming in yesterday — {{team}} loved having you!\nBook your next visit: {{book_link}}\nEnjoyed it? A quick review means the world: {{review_link}}',

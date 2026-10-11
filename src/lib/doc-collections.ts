@@ -12,17 +12,21 @@ export const DEFAULT_COLLECTIONS: DocCollection[] = [
   { id: 'front-desk', name: 'Front desk', color: '#3d5a99', soft: '#e6ecf7' },
   { id: 'handbook', name: 'Handbook', color: '#4b5563', soft: '#eceef1' },
   { id: 'policies', name: 'Policies', color: '#8a3b3b', soft: '#f5e7e7' },
+  { id: 'aftercare', name: 'Client aftercare', color: '#2d6a3e', soft: '#e5f0e8' },
 ];
+/** Client aftercare (lib/aftercare) always has its own collection, even when a business names its own. */
+export const AFTERCARE_COLLECTION = DEFAULT_COLLECTIONS[DEFAULT_COLLECTIONS.length - 1];
 /** Colors a business can pick for its own collections (cover, soft background). */
 export const COLLECTION_COLORS: Array<[string, string]> = [['#2f6f6a', '#e3efed'], ['#7a4b8c', '#efe6f3'], ['#9a6a1f', '#f6eedf'], ['#3d5a99', '#e6ecf7'], ['#4b5563', '#eceef1'], ['#8a3b3b', '#f5e7e7'], ['#2d6a3e', '#e5f0e8'], ['#a14d6b', '#f6e6ec']];
 
 export function collectionsOf(tenant: any): DocCollection[] {
   const own = Array.isArray(tenant?.docCollections) ? tenant.docCollections.filter((c: any) => c && c.id && c.name) : [];
-  return own.length ? own : DEFAULT_COLLECTIONS;
+  return own.length ? (own.some((c: any) => c.id === 'aftercare') ? own : [...own, AFTERCARE_COLLECTION]) : DEFAULT_COLLECTIONS;
 }
 /** Which collection a document is in: its own choice, else by type (handbook, policy, checklists → opening & closing). */
 export function collectionFor(d: any, cols: DocCollection[]): DocCollection {
-  const byId = cols.find((c) => c.id === d?.collectionId); if (byId) return byId;
+  if (d?.category === 'aftercare') return cols.find((c) => c.id === 'aftercare') || AFTERCARE_COLLECTION;
+  const byId = cols.find((c) => c.id === d?.collectionId && c.id !== 'aftercare'); if (byId) return byId;
   const pick = (id: string) => cols.find((c) => c.id === id);
   const guess = d?.category === 'handbook' ? pick('handbook') : d?.category === 'policy' ? pick('policies')
     : (d?.sections || []).some((s: any) => s?.type === 'checklist') ? pick('open-close') : pick('safety');
@@ -47,6 +51,7 @@ export function docStats(d: any) {
 
 /** Who a document is for, from the team list (everyone, their role, or by name; never archived people). */
 export function assignedPeople(d: any, staff: any[]) {
+  if (d?.category === 'aftercare') return [];   // for clients — nobody on the team signs it
   const roles: string[] = Array.isArray(d?.assignedRoles) ? d.assignedRoles : [];
   return (staff || []).filter((m: any) => !m.archived && (roles.includes('all') || (m.role && roles.includes(m.role)) || (Array.isArray(d?.assignedStaffIds) && d.assignedStaffIds.includes(m.id))));
 }

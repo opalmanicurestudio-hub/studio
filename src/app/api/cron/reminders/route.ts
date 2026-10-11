@@ -26,8 +26,9 @@ import { bookingPolicyLines } from '@/lib/policy-copy';
 import { releaseUnpaidHolds } from '@/lib/release-unpaid';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
-import { feedbackPath } from '@/lib/visit-feedback';
+import { feedbackPath, aftercarePath } from '@/lib/visit-feedback';
 import { settingsOf, aftercareFor } from '@/lib/making-it-right';
+import { aftercareDocFor } from '@/lib/aftercare';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
@@ -428,6 +429,7 @@ export async function GET(req: NextRequest) {
           } catch { /* next appt */ }
         }
 
+        let careDocs: any[] | null = null;   // this business's aftercare documents, read once
         for (const b of followBuckets.values()) {
           try {
             b.items.sort((x, y) => x.at.getTime() - y.at.getTime());
@@ -450,19 +452,23 @@ export async function GET(req: NextRequest) {
             // Making it right: when the business has turned on "How was your visit?", the review link becomes the
             // visit's private page — happy clients are sent on to the review site from there, unhappy ones reach the team.
             const td: any = tDoc.data() || {};
-            const mirS = settingsOf(td); const care = td.makingItRight ? aftercareFor(mirS, first.a.serviceId) : '';
+            // Aftercare: the aftercare document for the service (lib/aftercare, its own page), else the older text.
+            if (careDocs === null) { try { careDocs = (await db.collection(`tenants/${tid}/documents`).where('category', '==', 'aftercare').get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })); } catch { careDocs = []; } }
+            const careDoc = aftercareDocFor(careDocs || [], first.a.serviceId, null);
+            const careUrl = base && careDoc ? `${base}${aftercarePath(tid, first.id)}` : '';
+            const mirS = settingsOf(td); const care = !careDoc && td.makingItRight ? aftercareFor(mirS, first.a.serviceId) : '';
             const surveyOn = !!td.makingItRight && td.makingItRight?.channels?.survey !== false;
             const howUrl = base && (surveyOn || care) ? `${base}${feedbackPath(tid, first.id)}` : '';
             const reviewLink = (surveyOn && howUrl) || cfg.reviewUrl || '';
-            const thanksMsg = resolveMessage(tDoc.data(), 'post_visit_followup', { client_first: String(first.a.clientName || '').split(' ')[0] || 'there', team: whoLabel || 'we', book_link: bookLink, review_link: reviewLink, studio: (tDoc.data() as any)?.name || '' }, 'sms');
+            const thanksMsg = resolveMessage(tDoc.data(), 'post_visit_followup', { client_first: String(first.a.clientName || '').split(' ')[0] || 'there', team: whoLabel || 'we', book_link: bookLink, review_link: reviewLink, aftercare_link: careUrl || (care ? howUrl : ''), studio: (tDoc.data() as any)?.name || '' }, 'sms');
             if (!thanksMsg.send) continue;   // switched off on the Messages page
             const bits = thanksMsg.custom ? withoutEmptyLinks(tidyBody(thanksMsg.body)) : [
               `Thanks for coming in yesterday${whoLabel ? ` — ${whoLabel} loved having you` : ''}!`,
               // Opens on the service they just had, so rebooking is two taps.
               cfg.bookingUrl ? `Book your next visit: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
                 try { const u = new URL(cfg.bookingUrl); u.searchParams.set('service', sid); return u.toString(); } catch { return cfg.bookingUrl; } })()}` : null,
-              surveyOn && howUrl ? `How was it? Tell us in one tap${care ? ' (your aftercare is there too)' : ''}: ${howUrl}` : cfg.reviewUrl ? `Enjoyed it? A quick review means the world: ${cfg.reviewUrl}` : null,
-              !surveyOn && care && howUrl ? `Caring for it at home: ${howUrl}` : null,
+              surveyOn && howUrl ? `How was it? Tell us in one tap${care || careDoc ? ' (your aftercare is there too)' : ''}: ${howUrl}` : cfg.reviewUrl ? `Enjoyed it? A quick review means the world: ${cfg.reviewUrl}` : null,
+              !surveyOn && careUrl ? `Caring for it at home: ${careUrl}` : !surveyOn && care && howUrl ? `Caring for it at home: ${howUrl}` : null,
             ].filter(Boolean).join(' ');
             let delivered = false;
             if (b.phone && smsConfigured()) {
@@ -480,7 +486,7 @@ export async function GET(req: NextRequest) {
               // Stamp every document the one message covered, or tomorrow's
               // run finds the siblings unstamped and thanks her again.
               for (const i of b.items) {
-                try { await i.ref.set({ followUpSentAt: stampedAt, ...(care ? { aftercareSentAt: stampedAt, aftercareText: care.slice(0, 2000) } : {}) }, { merge: true }); } catch { /* next */ }
+                try { await i.ref.set({ followUpSentAt: stampedAt, ...(careDoc ? { aftercareSentAt: stampedAt, aftercareDocId: careDoc.id, aftercareVersion: Number(careDoc.version || 1) } : care ? { aftercareSentAt: stampedAt, aftercareText: care.slice(0, 2000) } : {}) }, { merge: true }); } catch { /* next */ }
               }
               followUps += b.items.length;
             }

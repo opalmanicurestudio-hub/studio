@@ -15,7 +15,7 @@ export type WorkItem = {
 
 /** Is this published document for this person (everyone, their role, or them by name)? */
 export function docIsFor(d: any, staff: { id: string; role?: string }) {
-  if (!d || d.status !== 'published') return false;
+  if (!d || d.status !== 'published' || d.category === 'aftercare') return false;   // aftercare is for clients
   const roles: string[] = Array.isArray(d.assignedRoles) ? d.assignedRoles : [];
   return roles.includes('all') || (!!staff.role && roles.includes(String(staff.role))) || (Array.isArray(d.assignedStaffIds) && d.assignedStaffIds.includes(staff.id));
 }

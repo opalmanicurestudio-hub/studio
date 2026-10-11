@@ -13,13 +13,13 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', RE
 const sel = 'h-10 w-full rounded-[12px] border bg-white px-2.5 text-[14px] outline-none';
 type Kind = 'service' | 'station' | 'kit';
 
-export function DocLinksEditor({ tenantId, value, onChange }: { tenantId: string; value: DocLink[]; onChange: (v: DocLink[]) => void }) {
+export function DocLinksEditor({ tenantId, value, onChange, kinds = ['service', 'station', 'kit'], steps: withSteps = true }: { tenantId: string; value: DocLink[]; onChange: (v: DocLink[]) => void; kinds?: Kind[]; steps?: boolean }) {
   const { firestore } = useFirebase() as any;
   const c = (name: string) => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, name) : null);
   const { data: services } = useCollection<any>(useMemoFirebase(() => c('services'), [firestore, tenantId]));
   const { data: resources } = useCollection<any>(useMemoFirebase(() => c('resources'), [firestore, tenantId]));
   const { data: kitTypes } = useCollection<any>(useMemoFirebase(() => c('kitTypes'), [firestore, tenantId]));
-  const [kind, setKind] = React.useState<Kind>('service'); const [id, setId] = React.useState(''); const [step, setStep] = React.useState('');
+  const [kind, setKind] = React.useState<Kind>(kinds[0] || 'service'); const [id, setId] = React.useState(''); const [step, setStep] = React.useState('');
   const [qrBusy, setQrBusy] = React.useState(''); const [err, setErr] = React.useState('');
 
   const svcList = (services || []).filter((s: any) => s.archived !== true && s.status !== 'archived').sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
@@ -48,12 +48,12 @@ export function DocLinksEditor({ tenantId, value, onChange }: { tenantId: string
           <span className="truncate">{linkLabel(l)}</span>
           {l.kind === 'station' && <button type="button" onClick={() => qr(l)} className="h-7 rounded-full bg-white px-2.5 text-[12px] font-semibold">{qrBusy === l.id ? '…' : 'QR'}</button>}
           <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} aria-label={`Remove ${linkLabel(l)}`} className="h-7 w-7 rounded-full text-[12px]">✕</button></span>)}</div>
-        : <p className="text-[13px]" style={{ color: MUTED }}>Link it to a service, a step, a station or a kit and it shows up on the staff app during those visits.</p>}
-      <div className="flex gap-1">{([['service', 'Service'], ['station', 'Station'], ['kit', 'Kit']] as const).map(([k, l]) => <button key={k} type="button" aria-pressed={kind === k} onClick={() => { setKind(k); setId(''); setStep(''); }} className="h-8 rounded-full px-3 text-[12.5px] font-medium" style={kind === k ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div>
+        : <p className="text-[13px]" style={{ color: MUTED }}>{kinds.length > 1 ? 'Link it to a service, a step, a station or a kit and it shows up on the staff app during those visits.' : 'Pick the services it’s for.'}</p>}
+      {kinds.length > 1 && <div className="flex gap-1">{([['service', 'Service'], ['station', 'Station'], ['kit', 'Kit']] as const).filter(([k]) => kinds.includes(k)).map(([k, l]) => <button key={k} type="button" aria-pressed={kind === k} onClick={() => { setKind(k); setId(''); setStep(''); }} className="h-8 rounded-full px-3 text-[12.5px] font-medium" style={kind === k ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div>}
       <select value={id} onChange={(e) => { setId(e.target.value); setStep(''); }} aria-label={`Choose a ${kind}`} className={sel} style={{ borderColor: LINE }}>
         <option value="">{list.length ? `Choose a ${kind}…` : kind === 'station' ? 'No stations yet (Resources)' : kind === 'kit' ? 'No kit types yet' : 'No services yet'}</option>
         {list.map((x: any) => <option key={x.id} value={x.id}>{x.name || 'Untitled'}</option>)}</select>
-      {svc && steps.length > 1 && <select value={step} onChange={(e) => setStep(e.target.value)} aria-label="Which step" className={sel} style={{ borderColor: LINE }}>
+      {withSteps && svc && steps.length > 1 && <select value={step} onChange={(e) => setStep(e.target.value)} aria-label="Which step" className={sel} style={{ borderColor: LINE }}>
         <option value="">The whole service</option>{steps.map((p: any) => <option key={p.id} value={p.id}>Step · {p.label}</option>)}</select>}
       {id && <button type="button" onClick={add} className="h-9 rounded-full px-3.5 text-[13px] font-semibold text-white" style={{ background: INK }}>Add the link</button>}
       {err && <p className="text-[12.5px]" style={{ color: RED }}>{err}</p>}

@@ -115,6 +115,19 @@ const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: st
       { type: 'text', heading: 'After', body: 'The owner reviews every incident, decides follow-up, and updates procedures if the incident revealed a gap.' },
     ],
   },
+  {
+    key: 'aftercare',
+    title: 'Looking after it at home',
+    category: 'aftercare',
+    blurb: 'Client aftercare, sent the day after their visit. Edit it for each service.',
+    sections: [
+      { type: 'text', heading: 'Thank you for coming in', body: 'A few simple things keep your results looking their best for longer.' },
+      { type: 'step', heading: 'The first 24 hours', body: 'What to avoid right after the service, and why.' },
+      { type: 'step', heading: 'Day to day', body: 'The small habits that make it last — and the products we recommend.' },
+      { type: 'tip', heading: 'Make it last', body: 'Book your next visit before this one grows out, so you get your favorite time.' },
+      { type: 'warning', heading: 'Something not right?', body: 'If anything changes in the first week, tell us — we’ll look at it and make it right.' },
+    ],
+  },
 ];
 
 const safeDate = (val: any): Date | null => {
@@ -792,6 +805,7 @@ export default function DocumentsPage() {
     let list = ((documents || []) as any[]);
     if (!canManage) {
       list = list.filter(d => d.status === 'published' && (
+        d.category === 'aftercare' ||   // client aftercare: anyone on the team can read what clients are sent
         (d.assignedRoles || []).includes('all') ||
         (role && (d.assignedRoles || []).includes(role)) ||
         (myStaffId && (d.assignedStaffIds || []).includes(myStaffId))
@@ -811,7 +825,7 @@ export default function DocumentsPage() {
       category: tpl ? tpl.category : 'sop',
       // Keep each template section's type (checklist, step, warning, tip) and photo lines — they used to be dropped.
       sections: tpl ? withItemIds(tpl.sections.map((x: any) => ({ id: nanoid(), type: x.type || 'text', heading: x.heading, body: x.body, photoLines: Array.isArray(x.photoLines) ? x.photoLines : [] }))) : [],
-      assignedRoles: ['all'],
+      assignedRoles: tpl?.category === 'aftercare' ? [] : ['all'],   // aftercare is for clients
       assignedStaffIds: [],
       status: 'draft',
       version: 1,

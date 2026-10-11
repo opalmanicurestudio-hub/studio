@@ -84,7 +84,8 @@ function DocReader({ firestore, tenantId, d, col, staffMember, ack, accent, onBa
       <div className="fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-lg gap-2 border-t bg-white px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3" style={{ borderColor: LINE, gridTemplateColumns: listFirst || steps.length >= 2 ? '1fr 1.3fr' : '1fr' }}>
         {listFirst ? <button type="button" onClick={() => setMode(mode === 'howto' ? 'read' : 'howto')} className="h-12 rounded-full border bg-white text-[14.5px] font-semibold" style={{ borderColor: LINE }}>{mode === 'howto' ? 'Back to the list' : 'How to'}</button>
           : steps.length >= 2 ? <button type="button" onClick={() => setMode('walk')} className="flex h-12 items-center justify-center gap-1.5 rounded-full border bg-white text-[14.5px] font-semibold" style={{ borderColor: LINE }}><Ico d={IC.play} s={14} />Do it with me</button> : null}
-        {signed ? <span className="flex h-12 items-center justify-center gap-1.5 rounded-full text-[14.5px] font-semibold" style={{ background: '#e9f3ed', color: GREEN }}><Ico d={IC.check} s={16} c={GREEN} w={2.4} />Signed version {v}</span>
+        {d.category === 'aftercare' ? <span className="flex h-12 items-center justify-center rounded-full text-[14px] font-semibold" style={{ background: '#e5f0e8', color: '#2d6a3e' }}>Clients get this after their visit</span>
+          : signed ? <span className="flex h-12 items-center justify-center gap-1.5 rounded-full text-[14.5px] font-semibold" style={{ background: '#e9f3ed', color: GREEN }}><Ico d={IC.check} s={16} c={GREEN} w={2.4} />Signed version {v}</span>
           : <button type="button" onClick={() => setMode('sign')} className="h-12 rounded-full text-[14.5px] font-semibold text-white" style={{ background: INK }}>{ack ? `Read it — sign v${v}` : 'I’ve read it — sign'}</button>}
       </div>
     </div>);

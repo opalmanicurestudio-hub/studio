@@ -54,6 +54,8 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
   const [quiz, setQuiz] = React.useState<any[]>(Array.isArray(docItem.quiz) ? docItem.quiz : []);
   const [requireSignature, setRequireSignature] = React.useState<boolean>(docItem.requireSignature === true);
   const [links, setLinks] = React.useState<any[]>(cleanLinks(docItem.links));
+  const [careDefault, setCareDefault] = React.useState<boolean>(docItem.aftercareDefault === true);
+  const isCare = category === 'aftercare';
   const [changeNote, setChangeNote] = React.useState<string>(String(liveItem.draft?.changeNote || ''));
   const [selected, setSelected] = React.useState<string>(''); const [preview, setPreview] = React.useState(false);
   const [uploading, setUploading] = React.useState<string>(''); const [err, setErr] = React.useState(''); const [confirmDelete, setConfirmDelete] = React.useState(false);
@@ -76,8 +78,10 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
     const clean = blocks.map(cleanBlock).filter(blockHasContent); if (!clean.length) { setErr('Add at least one block with something in it.'); return null; }
     const q = cleanQuiz(quiz); if (quiz.length && q.length !== quiz.length) { setErr('Each quick-check question needs the question and at least two answers.'); return null; }
     setErr('');
-    return { title: t, category, sections: withItemIds(clean, liveItem.sections || []), assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore,
+    const base = { title: t, category, sections: withItemIds(clean, liveItem.sections || []), assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore,
       changeNote: changeNote.trim().slice(0, 400), collectionId, ownerId: ownerId || null, reviewEveryMonths: reviewEvery || null, quiz: q, requireSignature, links: cleanLinks(links) };
+    // Aftercare is for clients: nobody on the team is assigned, signs or is quizzed; only service links count.
+    return { ...base, ...(isCare ? { assignedRoles: [], assignedStaffIds: [], signBy: null, quiz: [], requireSignature: false, collectionId: 'aftercare', aftercareDefault: careDefault, links: cleanLinks(links).filter((l) => l.kind === 'service').map((l: any) => ({ ...l, stepId: null, stepLabel: null })) } : { aftercareDefault: false }) };
   };
 
   const people = staff.filter((m: any) => !m.archived && m.role !== 'renter' && !m.isRenter);
@@ -126,9 +130,13 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
         <div className="border-t p-4 md:border-l md:border-t-0 md:p-5" style={{ borderColor: LINE, background: 'rgba(250,250,251,.7)' }}>
           <p className="pb-1 text-[15px] font-bold">Details</p>
           <Side title="Collection and type"><select value={collectionId} onChange={(e) => setCollectionId(e.target.value)} aria-label="Collection" className={input} style={{ borderColor: LINE }}>{cols.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-            <div className="flex flex-wrap gap-1.5">{[['sop', 'SOP'], ['handbook', 'Handbook'], ['policy', 'Policy'], ['other', 'Other']].map(([v, l]) => <Chip key={v} on={category === v} onClick={() => setCategory(v)}>{l}</Chip>)}</div></Side>
+            <div className="flex flex-wrap gap-1.5">{[['sop', 'SOP'], ['handbook', 'Handbook'], ['policy', 'Policy'], ['other', 'Other'], ['aftercare', 'Client aftercare']].map(([v, l]) => <Chip key={v} on={category === v} onClick={() => setCategory(v)}>{l}</Chip>)}</div>
+            {isCare && <p className="text-[12.5px]" style={{ color: MUTED }}>Clients get it after their visit. The team doesn’t sign it.</p>}</Side>
           <Side title="Owner and review"><select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} aria-label="Owner" className={input} style={{ borderColor: LINE }}><option value="">No owner yet</option>{people.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
             <select value={reviewEvery} onChange={(e) => setReviewEvery(Number(e.target.value))} aria-label="Review" className={input} style={{ borderColor: LINE }}>{[[0, 'No review date'], [3, 'Review every 3 months'], [6, 'Review every 6 months'], [12, 'Review every year']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Side>
+          {isCare ? <Side title="Which services it’s for"><DocLinksEditor tenantId={tenantId} value={links} onChange={setLinks} kinds={['service']} steps={false} />
+            <label className="flex items-center justify-between gap-2 text-[14px]"><span>Use it for every other service too</span><input type="checkbox" checked={careDefault} onChange={(e) => setCareDefault(e.target.checked)} className="h-5 w-5" style={{ accentColor: INK }} /></label>
+            <p className="text-[12px]" style={{ color: MUTED }}>Sent with the thank-you message the day after the visit, and shown on the visit’s page. A service’s own aftercare wins over this one.</p></Side> : <>
           <Side title="Shows up during work"><DocLinksEditor tenantId={tenantId} value={links} onChange={setLinks} />
             {isLive && <p className="text-[12px]" style={{ color: MUTED }}>Changes here apply when you save the draft. Nobody has to sign again.</p>}</Side>
           <Side title="Who it’s for"><div className="flex flex-wrap gap-1.5"><Chip on={assignedRoles.includes('all')} onClick={() => toggleRole('all')}>Everyone</Chip>{roles.map(([id, r]) => <Chip key={id} on={assignedRoles.includes(id)} onClick={() => toggleRole(id)}>{r.name}</Chip>)}</div>
@@ -146,8 +154,8 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
                 <input value={(q.options || [])[oi] || ''} onChange={(e) => setQuiz((p) => p.map((x, j) => { if (j !== qi) return x; const o = [...(x.options || ['', '', '', ''])]; o[oi] = e.target.value; return { ...x, options: o }; }))} placeholder={oi < 2 ? `Answer ${oi + 1}` : `Answer ${oi + 1} (optional)`} className="h-9 min-w-0 flex-1 rounded-[10px] border px-2.5 text-[13.5px]" style={{ borderColor: LINE }} /></label>)}
               <p className="text-[11.5px]" style={{ color: MUTED }}>Pick the right answer with the circle.</p></div>)}
             {quiz.length < 6 && <button type="button" onClick={() => setQuiz((p) => [...p, { id: nanoid(6), q: '', options: ['', '', '', ''], answer: 0 }])} className="h-9 rounded-full px-3.5 text-[13px]" style={{ background: SOFT }}>+ Add a question</button>}
-          </Side>
-          {isLive && <Side title="What changed (shown when they sign again)"><textarea value={changeNote} onChange={(e) => setChangeNote(e.target.value)} rows={3} maxLength={400} placeholder="e.g. Soak time is now 10 minutes (was 5)." className={area} style={{ borderColor: LINE }} />
+          </Side></>}
+          {isLive && !isCare && <Side title="What changed (shown when they sign again)"><textarea value={changeNote} onChange={(e) => setChangeNote(e.target.value)} rows={3} maxLength={400} placeholder="e.g. Soak time is now 10 minutes (was 5)." className={area} style={{ borderColor: LINE }} />
             {liveItem.draft?.savedAt && <p className="text-[12px]" style={{ color: MUTED }}>Draft saved {new Date(liveItem.draft.savedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. The team still reads v{liveItem.version || 1}.</p>}</Side>}
           <div className="border-t pt-3.5" style={{ borderColor: LINE }}>{confirmDelete
             ? <div className="flex flex-wrap items-center gap-2 text-[13.5px]"><span>Delete it for good?</span><button type="button" onClick={onDelete} className="h-9 rounded-full px-3.5 font-semibold text-white" style={{ background: RED }}>Delete</button><button type="button" onClick={() => setConfirmDelete(false)} className="h-9 rounded-full px-3.5" style={{ background: SOFT }}>Keep it</button></div>
