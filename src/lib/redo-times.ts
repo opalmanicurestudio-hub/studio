@@ -47,7 +47,7 @@ export async function redoPlan(db: any, tenantId: string, c: any): Promise<{ ser
 }
 export async function redoMinutes(db: any, tenantId: string, c: any): Promise<number> { return (await redoPlan(db, tenantId, c)).minutes; }
 
-export async function redoTimes(db: any, tenantId: string, c: any, opts: { staffId?: string; from?: string; others?: boolean; days?: number } = {}): Promise<{ ok: boolean; providers: ProviderTimes[]; minutes: number; error?: string; advice?: { avoidOriginal: boolean; why: string | null; override: 'original' | 'other' | null } }> {
+export async function redoTimes(db: any, tenantId: string, c: any, opts: { staffId?: string; from?: string; others?: boolean; days?: number } = {}): Promise<{ ok: boolean; providers: ProviderTimes[]; minutes: number; error?: string; advice?: { avoidOriginal: boolean; why: string | null; override: 'original' | 'other' | null; onlyOne?: boolean } }> {
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant); const tz = tenantTimeZone(tenant);
   const plan = await redoPlan(db, tenantId, c);
   if (!plan.primary) return { ok: false, providers: [], minutes: 0, error: 'Choose the services for the fix first.' };
@@ -75,6 +75,14 @@ export async function redoTimes(db: any, tenantId: string, c: any, opts: { staff
     const r = await clientOpenTimes(db, tenantId, '__redo__', { serviceId: plan.primary, staffId: id, startTime: start, endTime: end }, from, days);
     const s = staff.find((x: any) => x.id === id);
     if (r.ok) providers.push({ staffId: id, name: String(s?.name || c.visit.providerName || 'Provider'), original: id === original, days: r.days.filter((d) => d.times.length) });
+  }
+  // Nobody else can do it (a solo business, or the only person who does this service): never leave the client with no
+  // times. Offer the original provider and tell the team — for a sensitive case they may prefer a refund or credit.
+  if (advice.avoidOriginal && !opts.staffId && !providers.some((p) => p.days.length) && original) {
+    const r = await clientOpenTimes(db, tenantId, '__redo__', { serviceId: plan.primary, staffId: original, startTime: start, endTime: end }, from, days);
+    const s = staff.find((x: any) => x.id === original);
+    if (r.ok) providers.push({ staffId: original, name: String(s?.name || c.visit.providerName || 'Provider'), original: true, days: r.days.filter((d) => d.times.length) });
+    return { ok: true, providers, minutes, advice: { ...advice, avoidOriginal: false, onlyOne: true } as any };
   }
   return { ok: true, providers, minutes, advice };
 }

@@ -79,7 +79,8 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
     incident: reason?.safety ? { started: now(), whatHappened: String(b.words || ''), present: [], statements: [], checkIn48At: null } : null,
     preferOther: b.preferOther === true, involvedStaffIds: visit?.providerId ? [visit.providerId] : [],
     kind: b.kind === 'incident' ? 'incident' : 'complaint', incidentType: b.incidentType || null, statements: Array.isArray(b.statements) ? b.statements.slice(0, 3) : [],
-    sideWanted: visit?.providerId && visit.providerId !== actor.staffId ? visit.providerId : null,
+    // Their side is asked for — unless the provider IS the business (a solo owner), who tells it when they log the case.
+    sideWanted: visit?.providerId && visit.providerId !== actor.staffId && visit.providerId !== tenant.userId && staff.filter((m: any) => m.role !== 'renter' && m.isActive !== false).length > 1 && String(staff.find((m: any) => m.id === visit.providerId)?.role || '') !== 'owner' ? visit.providerId : null,
     createdAt: now(), updatedAt: now(), locked: false,
   };
   await db.doc(`${T(tenantId)}/cases/${id}`).set(JSON.parse(JSON.stringify(doc)));

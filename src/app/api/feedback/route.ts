@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     if (!info.case.redo.canChange) return bad('This redo can’t be changed online — please message us.');
     const c: any = (await db.doc(`tenants/${tenantId}/cases/${info.case.id}`).get()).data();
     if (b.action === 'redo_times') { const { redoTimes } = await import('@/lib/redo-times'); const r = await redoTimes(db, tenantId, c, { others: !!b.others, from: b.from });
-      return NextResponse.json({ ok: r.ok, minutes: r.minutes, error: r.error, someoneElse: !!r.advice?.avoidOriginal, providers: r.providers.map((p) => ({ staffId: p.staffId, name: String(p.name).split(' ')[0], original: p.original, days: p.days })) }); }
+      return NextResponse.json({ ok: r.ok, minutes: r.minutes, error: r.error, someoneElse: !!r.advice?.avoidOriginal, onlyOne: !!(r.advice as any)?.onlyOne, providers: r.providers.map((p) => ({ staffId: p.staffId, name: String(p.name).split(' ')[0], original: p.original, days: p.days })) }); }
     if (b.action === 'redo_none') return NextResponse.json(await redoNone(db, tenantId, c, String(b.note || '')));
     const r = await bookRedo(db, tenantId, c, { staffId: String(b.staffId || ''), date: String(b.date || ''), time: String(b.time || ''), by: c.clientName || 'Client', byClient: true });
     return NextResponse.json(r, { status: r.ok ? 200 : 409 });

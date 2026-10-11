@@ -36,7 +36,7 @@ export async function feedbackInfo(db: any, tenantId: string, v: { id: string; a
   const window = S.serviceWindows[a.serviceId] ?? S.redoWindowDays;
   const brand = { name: tenant.name || tenant.businessName || 'Your visit', accent: brandAccent(tenant), logo: tenant.logoUrl || tenant.logo || null };
   const base = { ok: true as const, brand, visit: { service: a.serviceName || 'Your visit', provider: firstOf(a.staffName), day: a.startTime ? new Date(a.startTime).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz }) : '', clientFirst: firstOf(a.clientName) },
-    answered: a.feedback?.rating || null, aftercare: aftercareFor(S, a.serviceId) || null, surveyOn: S.channels.survey !== false, reviewUrl: (tenant.clientNotify || {}).reviewUrl || tenant.reviewUrl || null,
+    answered: a.feedback?.rating || null, team: (await db.collection(`${T(tenantId)}/staff`).get()).docs.filter((d: any) => { const m: any = d.data() || {}; return m.archived !== true && m.isActive !== false && m.role !== 'renter'; }).length > 1, aftercare: aftercareFor(S, a.serviceId) || null, surveyOn: S.channels.survey !== false, reviewUrl: (tenant.clientNotify || {}).reviewUrl || tenant.reviewUrl || null,
     open: FINISHED.includes(String(a.status)) && daysSince <= MAX_DAYS && S.channels.survey !== false,
     reasons: S.reasons.filter((r) => r.on !== false).map((r) => ({ id: r.id, label: r.label, safety: !!r.safety })),
     wants: wantsFor(S).map((w) => ({ id: w.id, label: w.client })),

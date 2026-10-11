@@ -41,8 +41,9 @@ function SlotPicker({ tenantId, caseId, onPick, busy, label }: { tenantId: strin
     <div className="space-y-3 rounded-2xl p-3.5" style={{ background: SOFT }}>
       {adv?.avoidOriginal && <div className="rounded-xl bg-white p-3 text-[13.5px]"><b>Suggesting someone else for the fix.</b> {adv.why}. The client is only offered other providers{adv.override === 'other' ? '' : ' — the person who did the visit isn’t shown'}.
         <button type="button" onClick={() => choose('original')} className="ml-1 font-semibold underline">Offer the original provider anyway</button></div>}
+      {adv?.onlyOne && <div className="rounded-xl bg-white p-3 text-[13.5px]"><b>No one else does this service.</b> {adv.why ? `${adv.why}, so ` : ''}offer to do it yourself, or choose a refund or credit instead if that would feel better for them.</div>}
       {!adv?.avoidOriginal && adv?.override === 'original' && <p className="text-[13px]" style={{ color: MUTED }}>Offering the original provider (chosen by the team). <button type="button" onClick={() => choose(null)} className="underline">Undo</button></p>}
-      {!adv?.avoidOriginal && !adv?.override && data && <button type="button" onClick={() => choose('other')} className="text-[13px] underline" style={{ color: MUTED }}>Only offer other providers for this fix</button>}
+      {!adv?.avoidOriginal && !adv?.override && !adv?.onlyOne && data && <button type="button" onClick={() => choose('other')} className="text-[13px] underline" style={{ color: MUTED }}>Only offer other providers for this fix</button>}
       {!data ? <p className="text-[14px]" style={{ color: MUTED }}>Finding open times…</p> : !list.length ? <p className="text-[14px]">{data.error || (others ? 'No one else has an opening soon.' : 'No openings soon with the original provider.')}</p> : <>
         <div className="flex flex-wrap gap-2">{list.map((p: any) => <button key={p.staffId} type="button" onClick={() => { setWho(p.staffId); setDay(p.days[0].date); setTime(''); }} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={who === p.staffId ? { background: INK, color: '#fff' } : { background: '#fff' }}>{p.name}{p.original ? ' (did the visit)' : ''}</button>)}</div>
         <div className="flex gap-1.5 overflow-x-auto pb-1">{(P?.days || []).map((d: any) => <button key={d.date} type="button" onClick={() => { setDay(d.date); setTime(''); }} className="h-10 shrink-0 rounded-xl px-3 text-[13.5px] font-semibold" style={day === d.date ? { background: INK, color: '#fff' } : { background: '#fff' }}>{dl(d.date)}</button>)}</div>
@@ -284,7 +285,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services }: { c: any; ten
 
 /** Each provider's numbers, fairly: only cases marked "the work itself" count. */
 function ByProvider({ cases }: { cases: any[] }) {
-  const ids = [...new Set(cases.map((c) => c.visit?.providerId).filter(Boolean))] as string[]; if (!ids.length) return null;
+  const ids = [...new Set(cases.map((c) => c.visit?.providerId).filter(Boolean))] as string[]; if (ids.length < 2) return null;
   const rows = ids.map((id) => ({ id, name: cases.find((c) => c.visit?.providerId === id)?.visit?.providerName || 'Provider', ...providerCaseStats(cases, id) })).sort((a, b) => b.counted - a.counted || b.total - a.total);
   return (
     <div className="space-y-1.5 pt-4"><p className="text-[12px] font-bold tracking-wide" style={{ color: MUTED }}>BY PROVIDER</p>
