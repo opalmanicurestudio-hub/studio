@@ -5,6 +5,7 @@
 //   report   { reasonId, words, wants, photos, voice, lang } → opens a Making it right case (one per visit)
 //   confirm  { good, words }                              → "Did we make it right?"
 //   redo_times { others? } · book_redo { staffId, date, time } · redo_none { note }  → choosing or moving the free redo
+//   strings  { lang, texts }                             → the page's words in the client's language
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { feedbackVisit, feedbackInfo, feedbackPath } from '@/lib/visit-feedback';
@@ -24,6 +25,16 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = String(b.tenantId || ''); const id = String(b.id || '');
   const db = getAdminDb(); const v = await feedbackVisit(db, tenantId, id, b.k, b.t);
   if (!v) return bad('This link isn’t valid any more.', 404);
+  // The page's words in the client's language (client-lang.tsx). Cached per business; a cap per visit per day.
+  if (b.action === 'strings') {
+    const { LANGUAGES, translateTexts } = await import('@/lib/translate'); const lang = String(b.lang || '').slice(0, 2).toLowerCase();
+    const texts = (Array.isArray(b.texts) ? b.texts : []).slice(0, 100).map((x: any) => String(x ?? '').slice(0, 1200));
+    if (!LANGUAGES[lang] || lang === 'en' || !texts.length) return NextResponse.json({ ok: true, texts });
+    const day = new Date().toISOString().slice(0, 10); const aRef = db.doc(`tenants/${tenantId}/appointments/${id}`); const used: any = (v.a as any).feedbackTr || {};
+    const n = used.day === day ? Number(used.n) || 0 : 0; if (n >= 40) return NextResponse.json({ ok: true, texts });
+    await aRef.set({ feedbackTr: { day, n: n + 1 } }, { merge: true });
+    return NextResponse.json({ ok: true, texts: await translateTexts(tenantId, texts, lang) });
+  }
   const info: any = await feedbackInfo(db, tenantId, v);
   const now = new Date().toISOString();
 
