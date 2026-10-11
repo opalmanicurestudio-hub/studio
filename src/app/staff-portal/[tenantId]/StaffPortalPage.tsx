@@ -5,6 +5,7 @@ import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
 import { MyCases } from '@/components/staff-portal/MyCases';
 import { WeekSchedule, MonthPlanner } from '@/components/staff-portal/WeekSchedule';
 import { PortalTicket, PortalScan } from '@/components/staff-portal/PortalTicket';
+import { StudioCard } from '@/components/staff-portal/StudioCard';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { sessionsFrom, clockPolicy, localDay } from '@/lib/timeclock';
 import { punchState } from '@/lib/punch';
@@ -4899,7 +4900,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // their renter doc resolved for the Rent tab; STAFF with a linked
   // renter record are hybrids — chair renters who also work the book —
   // and get the union of both worlds: all staff tabs + Rent + Documents.
-  const myRenter = useMyRent(tenantId, staffMember.id)?.renter || null;
+  const myRentData = useMyRent(tenantId, staffMember.id); const myRenter = myRentData?.renter || null;
+  const myOpenInvoice = (myRentData?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late').sort((a: any, b: any) => String(a.dueDate || '').localeCompare(String(b.dueDate || '')))[0] || null;
+  // A business of one: they get the studio card on Today, like a renter does on their home.
+  const isSoloBiz = !isRenter && (allStaff || []).filter((m: any) => m.archived !== true && m.isActive !== false && m.role !== 'renter').length <= 1;
   const isHybrid = !isRenter && !!myRenter;
 
   const ALL_TABS = [
@@ -5084,6 +5088,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && !viewingWalkIns && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
+{isSoloBiz && <StudioCard firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={(isRenter && (myRenter?.businessName || myRenter?.business)) || (isSoloBiz ? ((portalTenant as any)?.name || staffMember.name) : staffMember.name) || 'My business'}
+  sub={isRenter ? `${myRentData?.booth?.name ? `${myRentData.booth.name} · ` : ''}${(portalTenant as any)?.name || ''}` : staffMember.name || ''} logo={isRenter ? (myRenter?.logoUrl || staffMember.avatarUrl || null) : (brandLogo(portalTenant) || null)} accent={accentColor}
+  mine={allMyApts || []} rentInvoice={isRenter || isHybrid ? myOpenInvoice : null} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
+  onCases={() => { setActiveTab('me' as any); setViewingCases(true); }} onRent={() => setActiveTab('rent')} />}
 {!isRenter && <ForgotClockOut firestore={firestore} tenantId={tenantId} staffId={staffMember.id} tenant={portalTenant} shifts={allShiftsRaw || []} accent={accentColor} />}
 <PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} accent={accentColor} />
 {todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} accent={accentColor} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
@@ -5274,6 +5282,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           )}
 
           {/* INBOX */}
+          {activeTab==='rent' && isRenter && (
+            <div className="pb-3"><StudioCard firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={(isRenter && (myRenter?.businessName || myRenter?.business)) || (isSoloBiz ? ((portalTenant as any)?.name || staffMember.name) : staffMember.name) || 'My business'}
+  sub={isRenter ? `${myRentData?.booth?.name ? `${myRentData.booth.name} · ` : ''}${(portalTenant as any)?.name || ''}` : staffMember.name || ''} logo={isRenter ? (myRenter?.logoUrl || staffMember.avatarUrl || null) : (brandLogo(portalTenant) || null)} accent={accentColor}
+  mine={allMyApts || []} rentInvoice={isRenter || isHybrid ? myOpenInvoice : null} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
+  onCases={() => { setActiveTab('me' as any); setViewingCases(true); }} onRent={() => setActiveTab('rent')} /></div>
+          )}
           {activeTab==='rent' && (isRenter || isHybrid) && (
             <RenterRentTab tenantId={tenantId} firestore={firestore} staffMember={staffMember} renter={myRenter} />
           )}
