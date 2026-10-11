@@ -95,6 +95,15 @@ export async function POST(req: NextRequest) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         const tenant  = await getTenant(connAcct);
+        // A gift card a renter sold online was paid to the RENTER's account, which no business is keyed by: find it
+        // through the order (the order records which account it was paid to, so a stray event can't claim it).
+        if (!tenant && session.metadata?.type === 'gift_card' && session.metadata?.tenantId && session.metadata?.giftOrderId && session.payment_status === 'paid') {
+          try { const tId = String(session.metadata.tenantId); const o: any = (await db.doc(`tenants/${tId}/giftOrders/${String(session.metadata.giftOrderId)}`).get()).data();
+            if (o && o.stripeAccountId === connAcct) { const { completeGiftOrder } = await import('@/lib/gift-shop');
+              await completeGiftOrder(getAdminDb(), tId, String(session.metadata.giftOrderId), { sessionId: session.id, paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent as any)?.id || null, amountTotal: session.amount_total }); }
+          } catch (e: any) { console.error('[connect-webhook] renter gift card order failed', e?.message); }
+          break;
+        }
         if (!tenant) break;
 
         const sessionType = session.metadata?.type;

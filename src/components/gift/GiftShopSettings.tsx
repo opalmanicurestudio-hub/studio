@@ -80,6 +80,14 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
               </div>}
             </>}
           </section>
+          <section className="space-y-1 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
+            <p className="text-[15px] font-semibold">Renters</p>
+            <p className="text-[13px]" style={{ color: MUTED }}>For booth renters who run their own business here.</p>
+            <Toggle on={s.renters?.salonCards !== false} onChange={(v) => set('renters', { ...(s.renters || {}), salonCards: v })} label="Renters take your gift cards"
+              hint="A client can pay a renter with your gift card. You hold the money, so it’s credited against the renter’s next rent automatically." />
+            <Toggle on={s.renters?.ownCards === true} onChange={(v) => set('renters', { ...(s.renters || {}), ownCards: v })} label="Renters sell their own gift cards"
+              hint="Paid to the renter’s own account and used only with them — it’s their money, not yours. They can sell in person and on their booking page." />
+          </section>
           <section className="space-y-2">
             <p className="text-[15px] font-semibold">Rules buyers see</p>
             <textarea value={s.rules} onChange={(e) => set('rules', e.target.value.slice(0, 600))} rows={3} className="w-full rounded-xl border px-3 py-2.5 text-[14.5px] leading-relaxed" style={{ borderColor: LINE }} />

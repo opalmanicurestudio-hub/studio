@@ -211,14 +211,33 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const pre = prebookMoment(visits.map((v: any) => v.appointment));
   const moment = bestMomentReward([...momentsFor(tenant, client, doneBefore, new Date(), visits.length > 0), ...(pre ? [pre] : [])]);
   const sdIn = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
-  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), giftCard: (Array.isArray(b.giftCards) ? b.giftCards : []).reduce((s: number, g: any) => s + Math.max(0, Math.round(num(g?.cents))) / 100, 0), staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
+  // GIFT CARDS AND RENTERS (lib/gift-cards). A studio card pays for the studio's part first; it pays for a renter's
+  // visit only when the business lets renters accept studio cards (Gift cards → Renters) — the studio then owes the renter
+  // that amount, credited against their rent. A card a renter sold pays only for that renter's visits (they already have
+  // the money). So: first the bill without gift cards, then what each card may pay for, then the bill with them.
+  const calcArgs: any = { tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: null as any, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true };
+  const renterSettings = (tenant as any)?.giftCardSettings?.renters || {}; const salonForRenters = renterSettings.salonCards !== false;
+  const giftUse: { id: string; code: string; cents: number; holdId: string | null; done?: boolean; owner: string | null; forRenters: Record<string, number> }[] = [];
+  const giftPlan = async (calc0: any) => {
+    const byRenter: Record<string, number> = {};
+    for (const v of calc0.visits || []) if (v.renter) { const rid = String((staff.find((x: any) => x.id === v.renterStaffId) as any)?.renterId || ''); if (rid) byRenter[rid] = (byRenter[rid] || 0) + Math.round((v.mainPrice + v.addOns.reduce((t: number, x: any) => t + x.price, 0)) * 100); }
+    let studioLeft = Math.max(0, Math.round(num(calc0.giftable) * 100) - Object.values(byRenter).reduce((a, c) => a + c, 0));
+    for (const g of (Array.isArray(b.giftCards) ? b.giftCards : []).slice(0, 5)) {
+      const d: any = (await db.doc(`${T}/giftCards/${String(g?.id || '')}`).get()).data(); if (!d) return 'A gift card on this sale wasn’t found — remove it and try again.';
+      let want = Math.max(0, Math.round(num(g.cents))); const use = { id: String(g.id), code: d.code, cents: 0, holdId: g.holdId ? String(g.holdId) : null, owner: d.ownerRenterId || null, forRenters: {} as Record<string, number> };
+      if (use.owner) { const take = Math.min(want, byRenter[use.owner] || 0); if (take <= 0) return `Gift card ${d.code} is ${d.ownerName || 'a renter'}’s — it pays only for their services.`; byRenter[use.owner] -= take; use.cents = take; use.forRenters[use.owner] = take; }
+      else { const a = Math.min(want, studioLeft); studioLeft -= a; want -= a; use.cents = a;
+        if (want > 0 && salonForRenters) for (const rid of Object.keys(byRenter)) { const t = Math.min(want, byRenter[rid]); if (t > 0) { byRenter[rid] -= t; want -= t; use.cents += t; use.forRenters[rid] = (use.forRenters[rid] || 0) + t; } } }
+      if (use.cents > 0) giftUse.push(use); }
+    return null;
+  };
+  { const sdPre = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
+    const calc0 = computeCheckout({ ...calcArgs, staffDiscount: sdPre, giftCard: 0, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
+    const err = await giftPlan(calc0); if (err) return json({ ok: false, error: err }, 400); }
+  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), giftCard: giftUse.reduce((s2, g) => s2 + g.cents, 0) / 100, staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
   const recoveryAmount = Math.min(Math.max(0, num(b.recovery?.amount)), calc.subtotal);
-  // Gift cards paying for this sale — never more than the sale (calc caps it), and each card must exist.
-  const giftUse: { id: string; code: string; cents: number; holdId: string | null; done?: boolean }[] = [];
-  { let left = Math.round(num((calc as any).giftCard) * 100);
-    for (const g of (Array.isArray(b.giftCards) ? b.giftCards : []).slice(0, 5)) { if (left <= 0) break;
-      const d: any = (await db.doc(`${T}/giftCards/${String(g?.id || '')}`).get()).data(); if (!d) return json({ ok: false, error: 'A gift card on this sale wasn’t found — remove it and try again.' }, 400);
-      const cents = Math.min(left, Math.max(0, Math.round(num(g.cents)))); if (cents > 0) { giftUse.push({ id: String(g.id), code: d.code, cents, holdId: g.holdId ? String(g.holdId) : null }); left -= cents; } } }
+  // Gift cards paying for this sale were planned above (giftPlan); the bill can't take more than it costs.
+  { let over = giftUse.reduce((s2, g) => s2 + g.cents, 0) - Math.round(num((calc as any).giftCard) * 100); for (let i = giftUse.length - 1; i >= 0 && over > 0; i--) { const cut = Math.min(over, giftUse[i].cents); giftUse[i].cents -= cut; over -= cut; } }
   const recoveryReason = String(b.recovery?.reason || 'Service Recovery Adjustment').slice(0, 200);
   const cardSurcharge = Math.max(0, num(pay.cardSurcharge));
   // ── Approvals (checked HERE — the browser can't skip them). Managers checking out approve by being signed in. ──
@@ -420,6 +439,15 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const cashSalesAmt = Math.max(0, Math.round((cashIn - cashTipsTotal) * 100) / 100);
   void cashDepositOffset;
   if ((method === 'cash' || (split && cashIn > 0)) && b.tillId) batch.set(db.doc(`${T}/tillSessions/${String(b.tillId)}`), { expectedCash: FieldValue.increment(cashIn), totalCashSales: FieldValue.increment(cashSalesAmt), totalCashTips: FieldValue.increment(cashTipsTotal), ...(Object.keys(cashTipsByStaff).length ? { cashTipsByStaff } : {}) }, { merge: true });   // nested, so each provider's cash tips really add up
+  // Gift cards that paid for a renter's visit: a card the renter sold → they already have that money, so it isn't owed
+  // to them; a studio card → the studio owes them, credited against their next rent (taken off by the nightly run).
+  { const owned: Record<string, number> = {}, salon: Record<string, number> = {};
+    for (const g of giftUse) for (const [rid, c] of Object.entries(g.forRenters || {})) { if (g.owner) owned[rid] = (owned[rid] || 0) + c; else salon[rid] = (salon[rid] || 0) + c; }
+    for (const rid of new Set([...Object.keys(owned), ...Object.keys(salon)])) { let cut = (owned[rid] || 0) + (salon[rid] || 0);
+      for (const d of deskCollected) { if (d.renterId !== rid || d.kind !== 'service' || cut <= 0) continue; const t = Math.min(cut, d.cents); d.cents -= t; cut -= t; } }
+    for (const [rid, c] of Object.entries(salon)) { if (c <= 0) continue; const ref = db.collection(`${T}/rentLedger`).doc();
+      batch.set(ref, clean({ id: ref.id, renterId: rid, type: 'gift_card_credit', status: 'paid', amountCents: -c, appliedCents: 0, receiptId: receiptRef.id, giftCardIds: giftUse.filter((g) => !g.owner && g.forRenters?.[rid]).map((g) => g.id),
+        note: `Paid with a studio gift card at the front desk — $${(c / 100).toFixed(2)} credited to your rent`, date: now, createdAt: now, createdBy: auth.actor.name || null })); } }
   // What the desk collected for renters → their Books, owed to them until the owner settles it (never auto-netted).
   for (const d of deskCollected) { if (!d.renterId || d.cents <= 0) continue; const ref = db.collection(`${T}/rentLedger`).doc();
     batch.set(ref, clean({ id: ref.id, renterId: d.renterId, staffId: d.staffId, type: 'desk_collected', kind: d.kind, amountCents: d.cents, status: 'owed', appointmentId: d.appointmentId, receiptId: receiptRef.id,

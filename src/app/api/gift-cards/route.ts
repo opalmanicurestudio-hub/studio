@@ -22,7 +22,10 @@ export async function GET(req: NextRequest) {
   const db = getAdminDb(); const g: any = (await db.doc(`tenants/${tenantId}/giftCards/${id}`).get()).data(); if (!g) return j({ ok: false, error: 'This gift card wasn’t found.' }, 404);
   const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   const { brandAccent } = await import('@/lib/brand-accent');
-  return j({ ok: true, card: { ...pub(g), code: g.code }, brand: { name: t.name || t.businessName || 'Gift card', accent: brandAccent(t), logo: t.logoUrl || t.logo || null, phone: t.phone || null }, bookUrl: `/book/${encodeURIComponent(tenantId)}` }, 200);
+  // A card a renter sold is theirs: their name on it, and "Book with it" opens their page.
+  let prov: string | null = null; if (g.ownerRenterId) { const st = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', g.ownerRenterId).limit(3).get(); prov = st.docs.find((d: any) => (d.data() as any).isRenter)?.id || null; }
+  return j({ ok: true, card: { ...pub(g), code: g.code }, brand: { name: g.ownerName || t.name || t.businessName || 'Gift card', accent: brandAccent(t), logo: g.ownerRenterId ? null : t.logoUrl || t.logo || null, phone: g.ownerRenterId ? null : t.phone || null },
+    bookUrl: `/book/${encodeURIComponent(tenantId)}${prov ? `?provider=${encodeURIComponent(prov)}` : ''}` }, 200);
 }
 
 export async function POST(req: NextRequest) {
@@ -55,7 +58,7 @@ export async function POST(req: NextRequest) {
       const next = { online: v.online === true, designs: Array.isArray(v.designs) ? v.designs.map(String).filter((x: string) => /^[a-z0-9-]{2,30}$/.test(x)).slice(0, 80) : null,
         amounts: Array.isArray(v.amounts) ? v.amounts.map(Number).filter((n: number) => n >= 1 && n <= 5000).slice(0, 6) : cur.amounts, custom: v.custom !== false,
         min: Math.max(1, Math.min(5000, Number(v.min) || cur.min)), max: Math.max(1, Math.min(5000, Number(v.max) || cur.max)), seasonalOnly: v.seasonalOnly !== false,
-        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, showcase: cleanShowcase(v.showcase), updatedAt: new Date().toISOString(), updatedBy: by };
+        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, showcase: cleanShowcase(v.showcase), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, updatedAt: new Date().toISOString(), updatedBy: by };
       if (next.max < next.min) return j({ ok: false, error: 'The most someone can spend has to be more than the least.' }, 400);
       if (next.designs && !next.designs.length) return j({ ok: false, error: 'Keep at least one design on.' }, 400);
       await tref.set({ giftCardSettings: next }, { merge: true }); return j({ ok: true, settings: shopSettings({ giftCardSettings: next }), paymentsReady: !!t.stripeAccountId }); }

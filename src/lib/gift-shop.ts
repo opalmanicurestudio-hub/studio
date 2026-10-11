@@ -23,21 +23,35 @@ export function orderKey(tenantId: string, id: string) {
 }
 export const orderPath = (tenantId: string, id: string) => `/gift/${encodeURIComponent(tenantId)}/order/${encodeURIComponent(id)}?k=${orderKey(tenantId, id)}`;
 
-/** What the shop page needs: the business, its designs, amounts and rules. Nothing private. */
-export async function shopInfo(db: any, tenantId: string) {
+/** A renter selling their own gift cards (when the studio allows it, they've switched it on and take cards). */
+async function renterSeller(db: any, tenantId: string, t: any, providerId?: string | null) {
+  if (!providerId) return null;
+  const st: any = (await db.doc(`${T(tenantId)}/staff/${String(providerId).slice(0, 80)}`).get()).data(); if (!st?.isRenter || !st.renterId) return { error: 'This provider wasn’t found.' } as any;
+  const r: any = (await db.doc(`${T(tenantId)}/renters/${st.renterId}`).get()).data() || {};
+  const ok = t?.giftCardSettings?.renters?.ownCards === true && r.giftCardsOnline === true && !!r.stripeAccountId && r.stripeChargesEnabled === true;
+  return { ok, renterId: st.renterId, staffId: providerId, name: r.businessName || st.name || r.name || 'Provider', accent: st.brand?.accent || null, stripeAccountId: r.stripeAccountId || null };
+}
+
+/** What the shop page needs: the business (or the renter selling their own), its designs, amounts and rules. Nothing private. */
+export async function shopInfo(db: any, tenantId: string, providerId?: string | null) {
   const t: any = (await db.doc(T(tenantId)).get()).data(); if (!t) return null;
   const s = shopSettings(t); const { brandAccent } = await import('@/lib/brand-accent');
+  const seller: any = await renterSeller(db, tenantId, t, providerId);
+  if (seller) return { open: !!seller.ok, brand: { name: seller.name, accent: seller.accent || brandAccent(t), logo: null, phone: null, at: t.name || null }, provider: seller.staffId,
+    designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: `${s.rules} Use it with ${seller.name}.`, timeZone: t.timezone || 'America/New_York' };
   return { open: s.online && !!t.stripeAccountId, brand: { name: t.name || t.businessName || 'Gift card', accent: brandAccent(t), logo: t.logoUrl || t.logo || null, phone: t.phone || null },
     designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: s.rules, timeZone: t.timezone || 'America/New_York' };
 }
 
-type Start = { amount: any; design: any; line?: any; buyerName: any; buyerEmail: any; buyerPhone?: any; recipientName?: any; forSelf?: any;
+type Start = { provider?: any; amount: any; design: any; line?: any; buyerName: any; buyerEmail: any; buyerPhone?: any; recipientName?: any; forSelf?: any;
   via: any; recipientEmail?: any; recipientPhone?: any; message?: any; sendAt?: any };
 
 /** Check what the buyer chose, save the order, and open the payment form for it (embedded — they never leave the page). */
 export async function startGiftOrder(db: any, tenantId: string, b: Start, origin: string) {
   const t: any = (await db.doc(T(tenantId)).get()).data(); if (!t) return { ok: false as const, error: 'This business wasn’t found.' };
-  const s = shopSettings(t); if (!s.online || !t.stripeAccountId) return { ok: false as const, error: 'Gift cards aren’t sold online here right now.' };
+  const s = shopSettings(t); const seller: any = await renterSeller(db, tenantId, t, b.provider ? String(b.provider) : null);
+  if (seller ? !seller.ok : !s.online || !t.stripeAccountId) return { ok: false as const, error: 'Gift cards aren’t sold online here right now.' };
+  const acct = seller ? seller.stripeAccountId : t.stripeAccountId; const sellerName = seller ? seller.name : t.name || 'Gift card';
   const dollars = Math.round(Number(b.amount) * 100) / 100;
   if (!(dollars >= s.min && dollars <= s.max) || (!s.custom && !s.amounts.includes(dollars))) return { ok: false as const, error: `Choose an amount from ${money(s.min * 100)} to ${money(s.max * 100)}.` };
   const design = okDesign(b.design); if (!design || !offered(designsSync(), s).some((d) => d.id === design)) return { ok: false as const, error: 'Choose a design.' };
@@ -56,17 +70,18 @@ export async function startGiftOrder(db: any, tenantId: string, b: Start, origin
   const dz = designsSync().find((d) => d.id === design);
   const ref = db.collection(`${T(tenantId)}/giftOrders`).doc(); const cents = Math.round(dollars * 100);
   const order = { id: ref.id, status: 'pending', amountCents: cents, design, line: b.line === undefined ? dz?.line || null : line || null, buyerName, buyerEmail, buyerPhone: String(b.buyerPhone || '').slice(0, 30) || null,
-    recipientName, forSelf, via, recipientEmail, recipientPhone, message, sendAt, createdAt: now(), cardId: null };
+    recipientName, forSelf, via, recipientEmail, recipientPhone, message, sendAt, createdAt: now(), cardId: null,
+    ownerRenterId: seller ? seller.renterId : null, ownerName: seller ? seller.name : null, stripeAccountId: acct };
   await ref.set(order);
   const session = await stripe().checkout.sessions.create({
     ui_mode: 'embedded', mode: 'payment', customer_email: buyerEmail, redirect_on_completion: 'never',
-    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: cents, product_data: { name: `${money(cents)} gift card — ${t.name || 'Gift card'}`, description: forSelf ? 'For you' : `For ${recipientName}` } } }],
+    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: cents, product_data: { name: `${money(cents)} gift card — ${sellerName}`, description: forSelf ? 'For you' : `For ${recipientName}` } } }],
     payment_intent_data: { metadata: { tenantId, type: 'gift_card', giftOrderId: ref.id }, description: `Gift card ${money(cents)}` },
     metadata: { tenantId, type: 'gift_card', giftOrderId: ref.id },
-  } as any, { stripeAccount: t.stripeAccountId });
+  } as any, { stripeAccount: acct });
   await ref.set({ checkoutSessionId: session.id }, { merge: true });
   void origin;
-  return { ok: true as const, orderId: ref.id, clientSecret: session.client_secret, stripeAccountId: t.stripeAccountId, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '' };
+  return { ok: true as const, orderId: ref.id, clientSecret: session.client_secret, stripeAccountId: acct, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '' };
 }
 
 /** The page asks after paying: if the payment has gone through, make the card (the webhook may already have). */
@@ -74,8 +89,8 @@ export async function confirmGiftOrder(db: any, tenantId: string, orderId: strin
   const ref = db.doc(`${T(tenantId)}/giftOrders/${orderId}`); const o: any = (await ref.get()).data(); if (!o) return { ok: false as const, error: 'That order wasn’t found.' };
   if (o.status === 'paid' && o.cardId) return { ok: true as const, paid: true, manage: orderPath(tenantId, orderId) };
   const t: any = (await db.doc(T(tenantId)).get()).data() || {};
-  if (!o.checkoutSessionId || !t.stripeAccountId) return { ok: true as const, paid: false };
-  const sess: any = await stripe().checkout.sessions.retrieve(o.checkoutSessionId, {}, { stripeAccount: t.stripeAccountId });
+  const acct = o.stripeAccountId || t.stripeAccountId; if (!o.checkoutSessionId || !acct) return { ok: true as const, paid: false };
+  const sess: any = await stripe().checkout.sessions.retrieve(o.checkoutSessionId, {}, { stripeAccount: acct });
   if (sess.payment_status !== 'paid') return { ok: true as const, paid: false };
   await completeGiftOrder(db, tenantId, orderId, { sessionId: sess.id, paymentIntent: typeof sess.payment_intent === 'string' ? sess.payment_intent : sess.payment_intent?.id || null, amountTotal: sess.amount_total, origin });
   return { ok: true as const, paid: true, manage: orderPath(tenantId, orderId) };
@@ -92,12 +107,13 @@ export async function completeGiftOrder(db: any, tenantId: string, orderId: stri
   const buyer = await db.collection(`${T(tenantId)}/clients`).where('email', '==', o.buyerEmail).limit(1).get().then((s: any) => (s.empty ? null : s.docs[0].id)).catch(() => null);
   const r: any = await issueGiftCard(db, tenantId, { amountCents: cents, by: 'Online', source: 'online', purchaser: { id: buyer, name: o.buyerName }, purchaserEmail: o.buyerEmail,
     recipient: { id: o.forSelf ? buyer : null, name: o.recipientName, phone: o.recipientPhone, email: o.recipientEmail }, message: o.message, design: o.design, line: o.line,
-    sendVia: o.via === 'me' ? 'code' : o.via, sendAt: o.sendAt, transactionId: p.sessionId, orderId });
+    sendVia: o.via === 'me' ? 'code' : o.via, sendAt: o.sendAt, transactionId: p.sessionId, orderId, ownerRenterId: o.ownerRenterId || null, ownerName: o.ownerName || null });
   if (!r.ok) { await ref.set({ status: 'pending', issueError: r.error }, { merge: true }); return { ok: false as const, error: r.error }; }
+  // A renter's own card was paid to their account — it's their money, not the studio's, so the studio's books skip it.
   const txRef = db.collection(`${T(tenantId)}/transactions`).doc();
-  await txRef.set({ id: txRef.id, date: now(), description: `Gift card sold online: ${money(cents)} for ${o.recipientName}`, clientOrVendor: o.buyerName, clientId: buyer, type: 'income', context: 'Business',
+  if (!o.ownerRenterId) await txRef.set({ id: txRef.id, date: now(), description: `Gift card sold online: ${money(cents)} for ${o.recipientName}`, clientOrVendor: o.buyerName, clientId: buyer, type: 'income', context: 'Business',
     category: 'Gift Card Sales', taxBucket: 'transfer', amount: cents / 100, paymentMethod: 'Online Checkout', hasReceipt: true, checkoutSessionId: p.sessionId, stripeChargeId: p.chargeId || null, giftCardId: r.card.id, giftOrderId: orderId, tenantId });
-  await ref.set({ status: 'paid', cardId: r.card.id, transactionId: txRef.id }, { merge: true });
+  await ref.set({ status: 'paid', cardId: r.card.id, transactionId: o.ownerRenterId ? null : txRef.id }, { merge: true });
   let sent = false; if (!o.sendAt && (o.via === 'email' || o.via === 'text')) sent = (await deliverGiftCard(db, tenantId, t, r.card).catch(() => ({ sent: false }))).sent;
   await sendBuyerReceipt(db, tenantId, t, { ...o, amountCents: cents }, r.card, sent, p.origin).catch(() => {});
   return { ok: true as const, cardId: r.card.id };
@@ -105,7 +121,7 @@ export async function completeGiftOrder(db: any, tenantId: string, orderId: stri
 
 async function sendBuyerReceipt(db: any, tenantId: string, t: any, o: any, card: any, sentNow: boolean, reqOrigin?: string | null) {
   const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(t, reqOrigin || ''); if (!origin) return;
-  const { brandAccent } = await import('@/lib/brand-accent'); const A = brandAccent(t); const biz = t.name || 'us';
+  const { brandAccent } = await import('@/lib/brand-accent'); const A = brandAccent(t); const biz = o.ownerName ? `${o.ownerName}${t.name ? ` at ${t.name}` : ''}` : t.name || 'us';
   const manage = `${origin}${orderPath(tenantId, o.id)}`; const cardLink = `${origin}${giftPath(tenantId, card.id)}`;
   const when = o.via === 'me' ? 'It’s yours to give — open it, print it or forward the link.' : sentNow ? `We’ve ${o.via === 'text' ? 'texted' : 'emailed'} it to ${esc(o.recipientName)}.`
     : o.sendAt ? `It will be ${o.via === 'text' ? 'texted' : 'emailed'} to ${esc(o.recipientName)} on ${new Date(o.sendAt).toLocaleString('en-US', { timeZone: t.timezone || 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` : 'We’ll send it shortly.';
@@ -124,7 +140,7 @@ ${o.via === 'me' ? `<p style="margin:0 0 18px"><a href="${cardLink}" style="colo
 export async function orderView(db: any, tenantId: string, id: string) {
   const o: any = (await db.doc(`${T(tenantId)}/giftOrders/${id}`).get()).data(); if (!o) return null;
   const c: any = o.cardId ? (await db.doc(`${T(tenantId)}/giftCards/${o.cardId}`).get()).data() : null;
-  return { status: o.status, amountCents: o.amountCents, design: o.design, line: o.line, buyerName: o.buyerName, recipientName: o.recipientName, via: o.via, message: o.message,
+  return { ownerName: o.ownerName || null, status: o.status, amountCents: o.amountCents, design: o.design, line: o.line, buyerName: o.buyerName, recipientName: o.recipientName, via: o.via, message: o.message,
     recipientEmail: c?.recipientEmail || o.recipientEmail, recipientPhone: (c?.recipientPhone || o.recipientPhone) ? `•••${String(c?.recipientPhone || o.recipientPhone).slice(-4)}` : null,
     sendAt: c ? c.sendAt || null : o.sendAt, sentAt: c?.sentAt || null, scheduledFor: c?.scheduledFor || null, sendStatus: c?.sendStatus || null,
     code: c?.code || null, balanceCents: c?.balanceCents ?? null, used: c ? c.balanceCents < c.initialCents : false, cardPath: c ? giftPath(tenantId, o.cardId) : null };

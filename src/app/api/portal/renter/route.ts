@@ -2857,6 +2857,60 @@ export async function POST(req: NextRequest) {
         updatedAt: new Date().toISOString(), ...(id ? {} : { createdAt: new Date().toISOString() }) }, { merge: true });
       return NextResponse.json({ ok: true, id: ref.id });
     }
+    // ── GIFT CARDS for a renter (lib/gift-cards; the business decides in Gift cards → Renters) ─────────────────
+    //   gift-info    → what's allowed here, the cards they sold, and whether their page sells them online
+    //   gift-check   { code }                 → whether this card can pay for their service, and how much is on it
+    //   gift-accept  { code, cents, appointmentId? } → spend it on their service. A studio card: the studio owes them,
+    //                credited against their next rent. Their own card: they already have the money.
+    //   gift-sell    { amountCents, recipient…, message, design, line, sendVia, sendAt } → a card of their own, paid in person
+    //   gift-online  { on }                   → sell their own cards on their booking page (needs their card payments on)
+    if (action.startsWith('gift-')) {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Sign in again.' }, { status: 401 });
+      const gc = await import('@/lib/gift-cards');
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; const rs = t.giftCardSettings?.renters || {};
+      const salonCards = rs.salonCards !== false, ownCards = rs.ownCards === true;
+      const renterRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`); const renter: any = (await renterRef.get()).data() || {};
+      const by = session.name || renter.name || 'Renter';
+      if (action === 'gift-info') {
+        const mine = (await db.collection(`tenants/${tenantId}/giftCards`).where('ownerRenterId', '==', session.renterId).get()).docs.map((d: any) => ({ ...gc.pub({ id: d.id, ...d.data() }), sendVia: d.data().sendVia || null, sentAt: d.data().sentAt || null, sendAt: d.data().sendAt || null }))
+          .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
+        const st = await myProvider();
+        return NextResponse.json({ ok: true, salonCards, ownCards, cards: mine, online: renter.giftCardsOnline === true, canTakeCards: !!renter.stripeAccountId && renter.stripeChargesEnabled === true,
+          link: st ? `/gift/${encodeURIComponent(tenantId)}?provider=${encodeURIComponent(st.id)}` : null, brand: { name: renter.businessName || renter.name || by, accent: (st as any)?.brand?.accent || null } });
+      }
+      const usable = (g: any) => !g ? 'That gift card code wasn’t found.' : g.status === 'void' ? 'That gift card was cancelled.' : g.ownerRenterId ? (g.ownerRenterId === session.renterId ? null : 'That card belongs to another provider — it can only be used with them.')
+        : salonCards ? null : 'The studio doesn’t take its gift cards for renters’ services — send them to the front desk.';
+      if (action === 'gift-check') { const g = await gc.findByCode(db, tenantId, String(body.code || '')); const why = usable(g);
+        return NextResponse.json(why ? { ok: false, error: why } : { ok: true, card: { ...gc.pub(g), studio: !g!.ownerRenterId } }, { status: why ? 400 : 200 }); }
+      if (action === 'gift-accept') {
+        const g = await gc.findByCode(db, tenantId, String(body.code || '')); const why = usable(g); if (why) return NextResponse.json({ ok: false, error: why }, { status: 400 });
+        let apptId: string | null = null; if (body.appointmentId) { const m = await myAppt(String(body.appointmentId)); if (m.error) return NextResponse.json({ ok: false, error: m.error }, { status: 403 }); apptId = String(body.appointmentId); }
+        const cents = Math.round(Number(body.cents) || 0); if (cents <= 0) return NextResponse.json({ ok: false, error: 'Enter the amount to take off the card.' }, { status: 400 });
+        const r: any = await gc.spendGiftCard(db, tenantId, { id: g!.id, cents, by, appointmentId: apptId, transactionRef: apptId ? `renter:${apptId}` : 'renter' }); if (!r.ok) return NextResponse.json(r, { status: 400 });
+        const now2 = new Date().toISOString();
+        if (!g!.ownerRenterId) { const ref = db.collection(`tenants/${tenantId}/rentLedger`).doc();
+          await ref.set({ id: ref.id, renterId: session.renterId, type: 'gift_card_credit', status: 'paid', amountCents: -cents, appliedCents: 0, appointmentId: apptId, giftCardIds: [g!.id], note: `Studio gift card ${g!.code} taken for your service — $${(cents / 100).toFixed(2)} credited to your rent`, date: now2, createdAt: now2, createdBy: by }); }
+        if (apptId) await db.doc(`tenants/${tenantId}/appointments/${apptId}`).set({ giftCardsTaken: (await import('firebase-admin/firestore')).FieldValue.arrayUnion({ code: g!.code, cents, studio: !g!.ownerRenterId, at: now2 }) }, { merge: true });
+        return NextResponse.json({ ok: true, cents, balanceAfter: r.balanceAfter, studio: !g!.ownerRenterId });
+      }
+      if (action === 'gift-sell') {
+        if (!ownCards) return NextResponse.json({ ok: false, error: 'The studio hasn’t turned on renters selling their own gift cards.' }, { status: 403 });
+        const via = ['text', 'email', 'print', 'code'].includes(body.sendVia) ? body.sendVia : 'code';
+        const r: any = await gc.issueGiftCard(db, tenantId, { amountCents: Math.round(Number(body.amountCents) || 0), by, source: 'renter' as any, ownerRenterId: session.renterId, ownerName: renter.businessName || renter.name || by,
+          recipient: { name: body.recipientName ? String(body.recipientName).slice(0, 80) : null, phone: via === 'text' ? String(body.phone || '').slice(0, 30) : null, email: via === 'email' ? String(body.email || '').slice(0, 120) : null },
+          purchaser: { name: body.buyerName ? String(body.buyerName).slice(0, 80) : null }, message: body.message || null, design: typeof body.design === 'string' ? body.design.slice(0, 30) : null, line: body.line || null, sendVia: via,
+          sendAt: body.sendAt && Date.parse(body.sendAt) > Date.now() + 60000 ? new Date(body.sendAt).toISOString() : null } as any);
+        if (!r.ok) return NextResponse.json(r, { status: 400 });
+        if (['text', 'email'].includes(via) && !r.card.sendAt) await gc.deliverGiftCard(db, tenantId, t, r.card).catch(() => {});
+        return NextResponse.json({ ok: true, card: gc.pub(r.card) });
+      }
+      if (action === 'gift-online') {
+        if (body.on === true && !ownCards) return NextResponse.json({ ok: false, error: 'The studio hasn’t turned on renters selling their own gift cards.' }, { status: 403 });
+        if (body.on === true && !(renter.stripeAccountId && renter.stripeChargesEnabled === true)) return NextResponse.json({ ok: false, error: 'Connect your card payments first (Setup → Payments).' }, { status: 400 });
+        await renterRef.set({ giftCardsOnline: body.on === true }, { merge: true }); return NextResponse.json({ ok: true });
+      }
+      return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+    }
     if (action === 'package-sell') {
       // Sold at the chair, paid in person (cash, their own reader, Venmo —
       // whatever). Records the credits; records no money for the studio.
@@ -2912,8 +2966,8 @@ export async function POST(req: NextRequest) {
       // Rent they PAID: 'payment' entries (manual, card, autopay's rent_charge
       // when it succeeded). Credits (leave, sublet, abatement) reduce rent and
       // show as negatives so the month's rent line is what actually left them.
-      const rent = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => String(r.date || r.createdAt || '').slice(0, 7) === month && ['payment', 'rent_charge', 'leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset'].includes(String(r.type || '')))
-        .map((r: any) => { const c = Math.abs(Number(r.amountCents) || Math.round((Number(r.amount) || 0) * 100)); const credit = ['leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset'].includes(String(r.type)); return { id: r.id, date: String(r.date || r.createdAt).slice(0, 10), cents: credit ? -c : c, method: credit ? String(r.type).replace('_', ' ') : (r.method || 'payment') }; });
+      const rent = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => String(r.date || r.createdAt || '').slice(0, 7) === month && ['payment', 'rent_charge', 'leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset', 'gift_card_credit'].includes(String(r.type || '')))
+        .map((r: any) => { const c = Math.abs(Number(r.amountCents) || Math.round((Number(r.amount) || 0) * 100)); const credit = ['leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset', 'gift_card_credit'].includes(String(r.type)); return { id: r.id, date: String(r.date || r.createdAt).slice(0, 10), cents: credit ? -c : c, method: credit ? String(r.type).replace('_', ' ') : (r.method || 'payment') }; });
       // Money the front desk collected for you (your clients paying at the studio's till) — owed to you until settled.
       const desk = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => r.type === 'desk_collected' && r.status !== 'voided' && String(r.date || r.createdAt || '').slice(0, 7) === month)
         .map((r: any) => ({ id: r.id, date: String(r.date || r.createdAt || '').slice(0, 10), cents: Number(r.amountCents) || 0, note: r.note || 'Collected at the front desk', status: r.status === 'settled' ? 'settled' : 'owed', settledHow: r.settledHow || null }))

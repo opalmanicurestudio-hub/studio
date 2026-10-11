@@ -20,9 +20,9 @@ export async function GET(req: NextRequest) {
   if (order) {
     if (!okId(order) || q.get('k') !== orderKey(tenantId!, order)) return j({ ok: false, error: 'This link isn’t valid.' }, 404);
     const [v, s] = await Promise.all([orderView(db, tenantId!, order), shopInfo(db, tenantId!)]); if (!v || !s) return j({ ok: false, error: 'That gift wasn’t found.' }, 404);
-    return j({ ok: true, order: v, brand: s.brand, timeZone: s.timeZone });
+    return j({ ok: true, order: v, brand: v.ownerName ? { ...s.brand, name: v.ownerName, logo: null, phone: null } : s.brand, timeZone: s.timeZone });
   }
-  const s = await shopInfo(db, tenantId!); if (!s) return j({ ok: false, error: 'This business wasn’t found.' }, 404);
+  const s = await shopInfo(db, tenantId!, q.get('provider')); if (!s) return j({ ok: false, error: 'This business wasn’t found.' }, 404);
   return j({ ok: true, ...s });
 }
 

@@ -29,6 +29,7 @@ export function inSeason(d: GiftDesign, at = new Date()) {
 export type GiftShopSettings = {
   online: boolean; designs: string[] | null; amounts: number[]; custom: boolean; min: number; max: number;
   seasonalOnly: boolean; rules: string; buyerThanks: boolean;
+  renters: { salonCards: boolean; ownCards: boolean };
   onBooking: boolean; showcase: { design: string; amount: number; label: string | null }[] | null;
 };
 export const DEFAULT_RULES = 'Never expires. Use it for services, products and tips. Not for cash, except where the law requires. Lost it? We can resend it.';
@@ -37,6 +38,7 @@ export function shopSettings(t: any): GiftShopSettings {
   const min = Math.max(1, Math.min(5000, Number(s.min) || 10)); const max = Math.max(min, Math.min(5000, Number(s.max) || 500));
   return { online: s.online === true, designs: Array.isArray(s.designs) ? s.designs.map(String) : null, amounts: nums(s.amounts)?.length ? nums(s.amounts)! : [25, 50, 100, 150],
     custom: s.custom !== false, min, max, seasonalOnly: s.seasonalOnly !== false, rules: String(s.rules || DEFAULT_RULES).slice(0, 600), buyerThanks: s.buyerThanks !== false,
+    renters: { salonCards: s.renters?.salonCards !== false, ownCards: s.renters?.ownCards === true },
     onBooking: s.onBooking !== false, showcase: cleanShowcase(s.showcase) };
 }
 /** The designs a buyer may pick from, in library order; out-of-season occasion cards are left out. */

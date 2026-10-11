@@ -1,4 +1,5 @@
 'use client';
+import { MyGiftCards } from '@/components/rent/MyGiftCards';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
@@ -287,6 +288,7 @@ export default function RenterPortalPage() {
             <div className={tab === 'book' ? 'space-y-8' : 'hidden'}>
             {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
+            {booksHere && session?.token && <MyGiftCards tenantId={tenantId} token={session.token} />}
 
             {booksHere && (
               <section className="space-y-3">

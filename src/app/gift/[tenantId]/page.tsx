@@ -25,8 +25,10 @@ function Pill({ on, children, onClick, label }: { on?: boolean; children: React.
 
 export default function GiftShopPage() {
   const tenantId = String(useParams<{ tenantId: string }>()?.tenantId || '');
+  // ?provider= → a renter selling their own gift cards (paid to them, used only with them).
+  const [provider] = React.useState(() => (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('provider') : null));
   const [shop, setShop] = React.useState<any>(null); const [err, setErr] = React.useState('');
-  React.useEffect(() => { fetch(`/api/gift-cards/shop?tenantId=${encodeURIComponent(tenantId)}`).then((r) => r.json()).then((x) => (x.ok ? setShop(x) : setErr(x.error || 'This page isn’t available.'))).catch(() => setErr('We couldn’t load this — check your connection.')); }, [tenantId]);
+  React.useEffect(() => { fetch(`/api/gift-cards/shop?tenantId=${encodeURIComponent(tenantId)}${provider ? `&provider=${encodeURIComponent(provider)}` : ''}`).then((r) => r.json()).then((x) => (x.ok ? setShop(x) : setErr(x.error || 'This page isn’t available.'))).catch(() => setErr('We couldn’t load this — check your connection.')); }, [tenantId, provider]);
   const designs: GiftDesign[] = React.useMemo(() => (shop ? designsSync().filter((d) => shop.designs.includes(d.id)) : []), [shop]);
   const [step, setStep] = React.useState(0);
   // choices
@@ -61,7 +63,7 @@ export default function GiftShopPage() {
     if (!whoOk) { setStepErr('Add your name and email for the receipt.'); return; }
     if (sendAt && sendAt.getTime() < Date.now() + 5 * 60000) { setStepErr('Choose a send time later than now.'); return; }
     setBusy(true); setStepErr('');
-    const r = await fetch('/api/gift-cards/shop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'start', tenantId, amount: amt, design: design.id, line: lineShown,
+    const r = await fetch('/api/gift-cards/shop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'start', tenantId, provider, amount: amt, design: design.id, line: lineShown,
       buyerName: from.trim(), buyerEmail: email.trim(), forSelf, recipientName: to.trim(), via, recipientEmail: forSelf ? email.trim() : toEmail.trim(), recipientPhone: toPhone, message: note.trim(), sendAt: sendAt ? sendAt.toISOString() : null }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'Check your connection and try again.' }));
     setBusy(false); if (!r.ok) { setStepErr(r.error || 'Something went wrong.'); return; } setPay(r);
   };

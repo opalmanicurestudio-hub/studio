@@ -30,7 +30,7 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
     setBusy(true); setErr(''); const r = await payPost('/api/gift-cards', { tenantId, action: 'hold', ...c, holdId, cents: leftCents }); setBusy(false);
     if (!r.ok) { setErr(r.error || 'That gift card didn’t work.'); return; }
     if (applied.some((x) => x.id === r.card.id)) return;
-    setApplied([...applied, { id: r.card.id, code: r.card.code, cents: r.cents, label: r.card.recipientName ? `${r.card.purchaserName ? `From ${String(r.card.purchaserName).split(' ')[0]}` : r.card.recipientName}` : null }]); setCode('');
+    setApplied([...applied, { id: r.card.id, code: r.card.code, cents: r.cents, label: r.card.ownerName ? `${r.card.ownerName}’s card — pays only for their services` : r.card.recipientName ? `${r.card.purchaserName ? `From ${String(r.card.purchaserName).split(' ')[0]}` : r.card.recipientName}` : null }]); setCode('');
   };
   const remove = async (id: string) => { setApplied(applied.filter((x) => x.id !== id)); await payPost('/api/gift-cards', { tenantId, action: 'hold', id, holdId, cents: 0 }).catch(() => {}); };
 

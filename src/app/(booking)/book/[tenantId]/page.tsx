@@ -383,6 +383,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     } catch { setStudioMemberOk(false); } finally { setStudioMemberBusy(false); }
   };
   const [memberOk, setMemberOk] = useState<boolean | null>(null);
+  // A renter selling their own gift cards on their page (lib/gift-shop) — asked once; shown as a link when open.
+  const [renterGift, setRenterGift] = useState(false);
+  useEffect(() => { if (!providerId || !tenantId) return; fetch(`/api/gift-cards/shop?tenantId=${encodeURIComponent(tenantId)}&provider=${encodeURIComponent(providerId)}`).then((r) => r.json()).then((x) => setRenterGift(!!(x?.ok && x.open))).catch(() => {}); }, [providerId, tenantId]);
   const [memberChecking, setMemberChecking] = useState(false);
   const checkMember = async () => {
     const e = memberEmail.trim().toLowerCase(); if (!e || !providerId) return;
@@ -723,6 +726,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     const rows: { label: string; href: string }[] = [
       ...(igOnly ? [{ label: 'Instagram', href: linkHref({ kind: 'instagram', value: p.instagram }) }] : []),
       ...links.map((l) => ({ label: l.label || (LINK_KINDS.find((k) => k.kind === l.kind)?.label ?? 'Link'), href: linkHref(l) })).filter((r) => r.href),
+      ...(renterGift ? [{ label: 'Gift cards', href: `/gift/${encodeURIComponent(tenantId)}?provider=${encodeURIComponent(p.id)}` }] : []),
     ];
     const addr = [tenant?.address?.street || tenant?.address?.line1, tenant?.address?.city].filter(Boolean).join(', ');
     const sections = livePageSections(p.page);

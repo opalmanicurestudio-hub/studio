@@ -68,6 +68,8 @@ export async function POST(req: NextRequest) {
   // What the desk collected for renters on this sale is no longer owed to them.
   for (const d of (await db.collection(`${T}/rentLedger`).where('receiptId', '==', receiptId).get()).docs) {
     const v: any = d.data() || {}; if (v.type === 'desk_collected' && v.status !== 'settled') batch.set(d.ref, { status: 'voided', voidedAt: now, voidReason: reason || null }, { merge: true });
+    // A studio gift card's rent credit for this sale stops counting (the part already taken off rent stays noted).
+    if (v.type === 'gift_card_credit' && v.status !== 'voided') batch.set(d.ref, { status: 'voided', voidedAt: now, voidReason: reason || null, appliedBeforeVoidCents: Number(v.appliedCents) || 0, appliedCents: Math.abs(Number(v.amountCents) || 0) }, { merge: true });
   }
   // Payment lines: originals marked void, one reversing line each (same shape as a single-line void).
   const lines = (await db.collection(`${T}/transactions`).where('checkoutSessionId', '==', rc.checkoutSessionId).get()).docs;

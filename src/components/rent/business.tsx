@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { SectionTitle, fmtDate, localDay } from '@/components/rent/shared';
 import { api, clock } from '@/components/rent/studio';
+import { TakeGiftCard } from '@/components/rent/MyGiftCards';
 
 // ─── Slot picker: only times that are actually free ──────────────────────────
 // Asks the engine (book-slots) for the day's open times for THIS service and
@@ -152,7 +153,7 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
   const [tell, setTell] = useState(true);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
-  const [ok, setOk] = useState('');
+  const [ok, setOk] = useState(''); const [giftOpen, setGiftOpen] = useState(false);
   useEffect(() => { let alive = true; api({ action: 'client-get', tenantId, token, clientId: a.clientId }).then((d) => { if (alive && d?.ok) { setClient(d.client); setCnote(d.client?.notes || ''); } }); return () => { alive = false; }; }, [tenantId, token, a.clientId]);
   const done = a.status === 'completed' || a.status === 'cancelled';
   const req = a.status === 'requested' || a.status === 'pending';
@@ -382,11 +383,14 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
                 <div className="flex flex-wrap gap-1.5">
                   {!done && a.status !== 'servicing' && <Btn k="done" label="Done ✓" tone="bg-emerald-600 text-white" onClick={() => run('done', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'completed' }), 'Marked done')} />}
                   {!done && <Btn k="ns" label="No-show" tone="border-2 border-amber-300 text-amber-800" onClick={() => run('ns', () => api({ action: 'book-status', tenantId, token, appointmentId: a.id, outcome: 'no_show' }), 'Marked no-show')} />}
+                  <Btn k="gift" label={giftOpen ? 'Close gift card' : 'Paid with a gift card'} onClick={() => setGiftOpen(!giftOpen)} />
                   {!done && <Btn k="mv" label="Reschedule" onClick={() => { setWhen(''); setPickDate(localDay(new Date(a.startTime))); setMode('move'); }} />}
                   {!done && <Btn k="cx" label="Cancel visit" tone="border-2 border-red-300 text-red-700" onClick={() => setMode('cancel')} />}
                 </div>
               </>
             )}
+            {mode === 'view' && giftOpen && <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 p-3 space-y-2"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">A gift card for this visit — the amount comes off the card</p>
+              <TakeGiftCard tenantId={tenantId} token={token} appointmentId={a.id} defaultCents={Math.round((Number(a.renterServicePrice) || Number(svcMatch?.price) || 0) * 100) || undefined} onDone={(m) => setOk(m)} /></div>}
             {mode === 'series' && (
               <div className="rounded-2xl border-2 border-slate-900 p-3 space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">Standing appointment</p>
