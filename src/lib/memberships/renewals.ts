@@ -9,6 +9,7 @@
 //   managers are told once, and it's charged on the first daily run after they add their card.
 //   Otherwise declined / no card → past_due; managers are told; the member gets their add-your-card link (through the
 //   normal message rules — consent and quiet hours); after the grace period (default 5 days) it lapses.
+//   A charge more than 35 days overdue is held, not taken — managers are asked to check it first.
 import { nanoid } from 'nanoid';
 import { hasRealCard } from '@/lib/card-on-file';
 import { internalHeaders } from '@/lib/message-policy';
@@ -54,6 +55,14 @@ export async function runRenewals(db: any, tenantId: string, o: { dryRun?: boole
     // Came over from another app and was asked to add a card here: the charge waits for it (see the top of this file).
     const waitsForCard = price > 0 && !hasUsableCard && !!client.cardLink?.sentAt && !client.cardOnFile?.paymentMethodId && sub.status !== 'past_due';
 
+    // A charge long overdue (35+ days — e.g. data from before renewals ran on their own) is never taken by surprise:
+    // it's held and managers are asked to check it. Clearing subscription.renewalHeld (or a new date) lets it run.
+    const stale = price > 0 && now.getTime() - nextBilling.getTime() > 35 * 864e5 && sub.status !== 'past_due';
+    if (stale) {
+      if (!dryRun && !sub.renewalHeld) { await clientDoc.ref.set({ subscription: { ...sub, renewalHeld: now.toISOString() } }, { merge: true });
+        await tellManagers(db, tenantId, 'membership_renewal_held', `${client.name || 'A member'}’s ${membership.name} renewal was due ${nextBilling.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — over a month ago — so it wasn’t charged. Check it and set their next charge date.`, `/clients/${clientDoc.id}`).catch(() => {}); }
+      results.push({ clientId: clientDoc.id, clientName: client.name, outcome: dryRun ? 'would_hold_overdue' : 'held_overdue' }); continue;
+    }
     if (dryRun) {
       results.push({ clientId: clientDoc.id, clientName: client.name, membershipName: membership.name, amount: price, hasUsableCard,
         outcome: price === 0 ? 'would_renew_free' : hasUsableCard ? 'would_charge' : waitsForCard ? 'would_wait_for_card' : 'would_mark_past_due', reason: price > 0 && !hasUsableCard ? 'no_usable_card_on_file' : undefined });

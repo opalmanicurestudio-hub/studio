@@ -42,6 +42,13 @@ import { makeDb, check, failures } from './fake-db';
     db._store.set('tenants/t1/clients/maria', { ...db._store.get('tenants/t1/clients/maria'), cardOnFile: { paymentMethodId: null, brand: 'visa', last4: '4242' } });
     const r3: any = await R.runRenewals(db, T, { dryRun: true }); check('a card with no customer isn’t treated as chargeable', r3.results.find((x: any) => x.clientId === 'maria')?.hasUsableCard === false); }
 
+  console.log('Long-overdue renewals');
+  { const db = fresh(); const old = new Date(Date.now() - 60 * 864e5).toISOString();
+    db._store.set('tenants/t1/clients/z', { name: 'Old Data', subscription: { membershipId: 'gel', status: 'active', nextBillingDate: old }, cardOnFile: { paymentMethodId: 'pm_1', customerId: 'cus_1' } });
+    const r: any = await R.runRenewals(db, T, {}); const z = db._store.get('tenants/t1/clients/z');
+    check('a renewal 60 days overdue is held, not charged', r.results[0]?.outcome === 'held_overdue' && !!z.subscription.renewalHeld && z.subscription.status === 'active', r.results);
+    check('…and the owner is asked to check it', [...db._store.values()].some((v: any) => v?.type === 'membership_renewal_held')); }
+
   console.log('Cards on file');
   { const db = fresh();
     db._store.set('tenants/t1/clients/a', { name: 'Has Card', subscription: { membershipId: 'gel', status: 'active', nextBillingDate: soon }, cardOnFile: { paymentMethodId: 'pm_1', customerId: 'cus_1', brand: 'visa', last4: '4242', savedAt: past } });
