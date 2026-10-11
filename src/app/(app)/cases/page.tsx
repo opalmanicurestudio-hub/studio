@@ -395,6 +395,7 @@ export default function CasesPage() {
           {showClosed && closed.map((x: any) => <Row key={x.id} x={x} />)}
           {isManager && <Conduct firestore={firestore} tenantId={tenantId} />}
           {isManager && <ByProvider cases={all} />}
+          {isManager && <a href="/cases/report" className="block pt-3 text-[14px] font-semibold underline">Monthly report</a>}
           {isManager && <a href="/settings/making-it-right" className="block pt-3 text-[14px] underline" style={{ color: MUTED }}>Your rules for making it right</a>}
         </aside>
         <section className="p-4 md:p-8">

@@ -1483,5 +1483,9 @@ export async function GET(req: NextRequest) {
   try { const { buildTimingStats } = await import('@/lib/timing-stats');
     for (const tDoc of (await db.collection('tenants').get()).docs) { try { const r = await buildTimingStats(db, tDoc.id, tDoc.data() || {}); timingGroups += r.groups; } catch (e: any) { console.error('[nightly] timing stats', tDoc.id, e?.message); } }
   } catch { /* never stops the rest of the night */ }
-  return NextResponse.json({ ok: true, timingGroups, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
+  // Making it right: last month's report is ready (on the 1st, business time).
+  let mirReports = 0;
+  try { const { monthlyReportNotice } = await import('@/lib/mir-report-server');
+    for (const tDoc of (await db.collection('tenants').get()).docs) { try { if (await monthlyReportNotice(db, tDoc.id, tDoc.data())) mirReports++; } catch (e) { console.error('[nightly] mir report', tDoc.id, e); } } } catch (e) { console.error('[nightly] mir reports', e); }
+  return NextResponse.json({ ok: true, timingGroups, mirReports, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }
