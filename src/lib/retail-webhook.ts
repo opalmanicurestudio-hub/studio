@@ -95,7 +95,8 @@ export async function handleRetailOrderPaid(
   // the expectation subtracts it too, or every credit order would cry wolf.
   const expectedTotal = (Number(order.totalCents) || 0)
     + (stripeTaxMode ? sessionTaxCents : 0)
-    - Math.max(0, Number((order as any).storeCreditRequestedCents) || 0);
+    - Math.max(0, Number((order as any).storeCreditRequestedCents) || 0)
+    - Math.max(0, Number((order as any).giftCardCents) || 0);
   if (sessionTotalCents != null && sessionTotalCents !== expectedTotal) {
     console.warn(
       `[connect-webhook] retail order ${orderId} amount mismatch: ` +
@@ -257,6 +258,18 @@ export async function handleRetailOrderPaid(
   // checkout can leave a shortfall — consumed < requested — which is
   // RECORDED on the order and flagged as an event instead of silently
   // eaten; a person settles the rare race, the books never lie.
+  // ── A gift card on the order: spend what was set aside for it (the discount was given on the payment page).
+  const giftCents = Math.max(0, Number((order as any).giftCardCents) || 0);
+  if (giftCents > 0 && (order as any).giftCardId && !(order as any).giftSpentAt) {
+    try { const { spendGiftCard, notifyGiftUse } = await import('@/lib/gift-cards');
+      const r: any = await spendGiftCard(db, tenantId, { id: String((order as any).giftCardId), cents: giftCents, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: session.id });
+      const ev = orderRef.collection('events').doc();
+      await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'system', actorName: 'Gift card',
+        meta: { text: r.ok ? `Gift card ${(order as any).giftCardCode} — $${(giftCents / 100).toFixed(2)} redeemed` : `Gift card ${(order as any).giftCardCode} couldn’t be charged ($${(giftCents / 100).toFixed(2)}): ${r.error} — needs a look` } });
+      await orderRef.set(r.ok ? { giftSpentAt: new Date().toISOString() } : { giftShortfallCents: giftCents }, { merge: true });
+      if (r.ok) void notifyGiftUse(db, tenantId, String((order as any).giftCardId), giftCents).catch(() => {});
+    } catch (e: any) { console.error('[retail-webhook] gift card spend failed:', e?.message); }
+  }
   const requestedCredit = Math.max(0, Number((order as any).storeCreditRequestedCents) || 0);
   if (requestedCredit > 0) {
     try {

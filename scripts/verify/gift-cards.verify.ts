@@ -103,6 +103,16 @@ import { makeDb, check, failures } from './fake-db';
     check('send date over a year away refused', !(await try1({ sendAt: new Date(Date.now() + 400 * 864e5).toISOString() })).ok);
     const off = fresh({ online: false }); check('shop switched off refused', !((await gs.startGiftOrder(off, T, base, '')) as any).ok); }
 
+  console.log('Service gift cards');
+  { const db = fresh(); db._store.set('tenants/t1/services/gel', { name: 'Gel manicure', price: 55, isActive: true });
+    db._store.set('tenants/t1/giftOrders/o3', { id: 'o3', status: 'pending', amountCents: 5500, design: 'frost', buyerName: 'Jess', buyerEmail: 'j@x.com', recipientName: 'Tia', via: 'me', serviceId: 'gel', serviceName: 'Gel manicure' });
+    await gs.completeGiftOrder(db, T, 'o3', { sessionId: 's3', amountTotal: 5500 });
+    const c = [...db._store.values()].find((v: any) => v.orderId === 'o3'); check('a service card remembers its service', c?.kind === 'service' && c?.serviceId === 'gel' && c?.balanceCents === 5500, c);
+    const off = fresh({ serviceCards: false }); off._store.set('tenants/t1/services/gel', { name: 'Gel manicure', price: 55 });
+    check('service cards switched off: refused', !((await gs.startGiftOrder(off, T, { serviceId: 'gel', amount: 1, design: 'frost', buyerName: 'J', buyerEmail: 'j@x.com', recipientName: 'T', via: 'me' }, '')) as any).ok);
+    db._store.set('tenants/t1/services/hidden', { name: 'Secret', price: 40, isPrivate: true });
+    check('a private service can’t be gifted', !((await gs.startGiftOrder(db, T, { serviceId: 'hidden', amount: 1, design: 'frost', buyerName: 'J', buyerEmail: 'j@x.com', recipientName: 'T', via: 'me' }, '')) as any).ok); }
+
   console.log('Find my card + wallet');
   { const db = fresh(); db._store.set('tenants/t1/clients/c1', { name: 'Tia', phone: '(832) 555-0100', email: 'tia@x.com' });
     await gc.issueGiftCard(db, T, { amountCents: 3000, by: 'x', source: 'desk', recipient: { name: 'Tia', email: 'tia@x.com' } });

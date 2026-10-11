@@ -23,7 +23,7 @@ export default function GiftWalletPage() {
             <p className="mt-1 text-[15px]">{left.length ? <><b>{money(total)}</b> to spend</> : 'Nothing left to spend — thank you for visiting!'}</p></div>
           {d.cards.map((c: any) => (
             <a key={c.id} href={c.path} className="block space-y-2" style={{ opacity: c.balanceCents > 0 ? 1 : 0.55 }}>
-              <div className="flex justify-center"><GiftCardFace design={c.design} brand={{ ...d.brand, name: c.ownerName || d.brand.name }} amount={money(c.initialCents)} name={c.recipientName} code={c.code} line={c.line || ''} expires={c.expiresAt} width={w} /></div>
+              <div className="flex justify-center"><GiftCardFace design={c.design} brand={{ ...d.brand, name: c.ownerName || d.brand.name }} amount={c.kind === 'service' ? '1 visit' : money(c.initialCents)} name={c.recipientName} code={c.code} line={c.line || ''} expires={c.expiresAt} width={w} /></div>
               <p className="text-center text-[14px]">{c.balanceCents > 0 ? <><b>{money(c.balanceCents)}</b> left</> : 'All used'}{c.purchaserName ? <span style={{ color: MUTED }}> · from {String(c.purchaserName).split(' ')[0]}</span> : null}</p>
             </a>))}
           {left.length > 0 && <SpendSuggestions tenantId={tenantId} balanceCents={left.filter((c: any) => !c.ownerName).reduce((s: number, c: any) => s + c.balanceCents, 0)} accent={d.brand.accent || INK} />}

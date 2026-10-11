@@ -77,6 +77,7 @@ function getAdminDb() {
 
 interface CheckoutBody {
   applyStoreCredit?: boolean;
+  giftCode?: string;             // a gift card from this business: its balance comes off the order (lib/gift-cards)
   storeCreditCapCents?: number; // customer-set spend limit; omitted = use all
   // The customer's tick on the pre-order terms. Optional in the type because
   // most carts have no pre-order; REQUIRED at runtime the moment one does.
@@ -745,6 +746,29 @@ async function handleCheckout(req: NextRequest) {
       creditCoupon = null;
       creditAppliedCents = 0;
     }
+  }
+
+  // ── A gift card: set aside on the card now (for as long as the payment page lives), spent when the payment goes
+  // through (the paid webhook). One Stripe discount covers store credit + gift card together. Stripe needs at least
+  // 50¢ on the card, so a gift card can't cover the very last 50¢ online — said on the page.
+  if (body.giftCode && String(body.giftCode).trim()) {
+    try {
+      const { findByCode, holdGiftCard, codeTries } = await import('@/lib/gift-cards');
+      const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'shop';
+      if ((await codeTries(db, tenantId, `shop_${ip}`, false)).blocked) return NextResponse.json({ error: 'Too many wrong gift card codes — try again in 15 minutes.' }, { status: 429 });
+      const g: any = await findByCode(db, tenantId, String(body.giftCode));
+      if (!g) { await codeTries(db, tenantId, `shop_${ip}`, true); return NextResponse.json({ error: 'That gift card code wasn’t found — check it, or remove it to pay by card.' }, { status: 400 }); }
+      if (g.ownerRenterId) return NextResponse.json({ error: 'That gift card is for one provider’s services — it can’t be used in the shop.' }, { status: 400 });
+      const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
+      const room = Math.max(0, chargeable - creditAppliedCents - 50);
+      if (room > 0) { const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: `retail_${orderId}`, cents: room });
+        if (!h.ok) return NextResponse.json({ error: h.error || 'That gift card can’t be used right now.' }, { status: 400 });
+        if (h.cents > 0) {
+          const coupon = await stripe.coupons.create({ amount_off: creditAppliedCents + h.cents, currency: 'usd', duration: 'once', name: creditAppliedCents ? 'Store credit + gift card' : `Gift card ${g.code}` }, { stripeAccount: stripeAccountId });
+          creditCoupon = coupon.id;
+          await orderRef.set({ giftCardId: g.id, giftCardCode: g.code, giftCardCents: h.cents }, { merge: true });
+        } }
+    } catch (e: any) { console.error('[checkout] gift card', e?.message); return NextResponse.json({ error: 'The gift card couldn’t be applied — try again, or remove it to pay by card.' }, { status: 400 }); }
   }
 
   try {

@@ -40,10 +40,10 @@ export async function shopInfo(db: any, tenantId: string, providerId?: string | 
   if (seller) return { open: !!seller.ok, brand: { name: seller.name, accent: seller.accent || brandAccent(t), logo: null, phone: null, at: t.name || null }, provider: seller.staffId,
     designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: `${s.rules} Use it with ${seller.name}.`, timeZone: t.timezone || 'America/New_York' };
   return { open: s.online && !!t.stripeAccountId, brand: { name: t.name || t.businessName || 'Gift card', accent: brandAccent(t), logo: t.logoUrl || t.logo || null, phone: t.phone || null },
-    designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: s.rules, timeZone: t.timezone || 'America/New_York' };
+    designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: s.rules, serviceCards: s.serviceCards, timeZone: t.timezone || 'America/New_York' };
 }
 
-type Start = { provider?: any; amount: any; design: any; line?: any; buyerName: any; buyerEmail: any; buyerPhone?: any; recipientName?: any; forSelf?: any;
+type Start = { provider?: any; serviceId?: any; amount: any; design: any; line?: any; buyerName: any; buyerEmail: any; buyerPhone?: any; recipientName?: any; forSelf?: any;
   via: any; recipientEmail?: any; recipientPhone?: any; message?: any; sendAt?: any };
 
 /** Check what the buyer chose, save the order, and open the payment form for it (embedded — they never leave the page). */
@@ -52,8 +52,14 @@ export async function startGiftOrder(db: any, tenantId: string, b: Start, origin
   const s = shopSettings(t); const seller: any = await renterSeller(db, tenantId, t, b.provider ? String(b.provider) : null);
   if (seller ? !seller.ok : !s.online || !t.stripeAccountId) return { ok: false as const, error: 'Gift cards aren’t sold online here right now.' };
   const acct = seller ? seller.stripeAccountId : t.stripeAccountId; const sellerName = seller ? seller.name : t.name || 'Gift card';
-  const dollars = Math.round(Number(b.amount) * 100) / 100;
-  if (!(dollars >= s.min && dollars <= s.max) || (!s.custom && !s.amounts.includes(dollars))) return { ok: false as const, error: `Choose an amount from ${money(s.min * 100)} to ${money(s.max * 100)}.` };
+  let dollars = Math.round(Number(b.amount) * 100) / 100;
+  // A service gift card ("a gel manicure"): priced at the service's price today, from the business's own menu.
+  let service: { id: string; name: string } | null = null;
+  if (b.serviceId) { if (!s.serviceCards || seller) return { ok: false as const, error: 'Service gift cards aren’t offered here.' };
+    const sv: any = (await db.doc(`${T(tenantId)}/services/${String(b.serviceId).slice(0, 80)}`).get()).data();
+    if (!sv || sv.isActive === false || sv.status === 'archived' || sv.isPrivate || !(Number(sv.price) > 0)) return { ok: false as const, error: 'That service isn’t available as a gift.' };
+    service = { id: String(b.serviceId), name: String(sv.name || 'A visit').slice(0, 60) }; dollars = Math.round(Number(sv.price) * 100) / 100; }
+  if (!service && (!(dollars >= s.min && dollars <= s.max) || (!s.custom && !s.amounts.includes(dollars)))) return { ok: false as const, error: `Choose an amount from ${money(s.min * 100)} to ${money(s.max * 100)}.` };
   const design = okDesign(b.design); if (!design || !offered(designsSync(), s).some((d) => d.id === design)) return { ok: false as const, error: 'Choose a design.' };
   const buyerName = String(b.buyerName || '').trim().slice(0, 80); const buyerEmail = String(b.buyerEmail || '').trim().toLowerCase().slice(0, 120);
   if (!buyerName || !EMAIL.test(buyerEmail)) return { ok: false as const, error: 'Add your name and email for the receipt.' };
@@ -71,11 +77,11 @@ export async function startGiftOrder(db: any, tenantId: string, b: Start, origin
   const ref = db.collection(`${T(tenantId)}/giftOrders`).doc(); const cents = Math.round(dollars * 100);
   const order = { id: ref.id, status: 'pending', amountCents: cents, design, line: b.line === undefined ? dz?.line || null : line || null, buyerName, buyerEmail, buyerPhone: String(b.buyerPhone || '').slice(0, 30) || null,
     recipientName, forSelf, via, recipientEmail, recipientPhone, message, sendAt, createdAt: now(), cardId: null,
-    ownerRenterId: seller ? seller.renterId : null, ownerName: seller ? seller.name : null, stripeAccountId: acct };
+    ownerRenterId: seller ? seller.renterId : null, ownerName: seller ? seller.name : null, stripeAccountId: acct, serviceId: service?.id || null, serviceName: service?.name || null };
   await ref.set(order);
   const session = await stripe().checkout.sessions.create({
     ui_mode: 'embedded', mode: 'payment', customer_email: buyerEmail, redirect_on_completion: 'never',
-    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: cents, product_data: { name: `${money(cents)} gift card — ${sellerName}`, description: forSelf ? 'For you' : `For ${recipientName}` } } }],
+    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: cents, product_data: { name: service ? `Gift card: ${service.name} — ${sellerName}` : `${money(cents)} gift card — ${sellerName}`, description: forSelf ? 'For you' : `For ${recipientName}` } } }],
     payment_intent_data: { metadata: { tenantId, type: 'gift_card', giftOrderId: ref.id }, description: `Gift card ${money(cents)}` },
     metadata: { tenantId, type: 'gift_card', giftOrderId: ref.id },
   } as any, { stripeAccount: acct });
@@ -107,7 +113,7 @@ export async function completeGiftOrder(db: any, tenantId: string, orderId: stri
   const buyer = await db.collection(`${T(tenantId)}/clients`).where('email', '==', o.buyerEmail).limit(1).get().then((s: any) => (s.empty ? null : s.docs[0].id)).catch(() => null);
   const r: any = await issueGiftCard(db, tenantId, { amountCents: cents, by: 'Online', source: 'online', purchaser: { id: buyer, name: o.buyerName }, purchaserEmail: o.buyerEmail,
     recipient: { id: o.forSelf ? buyer : null, name: o.recipientName, phone: o.recipientPhone, email: o.recipientEmail }, message: o.message, design: o.design, line: o.line,
-    sendVia: o.via === 'me' ? 'code' : o.via, sendAt: o.sendAt, transactionId: p.sessionId, orderId, ownerRenterId: o.ownerRenterId || null, ownerName: o.ownerName || null });
+    sendVia: o.via === 'me' ? 'code' : o.via, sendAt: o.sendAt, transactionId: p.sessionId, orderId, ownerRenterId: o.ownerRenterId || null, ownerName: o.ownerName || null, service: o.serviceId ? { id: o.serviceId, name: o.serviceName || 'A visit' } : null });
   if (!r.ok) { await ref.set({ status: 'pending', issueError: r.error }, { merge: true }); return { ok: false as const, error: r.error }; }
   // A renter's own card was paid to their account — it's their money, not the studio's, so the studio's books skip it.
   const txRef = db.collection(`${T(tenantId)}/transactions`).doc();
@@ -199,7 +205,7 @@ export async function walletView(db: any, tenantId: string, c64: string, k: stri
   let ck = ''; try { ck = Buffer.from(String(c64 || ''), 'base64url').toString('utf8'); } catch { return null; }
   if (!/^[ep]:/.test(ck) || k !== walletKey(tenantId, ck)) return null;
   const cards = (await cardsFor(db, tenantId, ck)).sort((a, b) => Number(b.balanceCents > 0) - Number(a.balanceCents > 0) || String(b.createdAt).localeCompare(String(a.createdAt)));
-  return cards.map((g) => ({ id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, design: g.design || null, line: g.line || null, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, path: giftPath(tenantId, g.id) }));
+  return cards.map((g) => ({ id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, design: g.design || null, line: g.line || null, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, kind: g.kind || 'amount', serviceName: g.serviceName || null, path: giftPath(tenantId, g.id) }));
 }
 
 // ── PAY A BOOKING DEPOSIT WITH A GIFT CARD (the online booking page) ─────────────────────────────────────────────

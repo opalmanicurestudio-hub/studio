@@ -17,12 +17,12 @@ export default function GiftCardPage() {
       <div className="mx-auto w-full max-w-sm space-y-5">
         {err ? <p className="pt-16 text-center text-[16px] font-semibold">{err}</p> : !d ? <p className="pt-16 text-center" style={{ color: MUTED }}>Loading…</p> : <>
           <p className="text-center text-[13.5px]" style={{ color: MUTED }}>{d.brand.name}</p>
-          <div className="flex justify-center"><GiftCardFace design={c.design} brand={d.brand} amount={$(c.initialCents)} name={c.recipientName} code={c.code} expires={c.expiresAt} line={c.line || ''} width={Math.min(360, (typeof window !== 'undefined' ? window.innerWidth : 400) - 40)} /></div>
+          <div className="flex justify-center"><GiftCardFace design={c.design} brand={d.brand} amount={c.kind === 'service' ? '1 visit' : $(c.initialCents)} name={c.recipientName} code={c.code} expires={c.expiresAt} line={c.line || ''} width={Math.min(360, (typeof window !== 'undefined' ? window.innerWidth : 400) - 40)} /></div>
           {c.purchaserName && !c.message ? <p className="text-center text-[14px]" style={{ color: MUTED }}>From {String(c.purchaserName).split(' ')[0]}</p> : null}
           {c.message && <div className="rounded-[18px] border p-4 text-[15.5px] leading-relaxed" style={{ borderColor: LINE }}>“{c.message}”{c.purchaserName && <p className="mt-1.5 text-[13px]" style={{ color: MUTED }}>— {String(c.purchaserName).split(' ')[0]}</p>}</div>}
           <div className="text-center"><p className="text-[12.5px]" style={{ color: MUTED }}>Your code</p><p className="mt-1 font-mono text-[24px] tracking-[0.08em]">{c.code}</p>
-            <p className="mt-2 text-[14px]">{c.status === 'void' ? 'This card was cancelled.' : c.balanceCents > 0 ? <><b>{$(c.balanceCents)}</b> left to spend</> : 'This card has been used up.'}</p></div>
-          {c.status !== 'void' && c.balanceCents > 0 && !c.ownerRenterId && <SpendSuggestions tenantId={String(p?.tenantId || '')} balanceCents={c.balanceCents} accent={A} />}
+            <p className="mt-2 text-[14px]">{c.status === 'void' ? 'This card was cancelled.' : c.balanceCents > 0 ? (c.kind === 'service' ? <>Good for one <b>{c.serviceName}</b> — covered even if the price goes up</> : <><b>{$(c.balanceCents)}</b> left to spend</>) : 'This card has been used up.'}</p></div>
+          {c.status !== 'void' && c.balanceCents > 0 && !c.ownerRenterId && c.kind !== 'service' && <SpendSuggestions tenantId={String(p?.tenantId || '')} balanceCents={c.balanceCents} accent={A} />}
           {c.status !== 'void' && c.balanceCents > 0 && <a href={d.bookUrl} className="flex h-14 items-center justify-center rounded-[18px] text-[16px] font-bold text-white" style={{ background: A }}>Book with it</a>}
           <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Show this code when you pay. Keep this link — it always shows what’s left. <a href={`/gift/${encodeURIComponent(String(p?.tenantId || ''))}/find`} className="underline underline-offset-4">Have another card?</a>{d.brand.phone ? ` Questions? ${d.brand.phone}` : ''}</p>
         </>}

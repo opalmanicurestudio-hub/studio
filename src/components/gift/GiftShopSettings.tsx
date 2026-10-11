@@ -54,6 +54,7 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
           <section className="space-y-3">
             <p className="text-[15px] font-semibold">Amounts</p>
             <label className="block text-[13px]" style={{ color: MUTED }}>Quick picks (up to 6)<input value={amounts} onChange={(e) => setAmounts(e.target.value)} placeholder="25, 50, 100, 150" className={`${field} mt-1`} style={{ borderColor: LINE, color: INK }} /></label>
+            <Toggle on={s.serviceCards !== false} onChange={(v) => set('serviceCards', v)} label="Sell services as gifts" hint="“A gel manicure” instead of dollars — priced at today’s price, and still covered if the price goes up." />
             <Toggle on={s.custom} onChange={(v) => set('custom', v)} label="Let buyers type their own amount" />
             {s.custom && <div className="grid grid-cols-2 gap-2"><label className="text-[13px]" style={{ color: MUTED }}>Least<input value={s.min} onChange={(e) => set('min', e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" className={`${field} mt-1`} style={{ borderColor: LINE, color: INK }} /></label>
               <label className="text-[13px]" style={{ color: MUTED }}>Most<input value={s.max} onChange={(e) => set('max', e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" className={`${field} mt-1`} style={{ borderColor: LINE, color: INK }} /></label></div>}

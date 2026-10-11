@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
-import { findByCode, holdGiftCard, adjustGiftCard, issueGiftCard, deliverGiftCard, giftLinkKey, pub, available, codeTries, alertManagers, transferGiftCard } from '@/lib/gift-cards';
+import { findByCode, holdGiftCard, adjustGiftCard, issueGiftCard, deliverGiftCard, giftLinkKey, giftPath, pub, available, codeTries, alertManagers, transferGiftCard } from '@/lib/gift-cards';
 
 export const dynamic = 'force-dynamic';
 const j = (b: any, status = 200) => NextResponse.json(b, { status });
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   // A card a renter sold is theirs: their name on it, and "Book with it" opens their page.
   let prov: string | null = null; if (g.ownerRenterId) { const st = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', g.ownerRenterId).limit(3).get(); prov = st.docs.find((d: any) => (d.data() as any).isRenter)?.id || null; }
   return j({ ok: true, card: { ...pub(g), code: g.code }, brand: { name: g.ownerName || t.name || t.businessName || 'Gift card', accent: brandAccent(t), logo: g.ownerRenterId ? null : t.logoUrl || t.logo || null, phone: g.ownerRenterId ? null : t.phone || null },
-    bookUrl: `/book/${encodeURIComponent(tenantId)}${prov ? `?provider=${encodeURIComponent(prov)}` : ''}` }, 200);
+    bookUrl: `/book/${encodeURIComponent(tenantId)}${prov ? `?provider=${encodeURIComponent(prov)}` : ''}`, rules: (await import('@/lib/gift-designs')).shopSettings(t).rules, site: t.website || null }, 200);
 }
 
 export async function POST(req: NextRequest) {
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   if (action === 'hold') { const holdId = String(b.holdId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60); if (!holdId) return j({ ok: false, error: 'Missing the checkout.' }, 400);
     if (!b.id && b.code) { const tc = await tryCode(String(b.code)); if (tc.blocked) return j({ ok: false, error: 'Too many wrong codes — try again in 15 minutes.' }, 429); }
     const r: any = await holdGiftCard(db, tenantId, { id: b.id ? String(b.id) : undefined, code: b.code ? String(b.code) : undefined, holdId, cents: Math.round(Number(b.cents) || 0) }); return j(r, r.ok ? 200 : 409); }
-  if (action === 'list') { const s = await db.collection(`${T}/giftCards`).get(); const cards = s.docs.map((d: any) => { const x: any = { id: d.id, ...d.data() }; return { ...pub(x), source: x.source, importedFrom: x.importedFrom || null, sendVia: x.sendVia || null, sentAt: x.sentAt || null, sendAt: x.sendAt || null, sendStatus: x.sendStatus || null, recipientPhone: x.recipientPhone || null, recipientEmail: x.recipientEmail || null, history: (x.history || []).slice(-20) }; })
+  if (action === 'list') { const s = await db.collection(`${T}/giftCards`).get(); const cards = s.docs.map((d: any) => { const x: any = { id: d.id, ...d.data() }; return { ...pub(x), source: x.source, importedFrom: x.importedFrom || null, sendVia: x.sendVia || null, sentAt: x.sentAt || null, sendAt: x.sendAt || null, sendStatus: x.sendStatus || null, recipientPhone: x.recipientPhone || null, recipientEmail: x.recipientEmail || null, history: (x.history || []).slice(-20), path: giftPath(tenantId, d.id) }; })
       .sort((a: any, b2: any) => String(b2.createdAt).localeCompare(String(a.createdAt))); return j({ ok: true, cards }); }
   if (action === 'adjust') { const kind = ['add', 'set', 'void'].includes(b.kind) ? b.kind : null; if (!kind) return j({ ok: false, error: 'Choose what to change.' }, 400);
     if (kind !== 'void' && !String(b.note || '').trim()) return j({ ok: false, error: 'Say why the balance is changing.' }, 400);
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
       const next = { online: v.online === true, designs: Array.isArray(v.designs) ? v.designs.map(String).filter((x: string) => /^[a-z0-9-]{2,30}$/.test(x)).slice(0, 80) : null,
         amounts: Array.isArray(v.amounts) ? v.amounts.map(Number).filter((n: number) => n >= 1 && n <= 5000).slice(0, 6) : cur.amounts, custom: v.custom !== false,
         min: Math.max(1, Math.min(5000, Number(v.min) || cur.min)), max: Math.max(1, Math.min(5000, Number(v.max) || cur.max)), seasonalOnly: v.seasonalOnly !== false,
-        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, buyerThanks: v.buyerThanks !== false, balanceReminders: v.balanceReminders !== false, showcase: cleanShowcase(v.showcase), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, expiryYears: [0, 5, 6, 7, 10].includes(Number(v.expiryYears)) ? Number(v.expiryYears) : 0, paysFor: { services: v.paysFor?.services !== false, products: v.paysFor?.products !== false, tips: v.paysFor?.tips !== false }, cashBackUnderCents: [0, 500, 1000].includes(Number(v.cashBackUnderCents)) ? Number(v.cashBackUnderCents) : 0, refundDays: [0, 7, 14, 30].includes(Number(v.refundDays)) ? Number(v.refundDays) : 0, updatedAt: new Date().toISOString(), updatedBy: by };
+        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, buyerThanks: v.buyerThanks !== false, serviceCards: v.serviceCards !== false, balanceReminders: v.balanceReminders !== false, showcase: cleanShowcase(v.showcase), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, expiryYears: [0, 5, 6, 7, 10].includes(Number(v.expiryYears)) ? Number(v.expiryYears) : 0, paysFor: { services: v.paysFor?.services !== false, products: v.paysFor?.products !== false, tips: v.paysFor?.tips !== false }, cashBackUnderCents: [0, 500, 1000].includes(Number(v.cashBackUnderCents)) ? Number(v.cashBackUnderCents) : 0, refundDays: [0, 7, 14, 30].includes(Number(v.refundDays)) ? Number(v.refundDays) : 0, updatedAt: new Date().toISOString(), updatedBy: by };
       if (next.max < next.min) return j({ ok: false, error: 'The most someone can spend has to be more than the least.' }, 400);
       if (next.designs && !next.designs.length) return j({ ok: false, error: 'Keep at least one design on.' }, 400);
       await tref.set({ giftCardSettings: next }, { merge: true }); return j({ ok: true, settings: shopSettings({ giftCardSettings: next }), paymentsReady: !!t.stripeAccountId }); }

@@ -105,6 +105,7 @@ export default function CheckoutPage() {
   const [placing, setPlacing] = useState(false);
   const [tipPct, setTipPct] = useState<number>(0);
   const [applyCredit, setApplyCredit] = useState(false);
+  const [giftCode, setGiftCode] = useState(''); const [giftOpen, setGiftOpen] = useState(false);   // a gift card from this business
   const [creditMode, setCreditMode] = useState<'all' | 'limit'>('all');
   const [creditLimit, setCreditLimit] = useState('');
   const [acctEmail, setAcctEmail] = useState('');
@@ -358,6 +359,7 @@ export default function CheckoutPage() {
           pickupAt: !digitalOnlyCart && method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
           method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
+          giftCode: giftCode.trim() || undefined,
           storeCreditCapCents: applyCredit && creditMode === 'limit' && Number(creditLimit) > 0
             ? Math.round(Number(creditLimit) * 100)
             : undefined,
@@ -717,6 +719,13 @@ export default function CheckoutPage() {
               )}
             </div>
             )}
+            <div className={cn('rounded-2xl border-2 p-3 transition-all', giftCode.trim() && 'border-foreground/60 bg-muted/20')}>
+              {!giftOpen ? <button type="button" onClick={() => setGiftOpen(true)} className="text-[11px] font-black uppercase tracking-widest underline underline-offset-4">Have a gift card?</button> : <>
+                <label className="block text-[11px] font-black uppercase tracking-widest">Gift card code</label>
+                <input value={giftCode} onChange={(e) => setGiftCode(e.target.value.toUpperCase())} placeholder="XXXX-XXXX" aria-label="Gift card code" autoCapitalize="characters"
+                  className="mt-1.5 h-10 w-full rounded-xl border-2 bg-white px-3 font-mono text-sm font-bold tracking-widest outline-none focus:border-foreground/60" />
+                <p className="mt-1.5 text-[10px] font-bold text-muted-foreground">Its balance comes off on the payment page. Card payments need at least 50¢, so that much is paid by card.</p></>}
+            </div>
             {shop.tipsEnabled && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip</span>

@@ -40,6 +40,7 @@ export const giftPath = (tenantId: string, id: string) => `/gift/${encodeURIComp
 export async function issueGiftCard(db: any, tenantId: string, o: {
   amountCents: number; code?: string | null; balanceCents?: number; by: string; source: 'desk' | 'online' | 'import' | 'recovery' | 'renter';
   ownerRenterId?: string | null; ownerName?: string | null;   // a card a renter sold: paid to them, spent only with them
+  service?: { id: string; name: string } | null;               // a SERVICE gift card: covers that service even if its price goes up
   purchaser?: { id?: string | null; name?: string | null } | null; recipient?: { id?: string | null; name?: string | null; phone?: string | null; email?: string | null } | null;
   message?: string | null; design?: string | null; line?: string | null; purchaserEmail?: string | null; orderId?: string | null;
   sendVia?: 'text' | 'email' | 'print' | 'code' | null; sendAt?: string | null; transactionId?: string | null; importId?: string | null; importedFrom?: string | null; createdAt?: string | null; lastUsedAt?: string | null;
@@ -55,7 +56,7 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
   const doc: any = { id: ref.id, code, codeKey: codeKey(code), initialCents: initial, balanceCents: bal, status: bal > 0 ? 'active' : 'used', source: o.source,
     purchaserId: o.purchaser?.id || null, purchaserName: o.purchaser?.name || null, recipientId: o.recipient?.id || null, recipientName: o.recipient?.name || null,
     recipientPhone: o.recipient?.phone || null, recipientEmail: o.recipient?.email || null,
-    ownerRenterId: o.ownerRenterId || null, ownerName: o.ownerRenterId ? o.ownerName || null : null, design: o.design || null, line: o.line ? String(o.line).slice(0, 30) : null, purchaserEmail: o.purchaserEmail || null, orderId: o.orderId || null, message: o.message ? String(o.message).slice(0, 400) : null,
+    kind: o.service?.id ? 'service' : 'amount', serviceId: o.service?.id || null, serviceName: o.service?.name || null, ownerRenterId: o.ownerRenterId || null, ownerName: o.ownerRenterId ? o.ownerName || null : null, design: o.design || null, line: o.line ? String(o.line).slice(0, 30) : null, purchaserEmail: o.purchaserEmail || null, orderId: o.orderId || null, message: o.message ? String(o.message).slice(0, 400) : null,
     sendVia: o.sendVia || null, sendAt: o.sendAt || null, sentAt: null, transactionId: o.transactionId || null, importId: o.importId || null, importedFrom: o.importedFrom || null,
     expiresAt, createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
     history: [{ at, type: o.source === 'import' ? 'import' : 'issue', cents: bal, balanceAfter: bal, by: o.by, ...(o.transactionId ? { transactionId: o.transactionId } : {}) }] };
@@ -123,7 +124,7 @@ async function adjustTx(db: any, ref: any, o: any) {
 /** What a client or the desk may see of a card (never the holds' details or history). */
 export function pub(g: any) {
   if (!g) return null;
-  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
+  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, kind: g.kind || 'amount', serviceId: g.serviceId || null, serviceName: g.serviceName || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
 }
 
 /** Text or email the card to the person it's for (now, or on the day chosen — the cron sends those). */
