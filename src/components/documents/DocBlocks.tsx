@@ -4,7 +4,7 @@
 // previews. A checklist can be made tickable by passing renderChecklist (the staff app's runs).
 import * as React from 'react';
 import { checklistLines, needsPhoto } from '@/lib/doc-items';
-import { videoEmbed } from '@/lib/doc-blocks';
+import { videoEmbed, lines } from '@/lib/doc-blocks';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', AMBER = '#b45309', BLUE = '#3d5a99';
 export const Ico = ({ d, s = 18, c = 'currentColor', w = 1.8 }: { d: string; s?: number; c?: string; w?: number }) => <svg aria-hidden="true" width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: d }} />;
@@ -40,6 +40,10 @@ export function DocBlocks({ sections, renderChecklist, gap = 16 }: { sections: a
       if (t === 'step') { n += 1; return <div key={sec.id} className="flex items-start gap-3"><StepNum n={n} /><div className="min-w-0 flex-1 space-y-2">
         {sec.heading && <p className="text-[16px] font-semibold leading-snug">{sec.heading}</p>}{sec.body && <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed" style={{ color: '#3c3e42' }}>{sec.body}</p>}
         <Images urls={sec.images} />{sec.timerMin ? <span className="inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold" style={{ background: '#e3efed', color: '#2f6f6a' }}><Ico d={IC.clock} s={14} c="#2f6f6a" />Timer · {sec.timerMin} min</span> : null}</div></div>; }
+      if (t === 'normal' || t === 'callus') { const call = t === 'callus'; const fg = call ? '#7a1d14' : '#1f5a3a';
+        return <div key={sec.id} className="rounded-[16px] p-3.5" style={{ background: call ? '#fdecec' : '#e9f3ed', color: fg }}>
+          <p className="pb-1 text-[15px] font-bold">{sec.heading || (call ? 'Call us if' : 'What’s normal')}</p>
+          {lines(sec).map((it, i) => <div key={i} className="flex gap-2.5 py-1 text-[14.5px] leading-snug"><span className="w-3 shrink-0 font-bold">{call ? '!' : <Ico d={IC.check} s={14} c={fg} w={2.4} />}</span><span>{it}</span></div>)}</div>; }
       if (t === 'warning' || t === 'tip') return <Callout key={sec.id} kind={t} heading={sec.heading} body={sec.body} />;
       if (t === 'photo') return <figure key={sec.id} className="space-y-1.5">{sec.heading && <p className="text-[15px] font-semibold">{sec.heading}</p>}<Images urls={sec.images} big />{sec.body && <figcaption className="text-[13px]" style={{ color: MUTED }}>{sec.body}</figcaption>}</figure>;
       if (t === 'video') return <div key={sec.id} className="space-y-1.5">{sec.heading && <p className="text-[15px] font-semibold">{sec.heading}</p>}<Video url={sec.url} caption={sec.body} /></div>;

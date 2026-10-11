@@ -28,7 +28,7 @@ import { recordCronRun } from '@/lib/cron-heartbeat';
 import { linkOrigin } from '@/lib/app-origin';
 import { feedbackPath, aftercarePath } from '@/lib/visit-feedback';
 import { settingsOf, aftercareFor } from '@/lib/making-it-right';
-import { aftercareDocFor } from '@/lib/aftercare';
+import { aftercareDocFor, aftercareSettingsOf } from '@/lib/aftercare';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
@@ -454,9 +454,11 @@ export async function GET(req: NextRequest) {
             const td: any = tDoc.data() || {};
             // Aftercare: the aftercare document for the service (lib/aftercare, its own page), else the older text.
             if (careDocs === null) { try { careDocs = (await db.collection(`tenants/${tid}/documents`).where('category', '==', 'aftercare').get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })); } catch { careDocs = []; } }
-            const careDoc = aftercareDocFor(careDocs || [], first.a.serviceId, null);
+            // The business's aftercare choices (Settings → Aftercare): off sends none; at checkout means it already went.
+            const careS = aftercareSettingsOf(td); const careAlready = b.items.some((i) => !!i.a.aftercareSentAt);
+            const careDoc = careS.on && !careAlready ? aftercareDocFor(careDocs || [], first.a.serviceId, null) : null;
             const careUrl = base && careDoc ? `${base}${aftercarePath(tid, first.id)}` : '';
-            const mirS = settingsOf(td); const care = !careDoc && td.makingItRight ? aftercareFor(mirS, first.a.serviceId) : '';
+            const mirS = settingsOf(td); const care = careS.on && !careAlready && !careDoc && td.makingItRight ? aftercareFor(mirS, first.a.serviceId) : '';
             const surveyOn = !!td.makingItRight && td.makingItRight?.channels?.survey !== false;
             const howUrl = base && (surveyOn || care) ? `${base}${feedbackPath(tid, first.id)}` : '';
             const reviewLink = (surveyOn && howUrl) || cfg.reviewUrl || '';

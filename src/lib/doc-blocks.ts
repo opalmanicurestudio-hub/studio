@@ -7,11 +7,13 @@
 //   tip       a helpful extra
 //   photo     a picture with a caption (images[0], body = caption)
 //   video     a video link (YouTube, Vimeo, or a video file link) with a caption
+//   normal    (client aftercare) what's normal afterwards — one per line, shown green with ticks
+//   callus    (client aftercare) when to call us — one per line, shown red, with the Something's wrong button
 // Signing can ask a quick check first (doc.quiz: [{ id, q, options[], answer }]) and a drawn signature
 // (doc.requireSignature). Pure — the editor, readers and the print page share it.
 
-export type BlockType = 'text' | 'step' | 'checklist' | 'warning' | 'tip' | 'photo' | 'video';
-export const BLOCKS: Array<{ type: BlockType; label: string; hint: string }> = [
+export type BlockType = 'text' | 'step' | 'checklist' | 'warning' | 'tip' | 'photo' | 'video' | 'normal' | 'callus';
+export const BLOCKS: Array<{ type: BlockType; label: string; hint: string; client?: boolean }> = [
   { type: 'step', label: 'Step', hint: 'A numbered step, with photos or a timer' },
   { type: 'checklist', label: 'Checklist', hint: 'One item per line — ticked off each time' },
   { type: 'warning', label: 'Warning', hint: 'Something that must not go wrong' },
@@ -19,7 +21,13 @@ export const BLOCKS: Array<{ type: BlockType; label: string; hint: string }> = [
   { type: 'photo', label: 'Photo', hint: 'A picture with a caption' },
   { type: 'video', label: 'Video', hint: 'A YouTube, Vimeo or video link' },
   { type: 'text', label: 'Text', hint: 'A heading and a paragraph' },
+  { type: 'normal', label: 'What’s normal', hint: 'What clients can expect afterwards — one per line', client: true },
+  { type: 'callus', label: 'Call us if', hint: 'When clients should get in touch — one per line', client: true },
 ];
+/** The blocks a document of this kind offers (aftercare gets the client blocks; it has no checklists). */
+export const blocksFor = (category?: string) => BLOCKS.filter((b) => (category === 'aftercare' ? b.type !== 'checklist' : !b.client));
+/** One line per item, for the client blocks. */
+export const lines = (b: any) => String(b?.body || '').split('\n').map((x) => x.trim()).filter(Boolean);
 export const blockLabel = (t?: string) => BLOCKS.find((b) => b.type === t)?.label || 'Text';
 export const MAX_BLOCKS = 40;
 export const MAX_IMAGES = 4;

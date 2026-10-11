@@ -9,7 +9,7 @@ import * as React from 'react';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { uploadImage } from '@/lib/upload-image';
-import { BLOCKS, MAX_BLOCKS, MAX_IMAGES, cleanBlock, blockHasContent, blockLabel, cleanQuiz, type BlockType } from '@/lib/doc-blocks';
+import { BLOCKS, blocksFor, MAX_BLOCKS, MAX_IMAGES, cleanBlock, blockHasContent, blockLabel, cleanQuiz, type BlockType } from '@/lib/doc-blocks';
 import { withItemIds, checklistLines } from '@/lib/doc-items';
 import { collectionsOf, collectionFor } from '@/lib/doc-collections';
 import { rolesFor } from '@/lib/permissions';
@@ -24,9 +24,9 @@ const area = 'w-full rounded-[12px] border bg-white px-3 py-2.5 text-[14.5px] le
 const PH: Record<string, [string, string]> = {
   text: ['Heading', 'Write it the way you’d explain it to a new person.'], step: ['What to do', 'How to do it, in a sentence or two.'],
   checklist: ['Checklist name', 'One item per line\nLights off\nAutoclave ran'], warning: ['What must not happen', 'Why, and what to do instead.'],
-  tip: ['A helpful extra', 'The trick that makes it easier.'], photo: ['Title (optional)', 'Caption'], video: ['Title (optional)', 'What it shows'],
+  tip: ['A helpful extra', 'The trick that makes it easier.'], normal: ['What’s normal', 'One per line\nA little warmth for a few hours\nCuticles a bit dry the next day'], callus: ['Call us if', 'One per line\nRedness or swelling past tomorrow\nLifting before day 7'], photo: ['Title (optional)', 'Caption'], video: ['Title (optional)', 'What it shows'],
 };
-const ADD_ICON: Record<string, string> = { step: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>', checklist: IC.check, warning: IC.warn, tip: IC.tip, photo: IC.cam, video: IC.play, text: '<path d="M5 6h14M5 12h14M5 18h9"/>' };
+const ADD_ICON: Record<string, string> = { normal: IC.check, callus: IC.warn,  step: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>', checklist: IC.check, warning: IC.warn, tip: IC.tip, photo: IC.cam, video: IC.play, text: '<path d="M5 6h14M5 12h14M5 18h9"/>' };
 
 function Side({ title, children }: { title: string; children: React.ReactNode }) {
   return <div className="space-y-2 border-t py-3.5" style={{ borderColor: LINE }}><p className="text-[12.5px]" style={{ color: MUTED }}>{title}</p>{children}</div>;
@@ -55,6 +55,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
   const [requireSignature, setRequireSignature] = React.useState<boolean>(docItem.requireSignature === true);
   const [links, setLinks] = React.useState<any[]>(cleanLinks(docItem.links));
   const [careDefault, setCareDefault] = React.useState<boolean>(docItem.aftercareDefault === true);
+  const [checkIn, setCheckIn] = React.useState<string>(docItem.checkInDays === null || docItem.checkInDays === undefined ? '' : String(docItem.checkInDays));
   const isCare = category === 'aftercare';
   const [changeNote, setChangeNote] = React.useState<string>(String(liveItem.draft?.changeNote || ''));
   const [selected, setSelected] = React.useState<string>(''); const [preview, setPreview] = React.useState(false);
@@ -81,7 +82,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
     const base = { title: t, category, sections: withItemIds(clean, liveItem.sections || []), assignedRoles, assignedStaffIds, signBy: /^\d{4}-\d{2}-\d{2}$/.test(signBy) ? signBy : null, remindBefore,
       changeNote: changeNote.trim().slice(0, 400), collectionId, ownerId: ownerId || null, reviewEveryMonths: reviewEvery || null, quiz: q, requireSignature, links: cleanLinks(links) };
     // Aftercare is for clients: nobody on the team is assigned, signs or is quizzed; only service links count.
-    return { ...base, ...(isCare ? { assignedRoles: [], assignedStaffIds: [], signBy: null, quiz: [], requireSignature: false, collectionId: 'aftercare', aftercareDefault: careDefault, links: cleanLinks(links).filter((l) => l.kind === 'service').map((l: any) => ({ ...l, stepId: null, stepLabel: null })) } : { aftercareDefault: false }) };
+    return { ...base, ...(isCare ? { assignedRoles: [], assignedStaffIds: [], signBy: null, quiz: [], requireSignature: false, collectionId: 'aftercare', aftercareDefault: careDefault, checkInDays: checkIn === '' ? null : Number(checkIn), links: cleanLinks(links).filter((l) => l.kind === 'service').map((l: any) => ({ ...l, stepId: null, stepLabel: null })) } : { aftercareDefault: false }) };
   };
 
   const people = staff.filter((m: any) => !m.archived && m.role !== 'renter' && !m.isRenter);
@@ -105,7 +106,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
             {blocks.map((b, i) => { const on = selected === b.id; const ph = PH[b.type] || PH.text; const lines = checklistLines(b);
               return <div key={b.id} onClick={() => setSelected(b.id)} className="rounded-[16px] border bg-white p-3.5" style={{ borderColor: on ? INK : LINE, boxShadow: on ? '0 0 0 3px rgba(22,23,26,.07)' : undefined }}>
                 <div className="mb-2 flex items-center gap-1.5">
-                  <select value={b.type} onChange={(e) => patch(b.id, { type: e.target.value })} aria-label="Block type" className="h-8 rounded-full px-2.5 text-[12px] font-semibold tracking-[0.04em]" style={{ background: SOFT }}>{BLOCKS.map((x) => <option key={x.type} value={x.type}>{x.label.toUpperCase()}</option>)}</select>
+                  <select value={b.type} onChange={(e) => patch(b.id, { type: e.target.value })} aria-label="Block type" className="h-8 rounded-full px-2.5 text-[12px] font-semibold tracking-[0.04em]" style={{ background: SOFT }}>{(blocksFor(category).some((x) => x.type === b.type) ? blocksFor(category) : BLOCKS).map((x) => <option key={x.type} value={x.type}>{x.label.toUpperCase()}</option>)}</select>
                   <span className="flex-1" />
                   <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" className="h-9 w-9 rounded-full text-[15px] disabled:opacity-25" style={{ background: SOFT }}>↑</button>
                   <button type="button" onClick={() => move(i, 1)} disabled={i === blocks.length - 1} aria-label="Move down" className="h-9 w-9 rounded-full text-[15px] disabled:opacity-25" style={{ background: SOFT }}>↓</button>
@@ -124,7 +125,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
                     return <button key={li} type="button" aria-pressed={p} onClick={() => patch(b.id, { photoLines: p ? (b.photoLines || []).filter((x: number) => x !== li) : [...(b.photoLines || []), li] })} className="inline-flex h-8 max-w-full items-center gap-1 rounded-full px-3 text-[12.5px]" style={p ? { background: '#e6ecf7', color: BLUE, fontWeight: 600 } : { background: SOFT }}>{p && <Ico d={IC.cam} s={12} c={BLUE} />}<span className="truncate">{t}</span></button>; })}</div></div>}
                 </div>
               </div>; })}
-            <div className="flex flex-wrap gap-2 pt-1">{BLOCKS.map((x) => <button key={x.type} type="button" onClick={() => add(x.type)} title={x.hint} className="inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px]" style={{ background: SOFT }}><Ico d={ADD_ICON[x.type]} s={14} />{x.label}</button>)}</div>
+            <div className="flex flex-wrap gap-2 pt-1">{blocksFor(category).map((x) => <button key={x.type} type="button" onClick={() => add(x.type)} title={x.hint} className="inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px]" style={{ background: SOFT }}><Ico d={ADD_ICON[x.type]} s={14} />{x.label}</button>)}</div>
           </>}
         </div>
         <div className="border-t p-4 md:border-l md:border-t-0 md:p-5" style={{ borderColor: LINE, background: 'rgba(250,250,251,.7)' }}>
@@ -136,7 +137,9 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
             <select value={reviewEvery} onChange={(e) => setReviewEvery(Number(e.target.value))} aria-label="Review" className={input} style={{ borderColor: LINE }}>{[[0, 'No review date'], [3, 'Review every 3 months'], [6, 'Review every 6 months'], [12, 'Review every year']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Side>
           {isCare ? <Side title="Which services it’s for"><DocLinksEditor tenantId={tenantId} value={links} onChange={setLinks} kinds={['service']} steps={false} />
             <label className="flex items-center justify-between gap-2 text-[14px]"><span>Use it for every other service too</span><input type="checkbox" checked={careDefault} onChange={(e) => setCareDefault(e.target.checked)} className="h-5 w-5" style={{ accentColor: INK }} /></label>
-            <p className="text-[12px]" style={{ color: MUTED }}>Sent with the thank-you message the day after the visit, and shown on the visit’s page. A service’s own aftercare wins over this one.</p></Side> : <>
+            <p className="text-[12px]" style={{ color: MUTED }}>Sent after the visit (Settings → Aftercare says when) and shown on the visit’s page. A service’s own aftercare wins over the one for every service.</p>
+            <label className="flex items-center justify-between gap-2 text-[14px]"><span>Check in after</span><select value={checkIn} onChange={(e) => setCheckIn(e.target.value)} aria-label="Check in after" className="h-10 rounded-[10px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}>
+              <option value="">The business’s choice</option><option value="0">No check-in</option><option value="2">2 days</option><option value="3">3 days</option><option value="7">7 days</option></select></label></Side> : <>
           <Side title="Shows up during work"><DocLinksEditor tenantId={tenantId} value={links} onChange={setLinks} />
             {isLive && <p className="text-[12px]" style={{ color: MUTED }}>Changes here apply when you save the draft. Nobody has to sign again.</p>}</Side>
           <Side title="Who it’s for"><div className="flex flex-wrap gap-1.5"><Chip on={assignedRoles.includes('all')} onClick={() => toggleRole('all')}>Everyone</Chip>{roles.map(([id, r]) => <Chip key={id} on={assignedRoles.includes(id)} onClick={() => toggleRole(id)}>{r.name}</Chip>)}</div>

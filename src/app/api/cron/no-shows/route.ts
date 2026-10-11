@@ -33,6 +33,8 @@ export async function GET(req: NextRequest) {
     try { const { caseNudges } = await import('@/lib/case-nudges'); await caseNudges(db, t.id, tenant); } catch { /* next run */ }
     try { const { redoPaySweep } = await import('@/lib/redo-pay'); await redoPaySweep(db, t.id, tenant); } catch { /* next run */ }
     try { const { missedPickupSweep } = await import('@/lib/refund-payouts'); await missedPickupSweep(db, t.id, tenant); } catch { /* next run */ }
+    // Client aftercare right after checkout, and the check-in a few days later (lib/aftercare-send).
+    try { const { aftercareSweep } = await import('@/lib/aftercare-send'); await aftercareSweep(db, t.id, tenant, now); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {

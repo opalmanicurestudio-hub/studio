@@ -123,6 +123,7 @@ import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { PortalSignIn, isSharedDevice } from '@/components/staff-portal/PortalSignIn';
 import { NowPanel, currentVisit } from '@/components/staff-portal/NowPanel';
+import { AftercareNote } from '@/components/staff-portal/AftercareNote';
 import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-portal/PortalChrome';
 import { brandAccent, brandLogo } from '@/lib/brand-accent';
 import { can, isManagerRole } from '@/lib/permissions';
@@ -1161,6 +1162,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </button>
             )}
 
+            {['servicing','in_service','ready_for_checkout','completed','checked_out','paid'].includes(st) && <AftercareNote apt={apt} tenantId={tenantId} firestore={firestore} staffId={currentStaffId} staffName={(allStaff || []).find((m: any) => m.id === currentStaffId)?.name} />}
             {!['cancelled','no_show'].includes(st) && <SomethingHappened apt={apt} tenantId={tenantId} />}
             {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} />}
             {['cancelled','no_show'].includes(st) && (
