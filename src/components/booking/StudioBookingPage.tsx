@@ -57,7 +57,8 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
       <header className="sticky top-0 z-30 border-b border-stone-200/70 bg-[#faf8f5]/90 backdrop-blur" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 items-center gap-2.5">{tenant?.logoUrl && <img src={tenant.logoUrl} alt="" className="h-9 w-9 rounded-xl object-contain" />}<span className="truncate text-[17px] font-semibold">{name}</span></div>
-          <PrimaryButton onClick={bookTop} className="h-10 px-5 text-sm">Book</PrimaryButton>
+          <div className="flex shrink-0 items-center gap-2">{tenant?.giftCardSettings?.online && tenant?.id && <a href={`/gift/${tenant.id}`} className="inline-flex h-10 items-center rounded-full px-4 text-sm font-medium text-stone-700 hover:bg-stone-100">Gift cards</a>}
+          <PrimaryButton onClick={bookTop} className="h-10 px-5 text-sm">Book</PrimaryButton></div>
         </div>
       </header>
 

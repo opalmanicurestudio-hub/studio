@@ -1203,6 +1203,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             <span aria-hidden>🎁</span> Have an offer code?
           </button>
         )}
+        {tenant?.giftCardSettings?.online && (
+          <a href={`/gift/${tenantId}`} className="glass ml-2 inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium shadow-sm active:scale-[0.98]">Buy a gift card</a>
+        )}
       </div>
       {activeSections.map(section => (
         <SectionWrapper key={section.id} section={section} isPreview={false}

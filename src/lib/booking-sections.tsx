@@ -4538,7 +4538,11 @@ function WaitlistSection({ config, style, data, isPreview, sectionId, onFieldTap
 // whatever the owner points it at (open the booking sheet, jump to Contact, or
 // link out to wherever cards are actually sold). It does not pretend to take a
 // payment on its own.
-function GiftCardsSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
+// When the business sells gift cards online (Gift cards → Online shop), each card's button opens that page with its
+// amount already chosen — unless the owner pointed the button somewhere else themselves.
+function GiftCardsSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
+  const shopOn = !!data?.tenant?.giftCardSettings?.online && !!data?.tenantId && !config.ctaUrl && !config.ctaLink;
+  const shopHref = (amount: string) => { const n = Number(String(amount).replace(/[^0-9.]/g, '')); return `/gift/${encodeURIComponent(data.tenantId)}${n > 0 ? `?amount=${n}` : ''}`; };
   const cards = [1, 2, 3].map(n => ({
     amount: config[`card${n}Amount`] || ['$50', '$100', '$200'][n - 1],
     label: config[`card${n}Label`] || ['A little treat', 'The classic', 'The whole day'][n - 1],
@@ -4564,7 +4568,7 @@ function GiftCardsSection({ config, style, isPreview, sectionId, onFieldTap }: S
               <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: card.featured ? 'rgba(255,255,255,0.65)' : ac(style) }}>{card.label}</p>
               {card.note && <p className="text-xs" style={{ fontFamily: bf(style), color: card.featured ? 'rgba(255,255,255,0.7)' : '#94a3b8' }}>{card.note}</p>}
               <button
-                onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
+                onClick={shopOn && !isPreview ? () => { window.location.href = shopHref(card.amount); } : cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
                 className="block w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all"
                 style={{ background: card.featured ? 'white' : ac(style), color: card.featured ? ac(style) : 'white', borderRadius: br(style), fontFamily: bf(style) }}
               >

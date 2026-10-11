@@ -373,6 +373,11 @@ service cloud.firestore {
         || (inDirectory(tenantId) && dirEntry().data.get('role', '') == 'front_desk');
       allow write: if false;
     }
+    // GIFT CARDS BOUGHT ONLINE (lib/gift-shop): the buyer's order — managers can look; only the server writes.
+    match /tenants/{tenantId}/giftOrders/{orderId} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
     // IMPORTS from another app (/api/import): managers see the history; only the server writes.
     match /tenants/{tenantId}/imports/{importId} {
       allow read: if isManager(tenantId);
@@ -548,7 +553,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',

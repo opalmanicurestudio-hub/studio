@@ -7,6 +7,9 @@ import * as React from 'react';
 import { useTenant } from '@/context/TenantContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
+import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { GiftShopSettings } from '@/components/gift/GiftShopSettings';
+import { brandAccent } from '@/lib/brand-accent';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
 const card = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18 } as const;
@@ -19,7 +22,8 @@ export default function GiftCardsPage() {
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const [cards, setCards] = React.useState<any[] | null>(null); const [q, setQ] = React.useState(''); const [show, setShow] = React.useState<'left' | 'all'>('left');
   const [open, setOpen] = React.useState<any>(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false);
-  const [adj, setAdj] = React.useState(''); const [note, setNote] = React.useState('');
+  const [adj, setAdj] = React.useState(''); const [note, setNote] = React.useState(''); const [shop, setShop] = React.useState(false);
+  const brand = { name: selectedTenant?.name || 'Gift card', logo: selectedTenant?.logoUrl || null, accent: brandAccent(selectedTenant) };
   const load = React.useCallback(() => { if (tenantId && isManager) payPost('/api/gift-cards', { tenantId, action: 'list' }).then((r) => setCards(r.ok ? r.cards : [])); }, [tenantId, isManager]);
   React.useEffect(() => { load(); }, [load]);
   if (!isManager) return <div className="p-6"><AppHeader title="Gift cards" /><p className="mt-6" style={{ color: MUTED }}>Gift cards are for managers. Sell one at checkout.</p></div>;
@@ -36,7 +40,7 @@ export default function GiftCardsPage() {
       <AppHeader title="Gift cards" />
       <main className="mx-auto max-w-5xl space-y-4 p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>money</p><h1 className="text-[34px] font-normal tracking-[-0.03em]">Gift cards</h1></div>
-          <div className="flex gap-2"><a href="/import?kind=giftcards" className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px]" style={{ borderColor: LINE }}>Bring in from old app</a><a href="/pos" className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-medium text-white" style={{ background: INK }}>Sell a gift card</a></div></div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setShop(true)} className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: LINE }}>Online shop &amp; designs</button><a href="/import?kind=giftcards" className="inline-flex h-11 items-center rounded-full border bg-white px-5 text-[14px]" style={{ borderColor: LINE }}>Bring in from old app</a><a href="/pos" className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-medium text-white" style={{ background: INK }}>Sell a gift card</a></div></div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{[[$(owed), `owed on ${owedN} card${owedN === 1 ? '' : 's'}`], [$(soldMonth), 'sold this month'], [$(usedMonth), 'used this month'], [$(stale), 'unused over 2 years']].map(([n, l]) => <div key={l} className="p-4" style={card}><p className="text-[26px] font-normal tracking-[-0.03em]">{n}</p><p className="text-[13px]" style={{ color: MUTED }}>{l}</p></div>)}</div>
         <div className="flex flex-wrap items-center gap-2"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a code or a name" aria-label="Find a gift card" className="h-11 min-w-0 flex-1 rounded-full border bg-white px-4 text-[15px]" style={{ borderColor: LINE }} />
           {(['left', 'all'] as const).map((k) => <button key={k} type="button" onClick={() => setShow(k)} className="h-11 rounded-full px-4 text-[14px] font-medium" style={show === k ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` }}>{k === 'left' ? 'With money left' : 'All cards'}</button>)}</div>
@@ -55,6 +59,7 @@ export default function GiftCardsPage() {
       {cur && <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-label={`Gift card ${cur.code}`}><button type="button" aria-label="Close" className="absolute inset-0" style={{ background: 'rgba(22,23,26,.2)' }} onClick={() => setOpen(null)} />
         <div className="relative flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto bg-white p-6">
           <div className="flex items-start justify-between"><div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>gift card</p><p className="font-mono text-[22px]">{cur.code}</p></div><button type="button" onClick={() => setOpen(null)} className="text-[22px]" style={{ color: MUTED }} aria-label="Close">×</button></div>
+          <div className="flex justify-center"><GiftCardFace design={cur.design} brand={brand} amount={$(cur.initialCents).replace('.00', '')} name={cur.recipientName} code={cur.code} line={cur.line || ''} width={340} /></div>
           <div className="rounded-2xl p-4" style={{ background: SOFT }}><p className="text-[30px] font-normal tracking-[-0.03em]">{$(cur.balanceCents)} <span className="text-[15px]" style={{ color: MUTED }}>of {$(cur.initialCents)}</span></p><p className="text-[13.5px]" style={{ color: MUTED }}>{cur.recipientName ? `For ${cur.recipientName}` : 'Not linked to a client yet — it works by code'}{cur.purchaserName ? ` · from ${cur.purchaserName}` : ''}</p>{cur.message && <p className="mt-2 text-[14px]">“{cur.message}”</p>}</div>
           <div><p className="pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>HISTORY</p>{(cur.history || []).slice().reverse().map((h: any, i: number) => <div key={i} className="flex justify-between gap-2 py-2 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}><span>{HIST[h.type] || h.type}{h.note ? <span style={{ color: MUTED }}> — {h.note}</span> : null}<span className="block text-[12px]" style={{ color: MUTED }}>{day(h.at)} · {h.by}</span></span><span className="text-right font-semibold" style={{ color: h.cents < 0 ? INK : GREEN }}>{h.cents > 0 ? '+' : h.cents < 0 ? '−' : ''}{$(Math.abs(h.cents))}<span className="block text-[12px] font-normal" style={{ color: MUTED }}>{$(h.balanceAfter)} left</span></span></div>)}</div>
           {cur.status !== 'void' && <>
@@ -66,5 +71,6 @@ export default function GiftCardsPage() {
             <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Cancel gift card ${cur.code}? The ${$(cur.balanceCents)} left on it can’t be spent after this.`)) act({ action: 'adjust', id: cur.id, kind: 'void' }, 'Cancelled.'); }} className="text-[14px] font-semibold underline underline-offset-4" style={{ color: RED }}>Cancel this card</button></>}
           {msg && <p className="text-[14px] font-semibold">{msg}</p>}
         </div></div>}
+      {shop && <GiftShopSettings tenantId={tenantId} brand={brand} onClose={() => setShop(false)} />}
     </div>);
 }

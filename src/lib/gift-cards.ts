@@ -40,7 +40,8 @@ export const giftPath = (tenantId: string, id: string) => `/gift/${encodeURIComp
 export async function issueGiftCard(db: any, tenantId: string, o: {
   amountCents: number; code?: string | null; balanceCents?: number; by: string; source: 'desk' | 'online' | 'import' | 'recovery';
   purchaser?: { id?: string | null; name?: string | null } | null; recipient?: { id?: string | null; name?: string | null; phone?: string | null; email?: string | null } | null;
-  message?: string | null; sendVia?: 'text' | 'email' | 'print' | 'code' | null; sendAt?: string | null; transactionId?: string | null; importId?: string | null; importedFrom?: string | null; createdAt?: string | null; lastUsedAt?: string | null;
+  message?: string | null; design?: string | null; line?: string | null; purchaserEmail?: string | null; orderId?: string | null;
+  sendVia?: 'text' | 'email' | 'print' | 'code' | null; sendAt?: string | null; transactionId?: string | null; importId?: string | null; importedFrom?: string | null; createdAt?: string | null; lastUsedAt?: string | null;
 }) {
   const initial = Math.round(Number(o.amountCents) || 0); if (!(initial > 0) || initial > 500000) return { ok: false as const, error: 'Gift cards are from $1 to $5,000.' };
   let code = o.code ? String(o.code).trim().slice(0, 40) : newCode();
@@ -49,7 +50,8 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
   const ref = db.collection(`${T(tenantId)}/giftCards`).doc(); const at = now();
   const doc: any = { id: ref.id, code, codeKey: codeKey(code), initialCents: initial, balanceCents: bal, status: bal > 0 ? 'active' : 'used', source: o.source,
     purchaserId: o.purchaser?.id || null, purchaserName: o.purchaser?.name || null, recipientId: o.recipient?.id || null, recipientName: o.recipient?.name || null,
-    recipientPhone: o.recipient?.phone || null, recipientEmail: o.recipient?.email || null, message: o.message ? String(o.message).slice(0, 400) : null,
+    recipientPhone: o.recipient?.phone || null, recipientEmail: o.recipient?.email || null,
+    design: o.design || null, line: o.line ? String(o.line).slice(0, 30) : null, purchaserEmail: o.purchaserEmail || null, orderId: o.orderId || null, message: o.message ? String(o.message).slice(0, 400) : null,
     sendVia: o.sendVia || null, sendAt: o.sendAt || null, sentAt: null, transactionId: o.transactionId || null, importId: o.importId || null, importedFrom: o.importedFrom || null,
     createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
     history: [{ at, type: o.source === 'import' ? 'import' : 'issue', cents: bal, balanceAfter: bal, by: o.by, ...(o.transactionId ? { transactionId: o.transactionId } : {}) }] };
@@ -108,7 +110,7 @@ export async function adjustGiftCard(db: any, tenantId: string, o: { id: string;
 /** What a client or the desk may see of a card (never the holds' details or history). */
 export function pub(g: any) {
   if (!g) return null;
-  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
+  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
 }
 
 /** Text or email the card to the person it's for (now, or on the day chosen — the cron sends those). */
@@ -120,7 +122,17 @@ export async function deliverGiftCard(db: any, tenantId: string, tenant: any, g:
   const { sendNotification } = await import('@/lib/notify');
   let status = 'skipped';
   if (g.sendVia === 'text' && g.recipientPhone) status = (await sendNotification(db, { tenantId, channel: 'sms', to: String(g.recipientPhone), text, kind: 'gift_card', recipientType: 'client', recipientName: g.recipientName || null } as any).catch(() => ({ status: 'failed' })))?.status || 'failed';
-  else if (g.sendVia === 'email' && g.recipientEmail) status = (await sendNotification(db, { tenantId, channel: 'email', to: String(g.recipientEmail), subject: `${from ? `${from} sent you` : 'You’ve got'} a gift card for ${biz}`, text, html: `<p style="font-size:16px">${text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]).replace(link, `<a href="${link}">${link}</a>`)}</p>`, kind: 'gift_card', recipientType: 'client', recipientName: g.recipientName || null } as any).catch(() => ({ status: 'failed' })))?.status || 'failed';
+  else if (g.sendVia === 'email' && g.recipientEmail) {
+    const esc = (x: any) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
+    const { brandAccent } = await import('@/lib/brand-accent'); const A = brandAccent(tenant);
+    const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#16171a;max-width:520px;margin:0 auto;padding:24px">
+<p style="font-size:13px;color:#6d7075;margin:0 0 6px">${esc(biz)}</p><h1 style="font-weight:400;font-size:28px;letter-spacing:-.02em;margin:0 0 18px">${from ? `${esc(from)} sent you a gift` : 'You’ve got a gift'}</h1>
+<div style="border-radius:20px;background:${A};color:#fff;padding:24px 26px;margin:0 0 18px"><div style="font-size:12px;letter-spacing:.16em;opacity:.8">GIFT CARD${g.line ? ` · ${esc(g.line)}` : ''}</div><div style="font-size:44px;letter-spacing:-.03em;margin:12px 0 10px">${amount}</div><div style="font-family:Menlo,monospace;font-size:18px;letter-spacing:.14em">${esc(g.code)}</div><div style="font-size:13px;opacity:.85;margin-top:12px">FOR ${esc(String(g.recipientName || 'you').toUpperCase())} · EXPIRES NEVER</div></div>
+${g.message ? `<p style="font-size:17px;line-height:1.55;font-style:italic;margin:0 0 6px">“${esc(String(g.message))}”</p><p style="font-size:13px;color:#6d7075;margin:0 0 18px">— ${esc(from || '')}</p>` : ''}
+${link ? `<p style="margin:0 0 18px"><a href="${link}" style="display:inline-block;background:#16171a;color:#fff;text-decoration:none;border-radius:999px;padding:13px 24px;font-weight:600;font-size:15px">Open your gift card</a></p>` : ''}
+<p style="font-size:13px;color:#6d7075;line-height:1.5;margin:0">Show the code when you pay, or book online and use it at your visit. The link always shows what’s left.</p></div>`;
+    status = (await sendNotification(db, { tenantId, channel: 'email', to: String(g.recipientEmail), subject: `${from ? `${from} sent you` : 'You’ve got'} a gift card for ${biz}`, text, html, kind: 'gift_card', recipientType: 'client', recipientName: g.recipientName || null } as any).catch(() => ({ status: 'failed' })))?.status || 'failed';
+  }
   const sent = ['sent', 'queued', 'delivered'].includes(String(status));
   await db.doc(`${T(tenantId)}/giftCards/${g.id}`).set({ sentAt: sent ? now() : null, sendStatus: status, ...(g.sendAt ? { scheduledFor: g.sendAt, sendAt: null } : {}) }, { merge: true });
   return { sent, status };

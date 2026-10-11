@@ -110,6 +110,13 @@ export async function POST(req: NextRequest) {
           } catch (e: any) { console.error('[connect-webhook] fee link settle failed', e?.message); }
           break;
         }
+        // A gift card bought online → make the card, record it, send it (lib/gift-shop; safe to run twice).
+        if (sessionType === 'gift_card') {
+          try { const { completeGiftOrder } = await import('@/lib/gift-shop');
+            if (session.payment_status === 'paid' && session.metadata?.giftOrderId) await completeGiftOrder(getAdminDb(), tenant.id, String(session.metadata.giftOrderId), { sessionId: session.id, paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent as any)?.id || null, amountTotal: session.amount_total });
+          } catch (e: any) { console.error('[connect-webhook] gift card order failed', e?.message); }
+          break;
+        }
         if (sessionType === 'academy_course') {
           try { await enrollFromCheckout(tenant.id, session); } catch (e: any) { console.error('[connect-webhook] academy enrol failed', e?.message); }
           break;
