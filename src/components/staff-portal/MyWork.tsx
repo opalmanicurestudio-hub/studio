@@ -10,10 +10,10 @@ import type { WorkItem, MyWork as MyWorkData } from '@/lib/my-work';
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#9a5b00', RED = '#b42318';
 const when = (iso: string | null) => { if (!iso) return ''; const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso); if (isNaN(+d)) return ''; const days = Math.floor((Date.now() - +d) / 864e5); return days < 1 ? 'Today' : days < 7 ? d.toLocaleDateString('en-US', { weekday: 'short' }) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
 
-export function MyWork({ firestore, tenantId, staff, accent, onBack, onOpen, preview }: { firestore: any; tenantId: string; staff: { id: string; role?: string }; accent: string; onBack: () => void; onOpen: (where: 'today' | 'documents') => void; preview?: MyWorkData }) {
+export function MyWork({ firestore, tenantId, staff, accent, onBack, onOpen, preview }: { firestore: any; tenantId: string; staff: { id: string; role?: string }; accent: string; onBack: () => void; onOpen: (where: 'today' | 'documents', docId?: string) => void; preview?: MyWorkData }) {
   const loaded = useMyWork(preview ? null : firestore, tenantId, staff, bizKey()); const work = preview || loaded.work; const loading = !preview && loaded.loading;
   const C = 2 * Math.PI * 27; const pct = work?.pct ?? 0;
-  const go = (x: WorkItem) => onOpen(x.kind === 'sop' ? 'documents' : 'today');
+  const go = (x: WorkItem) => onOpen(x.kind === 'sop' ? 'documents' : 'today', x.kind === 'sop' ? x.ref.docId : undefined);
   return (
     <div className="space-y-3.5 text-[#16171a]">
       <button type="button" onClick={onBack} className="text-[14px]" style={{ color: MUTED }}>‹ Me</button>

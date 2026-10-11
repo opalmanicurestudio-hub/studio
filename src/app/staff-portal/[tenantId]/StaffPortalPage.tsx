@@ -7,7 +7,7 @@ import { SomethingHappened } from '@/components/staff-portal/SomethingHappened';
 import { MyCases } from '@/components/staff-portal/MyCases';
 import { RefundsDesk } from '@/components/refunds/RefundsDesk';
 import { MyWork } from '@/components/staff-portal/MyWork';
-import { itemKey, needsPhoto as lineNeedsPhoto, liveKeys } from '@/lib/doc-items';
+import { StaffDocs } from '@/components/staff-portal/StaffDocs';
 import { WeekSchedule, MonthPlanner } from '@/components/staff-portal/WeekSchedule';
 import { PortalTicket, PortalScan } from '@/components/staff-portal/PortalTicket';
 import { StudioCard } from '@/components/staff-portal/StudioCard';
@@ -141,268 +141,8 @@ import { isStaleCopy, reloadOnce, reportCrash } from '@/lib/client-crash';
 // Full 24h so the "now" line is always visible no matter the time
 const DOC_CATEGORY_LABEL: Record<string, string> = { sop: 'SOP', handbook: 'Handbook', policy: 'Policy', other: 'Other' };
 
-const PortalSectionRenderer = ({ sec, stepNumber }: { sec: any; stepNumber: number | null }) => {
-  const type = sec.type || 'text';
-  if (type === 'step') {
-    return (
-      <div className="rounded-2xl border-2 border-l-8 border-l-slate-900 p-3">
-        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Step {stepNumber}</p>
-        {sec.heading && <p className="mt-0.5 text-[13px] font-black tracking-tight text-slate-900">{sec.heading}</p>}
-        {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{sec.body}</p>}
-      </div>
-    );
-  }
-  if (type === 'checklist') {
-    const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
-    return (
-      <div className="rounded-2xl border-2 p-3">
-        {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
-        <div className="mt-1.5 space-y-1.5">
-          {items.map((item: string, i: number) => (
-            <div key={i} className="flex items-start gap-2">
-              <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-              <p className="text-[13px] font-bold leading-relaxed text-slate-700">{item}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  if (type === 'warning') {
-    return (
-      <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <div>
-            {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-amber-900">{sec.heading}</p>}
-            {sec.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-amber-900">{sec.body}</p>}
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (type === 'tip') {
-    return (
-      <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3">
-        <div className="flex items-start gap-2">
-          <Zap className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
-          <div>
-            {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-700">{sec.heading}</p>}
-            {sec.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-600">{sec.body}</p>}
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div>
-      {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
-      {sec.body && <p className="mt-1 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-700">{sec.body}</p>}
-    </div>
-  );
-};
-
-const PortalDocumentCard = ({ d, tenantId, staffMember }: { d: any; tenantId: string; staffMember: any }) => {
-  const { firestore } = useFirebase();
-  const [open, setOpen] = useState(false);
-  const acksQ = useMemoFirebase(
-    () => firestore && tenantId ? collection(firestore, `tenants/${tenantId}/documents/${d.id}/acks`) : null,
-    [firestore, tenantId, d.id]
-  );
-  const { data: acks } = useCollection<any>(acksQ);
-
-  const todayStr = bizKey();
-  const runId = `${staffMember.id}_${todayStr}`;
-  const hasChecklists = (d.sections || []).some((x: any) => x.type === 'checklist');
-  const runsQ = useMemoFirebase(
-    () => (firestore && tenantId && hasChecklists) ? query(collection(firestore, `tenants/${tenantId}/documents/${d.id}/runs`), where('date', '==', todayStr)) : null,
-    [firestore, tenantId, d.id, hasChecklists, todayStr]
-  );
-  const { data: todayRuns } = useCollection<any>(runsQ);
-  const myRun = ((todayRuns || []) as any[]).find(r => r.id === runId) || null;
-  const runItems: Record<string, boolean> = myRun?.items || {};
-  const runPhotos: Record<string, string> = myRun?.photos || {};
-  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
-  const [uploadErr, setUploadErr] = useState('');
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const totalItems = useMemo(() => (d.sections || []).reduce((acc: number, sec: any) => {
-    if (sec.type !== 'checklist') return acc;
-    return acc + String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean).length;
-  }, 0), [d.sections]);
-
-  // Ticks are saved by each line's id (lib/doc-items), so editing a live checklist can't move them; lines that were
-  // removed since don't count.
-  const lineKeys = useMemo(() => liveKeys(d.sections || []), [d.sections]);
-  const checkedCount = lineKeys.filter((k) => runItems[k]).length;
-
-  const writeRun = (nextItems: Record<string, boolean>, nextPhotos: Record<string, string>) => {
-    if (!firestore || !tenantId) return;
-    const nextChecked = lineKeys.filter((k) => nextItems[k]).length;
-    const full = totalItems > 0 && nextChecked >= totalItems;
-    setDoc(doc(firestore, `tenants/${tenantId}/documents/${d.id}/runs/${runId}`), {
-      id: runId,
-      staffId: staffMember.id,
-      staffName: staffMember.name || 'Team member',
-      date: todayStr,
-      docVersion: Number(d.version || 1),
-      items: nextItems,
-      photos: nextPhotos,
-      checkedCount: nextChecked,
-      totalItems,
-      startedAt: myRun?.startedAt || new Date().toISOString(),
-      completedAt: full ? (myRun?.completedAt || new Date().toISOString()) : null,
-    }, { merge: true }).catch(err => console.error('run write failed', err));
-  };
-
-  const toggleItem = (key: string, needsPhoto: boolean) => {
-    if (!firestore || !tenantId) return;
-    const isChecked = !!runItems[key];
-    if (!isChecked && needsPhoto && !runPhotos[key]) {
-      setPendingKey(key);
-      fileRef.current?.click();
-      return;
-    }
-    // Unticking a photo line takes its photo off too (a new tick asks for a new photo).
-    const nextPhotos = { ...runPhotos }; if (isChecked) delete nextPhotos[key];
-    writeRun({ ...runItems, [key]: !isChecked }, nextPhotos);
-  };
-
-  const handlePhotoPicked = async (file: File | null) => {
-    const key = pendingKey;
-    setPendingKey(null);
-    if (!file || !key || !tenantId) return;
-    setUploadingKey(key);
-    setUploadErr('');
-    try {
-      const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const blob = await compressEvidencePhoto(file);
-      const url = await uploadImageBlob(`tenants/${tenantId}/evidence/${d.id}/${todayStr}/${staffMember.id}_${safeKey}.jpg`, blob);
-      writeRun({ ...runItems, [key]: true }, { ...runPhotos, [key]: url });
-    } catch (err: any) {
-      console.error('evidence upload failed', err);
-      const code = String(err?.code || err?.message || 'unknown');
-      let uid = 'not signed in';
-      try {
-        const { getAuth } = await import('firebase/auth');
-        uid = getAuth().currentUser?.uid || 'not signed in';
-      } catch { /* keep default */ }
-      const friendly = code.includes('unauthorized') || code.includes('permission')
-        ? 'The photo was blocked by storage permissions.'
-        : 'The photo didn\u2019t upload.';
-      setUploadErr(`${friendly} Try again, or tell a manager if it keeps happening.`); void uid;
-    } finally {
-      setUploadingKey(null);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-  const myAck = ((acks || []) as any[]).find(a => a.id === staffMember.id) || null;
-  const version = Number(d.version || 1);
-  const ackCurrent = myAck && Number(myAck.version) === version;
-  const ackStale = myAck && Number(myAck.version) < version;
-
-  const handleAck = () => {
-    if (!firestore || !tenantId) return;
-    setDoc(doc(firestore, `tenants/${tenantId}/documents/${d.id}/acks/${staffMember.id}`), {
-      id: staffMember.id,
-      staffId: staffMember.id,
-      staffName: staffMember.name || 'Team member',
-      version,
-      acknowledgedAt: new Date().toISOString(),
-    }, { merge: true }).catch(err => console.error('ack failed', err));
-  };
-
-  return (
-    <div className={cn('rounded-2xl border-2 bg-white overflow-hidden', ackStale && 'border-amber-300')}>
-      <button type="button" onClick={() => setOpen(v => !v)} className="flex w-full items-start justify-between gap-3 p-4 text-left">
-        <div className="min-w-0">
-          <p className="truncate text-[14px] font-black tracking-tight text-slate-900">{d.title || 'Untitled'}</p>
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{DOC_CATEGORY_LABEL[d.category] || 'Doc'} · v{version}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {ackCurrent && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
-          {ackStale && <span className="rounded-lg border-2 border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-900">Updated</span>}
-          {!myAck && <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-700">To read</span>}
-          {!ackCurrent && /^\d{4}-\d{2}-\d{2}$/.test(String(d.signBy || '')) && <span className={cn('rounded-lg px-2 py-0.5 text-[10px] font-bold', String(d.signBy) < bizKey() ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800')}>Sign by {new Date(`${d.signBy}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}</span>}
-          <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
-        </div>
-      </button>
-      {open && (
-        <div className="space-y-3 border-t-2 border-dashed p-4">
-          {ackStale && (
-            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
-              <p className="text-[11px] font-bold text-amber-900">This changed since you last read it (you read v{myAck.version}, this is v{version}). Please read again and confirm below.</p>
-            </div>
-          )}
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden="true" tabIndex={-1} onChange={(e) => handlePhotoPicked(e.target.files?.[0] || null)} />
-          {uploadErr && (
-            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
-              <p className="text-[11px] font-bold text-amber-900">{uploadErr}</p>
-            </div>
-          )}
-          {hasChecklists && totalItems > 0 && (
-            <div className="rounded-xl border-2 bg-slate-50 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">Today&apos;s run · {format(bizNow(), 'EEE, MMM d')}</p>
-                <p className={cn('text-[11px] font-black', checkedCount >= totalItems ? 'text-emerald-700' : 'text-slate-700')}>{checkedCount}/{totalItems}{checkedCount >= totalItems ? ' ✓' : ''}</p>
-              </div>
-              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200">
-                <div className="h-full rounded-full bg-slate-900 transition-all" style={{ width: `${totalItems ? Math.round((checkedCount / totalItems) * 100) : 0}%` }} />
-              </div>
-              <p className="mt-1 text-[10px] font-bold text-muted-foreground">Tap the boxes below as you go — progress saves as you tap.</p>
-            </div>
-          )}
-          {(() => { let n = 0; return (d.sections || []).map((sec: any) => {
-            const stepNumber = (sec.type === 'step') ? ++n : null;
-            if (sec.type === 'checklist') {
-              const items = String(sec.body || '').split('\n').map((x: string) => x.trim()).filter(Boolean);
-              return (
-                <div key={sec.id} className="rounded-2xl border-2 p-3">
-                  {sec.heading && <p className="text-[12px] font-black uppercase tracking-widest text-slate-900">{sec.heading}</p>}
-                  <div className="mt-1.5 space-y-1.5">
-                    {items.map((item: string, i: number) => {
-                      const key = itemKey(sec, i);
-                      const on = !!runItems[key];
-                      const needsPhoto = lineNeedsPhoto(sec, i);
-                      const photoUrl = runPhotos[key];
-                      const uploading = uploadingKey === key;
-                      return (
-                        <button key={i} type="button" aria-pressed={on} disabled={uploading} onClick={() => toggleItem(key, needsPhoto)} className={cn('flex w-full items-start gap-2 rounded-xl border-2 p-2.5 text-left transition-all active:scale-[0.99]', on ? 'border-emerald-300 bg-emerald-50' : 'bg-white', uploading && 'opacity-70')}>
-                          {uploading ? <Loader className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-slate-500" /> : on ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
-                          <div className="min-w-0 flex-1">
-                            <p className={cn('text-[13px] font-bold leading-relaxed', on ? 'text-emerald-900' : 'text-slate-700')}>{item}</p>
-                            {needsPhoto && !photoUrl && !uploading && (
-                              <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-slate-400">📷 Photo required — tap to take it</p>
-                            )}
-                            {uploading && <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-slate-400">Uploading photo…</p>}
-                          </div>
-                          {photoUrl && <img src={photoUrl} alt="Evidence" className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            }
-            return <PortalSectionRenderer key={sec.id} sec={sec} stepNumber={stepNumber} />;
-          }); })()}
-          {ackCurrent ? (
-            <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-900">Read &amp; understood{myAck.acknowledgedAt ? ` · ${format(safeDate(myAck.acknowledgedAt), 'MMM d, yyyy')}` : ''}</p>
-            </div>
-          ) : (
-            <button type="button" onClick={handleAck} className="flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">
-              <CheckCircle2 className="h-4 w-4" /> I&apos;ve read and understood this
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const RotationRow = ({ r, tenantId, staffMember, onOpenDoc, todayStr }: { r: any; tenantId: string; staffMember: any; onOpenDoc: () => void; todayStr: string }) => {
+const RotationRow = ({ r, tenantId, staffMember, onOpenDoc: openDoc, todayStr }: { r: any; tenantId: string; staffMember: any; onOpenDoc: (docId?: string) => void; todayStr: string }) => {
+  const onOpenDoc = () => openDoc(r.linkedDocId || undefined);
   const { firestore } = useFirebase();
   const gateOnChecklist = !!r.linkedDocId && r.linkedHasChecklist === true;
   const linkedRunsQ = useMemoFirebase(
@@ -523,7 +263,7 @@ const RotationRow = ({ r, tenantId, staffMember, onOpenDoc, todayStr }: { r: any
   );
 };
 
-const RotationsToday = ({ tenantId, staffMember, onOpenDoc }: { tenantId: string; staffMember: any; onOpenDoc: () => void }) => {
+const RotationsToday = ({ tenantId, staffMember, onOpenDoc }: { tenantId: string; staffMember: any; onOpenDoc: (docId?: string) => void }) => {
   const { firestore } = useFirebase();
   const rotationsQ = useMemoFirebase(
     () => firestore && tenantId ? collection(firestore, `tenants/${tenantId}/rotations`) : null,
@@ -669,40 +409,6 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
           </div>
         );
       })}
-    </div>
-  );
-};
-
-const TeamDocumentsSection = ({ tenantId, staffMember }: { tenantId: string; staffMember: any }) => {
-  const { firestore } = useFirebase();
-  const docsQ = useMemoFirebase(
-    () => firestore && tenantId ? collection(firestore, `tenants/${tenantId}/documents`) : null,
-    [firestore, tenantId]
-  );
-  const { data: docs } = useCollection<any>(docsQ);
-
-  const mine = useMemo(() => {
-    return ((docs || []) as any[])
-      .filter(d => d.status === 'published' && (
-        (d.assignedRoles || []).includes('all') ||
-        (staffMember.role && (d.assignedRoles || []).includes(staffMember.role)) ||
-        (d.assignedStaffIds || []).includes(staffMember.id)
-      ))
-      .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
-  }, [docs, staffMember]);
-
-  return (
-    <div className="space-y-3">
-      <p className="px-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Handbook &amp; SOPs</p>
-      {mine.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed bg-white/60 py-12 text-center">
-          <FileText className="mx-auto h-8 w-8 text-slate-300" />
-          <p className="mt-3 text-[11px] font-black uppercase tracking-widest text-slate-900">Nothing assigned yet</p>
-          <p className="mt-1 px-6 text-[11px] font-bold text-muted-foreground">When your manager publishes a handbook or SOP for you, it shows up here to read and confirm.</p>
-        </div>
-      ) : (
-        mine.map((d: any) => <PortalDocumentCard key={d.id} d={d} tenantId={tenantId} staffMember={staffMember} />)
-      )}
     </div>
   );
 };
@@ -4572,6 +4278,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [viewingCases, setViewingCases] = useState(false);
   const [viewingRefunds, setViewingRefunds] = useState(false);
   const [viewingWork, setViewingWork] = useState(false);
+  const [openDocId, setOpenDocId] = useState<string | null>(null);
   const [viewingWalkIns, setViewingWalkIns] = useState(false);
   // Schedule's calendar: Day · Week · Month, remembered on this phone.
   const [calView, setCalView] = useState<'day' | 'week' | 'month'>('week');
@@ -5139,7 +4846,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 {!isRenter && <ForgotClockOut firestore={firestore} tenantId={tenantId} staffId={staffMember.id} tenant={portalTenant} shifts={allShiftsRaw || []} accent={accentColor} />}
 <PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} accent={accentColor} />
 {todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} accent={accentColor} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
-<RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={() => setActiveTab('documents')} />
+<RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={(id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} />
 <TasksForYou tenantId={tenantId} staffMember={staffMember} />
 <PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />
 {stuckApts.length > 0 && (
@@ -5375,7 +5082,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>
           )}
           {activeTab==='me' && viewingWork && !viewingRefunds && (
-            <MyWork firestore={firestore} tenantId={tenantId} staff={{ id: staffMember.id, role: staffMember.role }} accent={accentColor} onBack={() => setViewingWork(false)} onOpen={(w) => { setViewingWork(false); setActiveTab(w); }} />
+            <MyWork firestore={firestore} tenantId={tenantId} staff={{ id: staffMember.id, role: staffMember.role }} accent={accentColor} onBack={() => setViewingWork(false)} onOpen={(w, docId) => { setViewingWork(false); if (docId) setOpenDocId(docId); setActiveTab(w); }} />
           )}
           {activeTab==='me' && viewingRefunds && (
             <RefundsDesk firestore={firestore} tenantId={tenantId} tenant={portalTenant} phone onBack={() => setViewingRefunds(false)} />
@@ -5417,7 +5124,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           )}
 
           {activeTab==='documents' && (
-            <TeamDocumentsSection tenantId={tenantId} staffMember={staffMember} />
+            <StaffDocs firestore={firestore} tenantId={tenantId} tenant={portalTenant} staffMember={staffMember} accent={accentColor} openId={openDocId} onOpened={() => setOpenDocId(null)} />
           )}
           {activeTab==='documents' && (isRenter || isHybrid) && (
             <div className="space-y-4">

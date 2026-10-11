@@ -121,6 +121,10 @@ export default async function PrintDocumentPage({
           .box { flex: none; width: 15px; height: 15px; border: 2px solid #16171a; border-radius: 4px; margin-top: 1px; }
           .check p { font-size: 13px; line-height: 1.6; font-weight: 500; margin: 0; }
           .cam { font-size: 11px; }
+          .imgs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 8px; }
+          .imgs img { width: 100%; height: 1.6in; object-fit: cover; border-radius: 8px; }
+          .photo { width: 100%; max-height: 3.4in; object-fit: cover; border-radius: 10px; }
+          .cap { font-size: 11.5px; color: #475569; margin-top: 4px; }
           .warning { border: 2px solid #16171a; border-radius: 12px; padding: 12px 14px; background: #fafafa; }
           .tip { border-left: 4px dotted #94a3b8; padding-left: 16px; }
           .tip .body { font-style: italic; }
@@ -153,6 +157,26 @@ export default async function PrintDocumentPage({
                     <p className="kicker">Step {stepN}</p>
                     {sec.heading ? <p className="h">{sec.heading}</p> : null}
                     {sec.body ? <p className="body">{sec.body}</p> : null}
+                    {Array.isArray(sec.images) && sec.images.length ? <div className="imgs">{sec.images.map((u: string) => <img key={u} src={u} alt="" />)}</div> : null}
+                    {sec.timerMin ? <p className="body"><b>Timer: {sec.timerMin} minutes</b></p> : null}
+                  </div>
+                );
+              }
+              // Pictures print; a video prints as its link (the staff app plays it).
+              if (type === 'photo') {
+                return (
+                  <div key={sec.id || si} className="block">
+                    {sec.heading ? <p className="h">{sec.heading}</p> : null}
+                    {Array.isArray(sec.images) && sec.images[0] ? <img className="photo" src={sec.images[0]} alt="" /> : null}
+                    {sec.body ? <p className="body cap">{sec.body}</p> : null}
+                  </div>
+                );
+              }
+              if (type === 'video') {
+                return (
+                  <div key={sec.id || si} className="block">
+                    {sec.heading ? <p className="h">{sec.heading}</p> : null}
+                    <p className="body">Video: {sec.url || ''}{sec.body ? ` — ${sec.body}` : ''}</p>
                   </div>
                 );
               }
@@ -164,7 +188,7 @@ export default async function PrintDocumentPage({
                     {items.map((item: string, i: number) => (
                       <div key={i} className="check">
                         <span className="box" />
-                        <p>{item}{Array.isArray(sec.photoLines) && sec.photoLines.includes(i) ? <span className="cam"> 📷</span> : null}</p>
+                        <p>{item}{(Array.isArray(sec.photoIds) && Array.isArray(sec.itemIds) ? sec.photoIds.includes(sec.itemIds[i]) : Array.isArray(sec.photoLines) && sec.photoLines.includes(i)) ? <span className="cam"> (photo)</span> : null}</p>
                       </div>
                     ))}
                   </div>
