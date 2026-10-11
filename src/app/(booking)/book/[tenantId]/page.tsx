@@ -330,6 +330,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     try {
       const want = new URLSearchParams(window.location.search).get('service');
       const hit = want ? services.find((sv: any) => sv.id === want) : null;
+      // ?staff=… with it (a "book with Ana again" link): that person is chosen in the booking sheet.
+      const who = new URLSearchParams(window.location.search).get('staff'); if (hit && who && /^[A-Za-z0-9_-]{1,80}$/.test(who)) setStudioStaffId(who);
       if (hit) { openedServiceLink.current = true; setDialogService(hit); setDialogOpen(true); }
     } catch { /* no-op */ }
   }, [services]);
@@ -640,7 +642,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         {flowStudio && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
         <BookingSheet
           tenantId={tenantId}
-          initialStaffId={studioDesign ? studioStaffId : undefined}
+          initialStaffId={studioStaffId}
           rescheduleOf={reschedule ? { serviceName: reschedule.serviceName, startTime: reschedule.startTime } : null}
           simple={flowStudio}
           lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}

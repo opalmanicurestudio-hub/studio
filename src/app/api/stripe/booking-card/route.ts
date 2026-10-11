@@ -56,12 +56,16 @@ export async function POST(req: NextRequest) {
     }
 
     const stripe = getStripe();
+    // Saved UNDER a customer on the business's account, or the card can't be charged later (lib/card-save).
+    const clientDoc: any = (await db.doc(`tenants/${tenantId}/clients/${clientId}`).get()).data();
+    const { ensureStripeCustomer } = await import('@/lib/card-save');
+    const customer = clientDoc ? await ensureStripeCustomer(db, tenantId, stripeAccountId, clientId, { ...clientDoc, email: clientDoc.email || clientEmail || null }) : null;
     const session = await stripe.checkout.sessions.create(
       {
         ui_mode: 'embedded',
         mode: 'setup',
         payment_method_types: ['card'],
-        customer_email: clientEmail || undefined,
+        ...(customer ? { customer } : { customer_email: clientEmail || undefined }),
         /* The webhook's vaulting branch reads this to know whose card it is. */
         client_reference_id: clientId,
         metadata: {

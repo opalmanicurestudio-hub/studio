@@ -224,8 +224,8 @@ const SWITCH: { key: string; title: string; sub: string; href?: string; cta?: st
   { key: 'oldoff', title: 'Turn off online booking in your old app', sub: 'So nobody books there after today.' },
   { key: 'links', title: 'Change your booking links', sub: 'Instagram, Google, Facebook and your website — copy your new link.', cta: 'Copy link' },
   { key: 'reminders', title: 'Turn on reminders here', sub: 'Your old app stops sending them once you switch it off.', href: '/settings/automations', cta: 'Automations' },
-  { key: 'tell', title: 'Tell your clients', sub: 'One text with your new booking link — only to people who said yes to texts.', href: '/campaigns', cta: 'Write it' },
-  { key: 'cards', title: 'Cards on file and memberships', sub: 'Card details can’t be moved between apps. Members will need to add their card here before their next charge.', href: '/memberships', cta: 'Memberships' },
+  { key: 'tell', title: 'Tell your clients', sub: 'One text with your new booking link — only to people who said yes to texts.', href: '/import/tell', cta: 'Write it' },
+  { key: 'cards', title: 'Cards on file and memberships', sub: 'Card details can’t be moved between apps. Send members a link to add theirs before their next charge.', href: '/import/cards', cta: 'Cards on file' },
   { key: 'number', title: 'Your texting number', sub: 'Clients know your old number — bring it over, or introduce the new one in your text.' },
 ];
 

@@ -95,6 +95,9 @@ export async function POST(req: NextRequest) {
 
     const hasDeposit = Number(depositAmount) > 0;
 
+    let setupCustomer: string | null = null;
+    if (!hasDeposit && clientId) { try { const cd: any = (await db.doc(`tenants/${tenantId}/clients/${clientId}`).get()).data();
+      if (cd) setupCustomer = await (await import('@/lib/card-save')).ensureStripeCustomer(db, tenantId, stripeAccountId, clientId, { ...cd, email: cd.email || clientEmail || null }); } catch (e: any) { console.error('[completion] customer', e?.message); } }
     // ── Create session ON the connected account (second arg to stripe.*) ───
     const session = await stripe.checkout.sessions.create(
       hasDeposit
@@ -127,7 +130,8 @@ export async function POST(req: NextRequest) {
             ui_mode:              'embedded',
             mode:                 'setup',
             payment_method_types: ['card'],
-            customer_email:       clientEmail,
+            // Saved under a customer on the business's account, or the card can't be charged later (lib/card-save).
+            ...(setupCustomer ? { customer: setupCustomer } : { customer_email: clientEmail }),
             setup_intent_data:    { metadata: { ...metadata, type: 'completion_setup' } },
             metadata:             { ...metadata, type: 'completion_setup' },
             redirect_on_completion: 'never',

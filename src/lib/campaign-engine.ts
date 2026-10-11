@@ -128,7 +128,9 @@ async function sendOne(db: any, tenantId: string, campaignId: string, c: any, m:
   const { channel, offer, who } = ctx;
   const variant = variantOf(c, m.id);
   const sep0 = who.bookBase.includes('?') ? '&' : '?';
-  const link = `${who.bookBase}${sep0}c=${encodeURIComponent(campaignId)}${offer?.code ? `&code=${encodeURIComponent(offer.code)}` : ''}`;
+  // The switch-over text ("we've moved", Moving in → Tell your clients) links each person to their own welcome page (lib/welcome).
+  const link = c.welcomeLink === true && !c.ownerRenterId ? `${who.origin}${(await import('@/lib/welcome')).helloPath(tenantId, m.id)}`
+    : `${who.bookBase}${sep0}c=${encodeURIComponent(campaignId)}${offer?.code ? `&code=${encodeURIComponent(offer.code)}` : ''}`;
   const text = composeText(c, m, who.name, offer?.line || null, link);
   let ok = false; let err: string | null = null; let segments = 0;
   const kind = c.ownerRenterId ? 'renter_campaign' : c.automation ? 'campaign_automation' : 'campaign';
