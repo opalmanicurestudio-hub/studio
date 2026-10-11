@@ -86,7 +86,7 @@ service cloud.firestore {
       allow get, list: if true;
     }
     match /tenants/{tenantId}/staff/{staffId} {
-      // Team only (pay rates, phone, email live here). Each person can read their own record; public pages use the
+      // Team only (phone, email live here; pay rates are in staffPay). Each person can read their own record; public pages use the
       // server's public cards (/api/public/staff: name, photo, title) instead.
       allow get: if isTeam(tenantId) || isSelf(tenantId, staffId) || (isPortalMember(tenantId) && portalStaffId() == staffId);
       allow list: if isTeam(tenantId);
