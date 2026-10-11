@@ -25,7 +25,13 @@ export async function POST(req: NextRequest) {
     const send = async (to: string, subject: string, text: string) => { if (!process.env.RESEND_API_KEY) return false;
       const x = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: resolveFromAddress(), to, subject, text }) }).catch(() => null); return !!x?.ok; };
     r = await inviteToApp(db, getAdminAuth(), tenantId, staffId, String(b.email || target.email || ''), { send, studioName: tenant.name || tenant.businessName, by: who.actor.staffId });
-  } else if (b.action === 'sync') r = await syncAccess(db, tenantId, staffId);
+  } else if (b.action === 'sync') {
+    r = await syncAccess(db, tenantId, staffId);
+    // Archived: end every phone session they have — the PIN sign-in and their own app login — so they're signed out
+    // within the hour even on a phone left signed in (the server already refuses them).
+    const now: any = (await db.doc(`tenants/${tenantId}/staff/${staffId}`).get()).data() || {};
+    if (now.archived === true) { const auth = getAdminAuth(); for (const uid of [`portal:${tenantId}:${staffId}`, String(now.authUid || '')].filter(Boolean)) await auth.revokeRefreshTokens(uid).catch(() => {}); }
+  }
   else if (b.action === 'revoke') r = await revokeAccess(db, tenantId, staffId);
   else return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   if (r.ok && b.action !== 'sync') await logAuditAdmin(db, tenantId, { action: `staff.app_${b.action}`, targetType: 'staff', targetId: staffId, summary: `${who.actor.name} ${b.action === 'invite' ? 'invited' : 'turned off app access for'} ${target.name || 'a team member'}${b.action === 'invite' ? ' to the app' : ''}`, actor: { type: 'user', id: who.actor.staffId, name: who.actor.name } } as any).catch(() => {});

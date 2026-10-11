@@ -47,6 +47,14 @@
     {
       "path": "/api/cron/push",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/appointments/sweep-overdue",
+      "schedule": "20 * * * *"
+    },
+    {
+      "path": "/api/cron/voice-release",
+      "schedule": "40 * * * *"
     }
   ]
 }

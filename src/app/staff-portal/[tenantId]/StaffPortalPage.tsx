@@ -120,7 +120,7 @@ import { PortalSignIn, isSharedDevice } from '@/components/staff-portal/PortalSi
 import { NowPanel, currentVisit } from '@/components/staff-portal/NowPanel';
 import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-portal/PortalChrome';
 import { brandAccent, brandLogo } from '@/lib/brand-accent';
-import { can } from '@/lib/permissions';
+import { can, isManagerRole } from '@/lib/permissions';
 import { StepEdge } from '@/components/planner/StepTimeline';
 import { Star } from 'lucide-react';
 import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
@@ -4569,6 +4569,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     [firestore, tenantId],
   );
   const { data: portalTenant } = useDoc<any>(portalTenantQ);
+  // Manager-level by what the business's roles allow (a custom role with manager permissions counts), not by name.
+  const isMgr = isManagerRole(portalTenant, String(staffMember?.role || '').toLowerCase());
   const today = new Date();
 
   // ── Queries ──
@@ -4848,7 +4850,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     // showing a "View →" indicator implying it was tappable. Falls
     // through to real navigation for anything else.
     // Team members stay in their own portal (the same rule as phone notifications) — never an owner page.
-    if (n.link && !['owner', 'admin', 'manager'].includes(String(staffMember.role || '').toLowerCase())) {
+    if (n.link && !isMgr) {
       const l = String(n.link);
       const tab = /^\/(my-)?schedule\/requests/.test(l) ? 'requests' : /^\/(my-)?schedule/.test(l) ? 'schedule' : /^\/messages/.test(l) ? 'messages' : null;
       if (tab) setActiveTab(tab as any);
@@ -4925,7 +4927,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: anyOrder } = useCollection<any>(anyOrderQ);
   const fr = String((staffMember as any)?.fulfilmentRole || '').toLowerCase();
   const showOrders = !!fulfilmentPerms.canPick && fr !== 'none' && (anyOrder || []).length > 0
-    && (!!fr || ['owner', 'admin', 'manager'].includes(String(staffMember?.role)));
+    && (!!fr || isMgr);
   const ORDERS_TAB = { id: 'orders', label: 'Orders', icon: ShoppingCart };
 
   const TABS = isRenter
@@ -4977,7 +4979,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   useEffect(() => { if (portalTenant) rememberBrand(tenantId, { name: (portalTenant as any).name, accent: accentColor, logoUrl: brandLogo(portalTenant) }); }, [portalTenant, accentColor, tenantId]);
   const todaysMine = (allMyApts || []).filter((a: any) => isSameDay(safeDate(a.startTime), new Date()));
   const liveVisit = currentVisit(todaysMine);
-  const canFloor = can(portalTenant, staffMember.role, 'bookings.all') || ['owner', 'admin', 'manager'].includes(String(staffMember.role));
+  const canFloor = can(portalTenant, staffMember.role, 'bookings.all') || isMgr;
   const autoView: 'now' | 'day' = liveVisit ? 'now' : 'day';
   const todayView: 'now' | 'day' | 'floor' = todayPick && todayPick.visitId === (liveVisit?.id || null) && (todayPick.view !== 'floor' || canFloor) ? todayPick.view : autoView;
   const pickToday = (v: 'now' | 'day' | 'floor') => setTodayPick({ view: v, visitId: liveVisit?.id || null });
@@ -5093,7 +5095,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   mine={allMyApts || []} rentInvoice={isRenter || isHybrid ? myOpenInvoice : null} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
   onCases={() => { setActiveTab('me' as any); setViewingCases(true); }} onRent={() => setActiveTab('rent')} />}
 {!isRenter && <ForgotClockOut firestore={firestore} tenantId={tenantId} staffId={staffMember.id} tenant={portalTenant} shifts={allShiftsRaw || []} accent={accentColor} />}
-<PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} accent={accentColor} />
+<PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} accent={accentColor} />
 {todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} accent={accentColor} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={() => setActiveTab('documents')} />
 <TasksForYou tenantId={tenantId} staffMember={staffMember} />
@@ -5292,7 +5294,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <RenterRentTab tenantId={tenantId} firestore={firestore} staffMember={staffMember} renter={myRenter} />
           )}
 
-          {activeTab==='messages' && <div className="pt-1"><PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} accent={accentColor} /></div>}
+          {activeTab==='messages' && <div className="pt-1"><PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} accent={accentColor} /></div>}
           {activeTab==='messages' && (incomingSwaps||[]).length > 0 && (
             <div className="space-y-2 pt-1">
               <p className="px-1 text-[15px] font-bold">Needs your answer</p>
@@ -5325,10 +5327,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             </div>
           )}
           {activeTab==='me' && editingDetails && (
-            <div className="pt-1"><MyDetails firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={staffMember.name || 'A team member'} managerIds={(allStaff || []).filter((x: any) => ['owner', 'admin', 'manager'].includes(String(x.role)) && !x.archived).map((x: any) => x.id)} onDone={() => setEditingDetails(false)} /></div>
+            <div className="pt-1"><MyDetails firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={staffMember.name || 'A team member'} managerIds={(allStaff || []).filter((x: any) => isManagerRole(portalTenant, String(x.role || '')) && !x.archived).map((x: any) => x.id)} onDone={() => setEditingDetails(false)} /></div>
           )}
           {activeTab==='me' && editingAlerts && !editingDetails && (
-            <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={['owner', 'admin', 'manager'].includes(String(staffMember.role))} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>
+            <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>
           )}
           {activeTab==='me' && viewingCases && !editingDetails && !editingAlerts && (
             <MyCases firestore={firestore} tenantId={tenantId} staffId={staffMember.id} accent={accentColor} onBack={() => setViewingCases(false)} isRenter={isRenter} />
@@ -5573,6 +5575,16 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
     }).catch(() => { /* auth module unavailable; leave the session alone */ });
     return () => { cancelled = true; };
   }, [signedInStaff]);
+
+  // Archived while signed in on a phone: sign them out at once (the server already refuses them; this ends the session).
+  useEffect(() => {
+    if (!signedInStaff?.id || !firestore || !tenantId) return;
+    let stop: (() => void) | null = null; let gone = false;
+    import('firebase/firestore').then(({ doc, onSnapshot }) => { if (gone) return; stop = onSnapshot(doc(firestore, `tenants/${tenantId}/staff/${signedInStaff.id}`), (s) => {
+      if ((s.data() as any)?.archived === true) { clearActiveStaffId(); setSignedInStaff(null); setAuthNotice('Your sign-in has been turned off. Ask your manager if this is a mistake.');
+        import('firebase/auth').then(({ getAuth, signOut }) => signOut(getAuth()).catch(() => {})); } }, () => {}); }).catch(() => {});
+    return () => { gone = true; stop?.(); };
+  }, [signedInStaff?.id, firestore, tenantId]);
 
   // The opening screen holds for a moment on every open (Home Screen icon or link), so it's the first thing seen —
   // then sign-in, then (once per session) "your day unfolds".

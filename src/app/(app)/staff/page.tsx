@@ -1012,7 +1012,7 @@ export default function StaffPage() {
     void setDoc(ref, archiving
       ? { archived: true, archivedAt: new Date().toISOString(), active: false, onBreak: false, status: 'idle', showOnPublicPage: false }
       : { archived: false }, { merge: true })
-      .then(() => { if ((member as any).authUid) syncAppAccess(tenantId, member.id); })   // archiving turns their app login off
+      .then(() => { if ((member as any).authUid || archiving) syncAppAccess(tenantId, member.id); })   // archiving turns their app login off and ends their phone sessions
       .catch(() => uiToast({ variant: 'destructive', title: 'Not saved', description: 'Try again.' }));
     uiToast({
       title: archiving ? 'Archived' : 'Restored',
