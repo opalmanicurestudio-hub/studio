@@ -749,8 +749,8 @@ async function handleCheckout(req: NextRequest) {
   }
 
   // ── A gift card: set aside on the card now (for as long as the payment page lives), spent when the payment goes
-  // through (the paid webhook). One Stripe discount covers store credit + gift card together. Stripe needs at least
-  // 50¢ on the card, so a gift card can't cover the very last 50¢ online — said on the page.
+  // through (the paid webhook). One Stripe discount covers store credit + gift card together. When the card covers
+  // everything, the order is finished here with no card payment at all.
   if (body.giftCode && String(body.giftCode).trim()) {
     try {
       const { findByCode, holdGiftCard, codeTries } = await import('@/lib/gift-cards');
@@ -760,6 +760,46 @@ async function handleCheckout(req: NextRequest) {
       if (!g) { await codeTries(db, tenantId, `shop_${ip}`, true); return NextResponse.json({ error: 'That gift card code wasn’t found — check it, or remove it to pay by card.' }, { status: 400 }); }
       if (g.ownerRenterId) return NextResponse.json({ error: 'That gift card is for one provider’s services — it can’t be used in the shop.' }, { status: 400 });
       const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
+      // ── The gift card covers the WHOLE order: nothing for the card processor to collect, so skip it (its 50¢
+      // minimum would otherwise leave 50¢ to pay). Any store credit is left untouched for next time. Same atomic
+      // finish as the store-credit path above; flat/no-tax only, because with automatic tax the total isn't known yet.
+      const { available: giftAvail, spendGiftCard, notifyGiftUse } = await import('@/lib/gift-cards');
+      if (!stripeTax && chargeable > 0 && giftAvail(g) >= chargeable) {
+        const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: `retail_${orderId}`, cents: chargeable });
+        if (!h.ok) return NextResponse.json({ error: h.error || 'That gift card can’t be used right now.' }, { status: 400 });
+        if (h.cents >= chargeable) {
+          const paidOk = await db.runTransaction(async (txn: any) => {
+            const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
+            const [freshOrder, counterSnap] = await Promise.all([txn.get(orderRef), txn.get(counterRef)]);
+            if (!freshOrder.exists) return false;
+            const itemRefs = lines.map((l: any) => db.collection(`tenants/${tenantId}/inventory`).doc(l.productId));
+            const itemSnaps = await Promise.all(itemRefs.map((r: any) => txn.get(r)));
+            const assignedNumber = ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
+            txn.set(counterRef, { value: assignedNumber }, { merge: true });
+            itemSnaps.forEach((snap: any, i: number) => { if (!snap.exists || lines[i].digital === true) return;
+              txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + lines[i].qtyOrdered }); });
+            const now = new Date().toISOString();
+            txn.update(orderRef, { stage: digitalOnly ? 'completed' : 'paid', paidAt: now, ...(digitalOnly ? { completedAt: now } : {}), isDraft: false,
+              orderNumber: assignedNumber, qrToken: makeQrToken(orderId), paidVia: 'gift_card', storeCreditRequestedCents: 0,
+              giftCardId: g.id, giftCardCode: g.code, giftCardCents: chargeable });
+            const evRef = orderRef.collection('events').doc();
+            txn.set(evRef, { id: evRef.id, type: 'paid', at: now, actorId: 'system', actorName: 'Gift card',
+              meta: { text: `Paid in full with gift card ${g.code} \u2014 $${(chargeable / 100).toFixed(2)} redeemed, nothing charged` } });
+            return true;
+          });
+          if (paidOk) {
+            const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: chargeable, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: orderId });
+            await orderRef.set(r.ok ? { giftSpentAt: new Date().toISOString() } : { giftShortfallCents: chargeable }, { merge: true });
+            if (r.ok) void notifyGiftUse(db, tenantId, g.id, chargeable).catch(() => {});
+            else console.error('[checkout] gift card spend after a paid order failed — needs a look:', r.error);
+            const paidSnap = await orderRef.get(); const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
+            try { await sendOrderConfirmation(db, tenantId, orderId, paidOrder, null); } catch (e: any) { console.error('[checkout] gift-paid receipt failed (order is paid):', e?.message); }
+            const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+            return NextResponse.json({ url: `${origin}/shop/${tenantId}/order/${orderId}?paid=gift`, orderId, orderNumber: (paidOrder as any).orderNumber ?? null, isDraft: false, zeroCharge: true });
+          }
+        }
+        await holdGiftCard(db, tenantId, { id: g.id, holdId: `retail_${orderId}`, cents: 0 }).catch(() => {});   // fall back to the card path below
+      }
       const room = Math.max(0, chargeable - creditAppliedCents - 50);
       if (room > 0) { const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: `retail_${orderId}`, cents: room });
         if (!h.ok) return NextResponse.json({ error: h.error || 'That gift card can’t be used right now.' }, { status: 400 });

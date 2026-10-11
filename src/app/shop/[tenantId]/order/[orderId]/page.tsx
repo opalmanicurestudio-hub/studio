@@ -77,7 +77,8 @@ export default function OrderStatusPage() {
   // customer never returns to a shop still "holding" what they already bought.
   useEffect(() => {
     if (!tenantId) return;
-    if (new URLSearchParams(window.location.search).has('session_id')) {
+    const q = new URLSearchParams(window.location.search);
+    if (q.has('session_id') || q.has('paid')) {   // paid by card, or in full with store credit / a gift card
       clearCart(tenantId);
     }
   }, [tenantId]);

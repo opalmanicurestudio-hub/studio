@@ -724,7 +724,7 @@ export default function CheckoutPage() {
                 <label className="block text-[11px] font-black uppercase tracking-widest">Gift card code</label>
                 <input value={giftCode} onChange={(e) => setGiftCode(e.target.value.toUpperCase())} placeholder="XXXX-XXXX" aria-label="Gift card code" autoCapitalize="characters"
                   className="mt-1.5 h-10 w-full rounded-xl border-2 bg-white px-3 font-mono text-sm font-bold tracking-widest outline-none focus:border-foreground/60" />
-                <p className="mt-1.5 text-[10px] font-bold text-muted-foreground">Its balance comes off on the payment page. Card payments need at least 50¢, so that much is paid by card.</p></>}
+                <p className="mt-1.5 text-[10px] font-bold text-muted-foreground">Its balance comes off before you pay. If it covers everything, there’s nothing to pay by card.</p></>}
             </div>
             {shop.tipsEnabled && (
               <div className="flex items-center justify-between gap-2">
