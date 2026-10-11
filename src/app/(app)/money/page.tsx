@@ -792,7 +792,8 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
 
 // ─── TransactionDossierSheet (unchanged) ─────────────────────────────────────
 
-const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRevert }: { transaction: Transaction | null; staff: Staff[]; open: boolean; onOpenChange: (o: boolean) => void; onRevert: (t: Transaction) => void }) => {
+const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRevert, tenantId }: { transaction: Transaction | null; staff: Staff[]; open: boolean; onOpenChange: (o: boolean) => void; onRevert: (t: Transaction) => void; tenantId?: string }) => {
+  const { toast } = useToast();
   if (!transaction) return null;
   const staffMember = staff.find(s => s.id === transaction.staffId);
   return (
@@ -855,6 +856,11 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
             <Button variant="destructive" disabled={transaction.type === 'reversal'} onClick={() => onRevert(transaction)} className="w-full h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-destructive/20">
               <RefreshCw className="mr-2 h-4 w-4" /> {transaction.type === 'reversal' ? 'Already Reverted' : 'Revert Protocol Entry'}
             </Button>
+            {(transaction as any).appointmentId && transaction.type !== 'reversal' && <Button variant="outline" onClick={async () => {
+              const tk = await getAuth().currentUser?.getIdToken().catch(() => ''); const r = await fetch(`/api/disputes/pack?tenantId=${encodeURIComponent(String(tenantId || ''))}&appointmentId=${encodeURIComponent(String((transaction as any).appointmentId))}`, { headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
+              if (!r.ok) { const j = await r.json().catch(() => ({})); toast({ variant: 'destructive', title: 'Couldn’t build the pack', description: j.error }); return; }
+              const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = 'dispute-pack.pdf'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+            }} className="w-full h-12 rounded-xl text-[14px] font-medium border bg-white">Card dispute pack (PDF)</Button>}
             <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Close Archive</Button>
           </div>
         </SheetFooter>
@@ -1546,6 +1552,7 @@ const LedgerTab = () => {
       />
 
       <TransactionDossierSheet
+        tenantId={tenantId || undefined}
         open={!!selectedDossier}
         onOpenChange={o => { if (!o) setSelectedDossier(null); }}
         transaction={selectedDossier}

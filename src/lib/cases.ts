@@ -16,10 +16,10 @@ const MANAGERS = ['owner', 'admin', 'manager'];
 async function tell(db: any, tenantId: string, ids: string[], type: string, message: string, caseId: string) {
   const b = db.batch(); for (const u of [...new Set(ids.filter(Boolean))]) { const r = db.collection(`${T(tenantId)}/notifications`).doc(); b.set(r, { id: r.id, userId: u, type, message, link: `/cases?id=${caseId}`, caseId, createdAt: now(), read: false }); } await b.commit();
 }
-async function staffList(db: any, tenantId: string) { return (await db.collection(`${T(tenantId)}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((s: any) => s.archived !== true); }
+export async function staffList(db: any, tenantId: string) { return (await db.collection(`${T(tenantId)}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((s: any) => s.archived !== true); }
 
 /** The visit a case is about, summed up for the case (what was paid, the tip, products used). */
-async function visitOf(db: any, tenantId: string, appointmentId: string, staff: any[]) {
+export async function visitOf(db: any, tenantId: string, appointmentId: string, staff: any[]) {
   if (!appointmentId) return null;
   const s = await db.doc(`${T(tenantId)}/appointments/${appointmentId}`).get(); if (!s.exists) return null; const a: any = s.data() || {};
   const tx = (await db.collection(`${T(tenantId)}/transactions`).where('appointmentId', '==', appointmentId).get()).docs.map((d: any) => d.data() || {}).filter((t: any) => t.voided !== true);

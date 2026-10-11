@@ -139,6 +139,9 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
   const fixes = order.filter((k) => S.fixes[k]); const fixLabel = (k: FixKind) => (solo && k === 'redo' ? 'Fix it myself' : FIX_LABEL[k]);
   const clock = !c.firstReplyAt && c.replyDueAt && c.status !== 'closed' ? left(c.replyDueAt) : null;
   const dl = async (k: 'record' | 'incident') => { try { await download(tenantId, c.id, k, c.number); } catch (e: any) { setErr(e.message); } };
+  const dispute = async () => { try { const tk = await getAuth().currentUser?.getIdToken().catch(() => ''); const r = await fetch(`/api/disputes/pack?tenantId=${encodeURIComponent(tenantId)}&caseId=${encodeURIComponent(c.id)}`, { headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'That didn’t download — try again.'); }
+    const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = `dispute-${c.number}.pdf`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); } catch (e: any) { setErr(e.message); } };
   const fmt = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
   const Card = ({ title, children }: { title: string; children: React.ReactNode }) => <div className="space-y-2 rounded-[18px] border p-4" style={{ borderColor: LINE }}><p className="text-[12px] font-bold tracking-wide" style={{ color: MUTED }}>{title}</p>{children}</div>;
 
@@ -152,6 +155,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
             <p className="text-[16px]">{c.reasonLabel}</p></div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => dl('record')} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Case record (PDF)</button>
+            {c.visit?.appointmentId && <button type="button" onClick={dispute} title="Everything a card processor asks for if the client disputes the charge" className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Card dispute pack (PDF)</button>}
             {(c.safety || c.kind === 'incident') && <button type="button" onClick={() => dl('incident')} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: PINK, color: RED }}>Incident report (PDF)</button>}
           </div>
         </div>
