@@ -190,6 +190,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Keep the text on record (the client's Messages tab) and spot complaints for the desk — never blocks the reply.
+    if (fromNumber && messageBody && !keywordActionTaken) {
+      try {
+        const iRef = db.collection(`tenants/${tenantId}/smsInbox`).doc();
+        await iRef.set({ id: iRef.id, tenantId, at: new Date().toISOString(), from: fromNumber, fromName: fromNumber, senderType: 'unknown', body: messageBody.slice(0, 1600), mediaCount: 0, via: 'agent' });
+        const { flagClientText } = await import('@/lib/complaint-texts');
+        await flagClientText(db, tenantId, tenant, { from: fromNumber, body: messageBody, inboxId: iRef.id });
+      } catch (e) { console.error('[voice/inbound-sms-webhook] complaint check', e); }
+    }
+
     const dynamicVariables = await buildTenantVariables(db, tenantId, tenant);
 
     return NextResponse.json({

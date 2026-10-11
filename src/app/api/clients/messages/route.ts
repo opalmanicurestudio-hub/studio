@@ -9,6 +9,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { sendNotification } from '@/lib/notify';
 import { canMessageClients } from '@/lib/privacy';
+import { soundsLikeComplaint } from '@/lib/complaint-detect';
 export const dynamic = 'force-dynamic';
 const s = (v: any, n = 200) => String(v ?? '').trim().slice(0, n);
 const last10 = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
       return { id: d.id, dir: 'out', channel: m.channel, kind: m.kind || null, subject: m.subject || null, text: m.preview || null, at: m.sentAt || m.at || null, status: m.bouncedAt ? 'bounced' : m.deliveredAt ? 'delivered' : m.status || 'sent', to: m.recipientName || null, error: m.error || m.failureDetail || null }; });
     const digits = last10(client.phone); let inbound: any[] = [];
     if (digits.length === 10) inbound = (await db.collection(`${T}/smsInbox`).orderBy('at', 'desc').limit(300).get()).docs.map((d: any) => d.data() || {})
-      .filter((m: any) => last10(m.from) === digits).map((m: any) => ({ id: m.id, dir: 'in', channel: 'sms', text: m.body || (m.mediaCount ? `${m.mediaCount} photo(s)` : ''), at: m.at, status: 'received' }));
+      .filter((m: any) => last10(m.from) === digits).map((m: any) => { const h = m.complaint ? { match: true, safety: !!m.complaint.safety } : soundsLikeComplaint(m.body); return { id: m.id, dir: 'in', channel: 'sms', text: m.body || (m.mediaCount ? `${m.mediaCount} photo(s)` : ''), at: m.at, status: 'received', complaint: h.match ? { safety: h.safety } : null }; });
     const rows = [...out, ...inbound].filter((r) => r.at).sort((x, y) => String(x.at).localeCompare(String(y.at)));
     return NextResponse.json({ ok: true, rows, canText: !!client.phone && client.smsConsent !== false && client.smsOptOut !== true, canEmail: !!client.email });
   }

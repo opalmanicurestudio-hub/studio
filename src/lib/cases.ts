@@ -73,8 +73,8 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   const priorFixes = prior.filter((c: any) => c.fix && c.fix.kind !== 'note').map((c: any) => ({ at: c.fix.at || c.createdAt }));
   const photos: string[] = (Array.isArray(b.photos) ? b.photos : []).map(String).filter((u: string) => /^https:\/\//.test(u)).slice(0, 8);
   const checks = fairUseChecks({ settings: S, visit, reason, photos: photos.length, priorFixes, wants: b.wants, afterDiscount: prior.filter((c: any) => c.visit?.discounted).length + (visit?.discounted ? 1 : 0) });
-  const via = ['call', 'staff', 'desk', 'survey', 'link'].includes(b.via) ? b.via : 'desk';
-  const ownerId = renterCase ? renter.id : (via === 'call' || via === 'desk') && !reason?.safety ? actor.staffId : null;
+  const via = ['call', 'staff', 'desk', 'survey', 'link', 'text'].includes(b.via) ? b.via : 'desk';
+  const ownerId = renterCase ? renter.id : (via === 'call' || via === 'desk' || via === 'text') && !reason?.safety ? actor.staffId : null;
   const id = db.collection(`${T(tenantId)}/cases`).doc().id; const number = await nextNumber(db, tenantId);
   const doc: any = {
     id, number, clientId: clientId || null, clientName, visit, reasonId: reason?.id || 'other', reasonLabel: reason?.label || 'Something else', safety: !!reason?.safety,
@@ -82,7 +82,7 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
     reportedBy: { id: actor.staffId, name: actor.name }, providerAction: via === 'staff' ? String(b.providerAction || '').slice(0, 40) || null : null,
     ownerId, ownerName: ownerId ? (renterCase ? renter.name || 'Renter' : actor.name) : null, renterCase, renterStaffId: renter ? renter.id : null, renterId: renter?.renterId || null, status: ownerId ? 'owned' : 'heard', checks, needsManager: !renterCase && (!!reason?.safety || checks.some((c) => !c.ok)),
     replyDueAt: S.replyHours ? new Date(Date.now() + S.replyHours * 3600000).toISOString() : null, checkInDueAt: reason?.safety && S.safetyCheckInHours ? new Date(Date.now() + S.safetyCheckInHours * 3600000).toISOString() : null, fix: null, pending: null,
-    timeline: [line(actor.name, `Case opened (${({ call: 'phone call', staff: 'reported by the provider', desk: 'at the desk', survey: '“How was your visit?”', link: 'their visit link' } as any)[via]}): ${reason?.label || 'something else'}${b.words ? ` — “${String(b.words).slice(0, 200)}”` : ''}`),
+    timeline: [line(actor.name, `Case opened (${({ call: 'phone call', staff: 'reported by the provider', desk: 'at the desk', survey: '“How was your visit?”', link: 'their visit link', text: 'a text message' } as any)[via]}): ${reason?.label || 'something else'}${b.words ? ` — “${String(b.words).slice(0, 200)}”` : ''}`),
       ...(renterCase ? [line('System', `${renter.name || 'The renter'}'s client — the case is theirs`)] : ownerId ? [line(actor.name, `${actor.name} took ownership`)] : [])],
     incident: reason?.safety ? { started: now(), whatHappened: String(b.words || ''), present: [], statements: [], checkIn48At: null } : null,
     preferOther: b.preferOther === true, involvedStaffIds: visit?.providerId ? [visit.providerId] : [],
