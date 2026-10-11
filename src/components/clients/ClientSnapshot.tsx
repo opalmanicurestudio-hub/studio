@@ -37,6 +37,7 @@ export function ClientSnapshot({ client, appointments, services, activeMembershi
           : tile('Next visit', next ? `${format(safe(next.startTime), 'EEE d MMM, h:mm a')}` : 'None booked', undefined, next && onOpenVisit ? () => onOpenVisit(next) : undefined)}
         {tile('Forms', formsDue ? 'Due before the visit' : 'Nothing due', formsDue ? 'warn' : undefined)}
         {showMoney ? tile(owed > 0 ? 'Owes' : 'Credit', owed > 0 ? money(owed) : credit > 0 ? money(credit) : 'Nothing owed', owed > 0 ? 'warn' : undefined) : tile('Account', owed > 0 ? 'Has a balance' : 'Up to date', owed > 0 ? 'warn' : undefined)}
+        {Number(client.giftBalanceCents) > 0 && tile(Number(client.giftCardCount) > 1 ? `${client.giftCardCount} gift cards` : 'Gift card', `${money(Number(client.giftBalanceCents) / 100)} to spend`, 'ok')}
         {tile('Membership', activeMembership?.name || activeMembership?.planName || (client.activeMembershipId ? 'Active' : 'None'))}
         {openCases > 0 && tile('Open cases', `${openCases}`, 'warn')}
         {followUp && tile('Follow-up', 'Overdue', 'warn')}

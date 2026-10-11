@@ -1299,6 +1299,7 @@ export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposi
     depositRequiredButMissing && { level: 'danger', msg: `Deposit not received — collect below before starting` },
     cardActuallyMissing && { level: 'warn', msg: `No card on file — collect at check-in` },
     outstandingBalance > 0 && { level: 'warn', msg: `Outstanding $${outstandingBalance.toFixed(2)} — settle at checkout` },
+    safeNumber(client?.giftBalanceCents) > 0 && { level: 'info', msg: `Has $${(safeNumber(client.giftBalanceCents) / 100).toFixed(2)} on ${safeNumber(client.giftCardCount) > 1 ? `${client.giftCardCount} gift cards` : 'a gift card'} — offer it at checkout` },
     flags.needsConsultationBuffer && { level: 'info', msg: `No reference photos — allow 15 min design consultation` },
   ].filter(Boolean) as { level: string; msg: string }[];
 

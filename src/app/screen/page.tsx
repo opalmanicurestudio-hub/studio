@@ -168,6 +168,18 @@ export default function ClientScreenPage() {
   </>, { glow: true });
   if (deskGone && (!q || ['tip', 'approve', 'cash', 'change', 'sign'].includes(q.kind))) return idleScreen();
   // ── Membership terms (or other terms) to sign ──
+  // ── They have a gift card: use it today, or save it ──
+  if (q?.kind === 'giftuse' && !q.answeredAt) {
+    const cs: any[] = q.cards || []; const total = cs.reduce((t, c) => t + (Number(c.cents) || 0), 0); const m = (c: number) => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`;
+    return shell(<>
+      {q.clientFirst && <p className="text-center text-[21px]" style={{ color: '#57534e' }}>Hi {q.clientFirst}</p>}
+      <p className="text-center text-[36px] font-semibold">You have {cs.length > 1 ? `${cs.length} gift cards` : 'a gift card'}</p>
+      <div className="flex flex-wrap justify-center gap-4">{cs.map((c, i) => <GiftCardFace key={i} design={c.design} brand={{ name: s.brand?.name || '', logo: s.brand?.logo || null, accent: s.brand?.accent || null }} amount={m(c.cents)} name={q.clientFirst || ' '} code={c.last4 ? `••••-••${c.last4.slice(-2)}` : null} line={c.line || ''} width={cs.length > 1 ? 300 : 440} />)}</div>
+      <p className="text-center text-[20px]" style={{ color: '#57534e' }}>{cs[0]?.from ? `From ${cs[0].from} · ` : ''}{m(total)} to spend</p>
+      <div className="grid grid-cols-2 gap-3"><button type="button" disabled={busy} onClick={() => respond({ use: false })} className={big} style={ghost}>Save it for later</button>
+        <button type="button" disabled={busy} onClick={() => respond({ use: true })} className={big} style={solid}>{busy ? <Dots /> : 'Use it today'}</button></div>
+    </>, { glow: true });
+  }
   // ── A gift card they're buying: make it theirs ──
   if (q?.kind === 'gift' && !q.answeredAt) {
     const dz = designById(gDesign); const line = gLine === null ? dz.line || '' : gLine; const sends = q.via === 'text' || q.via === 'email';

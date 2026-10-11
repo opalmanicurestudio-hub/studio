@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
   if (action === 'forClient') { const cid = String(b.clientId || ''); if (!cid) return j({ ok: true, cards: [] });
     const [a, p] = await Promise.all([db.collection(`${T}/giftCards`).where('recipientId', '==', cid).get(), db.collection(`${T}/giftCards`).where('purchaserId', '==', cid).get()]);
     const m = new Map<string, any>(); for (const d of [...a.docs, ...p.docs]) { const x: any = { id: d.id, ...d.data() }; if (x.status === 'active' && available(x) > 0) m.set(d.id, { ...pub(x), mine: x.recipientId === cid }); }
+    void (await import('@/lib/gift-cards')).syncClientGift(db, tenantId, cid).catch(() => {});   // keeps the badge right for older cards
     return j({ ok: true, cards: [...m.values()].sort((x, y) => Number(y.mine) - Number(x.mine)) }); }
   if (action === 'hold') { const holdId = String(b.holdId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60); if (!holdId) return j({ ok: false, error: 'Missing the checkout.' }, 400);
     if (!b.id && b.code) { const tc = await tryCode(String(b.code)); if (tc.blocked) return j({ ok: false, error: 'Too many wrong codes — try again in 15 minutes.' }, 429); }

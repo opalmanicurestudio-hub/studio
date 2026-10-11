@@ -195,6 +195,7 @@ export async function POST(req: NextRequest) {
           text: q.text || null, signature: sig, signedAt: now(), via: 'client_screen', screenId, screenName: s.name || null, requestedBy: q.requestedBy || null });
         answer.consentId = cRef.id;
       }
+    } else if (q.kind === 'giftuse') { answer.use = b.use === true;
     } else if (q.kind === 'gift') {   // the buyer chose the design, the note and when it arrives (a gift card they're buying)
       const design = String(b.design || ''); if (!(q.designs || []).includes(design)) return NextResponse.json({ ok: false, error: 'Choose a design.' }, { status: 400 });
       let sendAt: string | null = null; if (b.sendAt) { const at = Date.parse(String(b.sendAt)); if (!Number.isFinite(at) || at < Date.now() + 5 * 60000 || at > Date.now() + 366 * 864e5) return NextResponse.json({ ok: false, error: 'Choose a time later today or within the next year.' }, { status: 400 }); sendAt = new Date(at).toISOString(); }
@@ -250,7 +251,7 @@ export async function POST(req: NextRequest) {
   }
   if (action === 'request') {
     const kind = String(b.kind || '');
-    if (!['tip', 'approve', 'thanks', 'idle', 'cash', 'change', 'pay', 'sign', 'gift'].includes(kind)) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
+    if (!['tip', 'approve', 'thanks', 'idle', 'cash', 'change', 'pay', 'sign', 'gift', 'giftuse'].includes(kind)) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
     if (kind === 'idle' && b.soft === true && s.request?.kind === 'thanks' && (['choose', 'pay'].includes(s.request.rebook?.stage) || Date.parse(s.request.holdUntil || '') > Date.now())) {
       await ref.update({ 'request.idleWhenDone': true, ticket: null });   // they're still busy — finish, then back to the logo
       return NextResponse.json({ ok: true, requestId: s.request.id, deferred: true });
@@ -262,6 +263,8 @@ export async function POST(req: NextRequest) {
       q.signature = settings.signCardOnFile && (!settings.signOver || q.amount >= settings.signOver);
       q.text = `I authorise ${brand.name || 'the business'} to charge $${q.amount.toFixed(2)} to ${q.cardLabel}.`; }
     if (kind === 'cash') { q.due = num(b.due); }
+    if (kind === 'giftuse') { q.clientFirst = String(b.clientFirst || '').slice(0, 40) || null;   // "You have a gift card" — use it today or save it
+      q.cards = (Array.isArray(b.cards) ? b.cards : []).slice(0, 3).map((c: any) => ({ design: /^[a-z0-9-]{2,30}$/.test(String(c?.design || '')) ? String(c.design) : null, line: c?.line ? String(c.line).slice(0, 30) : null, cents: Math.max(0, Math.round(num(c?.cents))), from: c?.from ? String(c.from).split(' ')[0].slice(0, 30) : null, last4: String(c?.last4 || '').replace(/[^A-Z0-9]/gi, '').slice(-4) })); }
     if (kind === 'gift') { q.amount = num(b.amount); q.to = String(b.to || '').slice(0, 60) || null; q.via = ['text', 'email', 'print', 'code'].includes(b.via) ? b.via : 'code';
       q.designs = (Array.isArray(b.designs) ? b.designs : []).map(String).filter((x: string) => /^[a-z0-9-]{2,30}$/.test(x)).slice(0, 40); q.design = q.designs.includes(String(b.design)) ? String(b.design) : q.designs[0] || 'frost';
       if (!q.designs.length) q.designs = ['frost']; }

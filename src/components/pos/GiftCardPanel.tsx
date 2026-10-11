@@ -26,13 +26,18 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
   const [code, setCode] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   React.useEffect(() => { if (!clientId) { setCards([]); return; } payPost('/api/gift-cards', { tenantId, action: 'forClient', clientId }).then((r) => { if (r.ok) { setCards(r.cards); if (r.cards.length && !applied.length) setTab('pay'); } }); }, [tenantId, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
   const usedCents = applied.reduce((s, g) => s + g.cents, 0); const leftCents = Math.max(0, Math.round(owedBeforeGift * 100) - usedCents);
-  const apply = async (c: { id?: string; code?: string }) => {
-    if (leftCents <= 0) { setErr('Nothing left to pay on this sale.'); return; }
-    setBusy(true); setErr(''); const r = await payPost('/api/gift-cards', { tenantId, action: 'hold', ...c, holdId, cents: leftCents }); setBusy(false);
-    if (!r.ok) { setErr(r.error || 'That gift card didn’t work.'); return; }
-    if (applied.some((x) => x.id === r.card.id)) return;
-    setApplied([...applied, { id: r.card.id, code: r.card.code, cents: r.cents, label: r.card.ownerName ? `${r.card.ownerName}’s card — pays only for their services` : r.card.recipientName ? `${r.card.purchaserName ? `From ${String(r.card.purchaserName).split(' ')[0]}` : r.card.recipientName}` : null }]); setCode('');
+  const apply = async (c: { id?: string; code?: string }, want?: number): Promise<number> => {
+    const ask = want ?? leftCents; if (ask <= 0) { setErr('Nothing left to pay on this sale.'); return 0; }
+    setBusy(true); setErr(''); const r = await payPost('/api/gift-cards', { tenantId, action: 'hold', ...c, holdId, cents: ask }); setBusy(false);
+    if (!r.ok) { setErr(r.error || 'That gift card didn’t work.'); return 0; }
+    if (applied.some((x) => x.id === r.card.id)) return 0;
+    (setApplied as any)((prev: any[]) => prev.some((x: any) => x.id === r.card.id) ? prev : [...prev, { id: r.card.id, code: r.card.code, cents: r.cents, label: r.card.ownerName ? `${r.card.ownerName}’s card — pays only for their services` : r.card.recipientName ? `${r.card.purchaserName ? `From ${String(r.card.purchaserName).split(' ')[0]}` : r.card.recipientName}` : null }]); setCode('');
+    return Number(r.cents) || 0;
   };
+  // Asked on the client screen: they chose to use it (→ apply) or save it for later.
+  const [askUse, setAskUse] = React.useState<string | null>(null);
+  React.useEffect(() => { const r = screen?.response; if (!askUse || !r || r.requestId !== askUse || r.kind !== 'giftuse') return; setAskUse(null);
+    if (r.use) { (async () => { let left = leftCents; for (const c of cards) { if (left <= 0) break; left -= await apply({ id: c.id }, left); } })(); } else setErr('They’d like to save their gift card for another time.'); }, [screen?.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
   const remove = async (id: string) => { setApplied(applied.filter((x) => x.id !== id)); await payPost('/api/gift-cards', { tenantId, action: 'hold', id, holdId, cents: 0 }).catch(() => {}); };
 
   // Sell
@@ -55,6 +60,18 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
     <section className="space-y-3 rounded-[20px] p-4" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #ececee)' }} aria-label="Gift cards">
       <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">Gift cards</p>
         <div className="flex gap-1.5">{(['pay', 'sell'] as const).map((k) => <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(tab === k ? '' : k)} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={tab === k ? { background: 'var(--ink, #16171a)', color: '#fff' } : { background: 'var(--soft, #f3f3f5)' }}>{k === 'pay' ? 'Pay with one' : 'Sell one'}</button>)}</div></div>
+      {/* The client has gift cards: say so up front, with one tap to use them (or ask them on the client screen). */}
+      {cards.length > 0 && !applied.length && leftCents > 0 && (() => { const total = cards.reduce((t, c) => t + (c.availableCents || 0), 0); const first = cards[0]; const nm = clientName ? String(clientName).split(' ')[0] : 'They';
+        const useAll = async () => { let left = leftCents; for (const c of cards) { if (left <= 0) break; left -= await apply({ id: c.id }, left); } };
+        return (
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl p-3" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent, #7c3aed) 9%, #fff), var(--card, #fff))', border: '1px solid color-mix(in srgb, var(--accent, #7c3aed) 18%, transparent)' }}>
+            <GiftCardFace design={first.design} brand={{ name: brandName || 'Gift card', logo: brandLogo || null, accent: brandAccent || null }} amount={money(first.availableCents / 100).replace('.00', '')} name={first.recipientName || clientName || ' '} line={first.line || ''} width={112} />
+            <div className="min-w-0 flex-1"><p className="text-[15px] font-semibold">{nm} {cards.some((c) => c.mine) ? 'has' : 'bought'} {money(total / 100).replace('.00', '')} on {cards.length > 1 ? `${cards.length} gift cards` : 'a gift card'}</p>
+              <p className="text-[12.5px]" style={muted}>{first.purchaserName && first.mine ? `From ${String(first.purchaserName).split(' ')[0]} · ` : ''}{first.code}</p></div>
+            <div className="flex shrink-0 gap-1.5">
+              {screen?.connected && <button type="button" disabled={busy || !!askUse} onClick={async () => { const id = await screen.ask('giftuse', { cards: cards.slice(0, 3).map((c) => ({ id: c.id, design: c.design || null, line: c.line || null, cents: c.availableCents, from: c.purchaserName || null, last4: String(c.code || '').slice(-4) })), clientFirst: nm }); if (id) setAskUse(id); }} className="h-10 rounded-full px-3.5 text-[13.5px] font-semibold" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #ececee)' }}>{askUse ? 'Asking…' : 'Ask them'}</button>}
+              <button type="button" disabled={busy} onClick={useAll} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--ink, #16171a)', color: '#fff' }}>Use it</button></div>
+          </div>); })()}
       {applied.map((g) => <div key={g.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'color-mix(in srgb, var(--ok, #1f7a4d) 9%, transparent)' }}>
         <span className="text-[14px]"><b>Gift card {g.code}</b>{g.label ? <span style={muted}> · {g.label}</span> : null} — <b>−{money(g.cents / 100)}</b></span>
         <button type="button" onClick={() => remove(g.id)} className="shrink-0 text-[13px] font-semibold underline underline-offset-4">Remove</button></div>)}

@@ -59,7 +59,8 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
     sendVia: o.sendVia || null, sendAt: o.sendAt || null, sentAt: null, transactionId: o.transactionId || null, importId: o.importId || null, importedFrom: o.importedFrom || null,
     expiresAt, createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
     history: [{ at, type: o.source === 'import' ? 'import' : 'issue', cents: bal, balanceAfter: bal, by: o.by, ...(o.transactionId ? { transactionId: o.transactionId } : {}) }] };
-  await ref.set(doc); return { ok: true as const, card: doc as GiftCard };
+  await ref.set(doc); if (doc.recipientId) void syncClientGift(db, tenantId, doc.recipientId).catch(() => {});
+  return { ok: true as const, card: doc as GiftCard };
 }
 
 /** Set an amount aside for a checkout that's open (30 minutes). Calling again for the same hold changes the amount. */
@@ -86,6 +87,9 @@ export async function releaseHold(db: any, tenantId: string, id: string, holdId:
 /** Spend from a card (at checkout, inside the sale). Uses the hold made for this checkout first. */
 export async function spendGiftCard(db: any, tenantId: string, o: { id: string; cents: number; holdId?: string | null; by: string; transactionRef?: string | null; appointmentId?: string | null; clientId?: string | null }) {
   const ref = db.doc(`${T(tenantId)}/giftCards/${o.id}`);
+  const out: any = await spendTx(db, ref, o); if (out?.ok) void ref.get().then((d: any) => syncClientGift(db, tenantId, d.data()?.recipientId)).catch(() => {}); return out;
+}
+async function spendTx(db: any, ref: any, o: any) {
   return db.runTransaction(async (tx: any) => {
     const cur: any = (await tx.get(ref)).data(); if (!cur) return { ok: false as const, error: 'That gift card wasn’t found.' };
     if (cur.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
@@ -102,6 +106,9 @@ export async function spendGiftCard(db: any, tenantId: string, o: { id: string; 
 /** Managers: put money back (a refunded visit), correct a balance, or cancel a card. */
 export async function adjustGiftCard(db: any, tenantId: string, o: { id: string; kind: 'add' | 'set' | 'void'; cents?: number; note?: string; by: string }) {
   const ref = db.doc(`${T(tenantId)}/giftCards/${o.id}`);
+  const out: any = await adjustTx(db, ref, o); if (out?.ok) void ref.get().then((d: any) => syncClientGift(db, tenantId, d.data()?.recipientId)).catch(() => {}); return out;
+}
+async function adjustTx(db: any, ref: any, o: any) {
   return db.runTransaction(async (tx: any) => {
     const cur: any = (await tx.get(ref)).data(); if (!cur) return { ok: false as const, error: 'That gift card wasn’t found.' };
     const before = Number(cur.balanceCents) || 0; let bal = before;
@@ -197,7 +204,10 @@ export async function codeTries(db: any, tenantId: string, who: string, missed: 
 
 /** Give a card to someone else (a manager): the new person's details, with the old ones kept in the history. */
 export async function transferGiftCard(db: any, tenantId: string, o: { id: string; name: string; phone?: string | null; email?: string | null; clientId?: string | null; note?: string | null; by: string }) {
-  const ref = db.doc(`${T(tenantId)}/giftCards/${o.id}`);
+  const ref = db.doc(`${T(tenantId)}/giftCards/${o.id}`); const before = (await ref.get()).data()?.recipientId || null;
+  const out: any = await transferTx(db, ref, o); if (out?.ok) { void syncClientGift(db, tenantId, before).catch(() => {}); void syncClientGift(db, tenantId, o.clientId).catch(() => {}); } return out;
+}
+async function transferTx(db: any, ref: any, o: any) {
   return db.runTransaction(async (tx: any) => {
     const cur: any = (await tx.get(ref)).data(); if (!cur) return { ok: false as const, error: 'That gift card wasn’t found.' };
     if (cur.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
@@ -206,4 +216,13 @@ export async function transferGiftCard(db: any, tenantId: string, o: { id: strin
       history: [...(cur.history || []).slice(-80), { at: now(), type: 'transfer', cents: 0, balanceAfter: cur.balanceCents, by: o.by, note: `From ${cur.recipientName || 'no one'} to ${name}${o.note ? ` — ${String(o.note).slice(0, 120)}` : ''}`, from: { name: cur.recipientName || null, id: cur.recipientId || null, phone: cur.recipientPhone || null, email: cur.recipientEmail || null } }] });
     return { ok: true as const };
   });
+}
+
+/** Keep the client's gift card total on their record (giftBalanceCents) — so the desk, the planner and their profile can
+ *  show "$75 on gift cards" without looking anything up. Studio cards only; called after any change to a card. */
+export async function syncClientGift(db: any, tenantId: string, clientId?: string | null) {
+  if (!clientId) return;
+  const s = await db.collection(`${T(tenantId)}/giftCards`).where('recipientId', '==', clientId).get();
+  const live = s.docs.map((d: any) => d.data()).filter((g: any) => g.status === 'active' && !g.ownerRenterId && g.balanceCents > 0 && !(g.expiresAt && Date.parse(g.expiresAt) < Date.now()));
+  await db.doc(`${T(tenantId)}/clients/${clientId}`).set({ giftBalanceCents: live.reduce((a: number, g: any) => a + g.balanceCents, 0), giftCardCount: live.length }, { merge: true }).catch(() => {});
 }

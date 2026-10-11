@@ -48,8 +48,7 @@ import {
   ShieldAlert,
   TrendingDown,
   TrendingUp,
-  Minus,
-} from 'lucide-react';
+  Minus, Gift } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -351,6 +350,7 @@ export function AppointmentCard({
     if (hasDeferredFee) push('fee', 'info', Scale, 'Fee');
     if (isMember) push('mem', 'info', Award, 'Member');
     if (hasPackage) push('pkg', 'info', Repeat, 'Package');
+    if (Number(c1.giftBalanceCents) > 0 && !['completed', 'cancelled', 'declined'].includes(String(appointment.status))) push('gift', 'info', Gift, `Gift card $${(Number(c1.giftBalanceCents) / 100).toFixed(0)}`);
     if (hasInspiration) push('ref', 'info', FileImage, 'Photo');
     if (appointment.isSecondary) push('part', 'info', Sparkles, 'Part');
     if (appointment.isWalkIn) push('walk', 'info', Users, 'Walk-in');
