@@ -38,7 +38,8 @@ export const giftPath = (tenantId: string, id: string) => `/gift/${encodeURIComp
 
 /** Make a card. Codes are unique per business; an imported one keeps its old code. */
 export async function issueGiftCard(db: any, tenantId: string, o: {
-  amountCents: number; code?: string | null; balanceCents?: number; by: string; source: 'desk' | 'online' | 'import' | 'recovery' | 'renter';
+  amountCents: number; code?: string | null; balanceCents?: number; by: string; source: 'desk' | 'online' | 'import' | 'recovery' | 'renter' | 'offer';
+  promo?: { offerId: string; offerName: string; usableFrom: string | null; expiresAt: string; forCardId?: string | null } | null;   // a BONUS card (lib/gift-offers): nobody paid for it
   ownerRenterId?: string | null; ownerName?: string | null;   // a card a renter sold: paid to them, spent only with them
   service?: { id: string; name: string } | null;               // a SERVICE gift card: covers that service even if its price goes up
   purchaser?: { id?: string | null; name?: string | null } | null; recipient?: { id?: string | null; name?: string | null; phone?: string | null; email?: string | null } | null;
@@ -52,13 +53,14 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
   const ref = db.collection(`${T(tenantId)}/giftCards`).doc(); const at = now();
   // The business's expiry rule (never, unless they chose 5+ years) — imported cards keep whatever they had.
   let expiresAt: string | null = null;
-  if (o.source !== 'import') { const yrs = Number(((await db.doc(T(tenantId)).get()).data() as any)?.giftCardSettings?.expiryYears) || 0; if (yrs >= 5) { const d = new Date(); d.setFullYear(d.getFullYear() + yrs); expiresAt = d.toISOString(); } }
+  if (o.promo) expiresAt = o.promo.expiresAt;
+  else if (o.source !== 'import') { const yrs = Number(((await db.doc(T(tenantId)).get()).data() as any)?.giftCardSettings?.expiryYears) || 0; if (yrs >= 5) { const d = new Date(); d.setFullYear(d.getFullYear() + yrs); expiresAt = d.toISOString(); } }
   const doc: any = { id: ref.id, code, codeKey: codeKey(code), initialCents: initial, balanceCents: bal, status: bal > 0 ? 'active' : 'used', source: o.source,
     purchaserId: o.purchaser?.id || null, purchaserName: o.purchaser?.name || null, recipientId: o.recipient?.id || null, recipientName: o.recipient?.name || null,
     recipientPhone: o.recipient?.phone || null, recipientEmail: o.recipient?.email || null,
     kind: o.service?.id ? 'service' : 'amount', serviceId: o.service?.id || null, serviceName: o.service?.name || null, ownerRenterId: o.ownerRenterId || null, ownerName: o.ownerRenterId ? o.ownerName || null : null, design: o.design || null, line: o.line ? String(o.line).slice(0, 30) : null, purchaserEmail: o.purchaserEmail || null, orderId: o.orderId || null, message: o.message ? String(o.message).slice(0, 400) : null,
     sendVia: o.sendVia || null, sendAt: o.sendAt || null, sentAt: null, transactionId: o.transactionId || null, importId: o.importId || null, importedFrom: o.importedFrom || null,
-    expiresAt, createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
+    expiresAt, ...(o.promo ? { promo: true, offerId: o.promo.offerId, offerName: o.promo.offerName, usableFrom: o.promo.usableFrom, forCardId: o.promo.forCardId || null } : {}), createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
     history: [{ at, type: o.source === 'import' ? 'import' : 'issue', cents: bal, balanceAfter: bal, by: o.by, ...(o.transactionId ? { transactionId: o.transactionId } : {}) }] };
   await ref.set(doc); if (doc.recipientId) void syncClientGift(db, tenantId, doc.recipientId).catch(() => {});
   return { ok: true as const, card: doc as GiftCard };
@@ -69,6 +71,7 @@ export async function holdGiftCard(db: any, tenantId: string, o: { code?: string
   const g = o.id ? await db.doc(`${T(tenantId)}/giftCards/${o.id}`).get().then((d: any) => (d.exists ? { id: d.id, ...d.data() } : null)) : await findByCode(db, tenantId, String(o.code || ''));
   if (!g) return { ok: false as const, error: 'That gift card code wasn’t found. Check it and try again.' };
   if (g.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
+  if ((g as any).promo && (g as any).usableFrom && Date.parse((g as any).usableFrom) > Date.now()) return { ok: false as const, error: `That bonus card can be used from ${new Date((g as any).usableFrom).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}.` };
   if (g.expiresAt && Date.parse(g.expiresAt) < Date.now()) return { ok: false as const, error: `That gift card expired on ${new Date(g.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.` };
   const ref = db.doc(`${T(tenantId)}/giftCards/${g.id}`);
   return db.runTransaction(async (tx: any) => {
@@ -124,7 +127,7 @@ async function adjustTx(db: any, ref: any, o: any) {
 /** What a client or the desk may see of a card (never the holds' details or history). */
 export function pub(g: any) {
   if (!g) return null;
-  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, kind: g.kind || 'amount', serviceId: g.serviceId || null, serviceName: g.serviceName || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
+  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, kind: g.kind || 'amount', serviceId: g.serviceId || null, serviceName: g.serviceName || null, promo: g.promo === true, offerName: g.offerName || null, usableFrom: g.usableFrom || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
 }
 
 /** Text or email the card to the person it's for (now, or on the day chosen — the cron sends those). */
@@ -132,6 +135,7 @@ export async function deliverGiftCard(db: any, tenantId: string, tenant: any, g:
   const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(tenant, '');
   const link = origin ? `${origin}${giftPath(tenantId, g.id)}` : ''; const biz = g.ownerName ? `${g.ownerName}${tenant?.name ? ` at ${tenant.name}` : ''}` : tenant?.name || 'us';
   const from = g.purchaserName ? String(g.purchaserName).split(' ')[0] : null; const amount = `$${(g.initialCents / 100).toFixed(g.initialCents % 100 ? 2 : 0)}`;
+  if (g.promo) return deliverBonus(db, tenantId, tenant, g, link, biz, amount);
   const text = `${from ? `${from} sent you` : 'You’ve got'} a ${amount} gift card for ${biz}!${g.message ? ` “${String(g.message).slice(0, 160)}”` : ''} Your code: ${g.code}.${link ? ` See it and book: ${link}` : ''}`;
   const { sendNotification } = await import('@/lib/notify');
   let status = 'skipped';
@@ -150,6 +154,43 @@ ${link ? `<p style="margin:0 0 18px"><a href="${link}" style="display:inline-blo
   const sent = ['sent', 'queued', 'delivered'].includes(String(status));
   await db.doc(`${T(tenantId)}/giftCards/${g.id}`).set({ sentAt: sent ? now() : null, sendStatus: status, ...(g.sendAt ? { scheduledFor: g.sendAt, sendAt: null } : {}) }, { merge: true });
   return { sent, status };
+}
+
+/** A BONUS card goes to the buyer: a thank-you, with the dates it can be used. */
+async function deliverBonus(db: any, tenantId: string, tenant: any, g: any, link: string, biz: string, amount: string) {
+  const { bonusWhen } = await import('@/lib/gift-offers'); const when = bonusWhen(g);
+  const text = `Thank you for buying a gift card from ${biz}! Here's ${amount} for you${g.offerName ? ` (${g.offerName})` : ''}. ${when ? `${when}. ` : ''}Code: ${g.code}.${link ? ` ${link}` : ''}`;
+  const { sendNotification } = await import('@/lib/notify'); let status = 'skipped';
+  if (g.sendVia === 'text' && g.recipientPhone) status = (await sendNotification(db, { tenantId, channel: 'sms', to: String(g.recipientPhone), text, kind: 'gift_card', recipientType: 'client', recipientName: g.recipientName || null } as any).catch(() => ({ status: 'failed' })))?.status || 'failed';
+  else if (g.sendVia === 'email' && g.recipientEmail) {
+    const esc = (x: any) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
+    const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#16171a;max-width:520px;margin:0 auto;padding:24px">
+<p style="font-size:13px;color:#6d7075;margin:0 0 6px">${esc(biz)}</p><h1 style="font-weight:400;font-size:28px;letter-spacing:-.02em;margin:0 0 10px">${esc(amount)} for you</h1>
+<p style="font-size:15px;line-height:1.55;margin:0 0 18px">Thank you for giving a gift card${g.offerName ? ` — this is your ${esc(g.offerName)}` : ''}.</p>
+<div style="border-radius:20px;background:#f3f3f5;padding:20px 22px;margin:0 0 18px"><div style="font-size:12px;letter-spacing:.16em;color:#6d7075">BONUS</div><div style="font-size:40px;letter-spacing:-.03em;margin:8px 0">${esc(amount)}</div><div style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.14em;font-size:16px">${esc(g.code)}</div>${when ? `<div style="font-size:13px;color:#6d7075;margin-top:10px">${esc(when)}.</div>` : ''}</div>
+${link ? `<p style="margin:0 0 18px"><a href="${link}" style="display:inline-block;background:#16171a;color:#fff;text-decoration:none;border-radius:999px;padding:13px 24px;font-weight:600;font-size:15px">See your bonus</a></p>` : ''}
+<p style="font-size:13px;color:#6d7075;line-height:1.5;margin:0">Use it at the studio on your next visit. It's a thank-you, so it can't be swapped for cash.</p></div>`;
+    status = (await sendNotification(db, { tenantId, channel: 'email', to: String(g.recipientEmail), subject: `${amount} for you — thank you from ${biz}`, text, html, kind: 'gift_card', recipientType: 'client', recipientName: g.recipientName || null } as any).catch(() => ({ status: 'failed' })))?.status || 'failed';
+  }
+  const sent = ['sent', 'queued', 'delivered'].includes(String(status));
+  await db.doc(`${T(tenantId)}/giftCards/${g.id}`).set({ sentAt: sent ? now() : null, sendStatus: status }, { merge: true });
+  return { sent, status };
+}
+
+/** The buyer's bonus while an offer is on (lib/gift-offers). Returns the bonus card, or null when no offer applies. */
+export async function giveBonus(db: any, tenantId: string, tenant: any, o: { channel: 'online' | 'desk'; forCard: any; buyer: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null }; by: string; send?: boolean }) {
+  if (!o.forCard || o.forCard.ownerRenterId || o.forCard.promo) return null;
+  const { liveOffer, bonusFor, bonusDates, todayIn } = await import('@/lib/gift-offers');
+  const today = todayIn(tenant?.timeZone || tenant?.timezone); const offer = liveOffer(tenant?.giftCardSettings, o.channel, today);
+  const bonus = bonusFor(offer, Number(o.forCard.initialCents) || 0); if (!offer || bonus <= 0) return null;
+  const d = bonusDates(offer, today); const email = o.buyer.email && /\S+@\S+\.\S+/.test(o.buyer.email) ? o.buyer.email : null; const phone = o.buyer.phone && String(o.buyer.phone).replace(/\D/g, '').length >= 10 ? o.buyer.phone : null;
+  const r: any = await issueGiftCard(db, tenantId, { amountCents: bonus, by: o.by, source: 'offer', promo: { offerId: offer.id, offerName: offer.name, usableFrom: d.usableFrom, expiresAt: d.expiresAt, forCardId: o.forCard.id },
+    recipient: { id: o.buyer.id || null, name: o.buyer.name || null, email, phone }, purchaser: { id: null, name: null }, design: o.forCard.design || null, line: 'BONUS',
+    sendVia: email ? 'email' : phone ? 'text' : 'code', transactionId: o.forCard.transactionId || null, orderId: o.forCard.orderId || null });
+  if (!r.ok) return null;
+  if (o.send !== false && (email || phone)) await deliverGiftCard(db, tenantId, tenant, r.card).catch(() => null);
+  await db.doc(`${T(tenantId)}/giftCards/${o.forCard.id}`).set({ bonusCardId: r.card.id, bonusCents: bonus }, { merge: true }).catch(() => {});
+  return r.card;
 }
 
 /** Cards set to send on a later day (a birthday): the nightly run sends the ones due. */
@@ -225,7 +266,7 @@ export async function syncClientGift(db: any, tenantId: string, clientId?: strin
   if (!clientId) return;
   const s = await db.collection(`${T(tenantId)}/giftCards`).where('recipientId', '==', clientId).get();
   const live = s.docs.map((d: any) => d.data()).filter((g: any) => g.status === 'active' && !g.ownerRenterId && g.balanceCents > 0 && !(g.expiresAt && Date.parse(g.expiresAt) < Date.now()));
-  await db.doc(`${T(tenantId)}/clients/${clientId}`).set({ giftBalanceCents: live.reduce((a: number, g: any) => a + g.balanceCents, 0), giftAmountCents: live.filter((g: any) => g.kind !== 'service').reduce((a: number, g: any) => a + g.balanceCents, 0), giftCardCount: live.length }, { merge: true }).catch(() => {});
+  await db.doc(`${T(tenantId)}/clients/${clientId}`).set({ giftBalanceCents: live.reduce((a: number, g: any) => a + g.balanceCents, 0), giftAmountCents: live.filter((g: any) => g.kind !== 'service' && !g.promo).reduce((a: number, g: any) => a + g.balanceCents, 0), giftCardCount: live.length }, { merge: true }).catch(() => {});
 }
 
 /** A gentle note about money left on a card (Gift cards → "Remind people about money left"): only for cards with money

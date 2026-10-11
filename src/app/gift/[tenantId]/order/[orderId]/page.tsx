@@ -43,6 +43,7 @@ export default function GiftOrderPage() {
               : o.sendAt ? <p className="text-[15px] leading-relaxed">Arrives <b>{fmt(o.sendAt)}</b> by {o.via === 'text' ? 'text' : 'email'}.</p>
               : <p className="text-[15px]">Sending now…</p>}
             {o.used ? <p className="text-[14px]" style={{ color: MUTED }}>{String(o.recipientName).split(' ')[0]} has started using it{o.balanceCents > 0 ? ` — ${money(o.balanceCents)} left.` : '.'}</p> : null}
+            {o.bonusCents > 0 && <p className="rounded-xl px-3.5 py-2.5 text-[14px]" style={{ background: '#e9f3ed', color: GREEN }}><b>Your {money(o.bonusCents)} bonus</b> is on its way to your email.{o.bonusPath ? <> <a href={o.bonusPath} className="font-semibold underline underline-offset-4">See it</a></> : null}</p>}
             {o.via !== 'me' && <p className="text-[13.5px]" style={{ color: MUTED }}>To: {o.via === 'text' ? o.recipientPhone : o.recipientEmail}</p>}
             {o.message ? <p className="text-[14.5px] italic leading-relaxed" style={{ color: MUTED }}>“{o.message}”</p> : null}
           </div>

@@ -53,8 +53,8 @@ export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, on
       </section>
       {(sale.giftCards || []).map((g: any) => (
         <section key={g.id} className="flex items-center justify-between gap-3 rounded-3xl p-4" style={box}>
-          <span className="min-w-0"><span className="block text-[15px] font-semibold">Gift card {g.code} · {money(g.amount)}</span>
-            <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{g.sendVia === 'text' ? (g.sent ? 'Texted to them' : 'Will be texted') : g.sendVia === 'email' ? (g.sent ? 'Emailed to them' : 'Will be emailed') : g.sendVia === 'print' ? 'Print it and hand it over' : 'Give them the code'}</span></span>
+          <span className="min-w-0"><span className="block text-[15px] font-semibold">{g.bonus ? 'Their bonus' : 'Gift card'} {g.code} · {money(g.amount)}</span>
+            <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{g.bonus ? `For the buyer${g.when ? ` · ${g.when}` : ''} · ${g.sent ? 'sent to them' : 'give them the code'}` : g.sendVia === 'text' ? (g.sent ? 'Texted to them' : 'Will be texted') : g.sendVia === 'email' ? (g.sent ? 'Emailed to them' : 'Will be emailed') : g.sendVia === 'print' ? 'Print it and hand it over' : 'Give them the code'}</span></span>
           {g.path && <a href={`${g.path.replace('?k=', '/print?k=')}`} target="_blank" rel="noreferrer" onClick={() => setLeft(null)} className="h-11 shrink-0 rounded-full px-4 text-[14px] font-semibold leading-[44px]" style={{ background: g.sendVia === 'print' ? 'var(--ink)' : 'var(--soft)', color: g.sendVia === 'print' ? '#fff' : 'var(--ink)' }}>Print card</a>}
         </section>))}
       {outcomes.filter((o) => o.kind !== 'visit' && o.kind !== 'retail').map((o, i) => (

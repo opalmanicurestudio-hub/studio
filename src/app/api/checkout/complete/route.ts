@@ -218,7 +218,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const calcArgs: any = { tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: null as any, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true };
   const renterSettings = (tenant as any)?.giftCardSettings?.renters || {}; const salonForRenters = renterSettings.salonCards !== false;
   const giftUse: { id: string; code: string; cents: number; holdId: string | null; done?: boolean; owner: string | null; forRenters: Record<string, number> }[] = [];
-  const giftTopUps: Record<string, number> = {};   // service cards whose service now costs more than was paid
+  const giftTopUps: Record<string, number> = {};
+  const promoCards = new Set<string>();   // bonus cards from an offer (lib/gift-offers): what they pay is a discount, not money in   // service cards whose service now costs more than was paid
   const giftPlan = async (calc0: any) => {
     const byRenter: Record<string, number> = {};
     for (const v of calc0.visits || []) if (v.renter) { const rid = String((staff.find((x: any) => x.id === v.renterStaffId) as any)?.renterId || ''); if (rid) byRenter[rid] = (byRenter[rid] || 0) + Math.round((v.mainPrice + v.addOns.reduce((t: number, x: any) => t + x.price, 0)) * 100); }
@@ -229,6 +230,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const cardsIn: any[] = []; const usedVisits = new Set<number>();
     for (const g of (Array.isArray(b.giftCards) ? b.giftCards : []).slice(0, 5)) {
       const d: any = (await db.doc(`${T}/giftCards/${String(g?.id || '')}`).get()).data(); if (!d) return 'A gift card on this sale wasn’t found — remove it and try again.';
+      if (d.promo && d.usableFrom && Date.parse(d.usableFrom) > Date.now()) return `Bonus card ${d.code} can be used from ${new Date(d.usableFrom).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}.`;
+      if (d.promo) promoCards.add(String(g.id));
       let want = Math.max(0, Math.round(num(g.cents)));
       // A SERVICE gift card pays for that service on this bill — today's price, even if it went up since it was bought.
       if (d.kind === 'service' && d.serviceId) { const i = visits.findIndex((v: any, k: number) => !usedVisits.has(k) && v.service?.id === d.serviceId && !calc0.visits?.[k]?.renter);
@@ -418,6 +421,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const rt = renterOf(sid); if (rt) deskCollected.push({ renterId: String(rt.renterId || ''), staffId: sid, cents: Math.round(amt * 100), kind: 'tip', appointmentId: apptIds[0] || null });
     txn({ description: sid === '__school' ? 'Gratuity — school (student salon)' : 'Gratuity', type: 'income', context: 'Business', category: rt ? 'Tips collected for renter' : 'Tips', taxBucket: rt ? 'pass_through' : 'gratuity', ...(rt ? { renterId: rt.renterId || null, renterStaffId: sid } : {}), amount: amt, paymentMethod: method, staffId: sid, hasReceipt: true });
     if (method === 'cash') { cashTipsTotal += amt; cashTipsByStaff[sid] = FieldValue.increment(amt); cashTipsPlain[sid] = (cashTipsPlain[sid] || 0) + amt; } }
+  // Bonus cards (an offer) paid part of this bill: nobody paid for that money, so it's a discount in the books.
+  { const promoCents = giftUse.filter((g) => promoCards.has(g.id)).reduce((a, g) => a + g.cents, 0);
+    if (promoCents > 0) txn({ description: `Gift card bonus used — ${giftUse.filter((g) => promoCards.has(g.id)).map((g) => g.code).join(', ')}`, clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: promoCents / 100, paymentMethod: 'Internal', hasReceipt: false, discountKind: 'gift_offer' }); }
   if (calc.codeDiscount > 0) txn({ description: 'Promotion Applied', clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.codeDiscount, paymentMethod: 'Internal', hasReceipt: false });
   if (calc.momentDiscount > 0 && calc.moment) txn({ description: `${calc.moment.label} — ${client.name || 'client'}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.momentDiscount, paymentMethod: 'Internal', hasReceipt: false, discountKind: 'moment', momentKey: calc.moment.key });
   if (calc.groupDiscount > 0 && calc.group) txn({ description: `${calc.group.label} — ${client.name || 'client'}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.groupDiscount, paymentMethod: 'Internal', hasReceipt: false, discountKind: calc.group.type === 'team' ? 'team' : 'family', linkedStaffId: calc.group.staffId || null });
@@ -534,7 +540,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // After the sale is saved: enrol memberships / packages; confirm next-visit deposits.
   const warnings: string[] = [];
   // Gift cards sold on this sale: made now, and sent (or set to send on the day chosen).
-  const giftsIssued: { id: string; code: string; amount: number; sendVia: string; sent: boolean; path?: string }[] = [];
+  const giftsIssued: { id: string; code: string; amount: number; sendVia: string; sent: boolean; path?: string; bonus?: boolean; when?: string }[] = [];
   for (const it of items.filter((x: any) => x.type === 'giftcard' && x.__gift)) {
     for (let q = 0; q < Math.max(1, num(it.quantity)); q++) {
       try { const { issueGiftCard, deliverGiftCard } = await import('@/lib/gift-cards'); const g = it.__gift;
@@ -543,6 +549,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
         let sent = false; if (['text', 'email'].includes(g.sendVia) && !g.sendAt) sent = (await deliverGiftCard(db, tenantId, tenant, r.card)).sent;
         if (['text', 'email'].includes(g.sendVia) && !g.sendAt && !sent) warnings.push(`Gift card ${r.card.code} was made, but it didn’t send — give them the code or resend it from Money → Gift cards.`);
         giftsIssued.push({ id: r.card.id, code: r.card.code, amount: g.cents / 100, sendVia: g.sendVia, sent, path: (await import('@/lib/gift-cards')).giftPath(tenantId, r.card.id) } as any);
+        // An offer is on at the desk ("buy $100, get $20 for you"): the buyer's own bonus card (lib/gift-offers).
+        if (!g.service) { const { giveBonus, giftPath } = await import('@/lib/gift-cards');
+          const bonus: any = await giveBonus(db, tenantId, tenant, { channel: 'desk', forCard: r.card, buyer: { id: clientId || null, name: client.name || null, email: client.email || null, phone: client.phone || null }, by: auth.actor.name || 'Front desk' }).catch(() => null);
+          if (bonus) giftsIssued.push({ id: bonus.id, code: bonus.code, amount: bonus.initialCents / 100, sendVia: bonus.sendVia, sent: !!bonus.recipientEmail || !!bonus.recipientPhone, path: giftPath(tenantId, bonus.id), bonus: true, when: (await import('@/lib/gift-offers')).bonusWhen(bonus) } as any); }
       } catch (e: any) { console.error('[checkout] gift card', e); warnings.push('A gift card was paid for but not made — make it from Money → Gift cards.'); }
     }
   }

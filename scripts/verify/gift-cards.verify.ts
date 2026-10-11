@@ -113,6 +113,41 @@ import { makeDb, check, failures } from './fake-db';
     db._store.set('tenants/t1/services/hidden', { name: 'Secret', price: 40, isPrivate: true });
     check('a private service can’t be gifted', !((await gs.startGiftOrder(db, T, { serviceId: 'hidden', amount: 1, design: 'frost', buyerName: 'J', buyerEmail: 'j@x.com', recipientName: 'T', via: 'me' }, '')) as any).ok); }
 
+  console.log('Offers');
+  { const go = await import('../../src/lib/gift-offers');
+    const offers = go.cleanOffers([{ name: 'Holiday bonus', tiers: [{ buyCents: 20000, bonusCents: 5000 }, { buyCents: 10000, bonusCents: 2000 }, { buyCents: 100, bonusCents: 900 }], startsOn: '2026-11-01', endsOn: '2026-12-31', usableFrom: '2027-01-01', bonusDays: 90, desk: false }]);
+    check('steps sorted, a bonus bigger than its card dropped', offers[0].tiers.length === 2 && offers[0].tiers[0].buyCents === 10000, offers[0].tiers);
+    check('not running before it starts', go.liveOffer({ offers }, 'online', '2026-10-31') === null);
+    check('running in its dates online', go.liveOffer({ offers }, 'online', '2026-12-01')?.name === 'Holiday bonus');
+    check('…but not at the desk when switched off there', go.liveOffer({ offers }, 'desk', '2026-12-01') === null);
+    check('not running after it ends', go.liveOffer({ offers }, 'online', '2027-01-01') === null);
+    check('$99 earns nothing, $100 earns $20, $250 earns $50', go.bonusFor(offers[0], 9900) === 0 && go.bonusFor(offers[0], 10000) === 2000 && go.bonusFor(offers[0], 25000) === 5000);
+    const dts = go.bonusDates(offers[0], '2026-12-01'); check('bonus starts Jan 1 and lasts 90 days', dts.usableFrom === '2027-01-01T00:00:00.000Z' && dts.expiresAt.startsWith('2027-04-01'), dts);
+    check('the line buyers see', go.offerLine({ ...offers[0], tiers: [offers[0].tiers[0]] }) === 'Buy a $100 gift card, get $20 for you');
+    // A bonus made when the gift card is bought online
+    const today = go.todayIn('America/New_York');
+    const db = fresh({ offers: [{ id: 'hol', name: 'Holiday bonus', tiers: [{ buyCents: 10000, bonusCents: 2000 }], startsOn: today, endsOn: null, usableFrom: null, bonusDays: 60 }] });
+    db._store.set('tenants/t1/giftOrders/o9', { id: 'o9', status: 'pending', amountCents: 10000, design: 'frost', buyerName: 'Jess', buyerEmail: 'j@x.com', recipientName: 'Tia', via: 'me' });
+    await gs.completeGiftOrder(db, T, 'o9', { sessionId: 's9', amountTotal: 10000 });
+    const all = [...db._store.entries()].filter(([k]) => k.startsWith('tenants/t1/giftCards/')).map(([, v]) => v as any);
+    const gift = all.find((c) => !c.promo), bonus = all.find((c) => c.promo);
+    check('the gift stays whole at $100', gift?.initialCents === 10000, gift);
+    check('a separate $20 bonus for the buyer', bonus?.initialCents === 2000 && bonus?.recipientEmail === 'j@x.com' && bonus?.offerId === 'hol', bonus);
+    check('the bonus ends (60 days)', !!bonus?.expiresAt && Math.round((Date.parse(bonus.expiresAt) - Date.now()) / 864e5) >= 59);
+    check('the order remembers the bonus', db._store.get('tenants/t1/giftOrders/o9').bonusCents === 2000);
+    const tx = [...db._store.entries()].filter(([k]) => k.startsWith('tenants/t1/transactions/')).map(([, v]) => v as any);
+    check('only the $100 is recorded as a sale', tx.length === 1 && tx[0].amount === 100, tx);
+    const info: any = await gs.shopInfo(db, T); check('the shop shows the offer', info.offer?.line === 'Buy a $100 gift card, get $20 for you', info.offer);
+    db._store.set('tenants/t1/appointments/a9', { status: 'pending_payment', depositAmountCents: 1000, clientId: 'c1', clientName: 'Jess', clientEmail: 'j@x.com', serviceName: 'Gel manicure', startTime: '2026-12-20T14:00:00.000Z' });
+    const dep: any = await gs.payDepositWithGiftCard(db, T, 'a9', bonus.code, ''); check('a bonus can’t pay a deposit', !dep.ok && /Bonus cards/.test(dep.error), dep);
+    // A bonus that starts later can't be used yet
+    db._store.set('tenants/t1/giftCards/later', { id: 'later', code: 'LATE-RRRR', codeKey: 'LATERRRR', balanceCents: 2000, initialCents: 2000, status: 'active', holds: {}, history: [], promo: true, usableFrom: '2099-01-01T00:00:00.000Z', expiresAt: '2099-04-01T00:00:00.000Z' });
+    const h: any = await gc.holdGiftCard(db, T, { id: 'later', holdId: 'h', cents: 500 }); check('a bonus can’t be used before its start date', !h.ok && /can be used from/.test(h.error), h);
+    // No offer running → no bonus
+    const db2 = fresh(); db2._store.set('tenants/t1/giftOrders/o8', { id: 'o8', status: 'pending', amountCents: 10000, design: 'frost', buyerName: 'Jess', buyerEmail: 'j@x.com', recipientName: 'Tia', via: 'me' });
+    await gs.completeGiftOrder(db2, T, 'o8', { sessionId: 's8', amountTotal: 10000 });
+    check('no offer, no bonus', ![...db2._store.values()].some((v: any) => v?.promo)); }
+
   console.log('Find my card + wallet');
   { const db = fresh(); db._store.set('tenants/t1/clients/c1', { name: 'Tia', phone: '(832) 555-0100', email: 'tia@x.com' });
     await gc.issueGiftCard(db, T, { amountCents: 3000, by: 'x', source: 'desk', recipient: { name: 'Tia', email: 'tia@x.com' } });

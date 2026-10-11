@@ -7,6 +7,7 @@ import { payPost } from '@/components/pay/pay-client';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { COLLECTIONS, COLLECTION_NOTE, designsSync, inSeason, rulesFrom, deskScript } from '@/lib/gift-designs';
 import { GiftCardShowcase, DEFAULT_SHOWCASE } from '@/components/gift/GiftCardShowcase';
+import { GiftOffersEditor } from '@/components/gift/GiftOffersEditor';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
 const field = 'h-11 w-full rounded-xl border px-3 text-[15px]';
@@ -81,6 +82,7 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
               </div>}
             </>}
           </section>
+          <GiftOffersEditor offers={s.offers || []} onChange={(v) => set('offers', v)} />
           <section className="space-y-1 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
             <p className="text-[15px] font-semibold">Messages</p>
             <Toggle on={s.balanceReminders !== false} onChange={(v) => set('balanceReminders', v)} label="Remind people about money left on their card" hint="A gentle note after 60 days unused — at most every 90 days, 3 times in all, never to anyone who turned messages off." />

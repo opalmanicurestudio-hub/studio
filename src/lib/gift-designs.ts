@@ -1,5 +1,6 @@
 // src/lib/gift-designs.ts — GIFT CARD DESIGNS: the library (gift-designs.data), which ones a business offers, and which
 // occasion cards are in season. Shared by the shop page, the desk, the recipient's page and the manager settings.
+import { cleanOffers } from '@/lib/gift-offers';
 export type GiftDesign = {
   id: string; name: string; collection: 'Finishes' | 'Luxe' | 'Art' | 'Nature' | 'Beauty' | 'Occasions'; note: string;
   bg: string; sheen: string; svg: string; ink: string; sub: string; chip: string[]; border?: string;
@@ -30,6 +31,7 @@ export type GiftShopSettings = {
   online: boolean; designs: string[] | null; amounts: number[]; custom: boolean; min: number; max: number;
   seasonalOnly: boolean; rules: string; buyerThanks: boolean;
   renters: { salonCards: boolean; ownCards: boolean };
+  offers: any[];   // "buy $100, get $20 for you" (lib/gift-offers cleanOffers)
   /** The card's terms (Gift cards → Rules): written into plain words on every card page, receipt and email. */
   expiryYears: number; paysFor: { services: boolean; products: boolean; tips: boolean }; cashBackUnderCents: number; refundDays: number; customRules: boolean;
   serviceCards: boolean;   // sell a service ("a gel manicure") as well as dollar amounts
@@ -58,7 +60,7 @@ export function shopSettings(t: any): GiftShopSettings {
   return { online: s.online === true, designs: Array.isArray(s.designs) ? s.designs.map(String) : null, amounts: nums(s.amounts)?.length ? nums(s.amounts)! : [25, 50, 100, 150],
     custom: s.custom !== false, min, max, seasonalOnly: s.seasonalOnly !== false, rules: String(s.rules || rulesFrom({ expiryYears, paysFor, cashBackUnderCents, refundDays })).slice(0, 600), customRules: !!s.rules, expiryYears, paysFor, cashBackUnderCents, refundDays, buyerThanks: s.buyerThanks !== false,
     renters: { salonCards: s.renters?.salonCards !== false, ownCards: s.renters?.ownCards === true },
-    serviceCards: s.serviceCards !== false, onBooking: s.onBooking !== false, showcase: cleanShowcase(s.showcase) };
+    serviceCards: s.serviceCards !== false, onBooking: s.onBooking !== false, showcase: cleanShowcase(s.showcase), offers: cleanOffers(s.offers) };
 }
 /** The designs a buyer may pick from, in library order; out-of-season occasion cards are left out. */
 export function offered(all: GiftDesign[], s: GiftShopSettings, at = new Date()) {

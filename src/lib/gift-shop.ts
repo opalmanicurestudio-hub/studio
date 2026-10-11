@@ -40,7 +40,7 @@ export async function shopInfo(db: any, tenantId: string, providerId?: string | 
   if (seller) return { open: !!seller.ok, brand: { name: seller.name, accent: seller.accent || brandAccent(t), logo: null, phone: null, at: t.name || null }, provider: seller.staffId,
     designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: `${s.rules} Use it with ${seller.name}.`, timeZone: t.timezone || 'America/New_York' };
   return { open: s.online && !!t.stripeAccountId, brand: { name: t.name || t.businessName || 'Gift card', accent: brandAccent(t), logo: t.logoUrl || t.logo || null, phone: t.phone || null },
-    designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: s.rules, serviceCards: s.serviceCards, timeZone: t.timezone || 'America/New_York' };
+    designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: s.rules, serviceCards: s.serviceCards, timeZone: t.timezone || 'America/New_York', offer: await (async () => { const g = await import('@/lib/gift-offers'); return g.pubOffer(g.liveOffer(t.giftCardSettings, 'online', g.todayIn(t.timezone))); })() };
 }
 
 type Start = { provider?: any; serviceId?: any; amount: any; design: any; line?: any; buyerName: any; buyerEmail: any; buyerPhone?: any; recipientName?: any; forSelf?: any;
@@ -122,6 +122,10 @@ export async function completeGiftOrder(db: any, tenantId: string, orderId: stri
   await ref.set({ status: 'paid', cardId: r.card.id, transactionId: o.ownerRenterId ? null : txRef.id }, { merge: true });
   let sent = false; if (!o.sendAt && (o.via === 'email' || o.via === 'text')) sent = (await deliverGiftCard(db, tenantId, t, r.card).catch(() => ({ sent: false }))).sent;
   await sendBuyerReceipt(db, tenantId, t, { ...o, amountCents: cents }, r.card, sent, p.origin).catch(() => {});
+  // An offer is on ("buy $100, get $20 for you"): the buyer's own bonus card, emailed to them (lib/gift-offers).
+  if (!o.ownerRenterId) { try { const { giveBonus } = await import('@/lib/gift-cards');
+    const bonus: any = await giveBonus(db, tenantId, t, { channel: 'online', forCard: r.card, buyer: { id: buyer, name: o.buyerName, email: o.buyerEmail, phone: o.buyerPhone || null }, by: 'Online' });
+    if (bonus) await ref.set({ bonusCardId: bonus.id, bonusCents: bonus.initialCents }, { merge: true }); } catch (e: any) { console.error('[gift shop] bonus', e?.message); } }
   return { ok: true as const, cardId: r.card.id };
 }
 
@@ -149,7 +153,8 @@ export async function orderView(db: any, tenantId: string, id: string) {
   return { ownerName: o.ownerName || null, status: o.status, amountCents: o.amountCents, design: o.design, line: o.line, buyerName: o.buyerName, recipientName: o.recipientName, via: o.via, message: o.message,
     recipientEmail: c?.recipientEmail || o.recipientEmail, recipientPhone: (c?.recipientPhone || o.recipientPhone) ? `•••${String(c?.recipientPhone || o.recipientPhone).slice(-4)}` : null,
     sendAt: c ? c.sendAt || null : o.sendAt, sentAt: c?.sentAt || null, scheduledFor: c?.scheduledFor || null, sendStatus: c?.sendStatus || null,
-    code: c?.code || null, balanceCents: c?.balanceCents ?? null, used: c ? c.balanceCents < c.initialCents : false, cardPath: c ? giftPath(tenantId, o.cardId) : null };
+    code: c?.code || null, balanceCents: c?.balanceCents ?? null, used: c ? c.balanceCents < c.initialCents : false, cardPath: c ? giftPath(tenantId, o.cardId) : null,
+    bonusCents: o.bonusCents || null, bonusPath: o.bonusCardId ? giftPath(tenantId, o.bonusCardId) : null };
 }
 
 /** While it hasn't gone out: change the day, fix their email or number, or send it now. */
@@ -224,6 +229,7 @@ export async function payDepositWithGiftCard(db: any, tenantId: string, appointm
   if (ap.isRenterBooking) return { ok: false as const, error: 'Please pay this deposit by card — your gift card can be used at your visit.' };
   const g: any = await findByCode(db, tenantId, code); if (!g) return { ok: false as const, error: 'That gift card code wasn’t found. Check it and try again.', missed: true };
   if (g.ownerRenterId) return { ok: false as const, error: 'That card is for another provider’s services.' };
+  if (g.promo) return { ok: false as const, error: 'Bonus cards are used at the studio on your visit, not for deposits.' };
   if (available(g) < cents) return { ok: false as const, error: `This card has ${money(available(g))} on it — not quite the ${money(cents)} deposit. Pay the deposit by card and use your gift card at your visit.` };
   const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents, by: ap.clientName || 'Online booking', transactionRef: `deposit:${appointmentId}`, appointmentId, clientId: ap.clientId || null });
   if (!r.ok) return { ok: false as const, error: r.error };

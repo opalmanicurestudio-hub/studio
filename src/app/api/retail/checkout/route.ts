@@ -759,6 +759,7 @@ async function handleCheckout(req: NextRequest) {
       const g: any = await findByCode(db, tenantId, String(body.giftCode));
       if (!g) { await codeTries(db, tenantId, `shop_${ip}`, true); return NextResponse.json({ error: 'That gift card code wasn’t found — check it, or remove it to pay by card.' }, { status: 400 }); }
       if (g.ownerRenterId) return NextResponse.json({ error: 'That gift card is for one provider’s services — it can’t be used in the shop.' }, { status: 400 });
+      if (g.promo) return NextResponse.json({ error: 'Bonus cards are used at the studio on your visit — they can’t be used in the online shop.' }, { status: 400 });
       const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
       // ── The gift card covers the WHOLE order: nothing for the card processor to collect, so skip it (its 50¢
       // minimum would otherwise leave 50¢ to pay). Any store credit is left untouched for next time. Same atomic

@@ -14,7 +14,8 @@ const field = 'h-11 w-full rounded-xl border px-3 text-[15px]';
 const fs = { borderColor: 'var(--line, #ececee)', background: 'var(--card, #fff)' } as const;
 const muted = { color: 'var(--muted, #6d7075)' } as const;
 
-export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, applied, setApplied, holdId, addGiftCardToCart, brandName, brandLogo, brandAccent, screen, script, services }: {
+export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, applied, setApplied, holdId, addGiftCardToCart, brandName, brandLogo, brandAccent, screen, script, services, offer }: {
+  offer?: { name: string; tiers: { buyCents: number; bonusCents: number }[] } | null;   // an offer running at the desk (lib/gift-offers)
   services?: { id: string; name: string; price: number }[];   // sell one service as a gift (when the business allows it)
   script?: string | null;   // the one line to say when selling one (lib/gift-designs deskScript)
   brandName?: string | null; brandLogo?: string | null; brandAccent?: string | null;
@@ -53,7 +54,8 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
     if (r.design) setDesign(r.design); setLine(r.line ?? null); if (r.message) setNote(r.message); setSendAtIso(r.sendAt || null); if (r.sendAt) setLater(String(r.sendAt).slice(0, 10)); setAskId(null); setFilled(true); }, [screen?.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
   const brand = { name: brandName || 'Gift card', logo: brandLogo || null, accent: brandAccent || null };
   const [svcId, setSvcId] = React.useState(''); const svc = (services || []).find((x) => x.id === svcId) || null;
-  const amount = svc ? svc.price : other ? Number(other) : amt; const okAmt = amount >= 1 && amount <= 5000;
+  const amount = svc ? svc.price : other ? Number(other) : amt;
+  const bonusOn = (d: number) => { let b = 0; for (const t of offer?.tiers || []) if (Math.round(d * 100) >= t.buyCents) b = t.bonusCents; return b / 100; }; const okAmt = amount >= 1 && amount <= 5000;
   const okSend = via === 'text' ? phone.replace(/\D/g, '').length >= 10 : via === 'email' ? /\S+@\S+\.\S+/.test(email) : true;
   const sell = () => { addGiftCardToCart({ amount, gift: { recipientName: forSelf ? clientName || null : to.trim() || null, recipientId: forSelf ? clientId : null, recipientPhone: via === 'text' ? phone : null, recipientEmail: via === 'email' ? email : null, message: note.trim() || null, design, line: line === null ? (svc ? svc.name.slice(0, 30) : dz?.line || null) : line || null, service: svc ? { id: svc.id, name: svc.name } : null, sendVia: via, sendAt: sendAtIso && later === sendAtIso.slice(0, 10) ? sendAtIso : later ? new Date(`${later}T10:00:00`).toISOString() : null } });
     setTab(''); setTo(''); setNote(''); setDesign('frost'); setLine(null); setSendAtIso(null); setFilled(false); setPhone(''); setEmail(''); setLater(''); setOther(''); };
@@ -88,6 +90,7 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
       {tab === 'sell' && <div className="space-y-3">
         <div className="grid grid-cols-5 gap-1.5">{[25, 50, 75, 100].map((v) => <button key={v} type="button" onClick={() => { setAmt(v); setOther(''); setSvcId(''); }} className="h-11 rounded-xl text-[15px] font-semibold" style={!svc && !other && amt === v ? { background: 'var(--ink, #16171a)', color: '#fff' } : { border: '1px solid var(--line, #ececee)', background: 'var(--card, #fff)' }}>${v}</button>)}
           <input value={other} onChange={(e) => { setOther(e.target.value.replace(/[^0-9.]/g, '')); setSvcId(''); }} inputMode="decimal" placeholder="$ other" aria-label="Other amount" className="h-11 rounded-xl border px-2 text-center text-[14px]" style={fs} /></div>
+        {offer && !svc && <p className="rounded-2xl px-3.5 py-2.5 text-[13.5px]" style={{ background: '#e9f3ed', color: '#1f7a4d' }}><b>{offer.name}:</b> {bonusOn(amount) > 0 ? `${clientName ? String(clientName).split(' ')[0] : 'the buyer'} gets ${money(bonusOn(amount)).replace('.00', '')} for themselves with this card.` : `buy ${money(offer.tiers[0].buyCents / 100).replace('.00', '')} or more and they get ${money(offer.tiers[0].bonusCents / 100).replace('.00', '')} for themselves.`}</p>}
         {!!services?.length && <select value={svcId} onChange={(e) => { setSvcId(e.target.value); setLine(null); }} aria-label="Or gift a service" className={field} style={fs}><option value="">Or gift a service — covered even if the price goes up</option>{services.map((x) => <option key={x.id} value={x.id}>{x.name} · {money(x.price).replace('.00', '')}</option>)}</select>}
         <div><p className="mb-1.5 text-[13px] font-semibold" style={muted}>Design{dz ? ` — ${dz.name}` : ''}</p>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{designs.map((d) => <button key={d.id} type="button" aria-pressed={design === d.id} aria-label={d.name} onClick={() => { setDesign(d.id); setLine(null); }} className="shrink-0 rounded-[9px] p-[2px]" style={{ outline: design === d.id ? '2px solid var(--ink, #16171a)' : 'none', outlineOffset: 1 }}><GiftCardFace design={d} brand={brand} amount={okAmt ? money(amount).replace('.00', '') : '$'} name=" " width={104} /></button>)}</div></div>

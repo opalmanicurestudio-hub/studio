@@ -2,6 +2,7 @@
 // src/app/gift/[tenantId]/[id]/print/page.tsx — PRINT A GIFT CARD at real card size (3.375 × 2.125 in): the front in its
 // design, and the back with a QR code to the card's own page, the rules in one line and how to reach the business.
 // Printed on a letter page with cut marks (front and back side by side — fold or glue), or sent to a card printer.
+import { bonusWhen } from '@/lib/gift-offers';
 import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
@@ -36,7 +37,7 @@ export default function PrintGiftCard() {
           <div style={{ height: 26, background: '#16171a', margin: '-16px -16px 0' }} />
           <div style={{ display: 'flex', gap: 12 }}>
             {qr ? <img src={qr} alt="" style={{ width: 78, height: 78, flexShrink: 0 }} /> : <div style={{ width: 78, height: 78, background: '#f3f3f5' }} />}
-            <div style={{ fontSize: 9.5, lineHeight: 1.45 }}><b style={{ fontSize: 10.5 }}>Scan to see what’s left and book.</b><br /><span style={{ color: '#6d7075' }}>{d.rules}</span></div>
+            <div style={{ fontSize: 9.5, lineHeight: 1.45 }}><b style={{ fontSize: 10.5 }}>Scan to see what’s left and book.</b><br /><span style={{ color: '#6d7075' }}>{c.promo ? `A thank-you bonus${c.offerName ? ` (${c.offerName})` : ''}. ${bonusWhen(c)}. Use it at the studio — not for cash.` : d.rules}</span></div>
           </div>
           <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#6d7075' }}><span>{[d.brand?.name, d.brand?.phone, d.site].filter(Boolean).join(' · ')}</span><span style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: '.1em', whiteSpace: 'nowrap', marginLeft: 8 }}>{c.code}</span></div>
         </div>)}

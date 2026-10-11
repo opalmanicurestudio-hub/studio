@@ -71,7 +71,14 @@ export async function POST(req: NextRequest) {
   if (action === 'report') {
     const snap = await db.collection(`${T}/giftCards`).get(); const m: Record<string, any> = {}; const row = (k: string) => (m[k] ||= { month: k, sold: 0, imported: 0, used: 0, adjusted: 0, voided: 0, soldCount: 0 });
     const idle = { y1: { n: 0, cents: 0 }, y2: { n: 0, cents: 0 }, y3: { n: 0, cents: 0 } }; const nowMs = Date.now(); let owedNow = 0;
-    for (const d of snap.docs) { const x: any = d.data(); if (x.ownerRenterId) continue;
+    // OFFERS (lib/gift-offers): bonus cards aren't money anyone paid, so they're kept out of what you owe and reported here.
+    const offers: Record<string, any> = {}; const byId = new Map(snap.docs.map((d: any) => [d.id, d.data()]));
+    for (const d of snap.docs) { const x: any = d.data(); if (!x.promo) continue; const k = String(x.offerId || 'offer');
+      const o = (offers[k] ||= { id: k, name: x.offerName || 'Offer', bonuses: 0, bonusCents: 0, usedCents: 0, leftCents: 0, endedCents: 0, cardsSold: 0, soldCents: 0 });
+      o.bonuses++; o.bonusCents += Number(x.initialCents) || 0; o.usedCents += Math.max(0, (Number(x.initialCents) || 0) - (Number(x.balanceCents) || 0));
+      const ended = x.status === 'void' || (x.expiresAt && Date.parse(x.expiresAt) < nowMs); if (ended) o.endedCents += Number(x.balanceCents) || 0; else o.leftCents += Number(x.balanceCents) || 0;
+      const sold: any = x.forCardId ? byId.get(x.forCardId) : null; if (sold) { o.cardsSold++; o.soldCents += Number(sold.initialCents) || 0; } }
+    for (const d of snap.docs) { const x: any = d.data(); if (x.ownerRenterId || x.promo) continue;
       for (const h of x.history || []) { const r = row(String(h.at || x.createdAt).slice(0, 7)); const c = Number(h.cents) || 0;
         if (h.type === 'issue') { r.sold += c; r.soldCount++; } else if (h.type === 'import') r.imported += c; else if (h.type === 'spend') r.used += -c; else if (h.type === 'void') r.voided += -c; else if (h.type === 'adjust') r.adjusted += c; }
       if (x.status === 'active' && x.balanceCents > 0) { owedNow += x.balanceCents; const age = (nowMs - Date.parse(x.lastUsedAt || x.createdAt)) / (365 * 864e5);
@@ -81,7 +88,7 @@ export async function POST(req: NextRequest) {
     // NEW CLIENTS FROM GIFT CARDS: everyone who used a card someone else bought — was it their first visit here, have they
     // come back since, and what have they spent on later visits (beyond the card).
     const firstUse = new Map<string, { at: string; apptId: string | null; given: boolean }>();
-    for (const d of snap.docs) { const x: any = d.data(); if (x.ownerRenterId || !x.recipientId) continue; const sp = (x.history || []).filter((h: any) => h.type === 'spend').sort((a: any, c: any) => String(a.at).localeCompare(String(c.at)))[0]; if (!sp) continue;
+    for (const d of snap.docs) { const x: any = d.data(); if (x.ownerRenterId || x.promo || !x.recipientId) continue; const sp = (x.history || []).filter((h: any) => h.type === 'spend').sort((a: any, c: any) => String(a.at).localeCompare(String(c.at)))[0]; if (!sp) continue;
       const given = !!x.purchaserName && x.purchaserId !== x.recipientId; const cur = firstUse.get(x.recipientId); if (!cur || String(sp.at) < cur.at) firstUse.set(x.recipientId, { at: String(sp.at), apptId: sp.appointmentId || null, given: given || !!cur?.given }); }
     const gifted = { recipients: 0, newClients: 0, cameBack: 0, laterVisits: 0, laterSpendCents: 0 };
     for (const [cid, f] of [...firstUse.entries()].filter(([, f]) => f.given).slice(0, 300)) {
@@ -89,13 +96,13 @@ export async function POST(req: NextRequest) {
       const t0 = Date.parse(f.at); const before = ap.filter((a: any) => Date.parse(a.startTime) < t0 - 6 * 3600e3); const after = ap.filter((a: any) => Date.parse(a.startTime) > t0 + 6 * 3600e3);
       gifted.recipients++; if (!before.length) gifted.newClients++; if (after.length) gifted.cameBack++; gifted.laterVisits += after.length;
       gifted.laterSpendCents += Math.round(after.reduce((t: number, a: any) => t + (Number(a.revenue) || 0), 0) * 100); }
-    return j({ ok: true, months: months.reverse(), owedNow, idle, gifted }); }
+    return j({ ok: true, months: months.reverse(), owedNow, idle, gifted, offers: Object.values(offers) }); }
   if (action === 'settings') { const { shopSettings, cleanShowcase } = await import('@/lib/gift-designs'); const tref = db.doc(T); const t: any = (await tref.get()).data() || {};
     if (b.save && typeof b.save === 'object') { const v = b.save; const cur = shopSettings(t);
       const next = { online: v.online === true, designs: Array.isArray(v.designs) ? v.designs.map(String).filter((x: string) => /^[a-z0-9-]{2,30}$/.test(x)).slice(0, 80) : null,
         amounts: Array.isArray(v.amounts) ? v.amounts.map(Number).filter((n: number) => n >= 1 && n <= 5000).slice(0, 6) : cur.amounts, custom: v.custom !== false,
         min: Math.max(1, Math.min(5000, Number(v.min) || cur.min)), max: Math.max(1, Math.min(5000, Number(v.max) || cur.max)), seasonalOnly: v.seasonalOnly !== false,
-        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, buyerThanks: v.buyerThanks !== false, serviceCards: v.serviceCards !== false, balanceReminders: v.balanceReminders !== false, showcase: cleanShowcase(v.showcase), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, expiryYears: [0, 5, 6, 7, 10].includes(Number(v.expiryYears)) ? Number(v.expiryYears) : 0, paysFor: { services: v.paysFor?.services !== false, products: v.paysFor?.products !== false, tips: v.paysFor?.tips !== false }, cashBackUnderCents: [0, 500, 1000].includes(Number(v.cashBackUnderCents)) ? Number(v.cashBackUnderCents) : 0, refundDays: [0, 7, 14, 30].includes(Number(v.refundDays)) ? Number(v.refundDays) : 0, updatedAt: new Date().toISOString(), updatedBy: by };
+        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, buyerThanks: v.buyerThanks !== false, serviceCards: v.serviceCards !== false, balanceReminders: v.balanceReminders !== false, showcase: cleanShowcase(v.showcase), offers: (await import('@/lib/gift-offers')).cleanOffers(v.offers), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, expiryYears: [0, 5, 6, 7, 10].includes(Number(v.expiryYears)) ? Number(v.expiryYears) : 0, paysFor: { services: v.paysFor?.services !== false, products: v.paysFor?.products !== false, tips: v.paysFor?.tips !== false }, cashBackUnderCents: [0, 500, 1000].includes(Number(v.cashBackUnderCents)) ? Number(v.cashBackUnderCents) : 0, refundDays: [0, 7, 14, 30].includes(Number(v.refundDays)) ? Number(v.refundDays) : 0, updatedAt: new Date().toISOString(), updatedBy: by };
       if (next.max < next.min) return j({ ok: false, error: 'The most someone can spend has to be more than the least.' }, 400);
       if (next.designs && !next.designs.length) return j({ ok: false, error: 'Keep at least one design on.' }, 400);
       await tref.set({ giftCardSettings: next }, { merge: true }); return j({ ok: true, settings: shopSettings({ giftCardSettings: next }), paymentsReady: !!t.stripeAccountId }); }

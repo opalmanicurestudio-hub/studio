@@ -54,6 +54,9 @@ export default function GiftShopPage() {
   const [kind, setKind] = React.useState<'amount' | 'service'>('amount'); const [svc, setSvc] = React.useState<any>(null); const [menu, setMenu] = React.useState<any[]>([]);
   React.useEffect(() => { if (!shop?.serviceCards || provider) return; fetch(`/api/public/menu?business=${encodeURIComponent(tenantId)}`).then((r) => r.json()).then((x) => { if (x?.ok) setMenu((x.categories || []).flatMap((c: any) => (c.services || []).map((sv: any) => ({ ...sv, category: c.name })))); }).catch(() => {}); }, [shop, tenantId, provider]);
   const amt = kind === 'service' ? Number(svc?.price) || 0 : other ? Number(other) : amount || 0;
+  // An offer running online ("buy $100, get $20 for you" — lib/gift-offers): the bonus this amount earns the buyer.
+  const bonusOf = (d: number) => { let b = 0; for (const t of shop?.offer?.tiers || []) if (Math.round(d * 100) >= t.buyCents) b = t.bonusCents; return b; };
+  const bonusC = kind === 'service' || provider ? 0 : bonusOf(amt);
   const amtOk = !!shop && (kind === 'service' ? !!svc && amt > 0 : amt >= shop.min && amt <= shop.max);
   const amtLabel = kind === 'service' ? '1 visit' : money(amt);
   const sendAt = via !== 'me' && when === 'later' && day ? new Date(`${day}T${time || '09:00'}:00`) : null;
@@ -118,13 +121,14 @@ export default function GiftShopPage() {
 
             {step === 0 && <section className="space-y-4" aria-label="Amount">
               <h2 className="text-[24px] font-normal tracking-[-0.02em]">{kind === 'service' ? 'Which treat?' : 'How much?'}</h2>
+              {shop.offer && !provider && kind !== 'service' && <div className="rounded-2xl px-4 py-3" style={{ background: '#e9f3ed', color: '#1f7a4d' }}><p className="text-[14.5px] font-semibold">{shop.offer.name}</p><p className="text-[13.5px]">{shop.offer.line}{shop.offer.usableFrom ? ` — yours to use from ${new Date(`${shop.offer.usableFrom}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}` : ''}.</p></div>}
               {menu.length > 0 && <div className="flex gap-1.5"><Pill on={kind === 'amount'} onClick={() => setKind('amount')}>An amount</Pill><Pill on={kind === 'service'} onClick={() => setKind('service')}>A service</Pill></div>}
               {kind === 'service' ? <div className="space-y-2">
                 <p className="text-[13.5px]" style={{ color: MUTED }}>Give the visit itself — it’s covered even if the price goes up before they book.</p>
                 <div className="max-h-[360px] space-y-1.5 overflow-y-auto pr-1">{menu.filter((m) => m.price > 0 && !m.from).map((m) => <button key={m.id} type="button" aria-pressed={svc?.id === m.id} onClick={() => { setSvc(m); setLine(null); }} className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left" style={svc?.id === m.id ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>
                   <span className="min-w-0"><span className="block truncate text-[15px] font-semibold">{m.name}</span><span className="block text-[12.5px] opacity-70">{m.category}{m.duration ? ` · ${m.duration} min` : ''}</span></span><span className="shrink-0 text-[15px]">{money(m.price)}</span></button>)}</div>
               </div> : <>
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{shop.amounts.map((v: number) => <button key={v} type="button" aria-pressed={!other && amount === v} onClick={() => { setAmount(v); setOther(''); }} className="h-16 rounded-2xl text-[22px] font-normal tracking-[-0.02em]" style={!other && amount === v ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>{money(v)}</button>)}</div>
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{shop.amounts.map((v: number) => <button key={v} type="button" aria-pressed={!other && amount === v} onClick={() => { setAmount(v); setOther(''); }} className="h-16 rounded-2xl text-[22px] font-normal tracking-[-0.02em]" style={!other && amount === v ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>{money(v)}{!provider && bonusOf(v) > 0 && <span className="block text-[12px] font-semibold" style={{ color: !other && amount === v ? '#bfe5cf' : '#1f7a4d' }}>+{money(bonusOf(v) / 100)} for you</span>}</button>)}</div>
               {shop.custom && <label className="block"><span className="mb-1.5 block text-[13px] font-semibold" style={{ color: MUTED }}>Or another amount ({money(shop.min)}–{money(shop.max)})</span>
                 <input value={other} onChange={(e) => setOther(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))} inputMode="decimal" placeholder="$" className={field} style={fs} /></label>}
               {other && !amtOk && <p className="text-[13.5px] font-semibold" style={{ color: RED }}>Choose an amount from {money(shop.min)} to {money(shop.max)}.</p>}
@@ -172,6 +176,7 @@ export default function GiftShopPage() {
                 <GiftCardFace design={design} brand={shop.brand} amount={amtLabel} name={forSelf ? from || 'You' : to} line={lineShown} width={120} />
                 <div className="min-w-0 text-[14px] leading-snug"><b>{kind === 'service' && svc ? `Gift card: ${svc.name} (${money(amt)})` : `${money(amt)} gift card`}</b><br />{forSelf ? 'For you' : `For ${to}`}{from ? `, from ${from.split(' ')[0]}` : ''}<br />
                   <span style={{ color: MUTED }}>{via === 'me' ? 'Emailed to you to give' : `${via === 'text' ? 'Texted' : 'Emailed'} ${sendAt ? sendAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'right away'}`}</span></div></div>
+              {bonusC > 0 && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#e9f3ed', color: '#1f7a4d' }}><b>Plus {money(bonusC / 100)} for you</b> — a bonus card emailed to you after you pay{shop.offer?.usableFrom ? `, to use from ${new Date(`${shop.offer.usableFrom}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}` : ''}. It’s for you, not part of the gift.</p>}
               {!pay ? <>
                 <input value={from} onChange={(e) => setFrom(e.target.value.slice(0, 80))} autoComplete="name" placeholder="Your name" aria-label="Your name" className={field} style={fs} />
                 {!(via === 'email' && forSelf) && <input value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" autoComplete="email" placeholder="Your email (for the receipt)" aria-label="Your email" className={field} style={fs} />}
