@@ -24,6 +24,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { computeCheckout } from '@/lib/checkout-calc';
+import { addOnIdsOf, overCeiling, workOf } from '@/lib/prep-checkout';
 import { computeServiceCost } from '@/lib/service-cost';
 import { isCreditExpired } from '@/lib/deposit-policy';
 
@@ -162,7 +163,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const a: any = (await db.doc(`${T}/appointments/${id}`).get()).data();
     if (!a) return json({ ok: false, error: 'One of these visits wasn’t found — refresh and try again.' }, 404);
     if (a.status === 'completed' && a.checkoutSessionId) return json({ ok: false, error: `${a.clientName || 'This visit'} has already been checked out.` }, 409);
-    visits.push({ appointment: { ...a, id }, service: svc(a.serviceId) || { id: a.serviceId, name: a.serviceName || 'Service', price: num(a.price) }, addOnServices: (a.addOnIds || []).map((x: string) => svc(x)).filter(Boolean) });
+    visits.push({ appointment: { ...a, id }, service: svc(a.serviceId) || { id: a.serviceId, name: a.serviceName || 'Service', price: num(a.price) }, addOnServices: addOnIdsOf(a).map((x: string) => svc(x)).filter(Boolean) });   // agreed counts (lib/prep-checkout)
   }
   // Sale items, priced here (never by the browser) — except next-visit deposits (capped by that booking's deposit) and rentals.
   const items: any[] = [];
@@ -285,6 +286,11 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       recoveryApprovedBy = ok.approverName;
     } else if (over) recoveryApprovedBy = auth.actor.name;
   }
+  // The "up to" price the client agreed (before the visit or in person) — the work can't go over it unless they agreed again.
+  for (const [idx, v] of visits.entries()) {
+    const o = overCeiling(v.appointment, workOf(calc.visits[idx]));
+    if (o.over) { await failPending('Over the price the client agreed.'); return json({ ok: false, error: `${v.appointment.clientName || 'This visit'} agreed to up to $${(o.ceiling || 0).toFixed(2)} — this is $${o.by.toFixed(2)} more. Take off what wasn’t done, or record that they agreed to the higher price in person.` }, 409); }
+  }
   const expected = num(b.expectedTotal); const mismatch = Number.isFinite(expected) && b.expectedTotal !== undefined && Math.abs(expected - calc.total) > 0.01;
 
   // ── Deposit credit (newest available, not expired) ──
@@ -330,6 +336,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     }
     const fee = (amount: number, description: string, category: string) => { if (amount > 0) { add(amount); txn({ ...forHad, description, type: 'income', context: 'Business', category, taxBucket: 'adjustment', amount, paymentMethod: method, staffId: vc.mainStaffId, appointmentId: a.id, hasReceipt: false }); } };
     fee(vc.rescheduleFee, `Reschedule Recovery: ${v.service.name}`, 'Protocol Recovery');
+    fee(vc.dayChangeFee, `On-the-day change fee: ${v.service.name}`, 'Adjustment Fee');
     fee(vc.timeOverage, `Time Floor Overage: ${v.service.name}`, 'Strategic Adjustment');
     fee(vc.materialOverage, `Material Protocol Overage: ${v.service.name}`, 'Strategic Adjustment');
     fee(vc.additionalCharge, 'Strategic Adjustment Fee', 'Adjustment Fee');
@@ -482,7 +489,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     detail.lines.push({ kind: 'service', label: vc.renter && a.renterServiceName ? a.renterServiceName : v.service?.name || 'Service', amount: vc.mainPrice, staff: nameOf(vc.mainStaffId),
       bookedWith: a.staffId && vc.mainStaffId !== a.staffId ? nameOf(a.staffId) : null, for: forWho, collectedFor, redeemed: vc.mainRedeemed || null });
     for (const x of vc.addOns) detail.lines.push({ kind: 'addon', label: x.addon?.name || 'Add-on', amount: x.price, staff: nameOf(x.staffId), for: forWho, collectedFor, redeemed: x.redeemed || null });
-    const adj: [number, string][] = [[vc.rescheduleFee, 'Reschedule fee'], [vc.timeOverage, a.checkoutState?.extraTimeMinutes ? `Extra time — ${a.checkoutState.extraTimeMinutes} min` : 'Extra time'], [vc.materialOverage, a.checkoutState?.extraProductNote ? `Extra product — ${String(a.checkoutState.extraProductNote).slice(0, 80)}` : 'Extra product'], [vc.additionalCharge, 'Additional charge']];
+    const adj: [number, string][] = [[vc.rescheduleFee, 'Reschedule fee'], [vc.dayChangeFee, 'On-the-day change fee'], [vc.timeOverage, a.checkoutState?.extraTimeMinutes ? `Extra time — ${a.checkoutState.extraTimeMinutes} min` : 'Extra time'], [vc.materialOverage, a.checkoutState?.extraProductNote ? `Extra product — ${String(a.checkoutState.extraProductNote).slice(0, 80)}` : 'Extra product'], [vc.additionalCharge, 'Additional charge']];
     for (const [amt, label] of adj) if (num(amt) > 0) detail.lines.push({ kind: 'adjustment', label, amount: num(amt), for: forWho });
     if (vc.waived) detail.lines.push({ kind: 'note', label: 'Fees on this visit were waived', amount: 0, for: forWho });
     for (const r of vc.refreshments || []) detail.lines.push({ kind: 'refreshment', label: r.name, qty: r.qty, unit: r.price, amount: r.price * r.qty, for: forWho });

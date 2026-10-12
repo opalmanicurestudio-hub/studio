@@ -5,11 +5,15 @@
 // The desk (anyone who can manage bookings):
 //   move     { appointmentId }  → ask the client to pick a new time — free, not counted
 //   cancel   { appointmentId }  → cancel with no fee; deposit to refund; the time is offered to the waitlist
+// On the day (lib/prep-day) — the provider shows the client the change; the client answers in person:
+//   day_options { appointmentId } → add-ons, services they can switch to, the free time after, the business's rule
+//   day_change  { appointmentId, addOns[{id,qty}], addMinutes, switchServiceId?, answer:'yes'|'no', fee?, runOver? }
 // A provider can decide on their own visits; managers and the desk on any.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requestActor } from '@/lib/request-actor';
 import { applyPrep, keepPrep, toDesk, askToMove, cancelFree } from '@/lib/prep-actions';
+import { dayOptions, dayChange } from '@/lib/prep-day';
 
 export const dynamic = 'force-dynamic';
 const j = (b: any, status = 200) => NextResponse.json(b, { status });
@@ -23,6 +27,13 @@ export async function POST(req: NextRequest) {
   const snap = await db.doc(`tenants/${tenantId}/appointments/${id}`).get(); if (!snap.exists) return j({ ok: false, error: 'That visit is gone.' }, 404);
   const appt: any = snap.data() || {}; const mine = String(appt.staffId || '') === a.staffId;
   const action = String(b.action || ''); const by = { name: a.name };
+  if (['day_options', 'day_change'].includes(action)) {
+    if (!(mine || desk)) return j({ ok: false, error: 'Only the provider or the desk can do this.' }, 403);
+    if (action === 'day_options') { const r: any = await dayOptions(db, tenantId, id); return j(r, r.ok ? 200 : 409); }
+    const answer = b.answer === 'yes' ? 'yes' : b.answer === 'no' ? 'no' : null; if (!answer) return j({ ok: false, error: 'Missing the client’s answer.' }, 400);
+    const r: any = await dayChange(db, tenantId, id, { name: a.name, staffId: a.staffId, manager: !!(a.isOwner || a.isManager) }, { addOns: Array.isArray(b.addOns) ? b.addOns : [], addMinutes: Number(b.addMinutes) || 0, switchServiceId: b.switchServiceId ? String(b.switchServiceId) : null, answer, fee: b.fee === true, runOver: b.runOver === true });
+    return j(r, r.ok ? 200 : 409);
+  }
   if (['approve', 'keep', 'desk'].includes(action) && !(mine || desk)) return j({ ok: false, error: 'Only the provider or the desk can decide this.' }, 403);
   if (['move', 'cancel'].includes(action) && !desk) return j({ ok: false, error: 'The front desk decides this one.' }, 403);
   const r = action === 'approve' ? await applyPrep(db, tenantId, id, by) : action === 'keep' ? await keepPrep(db, tenantId, id, by) : action === 'desk' ? await toDesk(db, tenantId, id, by, b.why)

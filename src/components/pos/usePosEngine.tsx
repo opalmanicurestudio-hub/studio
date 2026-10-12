@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { addOnIdsOf } from '@/lib/prep-checkout';
 import { rateFor, payForService } from '@/lib/commission';
 import { openVisit } from '@/lib/visit-client';
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
@@ -444,7 +445,7 @@ export function usePosEngine() {
       .map(apt => {
         const client = clients.find(c => c.id === apt.clientId);
         const service = services.find(s => s.id === apt.serviceId);
-        const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+        const addOnServices = addOnIdsOf(apt).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);   // agreed counts (lib/prep-checkout)
         const staffMember = staff.find(s => s.id === apt.staffId);
 
         // ── WHY THIS FALLBACK EXISTS ───────────────────────────────────────────
@@ -514,7 +515,7 @@ export function usePosEngine() {
       const addonsPrice = (data.addOnServices || []).reduce((sum: number, s: any) => { const isAddonRedeemed = redeemedOffer?.itemId === s.id; const addonStaffId = data.appointment.checkoutState?.serviceStaffOverrides?.[s.id] || data.appointment.staffId; const addonStaff = staff.find(st => st.id === addonStaffId); return sum + (isAddonRedeemed ? 0 : getServicePrice(s, addonStaff)); }, 0);
       const adjustments = data.appointment.checkoutState?.adjustments;
       let adjTotal = 0;
-      if (adjustments) { const isWaived = waivedAppointmentFees.has(data.appointment.id); if (!isWaived) adjTotal = safeNumber(adjustments.rescheduleFee) + safeNumber(adjustments.timeOverage) + safeNumber(adjustments.materialOverage); }
+      if (adjustments) { const isWaived = waivedAppointmentFees.has(data.appointment.id); if (!isWaived) adjTotal = safeNumber(adjustments.rescheduleFee) + safeNumber(adjustments.timeOverage) + safeNumber(adjustments.materialOverage) + safeNumber(adjustments.dayChangeFee); }
       else { const isWaived = waivedAppointmentFees.has(data.appointment.id); adjTotal = isWaived ? 0 : safeNumber(data.appointment.checkoutState?.additionalCharge); }
       const refreshmentsSub = (data.appointment.checkoutState?.refreshments || []).reduce((sum: number, r: any) => sum + (safeNumber(r.price) * safeNumber(r.quantity || 1)), 0);
       return acc + mainPrice + addonsPrice + adjTotal + refreshmentsSub;
@@ -522,11 +523,11 @@ export function usePosEngine() {
     const retailSub = retailItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
     const adjustmentSub = Array.from(appliedAdjustments).reduce((acc, id) => { const fee = clients.flatMap(c => c.unpaidFees || []).find(f => f.feeId === id); return acc + safeNumber(fee?.feeAmount); }, 0);
     // Taxable amounts — the same rules as lib/checkout-calc (the server): fees never (incl. the reschedule fee), only real products as products.
-    const rescheduleFees = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).reduce((acc, d) => acc + (waivedAppointmentFees.has(d.appointment.id) ? 0 : safeNumber(d.appointment.checkoutState?.adjustments?.rescheduleFee)), 0);
+    const rescheduleFees = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).reduce((acc, d) => acc + (waivedAppointmentFees.has(d.appointment.id) ? 0 : safeNumber(d.appointment.checkoutState?.adjustments?.rescheduleFee) + safeNumber(d.appointment.checkoutState?.adjustments?.dayChangeFee)), 0);
     const itemSum = (t: string) => retailItems.filter((it: any) => it.type === t).reduce((acc, it: any) => acc + (safeNumber(it.price) * safeNumber(it.quantity)), 0);
     taxPartsRef.current = { services: safeNumber(servicesSub - rescheduleFees + itemSum('service')), products: safeNumber(itemSum('product')) };
     eligibleServicesRef.current = readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).reduce((acc, d) => { const o = d.appointment.checkoutState?.serviceStaffOverrides || {}; const who = (id: string) => (staff || []).find((m: any) => m.id === (o[id] || d.appointment.staffId));
-      return acc + (redeemedOffer?.itemId === d.service?.id ? 0 : safeNumber(getServicePrice(d.service, who(d.service?.id)))) + (d.appointment.addOnIds || []).reduce((x: number, id: string) => { const ad = (services || []).find((sv: any) => sv.id === id); return x + (ad && redeemedOffer?.itemId !== id ? safeNumber(getServicePrice(ad, who(id))) : 0); }, 0); }, 0) + itemSum('service');
+      return acc + (redeemedOffer?.itemId === d.service?.id ? 0 : safeNumber(getServicePrice(d.service, who(d.service?.id)))) + addOnIdsOf(d.appointment).reduce((x: number, id: string) => { const ad = (services || []).find((sv: any) => sv.id === id); return x + (ad && redeemedOffer?.itemId !== id ? safeNumber(getServicePrice(ad, who(id))) : 0); }, 0); }, 0) + itemSum('service');
     return safeNumber(servicesSub + retailSub + adjustmentSub);
   }, [readyForCheckoutAppointments, selectedAppointmentIds, retailItems, appliedAdjustments, clients, waivedAppointmentFees, staff, redeemedOffer]);
 

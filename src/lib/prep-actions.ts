@@ -59,6 +59,7 @@ async function mirror(db: any, tenantId: string, a: any, fields: any) { if (!a.c
 export function bookingFieldsFor(a: any, q: Quote, startMs?: number) {
   const start = startMs ?? ms(a.startTime); const addOnIds = [...new Set([...(Array.isArray(a.addOnIds) ? a.addOnIds : []), ...q.addOns.map((x) => x.id)])];
   return { ...(q.switched ? { serviceId: q.serviceId, serviceName: q.serviceName, previousServiceId: a.serviceId || null } : {}), addOnIds, prepAddOns: q.addOns.map((x) => ({ id: x.id, qty: x.qty, priceEach: x.priceEach })),
+    addOnIdsBeforePrep: Array.isArray(a.addOnIdsBeforePrep) ? a.addOnIdsBeforePrep : (Array.isArray(a.addOnIds) ? a.addOnIds : []),
     duration: q.newMinutes, endTime: new Date(start + q.newMinutes * 60000).toISOString(), price: q.newPrice, priceIsCeiling: true };
 }
 

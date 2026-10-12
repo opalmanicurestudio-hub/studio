@@ -17,6 +17,7 @@ import { CheckoutNudge } from '@/components/pos/CheckoutNudge';
 import { hasRealCard } from '@/lib/card-on-file';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { offerProblem } from '@/lib/offers';
+import { prepAddOnsOf, usedQty, ceilingOf, dayFeeOf } from '@/lib/prep-checkout';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1267,6 +1268,8 @@ export const CheckoutHub = ({
        {setGiftApplied && addGiftCardToCart && <GiftCardPanel tenantId={tenantId} clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} owedBeforeGift={Math.max(0, beforeGiftTotal - giftInCart)} applied={giftApplied} setApplied={setGiftApplied} holdId={giftHoldId} addGiftCardToCart={addGiftCardToCart} brandName={(selectedTenant as any)?.name || null} brandLogo={(selectedTenant as any)?.logoUrl || null} brandAccent={brandAccent(selectedTenant)} screen={{ connected: cs.connected, ask: cs.ask, response: cs.response }} script={deskScript(shopSettings(selectedTenant))} offer={liveOffer((selectedTenant as any)?.giftCardSettings, 'desk', todayIn((selectedTenant as any)?.timezone))} services={shopSettings(selectedTenant).serviceCards ? (services || []).filter((x: any) => x?.id && x.isActive !== false && !x.isPrivate && Number(x.price) > 0).map((x: any) => ({ id: x.id, name: x.name, price: Number(x.price) })) : []} />}
         </div>
         <div className="co-right min-w-0 space-y-3">
+          {/* WHAT THEY AGREED — the "up to" price from Before the visit (or a change agreed in person today). */}
+          {(appointmentsData || []).map((d: any) => <AgreedPrice key={`ag-${d.appointment?.id}`} tenantId={tenantId} d={d} staff={staff || []} firestore={firestore} />)}
           {/* EXTRA PRODUCT — suggested, never automatic: the provider recorded more than the recipe on "Products used". */}
           {automationOn(selectedTenant, 'extra-product-suggest') && (appointmentsData || []).map((d: any) => <ExtraProductSuggestion key={`xp-${d.appointment?.id}`} tenantId={tenantId} appt={d.appointment} serviceName={d.service?.name} firestore={firestore} />)}
           {/* EXTRA TIME — suggested, never automatic: the visit ran past booked + grace, and the provider said the client asked for it. */}
@@ -1599,6 +1602,36 @@ export const CheckoutHub = ({
 
 };
 
+
+/** The agreed "up to" price at checkout: the agreed add-ons (lower the count when less was needed — the price drops on its
+ *  own), the work so far against the ceiling, and — when it's over — a record that the client agreed to more in person. */
+function AgreedPrice({ tenantId, d, staff, firestore }: { tenantId: string; d: any; staff: any[]; firestore: any }) {
+  const a = d?.appointment || {}; const ceiling = ceilingOf(a); const lines = prepAddOnsOf(a).filter((x) => (a.addOnIds || []).includes(x.id)); const fee = dayFeeOf(a);
+  if (ceiling === null && !lines.length && !fee) return null;
+  const write = async (patch: any) => { if (!firestore || !a.id) return; await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', a.id), patch).catch(() => {}); };
+  const who = (id: string) => staff.find((m: any) => m.id === ((a.checkoutState?.serviceStaffOverrides || {})[id] || a.staffId));
+  const adj = a.checkoutState?.adjustments || {};
+  const work = Math.round((safeNumber(getServicePrice(d.service, who(d.service?.id))) + (d.addOnServices || []).reduce((n: number, s: any) => n + safeNumber(getServicePrice(s, who(s.id))), 0) + safeNumber(adj.timeOverage) + safeNumber(adj.materialOverage)) * 100) / 100;
+  const over = ceiling !== null && work - ceiling > 0.009; const agreedMore = !!a.checkoutState?.overAgreed;
+  const name = String(a.clientName || 'The client').split(' ')[0]; const m = (n: number) => `$${n.toFixed(2)}`;
+  const nameOf = (id: string) => (d.addOnServices || []).find((s: any) => s.id === id)?.name || 'Add-on';
+  return (<section className="space-y-2 rounded-3xl p-4" style={{ background: over && !agreedMore ? 'color-mix(in srgb, var(--warn) 10%, var(--card))' : 'var(--card)', border: '1px solid var(--line)' }} aria-label="What they agreed">
+    <div className="flex items-baseline justify-between gap-2"><p className="text-[15px] font-semibold">{a.dayChange?.answer === 'yes' ? 'Agreed today' : 'Agreed before the visit'}</p>{ceiling !== null && <p className="text-[14px]">up to <b>{m(ceiling)}</b></p>}</div>
+    {lines.map((x) => { const used = usedQty(a, x); return (
+      <div key={x.id} className="flex items-center justify-between gap-2 text-[14px]"><span>{nameOf(x.id)} · {m(x.priceEach)} each</span>
+        <span className="flex items-center gap-1.5" aria-label={`How many ${nameOf(x.id)} were done`}>
+          <button type="button" disabled={used <= 0} onClick={() => void write({ [`checkoutState.prepUsed.${x.id}`]: used - 1 })} className="h-9 w-9 rounded-full text-[16px] disabled:opacity-30" style={{ background: 'var(--soft)' }} aria-label="One fewer">−</button>
+          <span className="w-14 text-center">{used} of {x.qty}</span>
+          <button type="button" disabled={used >= x.qty} onClick={() => void write({ [`checkoutState.prepUsed.${x.id}`]: used + 1 })} className="h-9 w-9 rounded-full text-[16px] disabled:opacity-30" style={{ background: 'var(--soft)' }} aria-label="One more">+</button></span></div>); })}
+    {lines.length > 0 && <p className="text-[12.5px]" style={{ color: 'var(--muted)' }}>Needed fewer? Lower the count — the price drops on its own.</p>}
+    {fee > 0 && <div className="flex items-center justify-between gap-2 text-[14px]"><span>On-the-day change fee · {m(fee)}</span><button type="button" onClick={() => void write({ 'checkoutState.adjustments.dayChangeFee': 0, 'checkoutState.dayChangeFeeWaivedAt': new Date().toISOString() })} className="h-9 rounded-full px-3 text-[13px]" style={{ background: 'var(--soft)' }}>Waive</button></div>}
+    {ceiling !== null && (over ? (agreedMore
+      ? <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{m(work)} — {m(work - ceiling)} over; {name} agreed to it in person{a.checkoutState.overAgreed.by ? ` (recorded by ${a.checkoutState.overAgreed.by})` : ''}.</p>
+      : <div className="space-y-2"><p className="text-[13.5px]" style={{ color: 'var(--warn)' }}><b>{m(work)} is {m(work - ceiling)} over what {name} agreed.</b> Take off what wasn’t done, or ask them first.</p>
+        <button type="button" onClick={() => void write({ 'checkoutState.overAgreed': { at: new Date().toISOString(), by: getAuth().currentUser?.displayName || 'Front desk', amount: work } })} className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>{name} agreed to {m(work)} in person</button></div>)
+      : <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{m(work)} so far{work < ceiling - 0.009 ? ` — ${m(ceiling - work)} under, so ${name} pays less` : ''}.</p>)}
+  </section>);
+}
 
 /** "Extra product" at checkout — asks the server what was used beyond the recipe and offers Add / Waive. */
 function ExtraProductSuggestion({ tenantId, appt, serviceName, firestore }: { tenantId: string; appt: any; serviceName?: string; firestore: any }) {

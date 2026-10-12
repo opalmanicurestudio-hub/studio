@@ -95,6 +95,16 @@ export function quoteFor(check: PrepCheck | null, service: any, services: any[],
     changed: !safety && (switched || addOns.length > 0 || newMinutes !== oldMinutes), safety, lines };
 }
 
+const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+export interface DayInput { addOns?: Array<{ id: string; qty: number }>; addMinutes?: number; switchServiceId?: string | null }
+
+/** A one-question check with the provider's picks as its only answer — so the day's change is priced exactly like a pre-visit one. */
+export function dayCheck(input: DayInput): PrepCheck {
+  const addOns = (Array.isArray(input.addOns) ? input.addOns : []).map((x) => ({ id: String(x?.id || '').slice(0, 120), qty: Math.max(1, Math.min(20, Math.round(num(x?.qty) || 1))) })).filter((x) => x.id).slice(0, 12);
+  return { on: true, version: 1, questions: [{ id: 'day', label: 'On the day', kind: 'choice', options: [{ id: 'pick', label: 'On the day', effect: { addMinutes: Math.max(0, Math.min(240, Math.round(num(input.addMinutes)))), addOns, switchServiceId: input.switchServiceId ? String(input.switchServiceId).slice(0, 120) : null } }] }] };
+}
+
 /** The no-answer rule: past the service's "late" window, suggest its late service (the return plan). */
 export function noAnswerSuggestion(service: any, services: any[], weeksSince: number | null): { serviceId: string; serviceName: string; why: string } | null {
   if (weeksSince === null || !service?.lateServiceId) return null;

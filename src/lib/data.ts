@@ -625,6 +625,7 @@ export type AppointmentCheckoutState = {
         rescheduleFee: number;
         timeOverage: number;
         materialOverage: number;
+        dayChangeFee?: number;   // the business's on-the-day change fee (lib/prep-day)
     };
     absorbedCost: number;
     redeemedRetailDiscount?: boolean;
