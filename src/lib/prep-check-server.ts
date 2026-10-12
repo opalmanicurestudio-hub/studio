@@ -32,9 +32,9 @@ export async function prepVisit(db: any, tenantId: string, appointmentId: string
 
 /** Everything the client's page needs. Only first names, the service, the time, and the business's own prices. */
 export async function prepInfo(db: any, tenantId: string, v: { id: string; a: any }) {
-  const a = v.a; const tenant: any = (await db.doc(T(tenantId)).get()).data() || {};
-  const services = (await db.collection(`${T(tenantId)}/services`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-  const service = services.find((x: any) => x.id === a.serviceId) || null; const check = checkOf(service); const S = prepSettingsOf(tenant);
+  const a = v.a; const { prepCtx } = await import('@/lib/prep-ctx'); const ctx = await prepCtx(db, tenantId, a);   // a renter's visit: the renter's rules
+  const tenant: any = ctx.tenant; const services = ctx.services;
+  const service = services.find((x: any) => x.id === a.serviceId) || null; const check = checkOf(service); const S = ctx.S;
   const tz = tenantTimeZone(tenant); const start = ms(a.startTime); const provider = first(a.staffName);
   const when = start ? new Date(start).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }) : '';
   const closed = CLOSED.includes(String(a.status || '')) || (!!start && start < Date.now());
@@ -44,10 +44,10 @@ export async function prepInfo(db: any, tenantId: string, v: { id: string; a: an
   if (service?.lateServiceId) ids.add(service.lateServiceId);
   const catalog = services.filter((x: any) => ids.has(x.id)).map((x: any) => ({ id: x.id, name: x.name, price: Number(x.price) || 0, duration: Number(x.duration) || 0, lateServiceId: x.lateServiceId || null, returnMinWeeks: x.returnMinWeeks, returnMaxWeeks: x.returnMaxWeeks, rebookWeeks: x.rebookWeeks }));
   const booked = { price: Number.isFinite(Number(a.price)) ? Number(a.price) : null, duration: Number(a.duration) || null };
-  const brand = { name: String(tenant.name || tenant.businessName || 'Your visit'), logo: tenant.logoUrl || tenant.logo || null };
+  const brand = ctx.brand;
   let deposit: string | null = null; const dc = Number(a.depositAmountCents) || 0; if (dc && (a.depositPaid || a.depositStatus === 'paid' || a.paymentStatus === 'deposit_paid' || a.status !== 'pending_payment')) deposit = `$${(dc / 100).toFixed(dc % 100 ? 2 : 0)} paid`;
   return { ok: true as const, serviceId: String(a.serviceId || ''), brand, visit: { service: String(a.serviceName || service?.name || 'your visit'), when, provider, clientFirst: first(a.clientName) }, closed, locked,
-    check, catalog, booked, settings: { quote: S.quote, topUp: S.topUp }, goodToKnow: goodToKnow(tenant, service, services, check, S, provider || null), deposit, depositPaidCents: depositPaidCents(a),
+    check, catalog, booked, settings: { quote: S.quote, topUp: S.topUp }, goodToKnow: goodToKnow(ctx.policyTenant, service, services, check, S, provider || null), renter: ctx.renter, deposit, depositPaidCents: depositPaidCents(a),
     topUp: a.depositTopUp && a.depositTopUp.cents > 0 ? { cents: Number(a.depositTopUp.cents), status: String(a.depositTopUp.status || 'due') } : null, prep: a.prep || null };
 }
 
@@ -75,7 +75,7 @@ export async function prepAnswer(db: any, tenantId: string, v: { id: string; ref
   if (quote.safety && v.a.prep?.status !== 'safety') {
     const who = info.visit.clientFirst || 'A client';
     await notify(db, tenantId, v.a.staffId ? String(v.a.staffId) : null, `${who}'s answers before ${info.visit.when} need a call — a safety answer. Don’t start the service before you’ve talked.`, v.id, true);
-    const { soloBusiness } = await import('@/lib/solo'); if (!(await soloBusiness(db, tenantId)) || !v.a.staffId) await notify(db, tenantId, null, `${who} gave a safety answer before their ${info.visit.service.toLowerCase()} (${info.visit.when}). Call them — moving it is free.`, v.id, true);
+    const { soloBusiness } = await import('@/lib/solo'); if (!info.renter && (!(await soloBusiness(db, tenantId)) || !v.a.staffId)) await notify(db, tenantId, null, `${who} gave a safety answer before their ${info.visit.service.toLowerCase()} (${info.visit.when}). Call them — moving it is free.`, v.id, true);
   }
   return { ok: true, quote, status };
 }
@@ -87,7 +87,7 @@ export async function prepAgree(db: any, tenantId: string, v: { id: string; ref:
   const now = new Date().toISOString(); await v.ref.set({ prep: { ...p, status: 'agreed', agreedAt: now, agreedVia: by === 'desk' ? 'phone' : 'link' } }, { merge: true });
   const q = p.quote || {}; const who = first(v.a.clientName) || 'Your client';
   // Small changes that fit (add-ons and minutes only, within the business's limit) go on by themselves.
-  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = prepSettingsOf(tenant);
+  const { prepCtx } = await import('@/lib/prep-ctx'); const S = (await prepCtx(db, tenantId, v.a)).S;
   if (q.changed && !q.switched && p.fits && S.autoMinutes > 0 && (Number(p.extra) || 0) <= S.autoMinutes) {
     const { applyPrep } = await import('@/lib/prep-actions'); const r = await applyPrep(db, tenantId, v.id, { name: 'Automatically', auto: true }); if (r.ok) return { ok: true, applied: true };
   }
@@ -111,7 +111,11 @@ export async function prepQuestion(db: any, tenantId: string, v: { id: string; r
 export async function prepSweep(db: any, tenantId: string, tenant: any, now = Date.now()) {
   const base = linkOrigin(tenant, ''); if (!base) return { sent: 0, nudged: 0 };
   const services = (await db.collection(`${T(tenantId)}/services`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-  const withCheck = new Set(services.filter((x: any) => checkOf(x)).map((x: any) => x.id)); if (!withCheck.size) return { sent: 0, nudged: 0 };
+  const withCheck = new Set(services.filter((x: any) => checkOf(x)).map((x: any) => x.id));
+  // Renters' own checks (Part 6): their services, their rules — decisions come only to them.
+  const renterChecks = (await db.collection(`${T(tenantId)}/renterServices`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((x: any) => checkOf(x) && x.isActive !== false);
+  if (!withCheck.size && !renterChecks.length) return { sent: 0, nudged: 0 };
+  const rctx = new Map<string, any>(); const { renterCtx } = await import('@/lib/prep-ctx');
   const snap = await db.collection(`${T(tenantId)}/appointments`).where('startTime', '>=', new Date(now).toISOString()).where('startTime', '<=', new Date(now + 8 * 864e5).toISOString()).get();
   const renterIds = new Set((await db.collection(`${T(tenantId)}/staff`).where('role', '==', 'renter').get()).docs.map((d: any) => d.id));
   const { smsConfigured, sendTenantSms } = await import('@/lib/sms'); const { sendNotification } = await import('@/lib/notify');
@@ -119,17 +123,22 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
   for (const d of snap.docs) {
     const a: any = d.data() || {};
     try {
-      if (!withCheck.has(String(a.serviceId)) || CLOSED.includes(String(a.status || '')) || ['pending_payment'].includes(String(a.status || '')) || a.isRenterBooking || renterIds.has(String(a.staffId || ''))) continue;
+      if (CLOSED.includes(String(a.status || '')) || ['pending_payment'].includes(String(a.status || ''))) continue;
+      const rid = a.isRenterBooking ? String(a.renterProviderId || a.staffId || '') : renterIds.has(String(a.staffId || '')) ? String(a.staffId) : '';
+      let list = services; let isR = false;
+      if (rid) { if (!renterChecks.some((x: any) => x.staffId === rid && x.id === a.serviceId)) continue;
+        if (!rctx.has(rid)) rctx.set(rid, await renterCtx(db, tenantId, rid, tenant)); list = rctx.get(rid).services; isR = true; }
+      else if (!withCheck.has(String(a.serviceId))) continue;
       if (a.prep?.answeredAt && a.prep?.by) {   // answered already — if nobody has decided a change by 12 h before, the desk gets it
         const st = String(a.prep.status || ''); const start0 = ms(a.startTime);
         if (a.prep.quote?.changed && ['answered', 'agreed', 'question'].includes(st) && now >= start0 - 12 * 3600e3 && !a.prep.deskAt && !a.prep.remindedAt) {
-          if (solo) { await d.ref.set({ prep: { ...a.prep, remindedAt: new Date(now).toISOString() } }, { merge: true }); await notify(db, tenantId, a.staffId ? String(a.staffId) : null, `Decide ${first(a.clientName) || 'your client'}'s change before their visit: ${(a.prep.quote.lines || []).join(' · ')}. Approve it, keep it as booked, or ask them to pick a new time.`, d.id, true); }
+          if (solo || isR) { await d.ref.set({ prep: { ...a.prep, remindedAt: new Date(now).toISOString() } }, { merge: true }); await notify(db, tenantId, a.staffId ? String(a.staffId) : null, `Decide ${first(a.clientName) || 'your client'}'s change before their visit: ${(a.prep.quote.lines || []).join(' · ')}. Approve it, keep it as booked, or ask them to pick a new time.`, d.id, true); }
           else { const { toDesk } = await import('@/lib/prep-actions'); await toDesk(db, tenantId, d.id, { name: 'No decision 12 h before' }, 'Nobody decided yet'); }
         }
         continue;
       }
-      const start = ms(a.startTime); const svc = services.find((x: any) => x.id === a.serviceId);
-      const { sendAt, lockAt } = sendTimes(start, Number(resolvePolicy(tenant, svc).cancel.windowHours.value) || 24);
+      const start = ms(a.startTime); const svc = list.find((x: any) => x.id === a.serviceId);
+      const { sendAt, lockAt } = sendTimes(start, isR ? 24 : Number(resolvePolicy(tenant, svc).cancel.windowHours.value) || 24);
       if (now >= lockAt) continue;
       const due = !a.prepSentAt ? now >= sendAt : (!a.prepNudgedAt && now >= ms(a.prepSentAt) + 24 * 3600e3 && now < lockAt - 2 * 3600e3);
       if (!due) continue;
@@ -149,7 +158,7 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
       let suggestion: any = null;
       if (!a.prepSentAt && a.clientId) { try { const past = (await db.collection(`${T(tenantId)}/appointments`).where('clientId', '==', a.clientId).get()).docs.map((x: any) => x.data() || {})
           .filter((x: any) => x.serviceId === a.serviceId && ['completed', 'checked_out', 'paid'].includes(String(x.status)) && ms(x.startTime) < start).map((x: any) => ms(x.startTime)).sort((p: number, q: number) => q - p);
-        const weeks = past.length ? Math.floor((start - past[0]) / (7 * 864e5)) : null; suggestion = noAnswerSuggestion(svc, services, weeks); } catch { /* none */ } }
+        const weeks = past.length ? Math.floor((start - past[0]) / (7 * 864e5)) : null; suggestion = noAnswerSuggestion(svc, list, weeks); } catch { /* none */ } }
       await d.ref.set(!a.prepSentAt ? { prepSentAt: stamp, ...(suggestion ? { prepSuggestion: suggestion } : {}) } : { prepNudgedAt: stamp }, { merge: true });
       if (!a.prepSentAt) sent++; else nudged++;
     } catch { /* next visit */ }

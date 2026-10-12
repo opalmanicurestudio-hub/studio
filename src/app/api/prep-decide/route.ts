@@ -41,7 +41,9 @@ export async function POST(req: NextRequest) {
   if (action === 'desk_link') { if (!desk) return j({ ok: false, error: 'The front desk does this one.' }, 403); const { prepPath, prepDeskKey } = await import('@/lib/prep-check-server'); return j({ ok: true, path: `${prepPath(tenantId, id)}&d=${prepDeskKey(tenantId, id)}` }); }
   if (action === 'providers' || action === 'move_provider') { if (!desk) return j({ ok: false, error: 'The front desk does this one.' }, 403);
     const r: any = action === 'providers' ? await otherProviders(db, tenantId, id) : await moveToProvider(db, tenantId, id, String(b.staffId || ''), by); return j(r, r.ok ? 200 : 409); }
-  if (['move', 'cancel'].includes(action) && !desk) return j({ ok: false, error: 'The front desk decides this one.' }, 403);
+  // A renter is their own desk: they move or cancel their own visits (never the studio's).
+  const ownRenterVisit = mine && (appt.isRenterBooking === true || (await import('@/lib/prep-ctx').then((m) => m.renterVisit(db, tenantId, appt))).renter);
+  if (['move', 'cancel'].includes(action) && !desk && !ownRenterVisit) return j({ ok: false, error: 'The front desk decides this one.' }, 403);
   const r = action === 'approve' ? await applyPrep(db, tenantId, id, by) : action === 'keep' ? await keepPrep(db, tenantId, id, by) : action === 'desk' ? await toDesk(db, tenantId, id, by, b.why)
     : action === 'move' ? await askToMove(db, tenantId, id, by) : action === 'cancel' ? await cancelFree(db, tenantId, id, by) : { ok: false, error: 'Unknown action.' };
   return j(r, r.ok ? 200 : 409);

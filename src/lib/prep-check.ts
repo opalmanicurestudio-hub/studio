@@ -130,7 +130,7 @@ export function goodToKnow(tenant: any, service: any, services: any[], check: Pr
     : `If there’s more to do on the day, ${who} shows you the change and the price first. We’ll do what fits in your time and book the rest — you can say no.`);
   if (S.onDayFeeCents) out.push(`If it’s a lot more than you told us and needs a new visit, there’s a ${money(S.onDayFeeCents / 100)} fee.`);
   out.push('We suggested this change, so moving or cancelling is free until you say yes.');
-  try { const p = resolvePolicy(tenant, service); const h = Number(p.cancel.windowHours.value) || 0; const fv = Number(p.cancel.feeValue.value) || 0; const fm = p.cancel.feeMode.value;
+  if (tenant) try { const p = resolvePolicy(tenant, service); const h = Number(p.cancel.windowHours.value) || 0; const fv = Number(p.cancel.feeValue.value) || 0; const fm = p.cancel.feeMode.value;
     if (h && fm !== 'none' && fv) out.push(`Otherwise, changing or cancelling less than ${h} hours before is ${fm === 'percentage' ? `${fv}% of the price` : money(fv)}.`); } catch { /* no policy */ }
   return out;
 }

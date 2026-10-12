@@ -69,13 +69,13 @@ export async function applyPrep(db: any, tenantId: string, apptId: string, by: {
   const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
   const p = a.prep; const q: Quote | null = p?.quote || null; if (!q) return { ok: false, error: 'There’s nothing to approve.' };
   if (q.safety) return { ok: false, error: 'This is a safety answer — talk to the client first.' };
-  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {};
-  if (q.switched && a.staffId) { const svc: any = (await db.doc(`${T(tenantId)}/services/${q.serviceId}`).get()).data() || {};
+  const { prepCtx } = await import('@/lib/prep-ctx'); const ctx = await prepCtx(db, tenantId, a); const tenant: any = ctx.tenant;   // a renter's visit: the renter's rules
+  if (q.switched && a.staffId) { const svc: any = ctx.services.find((x: any) => x.id === q.serviceId) || {};
     const { isCertified } = await import('@/lib/availability'); if (!isCertified(svc, String(a.staffId))) return { ok: false, error: `${first(a.staffName) || 'This provider'} isn’t certified for ${q.serviceName} — send it to the desk.` }; }
   const extra = Math.max(0, q.newMinutes - (Math.round((endOf(a) - ms(a.startTime)) / 60000)));
   const fit = await fitsAfter(db, tenantId, apptId, a, extra); if (!fit.fits) return { ok: false, error: 'It doesn’t fit — send it to the desk.', fits: false };
   const now = new Date().toISOString(); const fields = bookingFieldsFor(a, q);
-  const S = prepSettingsOf(tenant); const word = S.quote === 'about' ? 'about' : 'up to';
+  const S = ctx.S; const word = S.quote === 'about' ? 'about' : 'up to';
   // A bigger price can mean a bigger deposit — only if the business asks for it, and only on a visit that took one.
   const due = topUpDue(S.topUp, a, q.oldPrice, q.newPrice);
   await ref.set({ ...fields, depositTopUp: due ? { cents: due, status: 'due', at: now } : null, prep: { ...p, status: 'approved', approvedAt: now, approvedBy: by.name, auto: !!by.auto } }, { merge: true });
@@ -90,7 +90,7 @@ export async function applyPrep(db: any, tenantId: string, apptId: string, by: {
 /** Keep the booking as it is ("do what fits, book the rest" — or the business's own rule). */
 export async function keepPrep(db: any, tenantId: string, apptId: string, by: { name: string }) {
   const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
-  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = prepSettingsOf(tenant); const now = new Date().toISOString();
+  const { prepCtx } = await import('@/lib/prep-ctx'); const ctx = await prepCtx(db, tenantId, a); const tenant: any = ctx.tenant; const S = ctx.S; const now = new Date().toISOString();
   await ref.set({ prep: { ...(a.prep || {}), status: 'kept', keptAt: now, keptBy: by.name } }, { merge: true }); await releaseHold(db, tenantId, apptId);
   const rule = S.onDay === 'extend_or_move' ? 'If there’s more to do, we’ll extend if there’s time or find you another.' : S.onDay === 'provider' ? `${first(a.staffName) || 'Your provider'} will go over it with you when you arrive.` : 'We’ll do what fits in your time and book the rest.';
   await textClient(db, tenantId, a, apptId, `Thanks for your answers, ${first(a.clientName) || 'there'}! We’re keeping your visit ${whenOf(tenant, a.startTime)} as booked. ${rule}`, 'About your visit');
@@ -124,8 +124,10 @@ export async function cancelFree(db: any, tenantId: string, apptId: string, by: 
   const fields = { status: 'cancelled', cancelledAt: now, cancelledBy: 'studio', studioCancelled: true, cancellationReason: 'more_time_needed', cancellationFeeCharged: 0, cancellationFeeWaived: true };
   await ref.set({ ...fields, prep: { ...(a.prep || {}), status: 'cancelled', cancelledBy: by.name } }, { merge: true }); await mirror(db, tenantId, a, fields); await releaseHold(db, tenantId, apptId);
   const dep = a.depositStatus === 'paid' ? Number(a.depositAmountCents) || 0 : 0;
-  if (dep > 0) { const d = db.collection(`${T(tenantId)}/depositDecisions`).doc(); await d.set({ id: d.id, tenantId, appointmentId: apptId, clientId: a.clientId || null, trigger: 'studio_cancel_more_time', amountCents: dep, status: 'pending', suggested: 'refund', createdAt: now }); }
+  const { renterVisit } = await import('@/lib/prep-ctx'); const isRenter = (await renterVisit(db, tenantId, a)).renter;   // a renter refunds their own deposit; their freed time isn't the studio's
+  if (dep > 0 && !isRenter) { const d = db.collection(`${T(tenantId)}/depositDecisions`).doc(); await d.set({ id: d.id, tenantId, appointmentId: apptId, clientId: a.clientId || null, trigger: 'studio_cancel_more_time', amountCents: dep, status: 'pending', suggested: 'refund', createdAt: now }); }
   await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'} — we’ve had to cancel your ${String(a.serviceName || 'visit').toLowerCase()} ${whenOf(tenant, a.startTime)} because it needs more time than we have. There’s no fee${dep ? ' and your deposit will be refunded' : ''}. We’ll be in touch to find a better time.`, 'Your visit');
+  if (isRenter) return { ok: true, offered: 0, depositToRefund: dep };
   const freed = await offerFreedTime(db, tenantId, tenant, { staffId: a.staffId || null, startMs: ms(a.startTime), minutes: Math.round((endOf(a) - ms(a.startTime)) / 60000), serviceId: a.serviceId || null, providerName: first(a.staffName) });
   return { ok: true, offered: freed.offered };
 }

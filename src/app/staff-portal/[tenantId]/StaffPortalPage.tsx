@@ -1165,8 +1165,8 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </button>
             )}
 
-            {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <PrepSummary apt={apt} tenantId={tenantId} solo={isSoloTeam(allStaff || [])} />}
-            {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <DayChange apt={apt} tenantId={tenantId} solo={isSoloTeam(allStaff || [])} staffName={(allStaff || []).find((m: any) => m.id === apt.staffId)?.name || apt.staffName} />}
+            {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <PrepSummary apt={apt} tenantId={tenantId} solo={viewerIsRenter || isSoloTeam(allStaff || [])} />}
+            {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <DayChange apt={apt} tenantId={tenantId} solo={viewerIsRenter || isSoloTeam(allStaff || [])} staffName={(allStaff || []).find((m: any) => m.id === apt.staffId)?.name || apt.staffName} />}
             {!viewerIsRenter && ['servicing','in_service','ready_for_checkout','completed','checked_out','paid'].includes(st) && <AftercareNote apt={apt} tenantId={tenantId} firestore={firestore} staffId={currentStaffId} staffName={(allStaff || []).find((m: any) => m.id === currentStaffId)?.name} />}
             {!['cancelled','no_show'].includes(st) && <SomethingHappened apt={apt} tenantId={tenantId} />}
             {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} />}

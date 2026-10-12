@@ -1,6 +1,7 @@
 'use client';
 import { BuildingRules } from '@/components/rent/BuildingRules';
 import { MyDocuments } from '@/components/rent/MyDocuments';
+import { RenterPrep } from '@/components/rent/RenterPrep';
 import { MyGiftCards } from '@/components/rent/MyGiftCards';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
@@ -291,6 +292,7 @@ export default function RenterPortalPage() {
             {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyGiftCards tenantId={tenantId} token={session.token} />}
+            {booksHere && session?.token && data?.renter?.id && <RenterPrep tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && data?.renter?.id && <MyDocuments tenantId={tenantId} token={session.token} booksHere />}
 
             {booksHere && (

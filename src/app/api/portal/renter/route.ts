@@ -3430,6 +3430,14 @@ export async function POST(req: NextRequest) {
       try { const { rulesFor } = await import('@/lib/renter-rules'); const br = await rulesFor(db, tenantId, rid);
         for (const x of br.rules) if (x.state !== 'signed') items.push({ kind: 'document', tab: 'studio', title: x.state === 'resign' ? 'The building rules changed — sign again' : 'Building rules to sign', body: `${x.title}${x.signBy ? ` · by ${x.signBy}` : ''}`, at: new Date(now).toISOString(), tone: 'amber' });
       } catch { /* the rest of Today still shows */ }
+      // Before the visit (their own checks): a client's answers that need their decision.
+      try { const ids: string[] = prov ? await myStaffIds() : [];
+        for (const sid of ids) { const ap = await db.collection(`tenants/${tenantId}/appointments`).where('staffId', '==', sid).get();
+          for (const d of ap.docs) { const a: any = d.data() || {}; const t0 = Date.parse(a.startTime || '') || 0; const p = a.prep || {};
+            if (t0 < now || t0 > now + 8 * 86400000 || ['cancelled', 'canceled', 'no_show', 'completed'].includes(String(a.status || ''))) continue;
+            if (!(['answered', 'agreed', 'question', 'safety', 'needs_desk'].includes(String(p.status || '')) && (p.quote?.changed || ['question', 'safety'].includes(String(p.status || ''))))) continue;
+            items.push({ kind: 'prep', tab: 'book', title: p.status === 'safety' ? 'Call before their visit' : p.status === 'question' ? 'A client has a question' : 'A visit needs your decision', body: `${String(a.clientName || 'A client').split(' ')[0]} · ${(p.quote?.lines || []).join(' · ') || a.serviceName || 'visit'}`.slice(0, 120), at: p.answeredAt || new Date(now).toISOString(), tone: p.status === 'safety' ? 'red' : 'amber' }); } }
+      } catch { /* the rest of Today still shows */ }
 
       for (const d of tickets.docs) {
         const x = d.data() as any;
@@ -3469,7 +3477,7 @@ export async function POST(req: NextRequest) {
       items.sort((a, b) => String(b.at).localeCompare(String(a.at)));
       return NextResponse.json({
         ok: true, items: items.slice(0, 12), todayAppts,
-        badges: { studio: items.filter((i) => i.tab === 'studio' && i.tone !== 'green').length, rent: items.filter((i) => i.tab === 'rent').length, book: todayAppts.length + items.filter((i) => i.kind === 'request').length },
+        badges: { studio: items.filter((i) => i.tab === 'studio' && i.tone !== 'green').length, rent: items.filter((i) => i.tab === 'rent').length, book: todayAppts.length + items.filter((i) => i.kind === 'request' || i.kind === 'prep').length },
       });
     }
 

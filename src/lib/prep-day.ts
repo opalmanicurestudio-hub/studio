@@ -37,18 +37,20 @@ export function dayQuote(a: any, services: any[], input: DayInput): Quote {
 
 async function load(db: any, tenantId: string, apptId: string) {
   const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`);
-  const [aSnap, tSnap, sSnap] = await Promise.all([ref.get(), db.doc(T(tenantId)).get(), db.collection(`${T(tenantId)}/services`).get()]);
-  return { ref, a: aSnap.exists ? (aSnap.data() as any) : null, tenant: (tSnap.data() || {}) as any, services: sSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })) as any[] };
+  const aSnap = await ref.get(); const a = aSnap.exists ? (aSnap.data() as any) : null;
+  if (!a) return { ref, a: null, tenant: {} as any, services: [] as any[], S: null as any, renter: false };
+  // A renter's visit: the renter's services and rules (lib/prep-ctx).
+  const { prepCtx } = await import('@/lib/prep-ctx'); const ctx = await prepCtx(db, tenantId, a);
+  return { ref, a, tenant: ctx.tenant, services: ctx.services, S: ctx.S, renter: ctx.renter };
 }
 
 /** What the provider can pick from: add-ons for this service, other services they're certified for, and the free time after. */
 export async function dayOptions(db: any, tenantId: string, apptId: string) {
-  const { a, tenant, services } = await load(db, tenantId, apptId); if (!a) return { ok: false, error: 'That visit is gone.' };
-  const S = prepSettingsOf(tenant); const { svc, price, minutes } = currentOf(a, services);
+  const { a, tenant, services, S, renter } = await load(db, tenantId, apptId); if (!a) return { ok: false, error: 'That visit is gone.' }; const { svc, price, minutes } = currentOf(a, services);
   const { isCertified } = await import('@/lib/availability');
   const live = services.filter((s: any) => s.isActive !== false && s.archived !== true && !s.ownerRenterId);
   const compatible: string[] = Array.isArray(svc?.compatibleAddOnIds) ? svc.compatibleAddOnIds : [];
-  const addOns = live.filter((s: any) => s.type === 'addon' && (!compatible.length || compatible.includes(s.id))).map((s: any) => ({ id: s.id, name: String(s.name || 'Add-on'), price: num(s.price), duration: num(s.duration) })).slice(0, 40);
+  const addOns = live.filter((s: any) => (renter ? s.id !== a.serviceId : s.type === 'addon' && (!compatible.length || compatible.includes(s.id))))   // a renter adds any of their own services.map((s: any) => ({ id: s.id, name: String(s.name || 'Add-on'), price: num(s.price), duration: num(s.duration) })).slice(0, 40);
   const switches = live.filter((s: any) => s.type !== 'addon' && s.id !== a.serviceId && (!svc?.category || s.category === svc.category) && (!a.staffId || isCertified(s, String(a.staffId))))
     .map((s: any) => ({ id: s.id, name: String(s.name || 'Service'), price: num(s.price), duration: num(s.duration) })).slice(0, 30);
   const fit = await fitsAfter(db, tenantId, apptId, a, 1);
@@ -70,9 +72,9 @@ async function textClient(db: any, tenantId: string, a: any, apptId: string, tex
 
 /** The client's answer, in person. `runOver`: the provider (or a manager) chose to go past the free time, on purpose. */
 export async function dayChange(db: any, tenantId: string, apptId: string, by: { name: string; staffId?: string | null; manager?: boolean }, input: DayInput & { answer: 'yes' | 'no'; fee?: boolean; runOver?: boolean }) {
-  const { ref, a, tenant, services } = await load(db, tenantId, apptId); if (!a) return { ok: false, error: 'That visit is gone.' };
+  const { ref, a, tenant, services, S, renter } = await load(db, tenantId, apptId); if (!a) return { ok: false, error: 'That visit is gone.' };
   if (['cancelled', 'canceled', 'completed', 'no_show'].includes(String(a.status || ''))) return { ok: false, error: 'This visit is already closed.' };
-  const S = prepSettingsOf(tenant); const q = dayQuote(a, services, input); if (!q.changed) return { ok: false, error: 'Pick what’s needed first.' };
+  const q = dayQuote(a, services, input); if (!q.changed) return { ok: false, error: 'Pick what’s needed first.' };
   if (q.switched && a.staffId) { const { isCertified } = await import('@/lib/availability'); const t = services.find((s: any) => s.id === q.serviceId); if (!isCertified(t, String(a.staffId))) return { ok: false, error: `${first(a.staffName) || 'This provider'} isn’t certified for ${q.serviceName}.` }; }
   const { minutes } = currentOf(a, services); const extra = Math.max(0, q.newMinutes - minutes);
   const fit = await fitsAfter(db, tenantId, apptId, a, extra);
@@ -101,7 +103,7 @@ export async function dayChange(db: any, tenantId: string, apptId: string, by: {
     const msg = outcome.startsWith('applied') ? `Thanks, ${first(a.clientName) || 'there'} — as agreed today: ${q.lines.join(' · ')}. Your visit is now ${word} ${money(q.newPrice)}${fee ? ` plus a ${money(fee)} on-the-day fee` : ''}, until about ${until}. You’ll only pay for what’s done.`
       : `Thanks, ${first(a.clientName) || 'there'} — as agreed today: ${q.lines.join(' · ')}. ${outcome === 'needs_new_time' ? 'It doesn’t fit today’s time, so we’ll find you another — no fee.' : 'We’ll do what fits today and book the rest with you.'}`;
     await textClient(db, tenantId, a, apptId, msg).catch(() => false);
-    if (!outcome.startsWith('applied')) { const r = db.collection(`${T(tenantId)}/notifications`).doc(); await r.set({ id: r.id, type: 'prep_check', message: `${first(a.clientName) || 'A client'} (with ${first(a.staffName) || 'their provider'}) agreed to ${q.lines.join(' · ')} — ${outcome === 'needs_new_time' ? 'find them a new time, no fee' : 'book the rest with them before they leave'}.`, link: '/before-the-visit', appointmentId: apptId, createdAt: now, read: false, priority: 'high' }); }
+    if (!outcome.startsWith('applied')) { const r = db.collection(`${T(tenantId)}/notifications`).doc(); await r.set({ id: r.id, ...(renter && a.staffId ? { userId: String(a.staffId) } : {}), type: 'prep_check', message: `${first(a.clientName) || 'A client'} (with ${first(a.staffName) || 'their provider'}) agreed to ${q.lines.join(' · ')} — ${outcome === 'needs_new_time' ? 'find them a new time, no fee' : 'book the rest with them before they leave'}.`, link: '/before-the-visit', appointmentId: apptId, createdAt: now, read: false, priority: 'high' }); }
   }
   return { ok: true, outcome, fits: fit.fits, freeMinutes: fit.freeMinutes, quote: q, fee };
 }
