@@ -5,6 +5,7 @@
 //   Answers — saved on the visit (appointment.prep), with the quote the client saw and the rules version; "Looks right"
 //     records their agreement; "I have a question" reaches the desk; a safety answer reaches the provider and managers.
 // Changing the booking itself (time, add-ons, service) is round 2 — the provider or desk approves first.
+import { depositPaidCents } from '@/lib/prep-topup';
 import { createHmac } from 'crypto';
 import { checkOf, quoteFor, goodToKnow, prepSettingsOf, sendTimes, noAnswerSuggestion, type Answers } from '@/lib/prep-check';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -14,6 +15,8 @@ import { tenantTimeZone } from '@/lib/tenant-time';
 const T = (t: string) => `tenants/${t}`;
 const SECRET = () => process.env.LINK_SECRET || process.env.FIREBASE_ADMIN_PRIVATE_KEY || process.env.FIREBASE_ADMIN_CLIENT_EMAIL || 'clarityflow-links';
 export const prepKey = (tenantId: string, appointmentId: string) => createHmac('sha256', SECRET()).update(`before:${tenantId}:${appointmentId}`).digest('base64url').slice(0, 16);
+/** The desk's version of the link (filling the check in with the client over the phone) — the answers are marked as taken by the desk. */
+export const prepDeskKey = (tenantId: string, appointmentId: string) => createHmac('sha256', SECRET()).update(`before-desk:${tenantId}:${appointmentId}`).digest('base64url').slice(0, 16);
 export const prepPath = (tenantId: string, appointmentId: string) => `/before/${tenantId}/${appointmentId}?k=${prepKey(tenantId, appointmentId)}`;
 const CLOSED = ['cancelled', 'canceled', 'no_show', 'declined', 'expired', 'completed', 'checked_out', 'paid'];
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
@@ -44,7 +47,8 @@ export async function prepInfo(db: any, tenantId: string, v: { id: string; a: an
   const brand = { name: String(tenant.name || tenant.businessName || 'Your visit'), logo: tenant.logoUrl || tenant.logo || null };
   let deposit: string | null = null; const dc = Number(a.depositAmountCents) || 0; if (dc && (a.depositPaid || a.depositStatus === 'paid' || a.paymentStatus === 'deposit_paid' || a.status !== 'pending_payment')) deposit = `$${(dc / 100).toFixed(dc % 100 ? 2 : 0)} paid`;
   return { ok: true as const, serviceId: String(a.serviceId || ''), brand, visit: { service: String(a.serviceName || service?.name || 'your visit'), when, provider, clientFirst: first(a.clientName) }, closed, locked,
-    check, catalog, booked, settings: { quote: S.quote }, goodToKnow: goodToKnow(tenant, service, services, check, S, provider || null), deposit, prep: a.prep || null };
+    check, catalog, booked, settings: { quote: S.quote, topUp: S.topUp }, goodToKnow: goodToKnow(tenant, service, services, check, S, provider || null), deposit, depositPaidCents: depositPaidCents(a),
+    topUp: a.depositTopUp && a.depositTopUp.cents > 0 ? { cents: Number(a.depositTopUp.cents), status: String(a.depositTopUp.status || 'due') } : null, prep: a.prep || null };
 }
 
 const okAnswers = (check: any, raw: any): Answers => { const out: Answers = {}; for (const q of check?.questions || []) { const v = raw?.[q.id]; if (typeof v !== 'string') continue;
@@ -56,7 +60,7 @@ async function notify(db: any, tenantId: string, userId: string | null, message:
 }
 
 /** Save answers (and the quote they saw). */
-export async function prepAnswer(db: any, tenantId: string, v: { id: string; ref: any; a: any }, raw: any) {
+export async function prepAnswer(db: any, tenantId: string, v: { id: string; ref: any; a: any }, raw: any, by: 'client' | 'desk' = 'client') {
   const info = await prepInfo(db, tenantId, v); if (!info.check) return { ok: false, error: 'There are no questions for this visit.' };
   if (info.closed) return { ok: false, error: 'This visit has already happened or was cancelled.' };
   const answers = okAnswers(info.check, raw); const service = info.catalog.find((x: any) => x.id === v.a.serviceId) || null;
@@ -67,7 +71,7 @@ export async function prepAnswer(db: any, tenantId: string, v: { id: string; ref
   const extra = Math.max(0, quote.newMinutes - Math.round((endOf(v.a) - ms(v.a.startTime)) / 60000));
   const fit = quote.safety ? { fits: false, freeMinutes: null } : await fitsAfter(db, tenantId, v.id, v.a, extra);
   if (!quote.safety && extra > 0 && fit.fits) await placeHold(db, tenantId, v.id, v.a, extra); else await releaseHold(db, tenantId, v.id);
-  await v.ref.set({ prep: { ...(v.a.prep || {}), answers, quote, version: info.check.version || 1, answeredAt: now, by: 'client', status, agreedAt: null, late: info.locked, extra, fits: fit.fits, freeMinutes: fit.freeMinutes, held: !quote.safety && extra > 0 && fit.fits } }, { merge: true });
+  await v.ref.set({ prep: { ...(v.a.prep || {}), answers, quote, version: info.check.version || 1, answeredAt: now, by, status, agreedAt: null, late: info.locked, extra, fits: fit.fits, freeMinutes: fit.freeMinutes, held: !quote.safety && extra > 0 && fit.fits } }, { merge: true });
   if (quote.safety && v.a.prep?.status !== 'safety') {
     const who = info.visit.clientFirst || 'A client';
     await notify(db, tenantId, v.a.staffId ? String(v.a.staffId) : null, `${who}'s answers before ${info.visit.when} need a call — a safety answer. Don’t start the service before you’ve talked.`, v.id, true);
@@ -77,10 +81,10 @@ export async function prepAnswer(db: any, tenantId: string, v: { id: string; ref
 }
 
 /** "Looks right": their agreement to the quote they saw. */
-export async function prepAgree(db: any, tenantId: string, v: { id: string; ref: any; a: any }) {
+export async function prepAgree(db: any, tenantId: string, v: { id: string; ref: any; a: any }, by: 'client' | 'desk' = 'client') {
   const p = v.a.prep; if (!p?.answeredAt) return { ok: false, error: 'Answer the questions first.' };
   if (p.status === 'safety') return { ok: false, error: 'We’ll call you about this visit.' };
-  const now = new Date().toISOString(); await v.ref.set({ prep: { ...p, status: 'agreed', agreedAt: now } }, { merge: true });
+  const now = new Date().toISOString(); await v.ref.set({ prep: { ...p, status: 'agreed', agreedAt: now, agreedVia: by === 'desk' ? 'phone' : 'link' } }, { merge: true });
   const q = p.quote || {}; const who = first(v.a.clientName) || 'Your client';
   // Small changes that fit (add-ons and minutes only, within the business's limit) go on by themselves.
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = prepSettingsOf(tenant);
@@ -148,4 +152,34 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
     } catch { /* next visit */ }
   }
   return { sent, nudged };
+}
+
+/** "Add it to my deposit": a card payment for the top-up the business asked for (Stripe Checkout on their account). */
+export async function prepTopUpLink(db: any, tenantId: string, v: { id: string; ref: any; a: any }, origin: string) {
+  const t = v.a.depositTopUp; if (!t || !(Number(t.cents) > 0)) return { ok: false, error: 'There’s nothing to add to your deposit.' };
+  if (t.status === 'paid') return { ok: false, error: 'Your deposit is already topped up — thank you!' };
+  if (CLOSED.includes(String(v.a.status || ''))) return { ok: false, error: 'This visit has already happened or was cancelled.' };
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; if (!tenant.stripeAccountId) return { ok: false, error: 'Card payments aren’t set up here — we’ll take it at your visit.' };
+  let email = v.a.clientEmail || null; if (!email && v.a.clientId) { try { email = ((await db.doc(`${T(tenantId)}/clients/${v.a.clientId}`).get()).data() as any)?.email || null; } catch { /* none */ } }
+  const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' as any });
+  const back = `${origin}${prepPath(tenantId, v.id)}`; const md = { type: 'deposit_topup', tenantId, appointmentId: v.id, cents: String(Math.round(Number(t.cents))) };
+  const session = await stripe.checkout.sessions.create({ mode: 'payment', ...(email ? { customer_email: String(email) } : {}),
+    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: Math.round(Number(t.cents)), product_data: { name: `Deposit top-up — ${v.a.serviceName || 'your visit'}`, description: 'Comes off your total at your visit.' } } }],
+    metadata: md, payment_intent_data: { metadata: md }, success_url: `${back}&paid=1`, cancel_url: back, expires_at: Math.floor(Date.now() / 1000) + 23 * 3600 }, { stripeAccount: tenant.stripeAccountId });
+  return { ok: true, url: session.url as string };
+}
+
+/** The top-up was paid (the connect webhook): the deposit grows, the credit that comes off at checkout grows with it. Safe to run twice. */
+export async function prepTopUpPaid(db: any, tenantId: string, apptId: string, x: { cents: number; sessionId: string; chargeId?: string | null }) {
+  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data(); if (!a) return { ok: false };
+  if (a.depositTopUp?.status === 'paid' && a.depositTopUp?.sessionId === x.sessionId) return { ok: true, already: true };
+  const now = new Date().toISOString(); const cents = Math.max(0, Math.round(x.cents));
+  await ref.set({ depositAmountCents: (Number(a.depositAmountCents) || 0) + cents, depositTopUp: { ...(a.depositTopUp || {}), status: 'paid', paidAt: now, paidCents: cents, sessionId: x.sessionId } }, { merge: true });
+  const credits = await db.collection(`${T(tenantId)}/depositCredits`).where('sourceAppointmentId', '==', apptId).get();
+  const open = credits.docs.find((d: any) => (d.data() || {}).status === 'available');
+  if (open) await open.ref.set({ amountCents: (Number(open.data().amountCents) || 0) + cents, toppedUpAt: now }, { merge: true });
+  else { const c = db.collection(`${T(tenantId)}/depositCredits`).doc(); await c.set({ id: c.id, tenantId, clientId: a.clientId || null, clientEmail: String(a.clientEmail || '').toLowerCase().trim(), clientName: a.clientName || 'Guest', amountCents: cents, status: 'available', sourceAppointmentId: apptId, createdAt: now, checkoutSessionId: x.sessionId, stripeChargeId: x.chargeId || null }); }
+  const tx = db.collection(`${T(tenantId)}/transactions`).doc();
+  await tx.set({ id: tx.id, date: now, description: `Deposit top-up — ${a.serviceName || 'Appointment'}`, clientOrVendor: a.clientName || 'Guest', clientId: a.clientId || null, type: 'income', context: 'Business', category: 'Retainers', taxBucket: 'revenue', amount: cents / 100, paymentMethod: 'Online Checkout', hasReceipt: false, appointmentId: apptId, staffId: a.staffId || null, checkoutSessionId: x.sessionId, stripeChargeId: x.chargeId || null, tenantId });
+  return { ok: true };
 }

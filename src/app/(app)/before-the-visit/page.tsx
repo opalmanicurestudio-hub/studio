@@ -10,6 +10,7 @@ import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
+import { accuracyOf } from '@/lib/prep-accuracy';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#3d5a99', PURPLE = '#7a4b8c';
 const money = (n: number) => `$${Number.isInteger(Math.round(n * 100) / 100) ? Math.round(n) : n.toFixed(2)}`;
@@ -48,8 +49,9 @@ export default function BeforeTheVisitDesk() {
         {group('Needs you', need, 'Doesn’t fit, a question, or a safety answer', true)}
         {group('With the provider', provider, 'They approve or keep it — it comes here 12 h before if nobody has', true)}
         {group('Picking a new time', moving, 'Free and not counted — they choose from their visit link', true)}
-        {group('Not answered yet', waiting, 'If they don’t answer, the weeks since their last visit decide the suggestion')}
+        {group('Not answered yet', waiting, 'If they don’t answer, the weeks since their last visit decide the suggestion — or fill it in with them by phone', true)}
         {group('Settled', settled)}
+        {firestore && tenantId && <Accuracy firestore={firestore as Firestore} tenantId={tenantId} />}
       </div>
     </div>);
 }
@@ -71,10 +73,14 @@ function Row({ a, first, when, tenantId, actions }: { a: any; first: boolean; wh
         {!p.answeredAt && a.prepSuggestion && <p style={{ color: PURPLE }}>No answer — {a.prepSuggestion.why}. Suggests {a.prepSuggestion.serviceName}.</p>}
         {p.quote && !q?.changed && st !== 'safety' && <p style={{ color: GREEN }}>No change needed.</p>}
         {['needs_desk', 'answered', 'agreed', 'question'].includes(st) && q?.changed && <p className="text-[13px]" style={{ color: p.fits ? GREEN : AMBER }}>{p.fits ? `Fits${p.freeMinutes ? ` — ${p.freeMinutes} min free after` : ''}; the time is held.` : 'Doesn’t fit after this visit.'}</p>}
+        {p.by === 'desk' && <p className="text-[13px]" style={{ color: MUTED }}>Answered with the desk by phone{p.agreedVia === 'phone' ? ' — they agreed on the call' : ''}.</p>}
+        {a.depositTopUp?.cents > 0 && <p className="text-[13px]" style={{ color: a.depositTopUp.status === 'paid' ? GREEN : AMBER }}>{a.depositTopUp.status === 'paid' ? `Deposit topped up by ${money(a.depositTopUp.cents / 100)}.` : `Deposit top-up of ${money(a.depositTopUp.cents / 100)} asked for — not paid yet (it can be taken at checkout).`}</p>}
+        {actions && (st === 'waiting' || (!p.answeredAt && a.prepSentAt)) && <button type="button" disabled={!!busy} onClick={async () => { setBusy('phone'); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: a.id, action: 'desk_link' }); setBusy(''); if (r.ok && r.path) window.open(r.path, '_blank', 'noopener'); else setMsg(r.error || 'That didn’t work.'); }} className="h-10 rounded-full px-4 text-[13.5px] font-semibold" style={{ background: SOFT }}>{busy === 'phone' ? '…' : 'Fill it in with them by phone'}</button>}
         {Array.isArray(p.questions) && p.questions.length > 0 && <p className="rounded-[12px] px-3 py-2" style={{ background: SOFT }}>“{p.questions[p.questions.length - 1].text}”</p>}
         {actions && ['needs_desk', 'question', 'safety', 'answered', 'agreed'].includes(st) && <div className="flex flex-wrap gap-1.5">
           {q?.changed && p.fits && st !== 'safety' && chip('Approve', 'approve', true)}
           {st !== 'safety' && q?.changed && chip('Ask them to pick a new time', 'move', !p.fits)}
+          {st !== 'safety' && q?.changed && !p.fits && <OtherProvider a={a} tenantId={tenantId} onDone={(m) => setMsg(m)} />}
           {chip('Keep as booked', 'keep')}
           {!confirm ? <button type="button" disabled={!!busy} onClick={() => setConfirm(true)} className="h-10 rounded-full px-4 text-[13.5px]" style={{ background: SOFT, color: RED }}>Cancel — no fee</button>
             : <button type="button" disabled={!!busy} onClick={() => go('cancel')} className="h-10 rounded-full px-4 text-[13.5px] font-semibold text-white" style={{ background: RED }}>{busy === 'cancel' ? 'Cancelling…' : 'Yes, cancel it'}</button>}
@@ -83,4 +89,31 @@ function Row({ a, first, when, tenantId, actions }: { a: any; first: boolean; wh
       </div>
       <div><span className="inline-flex h-7 items-center rounded-full px-2.5 text-[12px] font-semibold" style={{ background: look.bg, color: look.fg }}>{look.label}</span></div>
     </div>);
+}
+
+/** How often what clients said before the visit matched what the provider found on the day — last 90 days, by service. */
+function Accuracy({ firestore, tenantId }: { firestore: Firestore; tenantId: string }) {
+  const [from] = React.useState(() => new Date(Date.now() - 90 * 864e5).toISOString()); const [to] = React.useState(() => new Date().toISOString());
+  const q = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('startTime', '>=', from), where('startTime', '<=', to)), [firestore, tenantId, from, to]);
+  const { data } = useCollection<any>(q);
+  const r = React.useMemo(() => accuracyOf(data || []), [data]);
+  if (!r.rows.length) return null;
+  const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '—');
+  return (<section className="space-y-2">
+    <div className="flex items-baseline justify-between"><h2 className="text-[17px] font-semibold">How accurate are the answers?</h2><p className="text-[13px]" style={{ color: MUTED }}>Last 90 days · from what was found on the day</p></div>
+    <div className="overflow-x-auto rounded-[18px] border bg-white" style={{ borderColor: LINE }}>
+      <table className="w-full min-w-[560px] text-[14px]"><thead><tr className="text-left text-[12.5px]" style={{ color: MUTED }}><th className="px-4 py-3 font-normal">Service</th><th className="px-3 font-normal">Asked</th><th className="px-3 font-normal">Answered</th><th className="px-3 font-normal">Matched on the day</th><th className="px-3 font-normal">More found</th></tr></thead>
+        <tbody>{r.rows.map((x) => <tr key={x.service} style={{ borderTop: `1px solid ${LINE}` }}><td className="px-4 py-3">{x.service}</td><td className="px-3">{x.asked}</td><td className="px-3">{pct(x.answered, x.asked)}</td>
+          <td className="px-3" style={{ color: x.answered && x.matched / x.answered < 0.8 ? AMBER : GREEN }}>{pct(x.matched, x.answered)}</td><td className="px-3">{x.moreAfterAnswer + x.moreNoAnswer ? `${x.moreAfterAnswer + x.moreNoAnswer}${x.moreNoAnswer ? ` (${x.moreNoAnswer} didn’t answer)` : ''}` : '—'}</td></tr>)}</tbody></table></div>
+    {r.tips.map((t) => <p key={t} className="text-[13.5px]" style={{ color: MUTED }}>{t}</p>)}
+  </section>);
+}
+
+/** Doesn't fit with their provider → the same time with someone else certified and free for the whole visit. */
+function OtherProvider({ a, tenantId, onDone }: { a: any; tenantId: string; onDone: (m: string) => void }) {
+  const [list, setList] = React.useState<any[] | null>(null); const [busy, setBusy] = React.useState(''); const [moved, setMoved] = React.useState(false);
+  if (moved) return null;
+  if (list === null) return <button type="button" disabled={!!busy} onClick={async () => { setBusy('look'); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: a.id, action: 'providers' }); setBusy(''); setList(r.ok ? r.providers || [] : []); if (!r.ok) onDone(r.error || 'That didn’t work.'); }} className="h-10 rounded-full px-4 text-[13.5px]" style={{ background: SOFT }}>{busy ? '…' : 'Same time, another provider?'}</button>;
+  if (!list.length) return <span className="inline-flex h-10 items-center px-2 text-[13px]" style={{ color: MUTED }}>Nobody else is free for it then.</span>;
+  return <>{list.map((p) => <button key={p.staffId} type="button" disabled={!!busy} onClick={async () => { setBusy(p.staffId); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: a.id, action: 'move_provider', staffId: p.staffId }); setBusy(''); onDone(r.ok ? `Done — moved to ${p.name}; the client has been told.` : r.error || 'That didn’t work.'); if (r.ok) setMoved(true); }} className="h-10 rounded-full px-4 text-[13.5px] font-semibold" style={{ background: '#e6ecf7', color: '#22365f' }}>{busy === p.staffId ? '…' : `Move to ${String(p.name).split(' ')[0]}`}</button>)}</>;
 }

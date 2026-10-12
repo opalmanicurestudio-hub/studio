@@ -112,6 +112,13 @@ export async function POST(req: NextRequest) {
         // complete admission (the return page does the same — whichever comes
         // first; both are safe to run twice).
         // A pay link the front desk sent for fees → settle exactly those fees (once, however often this arrives).
+        // Before the visit: a deposit top-up after the price went up (lib/prep-check-server; safe to run twice).
+        if (sessionType === 'deposit_topup') {
+          try { if (session.payment_status === 'paid' && session.metadata?.appointmentId) { const { prepTopUpPaid } = await import('@/lib/prep-check-server');
+              await prepTopUpPaid(getAdminDb(), tenant.id, String(session.metadata.appointmentId), { cents: Number(session.amount_total) || Number(session.metadata.cents) || 0, sessionId: session.id, chargeId: null }); }
+          } catch (e: any) { console.error('[connect-webhook] deposit top-up failed', e?.message); }
+          break;
+        }
         if (sessionType === 'fee_payment') {
           try { const { settleFeesPaid } = await import('@/lib/fee-pay');
             const md: any = session.metadata || {};
