@@ -215,6 +215,8 @@ export default function BookingPoliciesPage() {
               <span className="w-full text-xs text-muted-foreground">Their clients choose first: the same time with a colleague, one of the provider’s next times (kept for them), first in line, or cancel with no fee. Choose by:</span>
               <Choice field="bookingPolicies.calloutChooseBy" value={t.bookingPolicies?.calloutChooseBy ?? 'evening'} label="Choose-by time" options={[['evening', '6:00 PM the evening before'], [24, '24 hours before'], [12, '12 hours before'], [6, '6 hours before']]} />
               <span className="w-full text-xs text-muted-foreground">Never later than 3 hours before the visit. Anyone who hasn’t chosen by then goes on your call list, and the kept times nobody picked are offered to the waitlist.</span>
+              <span className="w-full text-xs text-muted-foreground">How long the provider’s next times are kept for those clients (one time per client still choosing, from the next 7 days; each one is released as soon as a client decides):</span>
+              <Num field="bookingPolicies.calloutHoldHours" value={Number(t.bookingPolicies?.calloutHoldHours) || 12} unit="hours at most" label="Keep times for" min={1} max={48} />
             </Row>
           </Section>
 

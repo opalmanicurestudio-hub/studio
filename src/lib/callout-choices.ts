@@ -59,9 +59,10 @@ export async function prepareChoices(db: any, t: string, o: { calloutId: string;
   // Kept times: the provider's next free starts after she's back, longest service first so the times are roomy.
   const serviceIds = Array.from(new Set(Array.from(appts.values()).map((a: any) => String(a.serviceId || '')).filter(Boolean)))
     .sort((x, y) => (svcMin(y) || 0) - (svcMin(x) || 0));
-  const need = Math.min(10, entries.length + 2); const kept: KeptTime[] = [];
+  // One time per client who still has to choose (at most 6), from the next 7 days. Nothing extra is taken from other clients.
+  const need = Math.min(6, entries.length); const kept: KeptTime[] = [];
   const from = Math.max(o.toMs, o.now + 2 * H);
-  if (e) for (let i = 0; i <= 14 && kept.length < need; i++) {
+  if (e) for (let i = 0; i <= 7 && kept.length < need; i++) {
     const date = addDays(ymd(from, tz), i); const cand: { s: number; m: number }[] = [];
     for (const sid of serviceIds) for (const sl of D.openTimes(e, { date, serviceId: sid, staffId: o.staffId }) || []) {
       if (sl.staffId && sl.staffId !== o.staffId) continue; const s = ms(sl.startIso || sl.start); if (s >= from) cand.push({ s, m: svcMin(sid) || 60 });
@@ -87,7 +88,10 @@ export async function prepareChoices(db: any, t: string, o: { calloutId: string;
     if (!by) call++;
     await db.doc(`${T}/appointments/${en.appointmentId}`).set({ disruption: { chooseBy: by ? iso(by) : null, hasChoices: true } }, { merge: true });
   }
-  if (!holdUntil) holdUntil = o.now + H;   // everyone is on the call list: a short hold so the desk can offer the times by phone
+  // Held until the choose-by time, but never longer than the shop's hold limit (12 hours by default), so the times
+  // aren't kept from everyone else for long. Everyone on the call list: a short hold so the desk can offer them by phone.
+  const holdH = Math.max(1, Math.min(48, Number(tenant.bookingPolicies?.calloutHoldHours) || 12));
+  holdUntil = holdUntil ? Math.min(holdUntil, o.now + holdH * H) : o.now + H;
   for (const k of kept) await db.doc(`${T}/staffBlocks/co_${o.calloutId}_${k.id}`).set({ staffId: o.staffId, startTime: k.start, duration: k.minutes, reason: 'callout_hold',
     label: 'Kept for clients affected by a callout', calloutId: o.calloutId, until: iso(holdUntil), createdAt: iso(o.now) });
   await ref.set({ affected: upd, choices: { keptTimes: kept, holdUntil: iso(holdUntil), rule, done: false } }, { merge: true });
@@ -136,6 +140,20 @@ async function tellClient(db: any, t: string, a: any, subject: string, lines: st
 }
 const resolved = (d: any, outcome: string) => ({ ...d, status: 'resolved', outcome });
 
+/** As each client decides, one kept time goes back to normal booking, so the times held never outnumber the clients
+ * still choosing. Called after every decision that doesn't take a kept time. */
+export async function shrinkHolds(db: any, t: string, calloutId: string, now = Date.now()) {
+  const T = `tenants/${t}`; const ref = db.doc(`${T}/providerCallouts/${calloutId}`); const rec: any = (await ref.get()).data();
+  if (!rec?.choices || rec.choices.done) return 0;
+  const undecided = Object.values<any>(rec.affected || {}).filter((en: any) => !en.isRenterBooking && en.outcome === 'pending').length;
+  const free = (rec.choices.keptTimes || []).filter((k: KeptTime) => !k.takenBy).sort((x: KeptTime, y: KeptTime) => ms(y.start) - ms(x.start));
+  const drop = free.slice(0, Math.max(0, free.length - undecided)).map((k: KeptTime) => k.id);
+  if (!drop.length) return 0;
+  for (const id of drop) await db.doc(`${T}/staffBlocks/co_${calloutId}_${id}`).delete().catch(() => {});
+  await ref.set({ choices: { ...rec.choices, keptTimes: rec.choices.keptTimes.map((k: KeptTime) => (drop.includes(k.id) ? { ...k, takenBy: 'released' } : k)), ...(undecided === 0 ? { done: true, releasedAt: iso(now) } : {}) } }, { merge: true });
+  return drop.length;
+}
+
 /** The client takes one of the kept times. First to tap gets it. */
 export async function takeKeptTime(db: any, t: string, a: any, keptId: string, now = Date.now()) {
   const T = `tenants/${t}`; const d = a.disruption || {}; const cRef = db.doc(`${T}/providerCallouts/${d.id}`);
@@ -176,6 +194,7 @@ export async function switchProvider(db: any, t: string, a: any, staffId: string
     disruption: resolved(d, 'reassigned') };
   await db.doc(`${T}/appointments/${a.id}`).set(f, { merge: true }); await mirror(db, t, a, { staffId, staffName: o.name, disruption: f.disruption });
   await cRef.set({ affected: { [a.id]: { outcome: 'reassigned', outcomeAt: iso(now), by: 'client', newStaffId: staffId, needsCall: false } } }, { merge: true });
+  await shrinkHolds(db, t, d.id, now);
   await bell(db, t, staffId, `${a.clientName || 'A client'} is now booked with you for ${a.serviceName || 'an appointment'} on ${whenText(s, tz)}, as ${first(rec.staffName)} is unavailable. They keep the price they booked.`, now, { appointmentId: a.id });
   await tellClient(db, t, a, `Your appointment with ${first(o.name)}`, [`thank you. Your ${a.serviceName || 'appointment'} on ${whenText(s, tz)} will now be with ${first(o.name)}, at the price you booked. We're looking forward to seeing you.`]);
   return { ok: true, staffName: first(o.name), when: whenText(s, tz) };

@@ -326,6 +326,7 @@ export async function POST(req: NextRequest) {
       await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'disruption_reply', link: 'pos', appointmentId: apptId, message: `${a.clientName || 'A client'} has cancelled their appointment because of the ${d.kind === 'callout' ? 'callout' : 'interruption'}. No fee applies.${dep > 0 ? ` Their deposit is ${asCredit ? 'being kept as credit' : 'to be refunded'}.` : ''}` }).catch(() => {});
       await logAuditAdmin(db, tenantId, { action: 'disruption.client_cancelled', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} cancelled because of the ${d.kind === 'callout' ? 'provider callout' : 'business interruption'} — no fee${dep > 0 ? `; $${(dep / 100).toFixed(2)} deposit ${asCredit ? 'kept as credit' : 'to be refunded'}` : ''}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
       if (lineUp) { try { const { firstInLine } = await import('@/lib/callout-choices'); await firstInLine(db, tenantId, { ...a, id: apptId }); } catch (e) { console.error('[callout first in line]', e); } }
+      if (d.kind === 'callout' && d.id) { try { const { shrinkHolds } = await import('@/lib/callout-choices'); await shrinkHolds(db, tenantId, String(d.id)); } catch { /* the sweep tidies up */ } }
       return NextResponse.json({ ok: true, deposit: dep > 0 ? (asCredit ? 'credit' : 'refund') : null, firstInLine: lineUp });
     }
     // We offered another provider → they accept (it's applied) or decline (back to the team).
@@ -519,6 +520,7 @@ export async function POST(req: NextRequest) {
         return { conflict: false };
       });
       if (!result.conflict) await recordDisruption({ outcome: 'rescheduled', newStartTime: newStart.toISOString() });
+      if (!result.conflict && a.disruption?.kind === 'callout' && a.disruption?.status === 'pending' && a.disruption?.id) { try { const { shrinkHolds } = await import('@/lib/callout-choices'); await shrinkHolds(db, tenantId, String(a.disruption.id)); } catch { /* the sweep tidies up */ } }
       if (!result.conflict && usingGrace && a.clientId) {
         const gRef = db.collection(`tenants/${tenantId}/graceUses`).doc(); const gNow = new Date().toISOString();
         await gRef.set({ id: gRef.id, tenantId, clientId: String(a.clientId), event: 'late_reschedule', at: gNow, appointmentId: apptId, serviceId: a.serviceId || null, staffId: a.staffId || null, permit: 'free_reschedule', reason: null, appliedBy: a.clientName || 'Client', appliedById: null, approvedBy: null, voidedAt: null, via: 'visit link' });

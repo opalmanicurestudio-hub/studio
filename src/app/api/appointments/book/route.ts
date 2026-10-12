@@ -661,6 +661,7 @@ export async function POST(req: NextRequest) {
         if (!c.exists) return { conflict: 'Client not found.' };
         clientRecord = c.data() as any;
         clientName = clientRecord.name || '';
+        if (['banned', 'blocked'].includes(String(clientRecord?.status || ''))) return { conflict: trust ? 'This client is marked “Not to be booked”. A manager can change this on their profile.' : 'We’re sorry, we’re unable to take this booking online. Please contact us directly.', blocked: true };   // “Not to be booked”: online, portal, kiosk and desk alike
       } else {
         clientName = String(body?.client?.name || '').slice(0, MAX_FIELD).trim();
         if (!clientName) return { conflict: 'Client name is required.' };
@@ -696,6 +697,7 @@ export async function POST(req: NextRequest) {
           clientId = reused.id;
           clientRecord = reused.data() as any;
           clientName = clientRecord.name || clientName;
+          if (['banned', 'blocked'].includes(String(clientRecord?.status || ''))) return { conflict: trust ? 'This client is marked “Not to be booked”. A manager can change this on their profile.' : 'We’re sorry, we’re unable to take this booking online. Please contact us directly.', blocked: true };
           if (Object.keys(consent).length) tx.set(reused.ref, consent, { merge: true });
         } else {
           const newRef = db.collection(`tenants/${tenantId}/clients`).doc();
@@ -889,7 +891,7 @@ export async function POST(req: NextRequest) {
     });
 
     if ((result as any).conflict) {
-      if (clientExtra > 0) return NextResponse.json({ ok: false, code: 'needs_longer', extraMinutes: clientExtra, error: `Your visits here usually take about ${clientExtra} minutes longer, so this time doesn’t leave enough room. Here are times that fit.` }, { status: 409 });
+      if (clientExtra > 0 && !(result as any).blocked) return NextResponse.json({ ok: false, code: 'needs_longer', extraMinutes: clientExtra, error: `Your visits here usually take about ${clientExtra} minutes longer, so this time doesn’t leave enough room. Here are times that fit.` }, { status: 409 });
       return NextResponse.json({ ok: false, error: (result as any).conflict }, { status: 409 });
     }
     const r: any = result;

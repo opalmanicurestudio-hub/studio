@@ -30,15 +30,17 @@ const H = 3600e3, MIN = 60000; const iso = (n: number) => new Date(n).toISOStrin
   console.log('Recording the callout');
   let db = await fresh(); const p = await C.prepareChoices(db, 't1', { calloutId: 'c1', staffId: 'maya', toMs: et('2026-10-15T23:59:59'), now }, deps);
   let r = await rec(db); const blocks = (await db.collection('tenants/t1/staffBlocks').get()).docs.map((d: any) => d.data());
-  check('Maya’s next three free times are kept for her clients', p.kept === 3 && r.choices.keptTimes.length === 3 && blocks.length === 3 && blocks.every((b: any) => b.reason === 'callout_hold'), r.choices);
-  check('…hidden from booking until 6:00 PM Wednesday', blocks.every((b: any) => b.until === iso(et('2026-10-14T18:00:00'))));
+  check('one of Maya’s next free times is kept per client still choosing (two), nothing extra', p.kept === 2 && r.choices.keptTimes.length === 2 && blocks.length === 2 && blocks.every((b: any) => b.reason === 'callout_hold'), r.choices);
+  check('…hidden from booking until 6:00 PM Wednesday (inside the 12-hour limit)', blocks.every((b: any) => b.until === iso(et('2026-10-14T18:00:00'))));
+  { const db9 = await fresh(); await db9.doc('tenants/t1').set({ name: 'Opal Nail Studio', timezone: tz, bookingPolicies: { calloutHoldHours: 4 } }); await C.prepareChoices(db9, 't1', { calloutId: 'c1', staffId: 'maya', toMs: et('2026-10-15T23:59:59'), now }, deps);
+    check('the hold never runs past the shop’s limit (4 hours here)', (await rec(db9)).choices.holdUntil === iso(now + 4 * H)); }
   check('Ana can keep her time with Jo (free and does gel); a renter is never offered', r.affected.a1.others.length === 1 && r.affected.a1.others[0].staffId === 'jo');
   check('Dee has nobody free at 1:30', r.affected.a2.others.length === 0);
   check('both choose by Wednesday 6:00 PM; nobody is on the call list yet', r.affected.a1.chooseBy === iso(et('2026-10-14T18:00:00')) && !r.affected.a1.needsCall && p.call === 0);
 
   console.log('The client chooses');
   const o = await C.optionsFor(db, 't1', await appt(db, 'a1'), now);
-  check('Ana sees: Jo at the same time, and the three kept times', o.ok && (o as any).others[0]?.name === 'Jo' && (o as any).kept.length === 3 && (o as any).provider === 'Maya', o);
+  check('Ana sees: Jo at the same time, and the kept times', o.ok && (o as any).others[0]?.name === 'Jo' && (o as any).kept.length === 2 && (o as any).provider === 'Maya', o);
   const t1 = await C.takeKeptTime(db, 't1', await appt(db, 'a2'), 'k0', now + 5 * MIN);
   const a2 = await appt(db, 'a2'); r = await rec(db);
   check('Dee takes Saturday 10:00 → her visit moves, the hold goes, the record says rescheduled', t1.ok && a2.startTime === iso(et('2026-10-17T10:00:00')) && a2.disruption.status === 'resolved' && r.affected.a2.outcome === 'rescheduled'
@@ -47,6 +49,7 @@ const H = 3600e3, MIN = 60000; const iso = (n: number) => new Date(n).toISOStrin
   check('…and nobody else can take the same time', !t2.ok && /just been chosen/.test((t2 as any).error));
   const sw = await C.switchProvider(db, 't1', await appt(db, 'a1'), 'jo', now + 7 * MIN); const a1 = await appt(db, 'a1');
   check('Ana keeps 9:00 with Jo; Maya stays on record as her original provider', sw.ok && a1.staffId === 'jo' && a1.originalStaffId === 'maya' && a1.disruption.outcome === 'reassigned');
+  check('…the last kept time goes back to normal booking now that nobody is choosing', (await rec(db)).choices.done === true && (await db.collection('tenants/t1/staffBlocks').get()).docs.length === 0);
   check('…and Jo gets a bell', (await db.collection('tenants/t1/notifications').get()).docs.some((d: any) => d.data().userId === 'jo' && /now booked with you/.test(d.data().message)));
 
   console.log('After the choose-by time');
@@ -56,7 +59,7 @@ const H = 3600e3, MIN = 60000; const iso = (n: number) => new Date(n).toISOStrin
   check('at 6:05 PM both undecided clients are on the call list, and the desk is asked to call', s1.called === 2 && r.affected.a1.needsCall && (await db.collection('tenants/t1/notifications').get()).docs.some((d: any) => d.data().userId === 'desk' && /Please call/.test(d.data().message)));
   check('…their visits stay on the schedule (nobody is cancelled by silence)', (await appt(db, 'a1')).status === 'confirmed');
   const ops = (await db.collection('tenants/t1/openings').get()).docs.map((d: any) => d.data());
-  check('the three kept times nobody picked go to the waitlist, and their holds are gone', s1.released === 3 && ops.length === 3 && ops.every((x: any) => x.source === 'callout' && x.gapChecked) && (await db.collection('tenants/t1/staffBlocks').get()).docs.length === 0);
+  check('the two kept times nobody picked go to the waitlist, and their holds are gone', s1.released === 2 && ops.length === 2 && ops.every((x: any) => x.source === 'callout' && x.gapChecked) && (await db.collection('tenants/t1/staffBlocks').get()).docs.length === 0);
   check('told once', (await C.calloutSweep(db, 't1', et('2026-10-14T18:10:00'))).called === 0);
 
   console.log('First in line, and “back after all”');
