@@ -19,13 +19,16 @@
 import { resolvePolicy } from '@/lib/booking-policies';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 
 const MAX_FIELD = 300;
+// What the caller may send. The visit copies are readable with the token, so what lands THERE is cut down again by
+// publicVisitCopy: no free-text note, and the client's id and name come from the appointment, not the request.
 const ALLOWED_FIELDS = [
-  'appointmentId', 'clientId', 'clientName', 'status', 'checkInToken',
-  'checkedInAt', 'partySize', 'notes', 'serviceIds', 'staffId', 'source',
+  'appointmentId', 'status', 'checkInToken',
+  'checkedInAt', 'partySize', 'serviceIds', 'staffId', 'source',
   'checkInStatus', 'lateTimeMinutes', // client self-service status ("on my way", "running late", "arrived")
-  'lateNote',                         // optional note with "running late"
+  'lateNote',                         // optional note with "running late" — kept on the appointment only
 ];
 
 export async function POST(req: NextRequest) {
@@ -49,16 +52,24 @@ export async function POST(req: NextRequest) {
     // Shape-validate: only allowed fields, strings capped.
     // The token must belong to the booking named — otherwise anyone could mark
     // someone else's appointment as arrived or running late.
+    // Every write needs the appointment, and the token must be that appointment's own link.
     let appt: any = null;
-    if (body.appointmentId) {
-      const snap = await db.doc(`tenants/${tenantId}/appointments/${String(body.appointmentId).slice(0, 120)}`).get();
+    let apptId = typeof body.appointmentId === 'string' ? body.appointmentId.slice(0, 120) : '';
+    if (apptId && /^[A-Za-z0-9_-]{1,120}$/.test(apptId)) {
+      const snap = await db.doc(`tenants/${tenantId}/appointments/${apptId}`).get();
       appt = snap.exists ? (snap.data() as any) : null;
-      if (!appt || appt.checkInToken !== token) return NextResponse.json({ ok: false, error: 'This link doesn’t match that appointment.' }, { status: 403 });
     }
+    // Older copies didn't carry the appointment id (the page then sends the token) — find the visit by its link.
+    if (!appt) {
+      const hit = (await db.collection(`tenants/${tenantId}/appointments`).where('checkInToken', '==', token).limit(1).get()).docs[0];
+      if (hit) { appt = hit.data() as any; apptId = String(hit.id); }
+    }
+    if (!appt || !apptId || appt.checkInToken !== token) return NextResponse.json({ ok: false, error: 'This link doesn’t match that appointment.' }, { status: 403 });
+    body.appointmentId = apptId;
 
     // ── TRIP SHARING (opt-in; ends at check-in). We keep only HOW FAR and a
     // rough ETA — never the client's coordinates.
-    if (body.trip !== undefined && appt) {
+    if (body.trip !== undefined) {
       const aRef = db.doc(`tenants/${tenantId}/appointments/${String(body.appointmentId)}`);
       if (body.trip === null || body.trip === 'stop') { await aRef.set({ clientTrip: null }, { merge: true }); return NextResponse.json({ ok: true, sharing: false }); }
       const lat = Number(body.trip?.lat), lng = Number(body.trip?.lng);
@@ -80,7 +91,7 @@ export async function POST(req: NextRequest) {
     // The same status again within 3 minutes (or "running late" by a similar
     // amount) is recognised and not re-sent to the team; after "I'm here", a
     // stale "on my way" / "running late" is ignored.
-    if (appt && body.checkInStatus) {
+    if (body.checkInStatus) {
       const st = String(body.checkInStatus), prev = String(appt.checkInStatus || '');
       const since = appt.clientStatusAt ? Date.now() - Date.parse(appt.clientStatusAt) : Infinity;
       const prevMins = Number(appt.lateTimeMinutes) || 0, mins = Math.max(0, Math.min(120, Math.round(Number(body.lateTimeMinutes) || 0)));
@@ -105,11 +116,15 @@ export async function POST(req: NextRequest) {
     if (!clean.checkedInAt && clean.status) clean.checkedInAt = new Date().toISOString();
     if (clean.lateTimeMinutes !== undefined) clean.lateTimeMinutes = Math.max(0, Math.min(120, Math.round(Number(clean.lateTimeMinutes) || 0)));
     // A new "running late" replaces any earlier decision (the team decides again).
+    // Who: from the appointment itself, never from the request.
+    clean.appointmentId = apptId; clean.id = apptId;
+    if (appt.clientId) clean.clientId = String(appt.clientId);
+    if (appt.clientName) clean.clientName = String(appt.clientName);
     if (clean.checkInStatus === 'running_late') { clean.lateReply = null; clean.studioAskedToMove = false;
       if (appt?.startTime) clean.etaAt = new Date(Date.parse(appt.startTime) + (Number(clean.lateTimeMinutes) || 0) * 60000).toISOString(); }
 
     // Scoped write (the target state) + legacy mirror (compatibility).
-    await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(clean, { merge: true });
+    await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(publicVisitCopy(clean), { merge: true });
 
     // A RENTER'S client saying "on my way" / "running late" / "I'm here":
     // the studio's planner reads appointmentCheckIns, the renter's portal
@@ -151,11 +166,11 @@ export async function POST(req: NextRequest) {
         }
       } catch (e) { console.error('[checkins] visit timeline', e); }
     }
-    await db.doc(`appointmentCheckIns/${token}`).set(clean, { merge: true }); // TODO: remove after legacy rule closes
+    await db.doc(`appointmentCheckIns/${token}`).set(publicVisitCopy(clean), { merge: true }); // TODO: remove after legacy rule closes
 
     // What the client should know back — their grace period (Booking policies).
     let reply: any = {};
-    if (appt && clean.checkInStatus) {
+    if (clean.checkInStatus) {
       const aRef = db.doc(`tenants/${tenantId}/appointments/${String(body.appointmentId)}`);
       const t: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       const P = resolvePolicy(t);
@@ -223,12 +238,12 @@ export async function GET(req: NextRequest) {
     if (!tenantId || !token) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     const db = getAdminDb();
     const scoped = await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).get();
-    if (scoped.exists) return NextResponse.json({ ok: true, checkIn: scoped.data() });
+    if (scoped.exists) return NextResponse.json({ ok: true, checkIn: publicVisitCopy(scoped.data()) });
     const legacy = await db.doc(`appointmentCheckIns/${token}`).get();
     const data = legacy.exists ? (legacy.data() as any) : null;
     if (data && data.tenantId !== tenantId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
     return data
-      ? NextResponse.json({ ok: true, checkIn: data })
+      ? NextResponse.json({ ok: true, checkIn: publicVisitCopy(data) })
       : NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
   } catch (err) {
     console.error('[checkins] GET failed', err);

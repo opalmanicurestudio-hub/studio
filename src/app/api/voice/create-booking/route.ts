@@ -52,6 +52,7 @@ import { hasRealCard } from '@/lib/card-on-file';
 import { internalHeaders } from '@/lib/message-policy';
 import type { Firestore } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 import { randomInt } from 'crypto';
 import { computeDepositCents, isPoorHistory } from '@/lib/deposit-policy';
 import { hasUsableCard } from '@/lib/payments/has-usable-card';
@@ -418,7 +419,7 @@ export async function createBooking(
   );
 
   batch.set(db.doc(`tenants/${tenantId}/appointments/${aptId}`), aptDoc);
-  batch.set(db.doc(`appointmentCheckIns/${checkInToken}`), aptDoc);
+  batch.set(db.doc(`appointmentCheckIns/${checkInToken}`), publicVisitCopy(aptDoc));   // visit-link-safe fields only
 
   if (needsLink) {
     const expiryDays = Number(tenant?.completionLinkExpiryDays) || 7;

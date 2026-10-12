@@ -114,8 +114,8 @@ export async function optionsFor(db: any, t: string, a: any, now = Date.now()) {
   return { ok: true as const, provider: first(rec.staffName), others, kept, chooseBy: en.chooseBy ? whenText(ms(en.chooseBy), tz) : null };
 }
 
-async function mirror(db: any, t: string, a: any, f: any) {
-  if (!a.checkInToken) return;
+async function mirror(db: any, t: string, a: any, f0: any) {
+  if (!a.checkInToken) return; const { publicVisitCopy } = await import('@/lib/public-visit-copy'); const f = publicVisitCopy(f0);
   await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${t}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
 }
 async function bell(db: any, t: string, userId: string | null, message: string, now: number, extra: any = {}) {

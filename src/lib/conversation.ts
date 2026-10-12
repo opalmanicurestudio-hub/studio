@@ -62,7 +62,7 @@ export async function conversationFor(db: any, t: string, client: any, o: { limi
   if (email) for (const m of await safe(async () => rows(await db.collection(`${T}/smsInbox`).where('fromEmail', '==', email).limit(200).get()), [] as any[])) inbound.set(m.id, m);
   for (const m of Array.from(inbound.values()))
     out.push({ id: `i_${m.id}`, at: m.at, dir: 'in', type: m.channel === 'email' ? 'email' : 'text', who: String(client.name || 'Client'), text: m.body || (m.mediaCount ? `${m.mediaCount} photo(s)` : null),
-      subject: m.subject || null, complaint: m.complaint || null, meta: { inboxId: m.id, via: m.via || null, channel: m.channel || 'sms' } });
+      subject: m.subject || null, complaint: m.complaint || null, meta: { inboxId: m.id, via: m.via || null, channel: m.channel || 'sms', unverified: !!m.unverifiedSender || !!m.webhookUnverified } });
 
   // Staff text threads.
   const threads = await safe(async () => {

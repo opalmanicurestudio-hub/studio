@@ -155,28 +155,20 @@ export async function POST(req: NextRequest) {
             );
             keywordActionTaken = 'confirmed';
           } else {
-            // Reuses log-call-intent's existing cancellation logic
-            // (fee gating, safety checks, everything already built)
-            // rather than reimplementing any of it here — a keyword
-            // reply cancellation goes through the exact same rules as
-            // any other cancel.
+            // Nothing is cancelled from a text alone (the number may be recycled, shared or wrong, and any fee has to be
+            // shown first): the client gets their own link, opened to cancelling, where they confirm.
             try {
-              const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
-              await fetch(`${appUrl}/api/voice/log-call-intent`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'x-voice-secret': process.env.VOICE_AGENT_SECRET || '',
-                },
-                body: JSON.stringify({
-                  tenantId,
-                  clientId,
-                  appointmentId: apt.id,
-                  intent: 'cancel',
-                  callerPhone: fromNumber,
-                }),
-              });
-              keywordActionTaken = 'cancel_requested';
+              const a: any = { id: apt.id, ...(apt.data() as any) };
+              const { internalOrigin } = await import('@/lib/message-policy'); const base = internalOrigin(tenant, null) || process.env.NEXT_PUBLIC_APP_URL || '';
+              const { tenantTimeZone } = await import('@/lib/tenant-time');
+              const when = new Date(a.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenantTimeZone(tenant) });
+              if (a.checkInToken && base) {
+                const { sendNotification } = await import('@/lib/notify');
+                await sendNotification(db, { tenantId, channel: 'sms', to: fromNumber, kind: 'text_assist', clientId, clientName: a.clientName || null, recipientType: 'client', recipientId: clientId, appointmentId: a.id,
+                  text: `Hi ${String(a.clientName || '').split(' ')[0] || 'there'}, thank you for letting us know. You can cancel your ${a.serviceName || 'appointment'} on ${when} here: ${base}/check-in/${a.checkInToken}?do=cancel The link shows any fee before you confirm, and lets you choose a new time instead if you’d prefer.`,
+                  sentBy: { id: 'auto', name: 'Automatic reply' } } as any);
+                keywordActionTaken = 'cancel_link_sent';
+              }
             } catch {
               /* non-fatal — falls through to normal agent handling below */
             }

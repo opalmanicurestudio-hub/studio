@@ -33,6 +33,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { providersOf } from '@/lib/visit-watch';
 import { bookingFieldsFor } from '@/lib/prep-actions';
 import { NextRequest, NextResponse } from 'next/server';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
@@ -95,6 +96,13 @@ const fmtWhen = (iso: string, tzOffset: number, zone?: string | null) => {
   return `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
 };
 
+/** Has the client verified this device (a code sent to their phone or email)? lib/client-verify. Until it's built, nothing is trusted. */
+async function deviceTrusted(db: any, tenantId: string, clientId: string, device: string): Promise<boolean> {
+  if (!device || !clientId) return false;
+  try { const v: any = (await db.doc(`tenants/${tenantId}/clientDevices/${device.replace(/[^\w-]/g, '').slice(0, 80)}`).get()).data();
+    return !!v && v.clientId === clientId && !v.revokedAt && Date.parse(v.expiresAt || '') > Date.now(); } catch { return false; }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -106,6 +114,10 @@ export async function POST(req: NextRequest) {
     if (!authed) return NextResponse.json({ ok: false, error: 'This link is no longer valid. Please use the link in your most recent confirmation.' }, { status: 401 });
     const { ref, a } = authed;
     apptId = authed.id;   // the real appointment id, even when the page sent its link key
+    // An old link stops working for actions 30 days after its visit (a forwarded, recycled or mis-sent link can't be
+    // used forever). Their newer visits have their own links.
+    { const end = Date.parse(a.endTime || a.startTime || ''); if (action !== 'view' && Number.isFinite(end) && Date.now() - end > 30 * 864e5)
+      return NextResponse.json({ ok: false, code: 'expired', error: 'This link has expired. Please use the link in your most recent confirmation, or contact us.' }, { status: 410 }); }
 
     const tDoc = (await db.doc(`tenants/${tenantId}`).get()).data() as any || {};
     const studioName = tDoc.name || tDoc.businessName || 'The studio';
@@ -209,8 +221,8 @@ export async function POST(req: NextRequest) {
       if (a.checkInToken) {
         // The portal she is standing on reads the mirror, so it has to move too.
         await Promise.all([
-          db.doc(`appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}),
-          db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}),
+          db.doc(`appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy({ ...cancelFields, tenantId }), { merge: true }).catch(() => {}),
+          db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy({ ...cancelFields, tenantId }), { merge: true }).catch(() => {}),
         ]);
       }
 
@@ -243,8 +255,8 @@ export async function POST(req: NextRequest) {
             await d.ref.set(sib, { merge: true }).catch(() => {});
             if (s.checkInToken) {
               await Promise.all([
-                db.doc(`appointmentCheckIns/${s.checkInToken}`).set({ ...sib, tenantId }, { merge: true }).catch(() => {}),
-                db.doc(`tenants/${tenantId}/appointmentCheckIns/${s.checkInToken}`).set({ ...sib, tenantId }, { merge: true }).catch(() => {}),
+                db.doc(`appointmentCheckIns/${s.checkInToken}`).set(publicVisitCopy({ ...sib, tenantId }), { merge: true }).catch(() => {}),
+                db.doc(`tenants/${tenantId}/appointmentCheckIns/${s.checkInToken}`).set(publicVisitCopy({ ...sib, tenantId }), { merge: true }).catch(() => {}),
               ]);
             }
             alsoCancelled++;
@@ -272,7 +284,7 @@ export async function POST(req: NextRequest) {
       if (!Array.isArray(lc.options) || !lc.options.includes(choice)) return NextResponse.json({ ok: false, error: 'That option isn’t available.' }, { status: 400 });
       const nowIso = new Date().toISOString(); const who = a.clientName || 'Client';
       const answered = { lateChoices: { ...lc, choice, answeredAt: nowIso } };
-      const put = async (f: any) => { await ref.set(f, { merge: true }); if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]); };
+      const put = async (f: any) => { await ref.set(f, { merge: true }); if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {})]); };
       const tellTeam = async (message: string) => { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'late_choice', link: 'pos', appointmentId: apptId, message }).catch(() => {}); };
       if (choice === 'condense') {
         const drop: string[] = Array.isArray(lc.dropAddOnIds) ? lc.dropAddOnIds : [];
@@ -295,6 +307,8 @@ export async function POST(req: NextRequest) {
     // ── Message us, notifications, and how they reach us (lib/client-messages, lib/client-push) ──
     if (action === 'messages') {
       if (!a.clientId) return NextResponse.json({ ok: true, items: [] });
+      // The message history is private: only on a device the client has verified (lib/client-verify).
+      if (!(await deviceTrusted(db, tenantId, String(a.clientId), String(body.device || '')))) return NextResponse.json({ ok: true, items: [], needsVerify: true });
       const { threadForClient } = await import('@/lib/client-messages');
       return NextResponse.json({ ok: true, items: await threadForClient(db, tenantId, String(a.clientId)) });
     }
@@ -304,7 +318,8 @@ export async function POST(req: NextRequest) {
     }
     // The saved home-screen app always opens their next appointment: once this visit is over, where to go instead.
     if (action === 'next_link') {
-      if (!a.clientId) return NextResponse.json({ ok: true, token: null });
+      // Only on a device the client has verified (lib/client-verify): an old or mis-sent link must never open someone's future appointments.
+      if (!a.clientId || !(await deviceTrusted(db, tenantId, String(a.clientId), String(body.device || '')))) return NextResponse.json({ ok: true, token: null });
       const next = (await db.collection(`tenants/${tenantId}/appointments`).where('clientId', '==', String(a.clientId)).limit(100).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
         .filter((x: any) => x.id !== apptId && x.checkInToken && ['confirmed', 'pending_payment', 'deposit_pending', 'requested', 'waiting', 'checked_in'].includes(String(x.status || '')) && Date.parse(x.startTime) > Date.now() - 2 * 3600e3)
         .sort((x: any, y: any) => Date.parse(x.startTime) - Date.parse(y.startTime))[0];
@@ -316,6 +331,7 @@ export async function POST(req: NextRequest) {
     }
     if (action === 'push_register' || action === 'push_remove') {
       if (!a.clientId) return NextResponse.json({ ok: false, error: 'We couldn’t find your details.' }, { status: 400 });
+      if (action === 'push_register' && !(await deviceTrusted(db, tenantId, String(a.clientId), String(body.device || '')))) return NextResponse.json({ ok: false, needsVerify: true, error: 'Please confirm it’s you first.' }, { status: 403 });
       const P = await import('@/lib/client-push');
       const r = action === 'push_register' ? await P.registerClientDevice(db, tenantId, String(a.clientId), { token: String(body.token || ''), platform: String(body.platform || ''), standalone: body.standalone === true })
         : await P.removeClientDevice(db, tenantId, String(a.clientId), String(body.token || ''));
@@ -324,7 +340,7 @@ export async function POST(req: NextRequest) {
     if (action === 'confirm') {
       if (['cancelled', 'canceled', 'completed', 'no_show'].includes(String(a.status || ''))) return NextResponse.json({ ok: false, error: 'This appointment can’t be confirmed.' }, { status: 409 });
       if (!a.clientConfirmedAt) { const f = { clientConfirmedAt: new Date().toISOString(), clientConfirmedVia: String(body.via || 'visit_link').slice(0, 20) }; await ref.set(f, { merge: true });
-        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]); }
+        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {})]); }
       return NextResponse.json({ ok: true });
     }
     // A provider callout → their choices (lib/callout-choices): a kept time, the same time with a colleague, or first in line.
@@ -342,7 +358,7 @@ export async function POST(req: NextRequest) {
       // More time needed (before the visit): they can also keep their time — we do what fits and book the rest.
       if (d.kind === 'prep' && String(body.choice || '') === 'keep') {
         const f = { studioAskedToMove: false, disruption: { ...d, status: 'resolved', outcome: 'kept' } };
-        await ref.set(f, { merge: true }); if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
+        await ref.set(f, { merge: true }); if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {})]);
         await recordDisruption({ outcome: 'kept' });
         const n0 = db.collection(`tenants/${tenantId}/notifications`).doc(); await n0.set({ id: n0.id, userId: a.staffId || null, read: false, createdAt: new Date().toISOString(), type: 'disruption_reply', link: '/before-the-visit', appointmentId: apptId, message: `${a.clientName || 'A client'} has chosen to keep their appointment time. Please complete what fits in the time and book the remainder.` }).catch(() => {});
         return NextResponse.json({ ok: true, kept: true });
@@ -354,7 +370,7 @@ export async function POST(req: NextRequest) {
       const asCredit = body.deposit === 'credit';
       const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve', cancellationReason: d.kind === 'callout' ? 'provider_callout' : d.kind === 'prep' ? 'more_time_needed' : 'business_interruption', cancellationFeeCharged: 0, cancellationFeeWaived: true, studioCancelled: true, ...(d.kind === 'interruption' ? { interruptionId: d.id, lostToInterruption: true } : { calloutId: d.id }) };
       await ref.set(cancelFields, { merge: true });
-      if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {})]);
+      if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy({ ...cancelFields, tenantId }), { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy({ ...cancelFields, tenantId }), { merge: true }).catch(() => {})]);
       if (dep > 0) { const dRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc(); await dRef.set({ id: dRef.id, tenantId, appointmentId: apptId, clientId: a.clientId || null, trigger: d.kind === 'callout' ? 'provider_callout' : 'business_interruption', outcome: asCredit ? 'rollover' : 'refund_pending', reason: `${d.reasonLabel || 'Disruption'} — client cancelled`, amountDollars: dep / 100, decidedAt: nowIso }).catch(() => {}); }
       await recordDisruption({ outcome: 'cancelled', ...(dep > 0 ? (asCredit ? { creditCents: dep } : { refundCents: dep }) : {}) });
       const n = db.collection(`tenants/${tenantId}/notifications`).doc();
@@ -369,7 +385,7 @@ export async function POST(req: NextRequest) {
       const po = a.providerOffer;
       if (!po || po.status !== 'pending') return NextResponse.json({ ok: false, error: 'There is no open offer for this appointment.' }, { status: 409 });
       const choice = String(body.choice || ''); const nowIso = new Date().toISOString();
-      const mirrorSet = async (f: any) => { if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]); };
+      const mirrorSet = async (f: any) => { if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {})]); };
       const tellStaff = async (userId: string | null, message: string) => { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, userId, read: false, createdAt: nowIso, type: 'provider_offer_reply', link: 'pos', appointmentId: apptId, message }).catch(() => {}); };
       const when = new Date(po.startAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone || undefined });
       if (choice === 'decline') {
@@ -432,7 +448,7 @@ export async function POST(req: NextRequest) {
         }
         const f = { providerDelay: { ...pd, reply: 'keep', replyAt: nowIso, ...(credited ? { creditIssued: credited } : {}) } };
         await ref.set(f, { merge: true });
-        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
+        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy(f), { merge: true }).catch(() => {})]);
         const n = db.collection(`tenants/${tenantId}/notifications`).doc();
         await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'provider_delay_reply', link: 'pos', appointmentId: apptId, message: `${a.clientName || 'Your client'} is happy to wait. Please expect to see them at about ${new Date(pd.newStartAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone || undefined })}.` }).catch(() => {});
         await (await import('@/lib/push')).pushNow(db, tenantId);   // buzz now, not in a minute
@@ -443,7 +459,7 @@ export async function POST(req: NextRequest) {
         const depositPaid = a.depositStatus === 'paid' || Number(a.depositAmountCents) > 0 && a.status !== 'pending_payment';
         const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve', cancellationReason: 'provider_delay', cancellationFeeCharged: 0, cancellationFeeWaived: true, providerDelay: { ...pd, reply: 'cancel', replyAt: nowIso }, studioCancelled: true };
         await ref.set(cancelFields, { merge: true });
-        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {})]);
+        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy({ ...cancelFields, tenantId }), { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(publicVisitCopy({ ...cancelFields, tenantId }), { merge: true }).catch(() => {})]);
         if (depositPaid) { const dRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc(); await dRef.set({ id: dRef.id, tenantId, appointmentId: apptId, clientId: a.clientId || null, trigger: 'provider_delay', outcome: resolvePolicy(tDoc).deposit.outcomes.onStudioCancel === 'rollover' ? 'rollover' : 'refund_pending', reason: 'Provider running late — client cancelled', amountDollars: (Number(a.depositAmountCents) || 0) / 100, decidedAt: nowIso }).catch(() => {}); }
         const n = db.collection(`tenants/${tenantId}/notifications`).doc();
         await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'provider_delay_reply', link: 'pos', appointmentId: apptId, message: `${a.clientName || 'Your client'} has cancelled because of the delay. No fee applies.${depositPaid ? ' Action needed: their deposit needs to be refunded or credited.' : ''}` }).catch(() => {});
@@ -549,8 +565,8 @@ export async function POST(req: NextRequest) {
         // appointmentCheckIns/{token}, so without this the portal would
         // keep showing the old time after a successful move.
         if (a.checkInToken) {
-          tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`), move, { merge: true });
-          tx.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), move, { merge: true });
+          tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`), publicVisitCopy(move), { merge: true });
+          tx.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), publicVisitCopy(move), { merge: true });
         }
         return { conflict: false };
       });

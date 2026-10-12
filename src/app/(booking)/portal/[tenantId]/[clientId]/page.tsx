@@ -342,13 +342,16 @@ export default function ClientPortalPage() {
         if (!client || !tenantId) return;
         setIsProcessing(true); setPayNote('');
         try {
-            const res = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: client.id, ...opts }) });
+            // Proof the link is theirs: the signed key on their portal link (?k=), or else one of their visit tokens.
+            const urlKey = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('k') || '' : '';
+            const k = urlKey || (appointments || []).map((a: any) => a.checkInToken).find(Boolean) || '';
+            const res = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: client.id, k, ...opts }) });
             const d = await res.json().catch(() => ({}));
             const $ = (n: number) => `$${Number(n).toFixed(2)}`;
             if (!res.ok || !d?.ok) { setPayNote(d?.error || 'The payment didn’t go through. You can settle it at your next visit instead.'); return; }
             if (d.partial) { setPayNote(`Your gift card paid ${$(d.giftDollars)}. ${$(d.leftDollars)} is left — pay it at your next visit.`); setSettlementSuccess(true); return; }
             setSettlementSuccess(true);
-            toast({ title: 'Paid — thank you', description: [d.giftDollars ? `${$(d.giftDollars)} from your gift card` : '', d.paidDollars ? `${$(d.paidDollars)} on your card${d.last4 ? ` ending ${d.last4}` : ''}` : ''].filter(Boolean).join(' and ') || d.message || 'You’re all clear.' });
+            toast({ title: 'Paid — thank you', description: [d.giftDollars ? `${$(d.giftDollars)} from your gift card` : '', d.paidDollars ? `${$(d.paidDollars)} on your card on file` : ''].filter(Boolean).join(' and ') || d.message || 'You’re all clear.' });
         } catch {
             setPayNote('Please check your connection and try again.');
         } finally {

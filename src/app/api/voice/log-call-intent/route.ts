@@ -87,6 +87,7 @@ import {
   fetchDayAppointments,
 } from '@/lib/voice/server-availability';
 import { isPoorHistory } from '@/lib/deposit-policy';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -347,7 +348,7 @@ export async function POST(req: NextRequest) {
           const cancelBatch = db.batch();
           cancelBatch.set(db.doc(`tenants/${tenantId}/appointments/${appointment.id}`), cancelPatch, { merge: true });
           if (appointment.checkInToken) {
-            cancelBatch.set(db.doc(`appointmentCheckIns/${appointment.checkInToken}`), cancelPatch, { merge: true });
+            cancelBatch.set(db.doc(`appointmentCheckIns/${appointment.checkInToken}`), publicVisitCopy(cancelPatch), { merge: true });
             // v15 — when the fee is pending (not charged), the
             // bookingCompletions doc is NOT voided the way a normal
             // cancellation would be — it gets repurposed to carry the

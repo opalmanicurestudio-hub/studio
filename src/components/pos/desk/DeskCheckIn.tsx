@@ -18,6 +18,7 @@ import { format, parseISO } from 'date-fns';
 import { writeBatch, doc, collection } from 'firebase/firestore';
 import { logAuditClient } from '@/lib/audit-client';
 import { Drawer, Btn, Pill, Seg } from './kit';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 
 const toDate = (v: any): Date | null => { if (!v) return null; try { const d = v?.toDate ? v.toDate() : v instanceof Date ? v : typeof v === 'string' ? parseISO(v) : new Date(v); return isNaN(d.getTime()) ? null : d; } catch { return null; } };
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -77,7 +78,7 @@ export function DeskCheckIn({ e, accent }: { e: any; accent?: string | null }) {
     try {
       const b = writeBatch(e.firestore);
       b.update(doc(e.firestore, 'tenants', e.tenantId, isWalkIn ? 'walkIns' : 'appointments', item.id), updates);
-      if (!isWalkIn && item.checkInToken) b.set(doc(e.firestore, 'appointmentCheckIns', item.checkInToken), { ...updates, tenantId: e.tenantId }, { merge: true });
+      if (!isWalkIn && item.checkInToken) b.set(doc(e.firestore, 'appointmentCheckIns', item.checkInToken), publicVisitCopy({ ...updates, tenantId: e.tenantId }), { merge: true });
       if (item.clientId && ((changed && saveTo === 'profile') || (rememberNeeds && needs.trim()))) {
         b.set(doc(e.firestore, 'tenants', e.tenantId, 'clients', item.clientId), clean({
           ...(changed && saveTo === 'profile' ? { name: c.name || undefined, phone: c.phone || undefined, email: c.email || undefined, preferredLanguage: c.language, notificationPreferences: { ...(client?.notificationPreferences || {}), confirmationChannel: c.channel, reminderChannel: c.channel } } : {}),

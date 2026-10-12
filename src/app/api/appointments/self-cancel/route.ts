@@ -152,7 +152,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const tenantId = searchParams.get('tenantId');
   const appointmentId = searchParams.get('appointmentId');
-  // The key (their visit token) proves it's the client's own link. Without it, only a basic preview — never contact details.
+  // The key (their visit token) proves it's the client's own link. Without it (and not staff), nothing is shown.
   const key = String(searchParams.get('k') || '');
 
   if (!tenantId || !appointmentId) {
@@ -165,6 +165,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Appointment not found' }, { status: 404 });
   }
   const appt = apptSnap.data();
+  const keyOk = !!key && !!appt.checkInToken && key === appt.checkInToken;
+  if (!keyOk && !(await staffOrServer(req, String(tenantId)))) {
+    return NextResponse.json({ ok: false, error: 'For your security, please cancel from the link in your latest confirmation or your visit link.', code: 'needs_link' }, { status: 403 });
+  }
 
   if (appt.status === 'cancelled') {
     return NextResponse.json({ ok: false, error: 'This appointment has already been cancelled.', alreadyCancelled: true }, { status: 409 });
@@ -209,9 +213,9 @@ export async function GET(req: NextRequest) {
     ok: true,
     appointment: {
       clientName: appt.clientName || null,
-      clientEmail: key && key === appt.checkInToken ? appt.clientEmail || null : null,
-      clientPhone: key && key === appt.checkInToken ? appt.clientPhone || null : null,
-      canCancel: !!key && key === appt.checkInToken,
+      clientEmail: appt.clientEmail || null,
+      clientPhone: appt.clientPhone || null,
+      canCancel: true,
       startTime: appt.startTime,
       serviceName: appt.renterServiceName || service.name || 'Service',
       serviceId: appt.serviceId || null,

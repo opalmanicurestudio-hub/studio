@@ -410,10 +410,10 @@ export async function GET(req: NextRequest) {
               const { phone, email } = await contactFor(a);
               if (!phone && !email) continue;
               const signoff = String(rp.comms.signoff || '').trim();
-              // The review ask rides the thank-you — the link IS the proof of
-              // the visit (appointment id as bearer, same as /cancel), and only
-              // a completed booking is accepted on the other end.
-              const reviewUrl = base ? `${base}/review/${tid}/${aDoc.id}` : '';
+              // The review ask rides the thank-you. The link carries the visit
+              // token (k) as proof it's theirs, and only a completed booking is
+              // accepted on the other end. No token, no review link.
+              const reviewUrl = base && a.checkInToken ? `${base}/review/${tid}/${aDoc.id}?k=${encodeURIComponent(String(a.checkInToken))}` : '';
               const text = `Hi ${firstNameOf(a.clientName)}, thank you for your visit with ${rp.name} yesterday. It was a pleasure to see you.${reviewUrl ? ` We'd love to hear how your visit went: ${reviewUrl}` : ''}${rp.bookingUrl ? ` You can book your next visit here: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
               let ok = false;
               if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Thank you from ${rp.name}` })).ok;

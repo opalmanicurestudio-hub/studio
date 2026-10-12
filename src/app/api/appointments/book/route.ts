@@ -83,6 +83,7 @@
 import { extraMinutesFor, extraChargeCents } from '@/lib/client-timing';
 import { limitPublic } from '@/lib/rate-limit';
 import { recordConsent } from '@/lib/consent';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 import { placeOf, placeOptionsOf, placeLine, arrivalLine, clientAddressOf } from '@/lib/service-place';
 import { unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { resolvePolicy } from '@/lib/booking-policies';
@@ -281,7 +282,7 @@ export async function POST(req: NextRequest) {
             const origin = linkOrigin(tenant, req.nextUrl.origin);
             const studio = (tenant as any).name || 'the studio';
             await sendNotification(db, { tenantId, channel: 'email', to: String(owing.email), subject: `Your balance with ${studio}`, kind: 'balance_due',
-              html: brandedEmailHtml({ studioName: studio, title: 'Before your next booking', bodyLines: [`Hi ${String(owing.name || '').split(' ')[0] || 'there'},`, `Thank you for your interest in booking with us. Our records show an outstanding balance of $${bal.toFixed(2)} from a previous appointment change. Once this balance has been paid, you will be able to book your next appointment.`, `Kind regards, ${studio}`], cta: { label: 'Pay my balance', url: `${origin}/portal/${tenantId}/${owing.id}` } }),
+              html: brandedEmailHtml({ studioName: studio, title: 'Before your next booking', bodyLines: [`Hi ${String(owing.name || '').split(' ')[0] || 'there'},`, `Thank you for your interest in booking with us. Our records show an outstanding balance of $${bal.toFixed(2)} from a previous appointment change. Once this balance has been paid, you will be able to book your next appointment.`, `Kind regards, ${studio}`], cta: { label: 'Pay my balance', url: `${origin}/portal/${tenantId}/${owing.id}?k=${encodeURIComponent((await import('@/lib/portal-key')).portalKey(tenantId, String(owing.id)) || '')}` } }),
               clientId: owing.id, clientName: owing.name || null } as any);
             await db.doc(`tenants/${tenantId}/clients/${owing.id}`).set({ balanceLinkSentAt: new Date().toISOString() }, { merge: true });
           } catch (e) { console.error('[book] balance link failed', e); }
@@ -882,8 +883,9 @@ export async function POST(req: NextRequest) {
           : { status: 'confirmed', depositStatus: 'covered', depositCoveredBy: String(body.depositCoveredBy || 'series').slice(0, 64), paymentDueAt: null });
       }
       tx.set(aptsRef.doc(aptId), payload);
-      tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`), payload);
-      tx.set(db.doc(`appointmentCheckIns/${token}`), payload); // TODO: remove after legacy rule closes
+      // The copies are readable with the visit token — only the visit-link-safe fields go there.
+      tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`), publicVisitCopy(payload));
+      tx.set(db.doc(`appointmentCheckIns/${token}`), publicVisitCopy(payload)); // TODO: remove after legacy rule closes
       if (requestedStaffId === 'any') {
         tx.set(db.doc(`tenants/${tenantId}/staff/${staffId}`), { lastBookingAssignedAt: nowIso }, { merge: true });
       }

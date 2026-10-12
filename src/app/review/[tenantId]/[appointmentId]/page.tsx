@@ -13,6 +13,8 @@ export default function RenterReviewPage() {
   const params = useParams<{ tenantId: string; appointmentId: string }>();
   const tenantId = String(params?.tenantId || '');
   const appointmentId = String(params?.appointmentId || '');
+  // The visit token from their link (?k=) proves it was their visit.
+  const k = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('k') || '' : '';
   const [info, setInfo] = useState<any | null>(null);
   const [err, setErr] = useState('');
   const [rating, setRating] = useState(0);
@@ -23,7 +25,7 @@ export default function RenterReviewPage() {
 
   useEffect(() => {
     if (!tenantId || !appointmentId) return;
-    fetch(`/api/booths/renter-review?tenantId=${encodeURIComponent(tenantId)}&appointmentId=${encodeURIComponent(appointmentId)}`)
+    fetch(`/api/booths/renter-review?tenantId=${encodeURIComponent(tenantId)}&appointmentId=${encodeURIComponent(appointmentId)}&k=${encodeURIComponent(k)}`)
       .then((r) => r.json()).then((d) => { if (d?.ok) { setInfo(d); setName(d.clientFirst || ''); } else setErr(d?.error || 'This link is not valid.'); })
       .catch(() => setErr('Could not load this link.'));
   }, [tenantId, appointmentId]);
@@ -32,7 +34,7 @@ export default function RenterReviewPage() {
     setBusy(true); setErr('');
     try {
       const res = await fetch('/api/booths/renter-review', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, appointmentId, rating, text, name }) });
+        body: JSON.stringify({ tenantId, appointmentId, k, rating, text, name }) });
       const d = await res.json().catch(() => ({}));
       if (d?.ok) setDone(true); else setErr(d?.error || 'Could not send that.');
     } finally { setBusy(false); }

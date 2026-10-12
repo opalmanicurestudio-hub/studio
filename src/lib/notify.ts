@@ -96,7 +96,12 @@ const replyCache = new Map<string, string | null>();
 export async function replyToFor(db: any, tenantId: string, input: any): Promise<string | null> {
   if (input?.replyTo && /@/.test(String(input.replyTo))) return String(input.replyTo);
   const domain = String(process.env.INBOUND_EMAIL_DOMAIN || '').trim().replace(/^@/, '');
-  if (domain) return `reply+${tenantId}@${domain}`;
+  if (domain) {
+    // Each client gets their own signed reply address, so a reply is linked to them only when it answers our email
+    // (lib/inbound-email), never just because the From line says so.
+    if (input?.clientId) { const { replyTag } = await import('./inbound-email'); return `reply+${tenantId}.${String(input.clientId)}.${replyTag(tenantId, String(input.clientId))}@${domain}`; }
+    return `reply+${tenantId}@${domain}`;
+  }
   if (replyCache.has(tenantId)) return replyCache.get(tenantId) || null;
   let biz: string | null = null;
   try { const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; biz = String(t.email || t.contactEmail || t.ownerEmail || '').trim() || null; } catch { /* none */ }

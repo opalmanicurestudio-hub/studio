@@ -7,13 +7,18 @@
 //   • a lock + Stripe idempotency key mean a double tap can't charge twice
 //   • the balance clears ONLY after Stripe confirms; otherwise nothing changes
 //     and they're told they can settle it at their next visit
-// Access: the portal's own model — the client's private link (their id).
+// Access: proof the caller is this client (or their business), never just the ids:
+//   • k = the visit token (checkInToken) of one of THIS client's appointments, or
+//   • k = the signed portal key for this client (lib/portal-key), or
+//   • a signed-in staff member of this business.
 // { useGift: true } spends the client's own gift cards first; { cardToo: true } then charges the card for what's left.
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { hasRealCard } from '@/lib/card-on-file';
+import { verifyStaffActor } from '@/lib/staff-auth';
+import { checkPortalKey, portalKeysReady } from '@/lib/portal-key';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +27,25 @@ export async function POST(req: NextRequest) {
   const tenantId = String(b.tenantId || ''), clientId = String(b.clientId || '');
   if (!tenantId || !clientId) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
+
+  // Who's asking: staff of this business, or the client holding proof of their own link.
+  const k = typeof b.k === 'string' ? b.k.trim().slice(0, 200) : '';
+  let allowed = false;
+  if (req.headers.get('authorization')) {
+    const staff = await verifyStaffActor(req, tenantId);
+    if (staff.ok) allowed = true;
+  }
+  if (!allowed && k) {
+    const visit = await db.collection(`${T}/appointments`).where('checkInToken', '==', k).limit(1).get().catch(() => null);
+    const appt: any = visit && !visit.empty ? visit.docs[0].data() : null;
+    if (appt && String(appt.clientId || '') === clientId) allowed = true;
+  }
+  if (!allowed && k) {
+    if (!portalKeysReady()) return NextResponse.json({ ok: false, error: 'Payments by link are not set up yet.' }, { status: 503 });
+    if (checkPortalKey(tenantId, clientId, k)) allowed = true;
+  }
+  if (!allowed) return NextResponse.json({ ok: false, error: 'For your security, please open this page from the link we sent you, or settle your balance at your next visit.', code: 'needs_link' }, { status: 403 });
+
   const cRef = db.doc(`${T}/clients/${clientId}`);
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
   let later = 'You can settle it at your next visit instead.';
@@ -101,5 +125,5 @@ export async function POST(req: NextRequest) {
   batch.set(cRef, { outstandingBalance: 0, unpaidFees: [], balancePayingAt: null, balancePaidAt: nowIso, balanceVersion: nowIso }, { merge: true });
   await batch.commit();
   await logAuditAdmin(db, tenantId, { action: 'balance.paid_online', targetType: 'client', targetId: clientId, summary: `${c.name || 'Client'} paid their $${dollars.toFixed(2)} balance online (card •••• ${c.cardOnFile?.last4 || ''})`, actor: { type: 'user', name: c.name || 'Client', role: 'client', via: 'portal' } }).catch(() => {});
-  return NextResponse.json({ ok: true, paidDollars: dollars, giftDollars: giftPaidCents / 100, last4: c.cardOnFile?.last4 || null });
+  return NextResponse.json({ ok: true, paidDollars: dollars, giftDollars: giftPaidCents / 100 });
 }

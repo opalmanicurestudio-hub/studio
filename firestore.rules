@@ -769,8 +769,10 @@ service cloud.firestore {
     function teamOf(t) {
       return t is string && t != '' && (isStaff(t) || isPortalMember(t));
     }
+    // The visit link's copy. Clients see their visit through the server (/api/visit-view, whitelisted fields only),
+    // so the copy is no longer readable by anyone holding a token — only by the business's own team.
     match /appointmentCheckIns/{token} {
-      allow get: if true;
+      allow get: if isSignedIn() && teamOf(resource.data.get('tenantId', ''));
       allow list: if isSignedIn() && (isStaff(resource.data.tenantId) || isPortalMember(resource.data.tenantId));
       allow create: if teamOf(request.resource.data.get('tenantId', ''));
       allow update: if teamOf(resource.data.get('tenantId', ''));

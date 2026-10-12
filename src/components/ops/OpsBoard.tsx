@@ -261,7 +261,7 @@ function UnpaidFees({ tenantId, role, tenant }: { tenantId: string; role: string
   const total = list.reduce((m: number, c: any) => m + (Number(c.outstandingBalance) || 0), 0);
   const say = (id: string, t: string) => setMsg((m) => ({ ...m, [id]: t }));
   const charge = async (c: any) => { setBusy(`${c.id}:charge`);
-    const r = await fetch('/api/portal/pay-balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: c.id }) }).then((x) => x.json()).catch(() => ({}));
+    const r: any = await staffPost('/api/portal/pay-balance', { tenantId, clientId: c.id }).catch(() => ({}));
     setBusy(null); say(c.id, r?.ok ? `Paid — $${Number(r.paidDollars || 0).toFixed(2)} charged${r.last4 ? ` to •••• ${r.last4}` : ''}.` : 'The card didn’t go through — send a pay link or take it at the desk.'); };
   const balance = async (c: any, action: 'link' | 'settled' | 'waive', extra: any, ok: (r: any) => string) => { setBusy(`${c.id}:${action}`);
     const r = await staffPost('/api/clients/balance', { tenantId, clientId: c.id, action, ...extra }); setBusy(null);

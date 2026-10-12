@@ -56,6 +56,7 @@ import { computeServiceProfitability } from '@/lib/service-cost';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { AlertCircle, XCircle } from 'lucide-react';
 import { LeftOpen, useLeftOpen } from '@/components/ops/LeftOpen';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -1178,7 +1179,7 @@ function PlannerPageContent() {
   const handleUpdateAppointment = (apt: Appointment) => {
     if (!firestore || !tenantId) return;
     updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', apt.id), apt);
-    if (apt.checkInToken) updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...apt, tenantId });
+    if (apt.checkInToken) updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), publicVisitCopy({ ...apt, tenantId }));   // the copy is token-readable: safe fields only
     setIsEditAppointmentOpen(false);
     toast({ title: "Session Updated" });
   };

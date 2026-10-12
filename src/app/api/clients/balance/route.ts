@@ -50,7 +50,8 @@ export async function POST(req: NextRequest) {
     const email = String(c.email || '').trim(), phone = String(c.phone || '').trim();
     if (!email.includes('@') && phone.replace(/\D/g, '').length < 7) return NextResponse.json({ ok: false, error: `${first} has no email address or phone number on file.` }, { status: 400 });
     const tenant: any = ((await db.doc(T).get()).data() as any) || {};
-    const url = `${linkOrigin(tenant, req.nextUrl.origin)}/portal/${tenantId}/${clientId}`;
+    const { portalKey } = await import('@/lib/portal-key');
+    const url = `${linkOrigin(tenant, req.nextUrl.origin)}/portal/${tenantId}/${clientId}?k=${encodeURIComponent(portalKey(tenantId, clientId) || '')}`;
     const studio = tenant.name || 'the studio';
     const { sendNotification } = await import('@/lib/notify');
     let sent = false;

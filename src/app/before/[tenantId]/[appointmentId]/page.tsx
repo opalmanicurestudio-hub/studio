@@ -20,7 +20,9 @@ export default function BeforeYourVisit() {
   const [info, setInfo] = React.useState<any>(null); const [answers, setAnswers] = React.useState<Answers>({});
   const [step, setStep] = React.useState<'ask' | 'review' | 'done' | 'question' | 'asked' | 'safety'>('ask');
   const [busy, setBusy] = React.useState(''); const [err, setErr] = React.useState(''); const [text, setText] = React.useState('');
-  React.useEffect(() => { post({ action: 'get' }).then((r) => { setInfo(r); if (r?.prep?.answers) setAnswers(r.prep.answers); if (['agreed', 'approved', 'kept'].includes(r?.prep?.status)) setStep('done'); if (r?.prep?.status === 'safety') setStep('safety'); }); }, [post]);
+  // Saved answers are never sent back (they can be health details). A returning client sees where things stand,
+  // and answers again if they want to change anything.
+  React.useEffect(() => { post({ action: 'get' }).then((r) => { setInfo(r); const st = r?.prep?.status; if (['agreed', 'approved', 'kept'].includes(st)) setStep('done'); else if (st === 'safety') setStep('safety'); else if (['answered', 'question'].includes(st) && r?.prep?.quote) setStep('review'); }); }, [post]);
   const shell = (body: React.ReactNode, foot?: React.ReactNode) => <div style={{ ...font, background: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
     <div style={{ maxWidth: 520, width: '100%', margin: '0 auto', padding: '22px 20px 24px', display: 'flex', flexDirection: 'column', gap: 18, flex: 1 }}>
       {info?.brand && <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{info.brand.logo ? <img src={info.brand.logo} alt="" style={{ width: 34, height: 34, borderRadius: 11, objectFit: 'cover' }} /> : <span style={{ width: 34, height: 34, borderRadius: 11, background: INK, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{String(info.brand.name).slice(0, 1)}</span>}<span style={{ fontSize: 14, fontWeight: 600 }}>{info.brand.name}</span></div>}
@@ -35,7 +37,10 @@ export default function BeforeYourVisit() {
   if (!info.check) return shell(<>{head('Nothing to answer')}<p style={{ color: MUTED, fontSize: 15 }}>We don’t need anything before this visit. See you then!</p></>);
   const qs: any[] = info.check.questions;
   const thisService = info.catalog.find((x: any) => x.id === info.serviceId) || null;
-  const q = quoteFor(info.check, thisService, info.catalog, answers, info.booked);
+  // Before they answer again this visit, show the change they already saw (saved on the server).
+  const fresh = Object.keys(answers).length > 0 || step === 'ask' || !info.prep?.quote;
+  const q = fresh ? quoteFor(info.check, thisService, info.catalog, answers, info.booked) : info.prep.quote;
+  const answeredBefore: string[] = Array.isArray(info.prep?.answeredIds) ? info.prep.answeredIds : [];
   const word = info.settings.quote === 'about' ? 'About' : 'Up to';
   const choiceQs = qs.filter((x) => x.kind === 'choice'); const allChoice = choiceQs.every((x) => answers[x.id]);
   const save = async (next: 'review' | 'safety') => { setBusy('save'); setErr(''); const r = await post({ action: 'answer', answers }); setBusy(''); if (!r.ok) { setErr(r.error || 'That didn’t save.'); return; } setStep(r.status === 'safety' ? 'safety' : next); };
@@ -66,7 +71,7 @@ export default function BeforeYourVisit() {
   // The questions
   return shell(<>{head(qs.length === 1 ? 'One quick question, so we save the right time' : `${['', 'One', 'Two', 'Three', 'Four', 'Five'][qs.length] || qs.length} quick questions, so we save the right time`)}
     {qs.map((x: any, i: number) => <div key={x.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div><div style={{ fontSize: 12, color: MUTED }}>{i + 1} of {qs.length}</div><div style={{ fontSize: 17, fontWeight: 600 }}>{x.label}</div>{x.help && <div style={{ fontSize: 13, color: MUTED, marginTop: 2 }}>{x.help}</div>}</div>
+      <div><div style={{ fontSize: 12, color: MUTED }}>{i + 1} of {qs.length}</div><div style={{ fontSize: 17, fontWeight: 600 }}>{x.label}</div>{x.help && <div style={{ fontSize: 13, color: MUTED, marginTop: 2 }}>{x.help}</div>}{answeredBefore.includes(x.id) && !answers[x.id] && <div style={{ fontSize: 13, color: MUTED, marginTop: 2 }}>Answered. Please choose again to update it.</div>}</div>
       {x.kind === 'photo' ? <Photo url={answers[x.id]} onUpload={async (f) => { const r = await post({ action: 'photo', dataUrl: await shrink(f) }); if (r.ok) setAnswers((a) => ({ ...a, [x.id]: r.url })); else setErr(r.error || 'That didn’t upload.'); }} onClear={() => setAnswers((a) => { const n = { ...a }; delete n[x.id]; return n; })} />
         : <div role="radiogroup" aria-label={x.label} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{x.options.map((o: any) => { const on = answers[x.id] === o.id;
           return <button key={o.id} type="button" role="radio" aria-checked={on} onClick={() => setAnswers((a) => ({ ...a, [x.id]: o.id }))} style={{ height: 46, padding: '0 18px', borderRadius: 23, border: 0, font: 'inherit', fontSize: 15.5, fontWeight: 600, background: on ? INK : SOFT, color: on ? '#fff' : INK }}>{o.label}</button>; })}</div>}

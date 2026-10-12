@@ -2429,11 +2429,15 @@ export default function CheckInPage() {
     const [liveView, setLiveView] = useState<any>(null);
     useEffect(() => {
         if (!token) return; let stop = false; let t: any = null;
-        const pull = async () => { try { const r = await fetch(`/api/visit-view?token=${encodeURIComponent(token)}`, { cache: 'no-store' }); const d = await r.json(); if (!stop && d?.ok) setLiveView(d.view); } catch { /* keep the copy */ }
+        const pull = async () => { try { const r = await fetch(`/api/visit-view?token=${encodeURIComponent(token)}`, { cache: 'no-store' }); const d = await r.json(); if (!stop && d?.ok) setLiveView(d.view); } catch { /* keep the copy */ } finally { if (!stop) setLiveTried(true); }
             if (!stop) t = setTimeout(pull, document.visibilityState === 'hidden' ? 60000 : 20000); };
         pull(); return () => { stop = true; clearTimeout(t); };
     }, [token, (copyData as any)?.status, (copyData as any)?.checkInStatus, (copyData as any)?.stage, (copyData as any)?.visitUpdatedAt]);
-    const appointmentData = useMemo(() => (copyData ? ({ ...(copyData as any), ...(liveView || {}) } as Appointment) : copyData), [copyData, liveView]);
+    // The server's view is the source (whitelisted fields only); the public copy is a fallback while it loads.
+    const appointmentData = useMemo(() => (copyData || liveView ? ({ ...((copyData as any) || {}), ...(liveView || {}) } as Appointment) : copyData), [copyData, liveView]);
+    const [liveTried, setLiveTried] = useState(false);
+    useEffect(() => { if (liveView) setLiveTried(true); const t = setTimeout(() => setLiveTried(true), 8000); return () => clearTimeout(t); }, [liveView]);
+    const visitLoading = !liveView && !copyData && (appointmentLoading || !liveTried);
 
     const tenantId = appointmentData?.tenantId;
     const clientId = appointmentData?.clientId;
@@ -2622,7 +2626,7 @@ export default function CheckInPage() {
         }
     };
 
-    if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading || completionLoading) {
+    if (visitLoading || clientLoading || serviceLoading || tenantLoading || staffLoading || completionLoading) {
         return (
             <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-background text-center text-left">
                 <Loader className="h-10 w-10 animate-spin text-primary" />

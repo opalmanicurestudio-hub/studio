@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaff } from '@/lib/voice/staff-auth';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
       merge: true,
     });
     if (apt.checkInToken) {
-      batch.set(db.doc(`appointmentCheckIns/${apt.checkInToken}`), cancelPatch, { merge: true });
+      batch.set(db.doc(`appointmentCheckIns/${apt.checkInToken}`), publicVisitCopy(cancelPatch), { merge: true });
       batch.set(
         db.doc(`tenants/${tenantId}/bookingCompletions/${apt.checkInToken}`),
         { status: 'void' },

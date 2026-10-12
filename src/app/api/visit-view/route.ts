@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { visitProjection, missingStageEntry } from '@/lib/visit';
+import { FieldValue } from 'firebase-admin/firestore';
+import { scrubVisitPatch } from '@/lib/public-visit-copy';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
@@ -17,11 +19,24 @@ export async function GET(req: NextRequest) {
   if (!tenantId || !id) return NextResponse.json({ ok: false }, { status: 404 });
   const ref = db.doc(`tenants/${tenantId}/appointments/${id}`); const a: any = (await ref.get()).data();
   if (!a || a.checkInToken !== token) return NextResponse.json({ ok: false }, { status: 404 });   // the token must be this visit's
+  // Older copies held the whole appointment (form answers, notes, contact details). Clean both as they're viewed.
+  const scrub = scrubVisitPatch(copy, () => FieldValue.delete());
+  if (scrub) {
+    const scoped: any = (await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).get().catch(() => null))?.data();
+    const scopedScrub = scoped ? scrubVisitPatch(scoped, () => FieldValue.delete()) : null;
+    await Promise.all([
+      db.doc(`appointmentCheckIns/${token}`).update(scrub),
+      scopedScrub ? db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).update(scopedScrub) : null,
+    ]).catch((e) => console.error('[visit-view] scrub', e));
+  }
   const tenant: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const miss = missingStageEntry(a, tenant);
   if (miss) { a.timeline = [...(Array.isArray(a.timeline) ? a.timeline : []), miss].slice(-60); await ref.set({ timeline: a.timeline }, { merge: true }).catch(() => {}); }
   const view = visitProjection(a, tenant);
+  // What the visit page needs, from the server through the whitelist (the public copy is no longer readable from a browser).
+  const { publicVisitCopy } = await import('@/lib/public-visit-copy');
+  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId };
   // keep the copies in step as a courtesy for anything else that still reads them
   if (miss || copy.stage !== view.stage || copy.status !== view.status) await Promise.all([db.doc(`appointmentCheckIns/${token}`).set(view, { merge: true }), db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(view, { merge: true })]).catch(() => {});
-  return NextResponse.json({ ok: true, view }, { headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json({ ok: true, view: full }, { headers: { 'Cache-Control': 'no-store' } });
 }

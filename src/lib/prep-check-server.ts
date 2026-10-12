@@ -30,6 +30,16 @@ export async function prepVisit(db: any, tenantId: string, appointmentId: string
   return { id: snap.id, ref: snap.ref, a };
 }
 
+/** What the link holder may see of their saved answers: never the answers themselves (they can be health details),
+ *  only which questions were answered, where things stand, and the price change they saw (without the safety note). */
+export function publicPrep(p: any): { status: string | null; answeredAt: string | null; agreedAt: string | null; answeredIds: string[]; quote: any } | null {
+  if (!p || typeof p !== 'object') return null;
+  const ans = p.answers && typeof p.answers === 'object' ? p.answers : {};
+  const answeredIds = Object.keys(ans).filter((id) => typeof ans[id] === 'string' && ans[id] !== '');
+  const quote = p.quote && typeof p.quote === 'object' ? { ...p.quote, safety: null } : null;
+  return { status: p.status ? String(p.status) : null, answeredAt: p.answeredAt || null, agreedAt: p.agreedAt || null, answeredIds, quote };
+}
+
 /** Everything the client's page needs. Only first names, the service, the time, and the business's own prices. */
 export async function prepInfo(db: any, tenantId: string, v: { id: string; a: any }) {
   const a = v.a; const { prepCtx } = await import('@/lib/prep-ctx'); const ctx = await prepCtx(db, tenantId, a);   // a renter's visit: the renter's rules
@@ -48,7 +58,7 @@ export async function prepInfo(db: any, tenantId: string, v: { id: string; a: an
   let deposit: string | null = null; const dc = Number(a.depositAmountCents) || 0; if (dc && (a.depositPaid || a.depositStatus === 'paid' || a.paymentStatus === 'deposit_paid' || a.status !== 'pending_payment')) deposit = `$${(dc / 100).toFixed(dc % 100 ? 2 : 0)} paid`;
   return { ok: true as const, serviceId: String(a.serviceId || ''), brand, visit: { service: String(a.serviceName || service?.name || 'your visit'), when, provider, clientFirst: first(a.clientName) }, closed, locked,
     check, catalog, booked, settings: { quote: S.quote, topUp: S.topUp }, goodToKnow: goodToKnow(ctx.policyTenant, service, services, check, S, provider || null), renter: ctx.renter, deposit, depositPaidCents: depositPaidCents(a),
-    topUp: a.depositTopUp && a.depositTopUp.cents > 0 ? { cents: Number(a.depositTopUp.cents), status: String(a.depositTopUp.status || 'due') } : null, prep: a.prep || null };
+    topUp: a.depositTopUp && a.depositTopUp.cents > 0 ? { cents: Number(a.depositTopUp.cents), status: String(a.depositTopUp.status || 'due') } : null, prep: publicPrep(a.prep) };
 }
 
 const okAnswers = (check: any, raw: any): Answers => { const out: Answers = {}; for (const q of check?.questions || []) { const v = raw?.[q.id]; if (typeof v !== 'string') continue;

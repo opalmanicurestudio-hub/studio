@@ -94,6 +94,7 @@ const studioDoc = (snap: any) => (snap?.docs || []).find((d: any) => !(d.data() 
 import { generateShortCode } from '@/lib/short-code';
 import { sendNotification } from '@/lib/notify';
 import { nanoid } from 'nanoid';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 
 export const dynamic = 'force-dynamic';
 
@@ -2456,11 +2457,11 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
       createdAt: nowIso,
       updatedAt: nowIso,
     };
-    tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${seat.token}`), mirror);
+    tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${seat.token}`), publicVisitCopy(mirror));   // no phone / email on a token-readable copy
     // resolveToken in /api/guest-lounge reads the top-level copy FIRST, and the
     // check-in portal reads it directly. Written until the legacy rule closes,
     // exactly as api/appointments/book does.
-    tx.set(db.doc(`appointmentCheckIns/${seat.token}`), mirror);
+    tx.set(db.doc(`appointmentCheckIns/${seat.token}`), publicVisitCopy(mirror));
 
     // ── The completion record ────────────────────────────────────────────
     // Consent is already satisfied by the time we get here, so this exists for

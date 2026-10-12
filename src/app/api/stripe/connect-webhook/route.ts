@@ -8,6 +8,7 @@ import { enrollFromCheckout } from '@/lib/academy';
 import { completeDownPayment, completeStudentPayment, completeCardUpdate } from '@/lib/academy-admissions';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
+import { publicVisitCopy } from '@/lib/public-visit-copy';
 
 // ─── /api/stripe/connect-webhook/route.ts ─────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on your tenants' Stripe accounts.
@@ -365,7 +366,7 @@ export async function POST(req: NextRequest) {
           };
 
           batch.set(aptRef, appointmentPayload);
-          batch.set(db.collection('appointmentCheckIns').doc(checkInToken), appointmentPayload);
+          batch.set(db.collection('appointmentCheckIns').doc(checkInToken), publicVisitCopy(appointmentPayload));   // visit-link-safe fields only
 
           // Post the deposit to the ledger — taxBucket 'revenue' + checkoutSessionId
           // so the charge.succeeded handler below can backfill the exact fee later.
