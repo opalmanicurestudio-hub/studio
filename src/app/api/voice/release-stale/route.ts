@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       .where('status', 'in', ['deposit_pending', 'requested'])
       .get();
 
-    const stale = snap.docs
+    const staleAll = snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as any) }))
       .filter((a) => {
         if (a.voiceApproval === 'denied') return false;
@@ -82,6 +82,17 @@ export async function POST(req: NextRequest) {
           && a.createdAt < cutoffISO;
       });
 
+    // An unpaid voice booking never cancels on its own morning either (lib/deposit-release): inside the protected
+    // window it stays on the schedule, keeps its time, and the desk and provider decide. Requests that were never
+    // accepted still expire as before — the client never had them.
+    const { protectHoursOf, tellDeskDeposit } = await import('@/lib/deposit-release');
+    const protectMs = protectHoursOf(tenant) * 3600e3; const nowMs = Date.now();
+    const stale: any[] = [];
+    for (const a of staleAll) {
+      const lead = Date.parse(String(a.startTime || '')) - nowMs;
+      if (a.status !== 'requested' && Number.isFinite(lead) && lead < protectMs) { if (!a.depositDeskAt) await tellDeskDeposit(db, tenantId, a, 'desk', nowMs).catch(() => {}); continue; }
+      stale.push(a);
+    }
     if (stale.length === 0) return NextResponse.json({ released: 0 });
 
     const batch = db.batch();

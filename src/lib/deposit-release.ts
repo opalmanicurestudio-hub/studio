@@ -1,5 +1,5 @@
 // src/lib/deposit-release.ts — WHEN AN UNPAID DEPOSIT MAY CANCEL A VISIT. One rule for every automatic release
-// (lib/release-unpaid, the retail-payments sweep), so none of them can cancel a visit on its own morning.
+// (lib/release-unpaid, the retail-payments sweep, unpaid voice bookings), so none of them can cancel a visit on its own morning.
 //
 // What went wrong: an accepted booking whose card declined gets the shop's grace window (24 hours by default) — capped
 // at the visit's start. Accepted yesterday at 8:20 → deadline today 8:20 → released at 8:27 for a 10:00 visit. The
@@ -42,7 +42,7 @@ export async function tellDeskDeposit(db: any, tenantId: string, a: any, stage: 
   const message = stage === 'chase'
     ? `${who}’s deposit for ${when}${svc} isn’t paid yet. A quick call or text now keeps the time filled — or release it while someone else can still take it.`
     : `${who}’s deposit for ${when}${svc} still isn’t paid. The visit is kept on the schedule — nothing was cancelled. Take payment at the desk, waive it, or release the time.`;
-  if (stage === 'desk') await ref.set({ depositDeskHold: true, depositDeskAt: new Date(now).toISOString(), needsAttention: 'deposit_unpaid', paymentDueAt: a.startTime || null }, { merge: true });
+  if (stage === 'desk') await ref.set({ depositDeskHold: true, depositDeskAt: new Date(now).toISOString(), needsAttention: 'deposit_unpaid', ...(a.status === 'pending_payment' ? { paymentDueAt: a.startTime || null } : {}) }, { merge: true });
   else await ref.set({ depositChaseAt: new Date(now).toISOString() }, { merge: true });
   const staff = (await db.collection(`${T}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((m: any) => !m.archived && (['owner', 'admin', 'manager', 'front_desk'].includes(String(m.role || '')) || m.id === a.staffId));
