@@ -1,4 +1,7 @@
 'use client';
+import { PrepSummary } from '@/components/staff-portal/PrepSummary';
+import { DayChange } from '@/components/staff-portal/DayChange';
+import { isSoloTeam } from '@/lib/solo';
 import { shrink } from '@/components/making-it-right/VoiceNote';
 
 import { AssistPicker } from '@/components/planner/AssistPicker';
@@ -2453,6 +2456,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div hidden={visitTab !== 'now'} className="space-y-5">
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
+        {/* Before the visit (lib/prep-check) and a change found on the day (lib/prep-day) — here too, for owners who work from the planner. */}
+        {tenantId && appointment?.id && !['cancelled', 'no_show', 'completed', 'checked_out', 'paid'].includes(String(appointment?.status || '')) && <div className="space-y-2">
+          <PrepSummary apt={appointment} tenantId={tenantId} solo={isSoloTeam(staff || [])} />
+          <DayChange apt={appointment} tenantId={tenantId} solo={isSoloTeam(staff || [])} staffName={(staff || []).find((m: any) => m.id === appointment?.staffId)?.name || appointment?.staffName} />
+        </div>}
         {tenantId && <AssistPicker tenantId={tenantId} appointment={appointment} staff={staff || []} defaultPct={Number((selectedTenant as any)?.payRules?.assistPct) || 20} />}
         {!['cancelled', 'declined'].includes(String(appointment?.status)) && <div className="space-y-3">
           <StepTimeline service={service} appointment={appointment} extraMinutes={Number((appointment as any)?.clientExtraMinutes) || 0} tenantId={tenantId}

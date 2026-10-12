@@ -11,6 +11,7 @@ import { useTenant } from '@/context/TenantContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
 import { accuracyOf } from '@/lib/prep-accuracy';
+import { isSoloTeam } from '@/lib/solo';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#3d5a99', PURPLE = '#7a4b8c';
 const money = (n: number) => `$${Number.isInteger(Math.round(n * 100) / 100) ? Math.round(n) : n.toFixed(2)}`;
@@ -25,18 +26,20 @@ export default function BeforeTheVisitDesk() {
   const [from] = React.useState(() => new Date(Date.now() - 3 * 3600e3).toISOString()); const [to] = React.useState(() => new Date(Date.now() + 8 * 864e5).toISOString());
   const q = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore as Firestore, `tenants/${tenantId}/appointments`), where('startTime', '>=', from), where('startTime', '<=', to)) : null), [firestore, tenantId, from, to]);
   const { data, isLoading } = useCollection<any>(q);
+  const sq = useMemoFirebase(() => (firestore && tenantId ? collection(firestore as Firestore, `tenants/${tenantId}/staff`) : null), [firestore, tenantId]);
+  const { data: team } = useCollection<any>(sq); const solo = !!team && isSoloTeam(team);   // one person is provider and desk: one queue
   const tz = selectedTenant?.timezone || 'America/New_York';
   const rows = (data || []).filter((a: any) => a.prep || a.prepSentAt).sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)));
   const statusOf = (a: any) => (a.prep?.status || (a.prepSentAt ? 'waiting' : ''));
-  const need = rows.filter((a) => ['needs_desk', 'question', 'safety'].includes(statusOf(a)));
-  const provider = rows.filter((a) => ['answered', 'agreed'].includes(statusOf(a)) && a.prep?.quote?.changed);
+  const need = rows.filter((a) => ['needs_desk', 'question', 'safety'].includes(statusOf(a)) || (solo && ['answered', 'agreed'].includes(statusOf(a)) && a.prep?.quote?.changed));
+  const provider = solo ? [] : rows.filter((a) => ['answered', 'agreed'].includes(statusOf(a)) && a.prep?.quote?.changed);
   const moving = rows.filter((a) => statusOf(a) === 'asked_move');
   const settled = rows.filter((a) => ['approved', 'kept', 'moved', 'cancelled'].includes(statusOf(a)) || (['answered', 'agreed'].includes(statusOf(a)) && !a.prep?.quote?.changed));
   const waiting = rows.filter((a) => statusOf(a) === 'waiting');
   const when = (iso: string) => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
   const group = (title: string, list: any[], sub?: string, actions = false) => list.length > 0 && <section className="space-y-2">
     <div className="flex items-baseline justify-between"><h2 className="text-[17px] font-semibold">{title} <span style={{ color: MUTED }}>· {list.length}</span></h2>{sub && <p className="text-[13px]" style={{ color: MUTED }}>{sub}</p>}</div>
-    <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>{list.map((a, i) => <Row key={a.id} a={a} first={i === 0} when={when} tenantId={tenantId} actions={actions} />)}</div></section>;
+    <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>{list.map((a, i) => <Row key={a.id} a={a} first={i === 0} when={when} tenantId={tenantId} actions={actions} solo={solo} />)}</div></section>;
   return (
     <div className="min-h-full p-4 md:p-8" style={{ color: INK }}>
       <AppHeader title="Before the visit" />
@@ -46,7 +49,7 @@ export default function BeforeTheVisitDesk() {
           <a href="/settings/before-the-visit" className="inline-flex h-10 items-center rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }}>Questions and rules</a></div>
         {isLoading && <p style={{ color: MUTED }}>Loading…</p>}
         {!isLoading && !rows.length && <p className="rounded-[18px] p-6 text-[14.5px]" style={{ background: SOFT, color: MUTED }}>No checks in the next 8 days. Turn on questions for a service in <a className="underline" href="/settings/before-the-visit">Settings → Before the visit</a>.</p>}
-        {group('Needs you', need, 'Doesn’t fit, a question, or a safety answer', true)}
+        {group('Needs you', need, solo ? 'A change to approve, a question, or a safety answer' : 'Doesn’t fit, a question, or a safety answer', true)}
         {group('With the provider', provider, 'They approve or keep it — it comes here 12 h before if nobody has', true)}
         {group('Picking a new time', moving, 'Free and not counted — they choose from their visit link', true)}
         {group('Not answered yet', waiting, 'If they don’t answer, the weeks since their last visit decide the suggestion — or fill it in with them by phone', true)}
@@ -56,7 +59,7 @@ export default function BeforeTheVisitDesk() {
     </div>);
 }
 
-function Row({ a, first, when, tenantId, actions }: { a: any; first: boolean; when: (iso: string) => string; tenantId: string; actions: boolean }) {
+function Row({ a, first, when, tenantId, actions, solo }: { a: any; first: boolean; when: (iso: string) => string; tenantId: string; actions: boolean; solo: boolean }) {
   const [busy, setBusy] = React.useState(''); const [msg, setMsg] = React.useState(''); const [confirm, setConfirm] = React.useState(false);
   const p = a.prep || {}; const q = p.quote; const st = p.status || 'waiting'; const look = STATE[st] || { label: 'Sent', bg: SOFT, fg: MUTED };
   const go = async (action: string) => { setBusy(action); setMsg(''); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: a.id, action }); setBusy(''); setMsg(r.ok ? (action === 'cancel' && r.offered ? `Cancelled — offered to ${r.offered} on the waitlist.` : 'Done — the client has been told.') : r.error || 'That didn’t work.'); setConfirm(false); };
@@ -80,7 +83,7 @@ function Row({ a, first, when, tenantId, actions }: { a: any; first: boolean; wh
         {actions && ['needs_desk', 'question', 'safety', 'answered', 'agreed'].includes(st) && <div className="flex flex-wrap gap-1.5">
           {q?.changed && p.fits && st !== 'safety' && chip('Approve', 'approve', true)}
           {st !== 'safety' && q?.changed && chip('Ask them to pick a new time', 'move', !p.fits)}
-          {st !== 'safety' && q?.changed && !p.fits && <OtherProvider a={a} tenantId={tenantId} onDone={(m) => setMsg(m)} />}
+          {!solo && st !== 'safety' && q?.changed && !p.fits && <OtherProvider a={a} tenantId={tenantId} onDone={(m) => setMsg(m)} />}
           {chip('Keep as booked', 'keep')}
           {!confirm ? <button type="button" disabled={!!busy} onClick={() => setConfirm(true)} className="h-10 rounded-full px-4 text-[13.5px]" style={{ background: SOFT, color: RED }}>Cancel — no fee</button>
             : <button type="button" disabled={!!busy} onClick={() => go('cancel')} className="h-10 rounded-full px-4 text-[13.5px] font-semibold text-white" style={{ background: RED }}>{busy === 'cancel' ? 'Cancelling…' : 'Yes, cancel it'}</button>}

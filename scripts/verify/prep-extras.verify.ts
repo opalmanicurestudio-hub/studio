@@ -3,6 +3,7 @@
 // Run: npx tsx scripts/verify/prep-extras.verify.ts
 import { topUpDue, depositPaidCents } from '../../src/lib/prep-topup';
 import { accuracyOf } from '../../src/lib/prep-accuracy';
+import { isSoloTeam } from '../../src/lib/solo';
 import { prepTopUpPaid, prepDeskKey, prepKey } from '../../src/lib/prep-check-server';
 let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.log('✗', m); } else console.log('✓', m); };
 const store: Record<string, any> = {};
@@ -40,5 +41,7 @@ const db: any = { doc: docRef, collection: coll };
   ok(r.rows.length === 1 && g.asked === 4 && g.answered === 2 && g.matched === 1 && g.moreAfterAnswer === 1 && g.moreNoAnswer === 1, 'accuracy: asked 4, answered 2, 1 matched, 1 more after answering, 1 more with no answer');
   const many = Array.from({ length: 6 }, (_, i) => v({ prep: { answeredAt: past }, ...(i < 2 ? { dayChanges: [{}] } : {}) }));
   ok(accuracyOf(many, Date.parse('2026-10-01')).tips.some((t) => /2 of 6/.test(t)), 'a tip when answers often miss');
+  ok(isSoloTeam([{ id: 'o', role: 'owner' }, { id: 'r', role: 'renter' }, { id: 'x', isActive: false }]), 'an owner with renters (and a past staff member) is a one-person business');
+  ok(!isSoloTeam([{ id: 'o', role: 'owner' }, { id: 'm', role: 'stylist' }]), 'owner + one provider is a team');
   console.log(bad ? `${bad} failed` : 'all passed'); process.exit(bad ? 1 : 0);
 })();

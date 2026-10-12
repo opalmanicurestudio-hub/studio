@@ -12,7 +12,7 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GR
 const money = (n: number) => `$${Number.isInteger(Math.round(n * 100) / 100) ? Math.round(n) : n.toFixed(2)}`;
 const LIVE = ['arrived', 'checked_in', 'confirmed', 'servicing', 'in_service', 'ready_for_checkout', 'scheduled', 'booked'];
 
-export function DayChange({ apt, tenantId, staffName }: { apt: any; tenantId: string; staffName?: string }) {
+export function DayChange({ apt, tenantId, staffName, solo = false }: { apt: any; tenantId: string; staffName?: string; solo?: boolean }) {
   const [open, setOpen] = React.useState(false); const [o, setO] = React.useState<any>(null); const [err, setErr] = React.useState('');
   const [qty, setQty] = React.useState<Record<string, number>>({}); const [mins, setMins] = React.useState(0); const [sw, setSw] = React.useState<string>('');
   const [fee, setFee] = React.useState(true); const [runOver, setRunOver] = React.useState(false);
@@ -31,7 +31,7 @@ export function DayChange({ apt, tenantId, staffName }: { apt: any; tenantId: st
   const until = q && o ? new Date(Date.parse(apt.startTime) + q.newMinutes * 60000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: o.timeZone }) : '';
   const answer = async (ans: 'yes' | 'no') => { setBusy(ans); setErr(''); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: apt.id, action: 'day_change', ...input, answer: ans, fee: feeAmt > 0, runOver: canRunOver && runOver }); setBusy(''); if (r.ok) { setDone({ ...r, answer: ans }); setShow(false); } else setErr(r.error || 'That didn’t save — try again.'); };
   const step = (id: string, d: number) => setQty((m) => ({ ...m, [id]: Math.max(0, Math.min(20, (m[id] || 0) + d)) }));
-  const outcomeText = (r: any) => r.answer === 'no' ? `${first} said no — kept as booked.` : r.outcome === 'applied' || r.outcome === 'applied_over' ? `${first} said yes — it’s on the booking, ${word.toLowerCase()} ${money(r.quote?.newPrice || 0)}${r.fee ? ` + ${money(r.fee)} fee` : ''}. They’ve been sent it in writing.` : r.outcome === 'needs_new_time' ? `${first} said yes — it doesn’t fit today, so the desk will find a new time (free).` : `${first} said yes — do what fits today; the desk will book the rest before they leave.`;
+  const outcomeText = (r: any) => r.answer === 'no' ? `${first} said no — kept as booked.` : r.outcome === 'applied' || r.outcome === 'applied_over' ? `${first} said yes — it’s on the booking, ${word.toLowerCase()} ${money(r.quote?.newPrice || 0)}${r.fee ? ` + ${money(r.fee)} fee` : ''}. They’ve been sent it in writing.` : r.outcome === 'needs_new_time' ? `${first} said yes — it doesn’t fit today, so ${solo ? 'find them a new time before they leave' : 'the desk will find a new time'} (free).` : `${first} said yes — do what fits today; ${solo ? 'book the rest with them' : 'the desk will book the rest'} before they leave.`;
   const ruleText = o?.onDay === 'extend_or_move' ? 'It doesn’t fit today — we’ll find you another time for it, with no fee.' : o?.onDay === 'provider' ? (runOver ? `We’ll take the extra time today — until about ${until}.` : 'It doesn’t fit today — we’ll do what fits and book the rest with you.') : 'It doesn’t fit today — we’ll do what fits and book the rest with you.';
 
   return (
