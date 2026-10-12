@@ -52,12 +52,12 @@ export async function releaseUnpaidHolds(db: any, tenantId: string, opts: { orig
       const { brandedEmailHtml } = await import('@/lib/email-template');
       if (email) await sendNotification(db, { tenantId, channel: 'email', to: String(email), kind: 'payment_not_received',
         subject: `Your ${svc} appointment time has been released`,
-        html: brandedEmailHtml({ studioName: t.name || 'Your studio', title: 'We were unable to hold your appointment',
-          bodyLines: [`Hi ${String(a.clientName || '').split(' ')[0] || 'there'},`, `We did not receive the deposit for your ${svc} on ${when}, so we have released the appointment time. No payment has been taken.`, `We apologize for any inconvenience. If you would still like to visit us, you are welcome to book a new time${rebook ? ' using the button below' : ''}.`, 'Kind regards,', t.name || 'Your studio'],
+        html: brandedEmailHtml({ studioName: t.name || 'Your studio', title: "We weren't able to hold your appointment",
+          bodyLines: [`Hi ${String(a.clientName || '').split(' ')[0] || 'there'},`, `We didn't receive the deposit for your ${svc} on ${when}, so we've had to release your appointment time. No payment has been taken.`, `We're sorry about that. We'd still love to see you, and you're welcome to book a new time${rebook ? ' using the button below' : ''}.`, 'Kind regards,', t.name || 'Your studio'],
           ...(rebook ? { cta: { label: 'Book a new time', url: rebook } } : {}) }),
         recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: d.id } as any).catch(() => null);
       if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: String(phone), kind: 'payment_not_received',
-        text: `Hi ${String(a.clientName || '').split(' ')[0] || 'there'}, we did not receive the deposit for your ${svc} on ${when}, so we have released the appointment time. No payment has been taken. We apologize for any inconvenience.${rebook ? ` You are welcome to book a new time here: ${rebook}` : ''}`,
+        text: `Hi ${String(a.clientName || '').split(' ')[0] || 'there'}, we didn't receive the deposit for your ${svc} on ${when}, so we've had to release your appointment time. No payment has been taken. We're sorry about that.${rebook ? ` You're welcome to book a new time here: ${rebook}` : ''}`,
         recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: d.id } as any).catch(() => null);
     } catch (e) { console.error('[release-unpaid] client message failed (released anyway)', e); }
   }

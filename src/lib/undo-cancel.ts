@@ -32,12 +32,12 @@ export type UndoResult = { ok: true } | { ok: false; code: 'not_found' | 'needs_
 /** Put the visit back. The key is the client's visit token (the same one that cancelled it). */
 export async function undoCancel(db: any, t: string, id: string, key: string, now = Date.now()): Promise<UndoResult> {
   const ref = db.doc(`tenants/${t}/appointments/${id}`); const snap = await ref.get();
-  if (!snap.exists) return { ok: false, code: 'not_found', error: 'We could not find that appointment.' };
+  if (!snap.exists) return { ok: false, code: 'not_found', error: "We couldn't find that appointment." };
   const a: any = { id, ...snap.data() };
   if (!key || key !== a.checkInToken) return { ok: false, code: 'needs_link', error: 'Please use the link from your confirmation message.' };
   if (!DEAD.includes(String(a.status || ''))) return { ok: true };   // already back on — tapping twice is fine
-  if (!a.undoUntil || ms(a.undoUntil) < now) return { ok: false, code: 'too_late', error: 'We are sorry, but it has been more than 15 minutes, so this cancellation can no longer be undone here. Please book a new time or call us.' };
-  if (!(await timeStillFree(db, t, a, now))) return { ok: false, code: 'taken', error: 'We are sorry, but that time has already been booked. Please choose another time.' };
+  if (!a.undoUntil || ms(a.undoUntil) < now) return { ok: false, code: 'too_late', error: "We're sorry, but it's been more than 15 minutes, so this cancellation can no longer be undone here. Please book a new time or give us a call, and we'll be glad to help." };
+  if (!(await timeStillFree(db, t, a, now))) return { ok: false, code: 'taken', error: "We're sorry, but that time has just been booked by someone else. Please choose another time that suits you." };
   await ref.set({ status: a.statusBeforeCancel || 'confirmed', cancelledAt: null, cancellationAudit: null, cancellationFeeCharged: null, cancellationFeeWaived: null,
     undoUntil: null, statusBeforeCancel: null, cancellationUndoneAt: new Date(now).toISOString(), waitlistOpeningId: null }, { merge: true });
   if (a.cancellationEventId) await db.doc(`tenants/${t}/cancellationEvents/${a.cancellationEventId}`).set({ undoneAt: new Date(now).toISOString() }, { merge: true }).catch(() => null);
@@ -59,7 +59,7 @@ async function tell(db: any, t: string, a: any) {
   const first = name.split(' ')[0] || 'there'; const tokens = { client_first: first, service: svc, when, studio: tenant.name || '' };
   const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
   const base = { tenantId: t, kind: 'cancellation_undone', tokens, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id };
-  if (email.includes('@')) await sendNotification(db, { ...base, channel: 'email', to: email, subject: `Your appointment is confirmed: ${svc}, ${when}`,
-    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: 'Your appointment is confirmed', bodyLines: [`Hi ${first},`, `Your cancellation has been undone, and your ${svc} on ${when} is confirmed.`, 'We look forward to seeing you.', 'Kind regards,', tenant.name || 'Your studio'] } as any) } as any).catch(() => null);
-  if (phone) await sendNotification(db, { ...base, channel: 'sms', to: phone, text: `Hi ${first}, your cancellation has been undone, and your ${svc} on ${when} is confirmed. We look forward to seeing you.` } as any).catch(() => null);
+  if (email.includes('@')) await sendNotification(db, { ...base, channel: 'email', to: email, subject: `You're still booked: ${svc}, ${when}`,
+    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: 'Your appointment is confirmed', bodyLines: [`Hi ${first},`, `We've undone your cancellation, so your ${svc} on ${when} is still booked.`, "We're looking forward to seeing you.", 'Kind regards,', tenant.name || 'Your studio'] } as any) } as any).catch(() => null);
+  if (phone) await sendNotification(db, { ...base, channel: 'sms', to: phone, text: `Hi ${first}, we've undone your cancellation, so your ${svc} on ${when} is still booked. We're looking forward to seeing you.` } as any).catch(() => null);
 }

@@ -21,7 +21,7 @@ export const CALLOUT_REASON_LABEL: Record<CalloutReason, string> = { illness: 'I
 
 /** Why — in words a client can read. No private details, ever. */
 export function disruptionReason(kind: DisruptionKind, cause: string | null | undefined, providerFirst?: string | null): string {
-  if (kind === 'callout') return `${providerFirst || 'Your provider'} is unexpectedly unavailable`;
+  if (kind === 'callout') return `${providerFirst || 'Your provider'} can't make it`;
   switch (String(cause || '')) {
     case 'maintenance': return 'because of maintenance work at the studio';
     case 'flood': case 'water': return 'because of water damage at the studio';
@@ -36,8 +36,8 @@ export function disruptionReason(kind: DisruptionKind, cause: string | null | un
 /** The client's message. */
 export function disruptionMessage(o: { kind: DisruptionKind; cause?: string | null; providerFirst?: string | null; first: string; when: string; service?: string | null; hasDeposit: boolean; studio: string }): string {
   const why = disruptionReason(o.kind, o.cause, o.providerFirst);
-  const lead = o.kind === 'callout' ? `we are sorry to let you know that ${why} ${o.when}, so we are unable to go ahead with your ${o.service || 'appointment'} as booked.` : `we are sorry to let you know that ${why}, we are unable to go ahead with your ${o.service || 'appointment'} ${o.when}.`;
-  return `Hi ${o.first}, ${lead} We apologize for the inconvenience. You are welcome to choose a new time or to cancel, and there is no fee either way.${o.hasDeposit ? ' If you cancel, we will refund your deposit or keep it as credit for a future visit, whichever you prefer.' : ''}`;
+  const lead = o.kind === 'callout' ? `we're sorry to let you know that ${why} ${o.when}, so we can't go ahead with your ${o.service || 'appointment'} as booked.` : `we're sorry to let you know that ${why}, we can't go ahead with your ${o.service || 'appointment'} ${o.when}.`;
+  return `Hi ${o.first}, ${lead} We know this is disappointing. You're welcome to choose a new time or cancel, and there's no fee either way.${o.hasDeposit ? " If you cancel, we'll refund your deposit or keep it as credit for a future visit, whichever you prefer." : ''}`;
 }
 
 export interface AffectedEntry {

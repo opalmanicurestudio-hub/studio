@@ -120,19 +120,19 @@ export function planRound(startMs: number, now: number, offers: { status: string
 
 /** "Still hoping?" — after STALE_AFTER offers in a row they never even opened. */
 export const stillText = (o: { first: string; service: string; link: string }) =>
-  `Hi ${o.first}, would you still like to stay on our waitlist for ${o.service ? `a ${o.service}` : 'an appointment'}? Please let us know here whether you would like to keep your place or be removed from the list: ${o.link}`;
+  `Hi ${o.first}, we wanted to check in. Would you still like to stay on our waitlist for ${o.service ? `a ${o.service}` : 'an appointment'}? Please let us know here whether you'd like to keep your place or come off the list: ${o.link}`;
 /** Booked for them (they asked us to): the booking's own confirmation follows. */
 export const autoBookedText = (o: { first: string; when: string; provider: string }) =>
-  `Hi ${o.first}, good news! ${o.when}${o.provider ? ` with ${o.provider}` : ''} has become available and, as you requested, we have booked it for you. Your confirmation will follow shortly.`;
+  `Hi ${o.first}, good news! ${o.when}${o.provider ? ` with ${o.provider}` : ''} has become available and, as you asked, we've booked it for you. Your confirmation will follow shortly.`;
 
 /** The words. Hello-first doesn't apply here: they asked to be told, so the link goes in. The studio name is added by
  * the branded sender (lib/sms), so the text itself does not repeat it. */
 export function offerText(o: { first: string; provider: string; when: string; service: string; price: string; link: string; mode: Mode; holdMin: number; sooner?: { was: string } | null; business: string }): string {
   const p = o.provider ? ` with ${o.provider}` : '';
-  if (o.sooner) return `Hi ${o.first}, an earlier time has become available${p}: ${o.when}, instead of ${o.sooner.was}. If you would like it, please confirm here: ${o.link}. If not, your current appointment will stay exactly as it is.`;
+  if (o.sooner) return `Hi ${o.first}, good news: an earlier time has become available${p}: ${o.when}, instead of ${o.sooner.was}. If you'd like it, please confirm here: ${o.link}. If not, your current appointment will stay exactly as it is.`;
   return o.mode === 'one'
-    ? `Hi ${o.first}, a time has become available for your ${o.service}${o.price ? ` (${o.price})` : ''}: ${o.when}${p}. It is reserved for you for the next ${o.holdMin} minutes. If you would like it, please confirm here: ${o.link}`
-    : `Hi ${o.first}, a time has become available for your ${o.service}${o.price ? ` (${o.price})` : ''}: ${o.when}${p}. It will go to the first person to confirm. If you would like it, please confirm here: ${o.link}`;
+    ? `Hi ${o.first}, good news: a time has become available for your ${o.service}${o.price ? ` (${o.price})` : ''}: ${o.when}${p}. It's reserved for you for the next ${o.holdMin} minutes. If you'd like it, please confirm here: ${o.link}`
+    : `Hi ${o.first}, good news: a time has become available for your ${o.service}${o.price ? ` (${o.price})` : ''}: ${o.when}${p}. It will go to the first person to confirm, so if you'd like it, please confirm here: ${o.link}`;
 }
 
 /** What's wanted most and never got — the waitlist as demand, for staffing. */

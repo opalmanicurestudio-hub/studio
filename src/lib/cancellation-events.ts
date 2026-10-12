@@ -78,22 +78,22 @@ export async function processCancellationEvent(db: any, stripe: any, tenantId: s
   // Tell the client — one email and/or one text, in the business's time zone. (Bookings handled through the visit
   // link carry no email/phone here: they've already had their one message.)
   const tz = tenant.timezone || 'America/New_York'; const studio = tenant.name || 'The studio'; const charged = updates.chargeStatus === 'charged' && fee > 0;
-  const feeText = !fee || updates.chargeStatus === 'waived' ? '' : charged ? `In line with our cancellation policy, a fee of ${money(fee)} has been charged to your card on file.` : `In line with our cancellation policy, a fee of ${money(fee)} has been added to your account balance.`;
+  const feeText = !fee || updates.chargeStatus === 'waived' ? '' : charged ? `Under our cancellation policy, a fee of ${money(fee)} has been charged to your card on file.` : `Under our cancellation policy, a fee of ${money(fee)} has been added to your account balance.`;
   const { sendNotification } = await import('@/lib/notify');
   // Business's own wording if they've written it (Settings → Messages → We missed you).
-  const tokens = { client_first: String(data.clientName || 'there').split(' ')[0], when: fmt(data.appointmentStartTime, tz, false), service: data.serviceName || '', fee: feeText || 'There is no charge for this.', studio };
+  const tokens = { client_first: String(data.clientName || 'there').split(' ')[0], when: fmt(data.appointmentStartTime, tz, false), service: data.serviceName || '', fee: feeText || "There's no charge for this.", studio };
   if (data.clientEmail && tenant.cancellationEmailEnabled !== false) {
     try { const { brandedEmailHtml } = await import('@/lib/email-template');
       const subject = actor === 'no_show' ? `We missed you — ${studio}` : actor === 'client' ? `Your cancellation is confirmed — ${studio}` : `Your appointment has been cancelled — ${studio}`;
       const r: any = await sendNotification(db, { tenantId, channel: 'email', to: data.clientEmail, kind: 'cancellation', tokens, clientId: data.clientId || null, clientName: data.clientName || null, subject,
-        html: brandedEmailHtml({ studioName: studio, title: subject.split(' — ')[0], bodyLines: [`Hi ${String(data.clientName || 'there').split(' ')[0]},`, actor === 'no_show' ? `We were sorry not to see you for your ${data.serviceName || 'appointment'} on ${fmt(data.appointmentStartTime, tz, true)}, and the appointment has been cancelled.` : `Your ${data.serviceName || 'appointment'} on ${fmt(data.appointmentStartTime, tz, true)} has been cancelled.`, ...(feeText ? [feeText] : []), 'If you have any questions, please reply to this email.', 'Kind regards,', studio] } as any) } as any);
+        html: brandedEmailHtml({ studioName: studio, title: subject.split(' — ')[0], bodyLines: [`Hi ${String(data.clientName || 'there').split(' ')[0]},`, actor === 'no_show' ? `We missed you at your ${data.serviceName || 'appointment'} on ${fmt(data.appointmentStartTime, tz, true)}, and we hope everything is all right. The appointment has been cancelled.` : `Your ${data.serviceName || 'appointment'} on ${fmt(data.appointmentStartTime, tz, true)} has been cancelled.`, ...(feeText ? [feeText] : []), "If you have any questions, just reply to this email and we'll be happy to help.", 'Kind regards,', studio] } as any) } as any);
       updates.emailStatus = r?.ok ? 'sent' : 'failed'; } catch (e: any) { updates.emailStatus = 'failed'; updates.emailError = String(e?.message || e); }
   } else updates.emailStatus = 'skipped';
   if (data.clientPhone && tenant.cancellationSmsEnabled !== false) {
     try { const first = String(data.clientName || 'there').split(' ')[0];
-      const lead = actor === 'no_show' ? `Hi ${first}, this is ${studio}. We were sorry not to see you today. Your appointment` : `Hi ${first}, this is ${studio}. Your ${data.serviceName || ''} appointment`.replace(/\s+appointment$/, ' appointment');
+      const lead = actor === 'no_show' ? `Hi ${first}, we missed you today and hope everything is all right. Your appointment` : `Hi ${first}, your ${data.serviceName || ''} appointment`.replace(/\s+appointment$/, ' appointment');
       const r: any = await sendNotification(db, { tenantId, channel: 'sms', to: data.clientPhone, kind: 'cancellation', tokens, clientId: data.clientId || null, clientName: data.clientName || null,
-        text: `${lead} on ${fmt(data.appointmentStartTime, tz, false)} has been cancelled.${feeText ? ` ${feeText}` : ''} If you have any questions, please reply${tenant.phone ? ` or call us at ${tenant.phone}` : ''}.` } as any);
+        text: `${lead} on ${fmt(data.appointmentStartTime, tz, false)} has been cancelled.${feeText ? ` ${feeText}` : ''} If you have any questions, please reply${tenant.phone ? ` or call us at ${tenant.phone}` : ''}. We're happy to help.` } as any);
       updates.smsStatus = r?.ok ? 'sent' : 'failed'; } catch (e: any) { updates.smsStatus = 'failed'; updates.smsError = String(e?.message || e); }
   } else updates.smsStatus = 'skipped';
 

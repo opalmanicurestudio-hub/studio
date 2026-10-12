@@ -58,5 +58,5 @@ export function lateChoicesText(o: { first: string; lateMin: number; graceMin: n
   if (o.plan.options.includes('condense')) parts.push(`a shorter visit today (without ${(o.plan.dropNames || []).join(' and ') || 'the add-ons'})`);
   if (o.plan.options.includes('switch')) parts.push(`${String(o.plan.toStaffName || 'another of our team').split(' ')[0]} can see you${o.when ? ` at ${o.when}` : ''}`);
   parts.push('a new appointment time');
-  return `Hi ${o.first}, thank you for letting us know you are running about ${o.lateMin} minutes late. Our late arrival policy allows a ${o.graceMin}-minute grace period, so unfortunately your full appointment will no longer fit${o.providerFirst ? ` before ${o.providerFirst}’s next appointment` : ''}. Please let us know which you would prefer: ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} or ${parts[parts.length - 1]}` : parts[0]}.`;
+  return `Hi ${o.first}, thank you for letting us know you're running about ${o.lateMin} minutes late. We can allow up to ${o.graceMin} minutes for a late arrival, so unfortunately your full appointment won't fit${o.providerFirst ? ` before ${o.providerFirst}’s next appointment` : ''}. Please let us know which you'd prefer: ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} or ${parts[parts.length - 1]}` : parts[0]}.`;
 }

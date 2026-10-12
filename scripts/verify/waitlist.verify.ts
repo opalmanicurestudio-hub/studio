@@ -190,7 +190,7 @@ const THU3 = '2026-10-15T19:00:00.000Z';
   await W.waitlistSweep(db6, 't1', (await db6.doc(T).get()).data(), NOW, deps6);
   const o6: any = (await db6.doc(`${T}/openings/op_c1`).get()).data();
   check('first in line ticked “just book it for me” → booked straight away, no link to race for', booked6.length === 1 && booked6[0].startTime === THU2 && o6.status === 'filled' && o6.filledBy.auto && (await db6.doc(`${T}/waitlist/ann`).get()).data().status === 'booked', { booked6, o6 });
-  check('…with a short heads-up text (the booking’s own confirmation follows); nobody else is texted', sent6.length === 1 && sent6[0].to === '+15550300' && /as you requested, we have booked it for you/.test(sent6[0].body), sent6);
+  check('…with a short heads-up text (the booking’s own confirmation follows); nobody else is texted', sent6.length === 1 && sent6[0].to === '+15550300' && /as you asked, we've booked it for you/.test(sent6[0].body), sent6);
   // Already booked for it later → a move-up of that visit, never a second booking
   const db7 = await mk(); await cancelThu(db7, 'c2'); sent6.length = 0; booked6.length = 0;
   await db7.doc(`${T}/waitlist/cy`).set({ id: 'cy', status: 'waiting', name: 'Cy Ford', phone: '(555) 030-0302', serviceId: 'gel', createdAt: '2026-10-01T12:00:00Z' });

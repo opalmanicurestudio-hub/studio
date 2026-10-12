@@ -75,10 +75,10 @@ export async function tellClientReleased(db: any, tenantId: string, a: any) {
   const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
   const tokens = { client_first: first, service: svc, when, link: rebook || '', studio: tenant.name || '' };
   if (email.includes('@')) await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'payment_not_received', tokens, subject: `Your ${svc} appointment time has been released`,
-    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: 'We were unable to hold your appointment', bodyLines: [`Hi ${first},`, `We did not receive the deposit for your ${svc} on ${when}, so we have released the appointment time. No payment has been taken.`, `We apologize for any inconvenience. If you would still like to visit us, you are welcome to book a new time${rebook ? ' using the button below' : ''}.`, 'Kind regards,', tenant.name || 'Your studio'], ...(rebook ? { cta: { label: 'Book a new time', url: rebook } } : {}) }),
+    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: "We weren't able to hold your appointment", bodyLines: [`Hi ${first},`, `We didn't receive the deposit for your ${svc} on ${when}, so we've had to release your appointment time. No payment has been taken.`, `We're sorry about that. We'd still love to see you, and you're welcome to book a new time${rebook ? ' using the button below' : ''}.`, 'Kind regards,', tenant.name || 'Your studio'], ...(rebook ? { cta: { label: 'Book a new time', url: rebook } } : {}) }),
     recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
   if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'payment_not_received', tokens,
-    text: `Hi ${first}, we did not receive the deposit for your ${svc} on ${when}, so we have released the appointment time. No payment has been taken. We apologize for any inconvenience.${rebook ? ` You are welcome to book a new time here: ${rebook}` : ''}`,
+    text: `Hi ${first}, we didn't receive the deposit for your ${svc} on ${when}, so we've had to release your appointment time. No payment has been taken. We're sorry about that.${rebook ? ` You're welcome to book a new time here: ${rebook}` : ''}`,
     recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
 }
 
@@ -93,12 +93,12 @@ export async function tellClientRequestExpired(db: any, tenantId: string, a: any
   const { internalOrigin } = await import('@/lib/message-policy'); const base = internalOrigin(tenant, null) || process.env.NEXT_PUBLIC_APP_URL || '';
   const rebook = base ? `${base}/book/${tenantId}` : null;
   const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
-  const rtokens = { client_first: first, when, reason: 'We were not able to confirm your request in time, so it has not been booked.', link: rebook || '', studio: tenant.name || '' };
+  const rtokens = { client_first: first, when, reason: "We weren't able to confirm your request in time, so it hasn't been booked.", link: rebook || '', studio: tenant.name || '' };
   if (email.includes('@')) await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'request_declined', tokens: rtokens, subject: `About your request for ${when}`,
-    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: 'We were unable to confirm your request', bodyLines: [`Hi ${first},`, `We are sorry, but we were not able to confirm your request for ${when} in time, so it has not been booked. No payment has been taken.`, 'We apologize for the inconvenience. You are welcome to choose another time that suits you, and we look forward to seeing you.', 'Kind regards,', tenant.name || 'Your studio'], ...(rebook ? { cta: { label: 'See open times', url: rebook } } : {}) }),
+    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: "We weren't able to confirm your request", bodyLines: [`Hi ${first},`, `We're sorry, but we weren't able to confirm your request for ${when} in time, so it hasn't been booked. No payment has been taken.`, "We apologize for keeping you waiting. You're welcome to choose another time that suits you, and we'd love to see you.", 'Kind regards,', tenant.name || 'Your studio'], ...(rebook ? { cta: { label: 'See open times', url: rebook } } : {}) }),
     recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
   if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'request_declined', tokens: rtokens,
-    text: `Hi ${first}, we are sorry, but we were not able to confirm your request for ${when} in time, so it has not been booked. No payment has been taken.${rebook ? ` You are welcome to choose another time here: ${rebook}` : ''}`,
+    text: `Hi ${first}, we're sorry, but we weren't able to confirm your request for ${when} in time, so it hasn't been booked. No payment has been taken.${rebook ? ` You're welcome to choose another time here: ${rebook}` : ''}`,
     recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
 }
 
@@ -118,9 +118,9 @@ export async function tellClientDepositDue(db: any, tenantId: string, a: any) {
   const theDeposit = amount === 'the' ? 'your deposit' : `your ${amount} deposit`;   // wording only
   const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
   if (email.includes('@')) await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'booking_hold', tokens, subject: `Your deposit is still due for your ${svc}`,
-    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: 'Your deposit is still due', bodyLines: [`Hi ${first},`, `We have not yet received ${theDeposit} for your ${svc} on ${when}.`, 'To keep your appointment time, please pay the deposit using the button below. Thank you.', 'Kind regards,', tenant.name || 'Your studio'], cta: { label: 'Pay the deposit', url: link } }),
+    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: 'Your deposit is still due', bodyLines: [`Hi ${first},`, `Just a quick note: we haven't received ${theDeposit} for your ${svc} on ${when} yet.`, 'To keep your appointment time, please pay the deposit using the button below. Thank you.', 'Kind regards,', tenant.name || 'Your studio'], cta: { label: 'Pay the deposit', url: link } }),
     recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
   if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'booking_hold', tokens,
-    text: `Hi ${first}, we have not yet received ${theDeposit} for your ${svc} on ${when}. To keep your appointment time, please pay here: ${link}`,
+    text: `Hi ${first}, we haven't received ${theDeposit} for your ${svc} on ${when} yet. To keep your appointment time, please pay here: ${link}. Thank you.`,
     recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
 }

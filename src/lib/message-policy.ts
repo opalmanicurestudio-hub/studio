@@ -51,9 +51,9 @@ export interface MessageKindDef {
    * of writing from a blank box, and changing the house voice is a change to
    * one file rather than a hunt through a dozen send paths.
    *
-   * The voice is deliberately plain and professional: state the fact, state
-   * what happens next, stop. No apologising for things that are not
-   * failures, no filling silence with reassurance nobody asked for. */
+   * The voice is professional, and human (docs/message-voice.md): warm,
+   * courteous and complete, written the way a kind, polished person talks.
+   * One genuine line first, then the facts, then what happens next. */
   defaultSubject: string;
   defaultBody: string;
 
@@ -84,7 +84,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{staff}}', '{{when}}', '{{studio}}', '{{link}}', '{{code}}'],
     requiredTokens: ['{{when}}'],
     defaultSubject: 'Your {{service}} on {{when}} is confirmed',
-    defaultBody: 'Hi {{client_first}},\n\nYour {{service}} with {{staff}} is confirmed for {{when}}. Thank you for booking with {{studio}}.\n\nYour confirmation code is {{code}}. You can manage your appointment or check in here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for booking with us. Your {{service}} with {{staff}} is confirmed for {{when}}, and we\'re looking forward to seeing you.\n\nYour confirmation code is {{code}}. You can manage your appointment or check in here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -95,7 +95,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{amount}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{link}}'],
     defaultSubject: 'Please complete your booking for {{service}}',
-    defaultBody: 'Hi {{client_first}},\n\nWe are holding {{when}} for your {{service}}.\n\nYour booking will be confirmed once the {{amount}} deposit has been paid. You can pay securely here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for choosing us. We\'re holding {{when}} for your {{service}}.\n\nYour booking will be confirmed as soon as the {{amount}} deposit is paid. You can pay securely here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -104,8 +104,8 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     channels: ['email', 'sms'], canDisable: true,
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{amount}}', '{{studio}}', '{{link}}'],
     requiredTokens: [],
-    defaultSubject: 'We have received your request for {{service}} on {{when}}',
-    defaultBody: 'Hi {{client_first}},\n\nThank you for your request for {{service}} on {{when}}.\n\nPlease note that this time is not yet booked. We will confirm it or suggest an alternative shortly. Nothing has been charged.',
+    defaultSubject: 'We\'ve received your request for {{service}} on {{when}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for your request for {{service}} on {{when}}. We\'ll be in touch shortly to confirm it or suggest another time.\n\nPlease note that this time isn\'t booked yet, and nothing has been charged.',
     timing: 'immediate',
   },
   {
@@ -116,7 +116,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{amount}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{when}}'],
     defaultSubject: 'Your {{service}} on {{when}} is confirmed',
-    defaultBody: 'Hi {{client_first}},\n\nWe are pleased to confirm your appointment request for {{when}}.\n\n{{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nGood news! Your appointment request for {{when}} is confirmed, and we\'re looking forward to seeing you.\n\n{{link}}',
     timing: 'immediate',
   },
   {
@@ -130,7 +130,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{when}}'],
     defaultSubject: 'Your {{service}} appointment time has been released',
-    defaultBody: 'Hi {{client_first}},\n\nWe did not receive the deposit for your {{service}} on {{when}}, so we have released your appointment time. Nothing has been charged.\n\nWe would be glad to see you another time. You can book a new appointment here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe didn\'t receive the deposit for your {{service}} on {{when}}, so we\'ve had to release your appointment time. We\'re sorry about that. Nothing has been charged.\n\nWe\'d love to see you another time. You can book a new appointment here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -142,7 +142,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{studio}}'],
     requiredTokens: ['{{when}}'],
     defaultSubject: 'Your {{service}} on {{when}} is still booked',
-    defaultBody: 'Hi {{client_first}},\n\nYour cancellation has been reversed, and your appointment for {{service}} on {{when}} is confirmed. We look forward to seeing you.',
+    defaultBody: 'Hi {{client_first}},\n\nWe\'ve undone your cancellation, so your {{service}} on {{when}} is still booked. We\'re looking forward to seeing you.',
     timing: 'immediate',
   },
   {
@@ -153,7 +153,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{outcome}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{outcome}}'],
     defaultSubject: 'Your appointment at {{studio}} has been cancelled',
-    defaultBody: 'Hi {{client_first}},\n\nYour appointment on {{when}} has been cancelled.\n\n{{outcome}}\n\nWe would be glad to see you again soon. You can book a new time here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nYour appointment on {{when}} has been cancelled.\n\n{{outcome}}\n\nWe hope to see you again soon. Whenever you\'re ready, you can book a new time here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -163,7 +163,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{fee}}', '{{studio}}'],
     requiredTokens: [],
     defaultSubject: 'We missed you at {{studio}}',
-    defaultBody: 'Hi {{client_first}},\n\nWe were sorry not to see you for your appointment on {{when}}.\n\n{{fee}}\n\nWe hope everything is all right, and we would be glad to see you again soon.',
+    defaultBody: 'Hi {{client_first}},\n\nWe missed you at your appointment on {{when}}, and we hope everything is all right.\n\n{{fee}}\n\nWhenever you\'re ready, we\'d be glad to see you again.',
     timing: 'immediate',
   },
   {
@@ -173,7 +173,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{reason}}', '{{refund_line}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{when}}', '{{refund_line}}', '{{link}}'],
     defaultSubject: 'Your appointment on {{when}} is cancelled because {{studio}} is closed',
-    defaultBody: 'Hi {{client_first}},\n\nWe regret to let you know that {{studio}} is unexpectedly closed ({{reason}}), so we have had to cancel your {{service}} on {{when}}. We sincerely apologize for the inconvenience.\n\n{{refund_line}}\n\nWe would be glad to see you as soon as we reopen. You can choose a new time here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe\'re sorry to let you know that we\'re unexpectedly closed ({{reason}}), so we\'ve had to cancel your {{service}} on {{when}}. We know this is disappointing, and we apologize.\n\n{{refund_line}}\n\nWe\'d love to see you as soon as we reopen. You can choose a new time here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -189,7 +189,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{reason}}', '{{refund_line}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
     defaultSubject: 'An update about your appointment on {{when}}',
-    defaultBody: 'Hi {{client_first}},\n\nUnfortunately, we have had to cancel your {{service}} on {{when}}, as no one on our team is available to take it. We sincerely apologize for the inconvenience.\n\n{{refund_line}}\n\nWe would be glad to see you another time. You can choose a new time here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe\'re sorry to let you know that we\'ve had to cancel your {{service}} on {{when}}, as no one on our team is available to take it. We know this is frustrating, and we apologize.\n\n{{refund_line}}\n\nWe\'d be glad to see you another time. You can choose a new time here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -200,7 +200,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{when}}', '{{reason}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
     defaultSubject: 'Your appointment request for {{when}}',
-    defaultBody: 'Hi {{client_first}},\n\nThank you for your request. Unfortunately, we are not able to accommodate {{when}}.\n\n{{reason}}\n\nNothing has been charged. You can view other available times here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for your request. Unfortunately, we aren\'t able to take {{when}}, and we\'re sorry about that.\n\n{{reason}}\n\nNothing has been charged. We\'d still love to see you, and you can view other available times here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -216,7 +216,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{when}}', '{{reason}}', '{{studio}}'],
     requiredTokens: [],
     defaultSubject: 'Your booking request',
-    defaultBody: 'Hi {{client_first}},\n\nUnfortunately, we are not able to accept this booking.\n\n{{reason}}\n\nNothing has been charged. Thank you for your interest in {{studio}}.',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for thinking of us. Unfortunately, we aren\'t able to accept this booking.\n\n{{reason}}\n\nNothing has been charged. We truly appreciate your interest.',
     timing: 'immediate',
   },
   {
@@ -243,7 +243,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     requiredTokens: ['{{when}}'],
     timingOwnedElsewhere: 'Reminder timing (how many days ahead, and the hour it goes out) is set under Automations \u2192 Reminders, so the schedule stays in one place.',
     defaultSubject: 'Reminder: your {{service}} on {{when}}',
-    defaultBody: 'Hi {{client_first}},\n\nThis is a reminder of your {{service}} with {{staff}} on {{when}}. We look forward to seeing you.\n\nYou can manage your appointment here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe\'re looking forward to seeing you for your {{service}} with {{staff}} on {{when}}.\n\nIf anything changes, you can manage your appointment here: {{link}}',
     timing: 'before_event',
     defaultOffsetHours: 24,
     offsetAnchor: 'the appointment start time',
@@ -256,7 +256,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{service}}', '{{paid_at}}', '{{reference}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{amount}}'],
     defaultSubject: 'Deposit received: {{amount}}',
-    defaultBody: 'Hi {{client_first}},\n\nThank you. We have charged your {{amount}} deposit for your {{service}} on {{when}} to your card on file.\n\nYour deposit will be applied toward your total on the day of your appointment.\n\n{{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you. We\'ve charged your {{amount}} deposit for your {{service}} on {{when}} to your card on file.\n\nIt will go toward your total on the day of your appointment.\n\n{{link}}',
     timing: 'immediate',
   },
   {
@@ -267,7 +267,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{link}}', '{{studio}}', '{{card_issue}}', '{{hold_until}}'],
     requiredTokens: ['{{link}}'],
     defaultSubject: 'Payment needed to confirm your appointment: {{amount}}',
-    defaultBody: 'Hi {{client_first}},\n\nWe were not able to process the {{amount}} deposit on the card we have on file.\n\n{{card_issue}}\n\nWe are holding your appointment time until {{hold_until}}. To confirm it, please complete your payment here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe weren\'t able to process the {{amount}} deposit on the card we have on file.\n\n{{card_issue}}\n\nWe\'re still holding your appointment time until {{hold_until}}. To confirm it, please complete your payment here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -278,7 +278,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{amount}}', '{{when}}', '{{service}}', '{{fee_reason}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{amount}}'],
     defaultSubject: 'A {{amount}} fee has been charged to your card on file',
-    defaultBody: 'Hi {{client_first}},\n\nIn line with our booking policy, a {{fee_reason}} of {{amount}} has been charged to your card on file for your {{service}} on {{when}}.\n\nIf you have any questions, please reply to this message.\n\n{{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe wanted to let you know that, under our booking policy, a {{fee_reason}} of {{amount}} has been charged to your card on file for your {{service}} on {{when}}.\n\nIf you have any questions, please reply to this message and we\'ll be happy to help.\n\n{{link}}',
     timing: 'immediate',
   },
   {
@@ -288,7 +288,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{amount}}', '{{fee_reason}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{amount}}'],
     defaultSubject: 'Balance due on your account: {{amount}}',
-    defaultBody: 'Hi {{client_first}},\n\nPlease note that there is a balance of {{amount}} on your account for {{fee_reason}}.\n\nYou can settle it securely here, or at your next visit: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe wanted to let you know that there\'s a balance of {{amount}} on your account for {{fee_reason}}.\n\nYou can settle it securely here, or at your next visit, whichever is easier for you: {{link}}',
     timing: 'after_event',
     defaultOffsetHours: 48,
     offsetAnchor: 'the balance being recorded',
@@ -301,7 +301,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{old_when}}', '{{amount}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{when}}'],
     defaultSubject: 'Your {{service}} has been moved to {{when}}',
-    defaultBody: 'Hi {{client_first}},\n\nYour {{service}} has been moved from {{old_when}} to {{when}}. We look forward to seeing you then.\n\n{{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nYour {{service}} has been moved from {{old_when}} to {{when}}. We\'re looking forward to seeing you then.\n\n{{link}}',
     timing: 'immediate',
   },
   {
@@ -487,7 +487,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{team}}', '{{book_link}}', '{{review_link}}', '{{aftercare_link}}', '{{studio}}'],
     requiredTokens: [],
     defaultSubject: 'Thank you for visiting {{studio}}',
-    defaultBody: 'Hi {{client_first}},\n\nThank you for coming in yesterday; {{team}} truly enjoyed having you.\nYou can book your next visit here: {{book_link}}\nIf you have a moment, we would be grateful for a review: {{review_link}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for coming in yesterday. {{team}} really enjoyed having you.\nWhenever you\'re ready, you can book your next visit here: {{book_link}}\nIf you have a moment, we\'d be so grateful for a review: {{review_link}}',
     timing: 'immediate',
   },
   {
@@ -540,7 +540,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{amount}}', '{{studio}}', '{{link}}'],
     requiredTokens: ['{{amount}}'],
     defaultSubject: 'Your refund of {{amount}} has been issued',
-    defaultBody: 'Hi {{client_first}},\n\nA refund of {{amount}} has been issued to your original payment method.\n\nMost banks post refunds within 5 to 10 business days. {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe\'ve issued a refund of {{amount}} to your original payment method.\n\nMost banks post refunds within 5 to 10 business days, so it may take a little while to appear. {{link}}',
     timing: 'immediate',
   },
   {
@@ -979,8 +979,8 @@ export function resolveAddressForMessage(policy: AddressPolicy, ctx: AddressCont
 
   const held = (why: string): AddressDecision => ({
     text: policy.areaLabel
-      ? `${policy.areaLabel}. We will send you the full address ${why}.`
-      : `We will send you the full address ${why}.`,
+      ? `${policy.areaLabel}. We'll send you the full address ${why}.`
+      : `We'll send you the full address ${why}.`,
     revealed: false,
     reason: `held back: ${why}`,
   });
@@ -1077,17 +1077,17 @@ export interface CardFailure {
 
 const CARD_FAILURES: Record<string, Omit<CardFailure, 'code'>> = {
   expired_card:        { guidance: 'That card has expired. Please pay with a current card.', retryable: false, needsNewCard: true },
-  incorrect_cvc:       { guidance: 'The security code did not match. Please re-enter your card details.', retryable: false, needsNewCard: true },
-  incorrect_number:    { guidance: 'The card number was not accepted. Please re-enter your card details.', retryable: false, needsNewCard: true },
+  incorrect_cvc:       { guidance: 'The security code didn\'t match. Please re-enter your card details.', retryable: false, needsNewCard: true },
+  incorrect_number:    { guidance: 'The card number wasn\'t accepted. Please re-enter your card details.', retryable: false, needsNewCard: true },
   card_declined:       { guidance: 'The card was declined. Please pay with another card.', retryable: false, needsNewCard: true },
   insufficient_funds:  { guidance: 'The card was declined for insufficient funds. You can pay with another card, or we can try this one again later.', retryable: true, needsNewCard: false },
   withdrawal_count_limit_exceeded: { guidance: 'The card has reached a limit set by your bank. You can pay with another card, or we can try this one again later.', retryable: true, needsNewCard: false },
-  processing_error:    { guidance: 'We were not able to process the payment just now. We will try again shortly.', retryable: true, needsNewCard: false },
+  processing_error:    { guidance: 'We weren\'t able to process the payment just now. We\'ll try again shortly.', retryable: true, needsNewCard: false },
   authentication_required: { guidance: 'Your bank requires you to approve this payment. Please complete it using the payment link.', retryable: false, needsNewCard: false },
   lost_card:           { guidance: 'That card cannot be used. Please pay with another card.', retryable: false, needsNewCard: true },
   stolen_card:         { guidance: 'That card cannot be used. Please pay with another card.', retryable: false, needsNewCard: true },
-  no_card_on_file:     { guidance: 'We do not have a card on file to charge.', retryable: false, needsNewCard: true },
-  network:             { guidance: 'We were not able to reach our payment processor. We will try again shortly.', retryable: true, needsNewCard: false },
+  no_card_on_file:     { guidance: 'We don\'t have a card on file to charge.', retryable: false, needsNewCard: true },
+  network:             { guidance: 'We weren\'t able to reach our payment processor. We\'ll try again shortly.', retryable: true, needsNewCard: false },
 };
 
 export function classifyCardFailure(code?: string | null, declineCode?: string | null): CardFailure {
@@ -1096,7 +1096,7 @@ export function classifyCardFailure(code?: string | null, declineCode?: string |
   if (hit) return { code: c, ...hit };
   return {
     code: c || 'charge_failed',
-    guidance: 'The payment did not go through. Please pay with another card.',
+    guidance: 'The payment didn\'t go through. Please pay with another card.',
     retryable: false,
     needsNewCard: true,
   };

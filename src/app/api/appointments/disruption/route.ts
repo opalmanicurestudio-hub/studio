@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
       const ap: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
       const cl: any = ap.clientId ? (((await db.doc(`${T}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
       const email = String(cl.email || ap.clientEmail || '').trim(), phone = String(cl.phone || ap.clientPhone || '').trim(); let ok = false;
-      if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject, kind: 'disruption_followup', html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: [text, `Kind regards, ${studio}`], cta }), appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
+      if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject, kind: 'disruption_followup', html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: [text, 'Kind regards,', studio], cta }), appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
       if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'disruption_followup', text: `${text}${cta ? ` ${cta.url}` : ''}`, appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
       return { ok, ap };
     };
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
         if (en.chasedAt && Date.now() - Date.parse(en.chasedAt) < 12 * 3600000) continue;
         const ap0: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
         const link = ap0.checkInToken ? `${base}/check-in/${ap0.checkInToken}` : null;
-        const r = await tell(en, 'A reminder about your appointment', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'}, we wanted to make sure you received our earlier message. Unfortunately, we are unable to go ahead with your ${en.serviceName || 'appointment'} as booked, and we apologize for the inconvenience. Please choose a new time or cancel at no charge using this link:`, link ? { label: 'View my options', url: link } : null);
+        const r = await tell(en, 'A reminder about your appointment', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'}, we wanted to make sure you saw our earlier message. We're sorry, but we can't go ahead with your ${en.serviceName || 'appointment'} as booked. You're welcome to choose a new time or cancel at no charge using this link:`, link ? { label: 'View my options', url: link } : null);
         if (r.ok) { n++; await dRef.set({ affected: { [en.appointmentId]: { chasedAt: nowIso } } }, { merge: true }); }
       }
       await logAuditAdmin(db, tenantId, { action: 'disruption.chased', targetType: kind === 'callout' ? 'staff' : 'interruption', targetId: String(b.disruptionId), summary: `Reminded ${n} client${n === 1 ? '' : 's'} who hadn’t chosen yet`, actor }).catch(() => {});
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
         if (en.isRenterBooking || !['cancelled', 'pending'].includes(en.outcome) || en.reopenNotifiedAt) continue;
         const ap0: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
         const url = `${base}/book/${tenantId}${ap0.serviceId ? `?service=${encodeURIComponent(ap0.serviceId)}` : ''}`;
-        const r = await tell(en, kind === 'callout' ? `${pFirst || 'Your provider'} is back` : 'We are open again', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'}, we are pleased to let you know that ${kind === 'callout' ? `${pFirst || 'your provider'} is back` : 'we are open again'}, and we would love to see you. Please book a time that suits you${en.outcome === 'pending' ? ', or keep your new choice if you have already made one' : ''}:`, { label: 'Book a time', url });
+        const r = await tell(en, kind === 'callout' ? `${pFirst || 'Your provider'} is back` : "We're open again", `Hi ${String(en.clientName || '').split(' ')[0] || 'there'}, good news! ${kind === 'callout' ? `${pFirst || 'Your provider'} is back` : "We're open again"}, and we'd love to see you. Please book a time that suits you${en.outcome === 'pending' ? ", or keep your new choice if you've already made one" : ''}:`, { label: 'Book a time', url });
         if (r.ok) { n++; await dRef.set({ affected: { [en.appointmentId]: { reopenNotifiedAt: nowIso } } }, { merge: true }); }
       }
       await dRef.set({ reopenedAt: nowIso }, { merge: true });
@@ -210,7 +210,7 @@ export async function POST(req: NextRequest) {
         const msg = disruptionMessage({ kind, cause, providerFirst: pFirst, first: String(en.clientName || '').split(' ')[0] || 'there', when: `on ${when}`, service: en.serviceName, hasDeposit: en.depositCents > 0, studio });
         const link = a?.checkInToken ? `${base}/check-in/${a.checkInToken}` : null;
         let ok = false;
-        if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `An important update about your appointment with ${studio}`, kind: 'disruption', html: brandedEmailHtml({ studioName: studio, title: 'An update about your appointment', bodyLines: [msg, `Kind regards, ${studio}`], cta: link ? { label: 'View my options', url: link } : null }), appointmentId: en.appointmentId, clientId: a?.clientId || null, clientName: en.clientName } as any))?.ok || ok;
+        if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `An important update about your appointment with ${studio}`, kind: 'disruption', html: brandedEmailHtml({ studioName: studio, title: 'An update about your appointment', bodyLines: [msg, 'Kind regards,', studio], cta: link ? { label: 'View my options', url: link } : null }), appointmentId: en.appointmentId, clientId: a?.clientId || null, clientName: en.clientName } as any))?.ok || ok;
         if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'disruption', text: `${msg}${link ? ` ${link}` : ''}`, appointmentId: en.appointmentId, clientId: a?.clientId || null, clientName: en.clientName } as any))?.ok || ok;
         if (ok) { en.notifiedAt = nowIso; told++; }
       } catch (e) { console.error('[disruption] send failed', e); }

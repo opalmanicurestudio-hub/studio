@@ -100,10 +100,10 @@ export async function tellClient(db: any, tenantId: string, tenant: any, clientI
   const studio = tenant?.name || 'Us'; const toks = { client_first: String(client.name || '').split(' ')[0] || 'there', amount: `$${amount.toFixed(2)}`, fee_reason: reason.toLowerCase(), studio, when: '', service: '', link: '' };
   if (client.phone) { const p = resolveMessagePolicy(tenant, 'fee_charged', 'sms');
     if (p.enabled) await sendNotification(db, { tenantId, channel: 'sms', to: client.phone, kind: 'fee_charged', clientId, clientName: client.name || null,
-      text: p.body ? renderMessage(p.body, toks) : `Hi ${toks.client_first}, this is ${studio}. In line with our booking policy, we have charged ${toks.amount} to your card on file for ${toks.fee_reason}. If you have any questions, please reply to this message.` } as any); }
+      text: p.body ? renderMessage(p.body, toks) : `Hi ${toks.client_first}, we wanted to let you know that, under our booking policy, we've charged ${toks.amount} to your card on file for ${toks.fee_reason}. If you have any questions, please reply to this message and we'll be happy to help.` } as any); }
   if (client.email) { const p = resolveMessagePolicy(tenant, 'fee_charged', 'email');
     if (p.enabled) { const { brandedEmailHtml } = await import('@/lib/email-template');
       await sendNotification(db, { tenantId, channel: 'email', to: client.email, kind: 'fee_charged', clientId, clientName: client.name || null,
         subject: p.subject ? renderMessage(p.subject, toks) : `A ${toks.amount} fee from ${studio} has been charged to your card`,
-        html: brandedEmailHtml({ studioName: studio, title: 'A fee has been charged to your card', bodyLines: p.body ? [renderMessage(p.body, toks)] : [`Hi ${toks.client_first},`, `In line with our booking policy, we have charged ${toks.amount} to your card on file for ${toks.fee_reason}.`, 'If you have any questions, please reply to this email.', 'Kind regards,', studio] } as any) } as any); } }
+        html: brandedEmailHtml({ studioName: studio, title: 'A fee has been charged to your card', bodyLines: p.body ? [renderMessage(p.body, toks)] : [`Hi ${toks.client_first},`, `We wanted to let you know that, under our booking policy, we've charged ${toks.amount} to your card on file for ${toks.fee_reason}.`, "If you have any questions, just reply to this email and we'll be happy to help.", 'Kind regards,', studio] } as any) } as any); } }
 }

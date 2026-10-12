@@ -202,7 +202,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'cancel') {
       // Inside the window, cancelling goes through the visit link, where your late-cancellation policy (and fee) applies.
-      if (!insideWindow) return NextResponse.json({ ok: false, error: `It’s within ${cancelHours} hours of your appointment, so a late-cancellation policy applies — cancel from your visit link to see exactly what that means.`, visitLink: a.checkInToken ? `/check-in/${a.checkInToken}` : null }, { status: 422 });
+      if (!insideWindow) return NextResponse.json({ ok: false, error: `Because it’s within ${cancelHours} hours of your appointment, our late cancellation policy applies. Please cancel from your visit link to see exactly what that means for you.`, visitLink: a.checkInToken ? `/check-in/${a.checkInToken}` : null }, { status: 422 });
       const nowIso = new Date().toISOString();
       const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve' };
       await ref.set(cancelFields, { merge: true });
@@ -267,7 +267,7 @@ export async function POST(req: NextRequest) {
     // Running late, past the grace time → they chose from the options we sent (a shorter visit, another provider, a new time).
     if (action === 'late_choice') {
       const lc = a.lateChoices;
-      if (!lc || lc.status !== 'sent' || lc.choice) return NextResponse.json({ ok: false, error: 'These options are no longer available. Our team will be in touch with you shortly.' }, { status: 409 });
+      if (!lc || lc.status !== 'sent' || lc.choice) return NextResponse.json({ ok: false, error: "These options are no longer available, but our team will be in touch with you shortly." }, { status: 409 });
       const choice = String(body.choice || '');
       if (!Array.isArray(lc.options) || !lc.options.includes(choice)) return NextResponse.json({ ok: false, error: 'That option isn’t available.' }, { status: 400 });
       const nowIso = new Date().toISOString(); const who = a.clientName || 'Client';
@@ -278,7 +278,7 @@ export async function POST(req: NextRequest) {
         const drop: string[] = Array.isArray(lc.dropAddOnIds) ? lc.dropAddOnIds : [];
         const names = (lc.dropNames || []).join(' and ') || 'the add-ons';
         await put({ ...answered, addOnIds: (a.addOnIds || []).filter((id: string) => !drop.includes(id)), droppedAddOnIds: drop,
-          lateReply: { kind: 'condense', message: `Thank you for letting us know. We will provide a shorter visit today, without ${names}, so that you finish on time.`, at: nowIso, by: who, clientAgreed: true } });
+          lateReply: { kind: 'condense', message: `Thank you for letting us know. We'll do a shorter visit today, without ${names}, so that you finish on time.`, at: nowIso, by: who, clientAgreed: true } });
         await tellTeam(`${who} is running late and has chosen a shorter visit, without ${names}.`);
         await logAuditAdmin(db, tenantId, { action: 'late.client_chose', targetType: 'appointment', targetId: apptId, summary: `${who} chose a shorter visit (without ${names}) after running late`, actor: { type: 'user', name: who, role: 'client', via: 'visit link' } }).catch(() => {});
         return NextResponse.json({ ok: true, choice });
@@ -313,7 +313,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, kept: true });
       }
       const lineUp = String(body.choice || '') === 'waitlist' && d.kind === 'callout';   // cancel, then first in line for this provider
-      if (String(body.choice || '') !== 'cancel' && !lineUp) return NextResponse.json({ ok: false, error: 'Choose a new time or cancel.' }, { status: 400 });
+      if (String(body.choice || '') !== 'cancel' && !lineUp) return NextResponse.json({ ok: false, error: 'Please choose a new time or cancel.' }, { status: 400 });
       const nowIso = new Date().toISOString();
       const dep = a.depositStatus === 'paid' ? Number(a.depositAmountCents) || 0 : 0;
       const asCredit = body.deposit === 'credit';
@@ -350,7 +350,7 @@ export async function POST(req: NextRequest) {
         await logAuditAdmin(db, tenantId, { action: 'appointment.provider_offer_declined', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} declined ${po.toStaffName || 'another provider'} at ${when}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
         return NextResponse.json({ ok: true, choice });
       }
-      if (choice !== 'accept') return NextResponse.json({ ok: false, error: 'Accept or decline.' }, { status: 400 });
+      if (choice !== 'accept') return NextResponse.json({ ok: false, error: 'Please accept or decline.' }, { status: 400 });
       const durMs = Math.max(15 * 60000, (Date.parse(a.endTime || a.startTime) - Date.parse(a.startTime)) || 60 * 60000);
       const s0 = Date.parse(po.startAt);
       const { providerFree } = await import('@/lib/provider-availability');
@@ -358,7 +358,7 @@ export async function POST(req: NextRequest) {
         const f = { providerOffer: { ...po, status: 'expired', answeredAt: nowIso } };
         await ref.set(f, { merge: true }); await mirrorSet(f);
         await tellStaff(po.fromStaffId || null, `Action needed: ${a.clientName || 'Your client'} accepted the offer to see ${po.toStaffName || 'the other provider'} at ${when}, but that time is no longer available. Please decide what happens next.`);
-        return NextResponse.json({ ok: false, error: 'We are sorry, but that time has just been taken. We will be in touch with another option.' }, { status: 409 });
+        return NextResponse.json({ ok: false, error: "We're sorry, but that time has just been taken. We'll be in touch with another option." }, { status: 409 });
       }
       // Apply it. The ORIGINAL time and provider are kept (history); the planner shows the new ones.
       const applied = {
@@ -414,7 +414,7 @@ export async function POST(req: NextRequest) {
         await logAuditAdmin(db, tenantId, { action: 'appointment.provider_delay_reply', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} cancelled — provider running ~${pd.minutes} min behind (no fee${depositPaid ? '; deposit to refund/credit' : ''})`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
         return NextResponse.json({ ok: true, choice, depositRefund: depositPaid });
       }
-      return NextResponse.json({ ok: false, error: 'Choose keep, reschedule or cancel.' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'Please choose keep, reschedule or cancel.' }, { status: 400 });
     }
     // "Ask us to move it" — when the change limit needs the team's OK.
     // Open times to move to — same provider, service and length; the business's normal client rules.
@@ -425,7 +425,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(r, { status: r.ok ? 200 : 400 });
     }
     if (action === 'request_change') {
-      if (change.allowed) return NextResponse.json({ ok: false, error: 'You are able to reschedule this appointment yourself. Please choose a new time.' }, { status: 400 });
+      if (change.allowed) return NextResponse.json({ ok: false, error: "You're able to reschedule this appointment yourself. Please choose a new time." }, { status: 400 });
       if (!change.canRequest) return NextResponse.json({ ok: false, error: change.reason }, { status: 409 });
       const note = typeof body.note === 'string' ? body.note.trim().slice(0, 300) : '';
       const first = await requestChange(note || null);
@@ -452,10 +452,10 @@ export async function POST(req: NextRequest) {
       } else {
         newStart = new Date(String(body.newStartIso || ''));
       }
-      if (Number.isNaN(newStart.getTime())) return NextResponse.json({ ok: false, error: 'Pick a date and time.' }, { status: 400 });
+      if (Number.isNaN(newStart.getTime())) return NextResponse.json({ ok: false, error: 'Please pick a date and time.' }, { status: 400 });
       const nowMs = Date.now();
-      if (newStart.getTime() < nowMs + 2 * 3600000) return NextResponse.json({ ok: false, error: 'Pick a time at least 2 hours from now.' }, { status: 422 });
-      if (newStart.getTime() > nowMs + 60 * 86400000) return NextResponse.json({ ok: false, error: 'Pick a time within the next 60 days.' }, { status: 422 });
+      if (newStart.getTime() < nowMs + 2 * 3600000) return NextResponse.json({ ok: false, error: 'Please pick a time at least 2 hours from now.' }, { status: 422 });
+      if (newStart.getTime() > nowMs + 60 * 86400000) return NextResponse.json({ ok: false, error: 'Please pick a time within the next 60 days.' }, { status: 422 });
 
       // Asked to move because the visit needs more time (before the visit): the new time takes the agreed change with it.
       const prepMove = a.disruption?.kind === 'prep' && a.disruption?.status === 'pending' && a.prep?.quote && !a.prep.quote.safety ? a.prep.quote : null;
@@ -473,7 +473,7 @@ export async function POST(req: NextRequest) {
       let feeIntent: string | null = null;
       if (owesFee) {
         if (takenBy((await db.collection(`tenants/${tenantId}/appointments`).where('startTime', '>=', dayStart).where('startTime', '<=', dayEnd).get()).docs))
-          return NextResponse.json({ ok: false, error: `We are sorry, ${a.staffName || 'that staff member'} is not available at that time. Please choose another time.` }, { status: 409 });
+          return NextResponse.json({ ok: false, error: `We're sorry, ${a.staffName || 'that staff member'} isn't available at that time. Please choose another time.` }, { status: 409 });
         const cl: any = ((await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).get()).data() as any) || {};
         const hasCard = !!(cl.cardOnFile?.paymentMethodId && (cl.cardOnFile?.customerId || cl.cardOnFile?.stripeCustomerId || cl.stripeCustomerId));
         if (hasCard) {
@@ -482,8 +482,8 @@ export async function POST(req: NextRequest) {
           if (cr.ok && cr.data?.ok && cr.data?.paymentIntentId) feeIntent = cr.data.paymentIntentId;
         }
         if (!feeIntent && unpaidFeeRuleOf(tDoc) === 'keep_booking') return NextResponse.json({ ok: false, code: 'fee_unpaid', error: hasCard
-          ? 'We were unable to process the card on file, so your appointment has not been moved. You are welcome to update your card and try again, or keep your current time.'
-          : `As outlined in our rescheduling policy, a $${feeIfMovedNow.toFixed(2)} fee applies to rescheduling at this time and must be paid by card. As we do not have a card on file for you, your appointment has not been moved.` }, { status: 402 });
+          ? "We weren't able to process the card on file, so your appointment hasn't been moved. You're welcome to update your card and try again, or keep your current time."
+          : `Moving your appointment at this point carries our $${feeIfMovedNow.toFixed(2)} rescheduling fee, which needs to be paid by card. Because we don't have a card on file for you, your appointment hasn't been moved.` }, { status: 402 });
       }
       const result = await db.runTransaction(async (tx: any) => {
         const nearby = await tx.get(db.collection(`tenants/${tenantId}/appointments`)
@@ -528,14 +528,14 @@ export async function POST(req: NextRequest) {
         const { refundPaymentIntent } = await import('@/lib/stripe-refund');
         const back = await refundPaymentIntent(tDoc.stripeAccountId, feeIntent);
         await logAuditAdmin(db, tenantId, { action: 'fee.auto_refunded', targetType: 'appointment', targetId: apptId, summary: `Reschedule fee $${feeIfMovedNow.toFixed(2)} ${back ? 'refunded automatically' : 'NEEDS A MANUAL REFUND'} — the new time was taken before the move completed`, actor: { type: 'system', name: 'Booking' } } as any).catch(() => {});
-        return NextResponse.json({ ok: false, error: `We are sorry, but that time was just taken. ${back ? 'Your fee has been refunded' : 'We will refund your fee'}. Please choose another time.` }, { status: 409 });
+        return NextResponse.json({ ok: false, error: `We're sorry, but that time was just taken. ${back ? 'Your fee has been refunded' : "We'll refund your fee"}. Please choose another time.` }, { status: 409 });
       }
       if (!result.conflict && feeIfMovedNow > 0 && !usingGrace && a.clientId && !feeIntent) {
         const feeId = `rf_${Date.now().toString(36)}`;
         await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).set({ outstandingBalance: FieldValue.increment(feeIfMovedNow),
           unpaidFees: FieldValue.arrayUnion({ feeId, appointmentId: apptId, appointmentDate: new Date().toISOString(), feeAmount: feeIfMovedNow, reason: 'reschedule_fee' }) }, { merge: true }).catch(() => {});
       }
-      if (result.conflict) return NextResponse.json({ ok: false, error: `We are sorry, ${a.staffName || 'that staff member'} is not available at that time. Please choose another time.` }, { status: 409 });
+      if (result.conflict) return NextResponse.json({ ok: false, error: `We're sorry, ${a.staffName || 'that staff member'} isn't available at that time. Please choose another time.` }, { status: 409 });
       await notifyStaffAndOwner(db, tenantId, a,
         `${a.clientName || 'A client'} has rescheduled their appointment${a.staffName ? ` with ${a.staffName}` : ''} from ${fmtWhen(a.startTime, tzOffset, zone)} to ${fmtWhen(newStart.toISOString(), tzOffset, zone)} using their visit link.`);
       await logAuditAdmin(db, tenantId, {
@@ -549,7 +549,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   } catch (err) {
     console.error('[appt] failed', err);
-    return NextResponse.json({ ok: false, error: 'We are sorry, something went wrong. Please try again.' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "We're sorry, something went wrong. Please try again." }, { status: 500 });
   }
 }
 

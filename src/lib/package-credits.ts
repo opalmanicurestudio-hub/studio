@@ -65,23 +65,23 @@ export function decideCredit(pkg: any, ending: VisitEnding, applied: boolean, ho
   const p = policyOf(pkg);
   if (ending.by === 'renter') {
     return applied
-      ? { action: 'restore', reason: `As your provider ${ending.how === 'move' ? 'moved' : ending.how === 'decline' ? 'declined' : 'cancelled'} this appointment, your package credit has been returned to you.` }
-      : { action: 'none', reason: 'The provider ended this visit; nothing was taken.' };
+      ? { action: 'restore', reason: `Because your provider ${ending.how === 'move' ? 'moved' : ending.how === 'decline' ? 'declined' : 'cancelled'} this appointment, we've returned your package credit to you.` }
+      : { action: 'none', reason: 'The provider ended this visit, so no package credit was used.' };
   }
   if (ending.how === 'no_show') {
-    if (applied) return { action: 'none', reason: p.noShowForfeits ? 'As this appointment was missed, the package credit applied to it has been used, in line with the package terms.' : 'This appointment was missed. Under the terms of your package, your credit has not been used.' };
-    if (p.noShowForfeits && holdsLiveCredit) return { action: 'forfeit', reason: 'As this appointment was missed, one visit has been used from your package, in line with the package terms.' };
-    return { action: 'none', reason: p.noShowForfeits ? 'This appointment was missed. No package credit was available to use.' : 'Under the terms of your package, a missed appointment does not use a visit.' };
+    if (applied) return { action: 'none', reason: p.noShowForfeits ? 'Because this appointment was missed, the package credit applied to it has been used, under your package terms.' : "This appointment was missed. Under your package terms, your credit hasn't been used." };
+    if (p.noShowForfeits && holdsLiveCredit) return { action: 'forfeit', reason: 'Because this appointment was missed, one visit has been used from your package, under your package terms.' };
+    return { action: 'none', reason: p.noShowForfeits ? 'This appointment was missed, and there was no package credit available to use.' : "Under your package terms, a missed appointment doesn't use a visit." };
   }
   // client cancel
   const late = p.lateCancelForfeits && ending.hoursBeforeStart < p.lateCancelHours;
   if (applied) {
     return late
-      ? { action: 'none', reason: `This appointment was cancelled ${Math.max(0, Math.floor(ending.hoursBeforeStart))} hours before its start time, which is within the ${p.lateCancelHours}-hour notice period in your package terms, so the package credit has been used.` }
-      : { action: 'restore', reason: 'Thank you for cancelling in good time. Your package credit has been returned to you.' };
+      ? { action: 'none', reason: `Because this appointment was cancelled ${Math.max(0, Math.floor(ending.hoursBeforeStart))} hours before it started, within the ${p.lateCancelHours}-hour notice period in your package terms, the package credit has been used.` }
+      : { action: 'restore', reason: "Thank you for letting us know in good time. We've returned your package credit to you." };
   }
-  if (late && holdsLiveCredit) return { action: 'forfeit', reason: `As this appointment was cancelled with less than ${p.lateCancelHours} hours’ notice, one visit has been used from your package, in line with the package terms.` };
-  return { action: 'none', reason: late ? 'This appointment was cancelled late. No package credit was available to use.' : 'This appointment was cancelled in good time, so no package credit has been used.' };
+  if (late && holdsLiveCredit) return { action: 'forfeit', reason: `Because this appointment was cancelled with less than ${p.lateCancelHours} hours’ notice, one visit has been used from your package, under your package terms.` };
+  return { action: 'none', reason: late ? 'This appointment was cancelled late, and there was no package credit available to use.' : 'Thank you for cancelling in good time. No package credit has been used.' };
 }
 
 /** Hours from now until a visit, never negative. */

@@ -238,7 +238,7 @@ const CancelledView = ({
                     )}
                 </VisitCard>
             )}
-            {feeSettled && <VisitCard tone="ok"><p className="text-[15px]">Fee paid — thank you.</p></VisitCard>}
+            {feeSettled && <VisitCard tone="ok"><p className="text-[15px]">Thank you. Your fee has been paid.</p></VisitCard>}
             <VisitCard>
                 <p className="text-[15px]">We’d love to see you another time.</p>
                 {brand.bookHref && <VisitButton href={brand.bookHref}>Book a new time</VisitButton>}
@@ -2124,14 +2124,14 @@ const CancelGateView = ({
                 let data: any = null;
                 try { data = await res.json(); } catch {
                     setError(res.status === 404
-                        ? 'Online cancellation isn’t available right now — please try again in a moment.'
-                        : `Something went wrong on our end (${res.status}) — please try again in a moment.`);
+                        ? 'Online cancellation isn’t available right now. Please try again in a moment.'
+                        : `Something went wrong on our end (${res.status}). Please try again in a moment.`);
                     return;
                 }
                 if (!data.ok) { setError(data.error || 'This appointment could not be found.'); setDetails(data); return; }
                 setDetails(data);
             })
-            .catch(() => setError('No connection — check your signal and try again.'))
+            .catch(() => setError('We couldn’t connect. Please check your signal and try again.'))
             .finally(() => setIsLoading(false));
     }, [tenantId, appointmentId]);
 
@@ -2146,10 +2146,10 @@ const CancelGateView = ({
                 body: JSON.stringify({ tenantId, appointmentId, clientReason: reason, k: accessKey, useGrace: useGrace && !!details?.grace, ...(details?.series?.later ? { scope } : {}) }),
             });
             const data = await res.json();
-            if (!data.ok) { setError(data.error || 'Could not cancel this appointment.'); return; }
+            if (!data.ok) { setError(data.error || 'We couldn’t cancel this appointment.'); return; }
             setResult(data);
         } catch {
-            setError('Something went wrong — please try again.');
+            setError('Something went wrong. Please try again.');
         } finally {
             setIsSubmitting(false);
         }
@@ -2171,7 +2171,7 @@ const CancelGateView = ({
     if (result?.undone) {
         return (
             <VisitShell brand={brand} title={<>You’re <b>still booked</b></>}>
-                <VisitCard tone="ok"><p className="text-[15px]">Your cancellation is undone — {details?.appointment?.serviceName || 'your appointment'}{details?.appointment?.startTime ? `, ${format(safeDate(details.appointment.startTime), 'EEEE, MMMM d · h:mm a')}` : ''} is back on. We’ve sent you a confirmation.</p></VisitCard>
+                <VisitCard tone="ok"><p className="text-[15px]">We’ve undone your cancellation, so your {details?.appointment?.serviceName || 'appointment'}{details?.appointment?.startTime ? `, ${format(safeDate(details.appointment.startTime), 'EEEE, MMMM d · h:mm a')},` : ''} is still booked. We’ve sent you a confirmation, and we look forward to seeing you.</p></VisitCard>
                 <VisitButton quiet onClick={onBack}>Back</VisitButton>
             </VisitShell>
         );
@@ -2182,22 +2182,22 @@ const CancelGateView = ({
             <VisitShell brand={brand} title={<>You’re <b>cancelled</b></>} subtitle={result.alreadyCancelled ? 'This appointment was already cancelled.' : undefined}>
                 {!result.alreadyCancelled && <VisitCard tone="ok">
                     {Array.isArray(result.lines) && result.lines.length ? result.lines.map((l: string) => <p key={l} className="text-[15px]">{l}</p>)
-                        : <p className="text-[15px]">{result.feeCharged ? `As this is within the ${details?.windowHours}-hour cancellation window, a $${Number(result.feeAmount).toFixed(2)} cancellation fee applies.` : 'No cancellation fee — thanks for letting us know in advance.'}</p>}
+                        : <p className="text-[15px]">{result.feeCharged ? `Because this was within ${details?.windowHours} hours of your appointment, our cancellation fee of $${Number(result.feeAmount).toFixed(2)} applies.` : 'There’s no cancellation fee. Thank you for letting us know in advance.'}</p>}
                 </VisitCard>}
                 {(Number(result.laterCancelled) > 0 || result.depositMovedTo) && <VisitCard tone="ok">
-                    {Number(result.laterCancelled) > 0 && <p className="text-[15px]">Your {result.laterCancelled} later visit{result.laterCancelled === 1 ? ' is' : 's are'} cancelled too — no fees.</p>}
+                    {Number(result.laterCancelled) > 0 && <p className="text-[15px]">Your {result.laterCancelled} later visit{result.laterCancelled === 1 ? ' is' : 's are'} cancelled too, with no fees.</p>}
                     {result.depositMovedTo && <p className="text-[15px]">Your deposit has moved to your next visit.</p>}
                 </VisitCard>}
                 {result.undoUntil && Date.parse(result.undoUntil) > Date.now() && <VisitCard>
                     <VisitLabel>Changed your mind?</VisitLabel>
-                    <VisitMuted>You can undo this until {format(safeDate(result.undoUntil), 'h:mm a')}, as long as nobody has booked the time.</VisitMuted>
+                    <VisitMuted>No problem. You can undo this until {format(safeDate(result.undoUntil), 'h:mm a')}, as long as the time hasn’t been booked by someone else.</VisitMuted>
                     {undoErr && <p className="text-[14px]" style={{ color: '#b45309' }}>{undoErr}</p>}
                     <VisitButton disabled={undoing} onClick={async () => {
                         setUndoing(true); setUndoErr(null);
                         try { const r = await fetch('/api/appointments/undo-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId, k: accessKey }) }).then((x) => x.json());
-                            if (r.ok) setResult({ ...result, undone: true }); else setUndoErr(r.error || 'That didn’t work — please call us.'); }
-                        catch { setUndoErr('No connection — please try again.'); } finally { setUndoing(false); }
-                    }}>{undoing ? 'Undoing…' : 'Undo — keep my appointment'}</VisitButton>
+                            if (r.ok) setResult({ ...result, undone: true }); else setUndoErr(r.error || 'That didn’t work. Please give us a call, and we’ll be glad to help.'); }
+                        catch { setUndoErr('We couldn’t connect. Please try again.'); } finally { setUndoing(false); }
+                    }}>{undoing ? 'Undoing…' : 'Undo and keep my appointment'}</VisitButton>
                 </VisitCard>}
                 {brand.bookHref && <VisitButton href={brand.bookHref}>Book another time</VisitButton>}
             </VisitShell>
@@ -2216,19 +2216,19 @@ const CancelGateView = ({
             <VisitCard tone={owes ? 'warn' : 'ok'}>
                 <VisitLabel>If you cancel now</VisitLabel>
                 {lines.length ? lines.map((l) => <p key={l} className="text-[15px]">{l}</p>)
-                    : details?.isLate ? <p className="text-[15px]">This is within the {details.windowHours}-hour cancellation window, so a ${Number(details.estimatedFee).toFixed(2)} cancellation fee would apply.</p>
-                    : <p className="text-[15px]">There’s no cancellation fee — thanks for letting us know in advance.</p>}
+                    : details?.isLate ? <p className="text-[15px]">Because this is within {details.windowHours} hours of your appointment, our cancellation fee of ${Number(details.estimatedFee).toFixed(2)} would apply.</p>
+                    : <p className="text-[15px]">There’s no cancellation fee. Thank you for letting us know in advance.</p>}
                 {!graced && details?.unpaidLine && <VisitMuted>{details.unpaidLine}</VisitMuted>}
                 {details?.cancellationPolicyText && <VisitMuted>{details.cancellationPolicyText}</VisitMuted>}
             </VisitCard>
             {g && <VisitCard>
                 <label className="flex items-start gap-2 text-[15px]"><input type="checkbox" className="mt-1" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} />
-                    <span>You have {g.remaining} grace cancellation{g.remaining === 1 ? '' : 's'} left (every {g.periodMonths} months) — use it: {String(g.permitLabel || '').toLowerCase()}.</span></label>
+                    <span>You have {g.remaining} grace cancellation{g.remaining === 1 ? '' : 's'} left (every {g.periodMonths} months). Use one now: {String(g.permitLabel || '').toLowerCase()}.</span></label>
             </VisitCard>}
             {Number(details?.series?.later) > 0 && <VisitCard>
                 <VisitLabel>This is part of a repeat booking</VisitLabel>
                 <VisitChoice cols={2} value={scope} onChange={setScope as any} options={[['one', 'This visit only'], ['series', `This and all later visits (${details.series.later})`]]} />
-                {scope === 'series' && <VisitMuted>Your {details.series.later} later visit{details.series.later === 1 ? ' is' : 's are'} cancelled too — no fees for {details.series.later === 1 ? 'it' : 'them'}.</VisitMuted>}
+                {scope === 'series' && <VisitMuted>Your {details.series.later} later visit{details.series.later === 1 ? '' : 's'} will be cancelled too, with no fee for {details.series.later === 1 ? 'it' : 'them'}.</VisitMuted>}
                 {scope === 'one' && details.series.depositMoves && !details?.isLate && <VisitMuted>Your deposit moves to your next visit.</VisitMuted>}
             </VisitCard>}
             <VisitCard>
@@ -2248,16 +2248,16 @@ const CancelGateView = ({
 // request (with an optional note) through /api/appt → the team is notified.
 const AskToMove = ({ apptApi }: { apptApi: (p: any) => Promise<any> }) => {
     const [note, setNote] = useState(''); const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle'); const [msg, setMsg] = useState('');
-    if (state === 'sent') return <VisitCard tone="ok"><p className="text-[15px]">{msg || 'Sent — we’ll get back to you soon.'}</p></VisitCard>;
+    if (state === 'sent') return <VisitCard tone="ok"><p className="text-[15px]">{msg || 'Thank you. We’ll get back to you soon.'}</p></VisitCard>;
     return (
         <VisitCard>
             <VisitLabel>Ask us to reschedule</VisitLabel>
-            <VisitInput multiline label="When would suit you?" value={note} onChange={(v) => setNote(v.slice(0, 300))} placeholder="When would suit you? (optional) — e.g. any weekday after 3pm" />
+            <VisitInput multiline label="When would suit you?" value={note} onChange={(v) => setNote(v.slice(0, 300))} placeholder="When would suit you? (optional) For example, any weekday after 3:00 PM" />
             {state === 'error' && <p className="text-[14px]" style={{ color: '#b45309' }}>{msg}</p>}
             <VisitButton disabled={state === 'sending'} onClick={async () => {
                 setState('sending');
-                try { const d = await apptApi({ action: 'request_change', note }); if (d.ok) { setMsg(d.alreadyAsked ? 'We already have your request — we’ll be in touch soon.' : 'Sent — we’ll get back to you soon.'); setState('sent'); } else { setMsg(d.error || 'That didn’t send — please try again.'); setState('error'); } }
-                catch { setMsg('That didn’t send — please try again.'); setState('error'); }
+                try { const d = await apptApi({ action: 'request_change', note }); if (d.ok) { setMsg(d.alreadyAsked ? 'We already have your request, and we’ll be in touch soon.' : 'Thank you. We’ll get back to you soon.'); setState('sent'); } else { setMsg(d.error || 'That didn’t send. Please try again.'); setState('error'); } }
+                catch { setMsg('That didn’t send. Please try again.'); setState('error'); }
             }}>{state === 'sending' ? 'Sending…' : 'Send my request'}</VisitButton>
         </VisitCard>
     );
@@ -2298,8 +2298,8 @@ const RescheduleGateView = ({
         });
         try { return await res.json(); } catch {
             throw new Error(res.status === 404
-                ? 'Rescheduling isn’t available online for this appointment — you can ask us to reschedule it below.'
-                : `Server error (${res.status}) — try again in a moment.`);
+                ? 'Rescheduling isn’t available online for this appointment, but you can ask us to reschedule it below.'
+                : `Something went wrong on our end (${res.status}). Please try again in a moment.`);
         }
     };
 
@@ -2307,7 +2307,7 @@ const RescheduleGateView = ({
         (async () => {
             try {
                 const d = await apptApi({ action: 'view' });
-                if (!d.ok) { setError(d.error || 'This appointment could not be loaded.'); return; }
+                if (!d.ok) { setError(d.error || 'We couldn’t load this appointment.'); return; }
                 setInfo(d);
                 const sl = await apptApi({ action: 'slots', from: d?.policy?.earliestDate || undefined, days: 14 }).catch(() => null);
                 setSlotDays(sl?.ok ? (sl.days || []).filter((x: any) => (x.times || []).length) : []);
@@ -2329,9 +2329,9 @@ const RescheduleGateView = ({
             // studio's zone and whether daylight saving applies on the chosen
             // date, so only the server should build the moment.
             const d = await apptApi({ action: 'reschedule', newDate, newTime, useGrace });
-            if (!d.ok) { setError(d.error || 'Could not move the appointment — try another time.'); return; }
+            if (!d.ok) { setError(d.error || 'We couldn’t move the appointment. Please try another time.'); return; }
             setResult(d);
-        } catch (e: any) { setError(e?.message || 'Something went wrong — please try again.'); }
+        } catch (e: any) { setError(e?.message || 'Something went wrong. Please try again.'); }
         finally { setIsSubmitting(false); }
     };
 
@@ -2341,8 +2341,8 @@ const RescheduleGateView = ({
     }
     if (result) {
         return (
-            <VisitShell brand={brand} title={<>You’re <b>rescheduled</b></>} subtitle={`See you ${result.whenLabel || 'then'}.`}>
-                <VisitCard tone="ok"><p className="text-[15px]">Our calendar is updated and your reminders follow the new time. This same link is your visit link on the day.</p></VisitCard>
+            <VisitShell brand={brand} title={<>You’re <b>rescheduled</b></>} subtitle={`We look forward to seeing you ${result.whenLabel || 'then'}.`}>
+                <VisitCard tone="ok"><p className="text-[15px]">Thank you. Our calendar is updated, and your reminders will follow the new time. You can use this same link as your visit link on the day.</p></VisitCard>
                 <VisitButton onClick={onBack}>Done</VisitButton>
             </VisitShell>
         );
@@ -2367,9 +2367,9 @@ const RescheduleGateView = ({
             {!canChange && <VisitCard tone="warn"><p className="text-[15px]">{info?.policy?.changeRule?.reason || `Online rescheduling closes ${cutoffHours} hours before your appointment.`}</p></VisitCard>}
             {canChange && Number(info?.policy?.rescheduleFee) > 0 && (
                 <VisitCard tone="warn">
-                    <p className="text-[15px]">{useGrace ? <>Using your grace allowance — <b>no reschedule fee</b> this time.</> : <>Rescheduling now carries a <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> fee, as it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment. It’s charged to your card on file when you confirm.</>}</p>
+                    <p className="text-[15px]">{useGrace ? <>Because you’re using your grace allowance, there’s <b>no reschedule fee</b> this time.</> : <>Because it’s within {info.policy.rescheduleFeeWindowHours} hours of your appointment, our <b>${Number(info.policy.rescheduleFee).toFixed(2)}</b> rescheduling fee applies. It’s charged to your card on file when you confirm.</>}</p>
                     {!useGrace && info?.policy?.unpaidLine && <VisitMuted>{info.policy.unpaidLine}</VisitMuted>}
-                    {info?.policy?.graceAvailable && <label className="flex items-center gap-2 text-[15px]"><input type="checkbox" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} /> You have {info.policy.graceAvailable.remaining} grace reschedule{info.policy.graceAvailable.remaining === 1 ? '' : 's'} left (every {info.policy.graceAvailable.periodMonths} months) — use it and reschedule for free</label>}
+                    {info?.policy?.graceAvailable && <label className="flex items-center gap-2 text-[15px]"><input type="checkbox" checked={useGrace} onChange={(e) => setUseGrace(e.target.checked)} /> You have {info.policy.graceAvailable.remaining} grace reschedule{info.policy.graceAvailable.remaining === 1 ? '' : 's'} left (every {info.policy.graceAvailable.periodMonths} months). Use one to reschedule for free.</label>}
                 </VisitCard>
             )}
             {!canChange && (info?.policy?.changeRule?.canRequest ?? info?.policy?.changeRule?.needsApproval) ? <AskToMove apptApi={apptApi} />
@@ -2377,7 +2377,7 @@ const RescheduleGateView = ({
                 <VisitCard>
                     <VisitLabel>Choose a day</VisitLabel>
                     {slotDays === null ? <VisitMuted>Finding open times…</VisitMuted>
-                        : slotDays.length === 0 ? <VisitMuted>No open times in the next two weeks online.{brand.bookHref ? ' You can browse further ahead on our booking page.' : ''}</VisitMuted>
+                        : slotDays.length === 0 ? <VisitMuted>There are no open times online in the next two weeks.{brand.bookHref ? ' You can look further ahead on our booking page.' : ''}</VisitMuted>
                         : <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{slotDays.map((x) => { const on = x.date === newDate; const d = safeDate(`${x.date}T12:00:00`);
                             return <button key={x.date} type="button" aria-pressed={on} onClick={() => { setNewDate(x.date); setNewTime(''); }} className="min-w-[4.5rem] shrink-0 rounded-2xl px-3 py-2 text-center transition active:scale-[.98]"
                                 style={on ? { background: 'var(--accent)', color: '#fff' } : { background: '#fff', border: '1px solid #e7e2dc' }}>

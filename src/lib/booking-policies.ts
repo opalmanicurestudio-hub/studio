@@ -128,8 +128,8 @@ export type UnpaidFeeRule = 'next_visit' | 'before_booking' | 'keep_booking' | '
 export const unpaidFeeRuleOf = (tenant: any): UnpaidFeeRule => (['next_visit', 'before_booking', 'keep_booking', 'with_deposit'].includes(tenant?.bookingPolicies?.unpaidFeeRule) ? tenant.bookingPolicies.unpaidFeeRule : 'next_visit');
 /** What clients are told (before booking, and at the change). */
 export function unpaidFeeLine(rule: UnpaidFeeRule): string {
-  return rule === 'keep_booking' ? 'Any change fees are charged to your card on file. If the charge cannot be completed, your appointment remains as booked.'
-    : rule === 'before_booking' ? 'Any change fees are charged to your card on file. If the charge cannot be completed, the fee will need to be paid before your next booking.'
-    : rule === 'with_deposit' ? 'Any change fees are charged to your card on file. If the charge cannot be completed, the fee will be collected together with the deposit for your next booking.'
-    : 'Any change fees are charged to your card on file. If the charge cannot be completed, the fee will be added to your next visit.';
+  return rule === 'keep_booking' ? "Any change fees are charged to your card on file. If the charge doesn't go through, your appointment stays as booked."
+    : rule === 'before_booking' ? "Any change fees are charged to your card on file. If the charge doesn't go through, the fee will need to be paid before your next booking."
+    : rule === 'with_deposit' ? "Any change fees are charged to your card on file. If the charge doesn't go through, we'll collect the fee together with the deposit for your next booking."
+    : "Any change fees are charged to your card on file. If the charge doesn't go through, we'll add the fee to your next visit.";
 }

@@ -144,8 +144,8 @@ export async function GET(req: NextRequest) {
           const when = dayOfZ(at) === dayOfZ(new Date(nowMs)) ? `today at ${time}` : dayOfZ(at) === dayOfZ(new Date(nowMs + 864e5)) ? `tomorrow at ${time}` : `${at.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: zone })} at ${time}`;
           const svcDoc: any = a.serviceId ? (((await db.doc(`tenants/${tid}/services/${a.serviceId}`).get()).data() as any) || {}) : {};
           const whereLine = placeLine(svcDoc, null, a, { timeZone: tdata.timezone || null, clientPhone: phone || null, businessPhone: tdata.phone || tdata.twilioPhoneNumber || null });
-          const link = a.checkInToken && ownBase ? ` If you need to make a change, please use your visit link: ${ownBase}/check-in/${a.checkInToken}` : '';
-          const text = `Hi ${String(a.clientName || '').trim().split(/\s+/)[0] || 'there'}, this is a reminder of your ${svcDoc.name || a.serviceName || 'appointment'}${a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''} ${when}.${whereLine ? ` ${whereLine}` : ''}${link}`;
+          const link = a.checkInToken && ownBase ? ` If you need to make a change, you can use your visit link: ${ownBase}/check-in/${a.checkInToken}` : '';
+          const text = `Hi ${String(a.clientName || '').trim().split(/\s+/)[0] || 'there'}, we're looking forward to your ${svcDoc.name || a.serviceName || 'appointment'}${a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''} ${when}.${whereLine ? ` ${whereLine}` : ''}${link}`;
           let ok = false;
           if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, text, { email, subject: 'Appointment reminder' })).ok;
           if (!ok && email.includes('@')) {
@@ -286,7 +286,7 @@ export async function GET(req: NextRequest) {
             const when = `${dayOf(at)} at ${timeOf(at)}`;
             const svc = a.renterServiceName || svcNames.get(String(a.serviceId || '')) || 'appointment';
             const signoff = String(rp.comms.signoff || '').trim();
-            const text = `Hi ${firstNameOf(a.clientName)}, this is a reminder of your ${svc} with ${rp.name} ${daysBefore === 0 ? `today, ${when}` : daysBefore === 1 ? `tomorrow, ${when}` : `on ${when}`}.${signoff ? ` ${signoff}` : ' If you need to make a change, please reply to this message.'}`;
+            const text = `Hi ${firstNameOf(a.clientName)}, we're looking forward to your ${svc} with ${rp.name} ${daysBefore === 0 ? `today, ${when}` : daysBefore === 1 ? `tomorrow, ${when}` : `on ${when}`}.${signoff ? ` ${signoff}` : " If you need to make a change, just reply to this message."}`;
             let ok = false;
             if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Reminder from ${rp.name}` })).ok;
             if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Reminder from ${rp.name}`, text, kind: 'renter_client_reminder', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
@@ -315,7 +315,7 @@ export async function GET(req: NextRequest) {
           const link = token && base ? `${base}/check-in/${token}` : '';
           const formsDue = b.items.some((i) => i.a.completionStatus && i.a.completionStatus !== 'completed');
           const depositDue = b.items.some((i) => i.a.status === 'pending_payment');
-          const manage = link ? ` ${depositDue ? 'Please note that we have not yet received your deposit. You can pay it here' : formsDue ? 'Please complete your forms before you arrive' : 'For details, check-in, or to make a change, please use your visit link'}: ${link}` : '';
+          const manage = link ? ` ${depositDue ? "Please note that we haven't received your deposit yet. You can pay it here" : formsDue ? 'Please complete your forms before you arrive' : 'For details, check-in or any changes, you can use your visit link'}: ${link}` : '';
 
           let msg: string;
           if (b.items.length === 1) {
@@ -323,8 +323,8 @@ export async function GET(req: NextRequest) {
             const tRem0: any = tDoc.data() || {};
             const whereLine = placeLine(svcById.get(String(first.a.serviceId || '')), null, first.a, { timeZone: tRem0.timezone || null, clientPhone: b.phone || null, businessPhone: tRem0.phone || tRem0.twilioPhoneNumber || null });   // this booking's own link wins; remote visits say the time zone   // online link / "we'll come to you"
             msg = daysBefore === 0
-              ? `Hi ${firstNameOf(first.a.clientName)}, this is a reminder of your appointment${withWho} today, ${when}.${whereLine ? ` ${whereLine}` : ''}${manage}`
-              : `Hi ${firstNameOf(first.a.clientName)}, this is a reminder of your appointment${withWho} ${daysBefore === 1 ? `tomorrow, ${when}` : `on ${when}`}.${whereLine ? ` ${whereLine}` : ''}${manage}`;
+              ? `Hi ${firstNameOf(first.a.clientName)}, we're looking forward to your appointment${withWho} today, ${when}.${whereLine ? ` ${whereLine}` : ''}${manage}`
+              : `Hi ${firstNameOf(first.a.clientName)}, we're looking forward to your appointment${withWho} ${daysBefore === 1 ? `tomorrow, ${when}` : `on ${when}`}.${whereLine ? ` ${whereLine}` : ''}${manage}`;
           } else {
             // More than one name in the bucket means this phone is covering
             // other people, so lead each line with who it is for.
@@ -338,8 +338,8 @@ export async function GET(req: NextRequest) {
             }).join(', ');
             const dayPart = daysBefore === 0 ? 'today' : dayOf(first.at);
             msg = names.size > 1
-              ? `Hello, this is a reminder of your group's appointments ${daysBefore === 0 ? dayPart : `on ${dayPart}`}: ${lines}.${manage}`
-              : `Hi ${firstNameOf(first.a.clientName)}, this is a reminder of your ${b.items.length} appointments ${daysBefore === 0 ? dayPart : `on ${dayPart}`}: ${lines}.${manage}`;
+              ? `Hello, we're looking forward to your group's appointments ${daysBefore === 0 ? dayPart : `on ${dayPart}`}: ${lines}.${manage}`
+              : `Hi ${firstNameOf(first.a.clientName)}, we're looking forward to your ${b.items.length} appointments ${daysBefore === 0 ? dayPart : `on ${dayPart}`}: ${lines}.${manage}`;
           }
 
           let delivered = false;
@@ -353,10 +353,10 @@ export async function GET(req: NextRequest) {
             const graceRem = Number(tRem.lateArrivalGracePeriod || 0);
             const html = brandedEmailHtml({ studioName: tRem.name || tRem.businessName || 'Your studio', title: daysBefore === 0 ? 'Your appointment is today' : 'Your upcoming appointment',
               bodyLines: [msg.replace(manage, '').trim(),
-                ...(depositDue ? ['Please note that we have not yet received your deposit. To keep this appointment time, please pay it using the button below.'] : formsDue ? ['Please complete your forms before you arrive. It only takes a minute using the button below.'] : []),
+                ...(depositDue ? ["Please note that we haven't received your deposit yet. To keep this appointment time, please pay it using the button below."] : formsDue ? ['Please complete your forms before you arrive. It only takes a minute using the button below.'] : []),
                 // Same policy wording as every other message (change/cancel + running late).
-                ...bookingPolicyLines(tRem).filter((l, i) => i === 0 || /^Running late/.test(l)),
-                `Kind regards, ${tRem.name || tRem.businessName || 'Your studio'}`],
+                ...bookingPolicyLines(tRem).filter((l, i) => i === 0 || /running late/i.test(l)),
+                'Kind regards,', tRem.name || tRem.businessName || 'Your studio'],
               cta: link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Complete my forms' : 'View my visit', url: link } : null });
             const r = await sendNotification(db, {
               tenantId: tid, channel: 'email', to: b.email,
@@ -414,7 +414,7 @@ export async function GET(req: NextRequest) {
               // the visit (appointment id as bearer, same as /cancel), and only
               // a completed booking is accepted on the other end.
               const reviewUrl = base ? `${base}/review/${tid}/${aDoc.id}` : '';
-              const text = `Hi ${firstNameOf(a.clientName)}, thank you for your visit with ${rp.name} yesterday. It was a pleasure to see you.${reviewUrl ? ` We would love to hear how your visit went: ${reviewUrl}` : ''}${rp.bookingUrl ? ` You can book your next visit here: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
+              const text = `Hi ${firstNameOf(a.clientName)}, thank you for your visit with ${rp.name} yesterday. It was a pleasure to see you.${reviewUrl ? ` We'd love to hear how your visit went: ${reviewUrl}` : ''}${rp.bookingUrl ? ` You can book your next visit here: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
               let ok = false;
               if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Thank you from ${rp.name}` })).ok;
               if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Thank you from ${rp.name}`, text, kind: 'renter_client_thanks', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
@@ -470,7 +470,7 @@ export async function GET(req: NextRequest) {
               // Opens on the service they just had, so rebooking is two taps.
               cfg.bookingUrl ? `You can book your next visit here: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
                 try { const u = new URL(cfg.bookingUrl); u.searchParams.set('service', sid); return u.toString(); } catch { return cfg.bookingUrl; } })()}` : null,
-              surveyOn && howUrl ? `We would love to hear how your visit went${care || careDoc ? ', and your aftercare instructions are there as well' : ''}: ${howUrl}` : cfg.reviewUrl ? `If you enjoyed your visit, we would be grateful for a review: ${cfg.reviewUrl}` : null,
+              surveyOn && howUrl ? `We'd love to hear how your visit went${care || careDoc ? ', and your aftercare instructions are there as well' : ''}: ${howUrl}` : cfg.reviewUrl ? `If you enjoyed your visit, we'd be so grateful for a review: ${cfg.reviewUrl}` : null,
               !surveyOn && careUrl ? `Your aftercare instructions: ${careUrl}` : !surveyOn && care && howUrl ? `Your aftercare instructions: ${howUrl}` : null,
             ].filter(Boolean).join(' ');
             let delivered = false;

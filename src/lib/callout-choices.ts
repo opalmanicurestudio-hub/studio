@@ -130,7 +130,7 @@ async function tellClient(db: any, t: string, a: any, subject: string, lines: st
     const email = String(cl.email || a.clientEmail || '').trim(), phone = String(cl.phone || a.clientPhone || '').trim();
     const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
     const base = { tenantId: t, kind: 'disruption_followup', appointmentId: a.id, clientId: a.clientId || null, clientName: a.clientName || null };
-    if (email.includes('@')) await sendNotification(db, { ...base, channel: 'email', to: email, subject, html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: [`Hi ${first(a.clientName)},`, ...lines, `Kind regards, ${studio}`] } as any) } as any).catch(() => null);
+    if (email.includes('@')) await sendNotification(db, { ...base, channel: 'email', to: email, subject, html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: [`Hi ${first(a.clientName)},`, ...lines.map((l, i) => (i === 0 ? l.charAt(0).toUpperCase() + l.slice(1) : l)), 'Kind regards,', studio] } as any) } as any).catch(() => null);
     if (phone) await sendNotification(db, { ...base, channel: 'sms', to: phone, text: `Hi ${first(a.clientName)}, ${lines.join(' ')}` } as any).catch(() => null);
   } catch (e) { console.error('[callout tell]', e); }
 }
@@ -142,10 +142,10 @@ export async function takeKeptTime(db: any, t: string, a: any, keptId: string, n
   const r = await db.runTransaction(async (tx: any) => {
     const rec: any = (await tx.get(cRef)).data(); const list: KeptTime[] = rec?.choices?.keptTimes || [];
     const k = list.find((x) => x.id === keptId);
-    if (!rec || rec.choices?.done || ms(rec.choices?.holdUntil) <= now) return { ok: false, error: 'We are sorry, these times are no longer being held. Please choose a new time from your visit link, or call us.' };
-    if (!k || ms(k.start) <= now + 2 * H) return { ok: false, error: 'We are sorry, that time is no longer available. Please choose another.' };
-    if (k.takenBy && k.takenBy !== a.id) return { ok: false, error: 'We are sorry, that time has just been chosen by another client. Please choose another.' };
-    if (k.minutes < durMin(a)) return { ok: false, error: 'We are sorry, that time is too short for your appointment. Please choose another.' };
+    if (!rec || rec.choices?.done || ms(rec.choices?.holdUntil) <= now) return { ok: false, error: "We're sorry, these times are no longer being held. Please choose a new time from your visit link, or give us a call." };
+    if (!k || ms(k.start) <= now + 2 * H) return { ok: false, error: "We're sorry, that time is no longer available. Please choose another." };
+    if (k.takenBy && k.takenBy !== a.id) return { ok: false, error: "We're sorry, that time has just been chosen by someone else. Please choose another." };
+    if (k.minutes < durMin(a)) return { ok: false, error: "We're sorry, that time is too short for your appointment. Please choose another." };
     tx.set(cRef, { choices: { ...rec.choices, keptTimes: list.map((x) => (x.id === keptId ? { ...x, takenBy: a.id } : x)) } }, { merge: true });
     return { ok: true, k };
   });
@@ -157,7 +157,7 @@ export async function takeKeptTime(db: any, t: string, a: any, keptId: string, n
   await db.doc(`${T}/staffBlocks/co_${d.id}_${keptId}`).delete().catch(() => {});
   await cRef.set({ affected: { [a.id]: { outcome: 'rescheduled', outcomeAt: iso(now), by: 'client', newStartTime: iso(s), needsCall: false } } }, { merge: true });
   await bell(db, t, a.staffId || null, `${a.clientName || 'A client'} has chosen a new time with you: ${whenText(s, tz)}.`, now, { appointmentId: a.id });
-  await tellClient(db, t, a, `Your new appointment time: ${whenText(s, tz)}`, [`thank you for choosing a new time. Your ${a.serviceName || 'appointment'} is now booked for ${whenText(s, tz)}. We look forward to seeing you.`]);
+  await tellClient(db, t, a, `Your new appointment time: ${whenText(s, tz)}`, [`thank you for choosing a new time. Your ${a.serviceName || 'appointment'} is now booked for ${whenText(s, tz)}, and we're looking forward to seeing you.`]);
   return { ok: true, startTime: iso(s), when: whenText(s, tz) };
 }
 
@@ -165,10 +165,10 @@ export async function takeKeptTime(db: any, t: string, a: any, keptId: string, n
 export async function switchProvider(db: any, t: string, a: any, staffId: string, now = Date.now()) {
   const T = `tenants/${t}`; const d = a.disruption || {}; const cRef = db.doc(`${T}/providerCallouts/${d.id}`);
   const rec: any = (await cRef.get()).data(); const o = (rec?.affected?.[a.id]?.others || []).find((x: any) => x.staffId === staffId);
-  if (!o) return { ok: false, error: 'We are sorry, that option is no longer available.' };
+  if (!o) return { ok: false, error: "We're sorry, that option is no longer available." };
   const s = ms(a.startTime), e = ms(a.endTime) || s + durMin(a) * MIN;
   const { providerFree } = await import('@/lib/provider-availability');
-  if (!(await providerFree(db, T, staffId, s, e, a.id))) return { ok: false, error: `We are sorry, ${first(o.name)} is no longer available at that time. Please choose another option.` };
+  if (!(await providerFree(db, T, staffId, s, e, a.id))) return { ok: false, error: `We're sorry, ${first(o.name)} is no longer available at that time. Please choose another option.` };
   const tz = tenantTimeZone((await db.doc(T).get()).data() || {});
   const hist = Array.isArray(a.providerHistory) ? a.providerHistory : [];
   const f = { staffId, staffName: o.name, originalStaffId: a.originalStaffId || a.staffId || null, originalScheduledTime: a.originalScheduledTime || a.startTime,
@@ -177,7 +177,7 @@ export async function switchProvider(db: any, t: string, a: any, staffId: string
   await db.doc(`${T}/appointments/${a.id}`).set(f, { merge: true }); await mirror(db, t, a, { staffId, staffName: o.name, disruption: f.disruption });
   await cRef.set({ affected: { [a.id]: { outcome: 'reassigned', outcomeAt: iso(now), by: 'client', newStaffId: staffId, needsCall: false } } }, { merge: true });
   await bell(db, t, staffId, `${a.clientName || 'A client'} is now booked with you for ${a.serviceName || 'an appointment'} on ${whenText(s, tz)}, as ${first(rec.staffName)} is unavailable. They keep the price they booked.`, now, { appointmentId: a.id });
-  await tellClient(db, t, a, `Your appointment with ${first(o.name)}`, [`thank you. Your ${a.serviceName || 'appointment'} on ${whenText(s, tz)} will now be with ${first(o.name)}, at the price you booked. We look forward to seeing you.`]);
+  await tellClient(db, t, a, `Your appointment with ${first(o.name)}`, [`thank you. Your ${a.serviceName || 'appointment'} on ${whenText(s, tz)} will now be with ${first(o.name)}, at the price you booked. We're looking forward to seeing you.`]);
   return { ok: true, staffName: first(o.name), when: whenText(s, tz) };
 }
 
@@ -236,7 +236,7 @@ export async function backAfterAll(db: any, t: string, calloutId: string, now = 
     const f = { disruption: resolved(a.disruption || {}, 'kept') };
     await aRef.set(f, { merge: true }); await mirror(db, t, a, f);
     upd[en.appointmentId] = { outcome: 'kept', outcomeAt: iso(now), by: 'provider back', needsCall: false }; kept++;
-    if (!en.isRenterBooking) await tellClient(db, t, a, 'Your appointment is going ahead', [`we are pleased to let you know that ${first(rec.staffName)} is able to see you after all, so your ${a.serviceName || 'appointment'} on ${whenText(ms(a.startTime), tz)} will go ahead as booked. We apologize for any confusion and look forward to seeing you.`]);
+    if (!en.isRenterBooking) await tellClient(db, t, a, 'Your appointment is going ahead', [`good news! ${first(rec.staffName)} can see you after all, so your ${a.serviceName || 'appointment'} on ${whenText(ms(a.startTime), tz)} will go ahead as booked. We're sorry for any confusion, and we're looking forward to seeing you.`]);
   }
   // Her calendar opens again, and the held times are simply free.
   for (const coll of ['shiftDayOffBlocks', 'staffBlocks']) {

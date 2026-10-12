@@ -13,9 +13,9 @@ export async function sendCancellationNotice(db: any, tenantId: string, appointm
   const first = String(a.clientName || cl.name || '').split(' ')[0] || 'there';
   const when = a.startTime ? new Date(a.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined }) : 'your appointment';
   const book = `${base}/book/${tenantId}${a.serviceId ? `?service=${encodeURIComponent(String(a.serviceId))}` : ''}`;
-  const head = o.who === 'no_show' ? `We were sorry not to see you for your appointment on ${when}.` : o.who === 'studio' ? `Unfortunately, we have had to cancel your appointment on ${when}.` : `Your appointment on ${when} has been cancelled.`;
+  const head = o.who === 'no_show' ? `We missed you at your appointment on ${when}.` : o.who === 'studio' ? `We're sorry to let you know that we've had to cancel your appointment on ${when}.` : `Your appointment on ${when} has been cancelled.`;
   const lines = cancellationOutcomeLines(o);
-  const body = [`Hi ${first},`, head, ...lines, o.who === 'no_show' ? 'We hope everything is all right, and we would be glad to see you again soon.' : 'We would be glad to see you again soon.', 'If you have any questions, please reply to this email.', 'Kind regards,', studio];
+  const body = [`Hi ${first},`, head, ...lines, o.who === 'no_show' ? "We hope everything is all right, and we'd be glad to see you again soon." : 'We hope to see you again soon.', "If you have any questions, just reply to this email and we'll be happy to help.", 'Kind regards,', studio];
   const told = { email: false, sms: false };
   // The words can be the business's own (Settings → Messages → Appointment cancelled) — these fill them in.
   const tokens = { client_first: first, when, service: String(a.serviceName || ''), outcome: lines.join(' '), link: book, studio };
@@ -27,7 +27,7 @@ export async function sendCancellationNotice(db: any, tenantId: string, appointm
       html: brandedEmailHtml({ studioName: studio, title: o.who === 'no_show' ? 'We missed you' : 'Appointment cancelled', bodyLines: body, cta: { label: 'Book again', url: book } }),
       appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
     if (phone) told.sms = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'appointment_cancelled', tokens,
-      text: `Hi ${first}, this is ${studio}. ${head} ${lines.join(' ')} To book a new time, please visit ${book}`, appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
+      text: `Hi ${first}, ${head.charAt(0).toLowerCase()}${head.slice(1)} ${lines.join(' ')} Whenever you're ready, you can book a new time here: ${book}`, appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
   } catch (e) { console.error('[cancel-notice] send failed', e); }
   return { ...told, lines };
 }

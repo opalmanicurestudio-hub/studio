@@ -21,10 +21,10 @@ export async function sendRefundNotice(db: any, tenantId: string, o: {
   const first = String(c.name || ap.clientName || '').split(' ')[0];
   const forWhat = ap.startTime ? ` for your ${ap.serviceName || 'appointment'} on ${new Date(ap.startTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tenant.timezone || undefined })}` : '';
   const lines = o.kind === 'refund'
-    ? [`${first ? `Hi ${first}, y` : 'Y'}our refund of ${money}${forWhat} has been issued.`, `It will be returned to ${o.last4 ? `your card ending in ${o.last4}` : 'the card you paid with'} and usually appears within 5 to 10 business days, depending on your bank.`]
-    : [`${first ? `Hi ${first}, w` : 'W'}e have added ${money} in credit to your account${forWhat}.`, 'It will be applied to your next visit automatically, so there is nothing you need to do.'];
+    ? [`${first ? `Hi ${first}, w` : 'W'}e've issued your refund of ${money}${forWhat}.`, `It's on its way back to ${o.last4 ? `your card ending in ${o.last4}` : 'the card you paid with'} and usually appears within 5 to 10 business days, depending on your bank.`]
+    : [`${first ? `Hi ${first}, w` : 'W'}e've added ${money} in credit to your account${forWhat}.`, "It will be applied to your next visit automatically, so there's nothing you need to do."];
   if (o.reason) lines.push(`Reason: ${o.reason}.`);
-  lines.push('If you have any questions, please reply to this message or give us a call.');
+  lines.push("If you have any questions, please reply to this message or give us a call. We're happy to help.");
   const { sendNotification } = await import('@/lib/notify');
   let ok = false;
   const replyTo = String(tenant.email || tenant.contactEmail || tenant.ownerEmail || '').trim();
@@ -34,7 +34,7 @@ export async function sendRefundNotice(db: any, tenantId: string, o: {
       kind: o.kind === 'refund' ? 'refund_notice' : 'credit_notice', html: brandedEmailHtml({ studioName: studio, title: o.kind === 'refund' ? 'Your refund has been issued' : 'Credit added to your account', bodyLines: [...lines, 'Kind regards,', studio] } as any),
       ...(replyTo.includes('@') ? { replyTo } : {}), appointmentId: o.appointmentId || null, clientId, clientName: c.name || ap.clientName || null } as any))?.ok;
   }
-  if (!ok && phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: o.kind === 'refund' ? 'refund_notice' : 'credit_notice', text: `${studio}: ${lines.slice(0, 2).join(' ')}`, appointmentId: o.appointmentId || null, clientId, clientName: c.name || null } as any))?.ok;
+  if (!ok && phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: o.kind === 'refund' ? 'refund_notice' : 'credit_notice', text: lines.slice(0, 2).join(' '), appointmentId: o.appointmentId || null, clientId, clientName: c.name || null } as any))?.ok;
   if (ok) await mark.set({ key: o.key, kind: o.kind, amountCents: o.amountCents, clientId, appointmentId: o.appointmentId || null, sentAt: new Date().toISOString() });
   return ok;
 }

@@ -65,7 +65,7 @@ export function delayChain(input: { appts: any[]; services: any[]; now: number; 
 export function delayClientText(o: { first: string; studio?: string; provider?: string | null; startMs: number; expectedMs: number; timeZone?: string }): string {
   const t = (v: number) => new Date(v).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: o.timeZone || undefined });
   const late = Math.max(1, Math.round((o.expectedMs - o.startMs) / 60000));
-  return `Hi ${o.first}, ${o.provider ? `${o.provider} is` : 'we are'} running about ${late} minutes behind schedule today. Your ${t(o.startMs)} appointment is now expected to start at about ${t(o.expectedMs)}, so there is no need to rush. We apologize for the wait and appreciate your patience.`;
+  return `Hi ${o.first}, ${o.provider ? `${o.provider} is` : "we're"} running about ${late} minutes behind today, and we're sorry for the wait. Your ${t(o.startMs)} appointment is now expected to start at about ${t(o.expectedMs)}, so there's no need to rush. Thank you for your patience.`;
 }
 
 /** Notify again only when the knock-on has grown by at least the margin since the last notice. */

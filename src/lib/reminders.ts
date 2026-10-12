@@ -216,11 +216,12 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
                   title: 'Your visit is coming up',
                   bodyLines: [
                     `Hi ${visitorFirst},`,
-                    `This is a reminder that we look forward to seeing you ${whenPlain}.`,
+                    `We're looking forward to seeing you ${whenPlain}.`,
                     t.manageToken
-                      ? 'There is nothing you need to bring or prepare. If the time no longer works for you, you can change or cancel your visit using the button below.'
-                      : 'There is nothing you need to bring or prepare. If the time no longer works for you, please reply to this email and we will be happy to find another time.',
-                    `Kind regards, ${studio}`,
+                      ? "There's nothing you need to bring or prepare. If the time no longer works for you, you can change or cancel your visit using the button below."
+                      : "There's nothing you need to bring or prepare. If the time no longer works for you, just reply to this email and we'll be happy to find another time.",
+                    'Kind regards,',
+                    studio,
                   ],
                   // The visitor's own move/cancel link — only for tours that
                   // carry a token (booked since it was introduced).
@@ -240,8 +241,8 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
               await sendNotification(db, {
                 tenantId, channel: 'sms', to: phoneTo,
                 text: t.manageToken
-                  ? `Hi ${visitorFirst}, this is a reminder that we look forward to seeing you ${whenPlain}. If you need to make a change, please use this link: ${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/tour-manage/${tenantId}/${doc.id}/${t.manageToken}`
-                  : `Hi ${visitorFirst}, this is a reminder that we look forward to seeing you ${whenPlain}. If the time no longer works for you, please reply to this message.`,
+                  ? `Hi ${visitorFirst}, we're looking forward to seeing you ${whenPlain}. If you need to make a change, you can use this link: ${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/tour-manage/${tenantId}/${doc.id}/${t.manageToken}`
+                  : `Hi ${visitorFirst}, we're looking forward to seeing you ${whenPlain}. If the time no longer works for you, please reply to this message and we'll find another.`,
                 kind: 'tour_reminder',
                 recipientType: 'contact', recipientId: doc.id, recipientName: t.name || null,
                 eventConfirmed: true, eventStartIso: t.tourStartIso || null,

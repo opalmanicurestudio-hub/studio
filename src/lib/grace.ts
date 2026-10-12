@@ -69,9 +69,10 @@ export function graceLines(tenant: any): string[] {
   const out: string[] = [];
   for (const g of GRACE_EVENTS) {
     const r = graceRule(tenant, g.id); if (!r.enabled || r.allowance <= 0) continue;
-    const n = r.allowance === 1 ? 'One' : String(r.allowance);
-    const what = r.permits === 'waive_fee' ? 'the fee is waived' : r.permits === 'reduce_fee' ? `the fee is reduced by ${r.reducePercent}%` : r.permits === 'transfer_deposit' ? 'your deposit can move to a new booking' : r.permits === 'free_reschedule' ? 'rescheduling is free' : `you get ${r.extendMinutes} extra minutes to arrive`;
-    out.push(`As a courtesy, our grace allowance covers ${n} ${g.label.toLowerCase()}${r.allowance === 1 ? '' : 's'} every ${r.periodMonths} months. When it is used, ${what}.`);
+    const n = r.allowance === 1 ? 'one' : String(r.allowance);
+    const label = g.id === 'no_show' ? 'missed appointment' : g.label.toLowerCase();   // client wording (message-voice.md)
+    const what = r.permits === 'waive_fee' ? "we'll waive the fee" : r.permits === 'reduce_fee' ? `we'll reduce the fee by ${r.reducePercent}%` : r.permits === 'transfer_deposit' ? 'your deposit can move to a new booking' : r.permits === 'free_reschedule' ? 'you can reschedule for free' : `you'll have ${r.extendMinutes} extra minutes to arrive`;
+    out.push(`We understand that life happens, so we allow ${n} ${label}${r.allowance === 1 ? '' : 's'} every ${r.periodMonths} months as a courtesy. When you use it, ${what}.`);
   }
   return out;
 }

@@ -92,7 +92,7 @@ const iso = (n: number) => new Date(n).toISOString();
   check('the first says yes → nothing moves yet (“we’ll confirm”)', y1.state === 'yes' && (await db2.doc(`${T}/appointments/${mv2[0].apptId}`).get()).data().startTime === mv2[0].from);
   const n1: any = await X.tidyAnswer(db2, 't1', mv2[1].token, false, NOW + 2 * MIN, deps);
   check('the second keeps their time → NOBODY moves; the first hears “no change needed”; holds lifted', n1.state === 'kept' && (await db2.doc(`${T}/appointments/${mv2[0].apptId}`).get()).data().startTime === mv2[0].from
-    && sent.some((x) => x.to === mv2[0].phone && /will not need to change your appointment/.test(x.body)) && !(await db2.collection(`${T}/staffBlocks`).get()).docs.length && (await db2.doc(`${T}/tidyAsks/${ask2.askId}`).get()).data().status === 'declined');
+    && sent.some((x) => x.to === mv2[0].phone && /won't need to change your appointment/.test(x.body)) && !(await db2.collection(`${T}/staffBlocks`).get()).docs.length && (await db2.doc(`${T}/tidyAsks/${ask2.askId}`).get()).data().status === 'declined');
   const p3: any = await X.tidyPlans(db2, 't1', 'maya', '2026-10-14', NOW + 3 * MIN, deps);
   check('whoever said no isn’t asked again today', !p3.plans.some((x: any) => x.moves.some((m: any) => m.id === mv2[1].apptId)) && p3.day.find((x: any) => x.id === mv2[1].apptId)?.fixed === 'said no today');
   // no answer in time
