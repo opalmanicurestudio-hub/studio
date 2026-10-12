@@ -1,10 +1,10 @@
 /**
  * POST /api/voice/release-stale — v1
  *
- * The anti-squatting valve for instant-mode bookings: an AI-booked
+ * The anti-squatting valve for instant-mode bookings: a phone-booked
  * deposit_pending appointment blocks its slot (by design), but a client
  * who never completes the deposit link shouldn't hold that slot forever.
- * This cancels AI-sourced deposit_pending appointments whose hold window
+ * This cancels phone-sourced deposit_pending appointments whose hold window
  * (tenant voiceAgent.holdHours, default 24) has expired without payment,
  * releases the calendar, marks the completion record expired, updates the
  * check-in mirror, and drops a voiceInbox notice so the release is visible
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
           callerPhone: apt.voiceMeta?.clientPhone || '',
           clientId: apt.clientId || null,
           appointmentId: apt.id,
-          details: `Deposit hold expired after ${holdHours}h — ${apt.voiceMeta?.spoken || 'AI-booked appointment'} was released. Worth a follow-up call.`,
+          details: `Action needed: The deposit for ${apt.voiceMeta?.spoken || 'a phone-booked appointment'} was not received within ${holdHours} hours, so the appointment was released. Please call the client to follow up.`,
           status: 'open',
           source: 'ai_receptionist',
         }),

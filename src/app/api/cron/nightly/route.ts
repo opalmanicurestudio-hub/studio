@@ -1082,8 +1082,8 @@ export async function GET(req: NextRequest) {
       await nRef.set({
         id: nRef.id, type: 'tour_followup', read: false, createdAt: nowIso, link: '/pipeline',
         message: stale.length === 1
-          ? `${names} toured on ${stale[0].day} and it was never closed out — record the outcome while it is still fresh.`
-          : `${stale.length} tours were never closed out (${names}${stale.length > 3 ? ', …' : ''}) — record the outcomes in Pipeline.`,
+          ? `Action needed: ${names} toured on ${stale[0].day}, and the outcome has not been recorded yet. Please record it in Pipeline.`
+          : `Action needed: ${stale.length} tours have no recorded outcome yet (${names}${stale.length > 3 ? ', …' : ''}). Please record the outcomes in Pipeline.`,
       });
     } catch (e) { console.error('[cron/nightly] tour follow-up', tDoc.id, e); }
   }
@@ -1137,15 +1137,17 @@ export async function GET(req: NextRequest) {
             const first = String(t.name || '').trim().split(' ')[0] || 'there';
             await sendNotification(db, {
               tenantId: tDoc.id, channel: 'email', to,
-              subject: 'We missed your visit request — sorry',
+              subject: 'We apologize for missing your visit request',
               html: brandedEmailHtml({
                 studioName: studio,
-                title: 'We missed your request',
+                title: 'We apologize for missing your request',
                 bodyLines: [
-                  `Hi ${first} — you asked to visit us on ${t.date}${t.time ? ` at ${t.time}` : ''} and we did not get back to you in time. That is on us.`,
-                  'We would still love to show you around. Pick any time that suits you and it goes straight onto our calendar.',
+                  `Hi ${first},`,
+                  `Thank you for asking to visit us on ${t.date}${t.time ? ` at ${t.time}` : ''}. Unfortunately, we did not respond to your request in time, and we sincerely apologize for that.`,
+                  'We would still be glad to show you around. Please choose any time that suits you using the button below, and it will be added directly to our calendar.',
+                  `Kind regards, ${studio}`,
                 ],
-                cta: { label: 'Pick a new time', url: `${origin}/tour/${tDoc.id}` },
+                cta: { label: 'Choose a new time', url: `${origin}/tour/${tDoc.id}` },
                 footerNote: `Sent by ${studio}. You're receiving this because you asked to visit us.`,
               }),
               kind: 'tour_request_expired',
@@ -1165,8 +1167,8 @@ export async function GET(req: NextRequest) {
         await nRef.set({
           id: nRef.id, type: 'tour_request_expired', read: false, createdAt: nowIso, link: '/pipeline',
           message: expiredHere === 1
-            ? `${names[0]} asked for a tour and never got an answer — the request has expired and they've been invited to pick a new time.`
-            : `${expiredHere} tour requests went unanswered past their dates (${names.join(', ')}${expiredHere > 3 ? ', …' : ''}) — each has been invited to rebook.`,
+            ? `${names[0]}'s tour request was not answered before its date and has expired. We have apologized and invited them to choose a new time.`
+            : `${expiredHere} tour requests were not answered before their dates and have expired (${names.join(', ')}${expiredHere > 3 ? ', …' : ''}). Each person has been invited to choose a new time.`,
         });
       }
     } catch (e) { console.error('[cron/nightly] tour request expiry', tDoc.id, e); }
@@ -1462,7 +1464,7 @@ export async function GET(req: NextRequest) {
         // Inside the visit's protected window it's never released — it's flagged for the desk like any unpaid deposit.
         if (rule === 'release' && Date.parse(a.startTime || '') - Date.now() < D.protectHoursOf(t) * 3600e3) {
           await d.ref.set({ depositStatus: 'failed', depositFailedAt: nowIso, depositFailedReason: why, needsAttention: 'deposit_unpaid', needsAttentionAt: nowIso, depositDeskHold: true, depositDeskAt: nowIso }, { merge: true });
-          await D.tellTeam(db, tDoc.id, { id: d.id, ...a }, 'Series deposit didn’t go through', `${a.clientName || 'A client'}’s deposit for their repeat visit didn’t go through (${why}). The visit is kept — take payment, waive it, or release it.`).catch(() => {});
+          await D.tellTeam(db, tDoc.id, { id: d.id, ...a }, 'Series deposit not received', `Action needed: ${a.clientName || 'A client'}’s deposit for their repeat visit was not received (${why}). The appointment has been kept. Please take payment, waive the deposit, or release the appointment.`).catch(() => {});
           continue;
         }
         if (rule === 'release') {
@@ -1471,7 +1473,7 @@ export async function GET(req: NextRequest) {
           if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`${T}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
           // Released: the client is told (nothing charged, book again) and so are the desk and the provider.
           await D.tellClientReleased(db, tDoc.id, { id: d.id, ...a }).catch(() => {});
-          await D.tellTeam(db, tDoc.id, { id: d.id, ...a }, 'Series visit released', `${a.clientName || 'A client'}’s repeat visit was released — the deposit didn’t go through (${why}). They’ve been told.`).catch(() => {});
+          await D.tellTeam(db, tDoc.id, { id: d.id, ...a }, 'Series appointment released', `${a.clientName || 'A client'}’s repeat visit has been released because the deposit was not received (${why}). The client has been notified.`).catch(() => {});
         } else {
           if (rule === 'link_flag') await internalPost(origin, '/api/appointments/desk-deposit', { tenantId: tDoc.id, appointmentId: d.id, action: 'link' }, { retries: 0 });
           await d.ref.set({ depositStatus: 'failed', depositFailedAt: nowIso, depositFailedReason: why, needsAttention: 'series_deposit_failed', needsAttentionAt: nowIso }, { merge: true });

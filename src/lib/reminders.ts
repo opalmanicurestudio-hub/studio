@@ -189,7 +189,7 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
         const when = t.tourSlot ? `· ${t.tourSlot}` : relDay(daysUntil(startDateStr, todayStr) ?? 0, startDateStr);
         await pushNotification(db, tenantId, {
           type: 'tour_reminder', link: '/pipeline',
-          message: `Upcoming tour: ${t.name || 'A visitor'} at ${t.boothName || 'your studio'} ${when}.`,
+          message: `Upcoming tour: ${t.name || 'A visitor'} is scheduled to visit ${t.boothName || 'your studio'} ${when}.`,
         });
 
         // ── And the visitor, who until now heard nothing at all ──
@@ -210,15 +210,17 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
             if (emailTo.includes('@')) {
               await sendNotification(db, {
                 tenantId, channel: 'email', to: emailTo,
-                subject: `Seeing you ${whenPlain}`,
+                subject: `Reminder of your visit ${whenPlain}`,
                 html: brandedEmailHtml({
                   studioName: studio,
                   title: 'Your visit is coming up',
                   bodyLines: [
-                    `Hi ${visitorFirst} — just a reminder that we are expecting you ${whenPlain}.`,
+                    `Hi ${visitorFirst},`,
+                    `This is a reminder that we look forward to seeing you ${whenPlain}.`,
                     t.manageToken
-                      ? 'Nothing to bring or prepare. If the time no longer works, you can move or cancel it yourself below.'
-                      : 'Nothing to bring or prepare. If the time no longer works, reply to this email and we will find another.',
+                      ? 'There is nothing you need to bring or prepare. If the time no longer works for you, you can change or cancel your visit using the button below.'
+                      : 'There is nothing you need to bring or prepare. If the time no longer works for you, please reply to this email and we will be happy to find another time.',
+                    `Kind regards, ${studio}`,
                   ],
                   // The visitor's own move/cancel link — only for tours that
                   // carry a token (booked since it was introduced).
@@ -238,8 +240,8 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
               await sendNotification(db, {
                 tenantId, channel: 'sms', to: phoneTo,
                 text: t.manageToken
-                  ? `${studio}: reminder — we're expecting you ${whenPlain}. Need to change it? ${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/tour-manage/${tenantId}/${doc.id}/${t.manageToken}`
-                  : `${studio}: reminder — we're expecting you ${whenPlain}. Reply here if the time no longer works.`,
+                  ? `Hi ${visitorFirst}, this is a reminder that we look forward to seeing you ${whenPlain}. If you need to make a change, please use this link: ${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/tour-manage/${tenantId}/${doc.id}/${t.manageToken}`
+                  : `Hi ${visitorFirst}, this is a reminder that we look forward to seeing you ${whenPlain}. If the time no longer works for you, please reply to this message.`,
                 kind: 'tour_reminder',
                 recipientType: 'contact', recipientId: doc.id, recipientName: t.name || null,
                 eventConfirmed: true, eventStartIso: t.tourStartIso || null,
@@ -327,14 +329,14 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
           if (prior === 'expired') continue;
           await pushNotification(db, tenantId, {
             type: 'license_expiry', link: '/renters',
-            message: `${renterName(r)}'s ${c.label} EXPIRED ${fmtDate(c.expiry)} — collect a renewal.`,
+            message: `Action needed: ${renterName(r)}'s ${c.label} expired on ${fmtDate(c.expiry)}. Please collect a renewed copy.`,
           });
           alerts[key] = 'expired'; changed = true; counts.licenseExpiry++;
         } else if (d <= 30) {
           if (prior === 'expiring' || prior === 'expired') continue;
           await pushNotification(db, tenantId, {
             type: 'license_expiry', link: '/renters',
-            message: `${renterName(r)}'s ${c.label} expires ${relDay(d, c.expiry)} (${fmtDate(c.expiry)}).`,
+            message: `${renterName(r)}'s ${c.label} expires ${relDay(d, c.expiry)} (${fmtDate(c.expiry)}). Please request a renewed copy.`,
           });
           alerts[key] = 'expiring'; changed = true; counts.licenseExpiry++;
         }
@@ -365,14 +367,14 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
       if (d <= 7 && stage !== 7) {
         await pushNotification(db, tenantId, {
           type: 'lease_renewal', link: '/renters',
-          message: `${who}'s lease for ${space} ends ${relDay(d, l.endDate)} (${fmtDate(l.endDate)}) — renew or end it.`,
+          message: `${who}'s lease for ${space} ends ${relDay(d, l.endDate)} (${fmtDate(l.endDate)}). Please renew or end the lease.`,
         });
         await ld.ref.set({ renewalReminderStage: 7 }, { merge: true });
         counts.leaseRenewal++;
       } else if (d <= 30 && stage === 0) {
         await pushNotification(db, tenantId, {
           type: 'lease_renewal', link: '/renters',
-          message: `${who}'s lease for ${space} ends ${fmtDate(l.endDate)} (${d} days) — plan the renewal.`,
+          message: `${who}'s lease for ${space} ends ${fmtDate(l.endDate)}, in ${d} days. Please plan the renewal.`,
         });
         await ld.ref.set({ renewalReminderStage: 30 }, { merge: true });
         counts.leaseRenewal++;
@@ -399,7 +401,7 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
         await pushNotification(db, tenantId, {
           type: 'contact_followup',
           link: contactRef ? `/booths?contact=${encodeURIComponent(contactRef)}` : '/booths',
-          message: `Follow up with ${c.name || 'a contact'}${c.phone ? ` (${c.phone})` : ''} — you set a reminder for ${fmtDate(due)}.`,
+          message: `Please follow up with ${c.name || 'a contact'}${c.phone ? ` (${c.phone})` : ''}. You set a reminder for ${fmtDate(due)}.`,
         });
         await doc.ref.set({ followUpNotifiedFor: c.nextFollowUpAt }, { merge: true });
         counts.contactFollowUps++;

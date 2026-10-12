@@ -108,7 +108,7 @@ async function notifyOwner(db: FirebaseFirestore.Firestore, tenantId: string, ow
     id,
     userId: ownerUserId,
     type: 'automation',
-    message: `${title} — ${message}`,
+    message: `${title}: ${message}`,
     link: '/planner',
     createdAt: new Date().toISOString(),
     read: false,
@@ -177,7 +177,7 @@ export async function GET(req: NextRequest) {
           const r = evaluateWindow(automations.depositNotPaid, missing, hrsUntil, automationState, 'depositReminderSentAt', 'depositAutoCancelledAt', 'depositReminderCount');
           Object.assign(updates, r.updates);
           if (r.shouldSendReminder) {
-            notifications.push({ title: 'Deposit reminder', message: `${apt.clientName || 'A client'}'s deposit is still unpaid ahead of their appointment — they’ve been sent the link to pay.` });
+            notifications.push({ title: 'Deposit reminder', message: `${apt.clientName || 'A client'}'s deposit for their upcoming appointment has not been received yet. We have sent them a link to pay it.` });
             // The CLIENT gets the reminder too, with the link to pay (it used to go only to the owner).
             try { const { tellClientDepositDue } = await import('@/lib/deposit-release'); await tellClientDepositDue(db, tenantId, { id: aptDoc.id, ...apt }); } catch (e) { console.error('[check-automations] remind', e); }
           }
@@ -196,9 +196,9 @@ export async function GET(req: NextRequest) {
           readinessFlags.formGateActive = missing;
           const r = evaluateWindow(automations.consentFormUnsigned, missing, hrsUntil, automationState, 'formReminderSentAt', 'formGateActiveAt', 'formReminderCount');
           Object.assign(updates, r.updates);
-          if (r.shouldSendReminder) notifications.push({ title: 'Consent form reminder', message: `${apt.clientName || 'A client'} still has an unsigned consent form.` });
+          if (r.shouldSendReminder) notifications.push({ title: 'Consent form reminder', message: `${apt.clientName || 'A client'} has not yet signed a required consent form.` });
           if (r.shouldCancel) cancelReasons.push('unsigned consent form');
-          if (r.shouldActivateGate) notifications.push({ title: 'Check-in will be blocked', message: `${apt.clientName || 'A client'}'s consent form must be signed before service can start.` });
+          if (r.shouldActivateGate) notifications.push({ title: 'Check-in on hold', message: `${apt.clientName || 'A client'}'s consent form must be signed before their service can begin.` });
         }
 
         // ── noCardOnFile ─────────────────────────────────────────────────
@@ -207,9 +207,9 @@ export async function GET(req: NextRequest) {
           readinessFlags.cardRequired = missing;
           const r = evaluateWindow(automations.noCardOnFile, missing, hrsUntil, automationState, 'cardReminderSentAt', 'cardRequiredAt');
           Object.assign(updates, r.updates);
-          if (r.shouldSendReminder) notifications.push({ title: 'No card on file', message: `${apt.clientName || 'A client'} hasn't saved a card ahead of their appointment.` });
+          if (r.shouldSendReminder) notifications.push({ title: 'No card on file', message: `${apt.clientName || 'A client'} has not yet saved a card on file ahead of their appointment.` });
           if (r.shouldCancel) cancelReasons.push('no card on file');
-          if (r.shouldActivateGate) notifications.push({ title: 'Check-in will be blocked', message: `${apt.clientName || 'A client'} needs a card on file before service can start.` });
+          if (r.shouldActivateGate) notifications.push({ title: 'Check-in on hold', message: `${apt.clientName || 'A client'} needs a card on file before their service can begin.` });
         }
 
         // ── referencePhotosMissing (reminder only — no escalation window in this trigger) ──
@@ -218,7 +218,7 @@ export async function GET(req: NextRequest) {
           const missing = !!photoReq && (!photoReq.files || photoReq.files.length === 0);
           const r = evaluateWindow(automations.referencePhotosMissing, missing, hrsUntil, automationState, 'photoReminderSentAt');
           Object.assign(updates, r.updates);
-          if (r.shouldSendReminder) notifications.push({ title: 'Reference photos missing', message: `${apt.clientName || 'A client'} hasn't uploaded the reference photos you requested.` });
+          if (r.shouldSendReminder) notifications.push({ title: 'Reference photos missing', message: `${apt.clientName || 'A client'} has not yet uploaded the reference photos you requested.` });
         }
 
         // ── healthFormMissing (single-stage — only one field exists for this trigger) ──
@@ -228,7 +228,7 @@ export async function GET(req: NextRequest) {
           const t = automations.healthFormMissing;
           if (t?.enabled && missing && hrsUntil <= t.firstWindowHours && !automationState.healthGateActiveAt) {
             updates['automationState.healthGateActiveAt'] = now.toISOString();
-            notifications.push({ title: 'Health disclosure missing', message: `${apt.clientName || 'A client'} hasn't completed their health/allergy disclosure.` });
+            notifications.push({ title: 'Health disclosure missing', message: `${apt.clientName || 'A client'} has not yet completed their health and allergy disclosure.` });
           }
         }
 
@@ -252,7 +252,7 @@ export async function GET(req: NextRequest) {
           updates['status'] = 'cancelled';
           updates['checkInStatus'] = 'auto_cancelled';
           updates['cancellationReason'] = 'automation';
-          notifications.push({ title: 'Appointment auto-cancelled', message: `${apt.clientName || 'A client'}'s appointment was cancelled automatically due to ${cancelReasons.join(' and ')}.` });
+          notifications.push({ title: 'Appointment cancelled automatically', message: `${apt.clientName || 'A client'}'s appointment was cancelled automatically because of ${cancelReasons.join(' and ')}.` });
         }
 
         await db.collection('tenants').doc(tenantId).collection('appointments').doc(aptDoc.id).update(updates);
@@ -270,7 +270,7 @@ export async function GET(req: NextRequest) {
             const D = await import('@/lib/deposit-release');
             if (cancelReasons.includes('unpaid deposit')) await D.tellClientReleased(db, tenantId, a);
             else { const { sendCancellationNotice } = await import('@/lib/cancel-notice'); const { internalOrigin } = await import('@/lib/message-policy'); await sendCancellationNotice(db, tenantId, aptDoc.id, { who: 'studio' } as any, internalOrigin(tenant, null) || '', a); }
-            await D.tellTeam(db, tenantId, a, 'Appointment auto-cancelled', `${apt.clientName || 'A client'}’s appointment was cancelled automatically (${cancelReasons.join(' and ')}). They’ve been told.`, now.getTime());
+            await D.tellTeam(db, tenantId, a, 'Appointment cancelled automatically', `${apt.clientName || 'A client'}’s appointment was cancelled automatically because of ${cancelReasons.join(' and ')}. The client has been notified.`, now.getTime());
           } catch (e) { console.error('[check-automations] tell', e); }
         }
 

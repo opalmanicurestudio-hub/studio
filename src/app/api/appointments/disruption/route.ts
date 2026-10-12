@@ -59,8 +59,8 @@ export async function POST(req: NextRequest) {
       const ap: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
       const cl: any = ap.clientId ? (((await db.doc(`${T}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
       const email = String(cl.email || ap.clientEmail || '').trim(), phone = String(cl.phone || ap.clientPhone || '').trim(); let ok = false;
-      if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject, kind: 'disruption_followup', html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: [text], cta }), appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
-      if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'disruption_followup', text: `${studio}: ${text}${cta ? ` ${cta.url}` : ''}`, appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
+      if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject, kind: 'disruption_followup', html: brandedEmailHtml({ studioName: studio, title: subject, bodyLines: [text, `Kind regards, ${studio}`], cta }), appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
+      if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'disruption_followup', text: `${text}${cta ? ` ${cta.url}` : ''}`, appointmentId: en.appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || ok;
       return { ok, ap };
     };
     if (action === 'chase') {          // still undecided after 3h → remind (at most every 12h)
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
         if (en.chasedAt && Date.now() - Date.parse(en.chasedAt) < 12 * 3600000) continue;
         const ap0: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
         const link = ap0.checkInToken ? `${base}/check-in/${ap0.checkInToken}` : null;
-        const r = await tell(en, 'A reminder about your appointment', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'} — just checking you saw our message: we can’t go ahead with your ${en.serviceName || 'appointment'} as booked. Please pick a new time or cancel (no fee) with the link below.`, link ? { label: 'Choose', url: link } : null);
+        const r = await tell(en, 'A reminder about your appointment', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'}, we wanted to make sure you received our earlier message. Unfortunately, we are unable to go ahead with your ${en.serviceName || 'appointment'} as booked, and we apologize for the inconvenience. Please choose a new time or cancel at no charge using this link:`, link ? { label: 'View my options', url: link } : null);
         if (r.ok) { n++; await dRef.set({ affected: { [en.appointmentId]: { chasedAt: nowIso } } }, { merge: true }); }
       }
       await logAuditAdmin(db, tenantId, { action: 'disruption.chased', targetType: kind === 'callout' ? 'staff' : 'interruption', targetId: String(b.disruptionId), summary: `Reminded ${n} client${n === 1 ? '' : 's'} who hadn’t chosen yet`, actor }).catch(() => {});
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
         if (en.isRenterBooking || !['cancelled', 'pending'].includes(en.outcome) || en.reopenNotifiedAt) continue;
         const ap0: any = ((await db.doc(`${T}/appointments/${en.appointmentId}`).get()).data() as any) || {};
         const url = `${base}/book/${tenantId}${ap0.serviceId ? `?service=${encodeURIComponent(ap0.serviceId)}` : ''}`;
-        const r = await tell(en, kind === 'callout' ? `${pFirst || 'We’re'} back` : 'We’re open again', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'} — ${kind === 'callout' ? `${pFirst || 'your provider'} is back and` : 'we’re open again and'} we’d love to see you. Book a time that suits you${en.outcome === 'pending' ? ' (or keep your new choice if you’ve already made one)' : ''}.`, { label: 'Book now', url });
+        const r = await tell(en, kind === 'callout' ? `${pFirst || 'Your provider'} is back` : 'We are open again', `Hi ${String(en.clientName || '').split(' ')[0] || 'there'}, we are pleased to let you know that ${kind === 'callout' ? `${pFirst || 'your provider'} is back` : 'we are open again'}, and we would love to see you. Please book a time that suits you${en.outcome === 'pending' ? ', or keep your new choice if you have already made one' : ''}:`, { label: 'Book a time', url });
         if (r.ok) { n++; await dRef.set({ affected: { [en.appointmentId]: { reopenNotifiedAt: nowIso } } }, { merge: true }); }
       }
       await dRef.set({ reopenedAt: nowIso }, { merge: true });
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
       const staffDocs = (await db.collection(`${T}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.isActive !== false && x.id !== rec.staffId && !x.renterId);
       const list = open.map((en) => `${new Date(en.startTime).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })} ${en.serviceName || ''}`).join('; ');
       for (const st of staffDocs) { const n = db.collection(`${T}/notifications`).doc();
-        await n.set({ id: n.id, userId: st.id, read: false, createdAt: nowIso, type: 'cover_request', link: 'pos', message: `Can you cover for ${rec.staffName || 'a colleague'}? ${open.length} appointment${open.length === 1 ? '' : 's'}: ${list}. Open Needs attention in the POS and tap “I can cover this”.` }).catch(() => {}); }
+        await n.set({ id: n.id, userId: st.id, read: false, createdAt: nowIso, type: 'cover_request', link: 'pos', message: `Cover requested: are you able to cover for ${rec.staffName || 'a colleague'}? ${open.length} appointment${open.length === 1 ? '' : 's'}: ${list}. If you can help, please open Needs attention in the POS and tap “I can cover this”.` }).catch(() => {}); }
       await dRef.set({ coverRequestedAt: nowIso }, { merge: true });
       await logAuditAdmin(db, tenantId, { action: 'disruption.cover_requested', targetType: 'staff', targetId: String(rec.staffId), summary: `Asked ${staffDocs.length} team member${staffDocs.length === 1 ? '' : 's'} to cover ${open.length} appointment${open.length === 1 ? '' : 's'}`, actor }).catch(() => {});
       return NextResponse.json({ ok: true, asked: staffDocs.length, appointments: open.length });
@@ -199,8 +199,8 @@ export async function POST(req: NextRequest) {
         const msg = disruptionMessage({ kind, cause, providerFirst: pFirst, first: String(en.clientName || '').split(' ')[0] || 'there', when: `on ${when}`, service: en.serviceName, hasDeposit: en.depositCents > 0, studio });
         const link = a?.checkInToken ? `${base}/check-in/${a.checkInToken}` : null;
         let ok = false;
-        if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `About your appointment — ${studio}`, kind: 'disruption', html: brandedEmailHtml({ studioName: studio, title: 'About your appointment', bodyLines: [msg], cta: link ? { label: 'Choose', url: link } : null }), appointmentId: en.appointmentId, clientId: a?.clientId || null, clientName: en.clientName } as any))?.ok || ok;
-        if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'disruption', text: `${studio}: ${msg}${link ? ` ${link}` : ''}`, appointmentId: en.appointmentId, clientId: a?.clientId || null, clientName: en.clientName } as any))?.ok || ok;
+        if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `An important update about your appointment with ${studio}`, kind: 'disruption', html: brandedEmailHtml({ studioName: studio, title: 'An update about your appointment', bodyLines: [msg, `Kind regards, ${studio}`], cta: link ? { label: 'View my options', url: link } : null }), appointmentId: en.appointmentId, clientId: a?.clientId || null, clientName: en.clientName } as any))?.ok || ok;
+        if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'disruption', text: `${msg}${link ? ` ${link}` : ''}`, appointmentId: en.appointmentId, clientId: a?.clientId || null, clientName: en.clientName } as any))?.ok || ok;
         if (ok) { en.notifiedAt = nowIso; told++; }
       } catch (e) { console.error('[disruption] send failed', e); }
     }
@@ -211,7 +211,7 @@ export async function POST(req: NextRequest) {
   for (const [renterId, list] of Array.from(byRenter.entries())) {
     try { const { notifyRenter } = await import('@/lib/renter-comms');
       const lines = list.map((x) => `${String(x.clientName || 'Client').split(' ')[0]} — ${new Date(x.startTime).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })}`).join('; ');
-      await notifyRenter(db, tenantId, renterId, 'cancelled', `${kind === 'callout' ? 'A studio callout' : `The studio’s ${interruption?.title || 'closure'}`} affects ${list.length} of your booking${list.length === 1 ? '' : 's'}: ${lines}. Please contact these clients — your losses are being logged for reimbursement.`, { tone: 'red', tab: 'book', subject: 'Some of your bookings are affected' } as any);
+      await notifyRenter(db, tenantId, renterId, 'cancelled', `Action needed: ${kind === 'callout' ? 'A studio callout' : `The studio’s ${interruption?.title || 'closure'}`} affects ${list.length} of your booking${list.length === 1 ? '' : 's'}: ${lines}. Please contact these clients. Your losses are being recorded for reimbursement.`, { tone: 'red', tab: 'book', subject: 'Some of your bookings are affected' } as any);
     } catch (e) { console.error('[disruption] renter notify failed', e); }
   }
   await ref.set({ affected: Object.fromEntries(entries.map((e) => [e.appointmentId, e])) }, { merge: true });

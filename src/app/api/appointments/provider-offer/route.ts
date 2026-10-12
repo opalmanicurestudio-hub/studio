@@ -37,7 +37,7 @@ async function mirror(db: any, T: string, ap: any, offer: any) {
 async function tellClient(db: any, tenantId: string, tenant: any, ap: any, appointmentId: string, offer: any, origin: string) {
   const T = `tenants/${tenantId}`;
   const when = new Date(offer.startAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined });
-  const msg = `Hi ${firstOf(ap.clientName) || 'there'} — to fit you in, ${firstOf(offer.toStaffName) || 'another of our team'} can see you at ${when}${offer.fromStaffName ? ` instead of ${firstOf(offer.fromStaffName)}` : ''}. Would that work? Accept or decline with the link below.`;
+  const msg = `Hi ${firstOf(ap.clientName) || 'there'}, to fit you in, ${firstOf(offer.toStaffName) || 'another member of our team'} is able to see you at ${when}${offer.fromStaffName ? ` instead of ${firstOf(offer.fromStaffName)}` : ''}. Would that work for you? Please accept or decline using this link:`;
   let told = false;
   try {
     const base = linkOrigin(tenant, origin); const link = ap.checkInToken ? `${base}/check-in/${ap.checkInToken}` : null;
@@ -45,9 +45,9 @@ async function tellClient(db: any, tenantId: string, tenant: any, ap: any, appoi
     const email = String(cl.email || ap.clientEmail || '').trim(), phone = String(cl.phone || ap.clientPhone || '').trim();
     const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
     const studio = tenant.name || tenant.businessName || 'the studio';
-    if (email.includes('@')) told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `Another time option for today — ${studio}`, kind: 'provider_offer',
-      html: brandedEmailHtml({ studioName: studio, title: 'Another option for today', bodyLines: [msg], cta: link ? { label: 'Accept or decline', url: link } : null }), appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok;
-    if (phone) told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'provider_offer', text: `${studio}: ${msg}${link ? ` ${link}` : ''}`, appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || told;
+    if (email.includes('@')) told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `${studio}: another option for your appointment today`, kind: 'provider_offer',
+      html: brandedEmailHtml({ studioName: studio, title: 'Another option for today', bodyLines: [msg, `Kind regards, ${studio}`], cta: link ? { label: 'Accept or decline', url: link } : null }), appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok;
+    if (phone) told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'provider_offer', text: `${msg}${link ? ` ${link}` : ''}`, appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok || told;
   } catch (e) { console.error('[provider-offer] client message failed', e); }
   return told;
 }
@@ -66,16 +66,16 @@ async function askProvider(db: any, tenantId: string, tenant: any, ap: any, appo
   const when = dayOf(at) === dayOf(new Date()) ? `today at ${time}` : dayOf(at) === dayOf(new Date(Date.now() + 864e5)) ? `tomorrow at ${time}` : `${at.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: tz })} at ${time}`;
   const price = Number(ap.price ?? svc.price) || 0;
   const link = `${linkOrigin(tenant, origin)}/offer/${tenantId}/${appointmentId}?k=${token}`;
-  const text = `Can you take ${firstOf(ap.clientName) || 'a client'}’s ${svc.name || ap.serviceName || 'appointment'} ${when} (${offer.minutes || 60} min${price ? ` · $${price.toFixed(0)}` : ''})? Please answer within ${s.answerMinutes} minutes.`;
+  const text = `Action needed: are you able to take ${firstOf(ap.clientName) || 'a client'}’s ${svc.name || ap.serviceName || 'appointment'} ${when} (${offer.minutes || 60} minutes${price ? `, $${price.toFixed(0)}` : ''})? Please respond within ${s.answerMinutes} minutes.`;
   try {
     if (to.isRenter || to.renterId) {
       const { notifyRenter } = await import('@/lib/renter-comms');
       if (to.renterId) await notifyRenter(db, tenantId, String(to.renterId), 'offers', text, { tone: 'amber', link, subject: 'A client offer from the front desk' } as any);
     } else {
       const n = db.collection(`${T}/notifications`).doc();
-      await n.set({ id: n.id, userId: to.id, read: false, createdAt: iso(), type: 'provider_ask', appointmentId, message: `${text} Accept or decline: ${link}`, link });
+      await n.set({ id: n.id, userId: to.id, read: false, createdAt: iso(), type: 'provider_ask', appointmentId, message: `${text} Please accept or decline here: ${link}`, link });
       if (String(to.phone || '').trim()) { const { sendNotification } = await import('@/lib/notify');
-        await sendNotification(db, { tenantId, channel: 'sms', to: String(to.phone), kind: 'provider_ask', text: `${tenant.name || 'Front desk'}: ${text} ${link}`, appointmentId, recipientType: 'staff', recipientId: to.id } as any); }
+        await sendNotification(db, { tenantId, channel: 'sms', to: String(to.phone), kind: 'provider_ask', text: `${text} Please accept or decline here: ${link}`, appointmentId, recipientType: 'staff', recipientId: to.id } as any); }
     }
   } catch (e) { console.error('[provider-offer] ask failed', e); }
   return asking;
@@ -115,7 +115,7 @@ async function advance(db: any, tenantId: string, tenant: any, ap: any, appointm
   await mirror(db, T, ap, closed);
   const n = db.collection(`${T}/notifications`).doc();
   await n.set({ id: n.id, userId: null, forRoles: ['owner', 'admin', 'manager'], read: false, createdAt: iso(), type: 'provider_offer_closed', appointmentId, link: 'pos',
-    message: `${note}${s.onNoAnswer === 'next' ? ' — and nobody else is free' : ''}. Decide what happens for ${ap.clientName || 'the client'}.` }).catch(() => {});
+    message: `Action needed: ${note}${s.onNoAnswer === 'next' ? ', and no one else is available' : ''}. Please decide what happens with ${ap.clientName || 'the client'}’s appointment.` }).catch(() => {});
   return { closed: true };
 }
 

@@ -83,15 +83,15 @@ export async function POST(req: NextRequest) {
     if (b.tell !== false) {
       const first = String(a.clientName || '').split(' ')[0] || 'there';
       const credit = Number(tenant.bookingPolicies?.providerDelayCredit) || 0;
-      const msg = `Hi ${first} — ${pFirst} is running about ${delayMin} minutes behind today, so your appointment would start around ${when}. Choose what works for you: keep it, reschedule, or cancel with no fee.${credit > 0 ? ` If you’re happy to wait, we’ll add $${credit.toFixed(2)} credit to your account as a thank-you.` : ''}`;
+      const msg = `Hi ${first}, ${pFirst} is running about ${delayMin} minutes behind schedule today, so your appointment is now expected to start at about ${when}. We apologize for the wait and appreciate your patience. You are welcome to keep your appointment, reschedule, or cancel at no charge.${credit > 0 ? ` If you are able to wait, we will add a $${credit.toFixed(2)} credit to your account as a thank-you.` : ''}`;
       const link = a.checkInToken ? `${base}/check-in/${a.checkInToken}` : null;
       try {
         const cl: any = a.clientId ? (((await db.doc(`${T}/clients/${a.clientId}`).get()).data() as any) || {}) : {};
         const email = String(cl.email || a.clientEmail || '').trim(), phone = String(cl.phone || a.clientPhone || '').trim();
         let ok = false;
-        if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `A quick update on today’s appointment — ${studio}`, kind: 'provider_late',
-          html: brandedEmailHtml({ studioName: studio, title: 'A quick update on today', bodyLines: [msg], cta: link ? { label: 'Choose' , url: link } : null }), appointmentId: a.id, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || ok;
-        if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'provider_late', text: `${studio}: ${msg}${link ? ` ${link}` : ''}`, appointmentId: a.id, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || ok;
+        if (email.includes('@')) ok = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `${studio}: an update on your appointment today`, kind: 'provider_late',
+          html: brandedEmailHtml({ studioName: studio, title: 'An update on your appointment today', bodyLines: [msg, `Kind regards, ${studio}`], cta: link ? { label: 'View my options', url: link } : null }), appointmentId: a.id, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || ok;
+        if (phone) ok = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'provider_late', text: `${msg}${link ? ` Your options: ${link}` : ''}`, appointmentId: a.id, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || ok;
         if (ok) told.push(a.id);
       } catch (e) { console.error('[provider-late] send failed', e); }
     }

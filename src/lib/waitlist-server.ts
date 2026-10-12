@@ -30,7 +30,7 @@ export type Deps = {
 async function deps(d: Deps = {}) {
   const send = d.send || (async (...a: any[]) => { const { sendTenantSms } = await import('@/lib/sms'); return (sendTenantSms as any)(...a); });
   const book = d.book || (async (tenant: any, body: any) => { const { internalPost, internalOrigin } = await import('@/lib/message-policy');
-    const r = await internalPost(internalOrigin(tenant), '/api/appointments/book', body, { retries: 0 }); return r.data || { ok: false, error: r.transportError || 'Couldn’t reach the booking service.' }; });
+    const r = await internalPost(internalOrigin(tenant), '/api/appointments/book', body, { retries: 0 }); return r.data || { ok: false, error: r.transportError || 'We could not reach the booking service.' }; });
   const engine = d.engine || (async (db: any, t: string) => { const { engineFor } = await import('@/lib/rebook'); return engineFor(db, t); });
   const openTimes = d.openTimes || (await import('@/lib/rebook')).openTimesOn as any;
   return { send, book, engine, openTimes };
@@ -104,7 +104,7 @@ export async function matchesFor(db: any, t: string, op: any, now: number, d: De
   for (const en of entries) {
     if (offered.has(en.id) || !isWaiting(en)) continue;
     if (en.status === 'offered' && now - ms((en as any).lastOfferAt) < 30 * 60000) { not.push({ e: en, why: 'has another offer right now' }); continue; }
-    if (en.stillAskedAt && (Number(en.ignoredInARow) || 0) >= STALE_AFTER) { not.push({ e: en, why: 'asked if they’re still hoping — no answer yet' }); continue; }
+    if (en.stillAskedAt && (Number(en.ignoredInARow) || 0) >= STALE_AFTER) { not.push({ e: en, why: 'asked whether they would like to stay on the waitlist; no answer yet' }); continue; }
     if (en.phone && !(cache.noBudget ||= new Map()).has(en.id)) { const { budgetLeft } = await import('@/lib/text-budget'); cache.noBudget.set(en.id, (await budgetLeft(db, t, String(en.phone), 'waitlist_offer', now)) <= 0); }
     if (cache.noBudget?.get(en.id)) { not.push({ e: en, why: 'already had their texts from us today' }); continue; }
     let ent: Entry = { ...en };
@@ -214,7 +214,7 @@ async function askStill(db: any, t: string, e: any, tenant: any, now: number, d:
 async function autoBook(db: any, t: string, op: any, c: any, now: number, d: Deps, m: any) {
   const D = await deps(d); const e: any = c.e; const ref = db.doc(`${T(t)}/openings/${op.id}`);
   const payBy = iso(now + payWindowMin(ms(op.start), now) * 60000);
-  const r: any = await D.book(m.tenant, { tenantId: t, source: 'waitlist', serviceId: serviceOf(e), staffId: op.staffId, startTime: op.start, notes: 'From the waitlist — booked automatically, as they asked', holdUntil: payBy,
+  const r: any = await D.book(m.tenant, { tenantId: t, source: 'waitlist', serviceId: serviceOf(e), staffId: op.staffId, startTime: op.start, notes: 'From the waitlist. Booked automatically at the client’s request.', holdUntil: payBy,
     client: e.clientId ? { id: e.clientId } : { name: e.name || e.clientName, phone: e.phone, email: e.email || '' } });
   if (!r?.ok) return false;
   let payUrl: string | null = null;
@@ -229,8 +229,8 @@ async function autoBook(db: any, t: string, op: any, c: any, now: number, d: Dep
 
 /** The "still hoping?" link: what they're waiting for, and keep (back on the offers) or leave. */
 export async function keepView(db: any, t: string, token: string) {
-  const id = String(token || '').split('.')[0]; if (!/^[\w-]{1,80}$/.test(id)) return { ok: false, error: 'This link isn’t valid any more.' };
-  const e: any = (await db.doc(`${T(t)}/waitlist/${id}`).get()).data(); if (!e || e.stillToken !== token) return { ok: false, error: 'This link isn’t valid any more.' };
+  const id = String(token || '').split('.')[0]; if (!/^[\w-]{1,80}$/.test(id)) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
+  const e: any = (await db.doc(`${T(t)}/waitlist/${id}`).get()).data(); if (!e || e.stillToken !== token) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
   const tenant = (await db.doc(T(t)).get()).data() || {};
   return { ok: true, business: String(tenant.name || ''), service: String(e.serviceName || ''), status: ['closed', 'expired', 'booked'].includes(String(e.status)) ? e.status : 'waiting', name: first(e.name) };
 }
@@ -245,7 +245,7 @@ async function tellDesk(db: any, t: string, op: any, tz: string, now: number) {
   const staff = rows(await db.collection(`${T(t)}/staff`).get()).filter((m: any) => !m.archived && ['owner', 'admin', 'manager', 'front_desk'].includes(String(m.role || '')));
   const b = db.batch(); const when = new Date(ms(op.start)).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
   for (const m of staff) { const r = db.collection(`${T(t)}/notifications`).doc();
-    b.set(r, { id: r.id, userId: m.id, type: 'waitlist_desk', link: '/waitlist', read: false, createdAt: iso(now), message: `${when} with ${first(op.staffName)} is open and under an hour away — anyone in the building, on the walk-in list, or the next client who could come early?` }); }
+    b.set(r, { id: r.id, userId: m.id, type: 'waitlist_desk', link: '/waitlist', read: false, createdAt: iso(now), message: `Action needed: ${when} with ${first(op.staffName)} has become available and is less than an hour away. Please offer it to a client in the studio, someone on the walk-in list, or the next client who may be able to come in early.` }); }
   await b.commit();
 }
 
@@ -256,7 +256,7 @@ async function byToken(db: any, t: string, token: string) {
   const offer = (op.offers || []).find((f: any) => f.token === token); return offer ? { op, offer } : null;
 }
 export async function viewOffer(db: any, t: string, token: string, now = Date.now()) {
-  const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'This link isn’t valid any more.' };
+  const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
   const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const { op, offer } = x;
   const svc = offer.serviceId ? ((await db.doc(`${T(t)}/services/${offer.serviceId}`).get()).data() || {}) : {};
   // Opened it — they're paying attention (not counted toward "still hoping?").
@@ -273,16 +273,16 @@ export async function viewOffer(db: any, t: string, token: string, now = Date.no
 
 /** "Take it": first tap wins, checked inside a transaction; then booked through the engine (or their visit moved up). */
 export async function takeOffer(db: any, t: string, token: string, now = Date.now(), d: Deps = {}) {
-  const D = await deps(d); const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'This link isn’t valid any more.' };
+  const D = await deps(d); const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
   const ref = db.doc(`${T(t)}/openings/${x.op.id}`);
   const lock = await db.runTransaction(async (tx: any) => {
     const s = await tx.get(ref); const op: any = { id: s.id, ...(s.data() || {}) };
     const offer = (op.offers || []).find((f: any) => f.token === token);
-    if (!offer) return { ok: false, error: 'This link isn’t valid any more.' };
-    if (op.status === 'filled') return { ok: false, taken: true, error: 'Someone just took it — sorry! You’re still on the list.' };
-    if (op.status !== 'open' || ms(op.start) <= now + 15 * 60000) return { ok: false, error: 'This time isn’t available any more.' };
-    if (op.claiming && now - ms(op.claiming.at) < 60000) return { ok: false, taken: true, error: 'Someone just took it — sorry! You’re still on the list.' };
-    if (offer.mode === 'one' && ms(offer.holdUntil) <= now && (op.offers || []).some((f: any) => f.token !== token && f.status === 'sent' && ms(f.holdUntil) > now)) return { ok: false, error: 'It’s being held for someone else right now — you’re still on the list.' };
+    if (!offer) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
+    if (op.status === 'filled') return { ok: false, taken: true, error: 'We’re sorry, this time has just been booked. You are still on our waitlist.' };
+    if (op.status !== 'open' || ms(op.start) <= now + 15 * 60000) return { ok: false, error: 'We’re sorry, this time is no longer available.' };
+    if (op.claiming && now - ms(op.claiming.at) < 60000) return { ok: false, taken: true, error: 'We’re sorry, this time has just been booked. You are still on our waitlist.' };
+    if (offer.mode === 'one' && ms(offer.holdUntil) <= now && (op.offers || []).some((f: any) => f.token !== token && f.status === 'sent' && ms(f.holdUntil) > now)) return { ok: false, error: 'We’re sorry, this time is currently being held for someone else. You are still on our waitlist.' };
     tx.update(ref, { claiming: { token, at: iso(now) } }); return { ok: true, op, offer };
   });
   if (!lock.ok) { if ((lock as any).taken && x.offer.kind !== 'sooner') await markMissed(db, t, [x.offer.entryId], now); return lock; }
@@ -299,7 +299,7 @@ export async function takeOffer(db: any, t: string, token: string, now = Date.no
     payBy = iso(now + payWindowMin(ms(op.start), now) * 60000);
     const r: any = await D.book(tenant, { tenantId: t, source: 'waitlist', serviceId: offer.serviceId, staffId: op.staffId, startTime: op.start, notes: 'From the waitlist', holdUntil: payBy,
       client: entry.clientId ? { id: entry.clientId } : { name: entry.name || entry.clientName || offer.name, phone: entry.phone || offer.phone, email: entry.email || '' } });
-    if (!r?.ok) { await release(r?.error || 'not bookable'); return { ok: false, taken: true, error: 'That time was just taken — sorry! You’re still on the list.' }; }
+    if (!r?.ok) { await release(r?.error || 'not bookable'); return { ok: false, taken: true, error: 'We’re sorry, this time has just been booked. You are still on our waitlist.' }; }
     appointmentId = r.appointmentId;
     if (r.status === 'pending_payment' && r.checkInToken) { const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); payUrl = base ? `${base}/check-in/${r.checkInToken}` : null; }
     if (!payUrl) payBy = null;
@@ -317,10 +317,10 @@ export const payWindowMin = (startMs: number, now: number) => (startMs - now < 3
 
 /** "Back me up": if the time they missed falls through, it's theirs first. */
 export async function backupFor(db: any, t: string, token: string, now = Date.now()) {
-  const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'This link isn’t valid any more.' };
-  const { op, offer } = x; if (offer.kind === 'sooner') return { ok: false, error: 'Your visit stays as it is.' };
-  if (op.status !== 'filled' || op.filledBy?.token === token) return { ok: false, error: 'There’s nothing to back up.' };
-  if (ms(op.start) - now <= H) return { ok: false, error: 'It’s too close to the time now.' };
+  const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
+  const { op, offer } = x; if (offer.kind === 'sooner') return { ok: false, error: 'Your current appointment will stay as it is.' };
+  if (op.status !== 'filled' || op.filledBy?.token === token) return { ok: false, error: 'There is no appointment to be the backup for.' };
+  if (ms(op.start) - now <= H) return { ok: false, error: 'We’re sorry, it is now too close to the appointment time to add a backup.' };
   const ref = db.doc(`${T(t)}/openings/${op.id}`);
   await db.runTransaction(async (tx: any) => { const s = await tx.get(ref); const cur = (s.data() || {}).backups || [];
     if (!cur.some((b: any) => (b.entryId || b) === offer.entryId)) tx.update(ref, { backups: [...cur, offer.entryId] }); });
@@ -332,7 +332,7 @@ const addDay = (date: string, n: number) => { const d = new Date(`${date}T12:00:
 /** Real open times that fit what they told us — their service, who with, days and times, notice, until — soonest
  * first, at most two a day. For "come in sooner", only earlier times with the same provider that leave a fillable hole. */
 export async function alternativesFor(db: any, t: string, token: string, now = Date.now(), d: Deps = {}, max = 3) {
-  const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'This link isn’t valid any more.', times: [] as any[] };
+  const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.', times: [] as any[] };
   const D = await deps(d); const { op, offer } = x;
   const en: any = (await db.doc(`${T(t)}/waitlist/${offer.entryId}`).get()).data() || {};
   const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant);
@@ -363,7 +363,7 @@ export async function alternativesFor(db: any, t: string, token: string, now = D
 export async function bookAlternative(db: any, t: string, token: string, startIso: string, staffId: string, now = Date.now(), d: Deps = {}) {
   const alts: any = await alternativesFor(db, t, token, now, d, 6); if (!alts.ok) return alts;
   const pick = (alts.times || []).find((x: any) => ms(x.startIso) === ms(startIso) && (!staffId || x.staffId === staffId));
-  if (!pick) return { ok: false, error: 'That time just went — pick another.' };
+  if (!pick) return { ok: false, error: 'We’re sorry, that time has just been booked. Please choose another time.' };
   const D = await deps(d); const { op, offer } = (await byToken(db, t, token))!; const tenant = (await db.doc(T(t)).get()).data() || {};
   const en: any = (await db.doc(`${T(t)}/waitlist/${offer.entryId}`).get()).data() || {};
   if (offer.kind === 'sooner') {
@@ -375,7 +375,7 @@ export async function bookAlternative(db: any, t: string, token: string, startIs
   const payBy = iso(now + payWindowMin(ms(pick.startIso), now) * 60000);
   const r: any = await D.book(tenant, { tenantId: t, source: 'waitlist', serviceId: offer.serviceId || serviceOf(en), staffId: pick.staffId, startTime: pick.startIso, notes: 'From the waitlist (another time that fit)', holdUntil: payBy,
     client: en.clientId ? { id: en.clientId } : { name: en.name || offer.name, phone: en.phone || offer.phone, email: en.email || '' } });
-  if (!r?.ok) return { ok: false, error: 'That time just went — pick another.' };
+  if (!r?.ok) return { ok: false, error: 'We’re sorry, that time has just been booked. Please choose another time.' };
   let payUrl: string | null = null;
   if (r.status === 'pending_payment' && r.checkInToken) { const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); payUrl = base ? `${base}/check-in/${r.checkInToken}` : null; }
   await db.doc(`${T(t)}/waitlist/${offer.entryId}`).set({ status: 'booked', bookedAt: iso(now), appointmentId: r.appointmentId, priorityUntil: null }, { merge: true });
@@ -383,7 +383,7 @@ export async function bookAlternative(db: any, t: string, token: string, startIs
 }
 
 export async function passOffer(db: any, t: string, token: string, now = Date.now()) {
-  const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'This link isn’t valid any more.' };
+  const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
   await db.doc(`${T(t)}/openings/${x.op.id}`).update({ offers: (x.op.offers || []).map((f: any) => (f.token === token ? { ...f, status: 'declined', holdUntil: iso(now) } : f)) });
   await db.doc(`${T(t)}/waitlist/${x.offer.entryId}`).set({ status: 'waiting', lastPassAt: iso(now) }, { merge: true });
   return { ok: true };
@@ -393,14 +393,14 @@ export async function passOffer(db: any, t: string, token: string, now = Date.no
 export async function moveUp(db: any, t: string, apptId: string, newStartMs: number, now: number) {
   const ref = db.doc(`${T(t)}/appointments/${apptId}`);
   return db.runTransaction(async (tx: any) => {
-    const s = await tx.get(ref); if (!s.exists) return { ok: false, error: 'We couldn’t find your visit.' }; const a: any = s.data() || {};
-    if (DEAD.includes(String(a.status || ''))) return { ok: false, error: 'That visit isn’t booked any more.' };
+    const s = await tx.get(ref); if (!s.exists) return { ok: false, error: 'We could not find your appointment.' }; const a: any = s.data() || {};
+    if (DEAD.includes(String(a.status || ''))) return { ok: false, error: 'This appointment is no longer booked.' };
     const dur = Math.max(15 * 60000, ms(a.endTime) - ms(a.startTime) || 3600e3); const newEnd = newStartMs + dur;
     const near = await tx.get(db.collection(`${T(t)}/appointments`).where('startTime', '>=', iso(newStartMs - DAY)).where('startTime', '<=', iso(newEnd + DAY)));
     for (const d of near.docs) { if (d.id === apptId) continue; const o: any = d.data() || {};
       if (o.staffId !== a.staffId || DEAD.includes(String(o.status || ''))) continue;
       const oS = ms(o.startTime) - (Number(o.padBefore) || 0) * 60000, oE = (ms(o.endTime) || ms(o.startTime)) + (Number(o.padAfter) || 0) * 60000;
-      if (newStartMs < oE && newEnd > oS) return { ok: false, error: 'That time was just taken — sorry! Your visit stays as it was.' }; }
+      if (newStartMs < oE && newEnd > oS) return { ok: false, error: 'We’re sorry, that time has just been booked. Your appointment will stay as it was.' }; }
     const move = { startTime: iso(newStartMs), endTime: iso(newEnd), previousStartTime: a.startTime, rescheduledAt: iso(now), rescheduledBy: 'waitlist_move_up', reminderSentAt: null };
     tx.set(ref, move, { merge: true });
     if (a.checkInToken) { tx.set(db.doc(`${T(t)}/appointmentCheckIns/${a.checkInToken}`), move, { merge: true }); tx.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), move, { merge: true }); }
@@ -416,7 +416,7 @@ export function cleanWindows(w: any): Record<string, string[]> | null {
 }
 export async function soonerFor(db: any, t: string, token: string, on: boolean, anyone = false, now = Date.now()) {
   const snap = await db.collection(`${T(t)}/appointments`).where('checkInToken', '==', String(token || '').slice(0, 80)).get(); const a: any = snap.docs[0] ? { id: snap.docs[0].id, ...snap.docs[0].data() } : null;
-  if (!a || DEAD.includes(String(a.status || '')) || ms(a.startTime) < now) return { ok: false, error: 'We couldn’t find an upcoming visit for this link.' };
+  if (!a || DEAD.includes(String(a.status || '')) || ms(a.startTime) < now) return { ok: false, error: 'We could not find an upcoming appointment for this link.' };
   const col = db.collection(`${T(t)}/waitlist`); const mine = rows(await col.where('appointmentId', '==', a.id).get()).filter((e: any) => e.kind === 'sooner' && isWaiting(e));
   const flag = async (v: boolean) => { const f = { soonerOn: v }; await db.doc(`${T(t)}/appointments/${a.id}`).set(f, { merge: true }); if (a.checkInToken) { await db.doc(`${T(t)}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}); await db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}); } };
   if (!on) { for (const e of mine) await col.doc(e.id).set({ status: 'closed', closedAt: iso(now) }, { merge: true }); await flag(false); return { ok: true, on: false }; }
@@ -449,13 +449,13 @@ export async function deskView(db: any, t: string, now = Date.now(), d: Deps = {
 
 /** The desk offers it to one particular person (from the fits list) — the same text and link. */
 export async function offerTo(db: any, t: string, openingId: string, entryId: string, now = Date.now(), d: Deps = {}) {
-  const s = await db.doc(`${T(t)}/openings/${openingId}`).get(); if (!s.exists) return { ok: false, error: 'That opening is gone.' };
-  const op: any = { id: s.id, ...(s.data() || {}) }; if (op.status !== 'open') return { ok: false, error: 'It’s already filled or closed.' };
+  const s = await db.doc(`${T(t)}/openings/${openingId}`).get(); if (!s.exists) return { ok: false, error: 'This opening is no longer available.' };
+  const op: any = { id: s.id, ...(s.data() || {}) }; if (op.status !== 'open') return { ok: false, error: 'This opening has already been filled or closed.' };
   const m = await matchesFor(db, t, op, now, d); const c = m.fits.find((f: any) => f.e.id === entryId);
-  if (!c) { const n = m.not.find((x: any) => x.e.id === entryId); return { ok: false, error: n ? `It doesn’t fit them: ${n.why}.` : 'They’re not on the list for this.' }; }
+  if (!c) { const n = m.not.find((x: any) => x.e.id === entryId); return { ok: false, error: n ? `This opening does not suit this client: ${n.why}.` : 'This client is not on the waitlist for this opening.' }; }
   // By hand it's theirs alone (and the time is held for them): 30 minutes if there's a day, less when it's sooner.
   const lead = ms(op.start) - now; const holdMin = lead >= DAY ? HOLD_ONE_MIN : lead >= WAVE_FROM_H * H ? 15 : 10;
-  const r = await sendOffer(db, t, op, c, 'one', now, d, m, holdMin); if (!r) return { ok: false, error: 'The text didn’t go — no mobile number, or they said no to texts.' };
+  const r = await sendOffer(db, t, op, c, 'one', now, d, m, holdMin); if (!r) return { ok: false, error: 'The text could not be sent. The client has no mobile number on file or has opted out of texts.' };
   await holdTime(db, t, op, r.holdUntil, now);
   await db.doc(`${T(t)}/openings/${openingId}`).update({ offers: [...(op.offers || []), { ...r, byDesk: true }] });
   return { ok: true };

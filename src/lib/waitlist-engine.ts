@@ -59,7 +59,7 @@ export function fitFor(e: Entry, o: Opening, x: { now: number; tz: { weekday: nu
   const notice = Number(e.noticeHours ?? 3); if (ms(o.start) - x.now < notice * H) return { ok: false, why: `needs ${notice >= 24 ? 'a day' : `${notice} hour${notice === 1 ? '' : 's'}`}’ notice` };
   if (e.until && x.tz.date > String(e.until).slice(0, 10)) return { ok: false, why: 'past the date they gave' };
   if (x.sameDayBooked) return { ok: false, why: 'already booked that day' };
-  if (e.reliability === 'misses' && ms(o.start) - x.now < 24 * H) return { ok: false, why: 'missed visits — no same-day offers' };
+  if (e.reliability === 'misses' && ms(o.start) - x.now < 24 * H) return { ok: false, why: 'has missed appointments, so no same-day offers' };
   if (!x.bookable || x.serviceMinutes === null) return { ok: false, why: 'their service doesn’t fit this time' };
   const leftover = o.minutes - x.serviceMinutes;
   if (leftover < 0) return { ok: false, why: 'their service is longer than the opening' };
@@ -69,7 +69,7 @@ export function fitFor(e: Entry, o: Opening, x: { now: number; tz: { weekday: nu
 
 /** A move-up frees their later time. Only if that time can be filled again: 3+ days away, or someone new wants it. */
 export function moveUpOk(o: Opening, freedStartMs: number, now: number, newcomerForFreed: boolean): { ok: boolean; why?: string } {
-  if ((o.chainDepth || 0) >= MAX_CHAIN) return { ok: false, why: 'two moves already — the chain stops here' };
+  if ((o.chainDepth || 0) >= MAX_CHAIN) return { ok: false, why: 'two moves have already been made, so the chain stops here' };
   if (freedStartMs <= ms(o.start)) return { ok: false, why: 'not sooner' };
   if (newcomerForFreed) return { ok: true };
   if (freedStartMs - now >= 3 * DAY) return { ok: true };
@@ -120,18 +120,19 @@ export function planRound(startMs: number, now: number, offers: { status: string
 
 /** "Still hoping?" — after STALE_AFTER offers in a row they never even opened. */
 export const stillText = (o: { first: string; service: string; link: string }) =>
-  `Hi ${o.first}! Still hoping for ${o.service ? `a ${o.service}` : 'a time'} with us? Tap to keep your place — or to come off the list, no problem: ${o.link}`;
+  `Hi ${o.first}, would you still like to stay on our waitlist for ${o.service ? `a ${o.service}` : 'an appointment'}? Please let us know here whether you would like to keep your place or be removed from the list: ${o.link}`;
 /** Booked for them (they asked us to): the booking's own confirmation follows. */
 export const autoBookedText = (o: { first: string; when: string; provider: string }) =>
-  `Good news, ${o.first} — ${o.when}${o.provider ? ` with ${o.provider}` : ''} opened up and you asked us to book it for you, so it’s yours. Your confirmation is on its way.`;
+  `Hi ${o.first}, good news! ${o.when}${o.provider ? ` with ${o.provider}` : ''} has become available and, as you requested, we have booked it for you. Your confirmation will follow shortly.`;
 
-/** The words. Hello-first doesn't apply here: they asked to be told, so the link goes in. */
+/** The words. Hello-first doesn't apply here: they asked to be told, so the link goes in. The studio name is added by
+ * the branded sender (lib/sms), so the text itself does not repeat it. */
 export function offerText(o: { first: string; provider: string; when: string; service: string; price: string; link: string; mode: Mode; holdMin: number; sooner?: { was: string } | null; business: string }): string {
   const p = o.provider ? ` with ${o.provider}` : '';
-  if (o.sooner) return `Hi ${o.first}! A sooner time opened${p}: ${o.when} instead of ${o.sooner.was}. Want it? ${o.link} — if not, your time stays just as it is.`;
+  if (o.sooner) return `Hi ${o.first}, an earlier time has become available${p}: ${o.when}, instead of ${o.sooner.was}. If you would like it, please confirm here: ${o.link}. If not, your current appointment will stay exactly as it is.`;
   return o.mode === 'one'
-    ? `Hi ${o.first}! ${o.when}${p} just opened up — your ${o.service}${o.price ? `, ${o.price}` : ''}. It’s yours for the next ${o.holdMin} minutes if you’d like it: ${o.link}`
-    : `Hi ${o.first}! ${o.when}${p} just opened up — your ${o.service}${o.price ? `, ${o.price}` : ''}. It goes to whoever taps first: ${o.link}`;
+    ? `Hi ${o.first}, a time has become available for your ${o.service}${o.price ? ` (${o.price})` : ''}: ${o.when}${p}. It is reserved for you for the next ${o.holdMin} minutes. If you would like it, please confirm here: ${o.link}`
+    : `Hi ${o.first}, a time has become available for your ${o.service}${o.price ? ` (${o.price})` : ''}: ${o.when}${p}. It will go to the first person to confirm. If you would like it, please confirm here: ${o.link}`;
 }
 
 /** What's wanted most and never got — the waitlist as demand, for staffing. */

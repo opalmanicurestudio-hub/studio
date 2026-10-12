@@ -75,11 +75,11 @@ export async function POST(req: NextRequest) {
       const email = String(cl.email || ap.clientEmail || '').trim(), phone = String(cl.phone || ap.clientPhone || '').trim();
       const { sendNotification } = await import('@/lib/notify');
       const { brandedEmailHtml } = await import('@/lib/email-template');
-      const title = option === 'move' ? 'Let’s find a new time' : 'We’ll see you soon';
-      if (email.includes('@')) told.email = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `${title} — ${studio}`, kind: 'late_reply',
-        html: brandedEmailHtml({ studioName: studio, title, bodyLines: [message], cta: link ? { label: option === 'move' ? 'Choose a new time' : 'My visit', url: link } : null }),
+      const title = option === 'move' ? 'Choosing a new time for your appointment' : 'An update on your appointment';
+      if (email.includes('@')) told.email = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `${studio}: ${title}`, kind: 'late_reply',
+        html: brandedEmailHtml({ studioName: studio, title, bodyLines: [message, `Kind regards, ${studio}`], cta: link ? { label: option === 'move' ? 'Choose a new time' : 'View my visit', url: link } : null }),
         appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok;
-      if (phone) told.sms = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'late_reply', text: `${studio}: ${message}${link ? ` ${link}` : ''}`,
+      if (phone) told.sms = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'late_reply', text: `${message}${link ? ` Your visit link: ${link}` : ''}`,
         appointmentId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok;
     } catch (e) { console.error('[late-decision] send failed', e); }
   }

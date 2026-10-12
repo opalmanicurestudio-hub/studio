@@ -73,7 +73,7 @@ async function sweepTenant(db: any, tenantId: string, nowIso: string) {
         await db.collection(`tenants/${tenantId}/notifications`).add({
           userId: String(apt.staffId),
           type: 'appointment_overdue',
-          message: `${apt.clientName || 'A booking'} needs your answer within ${Math.max(1, clock.minutesLeft)} min.`,
+          message: `Action needed: please respond to ${apt.clientName || 'a booking'}’s appointment request within ${Math.max(1, clock.minutesLeft)} minutes.`,
           link: '/planner',
           appointmentId: apt.id,
           createdAt: nowIso,
@@ -127,10 +127,10 @@ async function sweepTenant(db: any, tenantId: string, nowIso: string) {
 
     const who = provider?.name || 'A provider';
     const line = effective === 'auto_accept'
-      ? `${apt.clientName || 'A booking'} was accepted automatically — ${who} did not answer in time.`
+      ? `${apt.clientName || 'A booking'}’s appointment request was accepted automatically because ${who} did not respond within the response window.`
       : effective === 'raise_issue'
-        ? `${apt.clientName || 'A booking'} went unanswered by ${who} and is now with you.`
-        : `${apt.clientName || 'A booking'} is overdue — ${who} has not answered.`;
+        ? `Action needed: ${apt.clientName || 'A booking'}’s appointment request was not answered by ${who} within the response window and now needs your review.`
+        : `Action needed: ${apt.clientName || 'A booking'}’s appointment request is overdue. ${who} has not responded yet.`;
 
     await Promise.all(managers.map((id: string) => db
       .collection(`tenants/${tenantId}/notifications`)

@@ -94,19 +94,21 @@ export async function POST(req: NextRequest) {
     if (email) {
       const html = brandedEmailHtml({
         studioName,
-        title: "You're confirmed",
+        title: 'Your appointment is confirmed',
         bodyLines: [
-          `Hi ${firstName} — your ${serviceName}${staffName ? ` with ${staffName}` : ''} is booked for ${whenStr}.`,
-          code ? 'Show the code below when you arrive to check in.' : '',
+          `Hi ${firstName},`,
+          `Thank you for booking with us. Your appointment is confirmed: ${serviceName}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.`,
+          code ? 'Please show the code below when you arrive to check in.' : '',
+          `Kind regards, ${studioName}`,
         ].filter(Boolean),
         bigCode: code || undefined,
-        cta: portalUrl ? { label: 'Check in / manage my visit', url: portalUrl } : null,
+        cta: portalUrl ? { label: 'Check in or manage my visit', url: portalUrl } : null,
         secondaryCta: calendarUrl ? { label: 'Add to calendar', url: calendarUrl } : null,
-        footerNote: `Running late, need to cancel, or want anything during your visit? It's all behind the button above. Sent by ${studioName}.`,
+        footerNote: `If you are running late, need to make a change, or would like anything during your visit, please use the button above. Sent by ${studioName}.`,
       });
       const er = await sendNotification(db, {
         tenantId, channel: 'email', to: email,
-        subject: `Confirmed: ${serviceName} — ${whenStr}`,
+        subject: `Your appointment is confirmed: ${serviceName} on ${whenStr}`,
         html, kind: 'booking_confirmation',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
       });
@@ -118,7 +120,7 @@ export async function POST(req: NextRequest) {
       // with delivery tracking, exactly like the email above.
       const sr = await sendNotification(db, {
         tenantId, channel: 'sms', to: phone,
-        text: `You're confirmed — ${serviceName}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${portalUrl ? ` Details & check-in: ${portalUrl}` : ''}`,
+        text: `Hi ${firstName}, this is a confirmation of your ${serviceName}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${portalUrl ? ` For details and check-in: ${portalUrl}` : ''}`,
         kind: 'booking_confirmation',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
       });

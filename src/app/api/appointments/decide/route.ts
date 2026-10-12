@@ -464,12 +464,12 @@ export async function POST(req: NextRequest) {
     paymentDueAt: outcome.dueAt || null,
     message: accepted
       ? (chargeResult.attempted && chargeResult.ok
-        ? `Accepted — the ${(outcome.depositCents / 100).toFixed(2)} deposit was charged to their card on file.`
+        ? `Request accepted. The $${(outcome.depositCents / 100).toFixed(2)} deposit was charged to the client's card on file.`
         : chargeResult.attempted
-          ? `Accepted, but their card was declined. ${chargeResult.guidance || ''} They have a link to pay another way${holdUntil ? `, and the time is held until ${holdUntil}` : ' and the time is still held'}.`
+          ? `Request accepted, but the client's card was declined. ${chargeResult.guidance || ''} The client has been sent a link to pay another way${holdUntil ? `, and the time is held until ${holdUntil}` : ', and the time is still held'}.`
           : outcome.status === 'pending_payment'
-            ? 'Accepted — the client has been asked for their deposit.'
-            : 'Accepted and confirmed — the client has been told.')
-      : 'Declined — the time is free again and the client has been told.',
+            ? 'Request accepted. The client has been asked to pay their deposit.'
+            : 'Request accepted and confirmed. The client has been notified.')
+      : 'Request declined. The time is now available, and the client has been notified.',
   });
 }

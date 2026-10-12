@@ -83,7 +83,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
       const av = pickFrom(pb.auto.length, usedA); const link = await bookLink(tenant, t, { providerId: c.providerId });
       const body = fill(pb.auto[av], { ...facts, link, me: first(prov?.name) || businessName(tenant) });
       const chk0 = await textCheck(db, t, tenant, { ...base, kind: c.kind }, cl || { phone: base.phone }, now);
-      const chk: any = !link && pb.auto[av].includes('{link}') ? { ok: false, error: 'There’s no booking link to send yet (set the app’s web address).' } : chk0;
+      const chk: any = !link && pb.auto[av].includes('{link}') ? { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' } : chk0;
       let r: any = chk.ok ? await send(db, t, chk.phone, body, cl?.email ? { email: cl.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: c.clientId || undefined, recipientName: c.clientName }).catch(() => ({ ok: false })) : { ok: false, error: (chk as any).error };
       if (r.ok) {
         sent++; { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
@@ -93,8 +93,8 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
           escalateAt: mode === 'auto_then_person' ? nowIso(now + S.afterDays * DAY) : null, attempts: [auto], assigneeId: null, assigneeName: null, version: 0, message: '' }, 'set']);
         fresh.push({ status: 'auto' }); continue;
       }
-      if (mode === 'auto') { writes.push([ref, { ...base, status: 'not_sent', notSentWhy: String(r.error || 'The text didn’t go.'), closedAt: nowIso(now), assigneeId: null, assigneeName: null, version: 0, message: '' }, 'set']); continue; }
-      why = `${c.why} · couldn’t text automatically — ${String(r.error || 'the text didn’t go').replace(/\.$/, '').replace(/^./, (z: string) => z.toLowerCase())}`;
+      if (mode === 'auto') { writes.push([ref, { ...base, status: 'not_sent', notSentWhy: String(r.error || 'The text could not be sent.'), closedAt: nowIso(now), assigneeId: null, assigneeName: null, version: 0, message: '' }, 'set']); continue; }
+      why = `${c.why} · could not be texted automatically: ${String(r.error || 'the text could not be sent').replace(/\.$/, '').replace(/^./, (z: string) => z.toLowerCase())}`;
     }
     // 2) A person.
     const who = assignee(pb.who, c.providerId, staff, load, S.perPersonPerDay); if (who) load.set(who.id, (load.get(who.id) || 0) + 1);
@@ -115,7 +115,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
       if (e.status === 'waiting' && ms(e.escalateAt) <= now) {
         const pb = PLAYBOOKS[e.kind as OppKind]; const who = assignee(pb.who, e.providerId, staff, load, S.perPersonPerDay); if (who) load.set(who.id, (load.get(who.id) || 0) + 1);
         const d = new Date(ms(e.autoSentAt)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(zone ? { timeZone: zone } : {}) });
-        const doc = { status: 'open', assigneeId: who?.id || null, assigneeName: who?.name || null, dueAt: nowIso(now), expiresAt: nowIso(now + 7 * DAY), why: `${e.why} · got the automatic text on ${d}, no reply`,
+        const doc = { status: 'open', assigneeId: who?.id || null, assigneeName: who?.name || null, dueAt: nowIso(now), expiresAt: nowIso(now + 7 * DAY), why: `${e.why} · received the automatic text on ${d} and has not replied`,
           message: fill(pb.afterAuto || PLAYBOOKS.follow_up.versions[0], { ...(e.facts || {}), business: businessName(tenant), me: first(who?.name) || first(businessName(tenant)) }), escalatedAt: nowIso(now) };
         writes.push([ref, doc, 'update']); fresh.push({ ...e, ...doc }); toPerson++; continue;
       }
@@ -130,7 +130,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   // One bell per person: "3 new tasks for you today".
   const by = new Map<string, any[]>(); for (const f of fresh) if (f.assigneeId) by.set(f.assigneeId, [...(by.get(f.assigneeId) || []), f]);
   for (const [sid, list] of by) { const r = db.collection(`${T(t)}/notifications`).doc();
-    writes.push([r, { id: r.id, userId: sid, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `${list.length} new task${list.length === 1 ? '' : 's'} for you — ${list[0].clientName}${list.length > 1 ? ' and more' : ''}` }, 'set']); }
+    writes.push([r, { id: r.id, userId: sid, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `You have ${list.length} new task${list.length === 1 ? '' : 's'}: ${list[0].clientName}${list.length > 1 ? ' and others' : ''}.` }, 'set']); }
   for (let i = 0; i < writes.length; i += 400) { const b = db.batch(); for (const [r, v, op] of writes.slice(i, i + 400)) { if (op === 'set') b.set(r, v); else b.update(r, v); } await b.commit(); }
   return { ok: true, created: fresh.filter((f) => f.status === 'open' && !f.escalatedAt).length, sent, toPerson, holdout: fresh.filter((f) => f.status === 'holdout').length, expired, checked };
 }
@@ -151,7 +151,7 @@ export async function opportunityReply(db: any, t: string, fromDigits: string, b
     const pb = PLAYBOOKS[e.kind as OppKind]; const who = assignee(pb.who, e.providerId, staff, load, 99); if (who) load.set(who.id, (load.get(who.id) || 0) + 1);
     await ref.update({ status: 'open', assigneeId: who?.id || null, assigneeName: who?.name || null, dueAt: nowIso(now), expiresAt: nowIso(now + 7 * DAY), attempts: att, priority: 'high',
       why: `Replied to the automatic text: “${body.slice(0, 160)}”`, message: '', repliedAt: nowIso(now) });
-    if (who) { const r = db.collection(`${T(t)}/notifications`).doc(); await r.set({ id: r.id, userId: who.id, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `${e.clientName || 'A client'} replied: “${body.slice(0, 120)}” — it’s on your tasks` }); }
+    if (who) { const r = db.collection(`${T(t)}/notifications`).doc(); await r.set({ id: r.id, userId: who.id, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `${e.clientName || 'A client'} has replied: “${body.slice(0, 120)}”. This has been added to your tasks.` }); }
   }
   return list.length;
 }
@@ -176,61 +176,61 @@ const canTouch = (o: any, a: RequestActor) => a.isManager || a.isOwner || (o.ass
 export async function textCheck(db: any, t: string, tenant: any, o: any, client: any, now: number): Promise<{ ok: true; phone: string } | { ok: false; error: string }> {
   const pb = PLAYBOOKS[o.kind as OppKind] || PLAYBOOKS.manual;
   const phone = String(client?.phone || client?.phoneNumber || o.phone || '').trim();
-  if (!phone) return { ok: false, error: 'There’s no mobile number on file — this one’s a call or an email.' };
-  if (client?.smsOptOut || client?.smsConsent === false) return { ok: false, error: 'They’ve said no to texts — call instead.' };
-  if (client?.opportunityOptOut) return { ok: false, error: 'They asked not to be contacted like this.' };
+  if (!phone) return { ok: false, error: 'There is no mobile number on file. Please call or email this client instead.' };
+  if (client?.smsOptOut || client?.smsConsent === false) return { ok: false, error: 'This client has opted out of texts. Please call instead.' };
+  if (client?.opportunityOptOut) return { ok: false, error: 'This client has asked not to be contacted in this way.' };
   if (pb.marketing) {
-    if (client?.marketingOptOut || client?.smsMarketingOptIn !== true) return { ok: false, error: 'They haven’t said yes to marketing texts, so this one is a call.' };
+    if (client?.marketingOptOut || client?.smsMarketingOptIn !== true) return { ok: false, error: 'This client has not agreed to marketing texts, so please call instead.' };
     const { recentMarketingTexts, MARKETING_TEXTS_PER_30_DAYS } = await import('@/lib/campaigns');
     const n = (await recentMarketingTexts(db, t, now)).get(String(o.clientId || '')) || 0;
-    if (n >= MARKETING_TEXTS_PER_30_DAYS) return { ok: false, error: `They’ve had ${n} texts from you in the last 30 days — call, or leave it for now.` };
+    if (n >= MARKETING_TEXTS_PER_30_DAYS) return { ok: false, error: `This client has received ${n} texts from you in the last 30 days. Please call, or leave this for now.` };
   }
   const { inTextWindow } = await import('@/lib/campaigns');
-  if (!inTextWindow(await tz(tenant), new Date(now))) return { ok: false, error: 'It’s outside texting hours (9 am – 8 pm) — send it tomorrow, or call.' };
-  if ((o.attempts || []).some((x: any) => x.channel === 'text' && now - ms(x.at) < 2 * DAY)) return { ok: false, error: 'A text went out in the last two days — give them time to answer.' };
-  { const { budgetLeft } = await import('@/lib/text-budget'); if ((await budgetLeft(db, t, phone, 'opportunity', now)) <= 0) return { ok: false, error: 'They’ve already had texts from us today — tomorrow, or call.' }; }
+  if (!inTextWindow(await tz(tenant), new Date(now))) return { ok: false, error: 'It is outside texting hours (9:00 AM to 8:00 PM). Please send it tomorrow, or call instead.' };
+  if ((o.attempts || []).some((x: any) => x.channel === 'text' && now - ms(x.at) < 2 * DAY)) return { ok: false, error: 'A text was sent in the last two days. Please give the client time to reply.' };
+  { const { budgetLeft } = await import('@/lib/text-budget'); if ((await budgetLeft(db, t, phone, 'opportunity', now)) <= 0) return { ok: false, error: 'This client has already received texts from us today. Please try again tomorrow, or call instead.' }; }
   return { ok: true, phone };
 }
 
 export async function actOnOpportunity(db: any, t: string, actor: RequestActor, b: any, now = Date.now()) {
   const action = str(b.action, 20); const manager = actor.isManager || actor.isOwner;
   const tenant: any = (await db.doc(T(t)).get()).data() || {};
-  if (action === 'settings') { if (!manager) return { ok: false, error: 'Managers only.' };
+  if (action === 'settings') { if (!manager) return { ok: false, error: 'Only managers can do this.' };
     const s = oppSettingsOf({ opportunities: b.settings || {} }); await db.doc(T(t)).set({ opportunities: s }, { merge: true }); return { ok: true, settings: s }; }
-  if (action === 'run') { if (!manager) return { ok: false, error: 'Managers only.' }; return opportunitySweep(db, t, tenant, now, { force: true }); }
-  if (action === 'results') { if (!manager) return { ok: false, error: 'Managers only.' }; return { ok: true, ...(await opportunityResults(db, t, now)) }; }
-  if (action === 'create') { if (!manager) return { ok: false, error: 'Managers only.' }; return createManual(db, t, tenant, actor, b, now); }
+  if (action === 'run') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return opportunitySweep(db, t, tenant, now, { force: true }); }
+  if (action === 'results') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return { ok: true, ...(await opportunityResults(db, t, now)) }; }
+  if (action === 'create') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return createManual(db, t, tenant, actor, b, now); }
 
-  const o = await getOpp(db, t, b.id); if (!o) return { ok: false, error: 'That task isn’t there any more.' };
+  const o = await getOpp(db, t, b.id); if (!o) return { ok: false, error: 'This task is no longer available.' };
   const ref = db.doc(`${T(t)}/opportunities/${o.id}`);
   const staff = await team(db, t); const by = { at: nowIso(now), by: actor.staffId, byName: actor.name };
 
-  if (action === 'claim') { if (o.assigneeId) return { ok: false, error: 'Someone already has this one.' }; if (o.status !== 'open') return { ok: false, error: 'This one’s closed.' };
+  if (action === 'claim') { if (o.assigneeId) return { ok: false, error: 'This task has already been claimed.' }; if (o.status !== 'open') return { ok: false, error: 'This task is closed.' };
     const m = staff.find((x: any) => x.id === actor.staffId); await ref.update({ assigneeId: actor.staffId, assigneeName: actor.name, message: remsg(o, m?.name || actor.name, tenant) }); return { ok: true }; }
-  if (action === 'assign') { if (!manager) return { ok: false, error: 'Managers hand out tasks.' };
-    const to = b.staffId ? staff.find((x: any) => x.id === String(b.staffId)) : null; if (b.staffId && (!to || to.role === 'renter' || to.isRenter)) return { ok: false, error: 'Choose someone on the team.' };
+  if (action === 'assign') { if (!manager) return { ok: false, error: 'Only managers can assign tasks.' };
+    const to = b.staffId ? staff.find((x: any) => x.id === String(b.staffId)) : null; if (b.staffId && (!to || to.role === 'renter' || to.isRenter)) return { ok: false, error: 'Please choose a team member.' };
     await ref.update({ assigneeId: to?.id || null, assigneeName: to?.name || null, message: remsg(o, to?.name || '', tenant), assignedBy: actor.name, assignedAt: nowIso(now) });
     if (to && to.id !== actor.staffId) { const r = db.collection(`${T(t)}/notifications`).doc(); await r.set({ id: r.id, userId: to.id, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `${actor.name.split(' ')[0]} gave you a task: ${o.clientName ? `${o.clientName} — ` : ''}${(PLAYBOOKS[o.kind as OppKind] || PLAYBOOKS.manual).label}` }); }
     return { ok: true }; }
-  if (!canTouch(o, actor)) return { ok: false, error: 'This task is someone else’s.' };
-  if (action === 'escalate') { if (!manager) return { ok: false, error: 'Managers only.' }; if (!['waiting', 'auto'].includes(o.status)) return { ok: false, error: 'It’s already with a person.' };
+  if (!canTouch(o, actor)) return { ok: false, error: 'This task is assigned to another team member.' };
+  if (action === 'escalate') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; if (!['waiting', 'auto'].includes(o.status)) return { ok: false, error: 'This task is already assigned to a team member.' };
     const S = oppSettingsOf(tenant); const pb = PLAYBOOKS[o.kind as OppKind]; const all = rows(await db.collection(`${T(t)}/opportunities`).where('status', '==', 'open').get());
     const to = b.staffId ? staff.find((x: any) => x.id === String(b.staffId)) : assignee(pb.who, o.providerId, staff, openLoad(all), S.perPersonPerDay);
     await ref.update({ status: 'open', assigneeId: to?.id || null, assigneeName: to?.name || null, dueAt: nowIso(now), expiresAt: nowIso(now + 7 * DAY), escalatedAt: nowIso(now),
-      why: `${o.why} · got the automatic text, handed to a person by ${actor.name.split(' ')[0]}`, message: fill(pb.afterAuto || PLAYBOOKS.follow_up.versions[0], { ...(o.facts || {}), business: businessName(tenant), me: first(to?.name) || first(businessName(tenant)) }) });
+      why: `${o.why} · received the automatic text; assigned to a team member by ${actor.name.split(' ')[0]}`, message: fill(pb.afterAuto || PLAYBOOKS.follow_up.versions[0], { ...(o.facts || {}), business: businessName(tenant), me: first(to?.name) || first(businessName(tenant)) }) });
     return { ok: true }; }
-  if (action === 'dismiss') { if (!manager) return { ok: false, error: 'Managers only.' }; await ref.update({ status: 'dismissed', closedAt: nowIso(now), dismissedBy: actor.name }); return { ok: true }; }
-  if (o.status !== 'open') return { ok: false, error: 'This one’s already closed.' };
-  if (action === 'reword') { const pb = PLAYBOOKS[o.kind as OppKind]; if (!pb || pb.versions.length < 2) return { ok: false, error: 'There’s only one wording for this.' };
+  if (action === 'dismiss') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; await ref.update({ status: 'dismissed', closedAt: nowIso(now), dismissedBy: actor.name }); return { ok: true }; }
+  if (o.status !== 'open') return { ok: false, error: 'This task is already closed.' };
+  if (action === 'reword') { const pb = PLAYBOOKS[o.kind as OppKind]; if (!pb || pb.versions.length < 2) return { ok: false, error: 'There is only one wording available for this message.' };
     const v = ((Number(o.version) || 0) + 1) % pb.versions.length; const m = staff.find((x: any) => x.id === o.assigneeId);
     const message = fill(pb.versions[v], { ...(o.facts || {}), business: businessName(tenant), me: first(m?.name || actor.name) }); await ref.update({ version: v, message }); return { ok: true, message, version: v }; }
   if (action === 'text') {
     const client = o.clientId ? ((await db.doc(`${T(t)}/clients/${o.clientId}`).get()).data() || {}) : {};
     const chk = await textCheck(db, t, tenant, o, client, now); if (!chk.ok) return chk;
-    const body = str(o.message, 600); if (!body) return { ok: false, error: 'There’s no message for this one.' };
+    const body = str(o.message, 600); if (!body) return { ok: false, error: 'There is no message for this task.' };
     const { sendTenantSms } = await import('@/lib/sms');
     const r = await sendTenantSms(db, t, chk.phone, body, client?.email ? { email: client.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: o.clientId || undefined, recipientName: o.clientName || undefined } as any);
-    if (!r.ok) return { ok: false, error: 'The text didn’t go — try again, or call.' };
+    if (!r.ok) return { ok: false, error: 'The text could not be sent. Please try again, or call instead.' };
     { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
     const pb = PLAYBOOKS[o.kind as OppKind];
     if (pb?.marketing && o.clientId) await db.collection(`${T(t)}/opportunityTexts`).add({ clientId: o.clientId, at: nowIso(now), channel: 'sms', marketing: true, oppId: o.id });
@@ -238,7 +238,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
     return { ok: true, via: r.via || 'sms' };
   }
   if (action === 'outcome') {
-    const outcome = str(b.outcome, 30) as OutcomeId; if (!OUTCOMES[outcome]) return { ok: false, error: 'Choose what happened.' };
+    const outcome = str(b.outcome, 30) as OutcomeId; if (!OUTCOMES[outcome]) return { ok: false, error: 'Please choose an outcome.' };
     const channel = ['call', 'text', 'in_person'].includes(b.channel) ? b.channel : 'call'; const note = str(b.note, 600);
     const fx = outcomeEffects(o, outcome, now);
     const attempt = { ...by, channel, outcome, note };
@@ -274,7 +274,7 @@ function remsg(o: any, name: string, tenant: any) {
 }
 
 async function createManual(db: any, t: string, tenant: any, actor: RequestActor, b: any, now: number) {
-  const title = str(b.title, 140); if (!title) return { ok: false, error: 'What’s the task?' };
+  const title = str(b.title, 140); if (!title) return { ok: false, error: 'Please enter a task title.' };
   const staff = await team(db, t); const to = b.staffId ? staff.find((x: any) => x.id === String(b.staffId)) : null;
   let client: any = null; if (b.clientId) { const s = await db.doc(`${T(t)}/clients/${str(b.clientId, 80)}`).get(); if (s.exists) client = { id: s.id, ...(s.data() || {}) }; }
   const due = ms(b.dueAt) || now; const ref = db.collection(`${T(t)}/opportunities`).doc();

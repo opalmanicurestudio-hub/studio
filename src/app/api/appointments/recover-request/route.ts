@@ -67,9 +67,9 @@ export async function POST(req: NextRequest) {
       const base = process.env.NEXT_PUBLIC_APP_URL || 'https://clarityflow.app';
       const first = String(br.clientName || '').split(' ')[0] || 'there';
       await sendNotification(db, { tenantId, channel: 'email', to: String(br.clientEmail), kind: 'booking_declined',
-        subject: `About your booking request — ${t.name || 'we'}`,
+        subject: `About your booking request with ${t.name || 'us'}`,
         html: brandedEmailHtml({ studioName: t.name || 'Your studio', title: 'About your booking request',
-          bodyLines: [`Hi ${first} — thank you for your request for ${svcName} on ${when}. We’re sorry, we can’t take that time.`, ...(b.reason ? [String(b.reason).slice(0, 300)] : []), 'Nothing was charged. We’d love to see you — please pick another time.'],
+          bodyLines: [`Hi ${first},`, `Thank you for your request for ${svcName} on ${when}. We are sorry, but we are unable to accommodate that time.`, ...(b.reason ? [String(b.reason).slice(0, 300)] : []), 'You have not been charged. We would love to see you, so please choose another time that suits you.', `Kind regards, ${t.name || 'Your studio'}`],
           cta: { label: 'Book another time', url: `${base}/book/${tenantId}` } }),
         recipientType: 'client', recipientName: br.clientName || null } as any);
     } catch (e) { console.error('[recover-request] decline email failed', e); }

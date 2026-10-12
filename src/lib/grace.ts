@@ -71,7 +71,7 @@ export function graceLines(tenant: any): string[] {
     const r = graceRule(tenant, g.id); if (!r.enabled || r.allowance <= 0) continue;
     const n = r.allowance === 1 ? 'One' : String(r.allowance);
     const what = r.permits === 'waive_fee' ? 'the fee is waived' : r.permits === 'reduce_fee' ? `the fee is reduced by ${r.reducePercent}%` : r.permits === 'transfer_deposit' ? 'your deposit can move to a new booking' : r.permits === 'free_reschedule' ? 'rescheduling is free' : `you get ${r.extendMinutes} extra minutes to arrive`;
-    out.push(`${n} ${g.label.toLowerCase()}${r.allowance === 1 ? '' : 's'} every ${r.periodMonths} months can be covered by our grace allowance — ${what}.`);
+    out.push(`As a courtesy, our grace allowance covers ${n} ${g.label.toLowerCase()}${r.allowance === 1 ? '' : 's'} every ${r.periodMonths} months. When it is used, ${what}.`);
   }
   return out;
 }

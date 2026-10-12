@@ -151,14 +151,14 @@ export async function POST(req: NextRequest) {
       const { sendNotification } = await import('@/lib/notify');
       const { brandedEmailHtml } = await import('@/lib/email-template');
       if (email) {
-        const r = await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'appointment_rescheduled', subject: `Your ${svcName} has moved — ${whenNew}`,
-          html: brandedEmailHtml({ studioName: studio, title: 'Your appointment has moved', bodyLines: [`Hi ${String(appt.clientName || '').split(' ')[0] || 'there'} — your ${svcName} is now on ${whenNew}${who?.name ? ` with ${who.name}` : ''}.`, `(It was ${whenOld}.)`, ...(applyFee ? [`A $${fee.toFixed(2)} reschedule fee applies, as it was moved within ${windowH} hours of the time.`] : []), 'If the new time doesn’t work, just reply or give us a call.', ...bookingPolicyLines(t, service).filter((l, i) => i === 0 || /^Running late/.test(l))],
+        const r = await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'appointment_rescheduled', subject: `Your ${svcName} has been rescheduled to ${whenNew}`,
+          html: brandedEmailHtml({ studioName: studio, title: 'Your appointment has been rescheduled', bodyLines: [`Hi ${String(appt.clientName || '').split(' ')[0] || 'there'},`, `Your ${svcName} has been moved to ${whenNew}${who?.name ? ` with ${who.name}` : ''}. Your previous time was ${whenOld}.`, ...(byStudio ? ['We apologize for any inconvenience this change may cause.'] : []), ...(applyFee ? [`As outlined in our rescheduling policy, appointments moved within ${windowH} hours of their start time are subject to a reschedule fee. As this appointment was moved within that window, a fee of $${fee.toFixed(2)} applies.`] : []), 'If the new time does not work for you, please reply to this email or give us a call.', ...bookingPolicyLines(t, service).filter((l, i) => i === 0 || /^Running late/.test(l)), `Kind regards, ${studio}`],
             ...(link ? { cta: { label: 'View my appointment', url: link } } : {}) }),
           recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId } as any).catch(() => null);
         told.email = (r as any)?.status === 'sent';
       }
       if (phone) {
-        const r = await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'appointment_rescheduled', text: `${studio}: your ${svcName} has moved to ${whenNew}.${link ? ` ${link}` : ''}`,
+        const r = await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'appointment_rescheduled', text: `Hi ${String(appt.clientName || '').split(' ')[0] || 'there'}, your ${svcName} has been moved to ${whenNew}.${link ? ` For details or to make a change, please use your visit link: ${link}` : ''}`,
           recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId } as any).catch(() => null);
         told.sms = (r as any)?.status === 'sent';
       }

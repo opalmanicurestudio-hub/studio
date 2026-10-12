@@ -144,8 +144,8 @@ export async function GET(req: NextRequest) {
           const when = dayOfZ(at) === dayOfZ(new Date(nowMs)) ? `today at ${time}` : dayOfZ(at) === dayOfZ(new Date(nowMs + 864e5)) ? `tomorrow at ${time}` : `${at.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: zone })} at ${time}`;
           const svcDoc: any = a.serviceId ? (((await db.doc(`tenants/${tid}/services/${a.serviceId}`).get()).data() as any) || {}) : {};
           const whereLine = placeLine(svcDoc, null, a, { timeZone: tdata.timezone || null, clientPhone: phone || null, businessPhone: tdata.phone || tdata.twilioPhoneNumber || null });
-          const link = a.checkInToken && ownBase ? ` Your visit: ${ownBase}/check-in/${a.checkInToken}` : '';
-          const text = `Reminder — your ${svcDoc.name || a.serviceName || 'appointment'}${a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''} is ${when}.${whereLine ? ` ${whereLine}` : ''}${link}`;
+          const link = a.checkInToken && ownBase ? ` If you need to make a change, please use your visit link: ${ownBase}/check-in/${a.checkInToken}` : '';
+          const text = `Hi ${String(a.clientName || '').trim().split(/\s+/)[0] || 'there'}, this is a reminder of your ${svcDoc.name || a.serviceName || 'appointment'}${a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''} ${when}.${whereLine ? ` ${whereLine}` : ''}${link}`;
           let ok = false;
           if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, text, { email, subject: 'Appointment reminder' })).ok;
           if (!ok && email.includes('@')) {
@@ -286,7 +286,7 @@ export async function GET(req: NextRequest) {
             const when = `${dayOf(at)} at ${timeOf(at)}`;
             const svc = a.renterServiceName || svcNames.get(String(a.serviceId || '')) || 'appointment';
             const signoff = String(rp.comms.signoff || '').trim();
-            const text = `Reminder — your ${svc} with ${rp.name} is ${daysBefore === 0 ? `today, ${when}` : when}.${signoff ? ` ${signoff}` : ' Reply to this message if you need to change it.'}`;
+            const text = `Hi ${firstNameOf(a.clientName)}, this is a reminder of your ${svc} with ${rp.name} ${daysBefore === 0 ? `today, ${when}` : daysBefore === 1 ? `tomorrow, ${when}` : `on ${when}`}.${signoff ? ` ${signoff}` : ' If you need to make a change, please reply to this message.'}`;
             let ok = false;
             if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Reminder from ${rp.name}` })).ok;
             if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Reminder from ${rp.name}`, text, kind: 'renter_client_reminder', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
@@ -315,7 +315,7 @@ export async function GET(req: NextRequest) {
           const link = token && base ? `${base}/check-in/${token}` : '';
           const formsDue = b.items.some((i) => i.a.completionStatus && i.a.completionStatus !== 'completed');
           const depositDue = b.items.some((i) => i.a.status === 'pending_payment');
-          const manage = link ? ` ${depositDue ? 'Your deposit is still due — pay it here' : formsDue ? 'Please finish your forms before you arrive' : 'Details, check-in, running late or need to change it'}: ${link}` : '';
+          const manage = link ? ` ${depositDue ? 'Please note that we have not yet received your deposit. You can pay it here' : formsDue ? 'Please complete your forms before you arrive' : 'For details, check-in, or to make a change, please use your visit link'}: ${link}` : '';
 
           let msg: string;
           if (b.items.length === 1) {
@@ -323,8 +323,8 @@ export async function GET(req: NextRequest) {
             const tRem0: any = tDoc.data() || {};
             const whereLine = placeLine(svcById.get(String(first.a.serviceId || '')), null, first.a, { timeZone: tRem0.timezone || null, clientPhone: b.phone || null, businessPhone: tRem0.phone || tRem0.twilioPhoneNumber || null });   // this booking's own link wins; remote visits say the time zone   // online link / "we'll come to you"
             msg = daysBefore === 0
-              ? `Reminder — your appointment is today, ${when}${withWho}.${whereLine ? ` ${whereLine}` : ''}${manage}`
-              : `Reminder — your appointment is ${when}${withWho}.${whereLine ? ` ${whereLine}` : ''}${manage}`;
+              ? `Hi ${firstNameOf(first.a.clientName)}, this is a reminder of your appointment${withWho} today, ${when}.${whereLine ? ` ${whereLine}` : ''}${manage}`
+              : `Hi ${firstNameOf(first.a.clientName)}, this is a reminder of your appointment${withWho} ${daysBefore === 1 ? `tomorrow, ${when}` : `on ${when}`}.${whereLine ? ` ${whereLine}` : ''}${manage}`;
           } else {
             // More than one name in the bucket means this phone is covering
             // other people, so lead each line with who it is for.
@@ -338,8 +338,8 @@ export async function GET(req: NextRequest) {
             }).join(', ');
             const dayPart = daysBefore === 0 ? 'today' : dayOf(first.at);
             msg = names.size > 1
-              ? `Reminder — your group is booked ${dayPart}: ${lines}.${manage}`
-              : `Reminder — you have ${b.items.length} appointments ${dayPart}: ${lines}.${manage}`;
+              ? `Hello, this is a reminder of your group's appointments ${daysBefore === 0 ? dayPart : `on ${dayPart}`}: ${lines}.${manage}`
+              : `Hi ${firstNameOf(first.a.clientName)}, this is a reminder of your ${b.items.length} appointments ${daysBefore === 0 ? dayPart : `on ${dayPart}`}: ${lines}.${manage}`;
           }
 
           let delivered = false;
@@ -351,15 +351,16 @@ export async function GET(req: NextRequest) {
             const { brandedEmailHtml } = await import('@/lib/email-template');
             const tRem: any = (await db.doc(`tenants/${tid}`).get()).data() || {};
             const graceRem = Number(tRem.lateArrivalGracePeriod || 0);
-            const html = brandedEmailHtml({ studioName: tRem.name || tRem.businessName || 'Your studio', title: daysBefore === 0 ? 'See you today' : 'See you soon',
-              bodyLines: [msg.replace(manage, '').replace(/^Reminder\s*[—-]?\s*/, '').trim(),
-                ...(depositDue ? ['Your deposit is still due — pay it from your link to keep this time.'] : formsDue ? ['Please finish your forms before you arrive — it only takes a minute from your link.'] : []),
+            const html = brandedEmailHtml({ studioName: tRem.name || tRem.businessName || 'Your studio', title: daysBefore === 0 ? 'Your appointment is today' : 'Your upcoming appointment',
+              bodyLines: [msg.replace(manage, '').trim(),
+                ...(depositDue ? ['Please note that we have not yet received your deposit. To keep this appointment time, please pay it using the button below.'] : formsDue ? ['Please complete your forms before you arrive. It only takes a minute using the button below.'] : []),
                 // Same policy wording as every other message (change/cancel + running late).
-                ...bookingPolicyLines(tRem).filter((l, i) => i === 0 || /^Running late/.test(l))],
-              cta: link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Finish my forms' : 'My visit', url: link } : null });
+                ...bookingPolicyLines(tRem).filter((l, i) => i === 0 || /^Running late/.test(l)),
+                `Kind regards, ${tRem.name || tRem.businessName || 'Your studio'}`],
+              cta: link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Complete my forms' : 'View my visit', url: link } : null });
             const r = await sendNotification(db, {
               tenantId: tid, channel: 'email', to: b.email,
-              subject: daysBefore === 0 ? 'See you today' : 'Appointment reminder',
+              subject: daysBefore === 0 ? 'Your appointment today' : 'Appointment reminder',
               text: msg, html, kind: 'appointment_reminder',
               appointmentId: first.id, clientId: first.a.clientId || null, clientName: first.a.clientName || null,
             });
@@ -413,7 +414,7 @@ export async function GET(req: NextRequest) {
               // the visit (appointment id as bearer, same as /cancel), and only
               // a completed booking is accepted on the other end.
               const reviewUrl = base ? `${base}/review/${tid}/${aDoc.id}` : '';
-              const text = `Thanks for coming in yesterday — ${rp.name} loved having you!${reviewUrl ? ` How was it? ${reviewUrl}` : ''}${rp.bookingUrl ? ` Book your next visit: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
+              const text = `Hi ${firstNameOf(a.clientName)}, thank you for your visit with ${rp.name} yesterday. It was a pleasure to see you.${reviewUrl ? ` We would love to hear how your visit went: ${reviewUrl}` : ''}${rp.bookingUrl ? ` You can book your next visit here: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
               let ok = false;
               if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Thank you from ${rp.name}` })).ok;
               if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Thank you from ${rp.name}`, text, kind: 'renter_client_thanks', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
@@ -465,21 +466,21 @@ export async function GET(req: NextRequest) {
             const thanksMsg = resolveMessage(tDoc.data(), 'post_visit_followup', { client_first: String(first.a.clientName || '').split(' ')[0] || 'there', team: whoLabel || 'we', book_link: bookLink, review_link: reviewLink, aftercare_link: careUrl || (care ? howUrl : ''), studio: (tDoc.data() as any)?.name || '' }, 'sms');
             if (!thanksMsg.send) continue;   // switched off on the Messages page
             const bits = thanksMsg.custom ? withoutEmptyLinks(tidyBody(thanksMsg.body)) : [
-              `Thanks for coming in yesterday${whoLabel ? ` — ${whoLabel} loved having you` : ''}!`,
+              `Hi ${firstNameOf(first.a.clientName)}, thank you for your visit${whoLabel ? ` with ${whoLabel}` : ''} yesterday. It was a pleasure to see you.`,
               // Opens on the service they just had, so rebooking is two taps.
-              cfg.bookingUrl ? `Book your next visit: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
+              cfg.bookingUrl ? `You can book your next visit here: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
                 try { const u = new URL(cfg.bookingUrl); u.searchParams.set('service', sid); return u.toString(); } catch { return cfg.bookingUrl; } })()}` : null,
-              surveyOn && howUrl ? `How was it? Tell us in one tap${care || careDoc ? ' (your aftercare is there too)' : ''}: ${howUrl}` : cfg.reviewUrl ? `Enjoyed it? A quick review means the world: ${cfg.reviewUrl}` : null,
-              !surveyOn && careUrl ? `Caring for it at home: ${careUrl}` : !surveyOn && care && howUrl ? `Caring for it at home: ${howUrl}` : null,
+              surveyOn && howUrl ? `We would love to hear how your visit went${care || careDoc ? ', and your aftercare instructions are there as well' : ''}: ${howUrl}` : cfg.reviewUrl ? `If you enjoyed your visit, we would be grateful for a review: ${cfg.reviewUrl}` : null,
+              !surveyOn && careUrl ? `Your aftercare instructions: ${careUrl}` : !surveyOn && care && howUrl ? `Your aftercare instructions: ${howUrl}` : null,
             ].filter(Boolean).join(' ');
             let delivered = false;
             if (b.phone && smsConfigured()) {
-              delivered = (await sendTenantSms(db, tid, b.phone, bits, { email: b.email, subject: 'Thank you for visiting' })).ok;
+              delivered = (await sendTenantSms(db, tid, b.phone, bits, { email: b.email, subject: 'Thank you for your visit' })).ok;
             }
             if (!delivered && b.email) {
               delivered = (await sendNotification(db, {
                 tenantId: tid, channel: 'email', to: b.email,
-                subject: 'Thank you for visiting', text: bits, kind: 'post_visit_followup',
+                subject: 'Thank you for your visit', text: bits, kind: 'post_visit_followup',
                 appointmentId: first.id, clientId: first.a.clientId || null, clientName: first.a.clientName || null,
               })).ok;
             }
@@ -520,7 +521,7 @@ export async function GET(req: NextRequest) {
           const ts = await db.collection(`tenants/${tid}/tickets`).get();
           const blocking = ts.docs.map((d: any) => d.data() as any)
             .filter((t: any) => ['open', 'in_progress'].includes(t.status) && ['urgent', 'high'].includes(t.priority) && t.boothName);
-          if (blocking.length) downNote = ` Note: ${blocking.map((t: any) => t.boothName).filter((v: any, i: number, arr: any[]) => arr.indexOf(v) === i).slice(0, 3).join(', ')} out of service.`;
+          if (blocking.length) downNote = ` Please note that the following are currently out of service: ${blocking.map((t: any) => t.boothName).filter((v: any, i: number, arr: any[]) => arr.indexOf(v) === i).slice(0, 3).join(', ')}.`;
         } catch { /* context is a bonus */ }
         if (byStaff.size > 0) {
           const staffSnap = await db.collection(`tenants/${tid}/staff`).get();
@@ -532,7 +533,7 @@ export async function GET(req: NextRequest) {
               const am = resolveMessage(tDoc.data(), 'staff_agenda', { staff_first: String(s.name || '').split(' ')[0], count: agenda.count, appointments: `${agenda.count} appointment${agenda.count === 1 ? '' : 's'}`, first_time: agenda.firstLabel || '', note: downNote, studio: (tDoc.data() as any)?.name || '' }, 'sms');
               if (!am.send) continue;
               const r = await sendTenantSms(db, tid, s.phone,
-                am.custom ? tidyBody(am.body) : `Good morning! Today: ${agenda.count} appointment${agenda.count === 1 ? '' : 's'}, first at ${agenda.firstLabel}.${downNote}`);
+                am.custom ? tidyBody(am.body) : `Good morning ${String(s.name || '').split(' ')[0]}. You have ${agenda.count} appointment${agenda.count === 1 ? '' : 's'} today, and your first is at ${agenda.firstLabel}.${downNote}`);
               if (r.ok) agendas++;
             } catch { /* next staffer */ }
           }
@@ -575,7 +576,7 @@ export async function GET(req: NextRequest) {
               if (dayOfLocal(new Date(x.date)) === yestDay) revYesterday += Number(x.amount) || 0;
             }
           } catch { /* skip */ }
-          const msg = `Morning brief: ${apptsToday} appointment${apptsToday === 1 ? '' : 's'} today${firstLabel ? ` (first ${firstLabel})` : ''} · ${openTickets} open maintenance${overdueTickets ? ` (${overdueTickets} overdue)` : ''} · $${revYesterday.toFixed(0)} collected yesterday.`;
+          const msg = `Morning brief: ${apptsToday} appointment${apptsToday === 1 ? '' : 's'} today${firstLabel ? `, the first at ${firstLabel}` : ''}. Open maintenance tickets: ${openTickets}${overdueTickets ? ` (${overdueTickets} overdue)` : ''}. Collected yesterday: $${revYesterday.toFixed(0)}.`;
           const ob = resolveMessage(tDoc.data(), 'owner_brief', { appointments: `${apptsToday} appointment${apptsToday === 1 ? '' : 's'}`, first_time: firstLabel || '—', open_maintenance: openTickets, overdue_maintenance: overdueTickets, revenue_yesterday: `$${revYesterday.toFixed(2)}`, studio: (tDoc.data() as any)?.name || '' }, 'sms');
           const briefText = ob.custom ? tidyBody(ob.body) : msg;
           if (smsConfigured() && ob.send) brief = (await sendTenantSms(db, tid, cfg.ownerPhone, briefText)).ok;

@@ -127,9 +127,9 @@ export async function POST(req: NextRequest) {
           const st = a.staffId ? ((await db.doc(`tenants/${tenantId}/staff/${String(a.staffId)}`).get()).data() as any) : null;
           if (st?.renterId) {
             const when = new Date(a.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-            const text = String(clean.checkInStatus) === 'arrived' ? `${a.clientName || 'Your client'} has arrived for ${when}`
-              : String(clean.checkInStatus) === 'running_late' ? `${a.clientName || 'Your client'} is running ~${Number(clean.lateTimeMinutes) || 10} min late for ${when}`
-              : `${a.clientName || 'Your client'} is on the way for ${when}`;
+            const text = String(clean.checkInStatus) === 'arrived' ? `${a.clientName || 'Your client'} has arrived for their ${when} appointment.`
+              : String(clean.checkInStatus) === 'running_late' ? `${a.clientName || 'Your client'} is running about ${Number(clean.lateTimeMinutes) || 10} minutes late for their ${when} appointment.`
+              : `${a.clientName || 'Your client'} is on the way for their ${when} appointment.`;
             const { notifyRenter } = await import('@/lib/renter-comms');
             const kind = String(clean.checkInStatus) === 'running_late' ? 'running_late' : String(clean.checkInStatus) === 'arrived' ? 'arrived' : 'arrived';
             await notifyRenter(db, tenantId, String(st.renterId), kind as any, text, { tone: String(clean.checkInStatus) === 'running_late' ? 'amber' : 'green', subject: text });
@@ -179,8 +179,8 @@ export async function POST(req: NextRequest) {
         const who = appt.clientName || 'Your client';
         const n = db.collection(`tenants/${tenantId}/notifications`).doc();
         await n.set({ id: n.id, userId: appt.staffId || null, read: false, createdAt: nowIso, type: st === 'running_late' ? 'running_late' : st === 'arrived' ? 'arrived' : 'on_my_way', link: 'pos', appointmentId: String(body.appointmentId),
-          message: st === 'running_late' ? `${who} is running ~${mins} min late for ${when}${mins > grace ? ` — past your ${grace}-minute grace` : ''}${clean.lateNote ? `: “${clean.lateNote}”` : ''} — decide what happens (front desk or planner) and they’ll be told.`
-            : st === 'arrived' ? `${who} is here for ${when}` : `${who} is on the way for ${when}` }).catch(() => {});
+          message: st === 'running_late' ? `Action needed: ${who} is running about ${mins} minutes late for their ${when} appointment${mins > grace ? `, which is past your ${grace}-minute grace period` : ''}.${clean.lateNote ? ` Their note: “${clean.lateNote}”.` : ''} Please decide what happens from the front desk or planner, and the client will be notified.`
+            : st === 'arrived' ? `${who} has arrived for their ${when} appointment.` : `${who} is on the way for their ${when} appointment.` }).catch(() => {});
       }
       // Past the grace time → offer them their choices (Booking policies → "Offer late clients their choices").
       if (!done && !appt.isRenterBooking && st === 'running_late' && mins > grace) {

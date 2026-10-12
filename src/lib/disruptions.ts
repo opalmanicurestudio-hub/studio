@@ -36,8 +36,8 @@ export function disruptionReason(kind: DisruptionKind, cause: string | null | un
 /** The client's message. */
 export function disruptionMessage(o: { kind: DisruptionKind; cause?: string | null; providerFirst?: string | null; first: string; when: string; service?: string | null; hasDeposit: boolean; studio: string }): string {
   const why = disruptionReason(o.kind, o.cause, o.providerFirst);
-  const lead = o.kind === 'callout' ? `we’re sorry — ${why} ${o.when}, so we can’t go ahead with your ${o.service || 'appointment'} as booked.` : `we’re sorry — ${why}, we can’t go ahead with your ${o.service || 'appointment'} ${o.when}.`;
-  return `Hi ${o.first} — ${lead} Choose what works for you: pick a new time (no fee), or cancel with no fee${o.hasDeposit ? ' — we’ll refund your deposit or keep it as credit, your choice' : ''}.`;
+  const lead = o.kind === 'callout' ? `we are sorry to let you know that ${why} ${o.when}, so we are unable to go ahead with your ${o.service || 'appointment'} as booked.` : `we are sorry to let you know that ${why}, we are unable to go ahead with your ${o.service || 'appointment'} ${o.when}.`;
+  return `Hi ${o.first}, ${lead} We apologize for the inconvenience. You are welcome to choose a new time or to cancel, and there is no fee either way.${o.hasDeposit ? ' If you cancel, we will refund your deposit or keep it as credit for a future visit, whichever you prefer.' : ''}`;
 }
 
 export interface AffectedEntry {

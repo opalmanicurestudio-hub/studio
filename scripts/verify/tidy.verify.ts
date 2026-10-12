@@ -64,8 +64,8 @@ const iso = (n: number) => new Date(n).toISOString();
   const aw: any[] = await X.awaiting(db, 't1', 'maya', NOW);
   check('…and it shows on her card, with when it goes to the waitlist if she doesn’t choose', aw.length === 1 && aw[0].plans >= 1 && /11:30/.test(aw[0].until), aw);
   const ask: any = await X.askTidy(db, 't1', { staffId: 'maya', name: 'Maya Reyes' }, { staffId: 'maya', date: '2026-10-14', key: p.plans[0].key }, NOW + MIN, deps);
-  const caraText = sent.find((x) => /earlier spot today/.test(x.body));
-  check('“Ask Cara” → only Cara is texted: “an earlier spot today — could you come at 1 instead of 4:30?”', ask.ok && sent.filter((x) => /earlier spot/.test(x.body)).length === 1 && /instead of 4:30/.test(caraText?.body || '') && caraText.body.includes('https://opal.example/m/t1/'), { ask, caraText });
+  const caraText = sent.find((x) => /earlier opening today/.test(x.body));
+  check('“Ask Cara” → only Cara is texted: “an earlier spot today — could you come at 1 instead of 4:30?”', ask.ok && sent.filter((x) => /earlier opening/.test(x.body)).length === 1 && /instead of 4:30/.test(caraText?.body || '') && caraText.body.includes('https://opal.example/m/t1/'), { ask, caraText });
   const hold = (await db.collection(`${T}/staffBlocks`).get()).docs.map((x: any) => x.data()).find((b: any) => b.reason === 'tidy_hold');
   check('1:00 is held while she answers — online booking and the waitlist can’t take it', hold && hold.startTime === iso(NY('2026-10-14T13:00:00')) && hold.duration === 60 && Date.parse(hold.until) === NOW + 31 * MIN, hold);
   check('the waiting gap is now being tidied — the waitlist leaves it alone', (await db.doc(`${T}/openings/op_kay`).get()).data().decided === 'tidy');
@@ -75,8 +75,8 @@ const iso = (n: number) => new Date(n).toISOString();
   const yes: any = await X.tidyAnswer(db, 't1', tok, true, NOW + 3 * MIN, deps);
   const cara: any = (await db.doc(`${T}/appointments/cara`).get()).data();
   check('she says yes → (everyone has) → moved: 1:00–2:00, same booking, check-in link updated', yes.state === 'moved' && cara.startTime === iso(NY('2026-10-14T13:00:00')) && cara.endTime === iso(NY('2026-10-14T14:00:00')) && cara.previousStartTime === iso(NY('2026-10-14T16:30:00')) && (await db.doc(`${T}/appointmentCheckIns/ckCara`).get()).data()?.startTime === cara.startTime, cara);
-  check('she gets “you’re all set”; the hold is gone; the gap is closed (not offered to the waitlist)', sent.some((x) => /all set, Cara/.test(x.body)) && !(await db.collection(`${T}/staffBlocks`).get()).docs.some((x: any) => x.data().reason === 'tidy_hold') && (await db.doc(`${T}/openings/op_kay`).get()).data().status === 'closed');
-  check('Maya hears “Tidied — you finish at 4:30”', (await db.collection(`${T}/notifications`).get()).docs.some((x: any) => /Tidied/.test(x.data().message) && /4:30/.test(x.data().message)));
+  check('she gets “you’re all set”; the hold is gone; the gap is closed (not offered to the waitlist)', sent.some((x) => /Hi Cara, your appointment is confirmed for/.test(x.body)) && !(await db.collection(`${T}/staffBlocks`).get()).docs.some((x: any) => x.data().reason === 'tidy_hold') && (await db.doc(`${T}/openings/op_kay`).get()).data().status === 'closed');
+  check('Maya hears “Tidied — you finish at 4:30”', (await db.collection(`${T}/notifications`).get()).docs.some((x: any) => /has been tidied/.test(x.data().message) && /4:30/.test(x.data().message)));
 
   // Two people: one yes, one no → nobody moves
   const db2 = makeDb(); await db2.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await db2.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes' });
@@ -92,7 +92,7 @@ const iso = (n: number) => new Date(n).toISOString();
   check('the first says yes → nothing moves yet (“we’ll confirm”)', y1.state === 'yes' && (await db2.doc(`${T}/appointments/${mv2[0].apptId}`).get()).data().startTime === mv2[0].from);
   const n1: any = await X.tidyAnswer(db2, 't1', mv2[1].token, false, NOW + 2 * MIN, deps);
   check('the second keeps their time → NOBODY moves; the first hears “no change needed”; holds lifted', n1.state === 'kept' && (await db2.doc(`${T}/appointments/${mv2[0].apptId}`).get()).data().startTime === mv2[0].from
-    && sent.some((x) => x.to === mv2[0].phone && /don’t need to move you/.test(x.body)) && !(await db2.collection(`${T}/staffBlocks`).get()).docs.length && (await db2.doc(`${T}/tidyAsks/${ask2.askId}`).get()).data().status === 'declined');
+    && sent.some((x) => x.to === mv2[0].phone && /will not need to change your appointment/.test(x.body)) && !(await db2.collection(`${T}/staffBlocks`).get()).docs.length && (await db2.doc(`${T}/tidyAsks/${ask2.askId}`).get()).data().status === 'declined');
   const p3: any = await X.tidyPlans(db2, 't1', 'maya', '2026-10-14', NOW + 3 * MIN, deps);
   check('whoever said no isn’t asked again today', !p3.plans.some((x: any) => x.moves.some((m: any) => m.id === mv2[1].apptId)) && p3.day.find((x: any) => x.id === mv2[1].apptId)?.fixed === 'said no today');
   // no answer in time
@@ -121,7 +121,7 @@ const iso = (n: number) => new Date(n).toISOString();
   check('Monday has one visit and it fits Wednesday’s 2:00 gap exactly → “Clear Monday?”', c.days.length === 1 && c.days[0].date === '2026-10-19' && c.days[0].moves[0].to === NY('2026-10-21T14:00:00') && c.days[0].moves[0].exact, c.days);
   check('Wednesday (a full day) is never the one cleared', !c.days.some((x: any) => x.date === '2026-10-21'));
   const s4 = sent.length; const ask4: any = await X.askTidy(db4, 't1', { staffId: 'maya', name: 'Maya' }, { staffId: 'maya', key: c.days[0].key, kind: 'clear' }, NOW, deps);
-  check('Ana is asked to switch days — “could your gel fill move from Monday … to Wednesday …?”', ask4.ok && /Could your gel fill move from Monday, Oct 19 at 10/.test(sent[s4]?.body || '') && /Wednesday, Oct 21 at 2/.test(sent[s4]?.body || ''), sent[s4]);
+  check('Ana is asked to switch days — “could your gel fill move from Monday … to Wednesday …?”', ask4.ok && /move your gel fill from Monday, Oct 19 at 10/.test(sent[s4]?.body || '') && /Wednesday, Oct 21 at 2/.test(sent[s4]?.body || ''), sent[s4]);
   await X.tidyAnswer(db4, 't1', (await db4.doc(`${T}/tidyAsks/${ask4.askId}`).get()).data().moves[0].token, true, NOW + H, deps);
   check('she says yes → moved to Wednesday 2:00; Monday is empty', (await db4.doc(`${T}/appointments/ana`).get()).data().startTime === iso(NY('2026-10-21T14:00:00')));
   const bd: any = await X.blockDay(db4, 't1', ask4.askId, 'maya', NOW + H);

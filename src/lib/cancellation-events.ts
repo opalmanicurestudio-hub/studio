@@ -39,7 +39,7 @@ export async function processCancellationEvent(db: any, stripe: any, tenantId: s
   if (data.chargeStatus === 'succeeded') {
     updates.chargeStatus = 'charged';   // the route already took the fee — nothing more to collect
   } else if (data.chargeFee && fee > 0 && data.paymentMethod === 'card_on_file' && data.stripePaymentMethodId && data.stripeCustomerId) {
-    if (!tenant.stripeAccountId) { updates.chargeStatus = 'failed'; updates.errorMessage = 'Payments aren’t connected — the fee couldn’t be charged.'; await owedLine('Payments not connected at cancellation time — added to balance.'); await owe('Cancellation fee — payments not connected'); }
+    if (!tenant.stripeAccountId) { updates.chargeStatus = 'failed'; updates.errorMessage = 'The fee could not be charged because payments are not connected.'; await owedLine('Payments not connected at cancellation time — added to balance.'); await owe('Cancellation fee — payments not connected'); }
     else {
       try {
         const cents = Math.round(fee * 100);
@@ -55,14 +55,14 @@ export async function processCancellationEvent(db: any, stripe: any, tenantId: s
           await ref.set({ id: ref.id, tenantId, date: nowIso(), appointmentId: data.appointmentId || null, clientId: data.clientId || null, clientName: data.clientName, clientOrVendor: data.clientName, type: 'income', context: 'Business',
             category: 'Cancellation Fee', taxBucket: 'revenue', amount: fee, amountCents: cents, stripeChargeId: chargeId, stripePaymentIntentId: pi.id, stripePaymentMethodId: data.stripePaymentMethodId, status: 'succeeded', reason: data.reason || null, actorType: actor, createdAt: nowIso() });
           const admins = await db.collection(`${T}/staff`).where('role', 'in', ['admin', 'owner']).get();
-          for (const d of admins.docs) await tellStaff('cancellation_charge', `${money(fee)} cancellation fee charged to ${data.clientName}`, d.id);
+          for (const d of admins.docs) await tellStaff('cancellation_charge', `A ${money(fee)} cancellation fee has been charged to ${data.clientName}’s card on file.`, d.id);
         } catch (e: any) { updates.ledgerWriteFailed = true; updates.ledgerErrorMessage = String(e?.message || 'Ledger write failed after a successful charge'); }
       } catch (e: any) {
-        updates.chargeStatus = 'failed'; updates.stripeErrorCode = e?.code || 'unknown'; updates.declineCode = e?.decline_code || e?.raw?.decline_code || null; updates.errorMessage = e?.message || 'The charge didn’t go through';
+        updates.chargeStatus = 'failed'; updates.stripeErrorCode = e?.code || 'unknown'; updates.declineCode = e?.decline_code || e?.raw?.decline_code || null; updates.errorMessage = e?.message || 'The charge did not go through.';
         // A declined fee is still owed — on their balance and their list of owed fees (automatic collection can retry it).
         try { await owedLine(`Card on file declined at cancellation time (${updates.declineCode || updates.stripeErrorCode}) — added to balance.`); await owe(`Cancellation fee — card declined (${updates.declineCode || 'declined'})`); updates.arrearsRecorded = true; }
         catch { updates.arrearsWriteFailed = true; }
-        await tellStaff('charge_failed', `Card declined for ${data.clientName} — ${money(fee)} cancellation fee added to their balance`);
+        await tellStaff('charge_failed', `${data.clientName}’s card was declined for the ${money(fee)} cancellation fee. The fee has been added to their account balance.`);
       }
     }
   } else if (data.paymentMethod === 'waived' || !data.chargeFee || fee <= 0) {
@@ -72,28 +72,28 @@ export async function processCancellationEvent(db: any, stripe: any, tenantId: s
   } else {
     updates.chargeStatus = 'uncollected';
     await owedLine('No chargeable card on file at cancellation time — added to balance.'); await owe('Cancellation fee — no card on file');
-    await tellStaff('charge_failed', `Couldn’t charge the ${money(fee)} cancellation fee for ${data.clientName} — no card on file. Added to their balance.`);
+    await tellStaff('charge_failed', `The ${money(fee)} cancellation fee for ${data.clientName} could not be charged because there is no card on file. The fee has been added to their account balance.`);
   }
 
   // Tell the client — one email and/or one text, in the business's time zone. (Bookings handled through the visit
   // link carry no email/phone here: they've already had their one message.)
   const tz = tenant.timezone || 'America/New_York'; const studio = tenant.name || 'The studio'; const charged = updates.chargeStatus === 'charged' && fee > 0;
-  const feeText = !fee || updates.chargeStatus === 'waived' ? '' : charged ? `A ${money(fee)} cancellation fee has been charged to the card on file.` : `A ${money(fee)} cancellation fee has been added to your account.`;
+  const feeText = !fee || updates.chargeStatus === 'waived' ? '' : charged ? `In line with our cancellation policy, a fee of ${money(fee)} has been charged to your card on file.` : `In line with our cancellation policy, a fee of ${money(fee)} has been added to your account balance.`;
   const { sendNotification } = await import('@/lib/notify');
   // Business's own wording if they've written it (Settings → Messages → We missed you).
-  const tokens = { client_first: String(data.clientName || 'there').split(' ')[0], when: fmt(data.appointmentStartTime, tz, false), service: data.serviceName || '', fee: feeText || 'There’s no charge.', studio };
+  const tokens = { client_first: String(data.clientName || 'there').split(' ')[0], when: fmt(data.appointmentStartTime, tz, false), service: data.serviceName || '', fee: feeText || 'There is no charge for this.', studio };
   if (data.clientEmail && tenant.cancellationEmailEnabled !== false) {
     try { const { brandedEmailHtml } = await import('@/lib/email-template');
-      const subject = actor === 'no_show' ? `We missed you — ${studio}` : actor === 'client' ? `Cancellation confirmed — ${studio}` : `Your appointment has been cancelled — ${studio}`;
+      const subject = actor === 'no_show' ? `We missed you — ${studio}` : actor === 'client' ? `Your cancellation is confirmed — ${studio}` : `Your appointment has been cancelled — ${studio}`;
       const r: any = await sendNotification(db, { tenantId, channel: 'email', to: data.clientEmail, kind: 'cancellation', tokens, clientId: data.clientId || null, clientName: data.clientName || null, subject,
-        html: brandedEmailHtml({ studioName: studio, title: subject.split(' — ')[0], bodyLines: [`Hi ${String(data.clientName || 'there').split(' ')[0]}, your ${data.serviceName || 'appointment'} on ${fmt(data.appointmentStartTime, tz, true)} has been cancelled.`, ...(feeText ? [feeText] : []), 'If you have any questions, just reply to this email.'] } as any) } as any);
+        html: brandedEmailHtml({ studioName: studio, title: subject.split(' — ')[0], bodyLines: [`Hi ${String(data.clientName || 'there').split(' ')[0]},`, actor === 'no_show' ? `We were sorry not to see you for your ${data.serviceName || 'appointment'} on ${fmt(data.appointmentStartTime, tz, true)}, and the appointment has been cancelled.` : `Your ${data.serviceName || 'appointment'} on ${fmt(data.appointmentStartTime, tz, true)} has been cancelled.`, ...(feeText ? [feeText] : []), 'If you have any questions, please reply to this email.', 'Kind regards,', studio] } as any) } as any);
       updates.emailStatus = r?.ok ? 'sent' : 'failed'; } catch (e: any) { updates.emailStatus = 'failed'; updates.emailError = String(e?.message || e); }
   } else updates.emailStatus = 'skipped';
   if (data.clientPhone && tenant.cancellationSmsEnabled !== false) {
     try { const first = String(data.clientName || 'there').split(' ')[0];
-      const lead = actor === 'no_show' ? `Hi ${first}, we missed you today` : `Hi ${first}, your ${data.serviceName || ''} appt`.replace(/\s+appt$/, ' appt');
+      const lead = actor === 'no_show' ? `Hi ${first}, this is ${studio}. We were sorry not to see you today. Your appointment` : `Hi ${first}, this is ${studio}. Your ${data.serviceName || ''} appointment`.replace(/\s+appointment$/, ' appointment');
       const r: any = await sendNotification(db, { tenantId, channel: 'sms', to: data.clientPhone, kind: 'cancellation', tokens, clientId: data.clientId || null, clientName: data.clientName || null,
-        text: `${lead} on ${fmt(data.appointmentStartTime, tz, false)} has been cancelled.${feeText ? ` ${feeText}` : ''} Questions? Reply${tenant.phone ? ` or call ${tenant.phone}` : ''}. — ${studio}` } as any);
+        text: `${lead} on ${fmt(data.appointmentStartTime, tz, false)} has been cancelled.${feeText ? ` ${feeText}` : ''} If you have any questions, please reply${tenant.phone ? ` or call us at ${tenant.phone}` : ''}.` } as any);
       updates.smsStatus = r?.ok ? 'sent' : 'failed'; } catch (e: any) { updates.smsStatus = 'failed'; updates.smsError = String(e?.message || e); }
   } else updates.smsStatus = 'skipped';
 
@@ -113,7 +113,7 @@ export async function sweepPendingCancellations(db: any, stripe: any, tenantId: 
   for (const d of snap.docs) {
     const v: any = d.data() || {}; const made = Date.parse(v.createdAt || v.timestamp || '');
     if (!Number.isFinite(made) || now - made > MAX_PENDING_AGE_HOURS * 3600000) {   // too old (or undated): set aside, untouched
-      await d.ref.update({ status: 'needs_review', reviewReason: 'Too old to process automatically — no fee was charged and the client wasn’t messaged.', reviewFlaggedAt: new Date(now).toISOString() }).catch(() => null);
+      await d.ref.update({ status: 'needs_review', reviewReason: 'Too old to process automatically. No fee was charged and the client was not messaged.', reviewFlaggedAt: new Date(now).toISOString() }).catch(() => null);
       continue;
     }
     if (now - made < olderThanMs) continue;   // fresh — its own route is finishing it

@@ -112,7 +112,7 @@ export function clearDay(visits: Visit[], slots: Map<string, Slot[]>): Move[] | 
 // ── The words ────────────────────────────────────────────────────────────────────────
 export const askText = (o: { first: string; provider: string; to: string; from: string; service: string; link: string; sameDay: boolean }) =>
   o.sameDay
-    ? `Hi ${o.first}! ${o.provider || 'We'} ${o.provider ? 'has' : 'have'} an earlier spot today — could you come at ${o.to} instead of ${o.from}? Same ${o.service || 'visit'}, same price. Only if it suits you: ${o.link}`
-    : `Hi ${o.first}! Could your ${o.service || 'visit'} move from ${o.from} to ${o.to}${o.provider ? ` with ${o.provider}` : ''}? Same everything else. Only if it suits you: ${o.link}`;
-export const doneText = (o: { first: string; to: string }) => `You’re all set, ${o.first} — see you ${o.to}. Thank you!`;
-export const noChangeText = (o: { first: string; from: string }) => `Thanks for saying yes, ${o.first}! As it turns out we don’t need to move you — your ${o.from} stays just as it is.`;
+    ? `Hi ${o.first}, ${o.provider || 'we'} ${o.provider ? 'has' : 'have'} an earlier opening today. Would you like to come in at ${o.to} instead of ${o.from}? Your ${o.service || 'appointment'} and its price will stay the same. Please let us know here, only if it suits you: ${o.link}`
+    : `Hi ${o.first}, would it suit you to move your ${o.service || 'appointment'} from ${o.from} to ${o.to}${o.provider ? ` with ${o.provider}` : ''}? Everything else will stay the same. Please let us know here, only if it suits you: ${o.link}`;
+export const doneText = (o: { first: string; to: string }) => `Hi ${o.first}, your appointment is confirmed for ${o.to}. Thank you for being so flexible. We look forward to seeing you.`;
+export const noChangeText = (o: { first: string; from: string }) => `Hi ${o.first}, thank you for agreeing to move. As it turns out, we will not need to change your appointment, so your ${o.from} appointment will stay exactly as it is. We apologize for any confusion.`;

@@ -19,11 +19,11 @@ export const MAX_FEE_AGE_DAYS = 30;
 
 const friendly = (e: any): { text: string; stop: boolean } => {
   const code = String(e?.code || e?.decline_code || e?.raw?.code || '');
-  if (code === 'authentication_required') return { text: 'Their bank wants them to confirm the payment — send them a payment link instead.', stop: true };
+  if (code === 'authentication_required') return { text: 'Their bank requires them to confirm the payment. Please send them a payment link instead.', stop: true };
   if (/expired_card/.test(code)) return { text: 'Their card has expired.', stop: true };
   if (/insufficient_funds/.test(code)) return { text: 'The card was declined for insufficient funds.', stop: false };
   if (/card_declined|do_not_honor|generic_decline/.test(code)) return { text: 'The card was declined.', stop: false };
-  return { text: 'The charge didn’t go through.', stop: false };
+  return { text: 'The charge did not go through.', stop: false };
 };
 
 /** When this fee is next due to be tried (or null if it shouldn't be). */
@@ -100,10 +100,10 @@ export async function tellClient(db: any, tenantId: string, tenant: any, clientI
   const studio = tenant?.name || 'Us'; const toks = { client_first: String(client.name || '').split(' ')[0] || 'there', amount: `$${amount.toFixed(2)}`, fee_reason: reason.toLowerCase(), studio, when: '', service: '', link: '' };
   if (client.phone) { const p = resolveMessagePolicy(tenant, 'fee_charged', 'sms');
     if (p.enabled) await sendNotification(db, { tenantId, channel: 'sms', to: client.phone, kind: 'fee_charged', clientId, clientName: client.name || null,
-      text: p.body ? renderMessage(p.body, toks) : `${studio}: we charged ${toks.amount} to your card on file for ${toks.fee_reason}. Questions? Just reply.` } as any); }
+      text: p.body ? renderMessage(p.body, toks) : `Hi ${toks.client_first}, this is ${studio}. In line with our booking policy, we have charged ${toks.amount} to your card on file for ${toks.fee_reason}. If you have any questions, please reply to this message.` } as any); }
   if (client.email) { const p = resolveMessagePolicy(tenant, 'fee_charged', 'email');
     if (p.enabled) { const { brandedEmailHtml } = await import('@/lib/email-template');
       await sendNotification(db, { tenantId, channel: 'email', to: client.email, kind: 'fee_charged', clientId, clientName: client.name || null,
-        subject: p.subject ? renderMessage(p.subject, toks) : `A ${toks.amount} fee was charged — ${studio}`,
-        html: brandedEmailHtml({ studioName: studio, title: 'A fee was charged to your card', bodyLines: [p.body ? renderMessage(p.body, toks) : `Hi ${toks.client_first}, we charged ${toks.amount} to your card on file for ${toks.fee_reason}. If you have any questions, just reply to this email.`] } as any) } as any); } }
+        subject: p.subject ? renderMessage(p.subject, toks) : `A ${toks.amount} fee from ${studio} has been charged to your card`,
+        html: brandedEmailHtml({ studioName: studio, title: 'A fee has been charged to your card', bodyLines: p.body ? [renderMessage(p.body, toks)] : [`Hi ${toks.client_first},`, `In line with our booking policy, we have charged ${toks.amount} to your card on file for ${toks.fee_reason}.`, 'If you have any questions, please reply to this email.', 'Kind regards,', studio] } as any) } as any); } }
 }

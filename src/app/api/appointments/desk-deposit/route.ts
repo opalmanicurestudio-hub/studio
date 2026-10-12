@@ -41,13 +41,13 @@ async function tellClient(db: any, tenant: any, tenantId: string, ap: any, base:
     const when = ap.startTime ? new Date(ap.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined }) : 'your next visit';
     const link = ap.checkInToken ? `${base}/check-in/${ap.checkInToken}` : `${base}/book/${tenantId}`;
     const money = `$${(cents / 100).toFixed(2)}`;
-    const subject = kind === 'confirmed' ? `You're booked — ${when}` : `Pay your ${money} deposit to confirm ${when}`;
+    const subject = kind === 'confirmed' ? `Your appointment is confirmed for ${when}` : `Please pay your ${money} deposit to confirm ${when}`;
     const policy = bookingPolicyLines(tenant, null, { depositCents: cents });
     const lines = kind === 'confirmed'
-      ? [`Hi ${first},`, `Your next visit at ${studio} is confirmed for ${when}.${cents > 0 ? ` Your ${money} deposit is received.` : ''}`, ...policy]
-      : [`Hi ${first},`, `We've held ${when} for you at ${studio}. Pay your ${money} deposit to confirm it.`, holdLine(tenant, ap.paymentDueAt ? new Date(ap.paymentDueAt) : null), ...policy];
-    if (email) await sendNotification(db, { tenantId, channel: 'email', to: email, subject, html: brandedEmailHtml({ studioName: studio, title: kind === 'confirmed' ? 'You’re booked' : 'Confirm your next visit', bodyLines: lines, cta: { label: kind === 'confirmed' ? 'View your visit' : `Pay ${money} deposit`, url: link } }), kind: kind === 'confirmed' ? 'desk_booking_confirmed' : 'deposit_pay_link', appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
-    if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `${studio}: ${kind === 'confirmed' ? `you're booked for ${when}.` : `pay your ${money} deposit to confirm ${when}:`} ${link}`, kind: kind === 'confirmed' ? 'desk_booking_confirmed' : 'deposit_pay_link', appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
+      ? [`Hi ${first},`, `Thank you for booking with us. Your next visit at ${studio} is confirmed for ${when}.${cents > 0 ? ` We have received your ${money} deposit.` : ''}`, ...policy, `Kind regards, ${studio}`]
+      : [`Hi ${first},`, `We are holding ${when} for you at ${studio}. To confirm your appointment, please pay your ${money} deposit using the button below.`, holdLine(tenant, ap.paymentDueAt ? new Date(ap.paymentDueAt) : null), ...policy, `Kind regards, ${studio}`];
+    if (email) await sendNotification(db, { tenantId, channel: 'email', to: email, subject, html: brandedEmailHtml({ studioName: studio, title: kind === 'confirmed' ? 'Your appointment is confirmed' : 'Confirm your next visit', bodyLines: lines, cta: { label: kind === 'confirmed' ? 'View your visit' : `Pay ${money} deposit`, url: link } }), kind: kind === 'confirmed' ? 'desk_booking_confirmed' : 'deposit_pay_link', appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
+    if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `${kind === 'confirmed' ? `Hi ${first}, your appointment is confirmed for ${when}. Your visit link:` : `Hi ${first}, to confirm your appointment on ${when}, please pay your ${money} deposit here:`} ${link}`, kind: kind === 'confirmed' ? 'desk_booking_confirmed' : 'deposit_pay_link', appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
   } catch (e) { console.error('[desk-deposit] notify failed (the deposit is safe)', e); }
 }
 

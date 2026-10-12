@@ -158,12 +158,12 @@ export async function sweepNoShows(db: Db, tenantId: string, now: Date = new Dat
                 }),
               });
               update.noShowFeeArrearsCents = feeCents;
-              feeMsg = ` Fee ${money(feeCents)} could not be charged and has been recorded as owing.`;
+              feeMsg = ` The ${money(feeCents)} fee could not be charged and has been recorded as owing on their account.`;
             } else {
-              feeMsg = ` Fee ${money(feeCents)} could not be charged (card declined) — collect another way.`;
+              feeMsg = ` The ${money(feeCents)} fee could not be charged because the card was declined. Please collect it another way.`;
             }
           } catch {
-            feeMsg = ` Fee ${money(feeCents)} could not be charged (card declined) — collect another way.`;
+            feeMsg = ` The ${money(feeCents)} fee could not be charged because the card was declined. Please collect it another way.`;
           }
         }
         if (intent) {
@@ -194,7 +194,7 @@ export async function sweepNoShows(db: Db, tenantId: string, now: Date = new Dat
           update.noShowFeePaymentIntentId = intent.id;
           counts.feesCharged++;
           counts.feeCentsCharged += feeCents;
-          feeMsg = ` A ${money(feeCents)} no-show fee was charged to the card on file.`;
+          feeMsg = ` A ${money(feeCents)} missed reservation fee has been charged to the card on file.`;
         }
       } else if (policyEnabled && feeCents > 0 && !hasCard) {
         update.noShowFeeStatus = 'no_card';
@@ -217,16 +217,16 @@ export async function sweepNoShows(db: Db, tenantId: string, now: Date = new Dat
             update.noShowFeeArrearsCents = feeCents;
           }
         } catch { /* the flag below still tells the owner */ }
-        feeMsg = ` No card on file — ${money(feeCents)} recorded as owing.`;
+        feeMsg = ` There is no card on file, so the ${money(feeCents)} fee has been recorded as owing on their account.`;
       }
 
       await doc.ref.set(update, { merge: true });
       counts.swept++;
 
-      await notifyOwner(db, tenantId, `No-show: ${name} didn't check in for ${boothName} (${when}).${feeMsg}`);
+      await notifyOwner(db, tenantId, `Missed reservation: ${name} did not check in for ${boothName} (${when}).${feeMsg}`);
       await logAuditAdmin(db, tenantId, {
         action: 'booth.no_show', targetType: 'boothReservation', targetId: doc.id,
-        summary: `No-show — ${name} · ${boothName} (${when})${feeMsg}`,
+        summary: `Missed reservation: ${name}, ${boothName} (${when}).${feeMsg}`,
         amount: update.noShowFeeStatus === 'charged' ? feeCents / 100 : undefined,
         actor: { type: 'system', name: 'no-show-sweep' },
       });

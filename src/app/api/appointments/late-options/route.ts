@@ -45,9 +45,9 @@ export async function POST(req: NextRequest) {
       const msg = lateChoicesText({ first: String(a.clientName || '').split(' ')[0] || 'there', lateMin: Number(a.lateTimeMinutes) || 0, graceMin: Number(resolvePolicy(tenant).late.graceMinutes.value) || 0, plan, providerFirst: prov.name ? String(prov.name).split(' ')[0] : null, when });
       const link = a.checkInToken ? `${linkOrigin(tenant, req.nextUrl.origin)}/check-in/${a.checkInToken}` : null;
       const { sendNotification } = await import('@/lib/notify'); const studio = tenant.name || 'the studio';
-      if (phone) told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'late_choices', text: `${studio}: ${msg}${link ? ` ${link}` : ''}`, appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || told;
+      if (phone) told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'late_choices', text: `${msg}${link ? ` Please choose an option here: ${link}` : ''}`, appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || told;
       if (!told && email.includes('@')) { const { brandedEmailHtml } = await import('@/lib/email-template');
-        told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `Running late — your options — ${studio}`, kind: 'late_choices', html: brandedEmailHtml({ studioName: studio, title: 'Your options for today', bodyLines: [msg], cta: link ? { label: 'Choose', url: link } : null }), appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || told; }
+        told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `${studio}: your options for today's appointment`, kind: 'late_choices', html: brandedEmailHtml({ studioName: studio, title: 'Your options for today', bodyLines: [msg, `Kind regards, ${studio}`], cta: link ? { label: 'Choose an option', url: link } : null }), appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || told; }
     } catch (e) { console.error('[late-options] send failed', e); }
   }
   await logAuditAdmin(db, tenantId, { action: action === 'send' ? 'late.options_sent' : 'late.options_prepared', targetType: 'appointment', targetId: appointmentId,

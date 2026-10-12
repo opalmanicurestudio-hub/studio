@@ -38,9 +38,9 @@ export async function delayTick(db: any, tenantId: string, tenant: any, now = Da
       b.set(db.doc(`${T}/appointments/${e.visitId}`), { delay: { min: e.delayMin, clientEndAt: new Date(e.clientEndMs).toISOString(), freeAt: new Date(e.freeMs).toISOString(), toldMin: e.delayMin, at } }, { merge: true }); writes++;
       // The desk / managers hear about it once per margin step, with who is affected.
       const affected = e.next.filter((k) => k.lateMin >= 1).map((k) => `${k.clientName.split(' ')[0]} ${clock(k.startMs, tz)} → ~${clock(k.expectedMs, tz)}`).join(', ');
-      for (const uid of managers) note(uid, 'visit_delay', `${e.clientName.split(' ')[0]}${nameOf(e.staffId) ? ` with ${nameOf(e.staffId)}` : ''} is running ${e.delayMin} min behind${affected ? ` — moves ${affected}` : ''}.`, e.visitId);
+      for (const uid of managers) note(uid, 'visit_delay', `${e.clientName.split(' ')[0]}’s appointment${nameOf(e.staffId) ? ` with ${nameOf(e.staffId)}` : ''} is running about ${e.delayMin} minutes behind.${affected ? ` Affected start times: ${affected}.` : ''}`, e.visitId);
       // Housekeeping: the station reset moves.
-      if (e.stationIds.length) for (const uid of (keepers.length ? keepers : [])) note(uid, 'visit_delay', `Station reset moves: ${e.clientName.split(' ')[0]} now finishes about ${clock(e.clientEndMs, tz)} (${e.delayMin} min behind) — reset after that.`, e.visitId);
+      if (e.stationIds.length) for (const uid of (keepers.length ? keepers : [])) note(uid, 'visit_delay', `Station reset update: ${e.clientName.split(' ')[0]}’s appointment is running ${e.delayMin} minutes behind and should now finish at about ${clock(e.clientEndMs, tz)}. Please reset the station after that time.`, e.visitId);
       await logAuditAdmin(db, tenantId, { action: 'visit.running_behind', targetType: 'appointment', targetId: e.visitId, actor: { type: 'system', name: 'delay check' }, summary: `${e.clientName}: ${e.delayMin} min behind; free again ${clock(e.freeMs, tz)}${affected ? `; moves ${affected}` : ''}` }).catch(() => {});
     }
     for (const k of e.next) {
@@ -48,7 +48,7 @@ export async function delayTick(db: any, tenantId: string, tenant: any, now = Da
       if (!worthTelling(k.lateMin, nx.delayedBy?.toldMin, S.marginMin)) continue;
       const fields: any = { expectedStartAt: new Date(k.expectedMs).toISOString(), delayedBy: { visitId: e.visitId, min: k.lateMin, why: k.why, toldMin: k.lateMin, at } };
       // Their provider (if not the one running late — they already know)
-      for (const pid of providersOf({ ...nx, staffId: k.staffId || nx.staffId }).filter((x) => x !== e.staffId)) note(pid, 'delay_affects_you', `Your ${clock(k.startMs, tz)} (${k.clientName.split(' ')[0]}) will start about ${k.lateMin} min late — ${k.why === 'station' ? 'the station is still in use' : 'the client before is running over'}.`, k.id);
+      for (const pid of providersOf({ ...nx, staffId: k.staffId || nx.staffId }).filter((x) => x !== e.staffId)) note(pid, 'delay_affects_you', `Your ${clock(k.startMs, tz)} appointment with ${k.clientName.split(' ')[0]} will start about ${k.lateMin} minutes late because ${k.why === 'station' ? 'the station is still in use' : 'the previous appointment is running over'}.`, k.id);
       // The client
       const already = Math.max(Number(nx.delayTold?.min) || 0, Number(nx.providerDelay?.minutes) || 0) || null;
       if (S.clientMessages === 'auto' && k.lateMin <= S.autoMaxMin && worthTelling(k.lateMin, already, S.marginMin)) {
@@ -70,7 +70,7 @@ export async function tellClientDelay(db: any, tenantId: string, tenant: any, ap
   const late = Math.max(1, Math.round((expectedMs - startMs) / 60000)); const choiceFrom = delaySettings(tenant).choiceFromMin;
   const credit = Number(tenant?.bookingPolicies?.providerDelayCredit) || 0;
   const message = delayClientText({ first: String(ap.clientName || '').split(' ')[0] || 'there', provider: providerFirst, startMs, expectedMs, timeZone: tenant?.timezone || tenant?.timeZone })
-    + (late >= choiceFrom ? ` If that doesn’t work, you can reschedule or cancel with no fee from your visit link.${credit > 0 ? ` If you’re happy to wait, we’ll add $${credit.toFixed(2)} credit as a thank-you.` : ''}` : '');
+    + (late >= choiceFrom ? ` If the new time does not work for you, you are welcome to reschedule or cancel at no charge using your visit link.${credit > 0 ? ` If you are able to wait, we will add a $${credit.toFixed(2)} credit to your account as a thank-you.` : ''}` : '');
   let email = false, sms = false;
   try {
     const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, requestOrigin || null);
@@ -78,9 +78,9 @@ export async function tellClientDelay(db: any, tenantId: string, tenant: any, ap
     const cl: any = ap.clientId ? (((await db.doc(`${T}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
     const em = String(cl.email || ap.clientEmail || '').trim(), phone = String(cl.phone || ap.clientPhone || '').trim();
     const { sendNotification } = await import('@/lib/notify');
-    if (phone) sms = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'delay_notice', text: `${studio}: ${message}${link ? ` ${link}` : ''}`, appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok;
+    if (phone) sms = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'delay_notice', text: `${message}${link ? ` Your visit link: ${link}` : ''}`, appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok;
     if (!sms && em.includes('@')) { const { brandedEmailHtml } = await import('@/lib/email-template');
-      email = !!(await sendNotification(db, { tenantId, channel: 'email', to: em, subject: `Running a little behind — ${studio}`, kind: 'delay_notice', html: brandedEmailHtml({ studioName: studio, title: 'Running a little behind', bodyLines: [message], cta: link ? { label: 'My visit', url: link } : null }), appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok; }
+      email = !!(await sendNotification(db, { tenantId, channel: 'email', to: em, subject: `An update on your appointment time from ${studio}`, kind: 'delay_notice', html: brandedEmailHtml({ studioName: studio, title: 'An update on your appointment time', bodyLines: [message, `Kind regards, ${studio}`], cta: link ? { label: 'My visit', url: link } : null }), appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any))?.ok; }
     // Their visit page shows the same update. From the business's "offer a choice" point (default 15 min) it is the
     // usual provider-delay card — keep it / reschedule / cancel, no fee, plus any thank-you credit the business offers.
     // Below that it is a simple message from the studio.

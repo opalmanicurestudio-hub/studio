@@ -18,14 +18,14 @@ export type Alert = { to: string; kind: 'visit_cancelled' | 'visit_moved' | 'vis
 export function alertsFor(prev: Watch, cur: Watch, a: any, fmt: (iso: string) => string): Alert[] {
   const who = String(a?.clientName || 'A client').split(' ')[0]; const svc = a?.serviceName ? ` (${a.serviceName})` : '';
   const out: Alert[] = [];
-  if (!prev.off && cur.off) { for (const id of prev.by) out.push({ to: id, kind: 'visit_cancelled', text: `${who}’s ${fmt(prev.at)}${svc} was cancelled — that time is free.` }); return out; }
-  if (prev.off && !cur.off) { for (const id of cur.by) out.push({ to: id, kind: 'visit_added', text: `${who}’s ${fmt(cur.at)}${svc} is back on.` }); return out; }
+  if (!prev.off && cur.off) { for (const id of prev.by) out.push({ to: id, kind: 'visit_cancelled', text: `${who}’s ${fmt(prev.at)} appointment${svc} has been cancelled. The time is now available.` }); return out; }
+  if (prev.off && !cur.off) { for (const id of cur.by) out.push({ to: id, kind: 'visit_added', text: `${who}’s ${fmt(cur.at)} appointment${svc} has been reinstated and is back on your schedule.` }); return out; }
   if (cur.off) return out;
   const moved = prev.at !== cur.at && Number.isFinite(Date.parse(prev.at)) && Number.isFinite(Date.parse(cur.at));
   const added = cur.by.filter((x) => !prev.by.includes(x)), removed = prev.by.filter((x) => !cur.by.includes(x));
-  for (const id of removed) out.push({ to: id, kind: 'visit_removed', text: `You’re no longer on ${who}’s ${fmt(prev.at)}${svc}.` });
-  for (const id of added) out.push({ to: id, kind: 'visit_added', text: `You’ve been added to ${who}’s ${fmt(cur.at)}${svc}.` });
-  if (moved) for (const id of cur.by.filter((x) => !added.includes(x))) out.push({ to: id, kind: 'visit_moved', text: `${who}’s visit moved from ${fmt(prev.at)} to ${fmt(cur.at)}${svc}.` });
+  for (const id of removed) out.push({ to: id, kind: 'visit_removed', text: `You have been removed from ${who}’s ${fmt(prev.at)} appointment${svc}.` });
+  for (const id of added) out.push({ to: id, kind: 'visit_added', text: `You have been added to ${who}’s ${fmt(cur.at)} appointment${svc}.` });
+  if (moved) for (const id of cur.by.filter((x) => !added.includes(x))) out.push({ to: id, kind: 'visit_moved', text: `${who}’s appointment${svc} has moved from ${fmt(prev.at)} to ${fmt(cur.at)}.` });
   return out;
 }
 

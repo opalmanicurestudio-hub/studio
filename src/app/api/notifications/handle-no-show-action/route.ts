@@ -1,7 +1,7 @@
 /**
  * api/notifications/handle-no-show-action/route.ts
  *
- * Called when staff taps "Confirm No-Show" or "Client Is Here" from
+ * Called when staff taps "Confirm Missed Appointment" or "Client Is Here" from
  * a suspected_no_show or no_show_escalation notification — or when staff
  * manually confirm a no-show via CancelAppointmentDialog before the
  * automated flag even fires (see guard note below).

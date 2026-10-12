@@ -63,11 +63,11 @@ export async function GET(req: NextRequest) {
           const deadline = new Date(now + confirmMin * 60000).toISOString();
           const b = db.batch();
           b.set(d.ref, { suspectedNoShow: true, suspectedNoShowAt: nowIso, noShowConfirmDeadline: deadline, noShowConfirmedBy: null, noShowEscalated: false,
-            timeline: [...(Array.isArray(a.timeline) ? a.timeline : []), { at: nowIso, kind: 'note', text: `Flagged as a possible no-show — no arrival ${windowMin} min after start`, by: 'System', via: 'no-show check' }].slice(-60) }, { merge: true });
+            timeline: [...(Array.isArray(a.timeline) ? a.timeline : []), { at: nowIso, kind: 'note', text: `Flagged as a possible missed appointment. The client had not arrived ${windowMin} minutes after the start time.`, by: 'System', via: 'no-show check' }].slice(-60) }, { merge: true });
           const n = db.collection(`${T}/notifications`).doc();
           b.set(n, { id: n.id, userId: a.staffId || null, type: 'suspected_no_show', priority: 'high', appointmentId: a.id, clientId: a.clientId || null, link: `/pos?visit=${a.id}`,
-            message: `${a.clientName || 'Guest'} may be a no-show — their appointment started ${windowMin} min ago and they haven’t arrived`,
-            actions: [{ label: 'Confirm No-Show', action: 'confirm_no_show', style: 'destructive' }, { label: 'Client Is Here', action: 'dismiss_no_show', style: 'primary' }],
+            message: `Action needed: ${a.clientName || 'Guest'} has not arrived for their appointment, which started ${windowMin} minutes ago. Please confirm whether the client is here.`,
+            actions: [{ label: 'Confirm Missed Appointment', action: 'confirm_no_show', style: 'destructive' }, { label: 'Client Is Here', action: 'dismiss_no_show', style: 'primary' }],
             expiresAt: deadline, createdAt: nowIso, read: false, resolved: false });
           await b.commit(); flagged++; await noteAutomation(db, t.id, 'no-show-check'); continue;
         }
@@ -78,8 +78,8 @@ export async function GET(req: NextRequest) {
         const b = db.batch(); b.set(d.ref, { noShowEscalated: true, noShowEscalatedAt: nowIso }, { merge: true });
         for (const m of admins) { const n = db.collection(`${T}/notifications`).doc();
           b.set(n, { id: n.id, userId: m.id, type: 'no_show_escalation', priority: 'urgent', appointmentId: a.id, clientId: a.clientId || null, link: `/pos?visit=${a.id}`,
-            message: `No answer yet: ${a.clientName || 'Guest'} may be a no-show — please confirm`,
-            actions: [{ label: 'Confirm No-Show', action: 'confirm_no_show', style: 'destructive' }, { label: 'Client Is Here', action: 'dismiss_no_show', style: 'primary' }], createdAt: nowIso, read: false, resolved: false }); }
+            message: `Action needed: ${a.clientName || 'Guest'} has not arrived for their appointment, and no one has confirmed it yet. Please confirm whether this is a missed appointment.`,
+            actions: [{ label: 'Confirm Missed Appointment', action: 'confirm_no_show', style: 'destructive' }, { label: 'Client Is Here', action: 'dismiss_no_show', style: 'primary' }], createdAt: nowIso, read: false, resolved: false }); }
         await b.commit(); escalated++;
       }
     } catch (e) { console.error('[cron/no-shows]', t.id, e); }
@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
     const managers = (await db.collection(`tenants/${t.id}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs;
     for (const d of due) { const r: any = d.data(); const b = db.batch(); b.set(d.ref, { escalatedAt: nowIso }, { merge: true });
       for (const m of managers) { const n = db.collection(`tenants/${t.id}/notifications`).doc(); b.set(n, { id: n.id, userId: m.id, type: 'assist_escalation', priority: 'urgent', link: '/pos', assistId: d.id, createdAt: nowIso, read: false, resolved: false,
-        message: `Nobody has taken ${r.requestedByName ? r.requestedByName.split(' ')[0] + '’s' : 'a'} request: ${String(r.label || 'help').toLowerCase()}${r.stationName ? ` at ${r.stationName}` : ''}` }); }
+        message: `Action needed: ${r.requestedByName ? r.requestedByName.split(' ')[0] + '’s' : 'a'} request for ${String(r.label || 'help').toLowerCase()}${r.stationName ? ` at ${r.stationName}` : ''} has not been accepted yet.` }); }
       await b.commit(); assistEscalated++; }
   } catch (e) { console.error('[cron/no-shows] assist', t.id, e); } }
   await heartbeat(db, 'no-shows');   // HQ's account check uses this to spot a stopped task

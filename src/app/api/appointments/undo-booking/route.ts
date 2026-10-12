@@ -71,11 +71,11 @@ export async function POST(req: NextRequest) {
     const client: any = a.clientId ? (await db.doc(`${T}/clients/${a.clientId}`).get()).data() || {} : {};
     const phone = a.clientPhone || client.phone; const email = a.clientEmail || client.email; const studio = tenant.name || 'The studio';
     const when = (() => { try { return new Date(a.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || 'America/New_York' }); } catch { return ''; } })();
-    const text = `${studio}: the booking for ${when} has been removed — please ignore that confirmation. Nothing else to do.${refundedCents ? ` Your $${(refundedCents / 100).toFixed(2)} deposit has been refunded.` : ''}`;
+    const text = `Hi ${String(a.clientName || '').split(' ')[0] || 'there'}, your booking for ${when} was made in error and has been removed. Please disregard the earlier confirmation; there is nothing further you need to do.${refundedCents ? ` Your $${(refundedCents / 100).toFixed(2)} deposit has been refunded.` : ''} We apologize for any confusion.`;
     const { sendNotification } = await import('@/lib/notify');
     if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'booking_undone', clientId: a.clientId || null, clientName: a.clientName || null, text } as any);
     else if (email) { const { brandedEmailHtml } = await import('@/lib/email-template');
-      await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'booking_undone', clientId: a.clientId || null, clientName: a.clientName || null, subject: `Booking removed — ${studio}`, html: brandedEmailHtml({ studioName: studio, title: 'That booking has been removed', bodyLines: [text.replace(`${studio}: `, '')] } as any) } as any); }
+      await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'booking_undone', clientId: a.clientId || null, clientName: a.clientName || null, subject: `Your booking with ${studio} has been removed`, html: brandedEmailHtml({ studioName: studio, title: 'Your booking has been removed', bodyLines: [text, `Kind regards, ${studio}`] } as any) } as any); }
   } catch { /* the undo stands either way */ }
   return NextResponse.json({ ok: true, refundedCents, handBackCents });
 }

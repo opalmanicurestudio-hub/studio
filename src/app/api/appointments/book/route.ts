@@ -250,7 +250,7 @@ export async function POST(req: NextRequest) {
               await oldSnap.ref.set({ changeRequestedAt: nowIso, changeRequestedFor: body.startTime || null }, { merge: true }).catch(() => {});
               const n = db.collection(`tenants/${tenantId}/notifications`).doc();
               await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso, type: 'change_request', link: 'pos',
-                message: `${old.clientName || 'A client'} is asking you to reschedule their ${old.serviceName || 'appointment'} (already rescheduled ${rule.count} time${rule.count === 1 ? '' : 's'})${body.startTime ? ` — to ${new Date(body.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })}` : ''}. Please reschedule it for them.` }).catch(() => {});
+                message: `Action needed: ${old.clientName || 'A client'} has asked to reschedule their ${old.serviceName || 'appointment'}, which has already been rescheduled ${rule.count} time${rule.count === 1 ? '' : 's'}${body.startTime ? `, to ${new Date(body.startTime).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })}` : ''}. Please reschedule it for them.` }).catch(() => {});
               await logAuditAdmin(db, tenantId, { action: 'appointment.change_requested', targetType: 'appointment', targetId: replacesId,
                 summary: `${old.clientName || 'Client'} asked to move it again — over the change limit (${rule.count}/${rule.limit}), staff approval needed`, actor: { type: 'user', name: old.clientName || 'Client', role: 'client', via: 'booking page' } }).catch(() => {});
             }
@@ -281,12 +281,12 @@ export async function POST(req: NextRequest) {
             const origin = linkOrigin(tenant, req.nextUrl.origin);
             const studio = (tenant as any).name || 'the studio';
             await sendNotification(db, { tenantId, channel: 'email', to: String(owing.email), subject: `Your balance with ${studio}`, kind: 'balance_due',
-              html: brandedEmailHtml({ studioName: studio, title: 'Before your next booking', bodyLines: [`You have a $${bal.toFixed(2)} balance from a previous change. Once it’s paid, you can book again.`], cta: { label: 'Pay my balance', url: `${origin}/portal/${tenantId}/${owing.id}` } }),
+              html: brandedEmailHtml({ studioName: studio, title: 'Before your next booking', bodyLines: [`Hi ${String(owing.name || '').split(' ')[0] || 'there'},`, `Thank you for your interest in booking with us. Our records show an outstanding balance of $${bal.toFixed(2)} from a previous appointment change. Once this balance has been paid, you will be able to book your next appointment.`, `Kind regards, ${studio}`], cta: { label: 'Pay my balance', url: `${origin}/portal/${tenantId}/${owing.id}` } }),
               clientId: owing.id, clientName: owing.name || null } as any);
             await db.doc(`tenants/${tenantId}/clients/${owing.id}`).set({ balanceLinkSentAt: new Date().toISOString() }, { merge: true });
           } catch (e) { console.error('[book] balance link failed', e); }
         }
-        return NextResponse.json({ ok: false, code: 'balance_due', error: `There’s an unpaid balance on your account from a previous change. We’ve emailed you a link to pay it — once it’s paid, you can book.` }, { status: 402 });
+        return NextResponse.json({ ok: false, code: 'balance_due', error: `Our records show an unpaid balance on your account from a previous change. We have emailed you a link to pay it, and once it has been paid, you will be able to book.` }, { status: 402 });
       }
     }
 
@@ -1004,15 +1004,15 @@ export async function POST(req: NextRequest) {
               const whenLabel = whenStr;
               const cancelUrl = `${base}/cancel/${tenantId}/${r.aptId}${r.token ? `?k=${encodeURIComponent(r.token)}` : ''}`; // the key proves it's their link
               const rescheduleUrl = `${base}/book/${tenantId}?provider=${encodeURIComponent(String(renterSvc.staffId))}&reschedule=${encodeURIComponent(r.aptId)}${r.token ? `&k=${encodeURIComponent(r.token)}` : ''}`;
-              const depositLine = Number(r.plan?.depositCents) > 0 ? `A $${(Number(r.plan.depositCents) / 100).toFixed(2)} deposit holds it; the rest is due at your visit.` : '';
+              const depositLine = Number(r.plan?.depositCents) > 0 ? `A $${(Number(r.plan.depositCents) / 100).toFixed(2)} deposit secures your appointment, and the remaining balance is due at your visit.` : '';
               renterConfirmed = true;
-              await tellClient(db, v, { email, phone, clientId: r.clientId || null, name: r.clientName || null }, `You're booked — ${svcLabel}, ${whenLabel}`,
-                [`${firstName}, you're booked for ${svcLabel} on ${whenLabel}${renterSvc.price ? ` · $${Number(renterSvc.price).toFixed(0)}` : ''}.`,
+              await tellClient(db, v, { email, phone, clientId: r.clientId || null, name: r.clientName || null }, `Your appointment is confirmed: ${svcLabel}, ${whenLabel}`,
+                [`Hi ${firstName}, thank you for booking. Your ${svcLabel} on ${whenLabel} is confirmed${renterSvc.price ? ` ($${Number(renterSvc.price).toFixed(0)})` : ''}.`,
                  depositLine,
-                 `Need to change it? Reschedule: ${rescheduleUrl}`,
-                 `Can't make it? Cancel: ${cancelUrl}`,
+                 `If you need to reschedule, please use this link: ${rescheduleUrl}`,
+                 `If you are unable to attend, you can cancel here: ${cancelUrl}`,
                  where,
-                 placeOf(placeSvc).kind === 'studio' ? `Check in when you arrive: ${checkInUrl}` : `Your visit page: ${checkInUrl}`].filter(Boolean) as string[], 'renter_client_confirmed');
+                 placeOf(placeSvc).kind === 'studio' ? `Please check in when you arrive: ${checkInUrl}` : `Your visit page: ${checkInUrl}`].filter(Boolean) as string[], 'renter_client_confirmed');
               sendStatus.emailSent = email.includes('@'); sendStatus.smsSent = !!phone;
             }
           } catch (e) { console.error('[book] renter confirmation', e); /* fall through to the studio's */ }
@@ -1029,53 +1029,60 @@ export async function POST(req: NextRequest) {
                * "you're booked", and the honest charge position up front. */
               title: 'Request received',
               bodyLines: [
-                `Hi ${firstName} — we have your request for ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.`,
-                'This time is not booked yet. We look at every request personally and you will hear back shortly — you do not need to do anything now.',
+                `Hi ${firstName},`,
+                `Thank you for your request for ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.`,
+                'Please note that this time is not booked yet. We review every request personally, and you will hear from us shortly. There is nothing you need to do in the meantime.',
                 ...(r.plan?.depositCents > 0
                   ? [r.plan?.requiresCardOnFile
-                    ? `Nothing has been charged. Your card is saved securely — if we accept, the $${(r.plan.depositCents / 100).toFixed(2)} deposit is charged to it automatically and you're booked. If that card declines, we'll send a link to pay within ${graceHoursOf(tenant)} hours; otherwise the time is released.`
-                    : `Nothing has been charged. If we accept, we will ask for the $${(r.plan.depositCents / 100).toFixed(2)} deposit to lock it in.`]
+                    ? `You have not been charged. Your card has been saved securely. If we accept your request, the $${(r.plan.depositCents / 100).toFixed(2)} deposit will be charged to it automatically and your appointment will be confirmed. If the card is declined, we will send you a link to pay within ${graceHoursOf(tenant)} hours; if the deposit is not received by then, the time will be released.`
+                    : `You have not been charged. If we accept your request, we will ask for the $${(r.plan.depositCents / 100).toFixed(2)} deposit to confirm your appointment.`]
                   : []),
+                `Kind regards, ${studioName}`,
               ],
               cta: { label: 'View my request', url: portalUrl },
-              footerNote: `We will confirm or suggest another time as soon as we can — ${studioName}.`,
+              footerNote: `We will confirm your request or suggest another time as soon as we can. Sent by ${studioName}.`,
             })
             : isHold
             ? brandedEmailHtml({
               studioName,
-              title: 'Almost booked — one more step',
+              title: 'One more step to confirm your booking',
               bodyLines: [
-                `Hi ${firstName} — we're holding ${whenStr} for your ${svcLabel}${staffName ? ` with ${staffName}` : ''}.`,
-                'Tap below to finish up (deposit and any forms) and lock it in. Your confirmation follows the moment it\'s done.',
-                ...(depCents > 0 ? [r.plan?.fullPayment ? `Payment: ${money$(depCents)} — paid in full, nothing more is due.` : `Deposit: ${money$(depCents)} — it comes off your total on the day.`] : []),
-                ...((r as any).balanceCollectCents > 0 ? [`Plus your ${money$((r as any).balanceCollectCents)} balance from a previous visit — paid together with the deposit (${money$(depCents + (r as any).balanceCollectCents)} in all). The balance isn’t part of the deposit.`] : []),
+                `Hi ${firstName},`,
+                `Thank you for booking with us. We are holding ${whenStr} for your ${svcLabel}${staffName ? ` with ${staffName}` : ''}.`,
+                'To confirm your appointment, please use the button below to complete your deposit and any required forms. You will receive your confirmation as soon as this is done.',
+                ...(depCents > 0 ? [r.plan?.fullPayment ? `Payment: ${money$(depCents)}. This is payment in full, and nothing more will be due.` : `Deposit: ${money$(depCents)}. This will be deducted from your total on the day of your visit.`] : []),
+                ...((r as any).balanceCollectCents > 0 ? [`Your ${money$((r as any).balanceCollectCents)} balance from a previous visit will be collected together with the deposit, for a total of ${money$(depCents + (r as any).balanceCollectCents)}. The balance is not part of the deposit.`] : []),
                 holdLine(tAny, trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now() ? new Date(body.holdUntil) : null),
+                'If you have any questions, please reply to this email or give us a call.',
+                `Kind regards, ${studioName}`,
               ],
-              cta: { label: 'Finish my booking', url: checkInUrl },
-              footerNote: `Your spot is held for a limited time. Questions? Just reply or call — ${studioName}.`,
+              cta: { label: 'Complete my booking', url: checkInUrl },
+              footerNote: `Your appointment time is held for a limited time. Sent by ${studioName}.`,
             })
             : brandedEmailHtml({
               studioName,
-              title: "You're confirmed",
+              title: 'Your appointment is confirmed',
               bodyLines: [
-                `Hi ${firstName} — your ${svcLabel}${staffName ? ` with ${staffName}` : ''} is booked for ${whenStr}.`,
+                `Hi ${firstName},`,
+                `Thank you for booking with us. Your appointment is confirmed: ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.`,
                 ...(where ? [where] : []),
-                ...(depCents > 0 && trust && body.depositPaid === true ? [r.plan?.fullPayment ? `Your ${money$(depCents)} payment is received — paid in full.` : `Your ${money$(depCents)} deposit is received — it comes off your total on the day.`] : []),
+                ...(depCents > 0 && trust && body.depositPaid === true ? [r.plan?.fullPayment ? `We have received your ${money$(depCents)} payment in full.` : `We have received your ${money$(depCents)} deposit. It will be deducted from your total on the day of your visit.`] : []),
                 arrivalLine(placeSvc),
                 ...policyLines,
+                `Kind regards, ${studioName}`,
               ],
               bigCode: r.shortCode ? String(r.shortCode).toUpperCase() : undefined,
-              cta: { label: 'Check in / manage my visit', url: portalUrl },
+              cta: { label: 'Check in or manage my visit', url: portalUrl },
               secondaryCta: calendarUrl ? { label: 'Add to calendar', url: calendarUrl } : null,
-              footerNote: `Running late, need to cancel, or want anything during your visit? It's all behind the button above. Sent by ${studioName}.`,
+              footerNote: `If you are running late, need to make a change, or would like anything during your visit, please use the button above. Sent by ${studioName}.`,
             });
           const er = await sendNotification(db, {
             tenantId, channel: 'email', to: email,
             subject: isRequest
-              ? `Request received: ${svcLabel} — ${whenStr}`
+              ? `We have received your request: ${svcLabel} on ${whenStr}`
               : isHold
-                ? `Action needed: finish booking your ${svcLabel}`
-                : `Confirmed: ${svcLabel} — ${whenStr}`,
+                ? `Please complete your booking for ${svcLabel}`
+                : `Your appointment is confirmed: ${svcLabel} on ${whenStr}`,
             html, kind: isRequest ? 'booking_request' : isHold ? 'booking_hold' : 'booking_confirmation',
             appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
           });
@@ -1088,10 +1095,10 @@ export async function POST(req: NextRequest) {
           const sr = await sendNotification(db, {
             tenantId, channel: 'sms', to: phone,
             text: isRequest
-              ? `Request received for ${svcLabel} on ${whenStr} — not booked yet, we'll confirm shortly. ${portalUrl}`
+              ? `Hi ${firstName}, thank you for your request for ${svcLabel} on ${whenStr}. Please note that it is not booked yet; we will be in touch shortly. ${portalUrl}`
               : isHold
-                ? `We're holding ${whenStr} for your ${svcLabel}. Finish up here to lock it in: ${checkInUrl}`
-                : `You're confirmed — ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}. Details & check-in: ${portalUrl}`,
+                ? `Hi ${firstName}, we are holding ${whenStr} for your ${svcLabel}. To confirm your appointment, please complete your booking here: ${checkInUrl}`
+                : `Hi ${firstName}, thank you for booking with us. Your ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr} is confirmed. For details and check-in: ${portalUrl}`,
             kind: isRequest ? 'booking_request' : isHold ? 'booking_hold' : 'booking_confirmation',
             appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
           });
@@ -1199,9 +1206,9 @@ export async function POST(req: NextRequest) {
               const { notifyRenter, renterPortalUrl } = await import('@/lib/renter-comms');
               const portal = await renterPortalUrl(db, tenantId);
               if (isRequest) {
-                await notifyRenter(db, tenantId, String(providerDoc.renterId), 'request', `${r.clientName || 'A client'} is asking for ${svcLabel} on ${whenStr}. Accept or decline in your portal.`, { tone: 'amber', subject: `Booking request — ${svcLabel}`, link: portal });
+                await notifyRenter(db, tenantId, String(providerDoc.renterId), 'request', `Action needed: ${r.clientName || 'A client'} has requested ${svcLabel} on ${whenStr}. Please accept or decline the request in your portal.`, { tone: 'amber', subject: `Booking request: ${svcLabel}`, link: portal });
               } else {
-                await notifyRenter(db, tenantId, String(providerDoc.renterId), 'new_booking', `New booking: ${r.clientName || 'A client'} — ${svcLabel}, ${whenStr}.${isHold ? ' Waiting on their deposit.' : ''}`, { tone: 'green', subject: `New booking — ${svcLabel}`, link: portal });
+                await notifyRenter(db, tenantId, String(providerDoc.renterId), 'new_booking', `New booking: ${r.clientName || 'A client'} has booked ${svcLabel} on ${whenStr}.${isHold ? ' Their deposit has not been received yet.' : ''}`, { tone: 'green', subject: `New booking: ${svcLabel}`, link: portal });
               }
             }
           } catch (e) { console.error('[book] renter alert', e); }

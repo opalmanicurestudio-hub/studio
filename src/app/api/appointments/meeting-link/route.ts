@@ -34,12 +34,12 @@ export async function POST(req: NextRequest) {
       const email = String(cl.email || a.clientEmail || '').trim(), phone = String(cl.phone || a.clientPhone || '').trim();
       const when = new Date(a.startTime).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined });
       const studio = tenant.name || 'the studio';
-      const msg = `Hi ${String(a.clientName || '').split(' ')[0] || 'there'} — here’s your link for your online ${a.serviceName || 'appointment'} on ${when}: ${link}`;
+      const msg = `Hi ${String(a.clientName || '').split(' ')[0] || 'there'}, here is the link for your online ${a.serviceName || 'appointment'} on ${when}: ${link}`;
       const visit = a.checkInToken ? `${linkOrigin(tenant, req.nextUrl.origin)}/check-in/${a.checkInToken}` : null;
       const { sendNotification } = await import('@/lib/notify');
-      if (phone) told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'meeting_link', text: `${studio}: ${msg}`, appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || told;
+      if (phone) told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'meeting_link', text: msg, appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || told;
       if (email.includes('@')) { const { brandedEmailHtml } = await import('@/lib/email-template');
-        told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `Your link for ${when} — ${studio}`, kind: 'meeting_link', html: brandedEmailHtml({ studioName: studio, title: 'Your appointment link', bodyLines: [msg, 'It’s also on your visit page, with a Join button.'], cta: { label: 'Join your appointment', url: link }, ...(visit ? { secondaryCta: { label: 'My visit page', url: visit } } : {}) } as any), appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || told; }
+        told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `${studio}: your appointment link for ${when}`, kind: 'meeting_link', html: brandedEmailHtml({ studioName: studio, title: 'Your appointment link', bodyLines: [msg, 'You can also find this link on your visit page, along with a Join button.', `Kind regards, ${studio}`], cta: { label: 'Join your appointment', url: link }, ...(visit ? { secondaryCta: { label: 'View my visit page', url: visit } } : {}) } as any), appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok || told; }
     } catch (e) { console.error('[meeting-link] send failed', e); }
   }
   await logAuditAdmin(db, tenantId, { action: 'appointment.meeting_link', targetType: 'appointment', targetId: appointmentId,

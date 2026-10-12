@@ -226,9 +226,9 @@ function publicOrigin(tenant: any, req?: NextRequest | null): string {
  *  is a guest at the desk asking why. */
 function softWaitText(mins: any): string {
   const n = Number(mins);
-  if (!Number.isFinite(n) || n <= 0) return 'We can take you now';
-  if (n < 5) return 'Just a few minutes';
-  return `Roughly ${Math.round(n / 5) * 5} minutes`;
+  if (!Number.isFinite(n) || n <= 0) return 'We are able to see you now';
+  if (n < 5) return 'Your wait should be just a few minutes';
+  return `Your wait should be about ${Math.round(n / 5) * 5} minutes`;
 }
 
 type GuestMessage = { subject: string; text: string };
@@ -240,21 +240,21 @@ function queuedMessage(o: {
 }): GuestMessage {
   const who = firstName(o.guestName) || 'there';
   const studio = o.studioName || 'the studio';
-  const bits: string[] = [`Hi ${who} — you're in line at ${studio}.`];
-  if (o.position > 0) bits.push(`You're number ${o.position} for ${o.serviceName || 'your service'}.`);
+  const bits: string[] = [`Hi ${who}, thank you for visiting ${studio}. You are now in line.`];
+  if (o.position > 0) bits.push(`You are number ${o.position} in line for ${o.serviceName || 'your service'}.`);
   else bits.push(`We have you down for ${o.serviceName || 'your service'}.`);
   if (o.needsFrontDesk) {
     // Nobody on the floor passes this service's skill or certification gate, so
     // a wait estimate here would be a number we cannot stand behind.
-    bits.push('Please check in with the front desk so we can match you with the right tech.');
+    bits.push('Please check in with the front desk so that we can match you with the right provider.');
   } else if (o.providerName) {
     bits.push(`${firstName(o.providerName)} is ready for you now.`);
   } else {
     bits.push(`${softWaitText(o.estWaitMin)}.`);
   }
-  bits.push("We'll message you the moment your chair is ready.");
+  bits.push('We will message you as soon as your chair is ready. Thank you for your patience.');
   if (o.link) bits.push(o.link);
-  return { subject: `You're in line at ${studio}`, text: bits.join(' ') };
+  return { subject: `You are on the waitlist at ${studio}`, text: bits.join(' ') };
 }
 
 function readyMessage(o: {
@@ -264,9 +264,9 @@ function readyMessage(o: {
   const studio = o.studioName || 'the studio';
   const by = firstName(o.providerName);
   const bits = [
-    `Hi ${who} — your chair is ready at ${studio}.`,
-    by ? `${by} is waiting for you.` : 'Your provider is ready for you.',
-    'Please come to the front when you can.',
+    `Hi ${who}, your chair is ready at ${studio}.`,
+    by ? `${by} is ready for you.` : 'Your provider is ready for you.',
+    'Please come to the front desk at your earliest convenience.',
   ];
   if (o.link) bits.push(o.link);
   return { subject: `Your chair is ready at ${studio}`, text: bits.join(' ') };
@@ -1405,7 +1405,7 @@ async function arriveOne(db: any, tenantId: string, ref: any, a: any, origin: st
       let toPhone = String(c.phone || a.clientPhone || ''), toEmail = String(c.email || a.clientEmail || ''); let smsOk = c.smsConsent !== false && c.smsOptOut !== true; let forWhom = '';
       if (!toPhone && !toEmail && fallback) { toPhone = fallback.phone; toEmail = fallback.email; smsOk = fallback.smsOk; forWhom = firstName(a.clientName) || 'your guest'; }
       const what = `${formsDue === 1 ? 'form' : `${formsDue} forms`}`;
-      const text = forWhom ? `Before ${forWhom}'s visit today, please complete their ${what}: ${link}` : `Before your visit today, please complete your ${what}: ${link}`;
+      const text = forWhom ? `Before ${forWhom}'s visit today, please complete their ${what} using this link: ${link}` : `Before your visit today, please complete your ${what} using this link: ${link}`;
       const channel: 'sms' | 'email' | null = toPhone && smsOk ? 'sms' : toEmail ? 'email' : null;
       if (channel) { const r: any = await sendNotification(db, { tenantId, channel, to: channel === 'sms' ? toPhone : toEmail, text,
         ...(channel === 'email' ? { subject: forWhom ? `${forWhom}'s form for today` : 'Your form for today', html: `<p>${text.replace(`: ${link}`, ':')}</p><p><a href="${link}">${link}</a></p>` } : {}),
@@ -1550,7 +1550,7 @@ async function handleBoothArrived(db: any, tenantId: string, body: any) {
       createdAt: new Date().toISOString(),
       type: 'renter_arrived',
       link: 'inbox',
-      message: `${booth.firstName || 'A renter'} has arrived at the kiosk for ${r.boothName} (${slot}). Start their session when you're ready.`,
+      message: `${booth.firstName || 'A renter'} has arrived at the kiosk for ${r.boothName} (${slot}). Please start their session when you are ready.`,
     });
   } catch {
     return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
@@ -2592,23 +2592,23 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
 
     if (recipients.size) {
       const batch = db.batch();
-      const flag = (patchTestWarning ? ' ⚠ Patch test not on file — confirm before starting.' : '')
+      const flag = (patchTestWarning ? ' Please note: no patch test is on file. Please confirm before starting.' : '')
         // Nobody passes this service's skill/certification/roster gate, so the
         // rotation will never pick this guest up on its own. If this line does
         // not appear, she waits forever while the board looks normal.
-        + (needsFrontDesk ? ' ⚠ No tech currently qualifies for this service — assign by hand.' : '');
+        + (needsFrontDesk ? ' Action needed: no provider currently qualifies for this service. Please assign one manually.' : '');
       // A party is described as a party. "Walk-in: Dana joined the queue" four
       // times over reads like four unrelated people, and the front desk plans
       // for four chairs together very differently from four strangers.
-      const partyTail = party.length ? ` · party of ${partySize}` : '';
+      const partyTail = party.length ? ` Party of ${partySize}.` : '';
       recipients.forEach((uid: string) => {
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         // Which of these guests, if any, was handed to the person reading this.
         const mySeat = seats.find(s => s.holder && uid === String(s.holder.id)) || null;
         const mine = !!mySeat;
         const askedFor = isRequested || waitingForRequested;
-        const partySummary = `Party of ${partySize} walked in: ${name} + ${party.length} more · ${
-          service.name || 'a service'} · ${seatedCount} seated, ${partySize - seatedCount} waiting.${flag}`;
+        const partySummary = `A party of ${partySize} has walked in: ${name} and ${party.length} more, for ${
+          service.name || 'a service'}. ${seatedCount} seated, ${partySize - seatedCount} waiting.${flag}`;
         batch.set(nRef, {
           id: nRef.id,
           userId: uid,
@@ -2619,14 +2619,14 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
           message: mine
             ? (mySeat!.isLead
               ? (waitingForRequested
-                ? `${name} asked for you and is happy to wait · ${service.name || 'service'} · about ${estWaitMin} min.${partyTail}${flag}`
-                : `Walk-in ${askedFor ? 'requested you' : 'assigned'}: ${name} · ${service.name || 'service'} · ready for you now.${partyTail}${flag}`)
-              : `Walk-in assigned: ${mySeat!.name} · ${mySeat!.service?.name || 'service'} · ready for you now. Guest ${
-                mySeat!.index} of ${partySize} in ${name}'s party.${mySeat!.consentPending ? ' ⚠ Consent form not signed yet.' : ''}${
-                mySeat!.patchTestWarning ? ' ⚠ Patch test not on file — confirm before starting.' : ''}`)
+                ? `${name} has asked for you and is happy to wait for ${service.name || 'their service'}, about ${estWaitMin} minutes.${partyTail}${flag}`
+                : `Walk-in ${askedFor ? 'requested you' : 'assigned to you'}: ${name}, ${service.name || 'service'}, ready for you now.${partyTail}${flag}`)
+              : `Walk-in assigned to you: ${mySeat!.name}, ${mySeat!.service?.name || 'service'}, ready for you now. Guest ${
+                mySeat!.index} of ${partySize} in ${name}'s party.${mySeat!.consentPending ? ' Please note: the consent form has not been signed yet.' : ''}${
+                mySeat!.patchTestWarning ? ' Please note: no patch test is on file. Please confirm before starting.' : ''}`)
             : (party.length
               ? partySummary
-              : `Walk-in: ${name} joined the queue for ${service.name || 'a service'}${holder ? ` — ${askedFor ? 'asked for' : 'sent to'} ${holder.name || 'a provider'}.` : ' — nobody free yet.'}${flag}`),
+              : `Walk-in: ${name} has joined the line for ${service.name || 'a service'}${holder ? `, ${askedFor ? 'and asked for' : 'and has been sent to'} ${holder.name || 'a provider'}.` : '. No provider is available yet.'}${flag}`),
         });
       });
       await batch.commit();
@@ -2996,8 +2996,8 @@ async function handleNotify(db: any, tenantId: string, tenant: any, body: any, b
     // FALSE means the message did not leave the building. The button should say
     // "go tell them in person" rather than a green tick.
     message: r.delivered
-      ? (r.sentSms ? 'Texted them.' : 'Emailed them.')
-      : 'Marked as called, but we could not reach them — please tell them in person.',
+      ? (r.sentSms ? 'The guest has been sent a text message.' : 'The guest has been sent an email.')
+      : 'Marked as called, but we were unable to reach the guest. Please let them know in person.',
   });
 }
 

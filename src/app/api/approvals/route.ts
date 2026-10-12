@@ -85,16 +85,16 @@ export async function POST(req: NextRequest) {
     await ref.set({ id: ref.id, kind, amount, ref: refId, reason, summary: String(b.summary || '').slice(0, 300) || null, status: 'pending', requestedBy: me.name, requestedById: me.id,
       createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 15 * 60000).toISOString(), decideHash: sha(k), managerForLink: managers[0]?.id || null, managerNameForLink: managers.length === 1 ? managers[0].name : 'A manager', used: false });
     const link = `${linkOrigin(t, req.nextUrl.origin)}/approve/${tenantId}/${ref.id}?k=${k}`;
-    const text = `${me.name.split(' ')[0]} asks to ${KIND_LABEL[kind] || kind}${amount ? ` — $${amount.toFixed(2)}` : ''}${b.summary ? ` (${String(b.summary).slice(0, 120)})` : ''}${reason ? `. Reason: ${reason}` : ''}. Approve or decline: ${link}`;
+    const text = `Action needed: ${me.name.split(' ')[0]} is requesting approval to ${KIND_LABEL[kind] || kind}${amount ? ` ($${amount.toFixed(2)})` : ''}${b.summary ? ` (${String(b.summary).slice(0, 120)})` : ''}${reason ? `. Reason: ${reason}` : ''}. Please approve or decline here: ${link}`;
     const { sendNotification } = await import('@/lib/notify');
     for (const m of managers) {
       const n = db.collection(`${T}/notifications`).doc();
       await n.set({ id: n.id, userId: m.id, read: false, createdAt: new Date().toISOString(), type: 'approval_request', approvalId: ref.id, message: text, link }).catch(() => {});
       if (m.id === me.id) continue;
-      if (via !== 'email' && String(m.phone || '').trim()) await sendNotification(db, { tenantId, channel: 'sms', to: String(m.phone), kind: 'approval_request', text: `${t.name || 'Front desk'}: ${text}`, recipientType: 'staff', recipientId: m.id } as any).catch(() => {});
+      if (via !== 'email' && String(m.phone || '').trim()) await sendNotification(db, { tenantId, channel: 'sms', to: String(m.phone), kind: 'approval_request', text, recipientType: 'staff', recipientId: m.id } as any).catch(() => {});
       if (via !== 'text' && String(m.email || '').includes('@')) { const { brandedEmailHtml } = await import('@/lib/email-template');
-        await sendNotification(db, { tenantId, channel: 'email', to: String(m.email), subject: `Approval needed — ${KIND_LABEL[kind] || kind}${amount ? ` ($${amount.toFixed(2)})` : ''}`, kind: 'approval_request',
-          html: brandedEmailHtml({ studioName: t.name || 'Front desk', title: 'Can you approve this?', bodyLines: [text.replace(/ Approve or decline: .*$/, ''), 'You’ll enter your PIN to approve. The request expires in 15 minutes.'], cta: { label: 'Approve or decline', url: link } } as any), recipientType: 'staff', recipientId: m.id } as any).catch(() => {}); }
+        await sendNotification(db, { tenantId, channel: 'email', to: String(m.email), subject: `Approval needed: ${KIND_LABEL[kind] || kind}${amount ? ` ($${amount.toFixed(2)})` : ''}`, kind: 'approval_request',
+          html: brandedEmailHtml({ studioName: t.name || 'Front desk', title: 'Approval requested', bodyLines: [text.replace(/ Please approve or decline here: .*$/, ''), 'You will be asked to enter your PIN to approve. This request expires in 15 minutes.'], cta: { label: 'Approve or decline', url: link } } as any), recipientType: 'staff', recipientId: m.id } as any).catch(() => {}); }
     }
     return NextResponse.json({ ok: true, id: ref.id, sentTo: managers.length });
   }
