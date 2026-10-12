@@ -594,6 +594,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                       body: JSON.stringify({
                         tenantId,
                         clientId: out.clientId,
+                        appointmentId: out.appointmentId,   // the server checks this booking is the client's own
+                        checkInToken: out.checkInToken,
                         clientEmail: formData.clientEmail,
                         clientName: formData.clientName,
                         serviceName: restDetails?.serviceName || '',

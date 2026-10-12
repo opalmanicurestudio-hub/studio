@@ -874,9 +874,11 @@ export function resolveQuietHours(tenant: any): QuietHours {
 }
 
 /** Is `date` inside quiet hours? Handles the overnight wrap (21:00 → 08:00). */
-export function inQuietHours(qh: QuietHours, date: Date): boolean {
+export function inQuietHours(qh: QuietHours, date: Date, timeZone?: string | null): boolean {
   if (!qh.enabled) return false;
-  const h = date.getHours();
+  // The business's clock, not the server's (servers run on UTC — 9 pm in New York is 1 am there).
+  let h = date.getHours();
+  if (timeZone) { try { h = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone }).format(date)); } catch { /* keep the clock's hour */ } }
   return qh.startHour > qh.endHour
     ? (h >= qh.startHour || h < qh.endHour)   // wraps midnight
     : (h >= qh.startHour && h < qh.endHour);

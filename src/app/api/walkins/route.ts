@@ -549,12 +549,12 @@ async function healStale(db: any, tenantId: string, stale: any[], nowIso: string
  */
 function eligibleProviders(staff: any[], shifts: any[], service: any): any[] {
   const day = todayStr();
-  // 'cancelled' only — the same test the board uses. Matching it matters more
+  // Cancelled, draft or denied shifts don't count — the same test the board uses. Matching it matters more
   // than being stricter: a shift the board counts as on-the-floor must be a
   // shift this route counts too, or the two screens tell different stories.
   const rostered = (shifts || []).filter(
     (s: any) => String(s?.date || '').slice(0, 10) === day &&
-      String(s?.status || '').toLowerCase() !== 'cancelled',
+      !['cancelled', 'draft', 'denied'].includes(String(s?.status || '').toLowerCase()),
   );
   const published = rostered.length > 0;
   const onShift = new Set(rostered.map((s: any) => String(s?.staffId || '')));
@@ -837,7 +837,7 @@ export async function GET(req: NextRequest) {
       const onShiftIds = new Set(
         (shifts || [])
           .filter((s: any) => String(s?.date || '').slice(0, 10) === day &&
-            String(s?.status || '').toLowerCase() !== 'cancelled')
+            !['cancelled', 'draft', 'denied'].includes(String(s?.status || '').toLowerCase()))
           .map((s: any) => String(s?.staffId || '')),
       );
       const rostered = onShiftIds.size > 0;

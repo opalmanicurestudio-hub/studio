@@ -557,7 +557,7 @@ function getTechAvailability(
   const today = bizKey(now);
 
   // 1. Check shift
-  const shift = allShifts.find((s: any) => s.staffId === tech.id && s.date === today && s.status !== 'cancelled');
+  const shift = allShifts.find((s: any) => s.staffId === tech.id && s.date === today && s.status !== 'cancelled' && s.status !== 'draft');
   if (!shift) return { available: false, reason: 'Off shift', nextApt: null, conflictMinutes: 0 };
 
   const shiftStart = safeDate(`${today}T${shift.startTime}`);

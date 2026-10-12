@@ -179,7 +179,8 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
   if (!suppressed && channel === 'sms' && tenantDoc) {
     try {
       const { resolveQuietHours, inQuietHours } = await import('./message-policy');
-      quietDeferred = inQuietHours(resolveQuietHours(tenantDoc), new Date());
+      const { tenantTimeZone } = await import('./tenant-time');
+      quietDeferred = inQuietHours(resolveQuietHours(tenantDoc), new Date(), tenantTimeZone(tenantDoc));
     } catch { /* fail open */ }
   }
 

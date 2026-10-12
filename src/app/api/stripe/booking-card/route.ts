@@ -39,8 +39,10 @@ export async function POST(req: NextRequest) {
   const clientName = String(body.clientName || '').trim();
   const serviceName = String(body.serviceName || '').trim();
 
-  if (!tenantId || !clientId) {
-    return NextResponse.json({ error: 'tenantId and clientId are required.' }, { status: 400 });
+  const appointmentId = String(body.appointmentId || '').trim();
+  const checkInToken = String(body.checkInToken || '').trim();
+  if (!tenantId || !clientId || !appointmentId || !checkInToken) {
+    return NextResponse.json({ error: 'This booking link isn’t complete — please book again.' }, { status: 400 });
   }
 
   try {
@@ -50,6 +52,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
     }
     const tenant = tenantSnap.data() as any;
+    /* WHO'S ASKING: only the booking that was just made can put a card on its client — the request must carry that
+     * booking's own id and its private visit token (both come back from /api/appointments/book), the booking must be
+     * this client's, ask for a card on file, and still be live. Knowing a business id and a client id is not enough. */
+    const ap: any = (await db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).get()).data();
+    const live = ap && !['cancelled', 'canceled', 'completed', 'no_show', 'declined', 'expired'].includes(String(ap.status || ''));
+    if (!live || String(ap.clientId || '') !== clientId || !ap.checkInToken || String(ap.checkInToken) !== checkInToken || ap.requiresCardOnFile !== true) {
+      return NextResponse.json({ error: 'We couldn’t match this to your booking — please book again.' }, { status: 403 });
+    }
     const stripeAccountId = tenant?.stripeAccountId;
     if (!stripeAccountId) {
       return NextResponse.json({ error: 'This studio is not set up to take cards yet.' }, { status: 400 });
