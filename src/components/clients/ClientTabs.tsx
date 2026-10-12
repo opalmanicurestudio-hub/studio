@@ -2,7 +2,8 @@
 // src/components/clients/ClientTabs.tsx — THE CLIENT PROFILE'S RECORDS, IN ONE STYLE.
 //   useClientMessages — the client's messages (sent with delivery state, and texts that came in), from the server
 //   ClientTimeline    — "Everything, in order": visits, payments, messages and forms in one stream, with filters
-//   ClientMessages    — the conversation, each message with its delivery state, and a box to send a text or email
+//   ClientMessages    — the conversation record: texts, emails, calls (recording and transcript), notes and decisions,
+//                       with filters, export and print, and a box to send a text or email
 //   ClientFormsNeeded — what must be signed before their upcoming visits, and what's on file
 import * as React from 'react';
 import { format } from 'date-fns';
@@ -35,7 +36,7 @@ export function ClientTimeline({ appointments, services, staff, transactions, co
         detail: cancelled ? (a.status === 'no_show' ? 'Didn’t come' : 'Cancelled') : [a.checkoutState?.formula?.length ? `formula: ${a.checkoutState.formula.slice(0, 2).map((x: any) => x.name).join(', ')}` : null, a.afterPhotos?.length ? `${a.afterPhotos.length} photo${a.afterPhotos.length === 1 ? '' : 's'}` : null, a.status === 'completed' ? null : String(a.status || '').replace(/_/g, ' ')].filter(Boolean).join(' · ') || undefined }); }
     if (showMoney) for (const t of transactions) { if (!t?.date) continue; const amt = Number(t.amount) || 0; out.push({ at: safe(t.date), kind: 'payment', tone: t.type === 'reversal' ? 'warn' : undefined, title: <><b>{t.type === 'reversal' ? 'Refund' : 'Payment'}</b> · ${Math.abs(amt).toFixed(2)}</>, detail: [t.description, t.paymentMethod].filter(Boolean).join(' · ') || undefined }); }
     for (const c of consents) { const at = c.signedAt || c.createdAt || c.at; if (!at) continue; out.push({ at: safe(at), kind: 'form', title: <><b>{c.formName || c.title || 'Form'}</b> signed</>, detail: [c.signedByName || c.signerName ? `by ${c.signedByName || c.signerName}` : null, c.version ? `v${c.version}` : null].filter(Boolean).join(' · ') || undefined }); }
-    for (const m of messages || []) out.push({ at: safe(m.at), kind: 'message', tone: /fail|bounce/.test(m.status) ? 'warn' : undefined, title: <>{m.dir === 'in' ? 'Text from them' : `${m.channel === 'sms' ? 'Text' : 'Email'}${m.kind && m.kind !== 'staff_message' ? ` · ${String(m.kind).replace(/_/g, ' ')}` : ''}`}</>, detail: m.text ? `“${String(m.text).slice(0, 90)}${String(m.text).length > 90 ? '…' : ''}”` : m.subject || undefined });
+    for (const m of (messages || []).filter((x: any) => !x.type || ['text', 'email', 'call'].includes(x.type))) out.push({ at: safe(m.at), kind: 'message', tone: /fail|bounce/.test(m.status) ? 'warn' : undefined, title: <>{m.type === 'call' ? `Call${m.dir === 'out' ? '' : ' from them'}` : m.dir === 'in' ? `${m.channel === 'email' ? 'Email' : 'Text'} from them` : `${m.channel === 'sms' ? 'Text' : 'Email'}${m.kind && m.kind !== 'staff_message' ? ` · ${String(m.kind).replace(/_/g, ' ')}` : ''}`}</>, detail: m.text ? `“${String(m.text).slice(0, 90)}${String(m.text).length > 90 ? '…' : ''}”` : m.subject || undefined });
     return out.filter((e) => !isNaN(e.at.getTime())).sort((x, y) => y.at.getTime() - x.at.getTime()); }, [appointments, services, staff, transactions, consents, messages, showMoney, onOpenVisit]);
   const shown = events.filter((e) => filter === 'all' || e.kind === filter);
   const dot = (e: Ev) => e.tone === 'warn' ? 'var(--warn, #b45309)' : e.kind === 'visit' ? 'var(--accent, #2e6f6a)' : e.kind === 'payment' ? 'var(--ink, #1c1917)' : 'var(--muted, #9a9a9a)';
@@ -53,25 +54,85 @@ export function ClientTimeline({ appointments, services, staff, transactions, co
     </section>);
 }
 
+const dur = (s: any) => { const n = Math.max(0, Math.round(Number(s) || 0)); const m = Math.floor(n / 60), r = n % 60; return m ? `${m} min${r ? ` ${r} s` : ''}` : `${r} s`; };
+const at = (v: any) => { const d = safe(v); return isNaN(d.getTime()) ? '' : format(d, d.getFullYear() === new Date().getFullYear() ? 'MMM d, h:mm a' : 'MMM d, yyyy, h:mm a'); };
+const DECISION: Record<string, string> = { courtesy: 'Courtesy', policy: 'Cancellation', receptionist: 'Receptionist' };
+type ConvFilter = 'all' | 'text' | 'email' | 'call' | 'note' | 'decision';
+const CONV_FILTERS: [ConvFilter, string][] = [['all', 'All'], ['text', 'Texts'], ['email', 'Emails'], ['call', 'Calls'], ['note', 'Notes'], ['decision', 'Decisions']];
+const inFilter = (m: any, f: ConvFilter) => f === 'all' || (f === 'decision' ? m.type in DECISION : m.type === f);
+
+/** A call: length, direction, summary, the recording (fetched signed-in) and the transcript. */
+function CallCard({ tenantId, m }: { tenantId: string; m: any }) {
+  const c = m.call || {}; const callId = m.meta?.callId; const [src, setSrc] = React.useState<string | null>(null); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState<string | null>(null);
+  React.useEffect(() => () => { if (src?.startsWith('blob:')) URL.revokeObjectURL(src); }, [src]);
+  const play = async () => { setBusy(true); setErr(null);
+    try { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+      const r = await fetch(`/api/calls/recording?tenantId=${encodeURIComponent(tenantId)}&callId=${encodeURIComponent(callId)}`, { headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
+      if (/json/.test(r.headers.get('content-type') || '')) { const j: any = await r.json().catch(() => ({})); if (j?.url) setSrc(j.url); else setErr(j?.error || 'We couldn’t load the recording.'); }
+      else if (!r.ok) setErr('We couldn’t load the recording.');
+      else setSrc(URL.createObjectURL(await r.blob()));
+    } catch { setErr('We couldn’t load the recording. Please check your connection and try again.'); }
+    setBusy(false); };
+  const dir = c.direction === 'outbound' || m.dir === 'out' ? 'Outbound' : 'Inbound';
+  return (
+    <div className="w-full space-y-2 rounded-2xl p-3.5 text-[14px]" style={card}>
+      <p className="font-semibold">Call · {c.durationSeconds != null ? `${dur(c.durationSeconds)} · ` : ''}{dir}</p>
+      {(c.summary || m.text) && <p className="whitespace-pre-wrap">{c.summary || m.text}</p>}
+      {c.recording && callId && (src ? <audio controls autoPlay src={src} className="w-full" /> : <button type="button" onClick={play} disabled={busy} className="h-9 rounded-full px-4 text-[13px] font-semibold disabled:opacity-50" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>{busy ? 'Loading…' : 'Play recording'}</button>)}
+      {err && <p className="text-[12.5px]" style={{ color: 'var(--warn, #b45309)' }}>{err}</p>}
+      {c.transcript && <details><summary className="cursor-pointer text-[13px] font-semibold">Transcript</summary>
+        <div className="mt-2 max-h-[260px] overflow-y-auto whitespace-pre-wrap rounded-xl p-3 text-[13px] leading-relaxed" style={{ background: 'var(--soft, #efebe6)' }}>{c.transcript}</div></details>}
+    </div>);
+}
+
+/** One entry in the conversation record. */
+function ConvRow({ tenantId, m }: { tenantId: string; m: any }) {
+  const meta = <span style={muted}>{[m.who, at(m.at)].filter(Boolean).join(' · ')}</span>;
+  if (m.type === 'call') return <div className={`flex flex-col ${m.dir === 'in' ? 'items-start' : 'items-end'}`}><div className="w-full max-w-[90%] sm:max-w-[80%]"><CallCard tenantId={tenantId} m={m} /></div><span className="mt-1 text-[11px]">{meta}</span></div>;
+  if (m.type === 'note') return (
+    <div className="rounded-2xl border border-dashed px-3.5 py-2.5 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+      <p className="text-[12px] font-semibold" style={muted}>Note · {m.who}{m.at ? ` · ${at(m.at)}` : ''}{m.meta?.visibility === 'managers' ? ' · Managers only' : m.meta?.visibility === 'private' ? ' · Just you' : ''}</p>
+      <p className="mt-0.5 whitespace-pre-wrap" style={m.status ? { ...muted, textDecoration: 'line-through' } : undefined}>{m.text}</p>
+      {m.status && <p className="mt-0.5 text-[12px]" style={muted}>{String(m.status)[0].toUpperCase() + String(m.status).slice(1)}</p>}
+    </div>);
+  if (m.type in DECISION) return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-0.5 text-[12.5px]" style={muted}>
+      {pill(DECISION[m.type])}<span className="min-w-0">{m.text}</span><span className="text-[11px]">· {[m.who, at(m.at)].filter(Boolean).join(' · ')}{m.status && m.type !== 'courtesy' ? ` · ${String(m.status).replace(/_/g, ' ')}` : ''}</span>
+    </div>);
+  const inboxId = m.meta?.inboxId;
+  return (
+    <div className={`flex flex-col ${m.dir === 'in' ? 'items-start' : 'items-end'}`}>
+      <div className="max-w-[90%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[14px] sm:max-w-[80%]" style={m.dir === 'in' ? { background: 'var(--soft, #efebe6)' } : { background: 'var(--ink, #1c1917)', color: '#fff' }}>{m.subject ? <b className="block">{m.subject}</b> : null}{m.text || <i>(no preview)</i>}</div>
+      <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]" style={muted}>{m.type === 'email' ? 'Email' : 'Text'} · {m.who}{m.kind && m.kind !== 'staff_message' ? ` (${String(m.kind).replace(/_/g, ' ')})` : ''} · {at(m.at)} {m.dir === 'out' && m.status ? (m.status === 'opened' ? pill('Opened', 'ok') : statusPill(m.status)) : null}</span>
+      {m.dir === 'in' && m.complaint?.match && <a href={`/cases?start=text${inboxId ? `&inbox=${encodeURIComponent(inboxId)}` : ''}`} className="mt-1 inline-flex h-8 items-center rounded-full px-3 text-[12.5px] font-semibold" style={m.complaint.safety ? { background: '#fdecec', color: '#b42318' } : { background: 'var(--ink, #1c1917)', color: '#fff' }}>{m.complaint.safety ? 'Possible safety concern. Start a case' : 'Possible complaint. Start a case'}</a>}
+      {m.error && /fail|bounce/.test(m.status) && <span className="text-[11px]" style={{ color: 'var(--warn, #b45309)' }}>{String(m.error).slice(0, 120)}</span>}
+    </div>);
+}
+
 export function ClientMessages({ tenantId, client, msgs, canSeeContact, canMessage = canSeeContact }: { tenantId: string; client: any; msgs: ReturnType<typeof useClientMessages>; canSeeContact: boolean; canMessage?: boolean }) {
   const [text, setText] = React.useState(''); const [channel, setChannel] = React.useState<'sms' | 'email'>('sms'); const [busy, setBusy] = React.useState(false); const [note, setNote] = React.useState<string | null>(null);
+  const [filter, setFilter] = React.useState<ConvFilter>('all'); const [exporting, setExporting] = React.useState(false); const scroller = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => { if (!msgs.canText && msgs.canEmail) setChannel('email'); }, [msgs.canText, msgs.canEmail]);
   const first = String(client.name || 'them').split(' ')[0];
+  const shown = (msgs.rows || []).filter((m) => inFilter(m, filter));
+  React.useEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs.rows, filter]);
   const send = async () => { setBusy(true); setNote(null); const r: any = await call({ tenantId, clientId: client.id, action: 'send', text, channel }); setBusy(false);
     if (!r?.ok) { setNote(r?.error || 'It didn’t send.'); return; } setText(''); setNote(r.status === 'sent' ? 'Sent.' : 'Queued.'); void msgs.reload(); };
+  const exportCsv = async () => { setExporting(true); setNote(null); const r: any = await call({ tenantId, clientId: client.id, action: 'export' }); setExporting(false);
+    if (!r?.ok) { setNote(r?.error || 'We couldn’t export the conversation. Please try again.'); return; }
+    const url = URL.createObjectURL(new Blob([r.csv], { type: 'text/csv;charset=utf-8' })); const a = document.createElement('a');
+    a.href = url; a.download = r.filename || 'conversation.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); };
   return (
-    <section className="space-y-3 rounded-3xl p-5" style={card} aria-label="Messages">
-      <h3 className="text-[17px] font-semibold">Texts and emails</h3>
+    <section className="cf-convo space-y-3 rounded-3xl p-5" style={card} aria-label="Conversation">
+      <style>{'@media print{.cf-convo-scroll{max-height:none!important;overflow:visible!important}.cf-convo-noprint{display:none!important}}'}</style>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-[17px] font-semibold">Conversation</h3>
+        <div className="cf-convo-noprint flex gap-1.5"><button type="button" onClick={exportCsv} disabled={exporting} className="h-8 rounded-full px-3 text-[13px] font-semibold disabled:opacity-50" style={{ background: 'var(--soft, #efebe6)' }}>{exporting ? 'Exporting…' : 'Export'}</button>
+          <button type="button" onClick={() => window.print()} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Print</button></div></div>
+      <div className="cf-convo-noprint flex flex-wrap gap-1" role="tablist" aria-label="Show">{CONV_FILTERS.map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={filter === k} onClick={() => setFilter(k)} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={filter === k ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>{l}</button>)}</div>
       {msgs.error && <p className="text-[14px]" style={{ color: 'var(--warn, #b45309)' }}>{msgs.error}</p>}
-      {msgs.rows === null ? <p className="text-[14px]" style={muted}>Loading…</p> : msgs.rows.length === 0 ? <p className="text-[14px]" style={muted}>No messages yet.</p> : (
-        <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">{msgs.rows.map((m) => (
-          <div key={m.id + m.at} className={`flex flex-col ${m.dir === 'in' ? 'items-start' : 'items-end'}`}>
-            <div className="max-w-[80%] rounded-2xl px-3.5 py-2.5 text-[14px]" style={m.dir === 'in' ? { background: 'var(--soft, #efebe6)' } : { background: 'var(--ink, #1c1917)', color: '#fff' }}>{m.subject ? <b className="block">{m.subject}</b> : null}{m.text || <i>(no preview)</i>}</div>
-            <span className="mt-1 flex items-center gap-1.5 text-[11px]" style={muted}>{m.channel === 'sms' ? 'Text' : 'Email'}{m.kind && m.kind !== 'staff_message' ? ` · ${String(m.kind).replace(/_/g, ' ')}` : ''}{m.to && m.to !== client.name ? ` · to ${m.to}` : ''} · {format(safe(m.at), 'd MMM, h:mm a')} {statusPill(m.status)}</span>
-            {m.dir === 'in' && m.complaint && m.id && <a href={`/cases?start=text&inbox=${encodeURIComponent(m.id)}`} className="mt-1 inline-flex h-8 items-center rounded-full px-3 text-[12.5px] font-semibold" style={m.complaint.safety ? { background: '#fdecec', color: '#b42318' } : { background: 'var(--ink, #1c1917)', color: '#fff' }}>{m.complaint.safety ? 'Possible safety concern — start a case' : 'Sounds like a complaint — start a case'}</a>}
-            {m.error && /fail|bounce/.test(m.status) && <span className="text-[11px]" style={{ color: 'var(--warn, #b45309)' }}>{String(m.error).slice(0, 120)}</span>}
-          </div>))}</div>)}
-      {canMessage && (msgs.canText || msgs.canEmail) ? <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--line, #efebe6)' }}>
+      {msgs.rows === null ? <p className="text-[14px]" style={muted}>Loading…</p> : shown.length === 0 ? <p className="text-[14px]" style={muted}>{filter === 'all' ? 'Nothing on the record yet.' : 'Nothing of this kind yet.'}</p> : (
+        <div ref={scroller} className="cf-convo-scroll max-h-[560px] space-y-2.5 overflow-y-auto pr-1">{shown.map((m) => <ConvRow key={m.id + m.at} tenantId={tenantId} m={m} />)}</div>)}
+      {canMessage && (msgs.canText || msgs.canEmail) ? <div className="cf-convo-noprint space-y-2 border-t pt-3" style={{ borderColor: 'var(--line, #efebe6)' }}>
         <div className="flex gap-1">{msgs.canText && <button type="button" onClick={() => setChannel('sms')} aria-pressed={channel === 'sms'} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={channel === 'sms' ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>Text</button>}{msgs.canEmail && <button type="button" onClick={() => setChannel('email')} aria-pressed={channel === 'email'} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={channel === 'email' ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>Email</button>}</div>
         {!canSeeContact && <p className="text-[12px]" style={muted}>Sent from the business; you won’t see their number or email.</p>}
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`Write ${channel === 'sms' ? 'a text' : 'an email'} to ${first}…`} aria-label="Message" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />

@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { AlertTriangle, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart } from 'lucide-react';
+import { AlertTriangle, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -45,6 +45,7 @@ const DAILY_HUB = [
   { href: '/pos',         icon: ListChecks,      label: 'Front desk' },
   { href: '/host',        icon: ConciergeBell,   label: 'Host stand'     },
   { href: '/voice',       icon: Bot,             label: 'Phone assistant'},
+  { href: '/inbox',       icon: Inbox,           label: 'Inbox'          },
   { href: '/messages',    icon: MessageSquare,   label: 'Messages'       },
   { href: '/message-log', icon: Send,            label: 'Message log'    },
   { href: '/my-schedule', icon: Clock,           label: 'My schedule'    },
@@ -349,6 +350,23 @@ export function AppSidebar() {
     return () => { unsubClient(); unsubStaff(); };
   }, [firestore, tenantId, currentUser?.uid, isOwnerOrAdmin]);
 
+  /* Texts and emails from clients nobody has opened yet (the Inbox). Read through the server, refreshed every
+   * two minutes and when you leave the Inbox, so reading messages there brings the number down. */
+  const [inboxBadgeCount, setInboxBadgeCount] = useState(0);
+  useEffect(() => {
+    if (!tenantId || !currentUser?.uid) return;
+    let live = true;
+    const load = async () => {
+      try {
+        const tk = await auth?.currentUser?.getIdToken().catch(() => '') || '';
+        const r = await fetch('/api/inbox', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'list', filter: 'unread' }) }).then((x) => x.json());
+        if (live && r?.ok) setInboxBadgeCount(Number(r.unread) || 0);
+      } catch { /* non-fatal */ }
+    };
+    void load(); const t = setInterval(load, 120000);
+    return () => { live = false; clearInterval(t); };
+  }, [auth, tenantId, currentUser?.uid, pathname?.startsWith('/inbox')]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   /* Booking requests waiting on an answer. Live-counted rather than derived
    * from settings, so the badge is the truth even if the shop switches modes
    * with requests still open — and the nav entry hides entirely when there is
@@ -394,6 +412,7 @@ export function AppSidebar() {
     (i) => i.href !== '/appointments/requests' || approvalMode || requestBadgeCount > 0,
   );
   const dailyBadges = {
+    ...(inboxBadgeCount > 0 ? { '/inbox': inboxBadgeCount } : {}),
     ...(messagesBadgeCount > 0 ? { '/messages': messagesBadgeCount } : {}),
     ...(requestBadgeCount > 0 ? { '/appointments/requests': requestBadgeCount } : {}),
   };
