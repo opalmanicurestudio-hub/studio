@@ -461,6 +461,11 @@ export default function PracticePage() {
             <span style={{ flex: 1 }}><b style={{ display: 'block', fontSize: 14.5 }}>Shift {i + 1}: {G.SHIFTS[id].title}</b><span style={{ fontSize: 12.5, color: MUTED }}>{i === 0 ? 'Check-ins, seating, payments and rebooking. Coached the first time. About 2 minutes.' : 'A provider calls out, a late text, a walk-in and a wash backlog. About 3 minutes.'}</span></span>
             {i === 0 && totalXp < 150 && <Pill tone="green">Start here</Pill>}
           </button>)}
+          <a href="/practice/register" style={{ ...choiceStyle, flexDirection: 'row', alignItems: 'center', gap: 12, textDecoration: 'none', color: INK }}>
+            <span style={{ width: 38, height: 38, borderRadius: 19, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="pay" color={BLUE} size={20} /></span>
+            <span style={{ flex: 1 }}><b style={{ display: 'block', fontSize: 14.5 }}>Behind the desk: work the register</b><span style={{ fontSize: 12.5, color: MUTED }}>Scan products (a real scanner works too), fix slips, take payment while the line grows. About 3 minutes.</span></span>
+            <Pill tone="green">New</Pill>
+          </a>
           <Muted>Tap people and icons. Drag a person to a chair to seat them. Drag the floor to look around; scroll or pinch to zoom.</Muted>
           <a href="/dashboard" style={{ fontSize: 12.5, color: MUTED }}>← Back to ClarityFlow</a>
         </Card></Center>
