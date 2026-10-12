@@ -65,7 +65,7 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
     const depPlan = o.outcome.deposit?.outcome || null;
     const moveSeries = !!appt.seriesId && appt.depositStatus === 'paid' && e.selectedTenant?.bookingPolicies?.seriesMoveDeposit !== false && ['refund', 'rollover', 'store_credit'].includes(String(depPlan));
     await e.handleCancellationConfirm({ ...data, feeAmount: o.outcome.who === 'studio' ? 0 : o.due, chargeFee: o.outcome.who !== 'studio' && o.due > 0 && collected !== 'waived',
-      paymentMethod: collected === 'waived' ? 'waived' : paymentMethod, alreadyChargedPaymentIntentId: intentId, notifiedByServer: tell,
+      paymentMethod: collected === 'waived' ? 'waived' : paymentMethod, alreadyChargedPaymentIntentId: intentId, notifiedByServer: tell ? true : 'skip',   // unticked “Send” means no message at all
       depositOutcome: moveSeries ? 'rollover' : (o.outcome.deposit?.outcome || null) });
     let seriesLines: string[] = [];
     if (appt.seriesId && (moveSeries || cancelLater)) {

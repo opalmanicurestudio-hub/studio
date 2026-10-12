@@ -177,7 +177,12 @@ export async function GET(req: NextRequest) {
           const r = evaluateWindow(automations.depositNotPaid, missing, hrsUntil, automationState, 'depositReminderSentAt', 'depositAutoCancelledAt', 'depositReminderCount');
           Object.assign(updates, r.updates);
           if (r.shouldSendReminder) notifications.push({ title: 'Deposit reminder', message: `${apt.clientName || 'A client'}'s deposit is still unpaid ahead of their appointment.` });
-          if (r.shouldCancel) cancelReasons.push('unpaid deposit');
+          if (r.shouldCancel) {
+            // Never inside the visit's protected window (lib/deposit-release): the desk decides instead.
+            const { protectHoursOf, tellDeskDeposit } = await import('@/lib/deposit-release');
+            if (hrsUntil < protectHoursOf(tenant)) { if (!apt.depositDeskAt) await tellDeskDeposit(db, tenantId, { id: aptDoc.id, ...apt }, 'desk', now.getTime()).catch(() => {}); }
+            else cancelReasons.push('unpaid deposit');
+          }
         }
 
         // ── consentFormUnsigned ──────────────────────────────────────────
@@ -250,6 +255,19 @@ export async function GET(req: NextRequest) {
 
         for (const n of notifications) {
           await notifyOwner(db, tenantId, tenant.userId, n.title, n.message);
+        }
+        if (cancelReasons.length > 0) {
+          // A cancelled visit is cancelled everywhere: the client's own link, the client (told why, nothing charged),
+          // and the desk and the provider — not just the owner.
+          const a = { id: aptDoc.id, ...apt };
+          if (apt.checkInToken) { await db.doc(`appointmentCheckIns/${apt.checkInToken}`).set({ status: 'cancelled', checkInStatus: 'auto_cancelled', tenantId }, { merge: true }).catch(() => {});
+            await db.doc(`tenants/${tenantId}/appointmentCheckIns/${apt.checkInToken}`).set({ status: 'cancelled' }, { merge: true }).catch(() => {}); }
+          try {
+            const D = await import('@/lib/deposit-release');
+            if (cancelReasons.includes('unpaid deposit')) await D.tellClientReleased(db, tenantId, a);
+            else { const { sendCancellationNotice } = await import('@/lib/cancel-notice'); const { internalOrigin } = await import('@/lib/message-policy'); await sendCancellationNotice(db, tenantId, aptDoc.id, { who: 'studio' } as any, internalOrigin(tenant, null) || '', a); }
+            await D.tellTeam(db, tenantId, a, 'Appointment auto-cancelled', `${apt.clientName || 'A client'}’s appointment was cancelled automatically (${cancelReasons.join(' and ')}). They’ve been told.`, now.getTime());
+          } catch (e) { console.error('[check-automations] tell', e); }
         }
 
         summary.push({ tenantId, appointmentId: aptDoc.id, fieldsUpdated: Object.keys(updates), cancelled: cancelReasons.length > 0 });

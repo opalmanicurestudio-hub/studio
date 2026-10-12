@@ -154,7 +154,9 @@ export async function POST(req: NextRequest) {
 
   // Compute fee (100% of service by default; respects noShowFeeMode)
   let feeAmount = 0;
-  if (tenant.noShowFeeMode === 'flat' && tenant.flatNoShowFee) {
+  if (tenant.noShowFeeMode === 'none') {
+    feeAmount = 0;   // the owner chose "No fee" (Settings → Booking policies) — never charge one
+  } else if (tenant.noShowFeeMode === 'flat' && tenant.flatNoShowFee) {
     feeAmount = tenant.flatNoShowFee;
   } else {
     feeAmount = primarySvcSnap.data()?.price || 0;
@@ -286,7 +288,7 @@ export async function POST(req: NextRequest) {
     chargeFee:             feeAmount > 0,
     feeAmount,
     paymentMethod,
-    stripeCustomerId:      client.stripeCustomerId || null,
+    stripeCustomerId:      client.cardOnFile?.customerId || client.cardOnFile?.stripeCustomerId || client.stripeCustomerId || null,   // where saved cards actually keep it (lib/card-save)
     stripePaymentMethodId: client.cardOnFile?.paymentMethodId || (hasRealCard(client) ? client.cardOnFile?.token : null) || null,
     cancellationAudit,
     reason:                'no-show',

@@ -115,7 +115,8 @@ interface CancellationConfirmPayload {
   /** The front desk already charged the card (PaymentIntent id) — the background function must NOT charge again. */
   alreadyChargedPaymentIntentId?: string | null;
   /** The front desk already told the client (one server-sent message) — the background function must NOT message too. */
-  notifiedByServer?: boolean;
+  /** true = the desk already told the client; 'skip' = the desk chose not to tell them (nothing is sent). */
+  notifiedByServer?: boolean | 'skip';
   /** The front desk's plan for the deposit (planCancellation) — when given, the save does exactly this. */
   depositOutcome?: 'forfeit' | 'applied' | 'rollover' | 'store_credit' | 'refund' | null;
   reason: string;
@@ -346,7 +347,7 @@ export function useCancellationConfirm(
         // null = the desk has already told them (one message, not two)
         clientEmail:           notifiedByServer ? null : (client.email || null),
         clientPhone:           notifiedByServer ? null : (client.phone || null),
-        clientNotifiedBy:      notifiedByServer ? 'front desk' : null,
+        clientNotifiedBy:      notifiedByServer === 'skip' ? 'not sent — the desk chose not to' : notifiedByServer ? 'front desk' : null,
         serviceId:             appointment.serviceId,
         serviceName:           serviceName || null,
         staffId:               appointment.staffId,

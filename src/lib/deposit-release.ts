@@ -23,6 +23,8 @@ export function protectHoursOf(tenant: any): number {
 export function releaseCall(a: any, now: number, tenant: any, holdMin = 30): ReleaseCall {
   if (a?.status !== 'pending_payment' || a?.depositStatus === 'paid') return 'wait';
   if (a.depositDeskHold === true) return 'wait';                                   // the desk has it
+  // An accepted request with no deadline: the shop set the payment grace to 0 ("no limit") — never released by a clock.
+  if (a.decidedAt && !a.paymentDueAt && Number((tenant?.bookingMode || {}).paymentGraceHours) === 0) return 'wait';
   const start = ms(a.startTime); const created = ms(a.createdAt);
   const due = a.paymentDueAt ? ms(a.paymentDueAt) : created ? created + holdMin * 60000 : NaN;
   const lead = start - now; const protect = protectHoursOf(tenant) * H;
@@ -49,4 +51,32 @@ export async function tellDeskDeposit(db: any, tenantId: string, a: any, stage: 
   const b = db.batch();
   for (const m of staff) { const r = db.collection(`${T}/notifications`).doc(); b.set(r, { id: r.id, userId: m.id, type: 'deposit_unpaid', title: 'Deposit not paid', link: '/planner', read: false, createdAt: new Date(now).toISOString(), message, appointmentId: a.id }); }
   await b.commit();
+}
+
+/** Tell the team (owners, managers, front desk) and the visit's provider, in the app. */
+export async function tellTeam(db: any, tenantId: string, a: any, title: string, message: string, now = Date.now()) {
+  const T = `tenants/${tenantId}`;
+  const staff = (await db.collection(`${T}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+    .filter((m: any) => !m.archived && (['owner', 'admin', 'manager', 'front_desk'].includes(String(m.role || '')) || m.id === a.staffId));
+  const b = db.batch();
+  for (const m of staff) { const r = db.collection(`${T}/notifications`).doc(); b.set(r, { id: r.id, userId: m.id, type: 'appointment_released', title, link: '/planner', read: false, createdAt: new Date(now).toISOString(), message, appointmentId: a.id || null }); }
+  await b.commit();
+}
+/** The client hears that an unpaid booking was released — nothing charged, a link to book again. */
+export async function tellClientReleased(db: any, tenantId: string, a: any) {
+  const T = `tenants/${tenantId}`; const tenant: any = (await db.doc(T).get()).data() || {};
+  const cl: any = a.clientId ? ((await db.doc(`${T}/clients/${a.clientId}`).get()).data() || {}) : {};
+  const email = String(a.clientEmail || cl.email || '').trim(); const phone = String(a.clientPhone || cl.phone || '').trim();
+  const { tenantTimeZone } = await import('@/lib/tenant-time'); const tz = tenantTimeZone(tenant);
+  const when = a.startTime ? new Date(a.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }) : 'your appointment';
+  const svc = String(a.serviceName || 'appointment'); const first = String(a.clientName || cl.name || '').split(' ')[0] || 'there';
+  const { internalOrigin } = await import('@/lib/message-policy'); const base = internalOrigin(tenant, null) || process.env.NEXT_PUBLIC_APP_URL || '';
+  const rebook = base ? `${base}/book/${tenantId}` : null;
+  const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
+  if (email.includes('@')) await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'payment_not_received', subject: `Your ${svc} time was released`,
+    html: brandedEmailHtml({ studioName: tenant.name || 'Your studio', title: 'We couldn’t hold your time', bodyLines: [`Hi ${first} — we didn’t receive the deposit for your ${svc} on ${when}, so the time has been released.`, 'Nothing has been charged. We’d love to see you — you’re welcome to book again.'], ...(rebook ? { cta: { label: 'Book again', url: rebook } } : {}) }),
+    recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
+  if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'payment_not_received',
+    text: `${tenant.name || 'We'}: we didn’t receive the deposit for your ${svc} on ${when}, so the time was released. Nothing was charged.${rebook ? ` Book again: ${rebook}` : ''}`,
+    recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null, appointmentId: a.id || null } as any).catch(() => null);
 }

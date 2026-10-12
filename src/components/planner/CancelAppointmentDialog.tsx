@@ -338,6 +338,7 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
       // Mirror handle-no-show-action's server-side computation exactly, so
       // the fee staff sees here always matches what's actually charged
       // regardless of which no-show entry point was used.
+      if ((tenant?.noShowFeeMode as string) === 'none') return 0;   // "No fee" means no fee
       if (tenant?.noShowFeeMode === 'flat' && tenant?.flatNoShowFee) return tenant.flatNoShowFee;
       return toCents2(sessionItems.reduce((acc, s) => acc + s.price, 0));
     }
