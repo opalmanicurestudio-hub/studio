@@ -491,6 +491,7 @@ export async function sweepUnpaidAccepted(
       .where('status', '==', 'pending_payment')
       .get();
 
+    let needRelease = false;
     for (const d of snap.docs) {
       const apt = d.data() as any;
       res.scanned += 1;
@@ -515,29 +516,9 @@ export async function sweepUnpaidAccepted(
           const { releaseCall, tellDeskDeposit } = await import('./deposit-release');
           const call = releaseCall({ id: d.id, ...apt }, now, tenant);
           if (call !== 'release') { if (call === 'desk') await tellDeskDeposit(db, tenantId, { id: d.id, ...apt }, 'desk', now).catch(() => {}); continue; }
-          await d.ref.set({
-            status: 'cancelled',
-            cancelledAt: new Date(now).toISOString(),
-            cancelledBy: 'system',
-            cancelReason: 'The deposit was not completed within the payment window',
-          }, { merge: true });
-          res.actioned += 1;
-          if (email) {
-            const msg = resolveMessage(tenant, 'request_declined', {
-              client_first: first, when,
-              reason: 'The deposit was not completed in time, so the booking has been released.',
-              link: origin ? `${origin}/book/${tenantId}` : '',
-              studio: brand.shopName,
-            }, 'email');
-            if (msg.send) {
-              const paras = tidyBody(msg.body).split('\n\n')
-                .map((l) => `<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 12px">${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
-              const html = brandedEmail(brand, `${paras}${origin ? emailButton(`${origin}/book/${tenantId}`, 'View available times', brand) : ''}`,
-                { preheader: msg.subject, title: msg.subject, tag: 'Booking' });
-              if (await sendEmail(db, tenantId, 'request_declined', email, `${brand.shopName} \u2014 ${msg.subject}`, html, { id: d.id, name: apt.clientName || null })) res.emailed += 1;
-            }
-          }
-          continue;
+          // ONE release job: lib/release-unpaid does it (every few minutes) — same fields, the visit link updated, the
+          // activity log, and the client told by email AND text. This sweep used to release it too, with other wording.
+          needRelease = true; continue;
         }
 
         // ── 1. Retry, once, when the card could plausibly work now ──
@@ -612,6 +593,7 @@ export async function sweepUnpaidAccepted(
         res.errors.push(`appt ${d.id}: ${String(e?.message || e).slice(0, 120)}`);
       }
     }
+    if (needRelease) { const { releaseUnpaidHolds } = await import('./release-unpaid'); res.actioned += (await releaseUnpaidHolds(db, tenantId, { now, origin })).released; }
   } catch (e: any) {
     res.errors.push(String(e?.message || e).slice(0, 160));
   }

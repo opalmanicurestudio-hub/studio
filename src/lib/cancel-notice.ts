@@ -17,14 +17,16 @@ export async function sendCancellationNotice(db: any, tenantId: string, appointm
   const lines = cancellationOutcomeLines(o);
   const body = [`Hi ${first},`, head, ...lines, o.who === 'no_show' ? 'If something came up, we understand — we’d love to see you again.' : 'We’d love to see you again soon.'];
   const told = { email: false, sms: false };
+  // The words can be the business's own (Settings → Messages → Appointment cancelled) — these fill them in.
+  const tokens = { client_first: first, when, service: String(a.serviceName || ''), outcome: lines.join(' '), link: book, studio };
   try {
     const { sendNotification } = await import('@/lib/notify');
     const { brandedEmailHtml } = await import('@/lib/email-template');
     const subject = o.who === 'no_show' ? `We missed you — ${studio}` : `Your appointment is cancelled — ${studio}`;
-    if (email.includes('@')) told.email = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject, kind: 'appointment_cancelled',
+    if (email.includes('@')) told.email = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject, kind: 'appointment_cancelled', tokens,
       html: brandedEmailHtml({ studioName: studio, title: o.who === 'no_show' ? 'We missed you' : 'Appointment cancelled', bodyLines: body, cta: { label: 'Book again', url: book } }),
       appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
-    if (phone) told.sms = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'appointment_cancelled',
+    if (phone) told.sms = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'appointment_cancelled', tokens,
       text: `${studio}: ${head} ${lines.join(' ')} Book again: ${book}`, appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
   } catch (e) { console.error('[cancel-notice] send failed', e); }
   return { ...told, lines };

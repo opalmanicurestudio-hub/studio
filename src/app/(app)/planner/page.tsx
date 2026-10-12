@@ -955,8 +955,24 @@ function PlannerPageContent() {
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
     const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
     const currentClient = (clients || []).find(c => c.id === selectedAppointment.clientId);
-    const batch = writeBatch(firestore);
     const now = new Date().toISOString();
+    const { staffAuthHeader } = await import('@/lib/staff-fetch');
+    const post = async (path: string, body: any) => { try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, ...body }) }); return await r.json(); } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } };
+    const who: 'client' | 'no_show' | 'studio' = data.cancellationAudit?.actorType === 'studio' ? 'studio' : data.reason === 'no-show' || data.cancellationAudit?.actorType === 'no_show' ? 'no_show' : 'client';
+    // The card is really charged (it used to be recorded as paid without charging anything); a decline goes on their balance.
+    let intentId: string | null = null;
+    if (data.chargeFee && data.feeAmount > 0 && data.paymentMethod === 'card_on_file') {
+      const r: any = await post('/api/stripe/charge-card', { clientId: selectedAppointment.clientId, amountCents: Math.round(Number(data.feeAmount) * 100),
+        description: `${who === 'no_show' ? 'Missed-appointment' : 'Late-cancellation'} fee`, category: who === 'no_show' ? 'No-Show Fees' : 'Cancellation Fees', appointmentId: selectedAppointment.id, reason: data.reason, mode: 'auto', kind: 'deposit' });
+      if (r?.ok && r.paymentIntentId) intentId = r.paymentIntentId;
+      else { data = { ...data, paymentMethod: 'add_to_balance' }; toast({ variant: 'destructive', title: 'The card didn’t go through', description: `$${Number(data.feeAmount).toFixed(2)} was added to what they owe instead.` }); }
+    }
+    // We cancelled: the deposit is refunded or kept as credit, as chosen.
+    if (who === 'studio' && data.depositDisposition && selectedAppointment.clientId) {
+      const r: any = await post('/api/stripe/studio-cancel-refund', { clientId: selectedAppointment.clientId, appointmentId: selectedAppointment.id, disposition: data.depositDisposition, staffId: data.cancellationAudit?.actorId || null, reason: data.reason, ...(data.additionalCreditCents ? { additionalCreditCents: data.additionalCreditCents } : {}) });
+      if (!r?.ok) toast({ variant: 'destructive', title: 'The deposit wasn’t refunded', description: r?.error || 'Refund it from the client’s record.' });
+    }
+    const batch = writeBatch(firestore);
 
     batch.update(appointmentRef, sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount, cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') }));
     if (selectedAppointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }));
@@ -1000,7 +1016,7 @@ function PlannerPageContent() {
 
     if (data.chargeFee && data.feeAmount > 0) {
         if (data.paymentMethod === 'card_on_file') {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId }));
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ ...(intentId ? { paymentIntentId: intentId } : {}), date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId }));
         } else if (data.paymentMethod === 'add_to_balance') {
             batch.update(clientRef, { unpaidFees: arrayUnion(sanitizeForFirestore({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId })), outstandingBalance: increment(data.feeAmount) });
         }
@@ -1031,14 +1047,19 @@ function PlannerPageContent() {
 
     try {
         await batch.commit();
+        // The client is told, in the business's own policy wording (lib/cancel-notice) — this sheet used to tell nobody.
+        const fee = data.chargeFee ? Number(data.feeAmount) || 0 : 0;
+        const tell: any = await post('/api/appointments/cancel-notify', { appointmentId: selectedAppointment.id, outcome: { who, feeDollars: who === 'studio' ? 0 : Number(data.feeAmount) || 0, collected: !fee && Number(data.feeAmount) > 0 ? 'waived' : intentId ? 'card' : 'balance',
+          deposit: who === 'studio' && data.depositDisposition ? { outcome: data.depositDisposition === 'refund' ? 'refund' : 'store_credit', dollars: 0 } : null } });
+        if (!(tell?.told?.email || tell?.told?.sms)) toast({ title: 'The client wasn’t messaged', description: 'No email or mobile number on file — let them know another way.' });
         toast({
-            title: "Policy Enforced",
+            title: "Cancelled",
             description: siblings.length > 0
-                ? `Appointment voided along with ${siblings.length} linked ${siblings.length === 1 ? 'booking' : 'bookings'} on the same visit.`
-                : "Appointment voided and logic reconciled.",
+                ? `Cancelled along with ${siblings.length} linked ${siblings.length === 1 ? 'booking' : 'bookings'} on the same visit.`
+                : "The time is free again.",
         });
     } catch (e) {
-        toast({ variant: 'destructive', title: "Process Error" });
+        toast({ variant: 'destructive', title: "That didn’t save — try again" });
     }
     setIsCancelDialogOpen(false);
     setIsDetailsOpen(false);

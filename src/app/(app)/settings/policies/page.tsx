@@ -140,6 +140,9 @@ export default function BookingPoliciesPage() {
             <Row label="Cancellation window" note="Cancelling inside this is a late cancellation." source={P.cancel.windowHours.source}>
               <Num field="cancellationWindowHours" value={P.cancel.windowHours.value} unit="hours before" label="Cancellation window" max={720} />
             </Row>
+            <Row label="Cancelling online" note="Closer than this, clients are asked to call you instead." source="business">
+              <Num field="bookingPolicies.onlineCancelCutoffHours" value={Number(t.bookingPolicies?.onlineCancelCutoffHours) || 0} unit="hours before (0 = right up to the start)" label="Online cancel cut-off" max={168} />
+            </Row>
             <Row label="Late-cancellation fee" source={P.cancel.feeMode.source}>
               <Choice field="defaultCancellationMode" value={P.cancel.feeMode.value} label="Cancellation fee type" options={[['flat', 'A set amount'], ['percentage', '% of the service'], ['matrix', 'Your costs (time + materials)']]} />
               {P.cancel.feeMode.value === 'flat' && <Num field="cancellationFee" value={P.cancel.feeValue.value} unit="dollars" label="Cancellation fee" step={0.5} />}
@@ -150,6 +153,9 @@ export default function BookingPoliciesPage() {
               {P.noShow.feeMode.value === 'flat' && <Num field="flatNoShowFee" value={P.noShow.flatFee.value} unit="dollars" label="No-show fee" step={0.5} />}
               <span className="w-full text-xs text-muted-foreground">Their deposit on a no-show:</span>
               <Choice field="depositPolicy.onNoShow" value={dp.onNoShow} label="No-show deposit" options={[['forfeit', 'Is kept'], ['rollover', 'Becomes credit'], ['refund', 'Is refunded']]} />
+              <span className="w-full text-xs text-muted-foreground">Asking the provider to confirm a no-show:</span>
+              <Num field="noShowWindowMinutes" value={Number(t.noShowWindowMinutes ?? 15)} unit="minutes after the start with no check-in" label="No-show check" max={120} />
+              <Num field="noShowConfirmWindowMinutes" value={Number(t.noShowConfirmWindowMinutes ?? 10)} unit="more minutes before managers are alerted" label="No-show alert" max={120} />
             </Row>
             <Row label="When you cancel on them, their deposit…" source="business">
               <Choice field="depositPolicy.onStudioCancel" value={dp.onStudioCancel} label="Studio cancel" options={[['refund', 'Is refunded'], ['rollover', 'Becomes credit']]} />
@@ -199,6 +205,9 @@ export default function BookingPoliciesPage() {
               <Num field="bookingMode.paymentGraceHours" value={P.holds.paymentGraceHours.value} unit="hours when a card fails / a link is sent" label="Payment grace" max={168} />
               {/* lib/deposit-release: inside this many hours of the visit an unpaid deposit never cancels it — the desk decides. */}
               <Num field="bookingMode.depositProtectHours" value={t?.bookingMode?.depositProtectHours !== undefined && Number.isFinite(Number(t.bookingMode.depositProtectHours)) ? Number(t.bookingMode.depositProtectHours) : 18} unit="hours before the visit: never cancelled for an unpaid deposit — the desk decides" label="Protect the visit" max={72} />
+              <Num field="voiceAgent.holdHours" value={Number(t.voiceAgent?.holdHours) || 24} unit="hours for a phone-assistant booking to pay its deposit" label="Phone hold" min={1} max={168} />
+              <span className="w-full text-xs text-muted-foreground">Visits left open after their day:</span>
+              <Choice field="autoCloseOut" value={t.autoCloseOut !== false} label="Close out overnight" options={[[true, 'Close them out overnight (shown under “Left open”)'], [false, 'Leave them for me']]} />
             </Row>
           </Section>
 

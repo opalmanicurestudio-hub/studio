@@ -1458,10 +1458,20 @@ export async function GET(req: NextRequest) {
         seriesDepositsFailed++;
         const rule = seriesDepositFailedOf(t); const nowIso = new Date().toISOString();
         const why = String(r.data?.error || 'the card didn’t go through').slice(0, 200);
+        const D = await import('@/lib/deposit-release');
+        // Inside the visit's protected window it's never released — it's flagged for the desk like any unpaid deposit.
+        if (rule === 'release' && Date.parse(a.startTime || '') - Date.now() < D.protectHoursOf(t) * 3600e3) {
+          await d.ref.set({ depositStatus: 'failed', depositFailedAt: nowIso, depositFailedReason: why, needsAttention: 'deposit_unpaid', needsAttentionAt: nowIso, depositDeskHold: true, depositDeskAt: nowIso }, { merge: true });
+          await D.tellTeam(db, tDoc.id, { id: d.id, ...a }, 'Series deposit didn’t go through', `${a.clientName || 'A client'}’s deposit for their repeat visit didn’t go through (${why}). The visit is kept — take payment, waive it, or release it.`).catch(() => {});
+          continue;
+        }
         if (rule === 'release') {
           const f = { status: 'cancelled', cancelledAt: nowIso, cancellationReason: `Deposit not received — ${why}`, cancelledBy: 'system', depositStatus: 'failed' };
           await d.ref.set(f, { merge: true });
           if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`${T}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
+          // Released: the client is told (nothing charged, book again) and so are the desk and the provider.
+          await D.tellClientReleased(db, tDoc.id, { id: d.id, ...a }).catch(() => {});
+          await D.tellTeam(db, tDoc.id, { id: d.id, ...a }, 'Series visit released', `${a.clientName || 'A client'}’s repeat visit was released — the deposit didn’t go through (${why}). They’ve been told.`).catch(() => {});
         } else {
           if (rule === 'link_flag') await internalPost(origin, '/api/appointments/desk-deposit', { tenantId: tDoc.id, appointmentId: d.id, action: 'link' }, { retries: 0 });
           await d.ref.set({ depositStatus: 'failed', depositFailedAt: nowIso, depositFailedReason: why, needsAttention: 'series_deposit_failed', needsAttentionAt: nowIso }, { merge: true });

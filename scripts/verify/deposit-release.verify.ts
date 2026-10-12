@@ -25,5 +25,18 @@ const H = 3600e3, MIN = 60000; const iso = (n: number) => new Date(n).toISOStrin
   check('…and the desk and Maya are told it wasn’t cancelled', bell.length === 2 && bell.every((b: any) => /nothing was cancelled/.test(b.message)) && bell.some((b: any) => b.userId === 'maya'), bell);
   await releaseUnpaidHolds(db, 't1', { now: now + 10 * MIN });
   check('told once, not every five minutes', (await db.collection('tenants/t1/notifications').get()).docs.length === 2);
+  console.log('No-show fees — one calculation for the desk and the button');
+  const F = await import('../../src/lib/no-show-fee');
+  const svcs = [{ id: 'gel', price: 65, duration: 60, products: [{ id: 'p1', quantityUsed: 2 }] }, { id: 'art', price: 10, duration: 15 }];
+  check('full price = the service and its add-ons', F.noShowFee(svcs, { tenant: { noShowFeeMode: 'full_service' } }) === 75);
+  check('“No fee” charges nothing', F.noShowFee(svcs, { tenant: { noShowFeeMode: 'none' } }) === 0);
+  check('a set amount', F.noShowFee(svcs, { tenant: { noShowFeeMode: 'flat', flatNoShowFee: 30 } }) === 30);
+  const cost = F.noShowFee(svcs, { tenant: { noShowFeeMode: 'matrix', tmhr: 40, employerTaxBurdenPct: 10 }, inventory: [{ id: 'p1', costPerUnit: 3 }], staff: { payStructure: 'commission' } });
+  check('“Your costs” = hourly overhead for the minutes + products + the provider’s pay with taxes (not the full price)', Math.abs(cost - (40 + 10 + 6 + 65 * 0.4 * 1.1 + 10 * 0.4 * 1.1)) < 0.01, cost);
+  const db2 = makeDb(); await db2.doc('tenants/t1').set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await db2.doc('tenants/t1/staff/desk').set({ id: 'desk', role: 'front_desk' });
+  await db2.doc('tenants/t1/appointments/b').set(a({ id: 'b', clientName: 'Bo Lee', clientPhone: '+15550001111', serviceName: 'Gel fill', checkInToken: 'ckB', depositAmountCents: 2000, paymentDueAt: iso(now + 5 * H), startTime: iso(now + 30 * H) }));
+  await releaseUnpaidHolds(db2, 't1', { now });
+  check('48 hours out and unpaid: the heads-up runs (team told; the client is sent the pay link)', !!(await db2.doc('tenants/t1/appointments/b').get()).data().depositChaseAt);
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

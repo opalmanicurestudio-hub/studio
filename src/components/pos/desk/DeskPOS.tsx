@@ -201,7 +201,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       const d = toDate(a.startTime); if (!d || !isToday(d)) return false;
       if (a.isBlock || a.blockType || a.isHold || a.isPlaceholder || ['blocked', 'personal'].includes(String(a.type || ''))) return false;
       const st = String(a.status || ''); if (NOT_GUEST.includes(st)) return false;
-      if ((st === 'pending_payment' || st === 'deposit_pending') && a.paymentDueAt && Date.parse(a.paymentDueAt) < now.getTime()) return false;
+      // A late deposit the system kept for the desk to decide (lib/deposit-release) stays on the list all day.
+      if ((st === 'pending_payment' || st === 'deposit_pending') && a.paymentDueAt && Date.parse(a.paymentDueAt) < now.getTime() && a.depositDeskHold !== true) return false;
       return true;
     });
     const mirrors = new Set(appts.map((a: any) => a.id));
@@ -371,7 +372,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       time={tm ? tm.text : (!hideTime && g.at ? format(g.at, 'h:mm a') : undefined)} timeTone={tm?.tone}
       progress={g.stage === 'service' && startedAt(g) ? (now.getTime() - startedAt(g)!.getTime()) / 60000 / Math.max(1, minsOf(g)) : null}
       meta={tm?.sub}
-      flags={[...(g.kind === 'walkin' ? [{ label: 'Walk-in' }] : []), ...(g.awaitingDeposit ? [{ label: 'Awaiting deposit', tone: 'warn' as const }] : []), ...fl.map(([label, tone]) => ({ label, tone }))]}
+      flags={[...(g.kind === 'walkin' ? [{ label: 'Walk-in' }] : []), ...(g.awaitingDeposit ? [{ label: g.appt?.depositDeskHold ? 'Deposit not paid — your call' : 'Awaiting deposit', tone: 'warn' as const }] : []), ...fl.map(([label, tone]) => ({ label, tone }))]}
       badge={<Menu items={menuFor(g)} label={`More for ${g.name}`} />} action={actionFor(g)} />
   ); };
 

@@ -176,7 +176,11 @@ export async function GET(req: NextRequest) {
           readinessFlags.depositRequired = missing;
           const r = evaluateWindow(automations.depositNotPaid, missing, hrsUntil, automationState, 'depositReminderSentAt', 'depositAutoCancelledAt', 'depositReminderCount');
           Object.assign(updates, r.updates);
-          if (r.shouldSendReminder) notifications.push({ title: 'Deposit reminder', message: `${apt.clientName || 'A client'}'s deposit is still unpaid ahead of their appointment.` });
+          if (r.shouldSendReminder) {
+            notifications.push({ title: 'Deposit reminder', message: `${apt.clientName || 'A client'}'s deposit is still unpaid ahead of their appointment — they’ve been sent the link to pay.` });
+            // The CLIENT gets the reminder too, with the link to pay (it used to go only to the owner).
+            try { const { tellClientDepositDue } = await import('@/lib/deposit-release'); await tellClientDepositDue(db, tenantId, { id: aptDoc.id, ...apt }); } catch (e) { console.error('[check-automations] remind', e); }
+          }
           if (r.shouldCancel) {
             // Never inside the visit's protected window (lib/deposit-release): the desk decides instead.
             const { protectHoursOf, tellDeskDeposit } = await import('@/lib/deposit-release');

@@ -175,6 +175,11 @@ export async function GET(req: NextRequest) {
 
   const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
   const tenant = tenantSnap.data() || {};
+  // The business's cut-off for cancelling online (Booking policies; 0 = right up to the start). Closer than that, call.
+  const cutH = Number((tenant as any)?.bookingPolicies?.onlineCancelCutoffHours) || 0;
+  const tooClose = cutH > 0 && Date.parse(String(appt.startTime || '')) - Date.now() < cutH * 3600e3;
+  const tooCloseMsg = `It’s too close to your visit to cancel online — please call us${(tenant as any)?.phone ? ` on ${(tenant as any).phone}` : ''}.`;
+  if (tooClose) return NextResponse.json({ ok: false, error: tooCloseMsg, code: 'too_close' }, { status: 409 });
   const svcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
   const service = svcSnap.data() || {};
 
@@ -269,6 +274,11 @@ export async function POST(req: NextRequest) {
 
   const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
   const tenant = tenantSnap.data() || {};
+  // The business's cut-off for cancelling online (Booking policies; 0 = right up to the start). Closer than that, call.
+  const cutH = Number((tenant as any)?.bookingPolicies?.onlineCancelCutoffHours) || 0;
+  const tooClose = cutH > 0 && Date.parse(String(appt.startTime || '')) - Date.now() < cutH * 3600e3;
+  const tooCloseMsg = `It’s too close to your visit to cancel online — please call us${(tenant as any)?.phone ? ` on ${(tenant as any).phone}` : ''}.`;
+  if (tooClose && keyOk) return NextResponse.json({ ok: false, error: tooCloseMsg, code: 'too_close' }, { status: 409 });   // staff can still cancel
   const clientSnap = appt.clientId ? await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get() : null;
   const client = clientSnap?.exists ? clientSnap.data() : {};
 

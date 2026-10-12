@@ -44,8 +44,9 @@ export type AppointmentAutomations = {
 
 const DEFAULT_AUTOMATIONS: AppointmentAutomations = {
   depositNotPaid: {
+    // Remind the client first (48h), cancel later (24h) — outside the 18h “protect the visit” window.
     enabled: true, severity: 'auto_cancel',
-    firstWindowHours: 24, secondWindowHours: 48, canDisable: true,
+    firstWindowHours: 48, secondWindowHours: 24, canDisable: true,
   },
   consentFormUnsigned: {
     enabled: true, severity: 'require',

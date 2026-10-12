@@ -630,7 +630,9 @@ export function isCertified(service: any, staffId: string): boolean {
  * sides. The previous hook whitelisted only three statuses, which meant a
  * completed or no-showed appointment stopped blocking its own slot.
  */
-function blocksTime(apt: any, now: Date): boolean {
+/** The checkout hold from Settings → Booking policies (Hold time), else 30 minutes. */
+const holdMsOf = (input: any) => { const m = Number(input?.tenant?.bookingMode?.holdMinutes); return Number.isFinite(m) && m > 0 ? m * 60000 : PENDING_HOLD_MS; };
+function blocksTime(apt: any, now: Date, holdMs: number = PENDING_HOLD_MS): boolean {
   const status = apt?.status;
   if (status === 'cancelled') return false;
   // A declined or expired request is a dead row — it must stop holding time
@@ -651,7 +653,7 @@ function blocksTime(apt: any, now: Date): boolean {
       if (now.getTime() > due.getTime()) return false;
     } else {
       const created = safeDate(apt?.createdAt);
-      if (created && now.getTime() - created.getTime() > PENDING_HOLD_MS) return false;
+      if (created && now.getTime() - created.getTime() > holdMs) return false;   // the business's Hold time (Booking policies)
     }
   }
   /* A REQUEST holds its slot — otherwise two people request the same time and
@@ -981,7 +983,7 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
 
       const taken: Window[] = [];
       for (const apt of dayAppointments) {
-        if (!blocksTime(apt, now)) continue;
+        if (!blocksTime(apt, now, holdMsOf(input))) continue;
         const ids = resourceIdsFor(apt, servicesById[apt?.serviceId]);
         if (!ids.includes(rid)) continue;
         const start = safeDate(apt?.startTime);
@@ -1007,7 +1009,7 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
     const clean = Math.max(0, num(cap.cleanMinutes, 0));
     const taken: Window[] = [];
     for (const apt of dayAppointments) {
-      if (!blocksTime(apt, now)) continue;
+      if (!blocksTime(apt, now, holdMsOf(input))) continue;
       const q = kitsNeeded(servicesById[apt?.serviceId]).find((n) => kitKey(n.name) === key)?.qty || 0; if (!q) continue;
       const start = safeDate(apt?.startTime); if (!start) continue;
       const end = safeDate(apt?.endTime) ?? addMinutes(start, num(servicesById[apt?.serviceId]?.duration, 60));
@@ -1027,7 +1029,7 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
     const key = linenKey(need.name); const cap = linCap[key]; if (!cap) continue;
     const turn = Math.max(0, num(cap.turnMinutes, 0)); const taken: Window[] = [];
     for (const apt of dayAppointments) {
-      if (!blocksTime(apt, now)) continue;
+      if (!blocksTime(apt, now, holdMsOf(input))) continue;
       const q = linensNeeded(servicesById[apt?.serviceId]).find((n) => linenKey(n.name) === key)?.qty || 0; if (!q) continue;
       const start = safeDate(apt?.startTime); if (!start) continue;
       const end = safeDate(apt?.endTime) ?? addMinutes(start, num(servicesById[apt?.serviceId]?.duration, 60));
@@ -1115,7 +1117,7 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
       if (!start) continue;
       const end = safeDate(apt?.endTime) ?? addMinutes(start, num(servicesById[apt?.serviceId]?.duration, 60));
 
-      if (!blocksTime(apt, now)) {
+      if (!blocksTime(apt, now, holdMsOf(input))) {
         // A recent cancellation reopens its slot, and flash yield flags it.
         if (flashYield && apt?.status === 'cancelled') {
           const hoursSince = Math.abs(differenceInMinutes(now, start)) / 60;

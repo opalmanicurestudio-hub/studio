@@ -144,6 +144,13 @@ export async function POST(req: NextRequest) {
       );
     }
     await batch.commit();
+    // The client hears about it — a released booking (nothing charged, book again) or a request that expired unanswered.
+    const D = await import('@/lib/deposit-release');
+    for (const apt of stale) {
+      const withPhone = { ...apt, clientPhone: apt.clientPhone || apt.voiceMeta?.clientPhone || '' };
+      if (apt.status === 'requested') await D.tellClientRequestExpired(db, tenantId, withPhone).catch(() => {});
+      else await D.tellClientReleased(db, tenantId, withPhone).catch(() => {});
+    }
 
     return NextResponse.json({ released: stale.length });
   } catch (e) {

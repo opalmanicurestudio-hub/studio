@@ -80,17 +80,19 @@ export async function processCancellationEvent(db: any, stripe: any, tenantId: s
   const tz = tenant.timezone || 'America/New_York'; const studio = tenant.name || 'The studio'; const charged = updates.chargeStatus === 'charged' && fee > 0;
   const feeText = !fee || updates.chargeStatus === 'waived' ? '' : charged ? `A ${money(fee)} cancellation fee has been charged to the card on file.` : `A ${money(fee)} cancellation fee has been added to your account.`;
   const { sendNotification } = await import('@/lib/notify');
+  // Business's own wording if they've written it (Settings → Messages → We missed you).
+  const tokens = { client_first: String(data.clientName || 'there').split(' ')[0], when: fmt(data.appointmentStartTime, tz, false), service: data.serviceName || '', fee: feeText || 'There’s no charge.', studio };
   if (data.clientEmail && tenant.cancellationEmailEnabled !== false) {
     try { const { brandedEmailHtml } = await import('@/lib/email-template');
       const subject = actor === 'no_show' ? `We missed you — ${studio}` : actor === 'client' ? `Cancellation confirmed — ${studio}` : `Your appointment has been cancelled — ${studio}`;
-      const r: any = await sendNotification(db, { tenantId, channel: 'email', to: data.clientEmail, kind: 'cancellation', clientId: data.clientId || null, clientName: data.clientName || null, subject,
+      const r: any = await sendNotification(db, { tenantId, channel: 'email', to: data.clientEmail, kind: 'cancellation', tokens, clientId: data.clientId || null, clientName: data.clientName || null, subject,
         html: brandedEmailHtml({ studioName: studio, title: subject.split(' — ')[0], bodyLines: [`Hi ${String(data.clientName || 'there').split(' ')[0]}, your ${data.serviceName || 'appointment'} on ${fmt(data.appointmentStartTime, tz, true)} has been cancelled.`, ...(feeText ? [feeText] : []), 'If you have any questions, just reply to this email.'] } as any) } as any);
       updates.emailStatus = r?.ok ? 'sent' : 'failed'; } catch (e: any) { updates.emailStatus = 'failed'; updates.emailError = String(e?.message || e); }
   } else updates.emailStatus = 'skipped';
   if (data.clientPhone && tenant.cancellationSmsEnabled !== false) {
     try { const first = String(data.clientName || 'there').split(' ')[0];
       const lead = actor === 'no_show' ? `Hi ${first}, we missed you today` : `Hi ${first}, your ${data.serviceName || ''} appt`.replace(/\s+appt$/, ' appt');
-      const r: any = await sendNotification(db, { tenantId, channel: 'sms', to: data.clientPhone, kind: 'cancellation', clientId: data.clientId || null, clientName: data.clientName || null,
+      const r: any = await sendNotification(db, { tenantId, channel: 'sms', to: data.clientPhone, kind: 'cancellation', tokens, clientId: data.clientId || null, clientName: data.clientName || null,
         text: `${lead} on ${fmt(data.appointmentStartTime, tz, false)} has been cancelled.${feeText ? ` ${feeText}` : ''} Questions? Reply${tenant.phone ? ` or call ${tenant.phone}` : ''}. — ${studio}` } as any);
       updates.smsStatus = r?.ok ? 'sent' : 'failed'; } catch (e: any) { updates.smsStatus = 'failed'; updates.smsError = String(e?.message || e); }
   } else updates.smsStatus = 'skipped';

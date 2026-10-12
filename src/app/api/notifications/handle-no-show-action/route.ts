@@ -153,22 +153,17 @@ export async function POST(req: NextRequest) {
   const primarySvcName = primarySvcSnap.data()?.name || null;
 
   // Compute fee (100% of service by default; respects noShowFeeMode)
-  let feeAmount = 0;
-  if (tenant.noShowFeeMode === 'none') {
-    feeAmount = 0;   // the owner chose "No fee" (Settings → Booking policies) — never charge one
-  } else if (tenant.noShowFeeMode === 'flat' && tenant.flatNoShowFee) {
-    feeAmount = tenant.flatNoShowFee;
-  } else {
-    feeAmount = primarySvcSnap.data()?.price || 0;
-    if (appt.addOnIds?.length) {
-      const addOnSnaps = await Promise.all(
-        appt.addOnIds.map((id: string) =>
-          db.doc(`tenants/${tenantId}/services/${id}`).get(),
-        ),
-      );
-      addOnSnaps.forEach((s: any) => { if (s.exists) feeAmount += s.data()?.price || 0; });
-    }
+  // The business's own no-show choice — full price, a set amount, your costs, or none (lib/no-show-fee).
+  const ids = [appt.serviceId, ...(appt.addOnIds || [])].filter(Boolean);
+  const svcs = (await Promise.all(ids.map((id: string) => db.doc(`tenants/${tenantId}/services/${id}`).get()))).filter((x: any) => x.exists).map((x: any) => ({ id: x.id, ...(x.data() || {}) }));
+  let inventory: any[] = []; let pro: any = null;
+  if (tenant.noShowFeeMode === 'matrix') {
+    const pids = [...new Set(svcs.flatMap((x: any) => (x.products || []).map((p: any) => p.id)))] as string[];
+    inventory = (await Promise.all(pids.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`).get()))).filter((x: any) => x.exists).map((x: any) => ({ id: x.id, ...(x.data() || {}) }));
+    if (appt.staffId) { const st = await db.doc(`tenants/${tenantId}/staff/${appt.staffId}`).get(); const pay = await db.doc(`tenants/${tenantId}/staffPay/${appt.staffId}`).get(); pro = st.exists ? { ...(st.data() || {}), ...(pay.exists ? pay.data() : {}) } : null; }
   }
+  const { noShowFee } = await import('@/lib/no-show-fee');
+  const feeAmount = noShowFee(svcs as any, { tenant, inventory, staff: pro });
 
   const hasCard        = !!(client.cardOnFile?.paymentMethodId || hasRealCard(client));
   const paymentMethod  = hasCard ? 'card_on_file' : 'add_to_balance';
