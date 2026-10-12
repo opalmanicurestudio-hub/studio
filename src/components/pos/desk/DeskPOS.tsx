@@ -261,7 +261,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     if (g.stage === 'service' && g.appt) {
       const ov = serviceOverrun(g.appt, minsOf(g), now);
       if (ov && ov.overMin >= 1) { const hit = overrunImpact(todaysAppts, g.appt, Math.max(10, ov.overMin), now)[0];
-        if (hit) out.push([`Running over · affects ${String(hit.appt.clientName || 'next guest').split(' ')[0]} ${format(new Date(hit.appt.startTime), 'h:mm')}`, 'warn']); }
+        if (hit) out.push([`Running over · affects ${String(hit.appt.clientName || 'next guest').split(' ')[0]} ${isNaN(Date.parse(String(hit.appt.startTime))) ? '' : format(new Date(hit.appt.startTime), 'h:mm')}`, 'warn']); }
     }
     if (!c || visits === 0) out.push(['New client', 'accent']);
     if (a.completionStatus && a.completionStatus !== 'completed') out.push(['Forms not done', 'warn']);

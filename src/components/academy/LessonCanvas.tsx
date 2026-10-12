@@ -121,14 +121,14 @@ export function LessonPreview({ lesson, color, stepMode }: { lesson: any; color?
 }
 
 
-/** 📄 From a file or PDF — Claude drafts the lesson; it opens in the canvas to check before saving. */
+/** 📄 From a file or PDF — the AI drafts the lesson; it opens in the canvas to check before saving. */
 export function FileToLesson({ call, onDraft, onClose }: { call: (body: any) => Promise<any>; onDraft: (d: any) => void; onClose: () => void }) {
   const [pdf, setPdf] = useState<{ name: string; data: string } | null>(null); const [text, setText] = useState(''); const [focus, setFocus] = useState('');
   const [want, setWant] = useState({ keyPoints: true, flashcards: true, quiz: true }); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={busy ? undefined : onClose}>
       <div onClick={(e) => e.stopPropagation()} className="max-h-[92dvh] w-full max-w-xl space-y-3 overflow-y-auto rounded-t-3xl bg-background p-5 sm:rounded-3xl">
-        <p className="text-xl font-black">📄 Lesson from a file</p><p className="-mt-2 text-sm text-muted-foreground">Claude reads it and drafts the lesson from what it says — you check everything before saving.</p>
+        <p className="text-xl font-black">📄 Lesson from a file</p><p className="-mt-2 text-sm text-muted-foreground">The AI reads it and drafts the lesson from what it says — you check everything before saving.</p>
         <label className="flex cursor-pointer items-center justify-between rounded-2xl border-2 border-dashed p-4 text-sm"><span>{pdf ? `📄 ${pdf.name}` : 'Attach a PDF (handout, notes, curriculum — up to 3 MB)'}</span><span className="font-bold">{pdf ? 'Change' : 'Choose'}</span>
           <input type="file" accept="application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (!f) return; if (f.size > 3_000_000) { setErr('That PDF is over 3 MB — split it, or paste the text below.'); return; } const r = new FileReader(); r.onload = () => { setPdf({ name: f.name, data: String(r.result) }); setErr(''); }; r.readAsDataURL(f); }} /></label>
         {!pdf && <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} className="w-full rounded-2xl border-2 p-3 text-sm" placeholder="…or paste the text here" />}

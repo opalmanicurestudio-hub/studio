@@ -14,7 +14,7 @@
 
 import { createHash } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { askClaude, aiConfigured, parseJson } from '@/lib/ai';
+import { askAI, aiConfigured, parseJson } from '@/lib/ai';
 
 export const LANGUAGES: Record<string, { name: string; native: string }> = {
   en: { name: 'English', native: 'English' },
@@ -44,7 +44,7 @@ export async function translateTexts(tenantId: string, texts: string[], lang: st
     for (let start = 0; start < missing.length; ) {
       const chunk: typeof missing = []; let size = 0;
       while (start < missing.length && (chunk.length === 0 || size + missing[start].t.length < 6000) && chunk.length < 40) { chunk.push(missing[start]); size += missing[start].t.length; start++; }
-      const r = await askClaude({ tier: 'fast', maxTokens: 4000, purpose: `translate-${lang}`, tenantId,
+      const r = await askAI({ tier: 'fast', maxTokens: 4000, purpose: `translate-${lang}`, tenantId,
         system: `You translate a school's messages and lessons for a student into ${LANGUAGES[lang].name}. Translate faithfully — never add or leave out meaning. Keep names, numbers, prices, dates, product and brand names as they are. Keep professional beauty/wellness terms accurate; if a term has no common equivalent, keep the English term in brackets after it the first time. Keep line breaks and any "# " heading markers. Keep anything inside {curly braces} exactly as it is. Friendly, plain language. Reply with JSON only: {"t":["…", …]} in the same order.`,
         prompt: JSON.stringify({ texts: chunk.map((x) => x.t) }) });
       const j: any = r.ok ? parseJson(r.text) : null;

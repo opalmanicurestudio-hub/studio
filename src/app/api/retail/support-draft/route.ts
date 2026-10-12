@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // ─── /api/retail/support-draft/route.ts ───────────────────────────────────────
 // POST { tenantId, ticketId } → { draft }
 //
-// Claude pre-writes a reply from the ticket + LIVE order facts (stage,
+// The AI pre-writes a reply from the ticket + LIVE order facts (stage,
 // refunds, tracking) so the draft can't promise things the data doesn't
 // support. The draft lands in the staff reply box — it is NEVER auto-sent;
 // a human reads, edits, and taps send. Urgent tickets get de-escalation
@@ -106,7 +106,7 @@ ${urgent ? '- The customer is upset. Lead by acknowledging their specific frustr
     });
     const data = await res.json();
     if (!res.ok) {
-      return NextResponse.json({ error: String(data?.error?.message || 'Anthropic API error').slice(0, 200) }, { status: 502 });
+      return NextResponse.json({ error: String(data?.error?.message || 'AI service error').slice(0, 200) }, { status: 502 });
     }
     const draft = (data.content || [])
       .filter((c: any) => c.type === 'text')

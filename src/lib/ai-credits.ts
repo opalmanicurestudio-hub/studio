@@ -6,7 +6,7 @@
 //   Academy on Core Solo: 300 / month · Academy on Studio: 800 / month
 //   HQ can override (tenant.ai.monthlyCredits) or add bonus credits for a
 //   month (tenant.ai.bonus["YYYY-MM"]).
-// What things cost (credits): interactive (built on Claude Opus) 8 ·
+// What things cost (credits): interactive (built on the most capable model) 8 ·
 // build a course 10 · generate questions 3 ·
 // lesson plan / worksheet / assignment / quiz & flashcard draft 2 ·
 // grading feedback 1. Students' AI tutor has its own per-student limits and

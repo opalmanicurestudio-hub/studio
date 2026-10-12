@@ -2085,7 +2085,7 @@ if (!allStaff) return null;
                           >
                             <div className="h-full rounded-xl border-2 border-dashed border-purple-300 bg-purple-50/80 flex flex-col items-center justify-center p-1 overflow-hidden">
                               <Zap className="w-2.5 h-2.5 text-purple-500 shrink-0" />
-                              <p className="text-[7px] font-black uppercase text-purple-600 truncate">{dur}m add-on</p>
+                              <p className="text-[7px] font-black uppercase text-purple-600 truncate">{item.label ? String(item.label) : item.reason && item.reason !== 'addon' ? 'Blocked' : `${dur}m add-on`}</p>
                             </div>
                           </div>
                         );

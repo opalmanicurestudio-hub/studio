@@ -1,14 +1,14 @@
 // src/lib/ai.ts
 //
-// CLAUDE, FOR HQ — one small helper for every AI feature, with its cost.
+// AI, FOR HQ — one small helper for every AI feature, with its cost.
 //
 // Server only (ANTHROPIC_API_KEY never reaches a browser). Every call is
 // logged to platformAiUsage with tokens and an estimated cost, tagged with
 // the business it was for — which is how HQ shows AI cost per business.
 //
-//   Fast & cheap (sorting tickets):   claude-haiku-4-5-20251001
-//   Careful (drafts, insights):       claude-sonnet-5
-//   Interactives (animated HTML):     claude-opus-5-5 — Anthropic's most capable
+//   Fast & cheap (sorting tickets):   the fast model
+//   Careful (drafts, insights):       the smart model
+//   Interactives (animated HTML):     the most capable model
 // Change with AI_MODEL_FAST / AI_MODEL_SMART / AI_MODEL_INTERACTIVE. Prices are
 // per million tokens and adjustable (AI_PRICE_*), since list prices change.
 
@@ -33,14 +33,14 @@ function price(model: string): [number, number] {
 export interface AiResult { ok: boolean; text: string; costUsd: number; error?: string; stopReason?: string | null }
 
 /** `pdfBase64` (optional): a PDF sent alongside the prompt — e.g. a school's curriculum. */
-export async function askClaude(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
+export async function askAI(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
   if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'AI isn’t connected — add ANTHROPIC_API_KEY in Vercel.' };
   const model = MODELS[opts.tier || 'fast'];
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': String(process.env.ANTHROPIC_API_KEY), 'anthropic-version': '2023-06-01' },
-      // Effort guides how deeply Claude thinks (thinking tokens count toward max_tokens).
+      // Effort guides how deeply the model thinks (thinking tokens count toward max_tokens).
       body: JSON.stringify({ model, max_tokens: opts.maxTokens || 800, ...(opts.effort ? { output_config: { effort: opts.effort } } : {}), system: opts.system, messages: [{ role: 'user', content: opts.pdfBase64 ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: opts.pdfBase64 } }, { type: 'text', text: opts.prompt }] : opts.prompt }] }),
     });
     const d: any = await r.json().catch(() => ({}));

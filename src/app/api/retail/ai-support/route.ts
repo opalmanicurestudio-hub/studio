@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
       }),
     });
     if (!aiRes.ok) {
-      console.error('[ai-support] Anthropic error', aiRes.status, (await aiRes.text()).slice(0, 160));
+      console.error('[ai-support] AI service error', aiRes.status, (await aiRes.text()).slice(0, 160));
       return NextResponse.json({ error: 'The helper hit a snag \u2014 the buttons below all still work.' }, { status: 502 });
     }
     const data = await aiRes.json();

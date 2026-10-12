@@ -19,7 +19,7 @@ import { AI_WEIGHTS, takeCredits, refundCredits, creditStatus } from '@/lib/ai-c
 import { deviceAllowed } from '@/lib/approved-devices';
 import { letter } from '@/lib/grades';
 import { mediaUrl } from '@/lib/academy';
-import { askClaude, aiConfigured, parseJson } from '@/lib/ai';
+import { askAI, aiConfigured, parseJson } from '@/lib/ai';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -28,7 +28,7 @@ import { appendAudit, verifyAudit, transcript, qrWindow, qrCode, QR_WINDOW_SEC }
 import { linkOrigin } from '@/lib/app-origin';
 
 export const dynamic = 'force-dynamic';
-// AI builds (interactives on Claude Opus at high effort) can take a couple of minutes.
+// AI builds (interactives on the most capable model at high effort) can take a couple of minutes.
 export const maxDuration = 300;
 const KINDS = ['video', 'text', 'download', 'assignment'];
 const str = (v: any, n: number) => String(v ?? '').slice(0, n);
@@ -443,7 +443,7 @@ async function handle(req: NextRequest) {
       const lx = lessons.find((x: any) => x.id === b.lessonId) || null;
       const material = (lx ? [lx] : lessons).map((x: any) => `### ${x.title}\n${x.body || ''}\n${x.transcript ? String(x.transcript).slice(0, 5000) : ''}\n${(x.blocks || []).map((k: any) => k.text || (k.steps || []).map((st: any) => st.text).join('\n') || '').join('\n')}`).join('\n').slice(0, 14000);
       const kind = ['written', 'photo', 'file', 'any'].includes(b.type) ? b.type : 'any';
-      const r = await askClaude({ tier: 'smart', maxTokens: 1500, purpose: 'academy-assignment', tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 1500, purpose: 'academy-assignment', tenantId,
         system: 'You write assignments for a state-licensed beauty school. Base the task only on the material given — no new regulations, products or medical claims. Hands-on tasks include the infection-control steps. Write the task clearly for the student, say exactly what to hand in, and give a rubric whose points add up to 100. Reply with JSON only.',
         prompt: `Material:\n${material || '(no written material — base it on the lesson title)'}\n\nLesson: ${lx?.title || 'whole course'}\nWhat students hand in: ${kind === 'photo' ? 'photos of their work' : kind === 'written' ? 'a written answer' : kind === 'file' ? 'a file' : 'writing and/or photos'}\nFocus (optional): ${String(b.focus || '').slice(0, 300)}\n\nReturn JSON: {"prompt":"…","rubric":[{"criterion":"…","points":40}],"dueDays":7}` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -499,7 +499,7 @@ async function handle(req: NextRequest) {
       if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
       const k = DOC_KINDS[b.kind]; if (!k || !k.ask) return NextResponse.json({ ok: false, error: 'Choose a document type.' }, { status: 400 });
       const facts = await schoolFacts(tenantId);
-      const r = await askClaude({ tier: 'smart', maxTokens: 8000, purpose: 'school-doc', tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 8000, purpose: 'school-doc', tenantId,
         system: `You draft school documents for a licensed beauty / nail school, in clear, warm, plain language for students. Use ONLY the school facts given. Where a detail is unknown (dates, amounts, names, addresses, rules the facts don't state), write a placeholder like [[fill in: refund deadline]] — never invent figures, legal requirements or regulations. If a state is given, you may mention that the school follows its state board's rules, but do not quote specific regulations unless they are in the facts. Format: "# " for section headings, "## " for sub-headings, "- " for bullet points, **bold** sparingly. No preamble — start with the document.`,
         prompt: `School facts:\n${JSON.stringify(facts, null, 1)}\n\n${b.notes ? `Owner's notes (follow them):\n${String(b.notes).slice(0, 2000)}\n\n` : ''}Write ${k.ask}.` });
       if (!r.ok || !r.text.trim()) return NextResponse.json({ ok: false, error: r.error || 'The draft didn’t come back — try again.' }, { status: 502 });
@@ -626,8 +626,8 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       const prompt = current
         ? `Here is the current interactive:\n\`\`\`html\n${current}\n\`\`\`\n\nChange requested: ${String(b.change || '').slice(0, 800)}\nReturn the complete updated HTML.\n\n${context}`
         : `Build an interactive that shows: ${request}\n\n${context}`;
-      // Built on Claude Opus with room to think and write; falls back to Sonnet if the account can't use Opus.
-      const ask = (tier: 'interactive' | 'smart', p: string) => askClaude({ tier, maxTokens: 32000, effort: 'high', purpose: 'academy-interactive', tenantId, system, prompt: p });
+      // Built on the most capable model with room to think and write; falls back to the next model if the account can't use it.
+      const ask = (tier: 'interactive' | 'smart', p: string) => askAI({ tier, maxTokens: 32000, effort: 'high', purpose: 'academy-interactive', tenantId, system, prompt: p });
       let r = await ask('interactive', prompt); let usedFallback = false;
       if (!r.ok && /model/i.test(String(r.error || ''))) { r = await ask('smart', prompt); usedFallback = true; }
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error || 'The AI didn’t respond — try again.' }, { status: 502 });
@@ -642,7 +642,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
         const g2 = fix.ok ? extractHtml(fix.text, fix.stopReason) : { html: null };
         if (g2.html && !scriptError(g2.html)) { html = g2.html; problem = null; }
       }
-      return NextResponse.json({ ok: true, html, model: usedFallback ? 'sonnet' : 'opus', ...(problem ? { problem } : {}), ...(usedFallback ? { note: 'Built with Claude Sonnet — your Anthropic account couldn’t use Claude Opus just now.' } : {}) });
+      return NextResponse.json({ ok: true, html, model: usedFallback ? 'sonnet' : 'opus', ...(problem ? { problem } : {}), ...(usedFallback ? { note: 'Built with the next model down — your AI account couldn’t use the most capable one just now.' } : {}) });
     }
     if (b.action === 'interactive-save') {
       const html = cleanHtml(b.html); if (!html) return NextResponse.json({ ok: false, error: 'Nothing to save.' }, { status: 400 });
@@ -666,7 +666,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
         'ai-cases': `Write ${n} realistic client cases for "refer or treat" practice, based only on the lesson material: a short client story (what the client says, what the technician sees) and 3 choices — proceed as planned, adapt the service, or refer the client to a doctor — with exactly one correct choice and one sentence of feedback for every choice. Never diagnose; referral cases say to refer. Return JSON {"cases":[{"story":"…","options":[{"text":"…","correct":true,"feedback":"…"}]}]}.`,
         'ai-video-questions': `Write ${n} multiple-choice questions to pop up during this lesson video, in the order the topics come up in the transcript. For each, estimate where the topic is discussed as a fraction of the video (0.05–0.95). Return JSON {"questions":[{"pos":0.2,"q":"…","options":["…","…","…"],"answer":0,"explain":"one sentence"}]}.`,
       };
-      const r = await askClaude({ tier: 'smart', maxTokens: 3500, purpose: `academy-${b.action}`, tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 3500, purpose: `academy-${b.action}`, tenantId,
         system: 'You write teaching material for a state-licensed beauty / nail school. Use only the lesson material and well-established general facts; never invent products, numbers, regulations or medical claims. Reply with JSON only.',
         prompt: `Lesson material:\n${material || '(none)'}\n\n${spec[b.action]}` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -683,7 +683,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       const lx = b.lessonId ? (((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}) : {};
       const material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 6000) : ''}\n${(lx.blocks || []).map((k: any) => k.text || '').join('\n')}`.slice(0, 12000);
       if (material.trim().length < 120) return NextResponse.json({ ok: false, error: 'Write (and save) some lesson text first — the timeline is drawn from it.' }, { status: 400 });
-      const r = await askClaude({ tier: 'smart', maxTokens: 2500, purpose: 'academy-ai-timeline', tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 2500, purpose: 'academy-ai-timeline', tenantId,
         system: 'You turn lesson material into a timeline for students at a licensed beauty / nail school. Use ONLY dates, events and facts that appear in the material — never add, guess or round dates. If the material has no dated or ordered events, return {"events":[]}. Reply with JSON only.',
         prompt: `Lesson material:\n${material}\n\nReturn JSON {"title":"short title","events":[{"when":"the date or period exactly as written","title":"short event name","text":"one or two plain sentences"}]} in chronological order, 3–12 events.` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -705,7 +705,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
         memory: '{"pairs":[{"a":"term","b":"short meaning"}]} — 6 pairs',
         sequence: '{"steps":["first step","second step"]} — 5 to 8 steps of a procedure, in the correct order',
       };
-      const r = await askClaude({ tier: 'smart', maxTokens: 2500, purpose: 'academy-ai-game', tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 2500, purpose: 'academy-ai-game', tenantId,
         system: 'You write fun, accurate review games for a state-licensed beauty / nail school. Use only facts from the lesson material given — never invent facts, products, figures or regulations. Keep text short enough for phone screens. Reply with JSON only.',
         prompt: `Lesson material:\n${material}\n\nReturn JSON exactly in this shape: ${shape[tpl]}` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -721,7 +721,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       if (pdf && pdf.length > 4_300_000) return NextResponse.json({ ok: false, error: 'That PDF is too large (about 3 MB max) — split it, or paste the text.' }, { status: 400 });
       if (!pdf && text.trim().length < 200) return NextResponse.json({ ok: false, error: 'Attach a PDF or paste at least a few paragraphs.' }, { status: 400 });
       const want = { keyPoints: b.want?.keyPoints !== false, flashcards: b.want?.flashcards !== false, quiz: b.want?.quiz !== false };
-      const r = await askClaude({ tier: 'smart', maxTokens: 7000, purpose: 'academy-file-lesson', tenantId, pdfBase64: pdf,
+      const r = await askAI({ tier: 'smart', maxTokens: 7000, purpose: 'academy-file-lesson', tenantId, pdfBase64: pdf,
         system: 'You turn an instructor\'s document into a clear, student-friendly lesson for a state-licensed beauty / nail school. Use ONLY what the document says — never add facts, figures, products or regulations it doesn\'t contain; if the document is unclear, leave that part out. Plain, friendly language; short paragraphs; "# " for section headings. Reply with JSON only.',
         prompt: `${pdf ? 'The attached PDF is the source.' : `Source document:\n${text}`}\n${b.focus ? `Focus on: ${String(b.focus).slice(0, 300)}\n` : ''}\nReturn JSON: {"title":"lesson title","notes":"the study notes, with # headings — covering everything important, in the document's order","keyPoints":["the 3–6 things students must remember"]${want.flashcards ? ',"flashcards":[{"front":"term or question","back":"short answer"}]' : ''}${want.quiz ? ',"quiz":[{"q":"question","options":["…","…","…"],"answer":0}]' : ''}} — ${want.flashcards ? '8–12 flashcards, ' : ''}${want.quiz ? '5–8 quiz questions with one right answer and believable wrong ones' : ''}.` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -778,7 +778,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       if (!String(sub.text || '').trim()) return NextResponse.json({ ok: false, error: 'AI feedback works on written answers — grade photos and files yourself.' }, { status: 400 });
       const lx = ((await db.doc(`${base}/${sub.courseId}/lessons/${sub.lessonId}`).get()).data() as any) || {};
       const rub = lx.assignment?.rubric || [];
-      const r = await askClaude({ tier: 'smart', maxTokens: 1200, purpose: 'academy-feedback', tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 1200, purpose: 'academy-feedback', tenantId,
         system: 'You help a beauty-school instructor mark a student’s written assignment. Suggest a score for each rubric criterion (whole numbers, 0 to its maximum) and short, kind, specific feedback the student can act on — what they did well and what to improve. Judge only against the assignment and rubric; do not invent requirements. The instructor makes the final decision. Reply with JSON only.',
         prompt: `Assignment:\n${lx.assignment?.prompt || lx.title}\n\nRubric:\n${rub.map((x: any, i: number) => `${i + 1}. ${x.criterion} (max ${x.points})`).join('\n')}\n\nStudent answer:\n${String(sub.text).slice(0, 8000)}\n\nReturn JSON: {"scores":[n,…],"feedback":"…"}` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -828,7 +828,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       const pdf = typeof b.pdf === 'string' && b.pdf.startsWith('data:application/pdf;base64,') ? b.pdf.split(',')[1] : null;
       if (pdf && pdf.length > 4_300_000) return NextResponse.json({ ok: false, error: 'That PDF is too large (about 3 MB max) — split it or paste the outline.' }, { status: 400 });
       if (!outline.trim() && !pdf) return NextResponse.json({ ok: false, error: 'Paste an outline or attach a PDF.' }, { status: 400 });
-      const r = await askClaude({ tier: 'smart', maxTokens: 6000, purpose: 'academy-course-builder', tenantId, pdfBase64: pdf,
+      const r = await askAI({ tier: 'smart', maxTokens: 6000, purpose: 'academy-course-builder', tenantId, pdfBase64: pdf,
         system: 'You design courses for a state-licensed beauty / wellness school. Build a clear course structure from the material the instructor provides (an outline, syllabus or curriculum). Stay faithful to it: use its topics and order; do not add regulations, products or medical claims it does not contain. Begin with infection control where the material covers hands-on services. Reply with JSON only.',
         prompt: `${outline ? `Instructor’s outline / notes:\n${outline}\n\n` : ''}${pdf ? 'The attached PDF is the curriculum or syllabus to build from.\n\n' : ''}Audience: ${String(b.audience || 'students').slice(0, 200)}. Approximate total hours: ${Number(b.hours) || 'not given'}.\n\nReturn JSON: {"title":"…","subtitle":"…","description":"…","whatYouLearn":["…"],"modules":[{"title":"…","lessons":[{"title":"…","kind":"text|video|assignment","minutes":45,"objectives":["…"],"summary":"2–4 sentences of what the lesson covers","subjects":["…"]}]}]}` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -858,7 +858,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
       const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId || '')}`).get()).data() as any) || {};
       const src = `${lx.body || ''}\n${lx.transcript ? `Video transcript:\n${lx.transcript}` : ''}\n${(lx.blocks || []).map((x: any) => x.text || (x.steps || []).map((s: any) => s.text).join('\n') || '').join('\n')}`.trim().slice(0, 12000);
-      const r = await askClaude({ tier: 'smart', maxTokens: 2200, purpose: 'academy-lesson-plan', tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 2200, purpose: 'academy-lesson-plan', tenantId,
         system: 'You write lesson plans for instructors at a state-licensed beauty school. Follow the instruction order: guided_theory → demonstration → guided_practice → independent_theory → practice → evaluation → performance (use only the stages that fit this lesson). Integrate infection control into every hands-on step. Use only facts from the lesson material given; where the material is thin, keep items general and practical rather than inventing specifics. Reply with JSON only.',
         prompt: `Lesson: ${lx.title || ''}\nLength in minutes (if known): ${Number(b.minutes) || ''}\n\nMaterial:\n${src || '(no written material yet — plan from the title)'}\n\nReturn JSON: {"objectives":["…"],"minutes":90,"materials":["…"],"setup":"…","infectionControl":"…","agenda":[{"minutes":15,"type":"guided_theory","activity":"…"}],"notes":"…","differentiation":"…","assessment":"…","subjects":["…"]}` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -900,7 +900,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
         vocab: `{"items":[{"term":"…","definition":"short definition"}]} — ${n} key terms from the material (single words or short phrases, no punctuation in terms).`,
       };
       if (!shape[kind]) return NextResponse.json({ ok: false, error: 'Unknown worksheet type.' }, { status: 400 });
-      const r = await askClaude({ tier: 'smart', maxTokens: 3500, purpose: `academy-${kind}`, tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 3500, purpose: `academy-${kind}`, tenantId,
         system: 'You write assessment material for a state-licensed beauty school. Use ONLY facts stated in the material given — never add facts, products, regulations or medical claims that are not in it. Clear, plain language. Reply with JSON only.',
         prompt: `Material:\n${material}\n\nReturn JSON exactly in this shape: ${shape[kind]}` });
       const j: any = r.ok ? parseJson(r.text) : null;
@@ -924,7 +924,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
         scenario: '{"activity":{"type":"scenario","prompt":"A client … What do you do?","options":[{"text":"…","correct":true,"feedback":"why"},{"text":"…","correct":false,"feedback":"why not"}]}} — a realistic client situation, 3 or 4 options, exactly one correct, feedback for each.',
       };
       if (!shape[kind]) return NextResponse.json({ ok: false, error: 'Unknown draft type.' }, { status: 400 });
-      const r = await askClaude({ tier: 'smart', maxTokens: 1800, purpose: `academy-draft-${kind}`, tenantId,
+      const r = await askAI({ tier: 'smart', maxTokens: 1800, purpose: `academy-draft-${kind}`, tenantId,
         system: 'You write study material for a licensed beauty / wellness school. Use ONLY facts stated in the lesson text you are given — never add facts, products, regulations or medical claims that are not in it. Plain, friendly language for adult learners. Reply with JSON only, no commentary.',
         prompt: `Lesson title: ${String(b.title || '').slice(0, 200)}\n\nLesson text:\n${src}\n\nReturn JSON exactly in this shape: ${shape[kind]}` });
       const j: any = r.ok ? parseJson(r.text) : null;

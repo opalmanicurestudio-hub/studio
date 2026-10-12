@@ -54,7 +54,10 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const plan = React.useMemo(() => planSetAside({ visits: appts || [], services: services || [], kits: (kits || []) as any, kitTypes: (kitTypes || []) as any, bundles: (bundles || []) as any, linens: (linens || []) as any, resources: resources || [], reservations: rentals || [], expected, now }), [appts, services, kits, kitTypes, bundles, linens, resources, rentals, expected, now]);
   const tasks = React.useMemo(() => {
     const stations = stationReadiness(resources || [], appts || [], services || [], now, staff || [], protocols || []);
-    const ahead = (appts || []).filter((a: any) => ['booked', 'waiting', 'in_service'].includes(stageOf(a)) && !a.linensCounted).map((a: any) => ({ ...a, startTime: typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate ? a.startTime.toDate().toISOString() : new Date(a.startTime).toISOString() }));
+    const ahead = (appts || []).filter((a: any) => ['booked', 'waiting', 'in_service'].includes(stageOf(a)) && !a.linensCounted)
+      // A visit whose time can't be read is left out of the plan rather than breaking the desk.
+      .filter((a: any) => typeof a.startTime === 'string' || a.startTime?.toDate || !isNaN(new Date(a.startTime).getTime()))
+      .map((a: any) => ({ ...a, startTime: typeof a.startTime === 'string' ? a.startTime : a.startTime?.toDate ? a.startTime.toDate().toISOString() : new Date(a.startTime).toISOString() }));
     // The pace right now (the last hour): clean kits or linens that will run out soon become jobs, bookings or not.
     const prep: OpsTask[] = paceRunway({ visits: appts || [], services: services || [], kits: kits || [], linens: linens || [], now }).filter((r) => r.minutesLeft < 60).map((r) => ({
       id: `pace:${r.kind}:${r.id}`, kind: 'prep' as const, refId: r.id, goTo: r.kind === 'kit' ? 'kits' as const : 'linens' as const, dueAt: new Date(now + r.minutesLeft * 60000).toISOString(),

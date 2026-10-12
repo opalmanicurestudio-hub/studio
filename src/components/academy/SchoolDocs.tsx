@@ -78,7 +78,7 @@ function NewDoc({ tenantId, kinds, courses, onClose, onReady }: any) {
           </div>
         ) : (
           <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Claude drafts your <b>{k?.title.toLowerCase()}</b> from your school’s details (name, programs, hours, grading). Anything it doesn’t know is marked <mark className="rounded bg-amber-100 px-1">[fill in]</mark> for you.</p>
+            <p className="text-sm text-muted-foreground">The AI drafts your <b>{k?.title.toLowerCase()}</b> from your school’s details (name, programs, hours, grading). Anything it doesn’t know is marked <mark className="rounded bg-amber-100 px-1">[fill in]</mark> for you.</p>
             <textarea rows={4} className="w-full rounded-xl border-2 border-border/60 bg-background p-3 text-sm" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything to include? (optional) — e.g. We’re closed Mondays. Students must wear black scrubs. Late = more than 10 minutes." />
             {err && <p className="text-sm text-red-700">{err}</p>}
             <button type="button" disabled={busy} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'doc-ai', tenantId, kind, notes }); setBusy(false); if (r.ok) onReady({ kind, title: r.title, body: r.body, requireAck: !!k?.ack }); else setErr(r.error); }} className="h-12 w-full rounded-xl bg-violet-700 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Drafting… (up to a minute)' : '✨ Draft it'}</button>

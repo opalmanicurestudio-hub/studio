@@ -24,7 +24,7 @@ import { internalOrigin } from '@/lib/message-policy';
 import { platformAdminEmails, signupIsOpen, can, permsFor, type HqPerm } from '@/lib/platform-admin';
 import { aiDraftReply, CATEGORY_LABEL, SLA_HOURS, type Priority } from '@/lib/support-triage';
 import { computeMetrics } from '@/lib/hq-metrics';
-import { askClaude, aiConfigured } from '@/lib/ai';
+import { askAI, aiConfigured } from '@/lib/ai';
 import { syncStripeMonth, profitLadder, planner, monthKey, DEFAULT_SETTINGS, type FinanceSettings } from '@/lib/hq-finance';
 import { billingSettings, ensurePrices, ensureFoundingCoupon } from '@/lib/billing';
 import { ALL_PRICES } from '@/lib/billing-plans';
@@ -329,7 +329,7 @@ If you didn’t ask for this, you can ignore it.
     const snap = await db.collection('platformMetrics').orderBy('date', 'desc').limit(8).get();
     const days = snap.docs.map((d: any) => d.data() as any);
     if (!days.length) return NextResponse.json({ ok: false, error: 'No metrics yet — refresh Insights first.' });
-    const r = await askClaude({ tier: 'smart', maxTokens: 700, purpose: 'insights_brief',
+    const r = await askAI({ tier: 'smart', maxTokens: 700, purpose: 'insights_brief',
       system: 'You are the chief of staff for ClarityFlow, a small SaaS company run by its founder. Write a short weekly briefing in plain English: 1) what changed (with numbers), 2) three specific actions for this week, most valuable first, 3) one risk to watch. Under 220 words. Use only the data given; never invent figures. No headings with #; use short bold labels.',
       prompt: `Latest platform snapshot:
 ${JSON.stringify(days[0]).slice(0, 6000)}

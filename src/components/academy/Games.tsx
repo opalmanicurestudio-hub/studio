@@ -10,7 +10,7 @@
 // Each ends with a score, Play again, and reports the score (the gradebook
 // keeps the best).
 // GameEditor (owners): pick a template; ✨ make it from the lesson or type one
-// item per line; or switch to a free-form game built by Claude.
+// item per line; or switch to a free-form game built by the AI.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -153,7 +153,7 @@ export function GameEditor({ b, onChange, onAi, onFreeForm }: { b: any; onChange
       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">{GAME_TEMPLATES.map(([k, i, n, h]) => <button key={k} type="button" onClick={() => onChange({ template: k, data: null, aiStamp: Date.now() })} className={`rounded-xl p-2 text-left ${b.template === k ? 'bg-foreground text-background' : 'bg-muted/50'}`}><span className="text-lg">{i}</span><span className="block text-[12px] font-black">{n}</span><span className="block text-[10px] opacity-70">{h}</span></button>)}</div>
       <input className={field} value={b.title || ''} onChange={(e) => onChange({ title: e.target.value })} placeholder="Game title students see (optional)" />
       <div className="flex flex-wrap items-center gap-2"><button type="button" disabled={busy} onClick={async () => { setBusy(true); setErr(''); const e = await onAi(); setBusy(false); if (e) setErr(e); }} className="h-9 rounded-full bg-violet-100 px-3 text-[12px] font-bold text-violet-900 disabled:opacity-50">{busy ? 'Making it…' : '✨ Make it from this lesson'}</button>
-        <button type="button" onClick={onFreeForm} className="h-9 rounded-full border-2 px-3 text-[12px] font-bold">Or a free-form game built by Claude…</button></div>
+        <button type="button" onClick={onFreeForm} className="h-9 rounded-full border-2 px-3 text-[12px] font-bold">Or a free-form game built by AI…</button></div>
       {err && <p className="text-sm text-red-700">{err}</p>}
       {b.template === 'sort' && <label className="block text-[12px] font-bold">Bins (comma-separated)<input className={field} value={bins} onChange={(e) => set(text, e.target.value)} /></label>}
       <label className="block text-[12px] font-bold">{HOW[b.template]}<textarea rows={6} className="mt-1 w-full rounded-xl border-2 border-border/60 bg-background p-3 text-sm" value={text} onChange={(e) => set(e.target.value, bins)} /></label>

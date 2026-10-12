@@ -61,7 +61,7 @@ export function AgendaView({ date, appointments, clients, services, staff, selec
       let cursor = Math.max(start, isToday(date) ? Math.ceil(differenceInMinutes(new Date(), d0) / 5) * 5 : start);
       const push = (a: number, b: number) => gaps.push({ kind: 'gap', at: new Date(d0.getTime() + a * 60000), minutes: b - a, staff: s });
       for (const [a, b] of busy) { if (a - cursor >= 20) push(cursor, a); cursor = Math.max(cursor, b); } if (end - cursor >= 20) push(cursor, end); }
-    const others = extras.filter((x: any) => providerFilter === 'all' || !x.staffId || x.staffId === providerFilter).map((x: any) => ({ kind: 'extra' as const, at: safe(x.startTime || x.date), x }));
+    const others = extras.filter((x: any) => providerFilter === 'all' || !x.staffId || x.staffId === providerFilter).map((x: any) => ({ kind: 'extra' as const, at: safe(x.startTime || x.date), x })).filter((r: any) => !isNaN(r.at.getTime()));   // an item with no usable time can't be placed — never crash the day on it
     return [...visits, ...gaps, ...others].sort((x, y) => x.at.getTime() - y.at.getTime());
   }, [appointments, staff, providerFilter, date, dayKey, onBookAt, extras]);
   useNow(15000);   // keeps "N min over" and timers current
@@ -83,7 +83,7 @@ export function AgendaView({ date, appointments, clients, services, staff, selec
             {r.kind === 'extra' ? (
               <button type="button" onClick={() => onOpenExtra?.(r.x)} className="grid w-full grid-cols-[64px_6px_minmax(0,1fr)_auto] items-center gap-3 border-t px-4 py-2.5 text-left text-[14px]" style={{ borderColor: 'var(--line)' }}>
                 <span style={muted}>{format(r.at, 'h:mm')}</span><span className="h-8 w-1.5 rounded-full" style={{ background: r.x.itemType === 'block' ? 'var(--line)' : 'var(--accent)' }} />
-                <span className="min-w-0 truncate">{r.x.itemType === 'block' ? <span style={muted}>{r.x.reason || 'Blocked'}{r.x.staffId ? ` · ${staff.find((s) => s.id === r.x.staffId)?.name || ''}` : ''}</span> : <><b>{r.x.title || r.x.name || 'Event'}</b>{r.x.type ? ` · ${String(r.x.type).replace(/_/g, ' ')}` : ''}</>}</span>
+                <span className="min-w-0 truncate">{r.x.itemType === 'block' ? <span style={muted}>{r.x.label || r.x.reason || 'Blocked'}{r.x.staffId ? ` · ${staff.find((s) => s.id === r.x.staffId)?.name || ''}` : ''}</span> : <><b>{r.x.title || r.x.name || 'Event'}</b>{r.x.type ? ` · ${String(r.x.type).replace(/_/g, ' ')}` : ''}</>}</span>
                 <span className="text-[13px]" style={muted}>{r.x.itemType === 'block' ? 'Not bookable' : 'Event'}</span>
               </button>) : r.kind === 'gap' ? (
               <button type="button" onClick={() => onBookAt?.(r.staff.id, r.at)} className="grid w-full grid-cols-[64px_6px_minmax(0,1fr)_auto] items-center gap-3 border-t px-4 py-2 text-left text-[13px]" style={{ borderColor: 'var(--line)', background: 'var(--paper, #faf8f5)', ...muted }} aria-label={`${r.minutes} minute gap for ${r.staff.name} at ${format(r.at, 'h:mm a')} — book here`}>

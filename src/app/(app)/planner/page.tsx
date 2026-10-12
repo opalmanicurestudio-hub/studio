@@ -530,7 +530,7 @@ function PlannerPageContent() {
           .filter((b: any) => b && b.startTime && b.showOnStudioCalendar !== false && isSameDay(safeDate(b.startTime), targetDateStart))
           .forEach((b: any) => {
             if (!map.has(b.staffId)) return;
-            const endTime = b.endTime || new Date(safeDate(b.startTime).getTime() + (Number(b.durationMin) || 60) * 60000).toISOString();
+            const endTime = b.endTime || new Date(safeDate(b.startTime).getTime() + (Number(b.durationMin) || Number(b.duration) || 60) * 60000).toISOString();
             map.get(b.staffId)!.push({ ...b, endTime, itemType: 'block' } as any);
           });
     }
@@ -1415,7 +1415,7 @@ function PlannerPageContent() {
           <p className="text-xs text-red-600 leading-relaxed">
             The file for {UNDEFINED_IMPORTS.length === 1 ? 'this component' : 'these components'} exists but doesn't export
             {UNDEFINED_IMPORTS.length === 1 ? ' this exact name' : ' these exact names'} (it probably uses a default export
-            or a different name). Send this name to Claude and it's a one-line fix.
+            or a different name). Send this name to your developer and it's a one-line fix.
           </p>
         </div>
       </div>

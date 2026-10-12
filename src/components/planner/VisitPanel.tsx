@@ -8,6 +8,8 @@ import { format, differenceInMinutes } from 'date-fns';
 import { stateOf, visitMarks, MARK_COLOR, elapsedLabel, useNow } from '@/components/planner/AgendaView';
 
 const safe = (v: any) => (v instanceof Date ? v : new Date(v?.toDate ? v.toDate() : v));
+// format(), but a date that can't be read shows nothing instead of breaking the panel.
+const fmt = (v: any, p: string) => { const d = safe(v); return isNaN(d.getTime()) ? '' : format(d, p); };
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 export type VisitActions = { onCheckIn?: (a: any) => void; onApprove?: (a: any) => void; onDecline?: (a: any) => void; canDecline?: boolean; onEdit?: (a: any) => void; onReschedule?: (a: any) => void; onRebook?: (a: any) => void; onPrintTicket?: (a: any) => void; onReportIssue?: (a: any) => void; onResolveIssue?: (a: any) => void; canResolve?: boolean };
 export function VisitPanel({ appointment, appointments, clients, services, staff, typical, onStart, onFinish, onToDesk, onRunningLate, onOpen, onClose, actions: more = {} }: {
@@ -28,7 +30,7 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
   const visits = appointments.filter((x) => x.clientId === a.clientId && x.status === 'completed').length;
   const owed = Number(a.balanceDue ?? a.amountDue ?? 0); const paid = Number(a.depositPaid ?? a.depositAmount ?? 0);
   const told: string[] = [];
-  if (a.reminderSentAt) told.push(`reminded ${format(safe(a.reminderSentAt), 'EEE h:mm a')}`); if (a.lateNoticeSentAt || a.providerLateNoticeAt) told.push(`told we're running late ${format(safe(a.lateNoticeSentAt || a.providerLateNoticeAt), 'h:mm a')}`); if (a.rescheduledNoticeAt) told.push(`told of the move ${format(safe(a.rescheduledNoticeAt), 'EEE h:mm a')}`);
+  if (a.reminderSentAt) told.push(`reminded ${fmt(a.reminderSentAt, 'EEE h:mm a')}`); if (a.lateNoticeSentAt || a.providerLateNoticeAt) told.push(`told we're running late ${fmt(a.lateNoticeSentAt || a.providerLateNoticeAt, 'h:mm a')}`); if (a.rescheduledNoticeAt) told.push(`told of the move ${fmt(a.rescheduledNoticeAt, 'EEE h:mm a')}`);
   const chip = (t: string, c?: string) => <span key={t} className="rounded-full px-3 py-1 text-[12px] font-semibold" style={c ? { background: `color-mix(in srgb, ${c} 12%, transparent)`, color: c } : { background: 'var(--soft)' }}>{t}</span>;
   const btn = (label: string, f: () => void, primary = false) => <button key={label} type="button" onClick={f} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={primary ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{label}</button>;
   const actions: React.ReactNode[] = [];
@@ -51,7 +53,7 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
   return (
     <aside className="flex w-full flex-col gap-4 overflow-auto rounded-3xl p-5" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} aria-label={`${client?.name || 'Client'} — ${service?.name || 'visit'}`}>
       <div className="flex items-start justify-between gap-3">
-        <div><p className="text-[13px]" style={muted}>{format(safe(a.startTime), 'h:mm')} – {format(safe(a.endTime || a.startTime), 'h:mm a')}{prov ? ` · ${prov.name}` : ''}</p>
+        <div><p className="text-[13px]" style={muted}>{fmt(a.startTime, 'h:mm')} – {fmt(a.endTime || a.startTime, 'h:mm a')}{prov ? ` · ${prov.name}` : ''}</p>
           <h2 className="mt-1 text-[22px] font-light leading-tight">{client?.name || a.clientName || 'Client'} <span className="text-[15px]" style={muted}>· {service?.name || a.serviceName || 'Service'}</span></h2></div>
         {onClose && <button type="button" onClick={onClose} aria-label="Close" className="h-9 w-9 shrink-0 rounded-full text-[18px]" style={{ background: 'var(--soft)' }}>×</button>}
       </div>
@@ -67,10 +69,10 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
           return <p key={x.id} className="flex justify-between gap-2 text-[13px]" style={x.id === a.id ? { fontWeight: 600 } : undefined}><span className="min-w-0 truncate">{xc?.name || x.clientName || 'Guest'}{x.groupRole === 'organizer' ? ' · booked it' : ''} · {services.find((sv) => sv.id === x.serviceId)?.name || 'Service'}{xp ? ` · ${xp.name}` : ''}</span><span style={{ color: xs.color }}>{xs.word}</span></p>; })}
       </div>}
       <div className="space-y-2 border-t pt-3 text-[14px]" style={{ borderColor: 'var(--line)' }}>
-        {last ? <p><b>Last time:</b> {lastService?.name || 'a visit'} on {format(safe(last.startTime), 'd MMM')}{last.note || last.notes || last.providerNote ? ` · ${last.note || last.notes || last.providerNote}` : ''}</p> : <p style={muted}><b>Last time:</b> nothing on record yet</p>}
+        {last ? <p><b>Last time:</b> {lastService?.name || 'a visit'} on {fmt(last.startTime, 'd MMM')}{last.note || last.notes || last.providerNote ? ` · ${last.note || last.notes || last.providerNote}` : ''}</p> : <p style={muted}><b>Last time:</b> nothing on record yet</p>}
         {(client?.nextVisitNote || client?.notes) && <p><b>Note:</b> {client.nextVisitNote || client.notes}</p>}
         {prov && service && <p><b>Typical for {prov.name}:</b> {typical ? `${typical} min on this service` : `booked at ${service.duration} min`}{elapsed !== null ? ` · today ${elapsed} min so far` : ''}</p>}
-        {next ? <p><b>Next for {prov?.name || 'them'}:</b> {nextClient?.name || 'a client'} at {format(safe(next.startTime), 'h:mm a')}{next.checkInStatus === 'arrived' ? ', here and waiting' : ''}</p> : <p style={muted}><b>Next for {prov?.name || 'them'}:</b> nothing after this</p>}
+        {next ? <p><b>Next for {prov?.name || 'them'}:</b> {nextClient?.name || 'a client'} at {fmt(next.startTime, 'h:mm a')}{next.checkInStatus === 'arrived' ? ', here and waiting' : ''}</p> : <p style={muted}><b>Next for {prov?.name || 'them'}:</b> nothing after this</p>}
         {told.length > 0 && <p style={muted}><b>Told:</b> {told.join(' · ')}</p>}
       </div>
     </aside>);

@@ -25,7 +25,7 @@ import { moduleStates, whatChanged, award, gameView } from '@/lib/academy-module
 import { upcomingPayments, studentPaySession, completeStudentPayment, cardUpdateSession, completeCardUpdate } from '@/lib/academy-admissions';
 import { translateTexts, translateLong, LANGUAGES } from '@/lib/translate';
 import { findLive, studentBeat, studentAnswer, askQuestion, upvote, queueFor } from '@/lib/academy-live';
-import { askClaude, aiConfigured } from '@/lib/ai';
+import { askAI, aiConfigured } from '@/lib/ai';
 import { postMessage, sendEmail as sendJourneyEmail } from '@/lib/academy-journey';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
@@ -699,7 +699,7 @@ Keep this link private — you can use it any time to check your status.
       const cur = lessons.find((l: any) => l.id === b.lessonId);
       const ordered = cur ? [cur, ...lessons.filter((l: any) => l.id !== cur.id)] : lessons;
       let material = ''; for (const l of ordered) { const chunk = `\n### Lesson: ${l.title}\n${String(l.body || '').trim()}${l.transcript ? `\n[Video transcript]\n${String(l.transcript).slice(0, 8000)}` : ''}${!l.body && !l.transcript ? '(video lesson — no notes or transcript yet)' : ''}\n`; if (material.length + chunk.length > 24000) break; material += chunk; }
-      const r = await askClaude({ tier: 'fast', maxTokens: 700, purpose: 'academy-tutor', tenantId,
+      const r = await askAI({ tier: 'fast', maxTokens: 700, purpose: 'academy-tutor', tenantId,
         system: `You are the study tutor for the course "${c.title}" at ${brand.name}. Answer ONLY from the course material below. If the material doesn't cover the question, say so plainly and suggest asking their instructor (they can message the school from "My courses") — do not answer from general knowledge. Never diagnose or give medical advice; for anything about a client's health, infection or contraindications, tell them to follow the course's rules and check with their instructor. Keep answers short and clear for a student, and end with the lesson(s) you used, like: (From: Lesson title).\n\nCOURSE MATERIAL:${material}`,
         prompt: question });
       if (!r.ok) return NextResponse.json({ ok: false, error: 'The tutor is busy — try again in a moment.' }, { status: 502 });

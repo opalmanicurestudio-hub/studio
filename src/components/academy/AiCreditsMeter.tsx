@@ -13,7 +13,7 @@ export function AiCreditsMeter({ tenantId }: { tenantId: string }) {
     <section className="space-y-2 rounded-2xl bg-muted/40 p-4">
       <div className="flex items-baseline justify-between"><p className="font-black">✨ AI credits this month</p><p className="text-sm"><b>{d.left}</b> of {d.allowance} left</p></div>
       <div className="h-3 rounded-full bg-background"><div className={`h-3 rounded-full ${pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-400' : 'bg-violet-600'}`} style={{ width: `${pct}%` }} /></div>
-      <p className="text-[12px] text-muted-foreground">Resets {new Date(d.resetsAt).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}. Interactive (Claude Opus) {d.weights['ai-interactive']} · course builder {d.weights['ai-course']} · questions {d.weights['qbank-ai']} · lesson plan, worksheet, assignment {d.weights['ai-plan']} · grading feedback {d.weights['submission-ai']}. Saved materials reprint free. Failed attempts are refunded; students’ AI tutor doesn’t use these.</p>
+      <p className="text-[12px] text-muted-foreground">Resets {new Date(d.resetsAt).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}. Interactive (our most capable model) {d.weights['ai-interactive']} · course builder {d.weights['ai-course']} · questions {d.weights['qbank-ai']} · lesson plan, worksheet, assignment {d.weights['ai-plan']} · grading feedback {d.weights['submission-ai']}. Saved materials reprint free. Failed attempts are refunded; students’ AI tutor doesn’t use these.</p>
       {Object.keys(d.byPurpose).length > 0 && <p className="text-[12px]">{Object.entries(d.byPurpose).filter(([, n]: any) => n > 0).map(([k, n]: any) => `${LABELS[k] || k} ${n}`).join(' · ')}</p>}
     </section>
   );

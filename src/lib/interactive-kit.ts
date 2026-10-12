@@ -6,9 +6,9 @@
 //                stone palette, the school's brand colour (--cf-accent), rounded
 //                cards, styled buttons / toggles / sliders / readouts, SVG
 //                colour classes, reduced-motion handling
-//   KIT_GUIDE    what Claude is told to use (classes, variables, rules)
+//   KIT_GUIDE    what the model is told to use (classes, variables, rules)
 //   KIT_EXAMPLE  a worked example of the expected quality, built with the kit
-//   extractHtml  pulls the HTML out of Claude's reply; refuses anything cut off
+//   extractHtml  pulls the HTML out of the model's reply; refuses anything cut off
 //   scriptError  compiles every inline <script> (without running it) so a
 //                syntax error is caught on the server, before anyone sees it
 
@@ -94,7 +94,7 @@ export const KIT_EXAMPLE = `<div class="cf-card">
 })();
 </script>`;
 
-/** Pull the HTML out of Claude's reply. Refuses output that was cut off. */
+/** Pull the HTML out of the model's reply. Refuses output that was cut off. */
 export function extractHtml(text: string, stopReason?: string | null): { html: string | null; error?: string } {
   if (stopReason === 'max_tokens') return { html: null, error: 'The interactive was too big to finish — try a simpler request, or split it into two.' };
   const fenced = text.match(/```html\s*([\s\S]*?)```/);

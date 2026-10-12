@@ -3,12 +3,12 @@
 // SORTING HELP REQUESTS — so the right one gets answered first.
 //
 // Every ticket gets a category, a priority and a response deadline (SLA).
-// Plain rules do it instantly and always work; when AI is connected, Claude
+// Plain rules do it instantly and always work; when AI is connected, the model
 // reads the request with its context (page, errors, the business's recent
 // failures) and adds a one-line summary, the likely cause, whether a
 // developer is needed, and a drafted reply for a human to approve.
 
-import { askClaude, parseJson, aiConfigured } from '@/lib/ai';
+import { askAI, parseJson, aiConfigured } from '@/lib/ai';
 
 export type Category = 'login' | 'payments' | 'booking' | 'messages' | 'renters' | 'data' | 'bug' | 'billing' | 'question' | 'idea';
 export type Priority = 'urgent' | 'high' | 'normal' | 'low';
@@ -65,7 +65,7 @@ export async function aiTriage(input: { message: string; kind: string; subject?:
     `Recent browser errors: ${(input.errors || []).length ? input.errors!.map((e: any) => `- ${e.message} (${e.page})`).join('\n') : 'none'}`,
     `Recent failures on their account: ${(input.recentFailures || []).length ? input.recentFailures!.join('\n') : 'none'}`,
   ].filter(Boolean).join('\n');
-  const r = await askClaude({ system: SYSTEM, prompt, tier: 'fast', maxTokens: 600, purpose: 'ticket_triage', tenantId: input.tenantId || null });
+  const r = await askAI({ system: SYSTEM, prompt, tier: 'fast', maxTokens: 600, purpose: 'ticket_triage', tenantId: input.tenantId || null });
   if (!r.ok) return null;
   const j = parseJson<AiTriage>(r.text);
   if (!j) return null;
@@ -82,7 +82,7 @@ export async function aiTriage(input: { message: string; kind: string; subject?:
 export async function aiDraftReply(input: { ticket: any; instructions?: string }) {
   const k = input.ticket;
   const convo = [`Owner (${k.contactName || 'owner'}): ${k.message}`, ...(k.thread || []).map((m: any) => `${m.from === 'hq' ? 'ClarityFlow' : 'Owner'}: ${m.message}`)].join('\n\n');
-  return askClaude({
+  return askAI({
     system: 'You write replies for ClarityFlow support to small-business owners. Warm, clear, plain English, no jargon, under 150 words. Only state what the evidence supports. Sign off "— ClarityFlow". Return only the reply text.',
     prompt: `Conversation so far:\n${convo}\n\nContext: page ${k.context?.page || '?'}; errors: ${(k.context?.errors || []).map((e: any) => e.message).join('; ') || 'none'}.\nAI notes: ${k.ai?.likelyCause || 'none'}\n${input.instructions ? `Instructions from the support agent: ${input.instructions}` : ''}\n\nWrite the next reply from ClarityFlow.`,
     tier: 'smart', maxTokens: 500, purpose: 'ticket_draft', tenantId: k.tenantId || null,
