@@ -13,13 +13,13 @@ const input = 'h-12 w-full rounded-2xl border bg-white px-4 text-[15px]';
 export default function JoinWaitlist() {
   const { tenantId } = useParams() as { tenantId: string }; const q = useSearchParams();
   const [info, setInfo] = React.useState<any>(null); const [done, setDone] = React.useState(false); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
-  const [f, setF] = React.useState<any>({ serviceId: q.get('service') || '', staffId: q.get('provider') || 'any', name: q.get('name') || '', phone: q.get('phone') || '', email: '', notice: 3, until: '', callOk: false });
+  const [f, setF] = React.useState<any>({ serviceId: q.get('service') || '', staffId: q.get('provider') || 'any', name: q.get('name') || '', phone: q.get('phone') || '', email: '', notice: 3, until: '', callOk: false, autoBook: false });
   const [win, setWin] = React.useState<Record<string, string[]>>({});
   React.useEffect(() => { fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'info' }) }).then((r) => r.json()).then(setInfo).catch(() => setInfo({ ok: false })); }, [tenantId]);
   const brand = brandOf(info?.tenant, tenantId);
   const toggle = (d: string, p: string) => setWin((w) => { const cur = new Set(w[d] || []); if (cur.has(p)) cur.delete(p); else cur.add(p); const n = { ...w, [d]: [...cur] }; if (!n[d].length) delete n[d]; return n; });
   const join = async () => { setBusy(true); setErr('');
-    const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'join', source: 'waitlist_page', name: f.name, phone: f.phone, email: f.email, serviceId: f.serviceId || null, staffId: f.staffId, windows: win, noticeHours: f.notice, until: f.until || null, callOk: f.callOk }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
+    const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'join', source: 'waitlist_page', name: f.name, phone: f.phone, email: f.email, serviceId: f.serviceId || null, staffId: f.staffId, windows: win, noticeHours: f.notice, until: f.until || null, callOk: f.callOk, autoBook: f.autoBook }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
     setBusy(false); if (r.ok) setDone(true); else setErr(r.error || 'That didn’t work — try again.'); };
   if (!info) return <VisitShell brand={brand} title="Waitlist"><VisitMuted>Loading…</VisitMuted></VisitShell>;
   if (done) return <VisitShell brand={brand} title={<>You’re on the <b>list</b></>} subtitle="We’ll text you the moment something fits.">
@@ -43,6 +43,7 @@ export default function JoinWaitlist() {
         <VisitChoice value={f.notice} onChange={(v) => setF({ ...f, notice: v })} options={[[1, '1 hour'], [3, '3 hours'], [24, 'A day']]} cols={3} />
         <label className="flex items-center justify-between gap-3 text-[15px]"><span>Keep looking until</span><input type="date" value={f.until} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setF({ ...f, until: e.target.value })} className="h-11 rounded-2xl border bg-white px-3 text-[15px]" style={{ borderColor: '#e7e2dc' }} aria-label="Until" /></label>
         {!f.until && <VisitMuted>Leave it and we’ll look for 30 days.</VisitMuted>}
+        <label className="flex items-start gap-3 text-[15px] leading-snug"><input type="checkbox" checked={f.autoBook} onChange={(e) => setF({ ...f, autoBook: e.target.checked })} className="mt-1 h-4 w-4" aria-label="Book it for me automatically" /><span><b className="font-semibold">Just book it for me</b> — when a time that fits opens, it’s yours straight away. <span style={{ color: 'var(--muted)' }}>We’ll text you the details (and a deposit link, if there is one). You can cancel from that text.</span></span></label>
       </VisitCard>
       <VisitCard>
         <VisitLabel>Where should we text you?</VisitLabel>

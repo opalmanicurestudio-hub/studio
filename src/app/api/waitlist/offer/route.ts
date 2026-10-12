@@ -5,7 +5,7 @@
 // through. Nothing here ever names another client. lib/waitlist-server.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { viewOffer, takeOffer, passOffer, backupFor, alternativesFor, bookAlternative } from '@/lib/waitlist-server';
+import { viewOffer, takeOffer, passOffer, backupFor, alternativesFor, bookAlternative, keepView, keepEntry } from '@/lib/waitlist-server';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -18,6 +18,9 @@ export async function POST(req: NextRequest) {
   try {
     if (action === 'take') return NextResponse.json(await takeOffer(db, tenantId, token));
     if (action === 'pass') return NextResponse.json(await passOffer(db, tenantId, token));
+    // "Still hoping?" link (/w/{tenant}/keep/{token}): keep their place, or come off the list.
+    if (action === 'keep_view') return NextResponse.json(await keepView(db, tenantId, token));
+    if (action === 'keep' || action === 'leave') return NextResponse.json(await keepEntry(db, tenantId, token, action === 'keep'));
     if (action === 'backup') return NextResponse.json(await backupFor(db, tenantId, token));
     if (action === 'alternatives') return NextResponse.json(await alternativesFor(db, tenantId, token));
     if (action === 'book_alt') return NextResponse.json(await bookAlternative(db, tenantId, token, String(b.startIso || '').slice(0, 40), String(b.staffId || '').slice(0, 120)));

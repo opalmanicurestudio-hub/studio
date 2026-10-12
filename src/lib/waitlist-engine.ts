@@ -25,6 +25,8 @@ export const FIRST_BATCH = 3;
 export const WAVE_SOLO_MIN = 10;    // later today: the best fit's head start
 export const WAVE_FROM_H = 4;       // waves only when there's time for them
 export const PRIORITY_DAYS = 14;    // missed out → the next one that fits is theirs alone, for this long
+export const STALE_AFTER = 3;       // offers left unopened in a row before we ask "still hoping?"
+export const STALE_ANSWER_H = 48;   // no answer to that → paused (off the offers, still on the list for the desk)
 export const MAX_CHAIN = 2;
 
 export function offerModeFor(startMs: number, now: number): Mode {
@@ -40,7 +42,7 @@ export function windowFits(windows: Record<string, string[]> | null | undefined,
 
 export interface Entry { id: string; kind?: 'new' | 'sooner'; clientId?: string | null; name?: string; phone?: string; email?: string; serviceId?: string | null; serviceIds?: string[]; staffId?: string | null; preferredStaffId?: string | null;
   windows?: Record<string, string[]> | null; noticeHours?: number; until?: string | null; createdAt?: string; addedAt?: string; appointmentId?: string | null; status?: string; visits?: number; reliability?: 'ok' | 'misses';
-  priorityUntil?: string | null; missedCount?: number }
+  priorityUntil?: string | null; missedCount?: number; autoBook?: boolean; ignoredInARow?: number; stillAskedAt?: string | null }
 export interface Opening { id: string; staffId: string; start: string; end: string; minutes: number; serviceId?: string | null; chainDepth?: number; offered?: string[] }
 
 const OPEN = ['waiting', 'active', 'open', 'empty', 'notified', 'offered'];
@@ -115,6 +117,13 @@ export function planRound(startMs: number, now: number, offers: { status: string
   }
   return { count: Math.min(FIRST_BATCH, ranked.length), mode: 'first', holdMin: 15 };
 }
+
+/** "Still hoping?" — after STALE_AFTER offers in a row they never even opened. */
+export const stillText = (o: { first: string; service: string; link: string }) =>
+  `Hi ${o.first}! Still hoping for ${o.service ? `a ${o.service}` : 'a time'} with us? Tap to keep your place — or to come off the list, no problem: ${o.link}`;
+/** Booked for them (they asked us to): the booking's own confirmation follows. */
+export const autoBookedText = (o: { first: string; when: string; provider: string }) =>
+  `Good news, ${o.first} — ${o.when}${o.provider ? ` with ${o.provider}` : ''} opened up and you asked us to book it for you, so it’s yours. Your confirmation is on its way.`;
 
 /** The words. Hello-first doesn't apply here: they asked to be told, so the link goes in. */
 export function offerText(o: { first: string; provider: string; when: string; service: string; price: string; link: string; mode: Mode; holdMin: number; sooner?: { was: string } | null; business: string }): string {

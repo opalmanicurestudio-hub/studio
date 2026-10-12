@@ -9,7 +9,7 @@
 // that fit them, can be the backup for the one they missed, and is first — alone — for the next one. Nothing a client
 // sees ever names another client.
 import { randomBytes } from 'crypto';
-import { offerModeFor, fitFor, moveUpOk, rank, planRound, owed, offerText, isWaiting, serviceOf, staffWanted, windowFits, HOLD_ONE_MIN, PRIORITY_DAYS, WAVE_FROM_H, type Entry, type Opening, type Mode } from '@/lib/waitlist-engine';
+import { offerModeFor, fitFor, moveUpOk, rank, planRound, owed, offerText, isWaiting, serviceOf, staffWanted, windowFits, HOLD_ONE_MIN, PRIORITY_DAYS, WAVE_FROM_H, STALE_AFTER, STALE_ANSWER_H, stillText, autoBookedText, type Entry, type Opening, type Mode } from '@/lib/waitlist-engine';
 
 const T = (t: string) => `tenants/${t}`;
 const H = 3600e3, DAY = 864e5;
@@ -17,6 +17,7 @@ const iso = (n: number) => new Date(n).toISOString();
 const ms = (v: any) => (typeof v === 'string' ? Date.parse(v) || 0 : v?.toDate ? v.toDate().getTime() : Number(v) || 0);
 const rows = (s: any) => s.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
 const DEAD = ['cancelled', 'canceled', 'no_show', 'noshow', 'declined', 'expired', 'rejected'];
+const digitsOf = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || 'there';
 const money = (n: any) => { const v = Number(n) || 0; return v ? `$${v % 1 ? v.toFixed(2) : v}` : ''; };
 
@@ -102,6 +103,7 @@ export async function matchesFor(db: any, t: string, op: any, now: number, d: De
   for (const en of entries) {
     if (offered.has(en.id) || !isWaiting(en)) continue;
     if (en.status === 'offered' && now - ms((en as any).lastOfferAt) < 30 * 60000) { not.push({ e: en, why: 'has another offer right now' }); continue; }
+    if (en.stillAskedAt && (Number(en.ignoredInARow) || 0) >= STALE_AFTER) { not.push({ e: en, why: 'asked if they’re still hoping — no answer yet' }); continue; }
     let ent: Entry = { ...en };
     if (ent.clientId && !clients.has(ent.clientId)) clients.set(ent.clientId, ((await db.doc(`${T(t)}/clients/${ent.clientId}`).get()).data() || {}));
     const cl = ent.clientId ? clients.get(ent.clientId) : null;
@@ -109,6 +111,13 @@ export async function matchesFor(db: any, t: string, op: any, now: number, d: De
     ent.visits = Number(cl?.visitCount || cl?.totalVisits || 0);
     let mine: any = null;
     if (ent.kind === 'sooner') { mine = appts.find((a: any) => a.id === ent.appointmentId); if (!mine || DEAD.includes(String(mine.status || ''))) continue; ent = { ...ent, serviceId: mine.serviceId, staffId: ent.staffId === 'any' ? null : mine.staffId }; }
+    else {
+      // Already booked for this later on? Then it's a move-up of THAT visit — never a second booking.
+      const tel = digitsOf(ent.phone); const later = appts.find((a: any) => !DEAD.includes(String(a.status || '')) && ms(a.startTime) > ms(op.start) && (!serviceOf(ent) || a.serviceId === serviceOf(ent))
+        && ((ent.clientId && a.clientId === ent.clientId) || (tel && digitsOf(a.clientPhone) === tel)));
+      if (later) { if (later.staffId !== op.staffId) { not.push({ e: ent, why: 'already booked for this later, with someone else' }); continue; }
+        mine = later; ent = { ...ent, kind: 'sooner', appointmentId: later.id, serviceId: later.serviceId, alreadyBooked: true } as any; }
+    }
     const sid = serviceOf(ent);
     const sameDay = appts.some((a: any) => ent.clientId && a.clientId === ent.clientId && a.id !== mine?.id && !DEAD.includes(String(a.status || '')) && new Date(ms(a.startTime)).toLocaleDateString('en-US', { timeZone: tz }) === new Date(ms(op.start)).toLocaleDateString('en-US', { timeZone: tz }));
     const f = fitFor(ent, op as Opening, { now, tz: w, serviceMinutes: durOf(svc(sid)), shortest, bookable: bookable(sid), sameDayBooked: sameDay });
@@ -139,11 +148,16 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
     const mode: Mode = offerModeFor(ms(op.start), now);
     const offers = (op.offers || []).map((f: any) => (f.status === 'sent' && ms(f.holdUntil) <= now ? { ...f, status: 'lapsed' } : f));
     if ((op.offers || []).some((f: any) => f.mode === 'one' && f.status === 'sent' && ms(f.holdUntil) <= now)) await unhold(db, t, op.id);
+    // Offers that ran out without even being opened count toward "still hoping?"
+    for (const f of (op.offers || []).filter((f: any) => f.status === 'sent' && ms(f.holdUntil) <= now && !f.viewedAt)) await ignored(db, t, f.entryId);
     if (mode === 'desk') { if (!op.deskAt) { await tellDesk(db, t, op, tz, now); desk++; } await ref.update({ mode, offers, deskAt: op.deskAt || iso(now) }); continue; }
     const fresh = JSON.stringify(offers) !== JSON.stringify(op.offers || []);
     if (!canText) { if (fresh) await ref.update({ offers }); continue; }
     const m = await matchesFor(db, t, { ...op, offers }, now, d, cache);
     const round = planRound(ms(op.start), now, offers, m.fits);
+    // First in line asked us to just book it? Then it's booked — no text to tap, no race.
+    const top = m.fits[0];
+    if (round.count && top && top.e.autoBook && !top.appt && (await autoBook(db, t, { ...op, offers }, top, now, d, m))) { sent++; continue; }
     const out: any[] = [];
     for (const c of m.fits.slice(0, round.count)) { const r = await sendOffer(db, t, op, c, round.mode, now, d, m, round.holdMin); if (r) out.push(r); }
     if (round.mode === 'one' && out.length) await holdTime(db, t, op, out[0].holdUntil, now);
@@ -151,9 +165,11 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
     if (fresh || out.length || op.mode !== mode || !op.checkedAt || now - ms(op.checkedAt) > 30 * 60000)
       await ref.update({ mode, offers: [...offers, ...out], checkedAt: iso(now), fitCount: m.fits.length, nobodyFits: m.fits.length === 0 && !offers.some((f: any) => f.status === 'sent') });
   }
-  // The list stays fresh: past the date they gave (or 60 days), it closes.
+  // The list stays fresh: past the date they gave (or 60 days), it closes; no answer to "still hoping?" → paused.
   const ents = rows(await db.collection(`${T(t)}/waitlist`).get());
-  for (const e of ents) { if (!isWaiting(e)) continue; const until = e.until ? ms(`${String(e.until).slice(0, 10)}T23:59:59Z`) : ms(e.createdAt || e.addedAt) + 60 * DAY;
+  for (const e of ents) { if (!isWaiting(e)) continue;
+    if (canText && !e.stillAskedAt && (Number(e.ignoredInARow) || 0) >= STALE_AFTER) await askStill(db, t, e, tenant, now, d);
+    if (e.stillAskedAt && (Number(e.ignoredInARow) || 0) >= STALE_AFTER && now - ms(e.stillAskedAt) > STALE_ANSWER_H * H) { await db.doc(`${T(t)}/waitlist/${e.id}`).set({ status: 'paused', pausedAt: iso(now), pausedWhy: 'no answer to “still hoping?”' }, { merge: true }); continue; } const until = e.until ? ms(`${String(e.until).slice(0, 10)}T23:59:59Z`) : ms(e.createdAt || e.addedAt) + 60 * DAY;
     if (until && until < now) await db.doc(`${T(t)}/waitlist/${e.id}`).set({ status: 'expired', closedAt: iso(now) }, { merge: true }); }
   return { ok: true, openings: ops.length, sent, desk };
 }
@@ -174,6 +190,49 @@ async function sendOffer(db: any, t: string, op: any, c: any, mode: Mode, now: n
   return { token, entryId: e.id, ...(c.pri ? { owed: c.pri } : {}), kind: e.kind === 'sooner' ? 'sooner' : 'new', appointmentId: c.appt?.id || null, clientId: e.clientId || null, name: e.name || cl.name || '', phone, serviceId: serviceOf(e), sentAt: iso(now), holdUntil: iso(now + hold * 60000), status: 'sent', mode };
 }
 
+/** An offer they never opened. After STALE_AFTER in a row: one friendly "still hoping?" text with a keep-or-leave link. */
+async function ignored(db: any, t: string, entryId: string) {
+  const ref = db.doc(`${T(t)}/waitlist/${entryId}`); const e: any = (await ref.get()).data(); if (!e || !isWaiting(e)) return;
+  await ref.set({ ignoredInARow: (Number(e.ignoredInARow) || 0) + 1, status: e.status === 'offered' ? 'waiting' : e.status }, { merge: true });
+}
+async function askStill(db: any, t: string, e: any, tenant: any, now: number, d: Deps) {
+  const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); const phone = String(e.phone || '').trim(); if (!base || !phone) return;
+  const token = `${e.id}.${randomBytes(9).toString('base64url')}`; const D = await deps(d);
+  const r = await D.send(db, t, phone, stillText({ first: first(e.name), service: String(e.serviceName || '').toLowerCase(), link: `${base}/w/${encodeURIComponent(t)}/keep/${token}` }), undefined, { kind: 'waitlist_still', recipientType: 'client', recipientId: e.clientId || undefined, recipientName: e.name || undefined });
+  if (r?.ok) await db.doc(`${T(t)}/waitlist/${e.id}`).set({ stillAskedAt: iso(now), stillToken: token }, { merge: true });
+}
+
+/** They ticked "just book it for me": booked through the booking engine, a short heads-up, and the opening is filled. */
+async function autoBook(db: any, t: string, op: any, c: any, now: number, d: Deps, m: any) {
+  const D = await deps(d); const e: any = c.e; const ref = db.doc(`${T(t)}/openings/${op.id}`);
+  const payBy = iso(now + payWindowMin(ms(op.start), now) * 60000);
+  const r: any = await D.book(m.tenant, { tenantId: t, source: 'waitlist', serviceId: serviceOf(e), staffId: op.staffId, startTime: op.start, notes: 'From the waitlist — booked automatically, as they asked', holdUntil: payBy,
+    client: e.clientId ? { id: e.clientId } : { name: e.name || e.clientName, phone: e.phone, email: e.email || '' } });
+  if (!r?.ok) return false;
+  let payUrl: string | null = null;
+  if (r.status === 'pending_payment' && r.checkInToken) { const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(m.tenant, ''); payUrl = base ? `${base}/check-in/${r.checkInToken}` : null; }
+  await ref.update({ status: 'filled', filledAt: iso(now), offers: op.offers || [], filledBy: { token: null, entryId: e.id, kind: 'new', appointmentId: r.appointmentId, name: e.name || '', payUrl, payBy: payUrl ? payBy : null, auto: true } });
+  await db.doc(`${T(t)}/waitlist/${e.id}`).set({ status: 'booked', bookedAt: iso(now), appointmentId: r.appointmentId, priorityUntil: null, autoBooked: true }, { merge: true });
+  if (r.appointmentId) await db.doc(`${T(t)}/appointments/${r.appointmentId}`).set({ fromWaitlist: { openingId: op.id, kind: 'auto', at: iso(now) } }, { merge: true }).catch(() => {});
+  const phone = String(e.phone || '').trim();
+  if (phone) await D.send(db, t, phone, autoBookedText({ first: first(e.name), when: whenLabel(ms(op.start), m.tz, now), provider: first(op.staffName) }), undefined, { kind: 'waitlist_autobooked', recipientType: 'client', recipientId: e.clientId || undefined, recipientName: e.name || undefined }).catch(() => null);
+  return true;
+}
+
+/** The "still hoping?" link: what they're waiting for, and keep (back on the offers) or leave. */
+export async function keepView(db: any, t: string, token: string) {
+  const id = String(token || '').split('.')[0]; if (!/^[\w-]{1,80}$/.test(id)) return { ok: false, error: 'This link isn’t valid any more.' };
+  const e: any = (await db.doc(`${T(t)}/waitlist/${id}`).get()).data(); if (!e || e.stillToken !== token) return { ok: false, error: 'This link isn’t valid any more.' };
+  const tenant = (await db.doc(T(t)).get()).data() || {};
+  return { ok: true, business: String(tenant.name || ''), service: String(e.serviceName || ''), status: ['closed', 'expired', 'booked'].includes(String(e.status)) ? e.status : 'waiting', name: first(e.name) };
+}
+export async function keepEntry(db: any, t: string, token: string, keep: boolean, now = Date.now()) {
+  const v: any = await keepView(db, t, token); if (!v.ok) return v; const id = String(token).split('.')[0];
+  await db.doc(`${T(t)}/waitlist/${id}`).set(keep ? { status: 'waiting', ignoredInARow: 0, stillAskedAt: null, stillToken: null, keptAt: iso(now), pausedAt: null }
+    : { status: 'closed', closedAt: iso(now), closedWhy: 'they asked to come off' }, { merge: true });
+  return { ok: true, kept: keep };
+}
+
 async function tellDesk(db: any, t: string, op: any, tz: string, now: number) {
   const staff = rows(await db.collection(`${T(t)}/staff`).get()).filter((m: any) => !m.archived && ['owner', 'admin', 'manager', 'front_desk'].includes(String(m.role || '')));
   const b = db.batch(); const when = new Date(ms(op.start)).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
@@ -192,6 +251,9 @@ export async function viewOffer(db: any, t: string, token: string, now = Date.no
   const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'This link isn’t valid any more.' };
   const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const { op, offer } = x;
   const svc = offer.serviceId ? ((await db.doc(`${T(t)}/services/${offer.serviceId}`).get()).data() || {}) : {};
+  // Opened it — they're paying attention (not counted toward "still hoping?").
+  if (!offer.viewedAt) { await db.doc(`${T(t)}/openings/${op.id}`).update({ offers: (op.offers || []).map((f: any) => (f.token === token ? { ...f, viewedAt: iso(now) } : f)) }).catch(() => {});
+    await db.doc(`${T(t)}/waitlist/${offer.entryId}`).set({ ignoredInARow: 0 }, { merge: true }).catch(() => {}); }
   const state = op.status === 'filled' ? (op.filledBy?.token === token ? 'yours' : 'taken') : op.status !== 'open' || ms(op.start) <= now ? 'gone'
     : offer.status === 'declined' ? 'passed' : offer.mode === 'one' && ms(offer.holdUntil) <= now && (op.offers || []).some((f: any) => f.token !== token && f.status === 'sent' && ms(f.holdUntil) > now) ? 'held_for_other' : 'open';
   return { ok: true, state, business: String(tenant.name || ''), logo: tenant.logoUrl || null, when: whenLabel(ms(op.start), tz, now), staffName: first(op.staffName), service: String(svc.name || op.serviceName || 'Your visit'), minutes: Number(svc.duration || op.minutes || 60), price: money(svc.price),
@@ -365,7 +427,7 @@ export async function deskView(db: any, t: string, now = Date.now(), d: Deps = {
   const withMatches = [] as any[];
   for (const o of live.slice(0, 12)) { const m = await matchesFor(db, t, o, now, d, cache); const base = offerModeFor(ms(o.start), now);
     withMatches.push({ ...o, mode: base === 'first' && ms(o.start) - now >= WAVE_FROM_H * H ? 'wave' : base, when: whenLabel(ms(o.start), tz, now), backups: (o.backups || []).length,
-    fits: m.fits.slice(0, 6).map((f: any) => ({ id: f.e.id, name: f.e.name, kind: f.e.kind || 'new', owed: f.pri || null, leftover: f.leftover, wanted: f.e.staffId && f.e.staffId !== 'any' ? 'asked for them' : 'anyone', waitedDays: Math.round((now - ms(f.e.createdAt || f.e.addedAt)) / DAY), freed: f.appt ? whenLabel(ms(f.appt.startTime), tz, now) : null })),
+    fits: m.fits.slice(0, 6).map((f: any) => ({ id: f.e.id, name: f.e.name, kind: f.e.kind || 'new', owed: f.pri || null, autoBook: !!f.e.autoBook && !f.appt, alreadyBooked: !!(f.e as any).alreadyBooked, leftover: f.leftover, wanted: f.e.staffId && f.e.staffId !== 'any' ? 'asked for them' : 'anyone', waitedDays: Math.round((now - ms(f.e.createdAt || f.e.addedAt)) / DAY), freed: f.appt ? whenLabel(ms(f.appt.startTime), tz, now) : null })),
     not: m.not.slice(0, 6).map((x: any) => ({ id: x.e.id, name: x.e.name, why: x.why })),
     offers: (o.offers || []).map((f: any) => ({ name: f.name, status: f.status === 'sent' && ms(f.holdUntil) <= now ? 'lapsed' : f.status, sentAt: f.sentAt, holdUntil: f.holdUntil, kind: f.kind, mode: f.mode })) }); }
   const done = ops.filter((o: any) => o.status === 'filled'); const filledCents = 0;
@@ -373,7 +435,7 @@ export async function deskView(db: any, t: string, now = Date.now(), d: Deps = {
   const { demandOf } = await import('@/lib/waitlist-engine');
   const avgMin = done.length ? Math.round(done.reduce((s: number, o: any) => s + (ms(o.filledAt) - ms(o.createdAt)), 0) / done.length / 60000) : null;
   return { ok: true, tz, live: withMatches, recent: ops.filter((o: any) => o.status !== 'open').slice(-20).reverse().map((o: any) => ({ id: o.id, when: whenLabel(ms(o.start), tz, now), staffName: o.staffName, status: o.status, filledBy: o.filledBy?.name || null, kind: o.filledBy?.kind || null, source: o.source })),
-    entries: entries.filter((e: any) => isWaiting(e)).slice(0, 200), stats: { openings: ops.length, filled: done.length, avgMinutes: avgMin, moveUps: done.filter((o: any) => o.filledBy?.kind === 'sooner').length, filledCents },
+    entries: entries.filter((e: any) => isWaiting(e) || e.status === 'paused').slice(0, 200), stats: { openings: ops.length, filled: done.length, avgMinutes: avgMin, moveUps: done.filter((o: any) => o.filledBy?.kind === 'sooner').length, filledCents },
     demand: demandOf(entries, now).slice(0, 6), auto: tenant.waitlistAuto !== false };
 }
 

@@ -178,5 +178,50 @@ const THU3 = '2026-10-15T19:00:00.000Z';
   const ua: any = await W.bookAlternative(db5, 't1', kayTok, '2026-10-16T14:00:00.000Z', 'maya', NOW + 37 * MIN, deps5);
   check('another time from the “missed it” screen books through the booking engine', ua.ok && booked5[2]?.startTime === '2026-10-16T14:00:00.000Z' && booked5[2]?.source === 'waitlist', { ua, b: booked5[2] });
 
+  console.log('Waitlist — just book it, no double bookings, still hoping?');
+  const mk = async () => { const x = makeDb(); await x.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await x.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes', role: 'stylist' }); return x; };
+  const sent6: any[] = []; const booked6: any[] = [];
+  const deps6: any = { ...deps, send: async (_d: any, _t: string, to: string, body: string) => { sent6.push({ to, body }); return { ok: true }; }, book: async (_t: any, body: any) => { booked6.push(body); return { ok: true, appointmentId: `a${booked6.length}`, status: 'confirmed' }; } };
+  const cancelThu = (x: any, id: string) => x.doc(`${T}/appointments/${id}`).set({ id, staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', startTime: THU2, endTime: THU3, status: 'cancelled', cancelledAt: new Date(NOW).toISOString() });
+  // Just book it for me
+  const db6 = await mk(); await cancelThu(db6, 'c1');
+  await db6.doc(`${T}/waitlist/ann`).set({ id: 'ann', status: 'waiting', name: 'Ann Lowe', phone: '+15550300', serviceId: 'gel', autoBook: true, createdAt: '2026-10-01T12:00:00Z' });
+  await db6.doc(`${T}/waitlist/bo`).set({ id: 'bo', status: 'waiting', name: 'Bo Hart', phone: '+15550301', serviceId: 'gel', createdAt: '2026-10-02T12:00:00Z' });
+  await W.waitlistSweep(db6, 't1', (await db6.doc(T).get()).data(), NOW, deps6);
+  const o6: any = (await db6.doc(`${T}/openings/op_c1`).get()).data();
+  check('first in line ticked “just book it for me” → booked straight away, no link to race for', booked6.length === 1 && booked6[0].startTime === THU2 && o6.status === 'filled' && o6.filledBy.auto && (await db6.doc(`${T}/waitlist/ann`).get()).data().status === 'booked', { booked6, o6 });
+  check('…with a short heads-up text (the booking’s own confirmation follows); nobody else is texted', sent6.length === 1 && sent6[0].to === '+15550300' && /you asked us to book it for you/.test(sent6[0].body), sent6);
+  // Already booked for it later → a move-up of that visit, never a second booking
+  const db7 = await mk(); await cancelThu(db7, 'c2'); sent6.length = 0; booked6.length = 0;
+  await db7.doc(`${T}/waitlist/cy`).set({ id: 'cy', status: 'waiting', name: 'Cy Ford', phone: '(555) 030-0302', serviceId: 'gel', createdAt: '2026-10-01T12:00:00Z' });
+  await db7.doc(`${T}/appointments/cyLater`).set({ id: 'cyLater', clientName: 'Cy Ford', clientPhone: '+15550300302'.slice(0, 12), staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', startTime: '2026-10-29T18:00:00.000Z', endTime: '2026-10-29T19:00:00.000Z', status: 'confirmed' });
+  await db7.doc(`${T}/appointments/cyLater`).set({ clientPhone: '+15550300302' }, { merge: true });
+  await W.waitlistSweep(db7, 't1', (await db7.doc(T).get()).data(), NOW, deps6);
+  check('on the list AND booked for it later → offered as moving that visit up', sent6.length === 1 && /sooner time opened/.test(sent6[0].body), sent6);
+  const cyTok = (await db7.doc(`${T}/openings/op_c2`).get()).data().offers[0].token;
+  const cyT: any = await W.takeOffer(db7, 't1', cyTok, NOW + MIN, deps6);
+  check('…and tapping moves the visit they have — no second booking', cyT.ok && booked6.length === 0 && (await db7.doc(`${T}/appointments/cyLater`).get()).data().startTime === THU2, cyT);
+  // Still hoping?
+  const db8 = await mk(); sent6.length = 0;
+  await db8.doc(`${T}/waitlist/di`).set({ id: 'di', status: 'offered', name: 'Di Shore', phone: '+15550303', serviceId: 'gel', serviceName: 'Gel fill', ignoredInARow: 2, createdAt: '2026-10-01T12:00:00Z' });
+  await db8.doc(`${T}/waitlist/ed`).set({ id: 'ed', status: 'offered', name: 'Ed Moon', phone: '+15550304', serviceId: 'gel', ignoredInARow: 2, createdAt: '2026-10-02T12:00:00Z' });
+  await db8.doc(`${T}/waitlist/fi`).set({ id: 'fi', status: 'waiting', name: 'Fi Rowe', phone: '+15550305', serviceId: 'gel', ignoredInARow: 3, stillAskedAt: new Date(NOW - 49 * H).toISOString(), stillToken: 'fi.x', createdAt: '2026-10-03T12:00:00Z' });
+  await db8.doc(`${T}/openings/op_q`).set({ id: 'op_q', staffId: 'maya', staffName: 'Maya Reyes', start: '2026-10-20T18:00:00.000Z', end: '2026-10-20T19:00:00.000Z', minutes: 60, status: 'filled', offers: [] });
+  await db8.doc(`${T}/openings/op_r`).set({ id: 'op_r', staffId: 'maya', staffName: 'Maya Reyes', start: '2026-10-21T18:00:00.000Z', end: '2026-10-21T19:00:00.000Z', minutes: 60, status: 'open', createdAt: new Date(NOW - H).toISOString(),
+    offers: [{ token: 'op_r.di', entryId: 'di', status: 'sent', mode: 'one', holdUntil: new Date(NOW - MIN).toISOString(), kind: 'new' }, { token: 'op_r.ed', entryId: 'ed', status: 'sent', mode: 'one', holdUntil: new Date(NOW - 40 * MIN).toISOString(), kind: 'new', viewedAt: new Date(NOW - 50 * MIN).toISOString() }] });
+  await W.waitlistSweep(db8, 't1', (await db8.doc(T).get()).data(), NOW, deps6);
+  const di: any = (await db8.doc(`${T}/waitlist/di`).get()).data(), ed: any = (await db8.doc(`${T}/waitlist/ed`).get()).data();
+  const still = sent6.find((x) => x.to === '+15550303');
+  check('a third offer in a row never even opened → one “still hoping?” text with a keep-or-leave link', di.ignoredInARow === 3 && !!di.stillAskedAt && !!still && /Still hoping for a gel fill/.test(still.body) && still.body.includes(`/w/t1/keep/${di.stillToken}`), { di, sent6 });
+  check('opening the link counts as interest — Ed isn’t asked', ed.ignoredInARow === 2 && !ed.stillAskedAt && !sent6.some((x) => x.to === '+15550304'), ed);
+  check('…and while Di’s asked, she isn’t sent new offers', !sent6.some((x) => x.to === '+15550303' && /opened up/.test(x.body)));
+  check('no answer in 48 hours → paused (off the offers; the desk still sees them)', (await db8.doc(`${T}/waitlist/fi`).get()).data().status === 'paused');
+  const kv8: any = await W.keepView(db8, 't1', di.stillToken); const kept: any = await W.keepEntry(db8, 't1', di.stillToken, true, NOW + H);
+  const di2: any = (await db8.doc(`${T}/waitlist/di`).get()).data();
+  check('“Yes — keep my place” → back on the offers, count reset', kv8.ok && kept.ok && di2.status === 'waiting' && di2.ignoredInARow === 0 && !di2.stillAskedAt, di2);
+  check('an old or guessed link does nothing', !(await W.keepView(db8, 't1', 'di.wrong')).ok);
+  const left: any = await W.keepEntry(db8, 't1', 'fi.x', false, NOW + H);
+  check('“No thanks” → off the list', left.ok && (await db8.doc(`${T}/waitlist/fi`).get()).data().status === 'closed');
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();
