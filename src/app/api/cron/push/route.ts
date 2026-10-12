@@ -19,5 +19,7 @@ export async function GET(req: NextRequest) {
     catch (e: any) { errors.push(`${t.id}: ${String(e?.message || e).slice(0, 160)}`); }   // shown on the health record, not swallowed
   }
   await recordCronRun('push', { sent, errors: errors.slice(0, 10) });
+  // Is the every-5-minutes job still running? (emails the platform admins if not)
+  try { const { watchCrons } = await import('@/lib/cron-heartbeat'); await watchCrons(); } catch { /* never block pushes */ }
   return NextResponse.json({ ok: true, sent });
 }

@@ -8,6 +8,7 @@
 // the escalation query only matched noShowEscalated == false).
 import { automationOn, noteAutomation } from '@/lib/automation-switches';
 import { heartbeat } from '@/lib/account-health';
+import { recordCronRun } from '@/lib/cron-heartbeat';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { stageOf } from '@/lib/visit';
@@ -19,6 +20,7 @@ const iso = (v: any): number => { if (!v) return 0; if (typeof v === 'string') r
 export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false }, { status: 401 });
   const db = getAdminDb(); const now = Date.now(); const nowIso = new Date(now).toISOString();
+  await recordCronRun('no-shows', { startedAt: nowIso });
   let flagged = 0, escalated = 0;
   const tenants = (await db.collection('tenants').get()).docs;
   for (const t of tenants) {
@@ -100,5 +102,6 @@ export async function GET(req: NextRequest) {
       await b.commit(); assistEscalated++; }
   } catch (e) { console.error('[cron/no-shows] assist', t.id, e); } }
   await heartbeat(db, 'no-shows');   // HQ's account check uses this to spot a stopped task
+  await recordCronRun('no-shows', { flagged, escalated });   // the watchdog (lib/cron-heartbeat watchCrons) reads this
   return NextResponse.json({ ok: true, flagged, escalated, assistEscalated, turnoverNudges, kitsReleased, linenVisits });
 }

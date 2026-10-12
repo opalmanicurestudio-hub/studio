@@ -206,6 +206,8 @@ export default function BookingPoliciesPage() {
               {/* lib/deposit-release: inside this many hours of the visit an unpaid deposit never cancels it — the desk decides. */}
               <Num field="bookingMode.depositProtectHours" value={t?.bookingMode?.depositProtectHours !== undefined && Number.isFinite(Number(t.bookingMode.depositProtectHours)) ? Number(t.bookingMode.depositProtectHours) : 18} unit="hours before the visit: never cancelled for an unpaid deposit — the desk decides" label="Protect the visit" max={72} />
               <Num field="voiceAgent.holdHours" value={Number(t.voiceAgent?.holdHours) || 24} unit="hours for a phone-assistant booking to pay its deposit" label="Phone hold" min={1} max={168} />
+              <span className="w-full text-xs text-muted-foreground">Optional texts (waitlist offers, “could you come earlier?”, opportunities) — never more than this per client a day:</span>
+              <Num field="textBudget.perDay" value={Number(t.textBudget?.perDay) || 2} unit="a day (confirmations, reminders and pay links aren’t counted)" label="Text allowance" min={1} max={10} />
               <span className="w-full text-xs text-muted-foreground">Visits left open after their day:</span>
               <Choice field="autoCloseOut" value={t.autoCloseOut !== false} label="Close out overnight" options={[[true, 'Close them out overnight (shown under “Left open”)'], [false, 'Leave them for me']]} />
             </Row>

@@ -128,5 +128,16 @@ const iso = (n: number) => new Date(n).toISOString();
   const off = (await db4.doc(`${T}/staffBlocks/dayoff_${ask4.askId}`).get()).data();
   check('“Block Monday off” → the whole day is blocked for Maya', bd.ok && off.staffId === 'maya' && off.startTime === iso(NY('2026-10-19T00:00:00')) && off.duration === 1440, off);
 
+  console.log('No client gets bombarded — the daily allowance for optional texts');
+  const B = await import('../../src/lib/text-budget');
+  const dbB = makeDb(); await dbB.doc(T).set({ name: 'Opal', timezone: 'America/New_York' }); const ph = '+1 (555) 222-3333';
+  check('fresh day: a waitlist offer may go, and an opportunity text too (it leaves a slot for the urgent)', (await B.budgetLeft(dbB, 't1', ph, 'waitlist_offer', NOW)) === 2 && (await B.budgetLeft(dbB, 't1', ph, 'opportunity', NOW)) === 1);
+  await B.spendBudget(dbB, 't1', ph, 'opportunity', NOW);
+  check('after one opportunity text: no more of those today — but a same-day ask can still go', (await B.budgetLeft(dbB, 't1', ph, 'opportunity', NOW)) === 0 && (await B.budgetLeft(dbB, 't1', ph, 'tidy_ask', NOW)) === 1);
+  await B.spendBudget(dbB, 't1', ph, 'tidy_ask', NOW);
+  check('two optional texts today → nothing else optional until tomorrow', (await B.budgetLeft(dbB, 't1', ph, 'waitlist_offer', NOW)) === 0 && (await B.budgetLeft(dbB, 't1', '5552223333', 'waitlist_offer', NOW + 864e5)) === 2);
+  await dbB.doc(T).set({ textBudget: { perDay: 4 } }, { merge: true });
+  check('the allowance is the business’s setting', (await B.budgetLeft(dbB, 't1', ph, 'waitlist_offer', NOW)) === 2);
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

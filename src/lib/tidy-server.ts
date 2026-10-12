@@ -153,10 +153,13 @@ export async function askTidy(db: any, t: string, actor: { staffId: string; name
       fromLabel: o.kind === 'clear' ? when(m.from, tz, now) : clock(m.from, tz), toLabel: o.kind === 'clear' ? when(m.to, tz, now) : clock(m.to, tz), token: `${ref.id}.${i}.${randomBytes(9).toString('base64url')}`, answer: null,
       dur: Math.round((ms(a.endTime) - ms(a.startTime)) / MIN) || 60, padBefore: Number(a.padBefore) || 0, padAfter: Number(a.padAfter) || 0, noText: !!(cl.smsOptOut || cl.smsConsent === false) });
   }
+  { const { budgetLeft } = await import('@/lib/text-budget'); for (const m of moves) if (m.phone && (await budgetLeft(db, t, m.phone, 'tidy_ask', now)) <= 0) return { ok: false, error: `${first(m.name)} has already had their texts from us today — call them, or pick another plan.` }; }
   if (moves.some((m) => !m.phone || m.noText)) return { ok: false, error: `${first(moves.find((m) => !m.phone || m.noText)!.name)} can’t be texted (no mobile number, or they said no to texts) — call them, or pick another plan.` };
   await ref.set({ id: ref.id, kind: o.kind === 'clear' ? 'clear' : 'day', staffId: o.staffId, staffName: staff.name || '', date, dayLabel: plan.dayLabel || null, moves, status: 'asking', deadline: iso(deadline), createdAt: iso(now), askedBy: actor.name, finishLabel: plan.finishLabel || null });
   // Hold every target time until the deadline, so nobody else books it while they answer.
   for (const [i, m] of moves.entries()) await db.doc(`${T(t)}/staffBlocks/tidy_${ref.id}_${i}`).set({ staffId: o.staffId, startTime: iso(ms(m.to) - m.padBefore * MIN), duration: m.dur + m.padBefore + m.padAfter, reason: 'tidy_hold', label: 'Held — asking a client to move', until: iso(deadline), tidyAskId: ref.id, createdAt: iso(now) });
+  const { spendBudget } = await import('@/lib/text-budget');
+  for (const m of moves) await spendBudget(db, t, m.phone, 'tidy_ask', now).catch(() => {});
   for (const m of moves) await D.send(db, t, m.phone, askText({ first: first(m.name), provider: first(staff.name), to: m.toLabel, from: m.fromLabel, service: m.service.toLowerCase(), link: `${base}/m/${encodeURIComponent(t)}/${m.token}`, sameDay: o.kind !== 'clear' && dayWord(ms(m.to), tz, now) === 'today' }), undefined, { kind: 'tidy_ask', recipientType: 'client', recipientId: m.clientId || undefined, recipientName: m.name || undefined });
   // A gap the waitlist was waiting on: it's being tidied now.
   for (const op of rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get()).filter((x: any) => x.staffId === o.staffId && moves.some((m) => ms(m.to) < ms(x.end) && ms(m.to) + m.dur * MIN > ms(x.start))))

@@ -104,6 +104,8 @@ export async function matchesFor(db: any, t: string, op: any, now: number, d: De
     if (offered.has(en.id) || !isWaiting(en)) continue;
     if (en.status === 'offered' && now - ms((en as any).lastOfferAt) < 30 * 60000) { not.push({ e: en, why: 'has another offer right now' }); continue; }
     if (en.stillAskedAt && (Number(en.ignoredInARow) || 0) >= STALE_AFTER) { not.push({ e: en, why: 'asked if they’re still hoping — no answer yet' }); continue; }
+    if (en.phone && !(cache.noBudget ||= new Map()).has(en.id)) { const { budgetLeft } = await import('@/lib/text-budget'); cache.noBudget.set(en.id, (await budgetLeft(db, t, String(en.phone), 'waitlist_offer', now)) <= 0); }
+    if (cache.noBudget?.get(en.id)) { not.push({ e: en, why: 'already had their texts from us today' }); continue; }
     let ent: Entry = { ...en };
     if (ent.clientId && !clients.has(ent.clientId)) clients.set(ent.clientId, ((await db.doc(`${T(t)}/clients/${ent.clientId}`).get()).data() || {}));
     const cl = ent.clientId ? clients.get(ent.clientId) : null;
@@ -188,6 +190,7 @@ async function sendOffer(db: any, t: string, op: any, c: any, mode: Mode, now: n
     sooner: c.appt ? { was: whenLabel(ms(c.appt.startTime), tz, now).replace(/ at /, ' at ') } : null, business: String(tenant.name || '') });
   const r = await D.send(db, t, phone, body, undefined, { kind: 'waitlist_offer', recipientType: 'client', recipientId: e.clientId || undefined, recipientName: e.name || undefined });
   if (!r?.ok) return null;
+  { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, phone, 'waitlist_offer', now).catch(() => {}); }
   // An offer of their own settles what they were owed for missing out.
   await db.doc(`${T(t)}/waitlist/${e.id}`).set({ status: 'offered', lastOfferAt: iso(now), offerCount: (Number((e as any).offerCount) || 0) + 1, ...(mode === 'one' ? { priorityUntil: null } : {}) }, { merge: true });
   return { token, entryId: e.id, ...(c.pri ? { owed: c.pri } : {}), kind: e.kind === 'sooner' ? 'sooner' : 'new', appointmentId: c.appt?.id || null, clientId: e.clientId || null, name: e.name || cl.name || '', phone, serviceId: serviceOf(e), sentAt: iso(now), holdUntil: iso(now + hold * 60000), status: 'sent', mode };
@@ -200,9 +203,10 @@ async function ignored(db: any, t: string, entryId: string) {
 }
 async function askStill(db: any, t: string, e: any, tenant: any, now: number, d: Deps) {
   const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); const phone = String(e.phone || '').trim(); if (!base || !phone) return;
+  { const { budgetLeft } = await import('@/lib/text-budget'); if ((await budgetLeft(db, t, phone, 'waitlist_still', now)) <= 0) return; }   // tomorrow, then
   const token = `${e.id}.${randomBytes(9).toString('base64url')}`; const D = await deps(d);
   const r = await D.send(db, t, phone, stillText({ first: first(e.name), service: String(e.serviceName || '').toLowerCase(), link: `${base}/w/${encodeURIComponent(t)}/keep/${token}` }), undefined, { kind: 'waitlist_still', recipientType: 'client', recipientId: e.clientId || undefined, recipientName: e.name || undefined });
-  if (r?.ok) await db.doc(`${T(t)}/waitlist/${e.id}`).set({ stillAskedAt: iso(now), stillToken: token }, { merge: true });
+  if (r?.ok) { await db.doc(`${T(t)}/waitlist/${e.id}`).set({ stillAskedAt: iso(now), stillToken: token }, { merge: true }); const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, phone, 'waitlist_still', now).catch(() => {}); }
 }
 
 /** They ticked "just book it for me": booked through the booking engine, a short heads-up, and the opening is filled. */

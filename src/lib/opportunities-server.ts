@@ -86,7 +86,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
       const chk: any = !link && pb.auto[av].includes('{link}') ? { ok: false, error: 'There’s no booking link to send yet (set the app’s web address).' } : chk0;
       let r: any = chk.ok ? await send(db, t, chk.phone, body, cl?.email ? { email: cl.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: c.clientId || undefined, recipientName: c.clientName }).catch(() => ({ ok: false })) : { ok: false, error: (chk as any).error };
       if (r.ok) {
-        sent++;
+        sent++; { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
         if (pb.marketing && c.clientId) writes.push([db.collection(`${T(t)}/opportunityTexts`).doc(), { clientId: c.clientId, at: nowIso(now), channel: 'sms', marketing: true, oppId: ref.id }, 'set']);
         const auto = { at: nowIso(now), by: 'auto', byName: 'Sent automatically', channel: r.via === 'email' ? 'email' : 'text', note: body };
         writes.push([ref, { ...base, status: mode === 'auto' ? 'auto' : 'waiting', autoVersion: av, autoMessage: body, autoSentAt: nowIso(now), firstContactAt: nowIso(now), lastContactAt: nowIso(now),
@@ -188,6 +188,7 @@ export async function textCheck(db: any, t: string, tenant: any, o: any, client:
   const { inTextWindow } = await import('@/lib/campaigns');
   if (!inTextWindow(await tz(tenant), new Date(now))) return { ok: false, error: 'It’s outside texting hours (9 am – 8 pm) — send it tomorrow, or call.' };
   if ((o.attempts || []).some((x: any) => x.channel === 'text' && now - ms(x.at) < 2 * DAY)) return { ok: false, error: 'A text went out in the last two days — give them time to answer.' };
+  { const { budgetLeft } = await import('@/lib/text-budget'); if ((await budgetLeft(db, t, phone, 'opportunity', now)) <= 0) return { ok: false, error: 'They’ve already had texts from us today — tomorrow, or call.' }; }
   return { ok: true, phone };
 }
 
@@ -230,6 +231,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
     const { sendTenantSms } = await import('@/lib/sms');
     const r = await sendTenantSms(db, t, chk.phone, body, client?.email ? { email: client.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: o.clientId || undefined, recipientName: o.clientName || undefined } as any);
     if (!r.ok) return { ok: false, error: 'The text didn’t go — try again, or call.' };
+    { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
     const pb = PLAYBOOKS[o.kind as OppKind];
     if (pb?.marketing && o.clientId) await db.collection(`${T(t)}/opportunityTexts`).add({ clientId: o.clientId, at: nowIso(now), channel: 'sms', marketing: true, oppId: o.id });
     await ref.update({ attempts: [...(o.attempts || []), { ...by, channel: r.via === 'email' ? 'email' : 'text', note: 'Sent the message' }].slice(-20), firstContactAt: o.firstContactAt || nowIso(now), lastContactAt: nowIso(now) });
