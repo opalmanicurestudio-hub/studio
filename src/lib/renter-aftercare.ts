@@ -48,14 +48,14 @@ export async function renterAftercareSweep(db: any, tenantId: string, tenant: an
         const done = finishedAt(a); if (!done) continue;
         const ready = S.when === 'checkout' ? now - done >= 10 * 60000 && now - done <= 24 * 3600000 : dayKey(new Date(done), tz) < today && hour >= 9 && hour < 19 && now - done <= 48 * 3600000;
         if (!ready) continue;
-        const text = `Hi ${first(a.clientName) || 'there'}, thank you for coming to ${brand.name}! Here’s how to look after your ${svc}: ${url}`;
-        if (await send(text, `Looking after your ${svc}`, 'aftercare')) { await d.ref.set({ aftercareSentAt: new Date(now).toISOString(), aftercareDocId: care.id, aftercareVersion: Number(care.version || 1), aftercareVia: 'renter' }, { merge: true }); sent++; }
+        const text = `Hi ${first(a.clientName) || 'there'}, thank you for visiting ${brand.name}! Here is how to care for your ${svc}: ${url}`;
+        if (await send(text, `How to care for your ${svc}`, 'aftercare')) { await d.ref.set({ aftercareSentAt: new Date(now).toISOString(), aftercareDocId: care.id, aftercareVersion: Number(care.version || 1), aftercareVia: 'renter' }, { merge: true }); sent++; }
         continue;
       }
       const days = checkInDaysFor(S, docs.find((x: any) => x.id === a.aftercareDocId) || care);
       if (!days || !a.aftercareSentAt || a.checkInSentAt || hour < 10 || hour >= 19) continue;
       const gap = daysBetween(dayKey(new Date(ms(a.startTime)), tz), today); if (gap < days || gap > days + 1) continue;
-      const text = `Hi ${first(a.clientName) || 'there'}! How is your ${svc} holding up? Tell ${brand.name} in one tap: ${url}&c=1`;
+      const text = `Hi ${first(a.clientName) || 'there'}, how is your ${svc} holding up? Please let ${brand.name} know with one tap: ${url}&c=1`;
       if (await send(text, `How is your ${svc} holding up?`, 'aftercare_checkin')) { await d.ref.set({ checkInSentAt: new Date(now).toISOString() }, { merge: true }); checkIns++; }
     } catch { /* next visit */ }
   }

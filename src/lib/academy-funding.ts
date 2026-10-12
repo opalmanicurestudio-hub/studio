@@ -158,7 +158,7 @@ export async function scholarshipApply(tenantId: string, v: { scholarship: strin
   await ref.set({ id: ref.id, kind: 'application', scholarship: s.name, fund: (s as any).fund || GENERAL, maxCents: s.amountCents || 0, name: v.name, email: v.email, phone: v.phone || null, programId: v.programId || adm?.data()?.programId || null, admissionId: adm?.id || null,
     answers: { why: v.why.slice(0, 3000), need: v.need.slice(0, 3000), goals: v.goals.slice(0, 3000) }, status: 'new', notes: [], createdAt: now, updatedAt: now });
   await appendAudit(tenantId, { type: 'funding.scholarship_applied', by: v.email, summary: `${v.name} applied for “${s.name}”` });
-  await mail(tenantId, v.email, `Your scholarship application — ${w.school}`, w.school, 'We got your application', [`Hi ${v.name.split(' ')[0]} — thanks for applying for the ${s.name}.`, `Our team reviews every application${s.deadline ? ` after the deadline (${niceDay(s.deadline + 'T12:00:00')})` : ''} and will email you the decision. Applying doesn’t guarantee an award.`], 'scholarship_receipt');
+  await mail(tenantId, v.email, `Your scholarship application — ${w.school}`, w.school, 'We have received your application', [`Hi ${v.name.split(' ')[0]},`, `Thank you for applying for the ${s.name}. We have received your application.`, `Our team reviews every application${s.deadline ? ` after the deadline (${niceDay(s.deadline + 'T12:00:00')})` : ''} and will email you our decision. Please note that submitting an application does not guarantee an award.`, 'Kind regards,', w.school], 'scholarship_receipt');
   return ref.id;
 }
 
@@ -180,9 +180,9 @@ export async function decideScholarship(tenantId: string, id: string, d: { outco
   await appendAudit(tenantId, { type: 'funding.scholarship_decision', by, summary: `${a.name}: “${a.scholarship}” ${d.outcome === 'awarded' ? `awarded ${usd(amt)} from ${fund}` : 'not awarded'}` });
   const first = String(a.name).split(' ')[0];
   const lines = d.outcome === 'awarded'
-    ? [`Congratulations, ${first}! You’ve been awarded ${usd(amt)} from the ${a.scholarship}.`, 'It will be applied to your tuition as a credit — you’ll see it on your tuition balance once your enrolment agreement is signed.', ...(message ? [message] : [])]
-    : [`Hi ${first} — thank you for applying for the ${a.scholarship}. We had more applications than awards available, and we’re not able to offer you this scholarship this time.`, ...(message ? [message] : []), 'Please ask us about other funding options — we’re glad to help.'];
-  const emailed = await mail(tenantId, a.email, d.outcome === 'awarded' ? `You’ve been awarded a scholarship — ${w.school}` : `Your scholarship application — ${w.school}`, w.school, d.outcome === 'awarded' ? 'Scholarship awarded' : 'About your application', lines, 'scholarship_decision');
+    ? [`Hi ${first},`, `Congratulations! We are pleased to let you know that you have been awarded ${usd(amt)} from the ${a.scholarship}.`, 'This award will be applied to your tuition as a credit. You will see it on your tuition balance once your enrollment agreement has been signed.', ...(message ? [message] : []), 'Kind regards,', w.school]
+    : [`Hi ${first},`, `Thank you for applying for the ${a.scholarship}. We received more applications than we have awards available, and we are sorry that we are not able to offer you this scholarship at this time.`, ...(message ? [message] : []), 'Please feel free to ask us about other funding options. We would be glad to help.', 'Kind regards,', w.school];
+  const emailed = await mail(tenantId, a.email, d.outcome === 'awarded' ? `You have been awarded a scholarship — ${w.school}` : `Your scholarship application — ${w.school}`, w.school, d.outcome === 'awarded' ? 'Scholarship awarded' : 'About your application', lines, 'scholarship_decision');
   await ref.set({ letterEmailed: emailed }, { merge: true });
   if (d.outcome === 'awarded') await applyAward(tenantId, id, by).catch(() => null);
   return { emailed };

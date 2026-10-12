@@ -655,7 +655,7 @@ export function quoteWait(
     const pick = openNow.sort((a, b) => (a.free - size) - (b.free - size))[0];
     return {
       minutes: 0, tableId: pick.tableId, tableName: pick.name, immediate: true,
-      text: `${pick.name} is ready now.`,
+      text: `${pick.name} is available now.`,
     };
   }
 
@@ -664,7 +664,7 @@ export function quoteWait(
     if (combo) {
       return {
         minutes: 0, tableId: combo.tableIds[0], tableName: combo.names.join(' + '), immediate: true,
-        text: `Ready now by joining ${combo.names.join(' and ')}.`,
+        text: `Available now by joining ${combo.names.join(' and ')}.`,
       };
     }
   }
@@ -703,7 +703,7 @@ export function quoteWait(
     minutes: best.minutes, tableId: best.t.tableId, tableName: best.t.name, immediate: false,
     text: best.minutes === 0
       ? `${best.t.name} is finishing now.`
-      : `About ${best.minutes} ${plural(best.minutes, 'minute', 'minutes')} — ${best.t.name} next.`,
+      : `About ${best.minutes} ${plural(best.minutes, 'minute', 'minutes')}. ${best.t.name} is expected to be available next.`,
   };
 }
 
@@ -861,14 +861,14 @@ export function routeRequests(
       if (!tableId) {
         escalate = true;
         reason = match === 'ambiguous'
-          ? `Two ${V.units} share that name — nobody can be sure whose this is.`
+          ? `Two ${V.units} share that name, so this request cannot be matched with certainty.`
           : `This request is not attached to any ${V.unit} on the floor.`;
       } else if (ownerIds.length === 0) {
         escalate = true;
         reason = `${s(table?.name) || tableId} has no one assigned to it.`;
       } else if (waitMinutes >= limit) {
         escalate = true;
-        reason = `Waiting ${waitMinutes} min.`;
+        reason = `Waiting ${waitMinutes} ${plural(waitMinutes, 'minute', 'minutes')}.`;
       }
 
       return {

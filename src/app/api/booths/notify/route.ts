@@ -116,21 +116,23 @@ export async function POST(req: NextRequest) {
       const slots: string[] = Array.isArray(inv.slots) ? inv.slots : [];
       const html = brandedEmailHtml({
         studioName,
-        title: 'Come and see the space',
+        title: 'An invitation to visit the space',
         bodyLines: [
-          `Hi ${firstNameOf(inv.firstName)} — we'd love to show you around${inv.spaceName ? ` ${inv.spaceName}` : ''}.`,
+          `Hi ${firstNameOf(inv.firstName)},`,
+          `Thank you for your interest. We would be glad to show you around${inv.spaceName ? ` ${inv.spaceName}` : ''}.`,
           slots.length
-            ? `Times we have open: ${slots.map(whenLabel).join(' · ')}.`
-            : 'Tell us when you are free and we will make it work.',
-          'Pick whichever suits you, or send back times that work better for you.',
+            ? `The times we have available are: ${slots.map(whenLabel).join(' · ')}.`
+            : 'Please let us know when you are available, and we will arrange a time that suits you.',
+          'Please choose the time that suits you best using the button below, or suggest other times that work better for you.',
+          `Kind regards, ${studioName}`,
         ],
         cta: { label: 'Choose a time', url: link },
-        footerNote: `Sent by ${studioName}. You're receiving this because you enquired about a space with us.`,
+        footerNote: `Sent by ${studioName}. You're receiving this because you inquired about a space with us.`,
       });
 
       const result = await sendNotification(db, {
         tenantId, channel: 'email', to,
-        subject: `Pick a time to visit${inv.spaceName ? ` — ${inv.spaceName}` : ''}`,
+        subject: `Choose a time to visit${inv.spaceName ? ` ${inv.spaceName}` : ''}`,
         html, kind: 'tour_invite',
         recipientType: 'contact',
         recipientId: inv.applicationId || inviteId,
@@ -151,7 +153,7 @@ export async function POST(req: NextRequest) {
       const smsStatus = await alsoText(db, {
         tenantId, to: phone, kind: 'tour_invite',
         recipientId: inv.applicationId || inviteId, recipientName: inv.firstName || null,
-        text: `${studioName}: hi ${firstNameOf(inv.firstName)} — pick a time to come and see ${inv.spaceName || 'the space'}: ${link}`,
+        text: `Hi ${firstNameOf(inv.firstName)}, thank you for your interest in ${inv.spaceName || 'the space'}. Please choose a time to visit here: ${link}`,
       });
 
       await db.doc(`tenants/${tenantId}/tourInvites/${inviteId}`).set({
@@ -188,16 +190,16 @@ export async function POST(req: NextRequest) {
           studioName,
           title: `${kindLabel}: ${app.name || 'Someone'}`,
           bodyLines: [
-            `${app.name || 'Someone'} just came through your booking page${app.boothName ? ` about ${app.boothName}` : ''}.`,
-            [app.phone, app.email].filter(Boolean).join(' · ') || 'They left no contact details.',
-            app.message ? `“${String(app.message).slice(0, 400)}”` : 'They left no message.',
+            `${app.name || 'Someone'} has contacted you through your booking page${app.boothName ? ` about ${app.boothName}` : ''}.`,
+            [app.phone, app.email].filter(Boolean).join(' · ') || 'No contact details were provided.',
+            app.message ? `“${String(app.message).slice(0, 400)}”` : 'No message was included.',
           ],
           cta: { label: 'Open the pipeline', url: `${origin}/pipeline` },
           footerNote: `Sent to you because you own ${studioName}.`,
         });
         const r = await sendNotification(db, {
           tenantId, channel: 'email', to: ownerEmail,
-          subject: `${kindLabel} — ${app.name || 'new lead'}`,
+          subject: `${kindLabel}: ${app.name || 'New lead'}`,
           html: ownerHtml, kind: 'booth_application_owner',
           recipientType: 'other', recipientId: applicationId, recipientName: 'Owner',
           tokens: { client_first: app.name || 'Someone', space: app.boothName || 'a space', link: `${origin}/pipeline` },
@@ -211,17 +213,19 @@ export async function POST(req: NextRequest) {
       if (prospectEmail.includes('@')) {
         const html = brandedEmailHtml({
           studioName,
-          title: 'We have your enquiry',
+          title: 'We have received your inquiry',
           bodyLines: [
-            `Hi ${firstNameOf(app.name)} — thanks for getting in touch${app.boothName ? ` about ${app.boothName}` : ''}.`,
-            'A real person is reading this, not a robot. We will come back to you with next steps, usually within a day or two.',
-            'If anything changes in the meantime, just reply to this email.',
+            `Hi ${firstNameOf(app.name)},`,
+            `Thank you for getting in touch${app.boothName ? ` about ${app.boothName}` : ''}.`,
+            'A member of our team will read your message personally and will be in touch with next steps, usually within one to two days.',
+            'If anything changes in the meantime, please reply to this email.',
+            `Kind regards, ${studioName}`,
           ],
           footerNote: `Sent by ${studioName}. You're receiving this because you contacted us about a space.`,
         });
         const r = await sendNotification(db, {
           tenantId, channel: 'email', to: prospectEmail,
-          subject: `Thanks — we have your ${kindLabel.toLowerCase()}`,
+          subject: `Thank you. We have received your ${kindLabel.toLowerCase()}`,
           html, kind: 'booth_application_ack',
           recipientType: 'contact', recipientId: applicationId, recipientName: app.name || null,
           tokens: { client_first: firstNameOf(app.name), space: app.boothName || 'the space', studio: studioName },
@@ -252,13 +256,13 @@ export async function POST(req: NextRequest) {
       const theirs: string[] = Array.isArray(inv.proposedSlots) ? inv.proposedSlots : [];
       const html = brandedEmailHtml({
         studioName,
-        title: accepted ? `${inv.firstName || 'A prospect'} picked a tour time` : `${inv.firstName || 'A prospect'} needs different times`,
+        title: accepted ? `${inv.firstName || 'A prospect'} has chosen a tour time` : `${inv.firstName || 'A prospect'} needs different tour times`,
         bodyLines: [
           accepted
-            ? `They chose ${whenLabel(inv.chosenSlot || '')}. Confirm it in the pipeline and it goes on the tour schedule.`
+            ? `Action needed: they have chosen ${whenLabel(inv.chosenSlot || '')}. Please confirm it in Pipeline to add it to the tour schedule.`
             : (theirs.length
-              ? `None of your times worked. They are free at ${theirs.map(whenLabel).join(' · ')}.`
-              : 'None of your times worked and they did not suggest any — worth a call.'),
+              ? `Action needed: none of the offered times worked for them. They are available ${theirs.map(whenLabel).join(' · ')}.`
+              : 'Action needed: none of the offered times worked, and they did not suggest any others. Please give them a call.'),
           inv.prospectNote ? `“${String(inv.prospectNote).slice(0, 400)}”` : '',
         ].filter(Boolean),
         cta: { label: 'Open the pipeline', url: `${origin}/pipeline` },
@@ -266,7 +270,7 @@ export async function POST(req: NextRequest) {
       });
       const r = await sendNotification(db, {
         tenantId, channel: 'email', to: ownerEmail,
-        subject: accepted ? `Tour time picked — ${inv.firstName || 'prospect'}` : `New times needed — ${inv.firstName || 'prospect'}`,
+        subject: accepted ? `Tour time chosen: ${inv.firstName || 'Prospect'}` : `New tour times needed: ${inv.firstName || 'Prospect'}`,
         html, kind: 'tour_invite_answered',
         recipientType: 'other', recipientId: inviteId, recipientName: 'Owner',
         tokens: { client_first: inv.firstName || 'A prospect', when: whenLabel(inv.chosenSlot || ''), link: `${origin}/pipeline` },
@@ -300,17 +304,21 @@ export async function POST(req: NextRequest) {
       const whenText = startIso ? whenLabel(startIso) : 'your requested time';
       const html = brandedEmailHtml({
         studioName,
-        title: approved ? 'Your tour is confirmed' : 'That time did not work out',
+        title: approved ? 'Your tour is confirmed' : 'We are unable to accommodate that time',
         bodyLines: approved
           ? [
-            `Hi ${firstNameOf(tour.name)} — you're set for ${whenText}.`,
+            `Hi ${firstNameOf(tour.name)},`,
+            `Your tour is confirmed for ${whenText}.`,
             tour.manageToken
-              ? 'There is nothing to bring or prepare. If the time stops working, you can move or cancel it yourself below.'
-              : 'There is nothing to bring or prepare. If the time stops working, just reply to this email.',
+              ? 'There is nothing you need to bring or prepare. If the time no longer works for you, you can change or cancel your visit using the button below.'
+              : 'There is nothing you need to bring or prepare. If the time no longer works for you, please reply to this email.',
+            `Kind regards, ${studioName}`,
           ]
           : [
-            `Hi ${firstNameOf(tour.name)} — sorry, we can't make ${whenText} work.`,
-            'It is almost always a clash rather than a no. Pick another time that suits you and we will see you then.',
+            `Hi ${firstNameOf(tour.name)},`,
+            `Thank you for your request to visit. Unfortunately, we are unable to accommodate ${whenText}, and we apologize for the inconvenience.`,
+            'This is usually due to a scheduling conflict. Please choose another time that suits you using the button below, and we look forward to seeing you then.',
+            `Kind regards, ${studioName}`,
           ],
         ...(approved
           ? (tour.manageToken ? { cta: { label: 'Change or cancel my visit', url: `${origin}/tour-manage/${tenantId}/${tourId}/${tour.manageToken}` } } : {})
@@ -319,7 +327,7 @@ export async function POST(req: NextRequest) {
       });
       const r = await sendNotification(db, {
         tenantId, channel: 'email', to,
-        subject: approved ? `Tour confirmed — ${whenText}` : `About ${whenText}`,
+        subject: approved ? `Your tour is confirmed for ${whenText}` : `Your tour request for ${whenText}`,
         html, kind: approved ? 'tour_confirmation' : 'tour_declined',
         recipientType: 'contact', recipientId: tourId, recipientName: tour.name || null,
         eventConfirmed: approved,
@@ -331,8 +339,8 @@ export async function POST(req: NextRequest) {
         recipientId: tourId, recipientName: tour.name || null,
         eventConfirmed: approved, eventStartIso: startIso || null,
         text: approved
-          ? `${studioName}: you're confirmed for ${whenText}. Reply here if anything changes.`
-          : `${studioName}: sorry, ${whenText} won't work. Pick another time that suits you: ${origin}/tour/${tenantId}`,
+          ? `Hi ${firstNameOf(tour.name)}, your tour is confirmed for ${whenText}. If anything changes, please reply to this message.`
+          : `Hi ${firstNameOf(tour.name)}, we are sorry, but we are unable to accommodate ${whenText}. Please choose another time here: ${origin}/tour/${tenantId}`,
       });
       return NextResponse.json({ ok: r.ok, status: r.status, sms: smsStatus, error: r.error || null });
     }
@@ -357,15 +365,17 @@ export async function POST(req: NextRequest) {
       if (to.includes('@')) {
         const r = await sendNotification(db, {
           tenantId, channel: 'email', to,
-          subject: `Cancelled — ${whenText}`,
+          subject: `We have had to cancel ${startIso ? `your visit on ${whenText}` : whenText}`,
           html: brandedEmailHtml({
             studioName,
-            title: 'We have had to cancel',
+            title: 'We have had to cancel your visit',
             bodyLines: [
-              `Hi ${firstNameOf(tour.name)} — we're sorry, we've had to cancel ${whenText}.`,
-              'We would still like to show you around. Pick any time that suits you and we will be there.',
+              `Hi ${firstNameOf(tour.name)},`,
+              `We are sorry to let you know that we have had to cancel ${startIso ? `your visit on ${whenText}` : whenText}. We apologize for the inconvenience.`,
+              'We would still be glad to show you around. Please choose any time that suits you using the button below.',
+              `Kind regards, ${studioName}`,
             ],
-            cta: { label: 'Pick another time', url: rebook },
+            cta: { label: 'Choose another time', url: rebook },
             footerNote: `Sent by ${studioName}. You're receiving this because you booked a visit with us.`,
           }),
           kind: 'tour_cancelled',
@@ -378,7 +388,7 @@ export async function POST(req: NextRequest) {
       const smsStatus = await alsoText(db, {
         tenantId, to: String(tour.phone || ''), kind: 'tour_cancelled',
         recipientId: tourId, recipientName: tour.name || null,
-        text: `${studioName}: sorry, we've had to cancel ${whenText}. Pick another time here: ${rebook}`,
+        text: `Hi ${firstNameOf(tour.name)}, we are sorry, but we have had to cancel ${startIso ? `your visit on ${whenText}` : whenText}. We apologize for the inconvenience. Please choose another time here: ${rebook}`,
       });
       return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
@@ -404,14 +414,16 @@ export async function POST(req: NextRequest) {
       if (to.includes('@')) {
         const r = await sendNotification(db, {
           tenantId, channel: 'email', to,
-          subject: `Moved — your visit is now ${whenText}`,
+          subject: `Your visit has been moved to ${whenText}`,
           html: brandedEmailHtml({
             studioName,
-            title: 'Your visit has moved',
+            title: 'Your visit has been moved',
             bodyLines: [
-              `Hi ${firstNameOf(tour.name)} — your visit is now ${whenText}.`,
-              wasText ? `It was ${wasText}. Sorry for the change.` : 'Sorry for the change.',
-              'If the new time does not work, reply to this email and we will find another.',
+              `Hi ${firstNameOf(tour.name)},`,
+              `Your visit has been moved to ${whenText}.`,
+              wasText ? `It was previously scheduled for ${wasText}. We apologize for the change.` : 'We apologize for the change.',
+              'If the new time does not work for you, please reply to this email and we will find another.',
+              `Kind regards, ${studioName}`,
             ],
             footerNote: `Sent by ${studioName}. You're receiving this because you booked a visit with us.`,
           }),
@@ -426,7 +438,7 @@ export async function POST(req: NextRequest) {
         tenantId, to: String(tour.phone || ''), kind: 'tour_rescheduled',
         recipientId: tourId, recipientName: tour.name || null,
         eventConfirmed: true, eventStartIso: startIso || null,
-        text: `${studioName}: your visit has moved to ${whenText}${wasText ? ` (was ${wasText})` : ''}. Reply here if that does not work.`,
+        text: `Hi ${firstNameOf(tour.name)}, your visit has been moved to ${whenText}${wasText ? ` (previously ${wasText})` : ''}. If that time does not work for you, please reply to this message.`,
       });
       return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
@@ -458,15 +470,16 @@ export async function POST(req: NextRequest) {
       if (to.includes('@')) {
         const r = await sendNotification(db, {
           tenantId, channel: 'email', to,
-          subject: `You're showing ${visitor} round — ${whenText}`,
+          subject: `Tour assigned to you: ${visitor}, ${whenText}`,
           html: brandedEmailHtml({
             studioName,
-            title: 'A visit is yours',
+            title: 'A tour has been assigned to you',
             bodyLines: [
-              `${memberName} — you're showing ${visitor} round on ${whenText}.`,
-              [tour.boothName ? `They asked about ${tour.boothName}.` : '', tour.message ? `They said: “${String(tour.message).slice(0, 300)}”` : '']
+              `Hi ${memberName},`,
+              `You are hosting ${visitor}'s tour on ${whenText}.`,
+              [tour.boothName ? `They asked about ${tour.boothName}.` : '', tour.message ? `Their message: “${String(tour.message).slice(0, 300)}”` : '']
                 .filter(Boolean).join(' ') || 'They did not leave any notes.',
-              [tour.phone, tour.email].filter(Boolean).join(' · ') || 'No contact details on file.',
+              [tour.phone, tour.email].filter(Boolean).join(' · ') || 'No contact details are on file.',
             ],
             cta: { label: 'Open the pipeline', url: `${origin}/pipeline` },
             footerNote: `Sent to you because you work at ${studioName}.`,
@@ -479,7 +492,7 @@ export async function POST(req: NextRequest) {
       const smsStatus = await alsoText(db, {
         tenantId, to: String(member.phone || ''), kind: 'tour_host_assigned',
         recipientId: staffId, recipientName: memberName,
-        text: `${studioName}: you're showing ${visitor} round ${whenText}${tour.boothName ? ` (${tour.boothName})` : ''}.`,
+        text: `Hi ${memberName}, you are hosting ${visitor}'s tour on ${whenText}${tour.boothName ? ` (${tour.boothName})` : ''}.`,
       });
       return NextResponse.json({ ok: emailStatus === 'sent' || smsStatus === 'sent', status: emailStatus, sms: smsStatus });
     }
@@ -522,12 +535,12 @@ export async function POST(req: NextRequest) {
         if (to.includes('@')) {
           const out = await sendNotification(db, {
             tenantId, channel: 'email', to,
-            subject: `A note to everyone from ${studioName}`,
+            subject: `A message to all renters from ${studioName}`,
             html: brandedEmailHtml({
               studioName, title: `From ${byName || studioName}`,
-              bodyLines: [`Hi ${first},`, ...clean.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean)],
+              bodyLines: [`Hi ${first},`, ...clean.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean), `Kind regards, ${studioName}`],
               cta: { label: 'Reply in my portal', url: portal },
-              footerNote: `Sent to every renter by ${studioName}. Replies come only to the studio.`,
+              footerNote: `Sent to all renters by ${studioName}. Replies go only to the studio.`,
             }),
             kind: 'renter_broadcast', recipientType: 'renter', recipientId: r.id,
             recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
@@ -538,7 +551,7 @@ export async function POST(req: NextRequest) {
         }
         const smsStatus = await alsoText(db, {
           tenantId, to: String(r.phone || ''), kind: 'renter_broadcast', recipientId: r.id,
-          text: `${studioName} to all renters: ${clean.length > 200 ? clean.slice(0, 197) + '\u2026' : clean} \u2014 ${portal}`,
+          text: `Message to all renters: ${clean.length > 200 ? clean.slice(0, 197) + '\u2026' : clean} Reply in your portal: ${portal}`,
         });
         if (smsStatus === 'sent') texted++;
         const mRef = db.collection(`tenants/${tenantId}/renterThreads/${r.id}/messages`).doc();
@@ -572,7 +585,7 @@ export async function POST(req: NextRequest) {
       await gRef.set(patch, { merge: true });
       const { GRIEVANCE_STATUS_LABEL } = await import('@/lib/grievances');
       const statusWord = GRIEVANCE_STATUS_LABEL[(patch.status || g.status) as keyof typeof GRIEVANCE_STATUS_LABEL] || String(patch.status || g.status);
-      const line = clean || (next === 'acknowledged' ? 'We have read your concern and are looking into it.' : `Marked ${statusWord.toLowerCase()}.`);
+      const line = clean || (next === 'acknowledged' ? 'Thank you for raising this with us. We have read your concern and are looking into it.' : `Your concern has been marked as ${statusWord.toLowerCase()}.`);
       const rSnap = await db.doc(`tenants/${tenantId}/renters/${g.renterId}`).get();
       const r = (rSnap.data() as any) || {};
       const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
@@ -582,10 +595,10 @@ export async function POST(req: NextRequest) {
       if (to.includes('@')) {
         const out = await sendNotification(db, {
           tenantId, channel: 'email', to,
-          subject: `${g.ref} \u00b7 ${statusWord}`,
+          subject: `Your concern ${g.ref}: ${statusWord}`,
           html: brandedEmailHtml({
             studioName, title: `Your concern ${g.ref}`,
-            bodyLines: [`Hi ${first} \u2014 status: ${statusWord}.`, ...line.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean)],
+            bodyLines: [`Hi ${first},`, `The status of your concern ${g.ref} is now: ${statusWord}.`, ...line.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean), `Kind regards, ${byName || studioName}`],
             cta: { label: 'See it in my portal', url: portal },
             footerNote: `Sent by ${byName || studioName}. Reply in your portal so we both keep a record.`,
           }),
@@ -596,7 +609,7 @@ export async function POST(req: NextRequest) {
         emailStatus = out.status; emailLogId = (out as any).logId || null;
       }
       const smsStatus = await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_message', recipientId: g.renterId,
-        text: `${studioName} re ${g.ref} (${statusWord}): ${line.length > 180 ? line.slice(0, 177) + '\u2026' : line} \u2014 ${portal}` });
+        text: `Regarding your concern ${g.ref} (${statusWord}): ${line.length > 180 ? line.slice(0, 177) + '\u2026' : line} You can view it in your portal: ${portal}` });
       const mRef = db.collection(`tenants/${tenantId}/renterThreads/${g.renterId}/messages`).doc();
       await mRef.set({ id: mRef.id, renterId: g.renterId, direction: 'outbound', text: `${g.ref} \u00b7 ${statusWord}\n\n${line}`, byName: byName || 'Studio', createdAt: nowIso, emailStatus, smsStatus, emailLogId, grievanceId });
       await db.doc(`tenants/${tenantId}/renterThreads/${g.renterId}`).set({ renterId: g.renterId, lastAt: nowIso, lastText: `${g.ref} \u00b7 ${statusWord}`, lastDirection: 'outbound', unreadForRenter: true }, { merge: true });
@@ -623,9 +636,9 @@ export async function POST(req: NextRequest) {
           subject: `A message from ${studioName}`,
           html: brandedEmailHtml({
             studioName, title: `Message from ${byName || studioName}`,
-            bodyLines: [`Hi ${first},`, ...clean.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean)],
+            bodyLines: [`Hi ${first},`, ...clean.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean), `Kind regards, ${studioName}`],
             cta: { label: 'Reply in my portal', url: portal },
-            footerNote: `Sent by ${studioName}. Reply in your portal so we both keep a record.`,
+            footerNote: `Sent by ${studioName}. Please reply in your portal so we both keep a record.`,
           }),
           kind: 'renter_message', recipientType: 'renter', recipientId: renterId,
           recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
@@ -635,7 +648,7 @@ export async function POST(req: NextRequest) {
       }
       const smsStatus = await alsoText(db, {
         tenantId, to: String(r.phone || ''), kind: 'renter_message', recipientId: renterId,
-        text: `${studioName}: ${clean.length > 220 ? clean.slice(0, 217) + '…' : clean} — reply: ${portal}`,
+        text: `${clean.length > 220 ? clean.slice(0, 217) + '…' : clean} Reply in your portal: ${portal}`,
       });
 
       await mRef.set({
@@ -664,18 +677,18 @@ export async function POST(req: NextRequest) {
       const approved = l.status === 'approved';
       const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
       const when = `${l.startDate} to ${l.endDate}`;
-      const treat = approved && l.treatment ? `${LEAVE_TREATMENT_LABEL[l.treatment as keyof typeof LEAVE_TREATMENT_LABEL]} — ${LEAVE_TREATMENT_NOTE[l.treatment as keyof typeof LEAVE_TREATMENT_NOTE]}` : '';
+      const treat = approved && l.treatment ? `${LEAVE_TREATMENT_LABEL[l.treatment as keyof typeof LEAVE_TREATMENT_LABEL]}. ${LEAVE_TREATMENT_NOTE[l.treatment as keyof typeof LEAVE_TREATMENT_NOTE]}` : '';
       const to = String(r.email || '').trim();
       let emailStatus = 'skipped_no_email';
       if (to.includes('@')) {
         const out = await sendNotification(db, {
           tenantId, channel: 'email', to,
-          subject: approved ? `Your time away is approved — ${when}` : 'About your time away request',
+          subject: approved ? `Your time away from ${when} is approved` : 'Your time away request',
           html: brandedEmailHtml({
-            studioName, title: approved ? 'Approved' : 'Not this time',
+            studioName, title: approved ? 'Your time away is approved' : 'An update on your time away request',
             bodyLines: approved
-              ? [`Hi ${first} — your time away from ${when} is approved.`, `Rent while you're away: ${treat}`, 'Your space is yours to come back to. Take care of yourself.']
-              : [`Hi ${first} — we couldn't approve time away from ${when} as requested.`, 'Reply in your portal and we can find something that works.'],
+              ? [`Hi ${first},`, `Your time away from ${when} has been approved.`, `Rent while you are away: ${treat}`, 'Your space will be here for you when you return. Please take good care of yourself.', `Kind regards, ${studioName}`]
+              : [`Hi ${first},`, `Thank you for your request. Unfortunately, we are unable to approve time away from ${when} as requested.`, 'Please reply in your portal, and we will work with you to find an arrangement that works.', `Kind regards, ${studioName}`],
             footerNote: `Sent by ${studioName}.`,
           }),
           kind: approved ? 'leave_approved' : 'leave_declined', recipientType: 'renter', recipientId: l.renterId,
@@ -685,8 +698,8 @@ export async function POST(req: NextRequest) {
       }
       await alsoText(db, { tenantId, to: String(r.phone || ''), kind: approved ? 'leave_approved' : 'leave_declined', recipientId: l.renterId,
         text: approved
-          ? `${studioName}: your time away ${when} is approved. Rent while away: ${l.treatment ? LEAVE_TREATMENT_LABEL[l.treatment as keyof typeof LEAVE_TREATMENT_LABEL] : 'as agreed'}.`
-          : `${studioName}: we couldn't approve time away ${when} as requested — reply in your portal and we can work it out.` });
+          ? `Hi ${first}, your time away from ${when} has been approved. Rent while you are away: ${l.treatment ? LEAVE_TREATMENT_LABEL[l.treatment as keyof typeof LEAVE_TREATMENT_LABEL] : 'as agreed'}.`
+          : `Hi ${first}, unfortunately we are unable to approve time away from ${when} as requested. Please reply in your portal, and we will work with you to find an arrangement.` });
       return NextResponse.json({ ok: true, status: emailStatus });
     }
 
@@ -717,10 +730,12 @@ export async function POST(req: NextRequest) {
           subject: `Your renter portal at ${studioName}`,
           html: brandedEmailHtml({
             studioName,
-            title: 'Your portal',
+            title: 'Your renter portal',
             bodyLines: [
-              `Hi ${first} — this is your personal link to your renter portal: rent and invoices, your card on file, autopay, documents, and your bookings.`,
-              'Keep this email; the link is yours and does not expire. If you ever lose it, ask us for a new one.',
+              `Hi ${first},`,
+              'Here is your personal link to your renter portal, where you can view your rent and invoices, your card on file, autopay, documents and your bookings.',
+              'Please keep this email. The link is personal to you and does not expire. If you ever lose it, please ask us for a new one.',
+              `Kind regards, ${studioName}`,
             ],
             cta: { label: 'Open my portal', url: link },
             footerNote: `Sent by ${studioName}. You're receiving this because you rent with us.`,
@@ -734,7 +749,7 @@ export async function POST(req: NextRequest) {
       const smsStatus = await alsoText(db, {
         tenantId, to: String(r.phone || ''), kind: 'renter_portal_invite', recipientId: renterId,
         recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
-        text: `${studioName}: your renter portal — rent, card, autopay, documents: ${link}`,
+        text: `Hi ${first}, here is your personal link to your renter portal for rent, your card on file, autopay and documents: ${link}`,
       });
       const sent = emailStatus === 'sent' || smsStatus === 'sent';
       await rRef.set({
@@ -758,15 +773,17 @@ export async function POST(req: NextRequest) {
       const payUrl = `${origin}/rent/${tenantId}`;
       const out = await sendNotification(db, {
         tenantId, channel: 'email', to,
-        subject: `Booking paused — outstanding balance with ${studioName}`,
+        subject: `Booking paused: outstanding balance with ${studioName}`,
         html: brandedEmailHtml({
           studioName,
           title: 'Booking is paused',
           bodyLines: [
-            `Hi ${firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`)} — booking with us is paused until your outstanding balance is settled.`,
-            'Settle it and booking reopens straight away. If something is going on, reply — we would rather know.',
+            `Hi ${firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`)},`,
+            'Booking with us is paused until your outstanding balance has been paid.',
+            'Once the balance is paid, booking will reopen right away. If something is going on, please reply to this email. We would rather know so that we can help.',
+            `Kind regards, ${studioName}`,
           ],
-          cta: { label: 'Settle now', url: payUrl },
+          cta: { label: 'Pay now', url: payUrl },
           footerNote: `Sent by ${studioName}.`,
         }),
         kind: 'renter_barred_notice', recipientType: 'renter', recipientId: renterId,
@@ -774,7 +791,7 @@ export async function POST(req: NextRequest) {
         tokens: { renter_first: firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`), amount: '', link: payUrl, studio: studioName },
       });
       await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_barred_notice', recipientId: renterId,
-        text: `${studioName}: booking is paused until your outstanding balance is settled. Settle here: ${payUrl}` });
+        text: `Hi ${firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`)}, booking is paused until your outstanding balance has been paid. You can pay here: ${payUrl}` });
       return NextResponse.json({ ok: out.ok, status: out.status });
     }
 

@@ -155,8 +155,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       status,
       message: status === 'published'
-        ? 'Thanks — your review is live.'
-        : 'Thanks — your review is with the shop for approval.',
+        ? 'Thank you for your review. It is now live.'
+        : 'Thank you for your review. It has been submitted and will appear once it is approved.',
     });
   } catch (e: any) {
     return NextResponse.json(

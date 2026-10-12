@@ -25,8 +25,8 @@ const token = () => `${Math.random().toString(36).slice(2)}${Date.now().toString
 async function notifyRecipient(db: any, tenantId: string, tenant: any, call: any, r: any, origin: string) {
   const T = `tenants/${tenantId}`;
   const link = `${linkOrigin(tenant, origin)}/msg/${tenantId}/${call.id}?k=${r.token}`;
-  const head = call.outcome === 'urgent' ? 'URGENT — ' : '';
-  const text = `${head}${call.callerName || 'A caller'}${call.reasonLabel ? ` (${call.reasonLabel.toLowerCase()})` : ''}: ${call.summary || 'called'}${call.ask ? ` — please ${call.ask.replace(/^please\s+/i, '')}` : ''}${call.dueAt ? ` by ${new Date(call.dueAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })}` : ''}.`;
+  const head = call.outcome === 'urgent' ? 'Urgent: ' : call.ask ? 'Action needed: ' : '';
+  const text = `${head}${call.callerName || 'A caller'}${call.reasonLabel ? ` (${call.reasonLabel.toLowerCase()})` : ''}: ${call.summary || 'called'}${call.ask ? `. Please ${call.ask.replace(/^please\s+/i, '')}` : ''}${call.dueAt ? ` by ${new Date(call.dueAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined })}` : ''}.`;
   try {
     const st: any = r.type === 'staff' ? (((await db.doc(`${T}/staff/${r.id}`).get()).data() as any) || {}) : {};
     if (st.renterId) {                                  // a renter: their portal + the channel they chose
@@ -39,7 +39,7 @@ async function notifyRecipient(db: any, tenantId: string, tenant: any, call: any
     const phone = String(st.phone || '').trim();
     if (phone && (call.outcome === 'urgent' || call.outcome === 'action' || tenant?.callLog?.textStaff !== false)) {
       const { sendNotification } = await import('@/lib/notify');
-      await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'call_message', text: `${tenant.name || 'Front desk'}: ${text} ${link}`, recipientType: 'staff', recipientId: r.id } as any);
+      await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'call_message', text: `Front desk message: ${text} Details: ${link}`, recipientType: 'staff', recipientId: r.id } as any);
     }
   } catch (e) { console.error('[calls] notify failed', e); }
 }
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const tenantId = String(sp.get('tenantId') || ''), id = String(sp.get('id') || '');
   const db = getAdminDb(); const x = await loadByKey(db, tenantId, id, String(sp.get('k') || ''));
-  if (!x) return NextResponse.json({ ok: false, error: 'This message isn’t available.' }, { status: 404 });
+  if (!x) return NextResponse.json({ ok: false, error: 'This message is no longer available.' }, { status: 404 });
   const t: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const { c, r } = x;
   // What a recipient sees: the caller's words, what's asked of them — never the staff's private note.
@@ -75,37 +75,37 @@ export async function POST(req: NextRequest) {
   // ── Recipients answer from their private link ──
   if (b.k) {
     const x = await loadByKey(db, tenantId, String(b.id || ''), String(b.k));
-    if (!x) return NextResponse.json({ ok: false, error: 'This message isn’t available.' }, { status: 404 });
+    if (!x) return NextResponse.json({ ok: false, error: 'This message is no longer available.' }, { status: 404 });
     const { ref, c, r } = x;
-    if (c.status === 'resolved') return NextResponse.json({ ok: false, error: 'This has already been dealt with.' }, { status: 409 });
+    if (c.status === 'resolved') return NextResponse.json({ ok: false, error: 'This message has already been resolved.' }, { status: 409 });
     const note = String(b.text || '').trim().slice(0, 500);
     const recips = (c.recipients || []).map((y: any) => (y.token === r.token ? { ...y, ackedAt: y.ackedAt || iso() } : y));
     if (action === 'ack') { await ref.set({ recipients: recips, updatedAt: iso(), history: [...(c.history || []), { at: iso(), by: r.name, what: 'Got it' }].slice(-40) }, { merge: true }); return NextResponse.json({ ok: true }); }
     if (action === 'reply' || action === 'handback') {
-      if (!note) return NextResponse.json({ ok: false, error: action === 'reply' ? 'Write your reply.' : 'Say why you’re handing it back.' }, { status: 400 });
+      if (!note) return NextResponse.json({ ok: false, error: action === 'reply' ? 'Please write your reply.' : 'Please explain why you are handing it back.' }, { status: 400 });
       await ref.set({ recipients: recips, updatedAt: iso(), ...(action === 'handback' ? { status: 'open', handedBackBy: r.name, handedBackAt: iso() } : { lastReplyAt: iso() }),
         history: [...(c.history || []), { at: iso(), by: r.name, what: action === 'reply' ? `Replied: ${note}` : `Handed back: ${note}` }].slice(-40) }, { merge: true });
       const n = db.collection(`${T}/notifications`).doc();
       await n.set({ id: n.id, userId: c.loggedById || null, read: false, createdAt: iso(), type: 'call_reply', callId: c.id, link: 'pos',
-        message: `${first(r.name)} ${action === 'reply' ? 'replied' : 'handed back'} about ${c.callerName || 'the caller'}: ${note}` }).catch(() => {});
+        message: `${first(r.name)} has ${action === 'reply' ? 'replied about' : 'handed back the message about'} ${c.callerName || 'the caller'}: ${note}` }).catch(() => {});
       return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   }
 
   const auth: any = await verifyStaffActor(req, tenantId);
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
+  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Please sign in to continue.' }, { status: auth.status || 401 });
   const me = { id: auth.actor.uid, name: auth.actor.name };
 
   if (action === 'create') {
     const outcome = OUTCOMES.includes(b.outcome) ? b.outcome : 'logged';
     const summary = String(b.summary || '').trim().slice(0, 1000);
-    if (!summary) return NextResponse.json({ ok: false, error: 'Write a line about what they said.' }, { status: 400 });
+    if (!summary) return NextResponse.json({ ok: false, error: 'Please add a short summary of what the caller said.' }, { status: 400 });
     const reason = b.reason ? String(b.reason) : null;
     const wanted: any[] = Array.isArray(b.recipients) ? b.recipients.slice(0, 5) : [];
-    if (['message', 'action', 'urgent'].includes(outcome) && !wanted.length) return NextResponse.json({ ok: false, error: 'Choose who needs to know.' }, { status: 400 });
+    if (['message', 'action', 'urgent'].includes(outcome) && !wanted.length) return NextResponse.json({ ok: false, error: 'Please choose who needs to be informed.' }, { status: 400 });
     const dueMs = Date.parse(String(b.dueAt || ''));
-    if (outcome === 'action' && !(dueMs > Date.now())) return NextResponse.json({ ok: false, error: 'Pick when it needs doing by.' }, { status: 400 });
+    if (outcome === 'action' && !(dueMs > Date.now())) return NextResponse.json({ ok: false, error: 'Please choose when it needs to be done by.' }, { status: 400 });
     const recipients: any[] = [];
     for (const w of wanted) {
       if (w?.type === 'role') { recipients.push({ type: 'role', id: 'managers', name: 'Managers', token: token() }); continue; }
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
       if (b.sendLink === 'book') url = `${linkOrigin(tenant, origin)}/book/${tenantId}`;
       else if (call.appointmentId) { const ap: any = ((await db.doc(`${T}/appointments/${call.appointmentId}`).get()).data() as any) || {}; if (ap.checkInToken) url = `${linkOrigin(tenant, origin)}/check-in/${ap.checkInToken}`; }
       if (url) { const { sendNotification } = await import('@/lib/notify');
-        const r = await sendNotification(db, { tenantId, channel: 'sms', to: call.callerPhone, kind: 'call_link', text: `${tenant.name || 'Us'}: ${b.sendLink === 'book' ? 'here’s where to book' : 'here’s your visit link'} — ${url}`, clientId: call.clientId, clientName: call.callerName } as any);
+        const r = await sendNotification(db, { tenantId, channel: 'sms', to: call.callerPhone, kind: 'call_link', text: `${b.sendLink === 'book' ? `Hi${call.callerName && call.callerName !== 'Unknown caller' ? ` ${String(call.callerName).split(' ')[0]}` : ''}, thank you for calling. You can book your appointment here: ${url}` : `Hi${call.callerName && call.callerName !== 'Unknown caller' ? ` ${String(call.callerName).split(' ')[0]}` : ''}, thank you for calling. Here is the link to your visit: ${url}`}`, clientId: call.clientId, clientName: call.callerName } as any);
         linkSent = r?.ok ? b.sendLink : null;
         await ref.set({ linkSent: { what: b.sendLink, ok: !!r?.ok, at: iso() } }, { merge: true }); }
     }
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
   }
 
   const ref = db.doc(`${T}/calls/${String(b.id || '')}`); const c: any = (await ref.get()).data();
-  if (!c) return NextResponse.json({ ok: false, error: 'That call wasn’t found.' }, { status: 404 });
+  if (!c) return NextResponse.json({ ok: false, error: 'We could not find that call.' }, { status: 404 });
   const push = (what: string) => [...(c.history || []), { at: iso(), by: me.name, what }].slice(-40);
 
   if (action === 'ack') {   // a recipient acknowledges in the app
@@ -164,18 +164,18 @@ export async function POST(req: NextRequest) {
   }
   if (action === 'reassign') {
     const reason = String(b.reason || '').trim().slice(0, 200);
-    if (!reason) return NextResponse.json({ ok: false, error: 'Say why it’s being passed to someone else.' }, { status: 400 });
+    if (!reason) return NextResponse.json({ ok: false, error: 'Please explain why it is being passed to someone else.' }, { status: 400 });
     const st: any = b.toId ? (((await db.doc(`${T}/staff/${String(b.toId)}`).get()).data() as any) || null) : null;
-    if (!st) return NextResponse.json({ ok: false, error: 'Choose who to pass it to.' }, { status: 400 });
+    if (!st) return NextResponse.json({ ok: false, error: 'Please choose who to pass it to.' }, { status: 400 });
     const r = { type: 'staff', id: String(b.toId), name: st.name || 'Team member', isRenter: !!st.renterId, token: token() };
     await ref.set({ recipients: [...(c.recipients || []), r], updatedAt: iso(), history: push(`Passed to ${first(st.name)} — ${reason}`) }, { merge: true });
     await notifyRecipient(db, tenantId, tenant, { ...c, id: ref.id }, r, origin);
     return NextResponse.json({ ok: true });
   }
   if (action === 'resolve') {
-    if (!RESOLUTIONS.includes(b.outcome)) return NextResponse.json({ ok: false, error: 'Choose what happened.' }, { status: 400 });
+    if (!RESOLUTIONS.includes(b.outcome)) return NextResponse.json({ ok: false, error: 'Please choose what happened.' }, { status: 400 });
     const note = String(b.note || '').trim().slice(0, 500);
-    if (b.outcome === 'other' && !note) return NextResponse.json({ ok: false, error: 'Add a short note about what happened.' }, { status: 400 });
+    if (b.outcome === 'other' && !note) return NextResponse.json({ ok: false, error: 'Please add a short note about what happened.' }, { status: 400 });
     await ref.set({ status: 'resolved', resolution: { outcome: b.outcome, note: note || null, by: me.name, at: iso() }, updatedAt: iso(), history: push(`Closed — ${String(b.outcome).replace('_', ' ')}${note ? `: ${note}` : ''}`) }, { merge: true });
     return NextResponse.json({ ok: true });
   }

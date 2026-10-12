@@ -84,11 +84,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Claim not found' }, { status: 404 });
     }
     if (claim.status === 'approved') {
-      return NextResponse.json({ error: 'This report is already approved \u2014 no photos needed.' }, { status: 409 });
+      return NextResponse.json({ error: 'This report has already been approved, so no photos are needed.' }, { status: 409 });
     }
     const existing: string[] = Array.isArray(claim.photoUrls) ? claim.photoUrls : [];
     if (existing.length >= MAX_PHOTOS) {
-      return NextResponse.json({ error: `That report already has ${MAX_PHOTOS} photos \u2014 that\u2019s plenty for review.` }, { status: 409 });
+      return NextResponse.json({ error: `This report already has ${MAX_PHOTOS} photos, which is the maximum. Thank you, that is all we need for our review.` }, { status: 409 });
     }
 
     const up = await uploadClaimPhotoFromDataUrl(tenantId, claimId, image);

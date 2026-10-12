@@ -26,18 +26,18 @@ export async function enablePush(tenantId: string): Promise<{ state: PushState; 
   if (permission !== 'granted') return { state: 'off' };
   try {
     const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-    if (!vapidKey) return { state: 'off', error: 'Notifications aren’t set up for this app yet (missing web push key).' };
+    if (!vapidKey) return { state: 'off', error: 'Notifications are not set up for this app yet (the web push key is missing).' };
     const { getMessaging, getToken, isSupported } = await import('firebase/messaging');
     if (!(await isSupported().catch(() => false))) return { state: 'unsupported' };
     const swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     const token = await getToken(getMessaging(getApp()), { vapidKey, serviceWorkerRegistration: swReg });
-    if (!token) return { state: 'off', error: 'This phone didn’t give us an address to send to — try again.' };
+    if (!token) return { state: 'off', error: 'This device did not provide a notification address. Please try again.' };
     const idToken = await getAuth().currentUser?.getIdToken();
-    const r = await fetch('/api/push/register', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) }, body: JSON.stringify({ tenantId, token }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection.' }));
-    if (!r.ok) return { state: 'off', error: r.error || 'That didn’t save — try again.' };
+    const r = await fetch('/api/push/register', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) }, body: JSON.stringify({ tenantId, token }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No internet connection. Please try again.' }));
+    if (!r.ok) return { state: 'off', error: r.error || 'Your notification settings could not be saved. Please try again.' };
     try { localStorage.setItem('cf_push_registered', '1'); localStorage.setItem('cf_push_token', token); } catch { /* fine */ }
     return { state: 'on' };
-  } catch (e: any) { return { state: 'off', error: String(e?.message || 'That didn’t work — try again.').slice(0, 160) }; }
+  } catch (e: any) { return { state: 'off', error: String(e?.message || 'Something went wrong. Please try again.').slice(0, 160) }; }
 }
 
 /** "Send me a test" — returns what happened, in plain words. */
@@ -45,9 +45,9 @@ export async function sendTestPush(tenantId: string): Promise<{ ok: boolean; tex
   try {
     const idToken = await getAuth().currentUser?.getIdToken();
     const r = await fetch('/api/push/test', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) }, body: JSON.stringify({ tenantId }) }).then((x) => x.json());
-    if (r.ok) return { ok: true, text: `Sent (${String(r.result).replace(/^sent to /, '')}) — your phone should buzz now.` };
-    return { ok: false, text: r.error || r.result || 'That didn’t send.' };
-  } catch { return { ok: false, text: 'No connection — try again.' }; }
+    if (r.ok) return { ok: true, text: `Test notification sent (${String(r.result).replace(/^sent to /, '')}). It should arrive on your device shortly.` };
+    return { ok: false, text: r.error || r.result || 'The test notification could not be sent.' };
+  } catch { return { ok: false, text: 'No internet connection. Please try again.' }; }
 }
 
 /** On sign-out (call BEFORE signing out): stop this phone getting the person's notifications. Quiet on failure. */

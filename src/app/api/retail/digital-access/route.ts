@@ -66,7 +66,7 @@ async function authorize(db: any, tenantId: string, orderId: string, qrToken: st
   }
   const endsAt = digitalAccessEndsAt(line, order.paidAt, order.placedAt);
   if (endsAt && Date.parse(endsAt) < Date.now()) {
-    return { error: `Your access to this ended on ${new Date(endsAt).toLocaleDateString()}. Message the shop from your order page \u2014 they can extend it.`, status: 403 };
+    return { error: `Your access to this ended on ${new Date(endsAt).toLocaleDateString()}. Please send us a message from your order page and we can extend it for you.`, status: 403 };
   }
   const itemSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(productId).get();
   return { order, line, item: itemSnap.exists ? (itemSnap.data() as any) : {}, endsAt };
@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
     const endsAt = digitalAccessEndsAt(line, order.paidAt, order.placedAt);
     if (endsAt && Date.parse(endsAt) < Date.now()) {
       return NextResponse.json({
-        error: `Your access to this ended on ${new Date(endsAt).toLocaleDateString()}. Message the shop from your order page \u2014 they can extend it.`,
+        error: `Your access to this ended on ${new Date(endsAt).toLocaleDateString()}. Please send us a message from your order page and we can extend it for you.`,
         expired: true, endsAt,
       }, { status: 403 });
     }
@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
       url = linkUrl;
       kind = 'link';
     } else {
-      return NextResponse.json({ error: 'The shop hasn\u2019t attached this yet \u2014 they\u2019ve been told.' }, { status: 409 });
+      return NextResponse.json({ error: 'We are sorry, but this file has not been attached yet. Our team has been notified.' }, { status: 409 });
     }
 
     // Log the open. Counted per line so repeated opens read as one story

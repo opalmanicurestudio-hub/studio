@@ -16,7 +16,7 @@ const bad = (error: string, status = 400) => NextResponse.json({ ok: false, erro
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
-  const auth: any = await verifyStaffActor(req, tenantId); if (!auth.ok) return bad(auth.error || 'Sign in to do that.', auth.status || 401);
+  const auth: any = await verifyStaffActor(req, tenantId); if (!auth.ok) return bad(auth.error || 'Please sign in to continue.', auth.status || 401);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   if (action === 'my-times') {   // "My times": the provider's typical time per service, vs booked; students also see the team's typical
     const { staffIdForLogin } = await import('@/lib/owner-staff');
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, visits });
   }
   const id = String(b.appointmentId || ''); const ref = db.doc(`${T}/appointments/${id}`); const a: any = (await ref.get()).data();
-  if (!a) return bad('That visit wasn’t found.', 404);
+  if (!a) return bad('We could not find that visit.', 404);
   const t: any = ((await db.doc(T).get()).data() as any) || {};
   const now = new Date().toISOString(); const by = auth.actor.name || 'Staff';
   const timeline = Array.isArray(a.timeline) ? a.timeline : [];
@@ -52,9 +52,9 @@ export async function POST(req: NextRequest) {
   if (action === 'stage') {
     const from = stageOf(a); const to = String(b.to || '') as Stage;
     if (from === to) return NextResponse.json({ ok: true, stage: to, already: true });
-    if (to === 'complete') return bad('Visits are completed at checkout — take payment there.', 409);
-    if (['cancelled', 'no_show'].includes(to)) return bad('Use Cancel / No-show on the visit — they handle fees, deposits and messages.', 409);
-    if (!canMove(from, to)) return bad(`A visit that’s “${stageLabel(from, a, t)}” can’t go straight to “${stageLabel(to, a, t)}”.`, 409);
+    if (to === 'complete') return bad('Visits are completed at checkout. Please take payment there.', 409);
+    if (['cancelled', 'no_show'].includes(to)) return bad('Please use Cancel or No-show on the visit, which handle fees, deposits and messages.', 409);
+    if (!canMove(from, to)) return bad(`A visit that is “${stageLabel(from, a, t)}” cannot move directly to “${stageLabel(to, a, t)}”.`, 409);
     const entry = { at: now, kind: 'stage', stage: to, text: `${stageLabel(to, a, t)}${b.note ? ` — ${String(b.note).slice(0, 140)}` : ''}`, by, via: String(b.via || 'desk').slice(0, 30) };
     const upd: any = { ...stageWrite(to), timeline: [...timeline, entry].slice(-MAX_TIMELINE), updatedAt: now,
       ...(to === 'arrived' ? { arrivedAt: a.arrivedAt || now } : {}), ...(to === 'in_service' ? { serviceStartedAt: a.serviceStartedAt || now } : {}), ...(to === 'ready_to_pay' ? { serviceEndedAt: now } : {}) };
@@ -73,13 +73,13 @@ export async function POST(req: NextRequest) {
   }
   if (action === 'over-reason') {   // "Why did it run over?" — answered by the provider (or the desk) after the visit
     const { OVER_REASONS } = await import('@/lib/timing'); const r = OVER_REASONS.find((x) => x.code === String(b.code || ''));
-    if (!r) return bad('Pick a reason.', 400);
+    if (!r) return bad('Please choose a reason.', 400);
     const overReason = { code: r.code, label: r.label, clientCaused: r.clientCaused, note: String(b.note || '').trim().slice(0, 200) || null, by, at: now };
-    await ref.set({ overReason, timeline: [...timeline, { at: now, kind: 'note', text: `Ran over — ${r.label.toLowerCase()}${overReason.note ? `: ${overReason.note}` : ''}`, by, via: String(b.via || 'desk').slice(0, 30) }].slice(-MAX_TIMELINE), updatedAt: now }, { merge: true });
+    await ref.set({ overReason, timeline: [...timeline, { at: now, kind: 'note', text: `Ran over: ${r.label.toLowerCase()}${overReason.note ? `: ${overReason.note}` : ''}`, by, via: String(b.via || 'desk').slice(0, 30) }].slice(-MAX_TIMELINE), updatedAt: now }, { merge: true });
     return NextResponse.json({ ok: true, overReason });
   }
   if (action === 'note') {
-    const text = String(b.text || '').trim().slice(0, 300); if (!text) return bad('Write the note first.');
+    const text = String(b.text || '').trim().slice(0, 300); if (!text) return bad('Please write the note first.');
     const entry = { at: now, kind: 'note', text, by, forClient: b.forClient === true };
     const upd = { timeline: [...timeline, entry].slice(-MAX_TIMELINE), updatedAt: now };
     await ref.set(upd, { merge: true });

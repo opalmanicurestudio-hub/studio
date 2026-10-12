@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
   const openCount = await db.collection(`tenants/${tenantId}/retailSupport`)
     .where('orderId', '==', orderId).where('status', '==', 'open').count().get();
   if ((openCount.data().count ?? 0) >= 5) {
-    return NextResponse.json({ error: 'This order already has open requests — we will get back to you soon.' }, { status: 429 });
+    return NextResponse.json({ error: 'This order already has several open requests. Thank you for your patience. We will get back to you as soon as possible.' }, { status: 429 });
   }
 
   /* THE HONEST CLOCK. Reply-time expectations are computed from the queue
@@ -94,9 +94,9 @@ export async function POST(req: NextRequest) {
       .where('status', '==', 'open').count().get();
     const n = tenantOpen.data().count ?? 0;
     expectNote = n >= 15
-      ? 'We\u2019re busier than usual — expect a reply within 1\u20132 days.'
+      ? 'We are busier than usual, so please allow 1 to 2 days for a reply. Thank you for your patience.'
       : n >= 5
-        ? 'Expect a reply within a day.'
+        ? 'We will reply within 1 day.'
         : 'We usually reply within a few hours.';
   } catch { /* the default tier stands */ }
 
@@ -114,13 +114,13 @@ export async function POST(req: NextRequest) {
     paid: 'Your order is confirmed and in the packing queue.',
     picking: 'Your order is being packed right now.',
     packed: 'Your order is packed and being finalized.',
-    ready: 'Your order is READY for pickup.',
-    arrived: 'We see you here \u2014 your order is on its way out.',
+    ready: 'Your order is ready for pickup.',
+    arrived: 'We can see that you have arrived, and your order is on its way out to you.',
     shipped: 'Your order has shipped.',
-    handed_off: 'Your order was picked up.',
+    handed_off: 'Your order has been picked up.',
     completed: 'Your order is complete.',
-    cancelled: 'This order is cancelled.',
-    refunded: 'This order was refunded.',
+    cancelled: 'This order has been cancelled.',
+    refunded: 'This order has been refunded.',
   };
   /* ═══ ONE ISSUE = ONE CASE ═════════════════════════════════════════════
    * Before creating anything, look for an open case on this order. A new
@@ -177,23 +177,23 @@ export async function POST(req: NextRequest) {
     const refunded = order.refundedCents || 0;
     const pending = order.pendingRefundCents || 0;
     autoReply = refunded > 0
-      ? `A refund of $${(refunded / 100).toFixed(2)} has been issued on this order. Card refunds typically appear in 5\u201310 business days.`
+      ? `A refund of $${(refunded / 100).toFixed(2)} has been issued on this order. Card refunds typically appear within 5 to 10 business days.`
       : pending > 0
-        ? `A refund of $${(pending / 100).toFixed(2)} is queued on this order and the shop will process it shortly. Card refunds typically appear in 5\u201310 business days after processing.`
-        : `No refund is currently recorded on this order. ${stageLine[order.stage] || ''} The shop will review your message.`;
+        ? `A refund of $${(pending / 100).toFixed(2)} has been queued on this order and will be processed shortly. Card refunds typically appear within 5 to 10 business days after processing.`
+        : `No refund is currently recorded on this order. ${stageLine[order.stage] || ''} Our team will review your message.`;
   } else if (/cancel/.test(lower)) {
     autoReply = ['placed', 'paid'].includes(order.stage)
-      ? 'You can cancel this order yourself \u2014 open your order page and tap \u201cCancel this order\u201d. Stock is released immediately and any payment is queued for refund.'
-      : `${stageLine[order.stage] || ''} Since packing has started, cancellation needs a human \u2014 your message is in the shop\u2019s queue now.`;
+      ? 'You can cancel this order yourself. Please open your order page and tap \u201cCancel this order\u201d. The items will be released right away, and any payment will be queued for a refund.'
+      : `${stageLine[order.stage] || ''} As packing has already started, a member of our team will need to review your cancellation request. Your message has been added to our queue.`;
   } else if (/return|exchange/.test(lower)) {
     autoReply = ['shipped', 'handed_off', 'completed'].includes(order.stage)
-      ? 'You can start a return right from your order page \u2014 tap \u201cStart a return\u201d, pick the items and reason, and bring them by (or ship them back).'
-      : 'Returns open once your order has been picked up or delivered. Your message is in the shop\u2019s queue.';
+      ? 'You can start a return from your order page. Please tap \u201cStart a return\u201d, select the items and the reason, and then bring them to us or ship them back.'
+      : 'Returns can be started once your order has been picked up or delivered. Your message has been added to our queue.';
   } else if (/where|status|when|ready|track|eta|how long/.test(lower)) {
     const trackBit = order.trackingNumber
-      ? ` Tracking: ${order.carrier || ''} ${order.trackingNumber}${order.trackingUrl ? ` \u2014 ${order.trackingUrl}` : ''}.`
+      ? ` Tracking: ${order.carrier || ''} ${order.trackingNumber}${order.trackingUrl ? `. You can track it here: ${order.trackingUrl}` : ''}.`
       : '';
-    autoReply = `${stageLine[order.stage] || 'Your order is in progress.'}${trackBit} Your order page always shows the live status.`;
+    autoReply = `${stageLine[order.stage] || 'Your order is in progress.'}${trackBit} Your order page always shows the latest status.`;
   }
 
   // ── Sentiment triage: angry customers get MORE human, faster ──
@@ -257,17 +257,19 @@ export async function POST(req: NextRequest) {
       await sendNotification(db, {
         tenantId, channel: 'email',
           to: order.customerEmail,
-          subject: `We got your message \u2014 order #${String(order.orderNumber).padStart(4, '0')}`,
+          subject: `We have received your message about order #${String(order.orderNumber).padStart(4, '0')}`,
           html: await (async () => {
             const emailBrand = await getEmailBrand(db, tenantId);
             return brandedEmail(emailBrand, `
-              <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Thanks \u2014 your message is with the team${caseRef ? ` as <strong>Case #${caseRef}</strong>` : ''}. Your place in the queue is saved; no need to resend it.</p>
+              <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0 0 10px">Hi ${String(order.customerName || '').trim().split(' ')[0] || 'there'},</p>
+              <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Thank you for contacting us. We have received your message${caseRef ? `, and it has been logged as <strong>Case #${caseRef}</strong>` : ''}. Your place in our queue has been saved, so there is no need to send it again.</p>
               ${urgent
-                ? `<p style="font-size:14px;color:#0f172a;line-height:1.7;margin:12px 0 0">We hear you \u2014 this has been flagged and a person is looking at it as a priority. We\u2019ll make it right.</p>`
+                ? `<p style="font-size:14px;color:#0f172a;line-height:1.7;margin:12px 0 0">We are sorry for the trouble. Your message has been marked as a priority, and a member of our team is looking into it now. We will do our best to put this right.</p>`
                 : autoReply ? `<div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0 0"><p style="font-size:13px;color:#0f172a;margin:0;line-height:1.6"><strong>Instant answer:</strong> ${autoReply}</p></div>` : ''}
-              <p style="font-size:12px;color:#64748b;margin:14px 0 0">${urgent ? 'You\u2019ll hear from us shortly.' : expectNote} Replies land on your order page and by email.</p>
-              ${emailButton(link, 'View my order', emailBrand)}`,
-              { preheader: urgent ? 'Flagged as a priority \u2014 a person is on it' : expectNote, title: 'We got your message', tag: `#${String(order.orderNumber).padStart(4, '0')}` });
+              <p style="font-size:12px;color:#64748b;margin:14px 0 0">${urgent ? 'You will hear from us shortly.' : expectNote} Our replies will appear on your order page and will also be sent to you by email.</p>
+              ${emailButton(link, 'View my order', emailBrand)}
+              <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
+              { preheader: urgent ? 'Your message has been marked as a priority.' : expectNote, title: 'We have received your message', tag: `#${String(order.orderNumber).padStart(4, '0')}` });
           })(),
         kind: 'support_received', recipientType: 'client',
       });

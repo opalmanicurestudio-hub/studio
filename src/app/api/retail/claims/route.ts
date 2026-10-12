@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
       const claim = claimSnap.data() as any;
       if (order.qrToken !== qrToken || claim.orderId !== orderId) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
       if (claim.status !== 'declined') return NextResponse.json({ error: 'Only a declined claim can be appealed.' }, { status: 409 });
-      if (claim.appealedAt) return NextResponse.json({ error: 'This claim has already been appealed once — the shop has it.' }, { status: 409 });
+      if (claim.appealedAt) return NextResponse.json({ error: 'This claim has already been appealed, and our team is reviewing it.' }, { status: 409 });
 
       const now = new Date().toISOString();
       const batch = db.batch();
@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
         meta: { text: `Claim appealed: ${claim.type}${claim.lineName ? ` — ${claim.lineName}` : ''}`, ...(client ? { client } : {}) },
       });
       await batch.commit();
-      return NextResponse.json({ ok: true, message: 'Appeal received — a person will look at it again with your note and the packing record.' });
+      return NextResponse.json({ ok: true, message: 'Thank you. We have received your appeal, and a member of our team will review it again with your note and the packing record.' });
     }
 
     // ── OPEN a claim ──
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
       const ageDays = (Date.now() - new Date(order.completedAt).getTime()) / 86400000;
       if (Number.isFinite(ageDays) && ageDays > issueDays) {
         return NextResponse.json({
-          error: `Problems can be reported within ${issueDays} days of delivery, and this order completed ${Math.floor(ageDays)} days ago \u2014 message the shop below if something exceptional happened.`,
+          error: `Problems can be reported within ${issueDays} days of delivery, and this order was completed ${Math.floor(ageDays)} days ago. If there are exceptional circumstances, please send us a message below.`,
         }, { status: 409 });
       }
     }
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
     const claimRef = db.collection(`tenants/${tenantId}/retailClaims`).doc(dupId);
     const dupSnap = await claimRef.get();
     if (dupSnap.exists) {
-      return NextResponse.json({ ok: true, status: (dupSnap.data() as any).status, message: 'This is already on file — the shop has it.' });
+      return NextResponse.json({ ok: true, status: (dupSnap.data() as any).status, message: 'This report is already on file, and our team has it.' });
     }
 
     const lines: any[] = order.lines || [];

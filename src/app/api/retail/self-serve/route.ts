@@ -94,13 +94,13 @@ export async function POST(req: NextRequest) {
          * customer's right, not a courtesy the policy can switch off. */
         if (!promiseLate) {
           if (polC.cancelAllowed === false) {
-            return { status: 409, error: 'This shop handles cancellations personally \u2014 send a note below and they\u2019ll sort it out fast.' };
+            return { status: 409, error: 'Cancellations for this shop are handled personally. Please send us a note below and we will be happy to help.' };
           }
           const windowHours = Math.max(0, Number(polC.cancelWindowHours) || 0);
           if (windowHours > 0 && order.paidAt) {
             const ageH = (Date.now() - new Date(order.paidAt).getTime()) / 3600000;
             if (Number.isFinite(ageH) && ageH > windowHours) {
-              return { status: 409, error: `The ${windowHours}-hour cancellation window for this shop has passed \u2014 packing may already be underway. Send a note below and they\u2019ll help.` };
+              return { status: 409, error: `As outlined in our cancellation policy, orders can be cancelled online within ${windowHours} hours of payment. As that time has passed, packing may already be underway. Please send us a note below and we will be happy to help.` };
             }
           }
         }
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
           }
           return {
             status: 409,
-            error: 'Packing has already started, so it can\u2019t be cancelled online \u2014 send us a note below and we\u2019ll sort it out.',
+            error: 'Packing has already started, so this order can no longer be cancelled online. Please send us a note below and we will be happy to help.',
           };
         }
 
@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
         if (!CANCEL_STAGES.includes(order.stage)) {
           return {
             status: 409,
-            error: 'Packing has already started, so the address can\u2019t change online \u2014 send us a note below right away and we\u2019ll try to catch it.',
+            error: 'Packing has already started, so the address can no longer be changed online. Please send us a note below as soon as possible and we will do our best to update it.',
           };
         }
 
@@ -229,7 +229,7 @@ export async function POST(req: NextRequest) {
       });
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
-      return NextResponse.json({ ok: true, message: 'Address updated \u2014 your package will ship to the corrected address.' });
+      return NextResponse.json({ ok: true, message: 'Your address has been updated. Your package will ship to the corrected address.' });
     }
 
     if (action === 'resend_receipt') {
@@ -239,14 +239,14 @@ export async function POST(req: NextRequest) {
         const order = snap.data() as any;
         if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
         if (order.stage === 'placed') {
-          return { status: 409, error: 'The receipt is sent once payment confirms \u2014 this order hasn\u2019t been paid yet.' };
+          return { status: 409, error: 'We have not yet received payment for this order. Your receipt will be sent once payment is confirmed.' };
         }
         if (!String(order.customerEmail || '').trim()) {
           return { status: 409, error: 'There\u2019s no email address on this order.' };
         }
         const sends = Number(order.receiptResends) || 0;
         if (sends >= 5) {
-          return { status: 429, error: 'That receipt has been re-sent several times already \u2014 check your spam folder, or message us below.' };
+          return { status: 429, error: 'This receipt has already been re-sent several times. Please check your spam folder, or send us a message below.' };
         }
         txn.update(orderRef, { receiptResends: sends + 1 });
         return { status: 200, order };
@@ -254,7 +254,7 @@ export async function POST(req: NextRequest) {
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
       await sendOrderConfirmation(db, tenantId, orderId, result.order, null);
-      return NextResponse.json({ ok: true, message: 'Receipt re-sent \u2014 it should be in your inbox in a minute.' });
+      return NextResponse.json({ ok: true, message: 'Your receipt has been re-sent and should arrive in your inbox shortly.' });
     }
 
     // ── start_return ──
@@ -278,7 +278,7 @@ export async function POST(req: NextRequest) {
     const rsR = (tenantSnapR.exists ? (tenantSnapR.data() as any).retailSettings : {}) || {};
     if (rsR.returnsEnabled === false) {
       return NextResponse.json({
-        error: 'This shop doesn\u2019t take returns \u2014 but if something\u2019s wrong with what arrived, use \u201cReport a problem\u201d and it goes straight to the shop with your order\u2019s packing record.',
+        error: 'Please note that this shop does not accept returns. If there is an issue with your order, please use \u201cReport a problem\u201d and our team will review it with your order\u2019s packing record.',
       }, { status: 409 });
     }
     const windowDays = Math.max(0, Math.floor(Number(rsR.returnWindowDays) || 0));
@@ -286,7 +286,7 @@ export async function POST(req: NextRequest) {
       const ageDays = (Date.now() - new Date(order.completedAt).getTime()) / 86400000;
       if (Number.isFinite(ageDays) && ageDays > windowDays) {
         return NextResponse.json({
-          error: `The ${windowDays}-day return window for this order has closed \u2014 message the shop below if something exceptional happened.`,
+          error: `As outlined in our return policy, returns can be started within ${windowDays} days of receiving your order, and that window has now closed for this order. If there are exceptional circumstances, please send us a message below.`,
         }, { status: 409 });
       }
     }
@@ -303,7 +303,7 @@ export async function POST(req: NextRequest) {
       // withdraw access in one move.
       if (orig.digital === true) {
         return NextResponse.json({
-          error: `${orig.name} is a digital item \u2014 there\u2019s nothing to post back. Use \u201cReport a problem\u201d and the shop will sort a refund with you directly.`,
+          error: `${orig.name} is a digital item, so there is nothing to send back. Please use \u201cReport a problem\u201d and our team will arrange a refund with you directly.`,
         }, { status: 409 });
       }
       const returnable = (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0);

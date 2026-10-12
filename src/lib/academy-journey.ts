@@ -142,7 +142,7 @@ export async function sweepJourney() {
       try {
         const { getAdminAuth } = await import('@/lib/firebase-admin');
         const owner = (await getAdminAuth().getUser(tv.userId)).email || '';
-        await sendEmail(owner, `Students who need attention — ${tv.name || 'your academy'}`, `Good morning,\n\nThese students need a check-in this week:\n\n${high.join('\n')}\n\nSee everyone in Academy → Students.\n\n— ClarityFlow`, t.id);
+        await sendEmail(owner, `Students who need attention — ${tv.name || 'your academy'}`, `Good morning,\n\nAction needed: the following students would benefit from a check-in this week:\n\n${high.join('\n')}\n\nYou can see all of your students in Academy → Students.\n\nKind regards,\nClarityFlow`, t.id);
       } catch { /* no owner email */ }
     }
   }

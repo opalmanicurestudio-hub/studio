@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'email_not_configured' }, { status: 200 });
   }
 
-  const shopName = String(tenant.businessName || tenant.name || 'Your order');
+  const shopName = String(tenant.businessName || tenant.name || 'Our team');
   const num = `#${String(order.orderNumber ?? '').padStart(4, '0')}`;
   const first = String(order.customerName || '').split(' ')[0];
   const backordered = String(line.status) === 'backordered';
@@ -135,34 +135,36 @@ export async function POST(req: NextRequest) {
   const orderUrl = origin ? `${origin}/shop/${tenantId}/order/${orderId}` : '';
 
   const bodyLines: string[] = [
-    `${first ? `${first}, ` : ''}we came up short on order ${num}.`,
-    `${qtyShorted}× ${itemName} — the shelf had fewer than our count said, so it is not in the box.`,
+    `Hi ${first || 'there'},`,
+    `Thank you for your order. Unfortunately, we were unable to include everything in order ${num}.`,
+    `${qtyShorted} × ${itemName} could not be included because we had fewer in stock than our records showed.`,
   ];
 
   if (backordered) {
     bodyLines.push(
-      'We are holding it for you. The moment it is back in stock we ship it on its own, at no extra shipping cost, and you get a tracking email then.',
-      `If you would rather not wait, open your order and send us a message — we will refund ${money(refundCents)} the same day, no questions.`,
+      'We are holding this item for you. As soon as it is back in stock, we will ship it separately at no additional shipping cost and email you the tracking details.',
+      `If you would prefer not to wait, please open your order and send us a message, and we will refund ${money(refundCents)} the same day.`,
     );
   } else {
     bodyLines.push(
-      `We have refunded ${money(refundCents)} to the card you paid with. Most banks show it within 5–10 business days.`,
-      'If you would rather we sent it when it is back in stock instead, open your order and tell us — we can swap the refund for a restock ship.',
+      `We have refunded ${money(refundCents)} to the card you paid with. Most banks show the refund within 5 to 10 business days.`,
+      'If you would prefer that we send the item when it is back in stock instead, please open your order and let us know, and we can arrange that in place of the refund.',
     );
   }
 
   if (remaining > 0) {
-    bodyLines.push('Everything else on the order is unaffected and on its way as planned.');
+    bodyLines.push('The rest of your order is unaffected and is on its way as planned.');
   }
-  bodyLines.push('Sorry for the shuffle. Our count was wrong, not your order.');
+  bodyLines.push('We apologize for the inconvenience. This was an error in our stock count, not an issue with your order.');
+  bodyLines.push(`Kind regards, ${shopName}`);
 
   const html = brandedEmailHtml({
     studioName: shopName,
-    title: backordered ? 'One item is coming later' : 'One item was short',
+    title: backordered ? 'One item will arrive separately' : 'An update on your order',
     bodyLines,
     cta: orderUrl ? { label: 'View my order', url: orderUrl } : null,
     footerNote: contact
-      ? `Questions? ${contact}`
+      ? `If you have any questions, please contact us: ${contact}`
       : `You are receiving this because you placed order ${num} with ${shopName}.`,
   });
 
@@ -173,8 +175,8 @@ export async function POST(req: NextRequest) {
       tenantId, channel: 'email',
         to,
         subject: backordered
-          ? `Order ${num} — one item is coming separately`
-          : `Order ${num} — one item was short`,
+          ? `Order ${num}: one item will arrive separately`
+          : `Order ${num}: an update on your order`,
         html,
       kind: 'order_short', recipientType: 'client',
     });

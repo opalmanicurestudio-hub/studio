@@ -65,23 +65,23 @@ export function decideCredit(pkg: any, ending: VisitEnding, applied: boolean, ho
   const p = policyOf(pkg);
   if (ending.by === 'renter') {
     return applied
-      ? { action: 'restore', reason: `The provider ${ending.how === 'move' ? 'moved' : ending.how === 'decline' ? 'declined' : 'cancelled'} this visit — the credit goes back.` }
+      ? { action: 'restore', reason: `As your provider ${ending.how === 'move' ? 'moved' : ending.how === 'decline' ? 'declined' : 'cancelled'} this appointment, your package credit has been returned to you.` }
       : { action: 'none', reason: 'The provider ended this visit; nothing was taken.' };
   }
   if (ending.how === 'no_show') {
-    if (applied) return { action: 'none', reason: p.noShowForfeits ? 'No-show — the credit already applied to this visit is used.' : 'No-show, but this package does not forfeit — the credit is kept on the visit.' };
-    if (p.noShowForfeits && holdsLiveCredit) return { action: 'forfeit', reason: 'No-show — one visit used, as the package terms say.' };
-    return { action: 'none', reason: p.noShowForfeits ? 'No-show, but no live credit to take.' : 'This package does not forfeit on a no-show.' };
+    if (applied) return { action: 'none', reason: p.noShowForfeits ? 'As this appointment was missed, the package credit applied to it has been used, in line with the package terms.' : 'This appointment was missed. Under the terms of your package, your credit has not been used.' };
+    if (p.noShowForfeits && holdsLiveCredit) return { action: 'forfeit', reason: 'As this appointment was missed, one visit has been used from your package, in line with the package terms.' };
+    return { action: 'none', reason: p.noShowForfeits ? 'This appointment was missed. No package credit was available to use.' : 'Under the terms of your package, a missed appointment does not use a visit.' };
   }
   // client cancel
   const late = p.lateCancelForfeits && ending.hoursBeforeStart < p.lateCancelHours;
   if (applied) {
     return late
-      ? { action: 'none', reason: `Cancelled with ${Math.max(0, Math.floor(ending.hoursBeforeStart))} h notice (under ${p.lateCancelHours}) — the credit stays used.` }
-      : { action: 'restore', reason: 'Cancelled with enough notice — the credit goes back.' };
+      ? { action: 'none', reason: `This appointment was cancelled ${Math.max(0, Math.floor(ending.hoursBeforeStart))} hours before its start time, which is within the ${p.lateCancelHours}-hour notice period in your package terms, so the package credit has been used.` }
+      : { action: 'restore', reason: 'Thank you for cancelling in good time. Your package credit has been returned to you.' };
   }
-  if (late && holdsLiveCredit) return { action: 'forfeit', reason: `Cancelled with under ${p.lateCancelHours} h notice — one visit used, as the package terms say.` };
-  return { action: 'none', reason: late ? 'Late cancel, but no live credit to take.' : 'Cancelled in time — nothing taken.' };
+  if (late && holdsLiveCredit) return { action: 'forfeit', reason: `As this appointment was cancelled with less than ${p.lateCancelHours} hours’ notice, one visit has been used from your package, in line with the package terms.` };
+  return { action: 'none', reason: late ? 'This appointment was cancelled late. No package credit was available to use.' : 'This appointment was cancelled in good time, so no package credit has been used.' };
 }
 
 /** Hours from now until a visit, never negative. */

@@ -61,11 +61,11 @@ export async function POST(req: NextRequest) {
     if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data(); const q = s?.request;
     const rc = q?.rebookCtx;
-    if (!s?.tenantId || q?.kind !== 'thanks' || q.id !== String(b.requestId || '') || !rc) return NextResponse.json({ ok: false, error: 'This isn’t open any more.' }, { status: 409 });
+    if (!s?.tenantId || q?.kind !== 'thanks' || q.id !== String(b.requestId || '') || !rc) return NextResponse.json({ ok: false, error: 'This request is no longer open.' }, { status: 409 });
     const t: any = ((await db.doc(`tenants/${s.tenantId}`).get()).data() as any) || {};
     const ctx = { tenantId: s.tenantId, clientId: rc.clientId, serviceId: rc.serviceId, staffId: rc.staffId, addOnIds: rc.addOnIds, appointmentId: rc.appointmentId };
     const internal = async (path: string, body: any) => { const secret = process.env.CRON_SECRET; if (!secret) return { ok: false, error: 'Booking from the client screen needs the CRON_SECRET setting.' };
-      return fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': secret }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'Couldn’t reach the booking service.' })); };
+      return fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': secret }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'We could not reach the booking service. Please try again.' })); };
     const post = (path: string, body: any) => fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false }));
     const rb = q.rebook || {};
     if (action === 'rebook_decline') { await ref.update({ 'request.rebook': { stage: 'declined' } }); return NextResponse.json({ ok: true }); }
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     if (action === 'rebook_status') {
       if (!rb.appointmentId) return NextResponse.json({ ok: true, stage: rb.stage });
       const ap: any = (await db.doc(`tenants/${s.tenantId}/appointments/${rb.appointmentId}`).get()).data() || {};
-      if (rb.stage === 'pay' && (ap.depositStatus === 'paid' || ap.status === 'confirmed')) { await ref.update({ 'request.rebook.stage': 'done', 'request.rebook.depositNote': 'Deposit paid — you’re all set.' }); return NextResponse.json({ ok: true, stage: 'done' }); }
+      if (rb.stage === 'pay' && (ap.depositStatus === 'paid' || ap.status === 'confirmed')) { await ref.update({ 'request.rebook.stage': 'done', 'request.rebook.depositNote': 'Your deposit has been received.' }); return NextResponse.json({ ok: true, stage: 'done' }); }
       return NextResponse.json({ ok: true, stage: rb.stage });
     }
     if (action === 'rebook_waitlist') { const r: any = await rebookWaitlist(db, ctx, rb, String(b.note || ''), post); if (!r.ok) return NextResponse.json(r, { status: 400 }); await ref.update({ 'request.rebook': { ...rb, stage: 'waitlisted' } }); return NextResponse.json({ ok: true }); }
@@ -90,16 +90,16 @@ export async function POST(req: NextRequest) {
     if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
     const q = s?.request;
-    if (!s?.tenantId || q?.kind !== 'pay' || q.id !== String(b.requestId || '')) return NextResponse.json({ ok: false, error: 'This payment isn’t open any more.' }, { status: 409 });
+    if (!s?.tenantId || q?.kind !== 'pay' || q.id !== String(b.requestId || '')) return NextResponse.json({ ok: false, error: 'This payment is no longer open.' }, { status: 409 });
     const T = `tenants/${s.tenantId}`; const t: any = ((await db.doc(T).get()).data() as any) || {};
-    const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Card payments aren’t set up for this business.' }, { status: 400 });
+    const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Card payments are not set up for this business.' }, { status: 400 });
     const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
     if (action === 'pay_view') return NextResponse.json({ ok: true, clientSecret: q.clientSecret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '', stripeAccount: acct,
       amount: num(q.amount), business: t.name || 'Payment', allowSave: !!q.allowSave, paid: !!q.answeredAt, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null });
     if (q.answeredAt) return NextResponse.json({ ok: true, already: true });
     if (action === 'pay_tip') {   // the tip they chose on the iPad → added to the payment (server-side) before they pay
       const tip = Math.max(0, Math.round(num(b.tip) * 100) / 100);
-      if (tip > Math.max(100, num(q.tipBase))) return NextResponse.json({ ok: false, error: 'That tip looks too large — please check it.' }, { status: 400 });   // up to the bill itself, or $100 — catches an extra zero
+      if (tip > Math.max(100, num(q.tipBase))) return NextResponse.json({ ok: false, error: 'That tip amount appears too large. Please check it.' }, { status: 400 });   // up to the bill itself, or $100 — catches an extra zero
       const total = Math.round((num(q.amountBase) + tip) * 100) / 100;
       await stripe.paymentIntents.update(q.paymentIntentId, { amount: Math.round(total * 100) } as any, { stripeAccount: acct } as any);
       // Who the client wants the tip to go to (only the people offered); checked again at checkout.
@@ -109,15 +109,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, amount: total });
     }
     if (action === 'pay_save') {   // the client's own "save my card for next time" — applied before they pay
-      if (!q.allowSave) return NextResponse.json({ ok: false, error: 'Saving a card isn’t offered here.' }, { status: 400 });
+      if (!q.allowSave) return NextResponse.json({ ok: false, error: 'Saving a card is not available here.' }, { status: 400 });
       await stripe.paymentIntents.update(q.paymentIntentId, { setup_future_usage: b.save === true ? 'off_session' : ('' as any) } as any, { stripeAccount: acct } as any);
       await ref.update({ 'request.saveCard': b.save === true });
       return NextResponse.json({ ok: true });
     }
     // pay_done — trust Stripe, never the screen
     const pi: any = await stripe.paymentIntents.retrieve(q.paymentIntentId, { stripeAccount: acct } as any);
-    if (pi.status !== 'succeeded') return NextResponse.json({ ok: false, error: pi.status === 'processing' ? 'Still processing — one moment.' : 'The payment didn’t go through.' }, { status: 409 });
-    if (pi.amount !== Math.round(num(q.amount) * 100)) return NextResponse.json({ ok: false, error: 'The amount doesn’t match.' }, { status: 409 });
+    if (pi.status !== 'succeeded') return NextResponse.json({ ok: false, error: pi.status === 'processing' ? 'Your payment is still processing. Thank you for your patience.' : 'The payment was not completed.' }, { status: 409 });
+    if (pi.amount !== Math.round(num(q.amount) * 100)) return NextResponse.json({ ok: false, error: 'The payment amount does not match.' }, { status: 409 });
     let saved = false;
     if (q.saveCard && q.clientId && pi.payment_method) {   // their card, saved because THEY ticked the box
       try { const pm: any = await stripe.paymentMethods.retrieve(String(pi.payment_method), { stripeAccount: acct } as any);
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
   if (action === 'respond' || action === 'receipt' || action === 'ping') {
     if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
-    if (!s?.tenantId) return NextResponse.json({ ok: false, error: 'This screen isn’t paired.' }, { status: 404 });
+    if (!s?.tenantId) return NextResponse.json({ ok: false, error: 'This screen is not paired.' }, { status: 404 });
     if (action === 'ping') {
       const pt: any = ((await db.doc(`tenants/${s.tenantId}`).get()).data() as any) || {}; const ps = clientScreenSettingsOf(pt);
       await ref.update({ lastSeen: now(), brand: { name: pt.name || pt.businessName || '', logo: pt.logoUrl || pt.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pt.bookingPageSettings?.cfPageConfig?.accentColor || pt.brandColor || null },
@@ -158,28 +158,28 @@ export async function POST(req: NextRequest) {
     const T = `tenants/${s.tenantId}`;
     if (action === 'receipt') {
       const receiptId = s.request?.kind === 'thanks' ? s.request.receiptId : null;
-      if (!receiptId) return NextResponse.json({ ok: false, error: 'There’s no receipt to send.' }, { status: 409 });
+      if (!receiptId) return NextResponse.json({ ok: false, error: 'There is no receipt to send.' }, { status: 409 });
       const channel = b.channel === 'sms' ? 'sms' : 'email'; const to = String(b.to || '').trim();
-      if (!to || (channel === 'email' && !to.includes('@'))) return NextResponse.json({ ok: false, error: channel === 'email' ? 'Enter your email.' : 'Enter your mobile number.' }, { status: 400 });
+      if (!to || (channel === 'email' && !to.includes('@'))) return NextResponse.json({ ok: false, error: channel === 'email' ? 'Please enter your email address.' : 'Please enter your mobile number.' }, { status: 400 });
       const rRef = db.doc(`${T}/receipts/${receiptId}`); const r: any = (await rRef.get()).data();
-      if (!r) return NextResponse.json({ ok: false, error: 'That receipt wasn’t found.' }, { status: 404 });
+      if (!r) return NextResponse.json({ ok: false, error: 'We could not find that receipt.' }, { status: 404 });
       let viewKey = r.viewKey; if (!viewKey) { viewKey = `${Date.now().toString(36)}${rid()}${rid()}`; await rRef.set({ viewKey }, { merge: true }); }
       const t: any = ((await db.doc(T).get()).data() as any) || {};
       const url = `${linkOrigin(t, req.nextUrl.origin)}/r/${s.tenantId}/${receiptId}?k=${viewKey}`;
       const studio = t.name || 'Us'; const { sendNotification } = await import('@/lib/notify');
       let sent: any;
       if (channel === 'email') { const { brandedEmailHtml } = await import('@/lib/email-template');
-        sent = await sendNotification(db, { tenantId: s.tenantId, channel: 'email', to, subject: `Your receipt — ${studio}`, kind: 'receipt', html: brandedEmailHtml({ studioName: studio, title: 'Your receipt', bodyLines: [`Thanks for visiting${r.total ? ` — $${num(r.total).toFixed(2)}` : ''}.`], cta: { label: 'View your receipt', url } } as any), clientId: r.clientId || null, clientName: r.clientName || null } as any);
-      } else sent = await sendNotification(db, { tenantId: s.tenantId, channel: 'sms', to, kind: 'receipt', text: `${studio}: here’s your receipt — ${url}`, clientId: r.clientId || null, clientName: r.clientName || null } as any);
+        sent = await sendNotification(db, { tenantId: s.tenantId, channel: 'email', to, subject: `Your receipt from ${studio}`, kind: 'receipt', html: brandedEmailHtml({ studioName: studio, title: 'Your receipt', bodyLines: [`Hi ${String(r.clientName || '').split(' ')[0] || 'there'},`, `Thank you for visiting us.${r.total ? ` Your total was $${num(r.total).toFixed(2)}.` : ''} You can view your receipt using the link below.`, 'Kind regards,', studio], cta: { label: 'View your receipt', url } } as any), clientId: r.clientId || null, clientName: r.clientName || null } as any);
+      } else sent = await sendNotification(db, { tenantId: s.tenantId, channel: 'sms', to, kind: 'receipt', text: `Hi ${String(r.clientName || '').split(' ')[0] || 'there'}, thank you for visiting. Here is your receipt: ${url}`, clientId: r.clientId || null, clientName: r.clientName || null } as any);
       await rRef.set({ sends: [...(r.sends || []), { at: now(), channel, to, by: 'Client screen', ok: !!sent?.ok }].slice(-20) }, { merge: true });
-      return sent?.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ ok: false, error: 'It didn’t send — check it and try again.' }, { status: 502 });
+      return sent?.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ ok: false, error: 'The receipt could not be sent. Please check the details and try again.' }, { status: 502 });
     }
     const q = s.request || {};
     if (!q.id || String(b.requestId || '') !== q.id || q.answeredAt) return NextResponse.json({ ok: false, error: 'This request has already been answered.' }, { status: 409 });
     const answer: any = { requestId: q.id, kind: q.kind, at: now() };
     if (q.kind === 'tip') {
       const tip = Math.max(0, Math.round(num(b.tip) * 100) / 100);
-      if (tip > Math.max(100, num(q.base))) return NextResponse.json({ ok: false, error: 'That tip looks too large — please check it.' }, { status: 400 });
+      if (tip > Math.max(100, num(q.base))) return NextResponse.json({ ok: false, error: 'That tip amount appears too large. Please check it.' }, { status: 400 });
       answer.tip = tip; answer.tipLabel = String(b.tipLabel || '').slice(0, 40) || null;
       // Who the client wants it to go to — only the people offered; the checkout and the server check it adds up.
       const offered = new Set<string>(((q.providers || []) as any[]).map((p: any) => String(p.id)));
@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
       if (answer.approved && q.signature) {
         const sig = String(b.signature || '');
         if (!sig.startsWith('data:image/png;base64,') || sig.length < 400) return NextResponse.json({ ok: false, error: 'Please sign before approving.' }, { status: 400 });
-        if (sig.length > 350_000) return NextResponse.json({ ok: false, error: 'That signature is too large — clear it and sign again.' }, { status: 400 });
+        if (sig.length > 350_000) return NextResponse.json({ ok: false, error: 'That signature is too large. Please clear it and sign again.' }, { status: 400 });
         const cRef = db.collection(`${T}/chargeConsents`).doc();
         await cRef.set({ id: cRef.id, kind: 'card_on_file_charge', clientId: q.clientId || null, clientName: q.clientName || null, amount: num(q.amount), cardLabel: q.cardLabel || null,
           text: q.text || null, signature: sig, signedAt: now(), via: 'client_screen', screenId, screenName: s.name || null, requestedBy: q.requestedBy || null });
@@ -197,19 +197,19 @@ export async function POST(req: NextRequest) {
       }
     } else if (q.kind === 'giftuse') { answer.use = b.use === true;
     } else if (q.kind === 'gift') {   // the buyer chose the design, the note and when it arrives (a gift card they're buying)
-      const design = String(b.design || ''); if (!(q.designs || []).includes(design)) return NextResponse.json({ ok: false, error: 'Choose a design.' }, { status: 400 });
-      let sendAt: string | null = null; if (b.sendAt) { const at = Date.parse(String(b.sendAt)); if (!Number.isFinite(at) || at < Date.now() + 5 * 60000 || at > Date.now() + 366 * 864e5) return NextResponse.json({ ok: false, error: 'Choose a time later today or within the next year.' }, { status: 400 }); sendAt = new Date(at).toISOString(); }
+      const design = String(b.design || ''); if (!(q.designs || []).includes(design)) return NextResponse.json({ ok: false, error: 'Please choose a design.' }, { status: 400 });
+      let sendAt: string | null = null; if (b.sendAt) { const at = Date.parse(String(b.sendAt)); if (!Number.isFinite(at) || at < Date.now() + 5 * 60000 || at > Date.now() + 366 * 864e5) return NextResponse.json({ ok: false, error: 'Please choose a time later today or within the next year.' }, { status: 400 }); sendAt = new Date(at).toISOString(); }
       answer.design = design; answer.line = String(b.line ?? '').slice(0, 30); answer.message = String(b.message || '').trim().slice(0, 400) || null; answer.sendAt = sendAt;
     } else if (q.kind === 'sign') {
       const sig = String(b.signature || '');
       if (!sig.startsWith('data:image/png;base64,') || sig.length < 400) return NextResponse.json({ ok: false, error: 'Please sign before continuing.' }, { status: 400 });
-      if (sig.length > 350_000) return NextResponse.json({ ok: false, error: 'That signature is too large — clear it and sign again.' }, { status: 400 });
+      if (sig.length > 350_000) return NextResponse.json({ ok: false, error: 'That signature is too large. Please clear it and sign again.' }, { status: 400 });
       const cRef = db.collection(`${T}/chargeConsents`).doc();
       await cRef.set({ id: cRef.id, kind: q.what === 'membership' ? 'membership_terms' : q.what === 'pickup' ? 'pickup_signature' : 'signed_terms', title: q.title, text: q.text, ref: q.ref || null, clientId: q.clientId || null, clientName: q.clientName || null,
         signature: sig, signedAt: now(), via: 'client_screen', screenId, screenName: s.name || null, requestedBy: q.requestedBy || null });
       answer.signed = true; answer.consentId = cRef.id;
     } else if (q.kind === 'change') { const ch = num(q.change); const keepAmount = Math.max(0, Math.min(ch, Math.round(num(b.keepAmount ?? (b.keep === true ? ch : 0)) * 100) / 100)); answer.keep = keepAmount > 0; answer.keepAmount = keepAmount; answer.change = ch; }
-    else return NextResponse.json({ ok: false, error: 'Nothing to answer.' }, { status: 409 });
+    else return NextResponse.json({ ok: false, error: 'There is nothing to answer.' }, { status: 409 });
     await ref.update({ request: { ...q, answeredAt: now() }, response: answer, lastSeen: now() });   // replace, never merge
     return NextResponse.json({ ok: true });
   }
@@ -217,12 +217,12 @@ export async function POST(req: NextRequest) {
   // ── Staff ──
   const tenantId = String(b.tenantId || '');
   const auth: any = await verifyStaffActor(req, tenantId);
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
+  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Please sign in to continue.' }, { status: auth.status || 401 });
   if (action === 'pair_confirm') {
     const code = String(b.code || '').replace(/\D/g, '');
-    if (code.length !== 6) return NextResponse.json({ ok: false, error: 'Enter the 6-digit code shown on the screen.' }, { status: 400 });
+    if (code.length !== 6) return NextResponse.json({ ok: false, error: 'Please enter the 6-digit code shown on the screen.' }, { status: 400 });
     const hit = (await db.collection('clientScreens').where('code', '==', code).get()).docs.find((d: any) => !(d.data() as any).tenantId && Date.parse((d.data() as any).codeExpiresAt) > Date.now());
-    if (!hit) return NextResponse.json({ ok: false, error: 'That code isn’t valid any more — refresh the screen for a new one.' }, { status: 404 });
+    if (!hit) return NextResponse.json({ ok: false, error: 'That code is no longer valid. Please refresh the screen for a new one.' }, { status: 404 });
     const name = String(b.name || '').trim().slice(0, 40) || 'Client screen';
     const pt: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; const ps = clientScreenSettingsOf(pt);
     await hit.ref.set({ tenantId, name, code: null, codeExpiresAt: null, pairedAt: now(), pairedBy: auth.actor.name || 'Staff', phase: 'idle', request: null, response: null, ticket: null,
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, screens: rows });
   }
   const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
-  if (!s || s.tenantId !== tenantId) return NextResponse.json({ ok: false, error: 'That screen isn’t paired with this business.' }, { status: 404 });
+  if (!s || s.tenantId !== tenantId) return NextResponse.json({ ok: false, error: 'That screen is not paired with this business.' }, { status: 404 });
   const t: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const brand = { name: t.name || t.businessName || '', logo: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null };
   const settings = clientScreenSettingsOf(t);
@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
     if (kind === 'tip') { q.providers = Array.isArray(b.providers) ? b.providers.slice(0, 8).map((p: any) => ({ id: String(p.id), name: String(p.name || 'Team member').slice(0, 40) })) : []; q.base = Math.max(0, num(b.base)); q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.tipOn = settings.tipOn; }
     if (kind === 'approve') { q.amount = num(b.amount); q.cardLabel = String(b.cardLabel || '').slice(0, 40) || 'your card on file'; q.clientId = b.clientId || null; q.clientName = b.clientName || null;
       q.signature = settings.signCardOnFile && (!settings.signOver || q.amount >= settings.signOver);
-      q.text = `I authorise ${brand.name || 'the business'} to charge $${q.amount.toFixed(2)} to ${q.cardLabel}.`; }
+      q.text = `I authorize ${brand.name || 'the business'} to charge $${q.amount.toFixed(2)} to ${q.cardLabel}.`; }
     if (kind === 'cash') { q.due = num(b.due); }
     if (kind === 'giftuse') { q.clientFirst = String(b.clientFirst || '').slice(0, 40) || null;   // "You have a gift card" — use it today or save it
       q.cards = (Array.isArray(b.cards) ? b.cards : []).slice(0, 3).map((c: any) => ({ design: /^[a-z0-9-]{2,30}$/.test(String(c?.design || '')) ? String(c.design) : null, line: c?.line ? String(c.line).slice(0, 30) : null, cents: Math.max(0, Math.round(num(c?.cents))), from: c?.from ? String(c.from).split(' ')[0].slice(0, 30) : null, last4: String(c?.last4 || '').replace(/[^A-Z0-9]/gi, '').slice(-4) })); }
@@ -271,8 +271,8 @@ export async function POST(req: NextRequest) {
     if (kind === 'sign') { q.title = String(b.title || 'Please sign').slice(0, 80); q.text = String(b.text || '').slice(0, 4000); q.clientId = b.clientId || null; q.clientName = b.clientName || null; q.what = String(b.what || 'terms').slice(0, 40); q.ref = b.ref ? String(b.ref).slice(0, 80) : null; }
     if (kind === 'pay') {   // the client pays on the iPad (card form) or their phone (QR) — a payment made on this business's account
       q.providers = Array.isArray(b.providers) ? b.providers.slice(0, 8).map((p: any) => ({ id: String(p.id), name: String(p.name || 'Team member').slice(0, 40) })) : [];
-      const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Connect Stripe first (Settings → Payments).' }, { status: 400 });
-      const amountCents = Math.round(num(b.amount) * 100); if (amountCents < 50) return NextResponse.json({ ok: false, error: 'Nothing to charge.' }, { status: 400 });
+      const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Please connect Stripe first (Settings → Payments).' }, { status: 400 });
+      const amountCents = Math.round(num(b.amount) * 100); if (amountCents < 50) return NextResponse.json({ ok: false, error: 'There is nothing to charge.' }, { status: 400 });
       const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
       let customerId: string | undefined;
       const cid = b.clientId ? String(b.clientId) : null; const cl: any = cid ? (((await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() as any) || null) : null;

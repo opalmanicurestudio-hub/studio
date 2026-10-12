@@ -31,7 +31,7 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
-const UNIFORM = { ok: true, message: 'If that email has orders here, a sign-in link is on its way.' };
+const UNIFORM = { ok: true, message: 'If that email address has orders with us, a sign-in link is on its way.' };
 
 export async function POST(req: NextRequest) {
   let body: any;
@@ -81,11 +81,13 @@ export async function POST(req: NextRequest) {
         html: await (async () => {
           const emailBrand = await getEmailBrand(db, tenantId);
           return brandedEmail(emailBrand, `
-            <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Here is your secure sign-in link \u2014 your orders, messages, store credit, and downloads, all in one place.</p>
+            <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0 0 10px">Hi ${String(((a.docs[0] || b.docs[0])?.data() as any)?.customerName || '').trim().split(/\s+/)[0] || 'there'},</p>
+            <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Here is your secure sign-in link. You will find your orders, messages, store credit, and downloads all in one place.</p>
             ${emailButton(link, 'View my orders', emailBrand)}
             <p style="color:#64748b;font-size:12px;line-height:1.6;margin:0">Or paste this link into your browser:<br><span style="color:#0f172a;word-break:break-all">${link}</span></p>
-            <p style="color:#94a3b8;font-size:11px;margin:16px 0 0">This link works for 30 days. If you didn\u2019t request it, you can safely ignore this email.</p>`,
-            { preheader: 'Your secure sign-in link \u2014 works for 30 days', title: 'Your account link' });
+            <p style="color:#94a3b8;font-size:11px;margin:16px 0 0">This link is valid for 30 days. If you did not request it, you can safely ignore this email.</p>
+            <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
+            { preheader: 'Your secure sign-in link is valid for 30 days.', title: 'Your account link' });
         })(),
       kind: 'account_signin_link', recipientType: 'client',
     });

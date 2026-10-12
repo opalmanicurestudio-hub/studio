@@ -279,7 +279,7 @@ export async function POST(req: NextRequest) {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
         id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
-        message: `👋 Kiosk check-in: ${r.name} — ${r.boothName}${r.bookingType === 'hourly' && r.endTime ? ` (until ${r.endTime})` : ''}`,
+        message: `${r.name} has checked in at the kiosk for ${r.boothName}${r.bookingType === 'hourly' && r.endTime ? ` (until ${r.endTime})` : ''}.`,
       });
       return NextResponse.json({ ok: true, firstName: (r.name || 'Guest').split(' ')[0], boothName: r.boothName, endTime: r.bookingType === 'hourly' ? r.endTime : null });
     }
@@ -639,7 +639,7 @@ export async function POST(req: NextRequest) {
       }
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'booth_review', read: false, createdAt: nowIso, link: '/booths',
-        message: `${'⭐'.repeat(stars)} ${r.name} rated their stay at ${r.boothName}${reviewText ? `: "${String(reviewText).slice(0, 120)}"` : ''}` });
+        message: `${r.name} rated their stay at ${r.boothName} ${stars} out of 5 stars${reviewText ? `: "${String(reviewText).slice(0, 120)}"` : '.'}` });
       return NextResponse.json({ ok: true });
     }
 
@@ -666,7 +666,7 @@ export async function POST(req: NextRequest) {
       await ref.set({ cancelRequestedAt: nowIso, cancelReason: String(reason || '').slice(0, 500), status: 'cancel_requested' }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
-        message: `🚫 Cancellation requested: ${r.name} — ${r.boothName}, ${r.startDate}${r.bookingType === 'hourly' && r.startTime ? ` ${r.startTime}` : ''}. Review to refund or decline.${reason ? ` Reason: "${String(reason).slice(0, 100)}"` : ''}` });
+        message: `Action needed: ${r.name} has requested to cancel ${r.boothName} on ${r.startDate}${r.bookingType === 'hourly' && r.startTime ? ` at ${r.startTime}` : ''}. Please review it and refund or decline.${reason ? ` Reason given: "${String(reason).slice(0, 100)}"` : ''}` });
       return NextResponse.json({ ok: true });
     }
 
@@ -749,7 +749,7 @@ export async function POST(req: NextRequest) {
         {
           const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
           await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
-            message: `${tour.name || 'A visitor'} cancelled their tour for ${tour.date} at ${tour.time}.` });
+            message: `${tour.name || 'A visitor'} has cancelled their tour on ${tour.date} at ${tour.time}.` });
         }
         await logAuditAdmin(db, tenantId, { action: 'tour.cancel', targetType: 'tour', targetId: tourId, summary: `Tour on ${tour.date} at ${tour.time} cancelled by the visitor${tour.name ? ` (${tour.name})` : ''}`,
           actor: { type: 'user', name: tour.name || 'Visitor', role: 'visitor', via: 'tour link' } }).catch(() => {});
@@ -778,7 +778,7 @@ export async function POST(req: NextRequest) {
         {
           const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
           await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
-            message: `${tour.name || 'A visitor'} moved their tour from ${previous.date} ${previous.time} to ${date} ${time}.` });
+            message: `${tour.name || 'A visitor'} has moved their tour from ${previous.date} at ${previous.time} to ${date} at ${time}.` });
         }
         await logAuditAdmin(db, tenantId, { action: 'tour.move', targetType: 'tour', targetId: tourId, summary: `Tour moved by the visitor${tour.name ? ` (${tour.name})` : ''} from ${previous.date} ${previous.time} to ${date} ${time}`,
           before: previous, after: { date, time }, actor: { type: 'user', name: tour.name || 'Visitor', role: 'visitor', via: 'tour link' } }).catch(() => {});
@@ -891,7 +891,7 @@ export async function POST(req: NextRequest) {
       });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/pipeline',
-        message: `📅 Tour ${status === 'confirmed' ? 'booked' : 'requested'}: ${name} — ${date} at ${time}${status === 'requested' ? ' (needs your OK)' : ''}` });
+        message: `${status === 'requested' ? 'Action needed: ' : ''}${name} has ${status === 'confirmed' ? 'booked' : 'requested'} a tour on ${date} at ${time}.${status === 'requested' ? ' Please approve or decline it.' : ''}` });
 
       // ── The prospect's copy ──────────────────────────────────────────────
       // Until now the tour existed everywhere except in the hands of the
@@ -915,15 +915,17 @@ export async function POST(req: NextRequest) {
           const confirmed = status === 'confirmed';
           const html = brandedEmailHtml({
             studioName,
-            title: confirmed ? 'Your tour is booked' : 'Tour request received',
+            title: confirmed ? 'Your tour is confirmed' : 'We have received your tour request',
             bodyLines: [
-              `Hi ${firstName} — ${confirmed
-                ? `you're set for ${date} at ${time}.`
-                : `we got your request for ${date} at ${time} and will confirm shortly.`}`,
-              `Come as you are: the tour takes about ${durMins} minutes and there's nothing to bring or prepare.`,
+              `Hi ${firstName},`,
               confirmed
-                ? `If the time stops working, you can move or cancel it yourself with the button below.`
-                : `If the time stops working, just reply to this email and we'll find another.`,
+                ? `Thank you for booking a tour. Your visit is confirmed for ${date} at ${time}.`
+                : `Thank you for your tour request for ${date} at ${time}. We will confirm it with you shortly.`,
+              `The tour takes about ${durMins} minutes, and there is nothing you need to bring or prepare.`,
+              confirmed
+                ? `If the time no longer works for you, you can change or cancel your visit using the button below.`
+                : `If the time no longer works for you, please reply to this email and we will find another.`,
+              `Kind regards, ${studioName}`,
             ],
             ...(confirmed ? { cta: { label: 'Change or cancel my visit', url: manageUrl } } : {}),
             footerNote: `Sent by ${studioName}. You're receiving this because you ${confirmed ? 'booked' : 'requested'} a tour with us.`,
@@ -931,8 +933,8 @@ export async function POST(req: NextRequest) {
           const sent = await sendNotification(db, {
             tenantId, channel: 'email', to: email,
             subject: confirmed
-              ? `Tour booked — ${date} at ${time}`
-              : `Tour request received — ${date} at ${time}`,
+              ? `Your tour is confirmed for ${date} at ${time}`
+              : `We have received your tour request for ${date} at ${time}`,
             html, kind: 'tour_confirmation',
             recipientType: 'contact', recipientId: tourRef.id, recipientName: name || null,
             eventConfirmed: confirmed,

@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const tenantId = String(b.tenantId || ''), id = String(b.id || ''), action = String(b.action || '');
   if (!tenantId || (!id && action !== 'create')) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
   const auth: any = await verifyStaffActor(req, tenantId);
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
+  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Please sign in to continue.' }, { status: auth.status || 401 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   // create — a new call-back from the desk's booking sheet (saved on the server, with what's needed to resume it).
   if (action === 'create') {
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     const contactBy = CONTACT.includes(b.contactBy) ? b.contactBy : 'call';
     const phone = String(b.callerPhone || '').trim().slice(0, 40), email = String(b.callerEmail || '').trim().toLowerCase().slice(0, 160);
     if (contactBy === 'email' ? !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) : phone.replace(/\D/g, '').length < 7)
-      return NextResponse.json({ ok: false, error: contactBy === 'email' ? 'They prefer email — add their email address.' : 'Add their phone number.' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: contactBy === 'email' ? 'This caller prefers email. Please add their email address.' : 'Please add their phone number.' }, { status: 400 });
     if (promised && Date.parse(String(b.dueAt)) <= Date.now()) return NextResponse.json({ ok: false, error: 'The promised time needs to be later than now.' }, { status: 400 });
     const owner: any = b.ownerId ? (b.ownerId === auth.actor.uid ? { name: auth.actor.name } : ((await db.doc(`${T}/staff/${String(b.ownerId)}`).get()).data() as any)) : null;
     const ref0 = id ? db.doc(`${T}/callBackDrafts/${id}`) : db.collection(`${T}/callBackDrafts`).doc();
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, id: ref0.id });
   }
   const ref = db.doc(`${T}/callBackDrafts/${id}`); const d: any = (await ref.get()).data();
-  if (!d) return NextResponse.json({ ok: false, error: 'That call-back wasn’t found.' }, { status: 404 });
+  if (!d) return NextResponse.json({ ok: false, error: 'We could not find that call-back.' }, { status: 404 });
   const nowIso = new Date().toISOString(); const me = { id: auth.actor.uid, name: auth.actor.name };
   const actor = { type: 'user' as const, id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role };
   const who = d.callerName || d.clientName || 'a caller';
@@ -63,11 +63,11 @@ export async function POST(req: NextRequest) {
     if (b.ownerId !== undefined) {
       if (b.ownerId === null || b.ownerId === '') { f.ownerId = null; f.ownerName = null; }
       else { const st: any = b.ownerId === auth.actor.uid ? { name: auth.actor.name } : ((await db.doc(`${T}/staff/${String(b.ownerId)}`).get()).data() as any);
-        if (!st) return NextResponse.json({ ok: false, error: 'That team member wasn’t found.' }, { status: 400 });
+        if (!st) return NextResponse.json({ ok: false, error: 'We could not find that team member.' }, { status: 400 });
         f.ownerId = String(b.ownerId); f.ownerName = st.name || null; }
     }
-    if (b.dueAt !== undefined) { const t = Date.parse(String(b.dueAt)); if (!Number.isFinite(t)) return NextResponse.json({ ok: false, error: 'Pick a due time.' }, { status: 400 }); f.dueAt = new Date(t).toISOString(); if (typeof b.timePromised === 'boolean') f.timePromised = b.timePromised; }
-    if (b.contactBy !== undefined) { if (!CONTACT.includes(b.contactBy)) return NextResponse.json({ ok: false, error: 'Choose call, text or email.' }, { status: 400 }); f.contactBy = b.contactBy; }
+    if (b.dueAt !== undefined) { const t = Date.parse(String(b.dueAt)); if (!Number.isFinite(t)) return NextResponse.json({ ok: false, error: 'Please choose a due time.' }, { status: 400 }); f.dueAt = new Date(t).toISOString(); if (typeof b.timePromised === 'boolean') f.timePromised = b.timePromised; }
+    if (b.contactBy !== undefined) { if (!CONTACT.includes(b.contactBy)) return NextResponse.json({ ok: false, error: 'Please choose call, text or email.' }, { status: 400 }); f.contactBy = b.contactBy; }
     if (b.promised !== undefined) f.promised = String(b.promised || '').slice(0, 200) || null;
     if (b.note !== undefined) f.note = String(b.note || '').slice(0, 1000);
     await ref.set(f, { merge: true });
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
         const when = due && promisedTime ? (() => { const t = new Date(due); const time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
           return dayOf(t) === dayOf(new Date()) ? time : `${t.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz })} at ${time}`; })() : null;
         const studio = tenant.name || 'us';
-        const text = `Thanks for calling ${studio}${d.callerName && d.callerName !== 'Unknown caller' ? `, ${String(d.callerName).split(' ')[0]}` : ''}. ${owner ? String(owner).split(' ')[0] : 'We'} will get back to you${when ? ` by ${when}` : ' as soon as we can'}.`;
+        const text = `${d.callerName && d.callerName !== 'Unknown caller' ? `Hi ${String(d.callerName).split(' ')[0]}, thank` : 'Thank'} you for calling ${studio}. ${owner ? String(owner).split(' ')[0] : 'We'} will get back to you${when ? ` by ${when}` : ' as soon as possible'}.`;
         const { sendNotification } = await import('@/lib/notify');
         // The richer email (Settings → Messages → Call-back confirmations; each part can be switched off).
         const cfg = { summary: true, callerId: true, links: true, addDetails: true, ...(tenant.callbackEmail || {}) };
@@ -108,17 +108,17 @@ export async function POST(req: NextRequest) {
         if (contact === 'email' && email.includes('@')) {
           const { brandedEmailHtml } = await import('@/lib/email-template');
           const lines = [text,
-            ...(about ? [`We’ll be following up about: ${about}.`] : []),
-            ...(cfg.callerId && contact === 'email' && bizPhone && (f.contactBy || d.contactBy) !== 'email' ? [`We’ll call from ${bizPhone}.`] : []),
-            ...(detailsLink ? ['Before we get back to you, you can add a little more detail — only if you’d like to.'] : []),
-            bizEmail ? `If it becomes urgent, or the time no longer works, just reply to this email${bizPhone ? ` or call us at ${bizPhone}` : ''}.` : bizPhone ? `If it becomes urgent, call us at ${bizPhone}.` : ''].filter(Boolean);
-          told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `We’ll get back to you — ${studio}`, kind: 'callback_confirmation',
-            html: brandedEmailHtml({ studioName: studio, title: 'Thanks for calling', bodyLines: lines,
+            ...(about ? [`We will be following up about: ${about}.`] : []),
+            ...(cfg.callerId && contact === 'email' && bizPhone && (f.contactBy || d.contactBy) !== 'email' ? [`We will call you from ${bizPhone}.`] : []),
+            ...(detailsLink ? ['If you would like, you can add more detail before we get back to you.'] : []),
+            bizEmail ? `If the matter becomes urgent, or the time no longer works for you, please reply to this email${bizPhone ? ` or call us at ${bizPhone}` : ''}.` : bizPhone ? `If the matter becomes urgent, please call us at ${bizPhone}.` : '', 'Kind regards,', studio].filter(Boolean);
+          told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `We will get back to you soon | ${studio}`, kind: 'callback_confirmation',
+            html: brandedEmailHtml({ studioName: studio, title: 'Thank you for calling', bodyLines: lines,
               ...(detailsLink ? { cta: { label: 'Add details', url: detailsLink } } : {}), ...(bookLink ? { secondaryCta: { label: 'Book online', url: bookLink } } : {}) } as any),
             ...(bizEmail ? { replyTo: bizEmail } : {}), clientId: d.clientId || null, clientName: who } as any))?.ok;
           if (told) toldBy = 'email';
         } else if (contact !== 'email' && phone) {
-          const smsText = `${text}${about ? ` It’s about ${about}.` : ''}${cfg.callerId && contact === 'call' && bizPhone ? ` We’ll call from ${bizPhone}.` : ''}${detailsLink ? ` Add details (optional): ${detailsLink}` : ''}`;
+          const smsText = `${text}${about ? ` This is regarding ${about}.` : ''}${cfg.callerId && contact === 'call' && bizPhone ? ` We will call you from ${bizPhone}.` : ''}${detailsLink ? ` You can add details here if you wish: ${detailsLink}` : ''}`;
           told = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'callback_confirmation', text: smsText, clientId: d.clientId || null, clientName: who } as any))?.ok;
           if (told) toldBy = 'sms';
         }
@@ -134,9 +134,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, attempts: attempts.length });
   }
   if (action === 'resolve') {
-    if (!OUTCOMES.includes(b.outcome)) return NextResponse.json({ ok: false, error: 'Choose what happened.' }, { status: 400 });
+    if (!OUTCOMES.includes(b.outcome)) return NextResponse.json({ ok: false, error: 'Please choose what happened.' }, { status: 400 });
     const note = String(b.note || '').trim().slice(0, 500) || null;
-    if (b.outcome === 'other' && !note) return NextResponse.json({ ok: false, error: 'Add a short note about what happened.' }, { status: 400 });
+    if (b.outcome === 'other' && !note) return NextResponse.json({ ok: false, error: 'Please add a short note about what happened.' }, { status: 400 });
     await ref.set({ status: 'resolved', outcome: b.outcome, outcomeNote: note, resolvedAt: nowIso, resolvedBy: me.name, resolvedById: me.id, updatedAt: nowIso }, { merge: true });
     await logAuditAdmin(db, tenantId, { action: 'callback.resolved', targetType: d.clientId ? 'client' : 'callback', targetId: d.clientId || id,
       summary: `Call-back to ${who} — ${String(b.outcome).replace('_', ' ')}${note ? `: ${note}` : ''}`, actor }).catch(() => {});

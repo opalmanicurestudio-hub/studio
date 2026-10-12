@@ -46,7 +46,7 @@ async function load(db: any, tenantId: string, apptId: string) {
 
 /** What the provider can pick from: add-ons for this service, other services they're certified for, and the free time after. */
 export async function dayOptions(db: any, tenantId: string, apptId: string) {
-  const { a, tenant, services, S, renter } = await load(db, tenantId, apptId); if (!a) return { ok: false, error: 'That visit is gone.' }; const { svc, price, minutes } = currentOf(a, services);
+  const { a, tenant, services, S, renter } = await load(db, tenantId, apptId); if (!a) return { ok: false, error: 'This visit is no longer available.' }; const { svc, price, minutes } = currentOf(a, services);
   const { isCertified } = await import('@/lib/availability');
   const live = services.filter((s: any) => s.isActive !== false && s.archived !== true && !s.ownerRenterId);
   const compatible: string[] = Array.isArray(svc?.compatibleAddOnIds) ? svc.compatibleAddOnIds : [];
@@ -55,7 +55,7 @@ export async function dayOptions(db: any, tenantId: string, apptId: string) {
     .map((s: any) => ({ id: s.id, name: String(s.name || 'Service'), price: num(s.price), duration: num(s.duration) })).slice(0, 30);
   const fit = await fitsAfter(db, tenantId, apptId, a, 1);
   const p = a.prep || {};
-  const before = p.answeredAt ? (p.quote?.changed ? `Before the visit they agreed: ${(p.quote.lines || []).join(' · ')}` : 'Before the visit they said nothing had changed') : a.prepSentAt ? 'They didn’t answer the check before the visit' : null;
+  const before = p.answeredAt ? (p.quote?.changed ? `Before the visit they agreed: ${(p.quote.lines || []).join(' · ')}` : 'Before the visit they said nothing had changed') : a.prepSentAt ? 'They did not respond to the check before the visit' : null;
   return { ok: true, serviceName: String(svc?.name || a.serviceName || 'Visit'), price, minutes, endTime: new Date(endOf(a)).toISOString(), freeMinutes: fit.freeMinutes, timeZone: tenantTimeZone(tenant),
     quote: S.quote, onDay: S.onDay, feeCents: S.onDayFeeCents, before, addOns, switches, catalog: services.filter((s: any) => s.id === a.serviceId || s.type === 'addon' || switches.some((x) => x.id === s.id)).map((s: any) => ({ id: s.id, name: s.name, price: num(s.price), duration: num(s.duration) })),
     history: Array.isArray(a.dayChanges) ? a.dayChanges.slice(-5) : [] };
@@ -72,10 +72,10 @@ async function textClient(db: any, tenantId: string, a: any, apptId: string, tex
 
 /** The client's answer, in person. `runOver`: the provider (or a manager) chose to go past the free time, on purpose. */
 export async function dayChange(db: any, tenantId: string, apptId: string, by: { name: string; staffId?: string | null; manager?: boolean }, input: DayInput & { answer: 'yes' | 'no'; fee?: boolean; runOver?: boolean }) {
-  const { ref, a, tenant, services, S, renter } = await load(db, tenantId, apptId); if (!a) return { ok: false, error: 'That visit is gone.' };
+  const { ref, a, tenant, services, S, renter } = await load(db, tenantId, apptId); if (!a) return { ok: false, error: 'This visit is no longer available.' };
   if (['cancelled', 'canceled', 'completed', 'no_show'].includes(String(a.status || ''))) return { ok: false, error: 'This visit is already closed.' };
-  const q = dayQuote(a, services, input); if (!q.changed) return { ok: false, error: 'Pick what’s needed first.' };
-  if (q.switched && a.staffId) { const { isCertified } = await import('@/lib/availability'); const t = services.find((s: any) => s.id === q.serviceId); if (!isCertified(t, String(a.staffId))) return { ok: false, error: `${first(a.staffName) || 'This provider'} isn’t certified for ${q.serviceName}.` }; }
+  const q = dayQuote(a, services, input); if (!q.changed) return { ok: false, error: 'Please choose what is needed first.' };
+  if (q.switched && a.staffId) { const { isCertified } = await import('@/lib/availability'); const t = services.find((s: any) => s.id === q.serviceId); if (!isCertified(t, String(a.staffId))) return { ok: false, error: `${first(a.staffName) || 'This provider'} is not certified for ${q.serviceName}.` }; }
   const { minutes } = currentOf(a, services); const extra = Math.max(0, q.newMinutes - minutes);
   const fit = await fitsAfter(db, tenantId, apptId, a, extra);
   const now = new Date().toISOString(); const yes = input.answer === 'yes';
@@ -85,9 +85,9 @@ export async function dayChange(db: any, tenantId: string, apptId: string, by: {
   const entry = { at: now, by: by.name, byStaffId: by.staffId || null, shownInPerson: true, lines: q.lines, oldPrice: q.oldPrice, newPrice: q.newPrice, oldMinutes: q.oldMinutes, newMinutes: q.newMinutes,
     addOns: q.addOns, switchedTo: q.switched ? q.serviceName : null, fits: fit.fits, freeMinutes: fit.freeMinutes, answer: yes ? 'yes' : 'no', feeCharged: fee, outcome, rule: S.onDay, quoteWord: S.quote };
   const word = S.quote === 'about' ? 'about' : 'up to';
-  const text = !yes ? `${a.clientName || 'The client'} said no to: ${q.lines.join(' · ')} — kept as booked.`
-    : outcome.startsWith('applied') ? `${a.clientName || 'The client'} agreed in person: ${q.lines.join(' · ')} — ${word} ${money(q.newPrice)}${fee ? ` + ${money(fee)} on-the-day fee` : ''}.`
-    : `${a.clientName || 'The client'} agreed: ${q.lines.join(' · ')} — it doesn’t fit today, ${outcome === 'needs_new_time' ? 'so it needs a new time (free)' : 'so we do what fits and book the rest'}.`;
+  const text = !yes ? `${a.clientName || 'The client'} declined: ${q.lines.join(' · ')}. The visit remains as booked.`
+    : outcome.startsWith('applied') ? `${a.clientName || 'The client'} agreed in person: ${q.lines.join(' · ')}. New price: ${word} ${money(q.newPrice)}${fee ? `, plus a ${money(fee)} on-the-day fee` : ''}.`
+    : `${a.clientName || 'The client'} agreed: ${q.lines.join(' · ')}. It does not fit in today’s time, ${outcome === 'needs_new_time' ? 'so it needs a new time (no fee)' : 'so we will do what fits today and book the rest'}.`;
   const base: any = { dayChange: entry, dayChanges: [...(Array.isArray(a.dayChanges) ? a.dayChanges : []), entry].slice(-20), timeline: [...(Array.isArray(a.timeline) ? a.timeline : []), { at: now, kind: 'note', text, by: by.name, via: 'day_change' }].slice(-60) };
   if (outcome.startsWith('applied')) {
     const f: any = bookingFieldsFor(a, q);
@@ -100,10 +100,10 @@ export async function dayChange(db: any, tenantId: string, apptId: string, by: {
   await ref.set(base, { merge: true });
   if (yes) {
     const tz = tenantTimeZone(tenant); const until = new Date(ms(a.startTime) + q.newMinutes * 60000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
-    const msg = outcome.startsWith('applied') ? `Thanks, ${first(a.clientName) || 'there'} — as agreed today: ${q.lines.join(' · ')}. Your visit is now ${word} ${money(q.newPrice)}${fee ? ` plus a ${money(fee)} on-the-day fee` : ''}, until about ${until}. You’ll only pay for what’s done.`
-      : `Thanks, ${first(a.clientName) || 'there'} — as agreed today: ${q.lines.join(' · ')}. ${outcome === 'needs_new_time' ? 'It doesn’t fit today’s time, so we’ll find you another — no fee.' : 'We’ll do what fits today and book the rest with you.'}`;
+    const msg = outcome.startsWith('applied') ? `Hi ${first(a.clientName) || 'there'}, thank you for confirming today’s change: ${q.lines.join(' · ')}. Your visit is now ${word} ${money(q.newPrice)}${fee ? `, plus a ${money(fee)} on-the-day fee` : ''}, and will end at about ${until}. You will only be charged for the services completed.`
+      : `Hi ${first(a.clientName) || 'there'}, thank you for confirming today’s change: ${q.lines.join(' · ')}. ${outcome === 'needs_new_time' ? 'As it does not fit in today’s appointment time, we will arrange another time for you at no additional fee.' : 'We will complete what fits in today’s appointment and book the remainder with you.'}`;
     await textClient(db, tenantId, a, apptId, msg).catch(() => false);
-    if (!outcome.startsWith('applied')) { const r = db.collection(`${T(tenantId)}/notifications`).doc(); await r.set({ id: r.id, ...(renter && a.staffId ? { userId: String(a.staffId) } : {}), type: 'prep_check', message: `${first(a.clientName) || 'A client'} (with ${first(a.staffName) || 'their provider'}) agreed to ${q.lines.join(' · ')} — ${outcome === 'needs_new_time' ? 'find them a new time, no fee' : 'book the rest with them before they leave'}.`, link: '/before-the-visit', appointmentId: apptId, createdAt: now, read: false, priority: 'high' }); }
+    if (!outcome.startsWith('applied')) { const r = db.collection(`${T(tenantId)}/notifications`).doc(); await r.set({ id: r.id, ...(renter && a.staffId ? { userId: String(a.staffId) } : {}), type: 'prep_check', message: `Action needed: ${first(a.clientName) || 'A client'} (with ${first(a.staffName) || 'their provider'}) has agreed to ${q.lines.join(' · ')}. ${outcome === 'needs_new_time' ? 'Please find them a new time, at no fee.' : 'Please book the rest with them before they leave.'}`, link: '/before-the-visit', appointmentId: apptId, createdAt: now, read: false, priority: 'high' }); }
   }
   return { ok: true, outcome, fits: fit.fits, freeMinutes: fit.freeMinutes, quote: q, fee };
 }

@@ -116,15 +116,16 @@ async function chipReceipt(db: any, tenantId: string, t: any, o: any, g: any, ce
   const manage = o.organizer ? `${origin}${groupPath(tenantId, o.groupId, 'org')}` : `${origin}${groupPath(tenantId, o.groupId, 'share')}`;
   const share = `${origin}${groupPath(tenantId, o.groupId, 'share')}`;
   const lines = o.organizer
-    ? [`You’ve started a gift for ${esc(g.recipientName)} with your ${money(cents)}. Share this link so others can chip in and sign the card:`, `<a href="${share}">${share}</a>`, `It’s sent on ${esc(sendDay)} with everyone’s name on it. You can change the day, send it early, or cancel (everyone is refunded) here:`]
-    : [`Thank you for chipping in ${money(cents)} toward ${esc(g.recipientName)}’s gift. ${esc(String(g.organizerName).split(' ')[0])} is collecting, and it’s sent on ${esc(sendDay)} with your name on it.`];
+    ? [`Thank you for starting a group gift for ${esc(g.recipientName)} with your ${money(cents)} contribution. Please share this link so others can contribute and sign the card:`, `<a href="${share}">${share}</a>`, `The gift will be sent on ${esc(sendDay)} with everyone’s name on it. You can change the date, send it early, or cancel it (everyone will be refunded) here:`]
+    : [`Thank you for contributing ${money(cents)} toward ${esc(g.recipientName)}’s gift. ${esc(String(g.organizerName).split(' ')[0])} is organizing the gift, and it will be sent on ${esc(sendDay)} with your name on it.`];
   const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#16171a;max-width:520px;margin:0 auto;padding:24px">
 <p style="font-size:13px;color:#6d7075;margin:0 0 6px">${esc(biz)}</p><h1 style="font-weight:400;font-size:28px;letter-spacing:-.02em;margin:0 0 16px">Thank you, ${esc(first)}</h1>
+<p style="font-size:15px;line-height:1.55;margin:0 0 12px">Hi ${esc(first)},</p>
 ${lines.map((l) => `<p style="font-size:15px;line-height:1.55;margin:0 0 12px">${l}</p>`).join('')}
 <p style="margin:6px 0 18px"><a href="${manage}" style="display:inline-block;background:#16171a;color:#fff;text-decoration:none;border-radius:999px;padding:13px 24px;font-weight:600;font-size:15px">${o.organizer ? 'Manage the gift' : 'See the gift'}</a></p>
-<p style="font-size:13px;color:#6d7075;margin:0">Receipt: ${money(cents)} toward a gift card from ${esc(biz)}.</p></div>`;
+<p style="font-size:13px;color:#6d7075;margin:0 0 18px">Receipt: ${money(cents)} toward a gift card from ${esc(biz)}.</p><p style="font-size:15px;line-height:1.55;margin:0">Kind regards,<br>${esc(biz)}</p></div>`;
   const { sendNotification } = await import('@/lib/notify');
-  await sendNotification(db, { tenantId, channel: 'email', to: o.buyerEmail, subject: o.organizer ? `Your gift for ${g.recipientName} — share the link` : `Thank you for chipping in for ${g.recipientName}`, html, text: `${lines.join(' ').replace(/<[^>]+>/g, '')} ${manage}`, kind: 'gift_card', recipientType: 'client', recipientName: o.buyerName } as any);
+  await sendNotification(db, { tenantId, channel: 'email', to: o.buyerEmail, subject: o.organizer ? `Your group gift for ${g.recipientName}: please share the link` : `Thank you for contributing to ${g.recipientName}’s gift`, html, text: `Hi ${first},\n\n${lines.join(' ').replace(/<[^>]+>/g, '')} ${manage}\n\nKind regards,\n${biz}`, kind: 'gift_card', recipientType: 'client', recipientName: o.buyerName } as any);
 }
 
 /** What the share page shows. The organizer also sees each share; everyone else sees names, not amounts. */
@@ -159,10 +160,11 @@ export async function finishGroup(db: any, tenantId: string, id: string, by = 'O
   // Tell the organizer: it went, how much, from how many — and the card itself when it's theirs to hand over.
   try { const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(t, ''); const { sendNotification } = await import('@/lib/notify');
     const card = origin ? `${origin}${giftPath(tenantId, r.card.id)}` : '';
-    const text = g.via === 'me' ? `Your gift for ${g.recipientName} is ready: ${money(total)} from ${chips.length} ${chips.length === 1 ? 'person' : 'people'}. Give them this link or print it: ${card}`
-      : sent ? `Sent! ${g.recipientName} has their ${money(total)} gift card from ${chips.length} ${chips.length === 1 ? 'person' : 'people'}.` : `We couldn’t send ${g.recipientName}’s gift card — check their ${g.via === 'text' ? 'number' : 'email'}. The card: ${card}`;
-    await sendNotification(db, { tenantId, channel: 'email', to: g.organizerEmail, subject: g.via === 'me' ? `${g.recipientName}’s gift card is ready` : sent ? `${g.recipientName}’s gift was sent` : `${g.recipientName}’s gift didn’t send`, text,
-      html: `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#16171a;max-width:520px;margin:0 auto;padding:24px"><p style="font-size:15px;line-height:1.55">${esc(text).replace(esc(card), card ? `<a href="${card}">${card}</a>` : '')}</p></div>`, kind: 'gift_card', recipientType: 'client', recipientName: g.organizerName } as any); } catch { /* the card is made; the note is a courtesy */ }
+    const body = g.via === 'me' ? `Your group gift for ${g.recipientName} is ready: ${money(total)} from ${chips.length} ${chips.length === 1 ? 'person' : 'people'}. You can give them this link or print the gift card: ${card}`
+      : sent ? `Your group gift has been sent. ${g.recipientName} has received their ${money(total)} gift card from ${chips.length} ${chips.length === 1 ? 'person' : 'people'}.` : `We are sorry, but we were unable to send ${g.recipientName}’s gift card. Please check their ${g.via === 'text' ? 'phone number' : 'email address'}. You can view the gift card here: ${card}`;
+    const text = `Hi ${String(g.organizerName || '').split(' ')[0] || 'there'},\n\n${body}\n\nKind regards,\n${t.name || ''}`.trimEnd();
+    await sendNotification(db, { tenantId, channel: 'email', to: g.organizerEmail, subject: g.via === 'me' ? `${g.recipientName}’s gift card is ready` : sent ? `${g.recipientName}’s gift has been sent` : `${g.recipientName}’s gift could not be sent`, text,
+      html: `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#16171a;max-width:520px;margin:0 auto;padding:24px"><p style="font-size:15px;line-height:1.55">${esc(text).replace(/\n/g, '<br>').replace(esc(card), card ? `<a href="${card}">${card}</a>` : '')}</p></div>`, kind: 'gift_card', recipientType: 'client', recipientName: g.organizerName } as any); } catch { /* the card is made; the note is a courtesy */ }
   return { ok: true as const, cardId: r.card.id, totalCents: total, sent };
 }
 

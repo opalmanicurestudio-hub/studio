@@ -60,7 +60,7 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
         const mgr = staffRows.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && m.active !== false).map((m: any) => m.id);
         const b = db.batch();
         for (const x of soon) { const to = Array.from(new Set([...(att.length ? att : mgr), ...(x.staffId ? [x.staffId] : [])]));
-          for (const uid of to) notify(db, b, T, uid, { type: 'kit_short', priority: 'urgent', at: nowIso, message: `Not ready in time: ${x.text}.` });
+          for (const uid of to) notify(db, b, T, uid, { type: 'kit_short', priority: 'urgent', at: nowIso, message: `Action needed: The following will not be ready in time: ${x.text}.` });
           b.set(db.doc(`${T}/appointments/${x.visitId}`), { shortTold: { [x.type.replace(/[.\s/]+/g, '_')]: nowIso } }, { merge: true }); }
         await b.commit(); try { await (await import('@/lib/push')).pushNow(db, tenantId); } catch { /* minute push job */ } }
     } catch (e) { console.error('[ops-tick] shortages', tenantId, e); }
@@ -127,7 +127,7 @@ export async function syncKits(db: any, tenantId: string, tenant: any, kitsAll?:
   const today = new Date(now).toISOString().slice(0, 10); const told: Record<string, string> = (await db.doc(`${T}/private/opsTick`).get()).data()?.kitZero || {};
   const zero = Object.entries(cap).filter(([key, c]) => c.usable === 0 && told[key] !== today);
   if (zero.length) { const mgrs = await managerIds(db, T); const b = db.batch(); const at = new Date(now).toISOString();
-    for (const [key, c] of zero) { told[key] = today; for (const uid of mgrs) notify(db, b, T, uid, { type: 'kit_none_usable', priority: 'urgent', at, message: `Every ${c.name} is pulled out — new bookings that need one are paused for today and tomorrow until one is back in service.` }); }
+    for (const [key, c] of zero) { told[key] = today; for (const uid of mgrs) notify(db, b, T, uid, { type: 'kit_none_usable', priority: 'urgent', at, message: `Please note: Every ${c.name} is currently out of service. New bookings that require one are paused for today and tomorrow until one is returned to service.` }); }
     b.set(db.doc(`${T}/private/opsTick`), { kitZero: told }, { merge: true }); await b.commit(); }
 }
 /** A kit's cleaning time is up → tell whoever started cleaning it (else the managers). Once per cleaning. */
@@ -136,7 +136,7 @@ async function kitTimers(db: any, tenantId: string, kits: any[], now: number): P
   const { typeOf, secondsLeft } = await import('@/lib/kits'); const types: any[] = (await db.collection(`${T}/kitTypes`).limit(100).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
   const due = cleaning.filter((k) => { const m = Number(typeOf(types as any, k.name)?.cleanMinutes) || 0; return m > 0 && secondsLeft(k.at, m, now) <= 0; }); if (!due.length) return;
   let mgrs: string[] | null = null; const b = db.batch(); const at = new Date(now).toISOString();
-  for (const k of due) { const to = k.byId ? [k.byId] : (mgrs ||= await managerIds(db, T)); for (const uid of to) notify(db, b, T, uid, { type: 'kit_timer', at, message: `${k.name} ${k.code} has finished its cleaning time — check its contents and mark it ready.` }); b.update(db.doc(`${T}/kits/${k.id}`), { timerToldFor: k.at }); }
+  for (const k of due) { const to = k.byId ? [k.byId] : (mgrs ||= await managerIds(db, T)); for (const uid of to) notify(db, b, T, uid, { type: 'kit_timer', at, message: `Action needed: ${k.name} ${k.code} has completed its cleaning time. Please check its contents and mark it ready.` }); b.update(db.doc(`${T}/kits/${k.id}`), { timerToldFor: k.at }); }
   await b.commit();
 }
 /** A wash load's time is up → tell whoever started it (else the managers). Once per load. */
@@ -169,10 +169,10 @@ async function washTimers(db: any, tenantId: string, linens: any[], now: number)
   if (!wash.length && !dry.length) return;
   let mgrs: string[] | null = null; const b = db.batch(); const at = new Date(now).toISOString();
   for (const l of wash) { const to = l.washById ? [l.washById] : (mgrs ||= await managerIds(db, T));
-    for (const uid of to) notify(db, b, T, uid, { type: 'linen_timer', at, message: Number(l.dryMinutes) > 0 ? `The ${String(l.name).toLowerCase()} wash is done — ${l.washing} ready for the dryer.` : `The ${String(l.name).toLowerCase()} wash is done — ${l.washing} ${many(l.name)} to fold.` });
+    for (const uid of to) notify(db, b, T, uid, { type: 'linen_timer', at, message: Number(l.dryMinutes) > 0 ? `The ${String(l.name).toLowerCase()} wash is complete. ${l.washing} are ready for the dryer.` : `The ${String(l.name).toLowerCase()} wash is complete. ${l.washing} ${many(l.name)} are ready to fold.` });
     b.update(db.doc(`${T}/linens/${l.id}`), { washToldFor: l.washStartedAt }); }
   for (const l of dry) { const to = l.dryById ? [l.dryById] : (mgrs ||= await managerIds(db, T));
-    for (const uid of to) notify(db, b, T, uid, { type: 'linen_timer', at, message: `The ${String(l.name).toLowerCase()} are dry — ${l.drying} to fold and put away.` });
+    for (const uid of to) notify(db, b, T, uid, { type: 'linen_timer', at, message: `The ${String(l.name).toLowerCase()} are dry. ${l.drying} are ready to fold and put away.` });
     b.update(db.doc(`${T}/linens/${l.id}`), { dryToldFor: l.dryStartedAt }); }
   await b.commit();
 }
@@ -190,11 +190,11 @@ async function finishTimers(db: any, tenantId: string, now: number): Promise<voi
     if (t.kitId) { const kRef = db.doc(`${T}/kits/${t.kitId}`); const k = await kRef.get(); const kd: any = k.exists ? k.data() : null;
       if (kd && kd.status === 'cleaning' && kd.cleanse?.timerId === t.id && !kd.cleansedAt) b.update(kRef, { cleansedAt: at });
       b.update(t.ref, { toldAt: at, doneAt: at, reached: true, doneBy: 'System' });
-      for (const uid of to) notify(db, b, T, uid, { type: 'kit_cleansed', at, message: `${t.what || 'A kit'} has finished its cleanse (${t.name}, ${t.minutes} min) — ready for the steriliser or its check.` });
+      for (const uid of to) notify(db, b, T, uid, { type: 'kit_cleansed', at, message: `${t.what || 'A kit'} has completed its cleanse (${t.name}, ${t.minutes} minutes) and is ready for the sterilizer or its check.` });
       await logAuditAdmin(db, tenantId, { action: 'kit.cleansed', targetType: 'kit', targetId: t.kitId, actor: { type: 'system', name: 'contact timer' }, summary: `${t.what || 'Kit'}: cleanse complete — ${t.name}, ${t.minutes} min contact reached` }); }
-    else { b.update(t.ref, { toldAt: at }); for (const uid of to) notify(db, b, T, uid, { type: 'contact_reached', at, message: `Contact time reached: ${t.what ? `${t.what} — ` : ''}${t.name} (${t.minutes} min).` }); } }
+    else { b.update(t.ref, { toldAt: at }); for (const uid of to) notify(db, b, T, uid, { type: 'contact_reached', at, message: `Contact time has been reached: ${t.what ? `${t.what}, ` : ''}${t.name} (${t.minutes} minutes).` }); } }
   for (const c of dueC) { const to = c.startedById ? [c.startedById] : (mgrs ||= await managerIds(db, T)); b.update(c.ref, { toldDoneAt: at });
-    for (const uid of to) notify(db, b, T, uid, { type: 'cycle_done', at, message: `${c.device} cycle ${c.number || ''} has finished — check the indicator and record Pass or Fail.` }); }
+    for (const uid of to) notify(db, b, T, uid, { type: 'cycle_done', at, message: `Action needed: ${c.device} cycle ${c.number || ''} has finished. Please check the indicator and record Pass or Fail.` }); }
   await b.commit();
   try { await (await import('@/lib/push')).pushNow(db, tenantId); } catch { /* the minute push job sends it */ }
 }

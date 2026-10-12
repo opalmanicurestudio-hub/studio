@@ -351,7 +351,7 @@ export async function GET(req: NextRequest) {
             try {
               const aRef = db.collection(`tenants/${tDoc.id}/renterAlerts`).doc();
               batch.set(aRef, { id: aRef.id, renterId: lease.renterId, kind: 'credit_applied', tab: 'rent', tone: 'green', at: nowIso,
-                text: inv.amountCents === 0 ? `Rent due ${today} fully covered by your credits ($${(creditApplied / 100).toFixed(2)}) — nothing to pay` : `$${(creditApplied / 100).toFixed(2)} of credit applied to rent due ${today} — $${(inv.amountCents / 100).toFixed(2)} left to pay` });
+                text: inv.amountCents === 0 ? `Your rent due ${today} has been fully covered by your credits ($${(creditApplied / 100).toFixed(2)}). There is nothing to pay.` : `$${(creditApplied / 100).toFixed(2)} of credit has been applied to your rent due ${today}. $${(inv.amountCents / 100).toFixed(2)} remains to be paid.` });
             } catch { /* alert is best-effort */ }
           }
         } catch (e) { console.error('[cron/nightly] credit application', tDoc.id, lease.renterId, e); }
@@ -375,12 +375,14 @@ export async function GET(req: NextRequest) {
             const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
             await sendNotification(db, {
               tenantId: tDoc.id, channel: 'email', to: rd.email,
-              subject: `Rent due today — ${amount}`,
-              html: brandedEmailHtml({ studioName: studio, title: 'Rent is due today', bodyLines: [
-                `Hi ${first} — rent of ${amount} for ${inv.boothName} is due today.`,
+              subject: `Your rent of ${amount} is due today`,
+              html: brandedEmailHtml({ studioName: studio, title: 'Your rent is due today', bodyLines: [
+                `Hi ${first},`,
+                `This is a friendly reminder that your booth rent of ${amount} for ${inv.boothName} is due today.`,
                 rd.autopayEnabled === true
-                  ? 'You are on autopay, so there is nothing to do — we will send a receipt once it goes through.'
-                  : 'You can pay from your portal in a tap, or at the front desk.',
+                  ? 'As you are enrolled in autopay, there is nothing you need to do. We will send you a receipt once the payment has been processed.'
+                  : 'You can pay securely from your portal using the button below, or at the front desk. Thank you.',
+                `Kind regards, ${studio}`,
               ], ...(rd.autopayEnabled === true ? {} : { cta: { label: 'Pay now', url: payUrl } }), footerNote: `Sent by ${studio}.` }),
               kind: 'rent_invoiced', recipientType: 'renter', recipientId: lease.renterId, recipientName: inv.renterName,
               tokens: { renter_first: first, amount, when: today, link: payUrl, studio },
@@ -392,8 +394,8 @@ export async function GET(req: NextRequest) {
       batch.set(nRef, {
         id: nRef.id, type: 'rent_invoiced', read: false, createdAt: nowIso, link: '/rent',
         message: due.length === 1
-          ? `Rent invoiced: ${names[0]} — due today.`
-          : `Rent invoiced for ${due.length} renters (${names.join(', ')}${due.length > 3 ? ', …' : ''}) — due today.`,
+          ? `Rent has been invoiced for ${names[0]} and is due today.`
+          : `Rent has been invoiced for ${due.length} renters (${names.join(', ')}${due.length > 3 ? ', …' : ''}) and is due today.`,
       });
       await batch.commit();
       await logAuditAdmin(db, tDoc.id, {
@@ -431,7 +433,7 @@ export async function GET(req: NextRequest) {
           const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
           await nRef.set({
             id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
-            message: `${leave.renterName || 'A renter'} was due back on ${leave.endDate}. End their leave to put rent back to normal.`,
+            message: `Action needed: ${leave.renterName || 'A renter'} was due back from leave on ${leave.endDate}. Please end their leave to return their rent to normal.`,
           });
           returnsDue++;
           continue;
@@ -468,7 +470,7 @@ export async function GET(req: NextRequest) {
         const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
         await nRef.set({
           id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
-          message: `${leave.renterName || 'A renter'} is back from leave — rent is back to normal${leasePatch.endDate ? `, and their lease now ends ${leasePatch.endDate}` : ''}.`,
+          message: `${leave.renterName || 'A renter'} is back from leave, and their rent has returned to normal${leasePatch.endDate ? `. Their lease now ends on ${leasePatch.endDate}` : ''}.`,
         });
         await logAuditAdmin(db, tDoc.id, {
           action: 'renter.leave_ended', targetType: 'renterLeave', targetId: leave.id,
@@ -487,13 +489,15 @@ export async function GET(req: NextRequest) {
             const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
             const banked = Math.max(0, (Number(leave.bankedDays) || 0) - (Number(leave.redeemedDays) || 0));
             const lines = [
-              `Hi ${String(renter.firstName || '').trim() || 'there'} — welcome back. Your time away ended ${leave.endDate}, and rent goes back to normal from here.`,
+              `Hi ${String(renter.firstName || '').trim() || 'there'},`,
+              `Welcome back. Your time away ended on ${leave.endDate}, and your rent returns to normal from this point.`,
             ];
-            if (leasePatch.endDate) lines.push(`Because rent was paused, your lease now runs to ${leasePatch.endDate} — the ${pausedDays} day${pausedDays === 1 ? '' : 's'} you missed were added back.`);
-            if (banked > 0) lines.push(`You have ${banked} banked rental day${banked === 1 ? '' : 's'} waiting. Ask to use them from your portal whenever you like.`);
+            if (leasePatch.endDate) lines.push(`As your rent was paused, your lease now runs to ${leasePatch.endDate}. The ${pausedDays} day${pausedDays === 1 ? '' : 's'} you were away ${pausedDays === 1 ? 'has' : 'have'} been added back.`);
+            if (banked > 0) lines.push(`You have ${banked} banked rental day${banked === 1 ? '' : 's'} available. You can request to use them from your portal at any time.`);
+            lines.push(`Kind regards, ${studio}`);
             await sendNotification(db, {
               tenantId: tDoc.id, channel: 'email', to,
-              subject: 'Welcome back — your rent is back to normal',
+              subject: 'Welcome back. Your rent has returned to normal',
               html: brandedEmailHtml({ studioName: studio, title: 'Welcome back', bodyLines: lines, footerNote: `Sent by ${studio}.` }),
               kind: 'leave_ended', recipientType: 'renter', recipientId: leave.renterId,
               recipientName: `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || null,
@@ -547,16 +551,18 @@ export async function GET(req: NextRequest) {
           const { sendNotification } = await import('@/lib/notify');
           const amount = `$${(((Number(inv.amountCents) || 0) + (Number(inv.lateFeeCents) || 0) - (Number(inv.paidCents) || 0)) / 100).toFixed(2)}`;
           const bodyLines = [
-            `Hi ${first} — rent of ${amount} due ${inv.dueDate} is now ${step} days late.`,
+            `Hi ${first},`,
+            `Our records show that your rent of ${amount}, which was due on ${inv.dueDate}, is now ${step} days overdue.`,
             policy.autoBarAfterDaysLate !== null && step < policy.autoBarAfterDaysLate
-              ? `If it isn't settled by ${policy.autoBarAfterDaysLate} days late, booking with us will be paused until it is.`
-              : 'Please settle it, or reply if you need to work something out — we would rather talk than chase.',
+              ? `As outlined in our collections policy, if the balance has not been paid by ${policy.autoBarAfterDaysLate} days after the due date, booking with us will be paused until it is paid.`
+              : 'Please pay the balance at your earliest convenience. If you need to make an arrangement, please reply to this email and we will be glad to discuss it.',
+            `Kind regards, ${studio}`,
           ];
           if (String(renter.email || '').includes('@')) {
             await sendNotification(db, {
               tenantId: tDoc.id, channel: 'email', to: renter.email,
-              subject: `Rent ${step} days late — ${amount}`,
-              html: brandedEmailHtml({ studioName: studio, title: `Rent is ${step} days late`, bodyLines, cta: { label: 'Pay now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
+              subject: `Your rent of ${amount} is ${step} days overdue`,
+              html: brandedEmailHtml({ studioName: studio, title: `Your rent is ${step} days overdue`, bodyLines, cta: { label: 'Pay now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
               kind: 'rent_dunning', recipientType: 'renter', recipientId: renterId,
               recipientName: `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || null,
               tokens: { renter_first: first, amount, days_late: step, when: String(inv.dueDate || ''), studio, link: payUrl },
@@ -565,7 +571,7 @@ export async function GET(req: NextRequest) {
           if (String(renter.phone || '').replace(/[^0-9]/g, '').length >= 10) {
             await sendNotification(db, {
               tenantId: tDoc.id, channel: 'sms', to: renter.phone,
-              text: `${studio}: rent of ${amount} (due ${inv.dueDate}) is ${step} days late. Pay here: ${payUrl}`,
+              text: `Hi ${first}, our records show that your rent of ${amount} (due ${inv.dueDate}) is now ${step} days overdue. You can pay securely here: ${payUrl}`,
               kind: 'rent_dunning', recipientType: 'renter', recipientId: renterId,
             });
           }
@@ -579,16 +585,18 @@ export async function GET(req: NextRequest) {
           await rSnap.ref.set({ doNotRent: true, doNotRentAt: nowIso, doNotRentReason: `Rent ${oldestDays} days late (automatic, per collections policy)`, doNotRentBy: 'system' }, { merge: true });
           const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
           await nRef.set({ id: nRef.id, type: 'renter_barred', read: false, createdAt: nowIso, link: '/rent',
-            message: `${renter.firstName || 'A renter'} ${renter.lastName || ''} was barred from booking — rent ${oldestDays} days late, per your collections policy.`.replace(/\s+/g, ' ') });
+            message: `${renter.firstName || 'A renter'} ${renter.lastName || ''} has been barred from booking because their rent is ${oldestDays} days overdue, as set in your collections policy.`.replace(/\s+/g, ' ') });
           if (policy.notifyOnBar && String(renter.email || '').includes('@')) {
             const { sendNotification } = await import('@/lib/notify');
             await sendNotification(db, {
               tenantId: tDoc.id, channel: 'email', to: renter.email,
-              subject: `Booking paused — outstanding rent with ${studio}`,
+              subject: `Booking paused: outstanding rent with ${studio}`,
               html: brandedEmailHtml({ studioName: studio, title: 'Booking is paused', bodyLines: [
-                `Hi ${first} — with rent now ${oldestDays} days late, booking with us is paused until the balance is settled.`,
-                'Settle it and booking reopens straight away. If something is going on, reply — we would rather know.',
-              ], cta: { label: 'Settle now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
+                `Hi ${first},`,
+                `As outlined in our collections policy, booking is paused when rent is overdue. As your rent is now ${oldestDays} days overdue, booking with us is paused until the balance has been paid.`,
+                'Once the balance is paid, booking will reopen right away. If something is going on, please reply to this email. We would rather know so that we can help.',
+                `Kind regards, ${studio}`,
+              ], cta: { label: 'Pay now', url: payUrl }, footerNote: `Sent by ${studio}.` }),
               kind: 'renter_barred_notice', recipientType: 'renter', recipientId: renterId,
               tokens: { renter_first: first, amount: `$${(owedCents / 100).toFixed(2)}`, link: payUrl, studio },
             });
@@ -804,7 +812,7 @@ export async function GET(req: NextRequest) {
           await nR.set({
             id: nR.id, userId: null, read: false, createdAt: new Date().toISOString(),
             type: 'lease', link: '/renters',
-            message: `A lease auto-renewed through ${newEnd}.`,
+            message: `A lease has renewed automatically through ${newEnd}.`,
           });
         } else if (!l.expiryNotifiedAt) {
           await ld.ref.set({ expiryNotifiedAt: new Date().toISOString() }, { merge: true });
@@ -817,7 +825,7 @@ export async function GET(req: NextRequest) {
           await nR.set({
             id: nR.id, userId: null, read: false, createdAt: new Date().toISOString(),
             type: 'lease', link: '/renters',
-            message: `A lease ended ${String(l.endDate).slice(0, 10)} — renew or end it in Booths.`,
+            message: `Action needed: a lease ended on ${String(l.endDate).slice(0, 10)}. Please renew or end it in Booths.`,
           });
         }
       }
@@ -872,7 +880,7 @@ export async function GET(req: NextRequest) {
         await nRef.set({
           id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(),
           type: 'rent_late', link: '/rent',
-          message: `${renterName}'s rent is late — $${owed.toFixed(2)} owed${feeCents > 0 ? ' (late fee applied)' : ''}.`,
+          message: `${renterName}'s rent is overdue. $${owed.toFixed(2)} is owed${feeCents > 0 ? ' (late fee applied)' : ''}.`,
         });
         // COLLECTIONS ON AUTOPILOT: the renter hears it the same night,
         // with a one-tap magic link into their portal's Pay button.
@@ -885,8 +893,8 @@ export async function GET(req: NextRequest) {
             if (r?.phone) {
               const link = await renterPortalLink(db, tDoc.id, lease.renterId, r);
               await sendTenantSms(db, tDoc.id, r.phone,
-                `Your rent (due ${due}) is now past due — $${owed.toFixed(2)} owed${feeCents > 0 ? ' incl. late fee' : ''}. Pay in your portal:${link ? ` ${link}` : ' (link in your welcome text)'}`,
-                { email: r.email || null, subject: 'Rent past due' });
+                `Our records show that your rent due ${due} is now past due. The amount owed is $${owed.toFixed(2)}${feeCents > 0 ? ', including the late fee' : ''}. You can pay in your portal:${link ? ` ${link}` : ' (the link is in your welcome text)'}`,
+                { email: r.email || null, subject: 'Your rent is past due' });
             }
           }
         } catch { /* renter text is a bonus — the owner notification stands */ }
@@ -902,13 +910,15 @@ export async function GET(req: NextRequest) {
                 db, tenantId: tDoc.id, kind: 'rent_overdue',
                 recipientId: lease.renterId || null, recipientName: renterName,
                 to: r.email, fromName: businessName,
-                subject: `Rent past due — $${owed.toFixed(2)} owed`,
+                subject: `Your rent is past due: $${owed.toFixed(2)} owed`,
                 html: brandedEmailHtml({
                   studioName: businessName,
-                  title: 'Your rent is past due.',
+                  title: 'Your rent is past due',
                   bodyLines: [
-                    `Rent due ${due} is now late — $${owed.toFixed(2)} owed${feeCents > 0 ? ', including the late fee' : ''}.`,
-                    'Paying now stops anything further.',
+                    `Hi ${String(r.firstName || '').trim() || 'there'},`,
+                    `Our records show that your rent due on ${due} has not yet been received. The amount now owed is $${owed.toFixed(2)}${feeCents > 0 ? ', including the late fee' : ''}.`,
+                    'Paying the balance now will prevent any further action.',
+                    `Kind regards, ${businessName}`,
                   ],
                   ...(payLink ? { cta: { label: 'Pay in my portal', url: payLink } } : {}),
                   footerNote: `Sent by ${businessName}.`,
@@ -953,8 +963,8 @@ export async function GET(req: NextRequest) {
           if ((r.autopayEnabled === true || lease.autoCollect === true) && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId)) continue;
           const link = await renterPortalLink(db, tid, lease.renterId, r);
           const sent = await sendTenantSms(db, tid, r.phone,
-            `Heads up — rent of $${((v.amountCents || 0) / 100).toFixed(2)} is due ${due === todayStr ? 'today' : due}. Pay any time in your portal:${link ? ` ${link}` : ''}`,
-            { email: r.email || null, subject: 'Rent due soon' });
+            `Hi ${String(r.firstName || '').trim() || 'there'}, this is a friendly reminder that your rent of $${((v.amountCents || 0) / 100).toFixed(2)} is due ${due === todayStr ? 'today' : `on ${due}`}. You can pay securely in your portal:${link ? ` ${link}` : ''}`,
+            { email: r.email || null, subject: 'Your rent is due soon' });
           if (sent.ok) { await inv.ref.set({ renterDueNotifiedAt: new Date().toISOString() }, { merge: true }); nudgeTotals.rentDue++; await noteAutomation(db, tid, 'rent-due'); }
         }
       } catch { /* isolated */ }
@@ -980,8 +990,8 @@ export async function GET(req: NextRequest) {
             if (last && last > todayIn(tz, new Date(Date.now() - 30 * 86400000))) continue;
             const link = await renterPortalLink(db, tid, rDoc.id, r);
             const sent = await sendTenantSms(db, tid, r.phone,
-              `We need a copy of your ${kind} on file to rent here. Add it in your portal (Insurance & licence) — expiry date plus a photo:${link ? ` ${link}` : ''}`,
-              { email: r.email || null, subject: `Your ${kind} — we need a copy on file` });
+              `Hi ${String(r.firstName || '').trim() || 'there'}, we need a copy of your ${kind} on file to rent here. Please add it in your portal (Insurance & licence) with the expiration date and a photo:${link ? ` ${link}` : ''}`,
+              { email: r.email || null, subject: `We need a copy of your ${kind} on file` });
             if (sent.ok) { await rDoc.ref.set({ [stamp]: todayStr }, { merge: true }); nudgeTotals.credExpiry++; await noteAutomation(db, tid, 'renter-paperwork'); }
           }
           for (const [field, label] of [['licenseExpiry', 'license'], ['insuranceExpiry', 'insurance']] as const) {
@@ -991,7 +1001,7 @@ export async function GET(req: NextRequest) {
             if (r[stampField] === exp) continue;
             const link = await renterPortalLink(db, tid, rDoc.id, r);
             const sent = await sendTenantSms(db, tid, r.phone,
-              `Your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} ${exp}. Upload the renewed one in your portal (Insurance & licence):${link ? ` ${link}` : ''}`,
+              `Hi ${String(r.firstName || '').trim() || 'there'}, your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} on ${exp}. Please upload the renewed copy in your portal (Insurance & licence):${link ? ` ${link}` : ''}`,
               { email: r.email || null, subject: `Your ${label} ${exp < todayStr ? 'expired' : 'expires soon'}` });
             if (sent.ok) { await rDoc.ref.set({ [stampField]: exp }, { merge: true }); nudgeTotals.credExpiry++; await noteAutomation(db, tid, 'renter-paperwork'); }
           }
@@ -1294,7 +1304,7 @@ export async function GET(req: NextRequest) {
                 const r = (await db.doc(`tenants/${tid}/renters/${lease.renterId}`).get()).data() as any;
                 if (r?.phone) {
                   await sendTenantSms(db, tid, r.phone,
-                    `Heads up: scheduled maintenance at ${p.boothName || 'your station'} today ("${p.title}")${p.assigneeName ? ` — ${p.assigneeName} will handle it` : ''}. Questions? Just reply or ask the front desk.`);
+                    `Hi ${String(r.firstName || '').trim() || 'there'}, please note that scheduled maintenance will take place at ${p.boothName || 'your station'} today ("${p.title}")${p.assigneeName ? `. ${p.assigneeName} will be handling it` : ''}. If you have any questions, please reply to this message or ask the front desk.`);
                   planTotals.renterTexts = (planTotals.renterTexts || 0) + 1;
                 }
               }

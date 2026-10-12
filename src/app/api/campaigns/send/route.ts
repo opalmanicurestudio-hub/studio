@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       ? await sendNotification(db, { tenantId, channel: 'sms', to, text: `[TEST] ${studio}: ${text}\nReply STOP to opt out.`, kind: 'campaign_test', recipientType: 'staff' } as any)
       : await sendNotification(db, { tenantId, channel: 'email', to, subject: `[TEST] ${fillTokens(c.subject || c.name || 'Campaign', { first: sample.first, business: studio, offer: off?.line || null, link: null })}`,
           html: brandedEmailHtml({ studioName: studio, title: fillTokens(c.subject || c.name || 'Campaign', { first: sample.first, business: studio, offer: off?.line || null, link: null }), bodyLines: text.split(/\n+/).filter(Boolean),
-            ...(off?.code ? { bigCode: off.code } : {}), cta: { label: 'Book now', url: who.bookBase }, footerNote: 'Test send — only you received this.' } as any), kind: 'campaign_test', recipientType: 'staff' } as any);
+            ...(off?.code ? { bigCode: off.code } : {}), cta: { label: 'Book now', url: who.bookBase }, footerNote: 'This is a test message. Only you have received it.' } as any), kind: 'campaign_test', recipientType: 'staff' } as any);
     const err = String(r.error || '');
     let why: string | null = null;
     if (!r.ok) {

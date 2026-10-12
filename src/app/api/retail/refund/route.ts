@@ -151,16 +151,19 @@ export async function POST(req: NextRequest) {
       const origin = req.nextUrl.origin;
       const link = `${origin}/shop/${tenantId}/order/${orderId}`;
       const html = brandedEmail(emailBrand, `
-        <p style="font-size:15px;font-weight:800;color:#0f172a;margin:0">${first ? `${first}, your` : 'Your'} refund is on its way</p>
+        <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${first || 'there'},</p>
+        <p style="font-size:15px;font-weight:800;color:#0f172a;margin:0">Your refund is on its way</p>
         <p style="font-size:28px;font-weight:900;color:#0f172a;margin:12px 0 0;font-variant-numeric:tabular-nums">$${(cents / 100).toFixed(2)}</p>
-        <p style="font-size:13px;color:#334155;line-height:1.7;margin:12px 0 0">It was sent back to your original payment method just now. Banks typically show card refunds within <strong>5\u201310 business days</strong> \u2014 the money is already released on our side.</p>
+        <p style="font-size:13px;color:#334155;line-height:1.7;margin:12px 0 0">Your refund has just been sent to your original payment method. The funds have been released on our side, and banks typically show card refunds within <strong>5 to 10 business days</strong>.</p>
         <p style="font-size:11px;color:#64748b;margin:14px 0 0">Order ${num} \u00b7 refund reference ${refundId.slice(-8)}</p>
-        ${emailButton(link, 'View my order', emailBrand)}`,
-        { preheader: `$${(cents / 100).toFixed(2)} refunded on order ${num} \u2014 allow 5\u201310 business days` });
+        ${emailButton(link, 'View my order', emailBrand)}
+        <p style="font-size:13px;color:#334155;line-height:1.7;margin:16px 0 0">If you have any questions, please reply to this email.</p>
+        <p style="font-size:13px;color:#334155;line-height:1.7;margin:12px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
+        { preheader: `$${(cents / 100).toFixed(2)} has been refunded on order ${num}. Please allow 5 to 10 business days.` });
       const { sendNotification } = await import('@/lib/notify');
       await sendNotification(db, {
         tenantId, channel: 'email', to: order.customerEmail,
-        subject: `${emailBrand.shopName} \u2014 your $${(cents / 100).toFixed(2)} refund is on its way`,
+        subject: `${emailBrand.shopName}: your $${(cents / 100).toFixed(2)} refund is on its way`,
         html, kind: 'refund_issued', recipientType: 'client',
         recipientId: orderId || null, recipientName: order.customerName || null,
       });
@@ -169,6 +172,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true, refundId, amountCents: cents,
-    message: `$${(cents / 100).toFixed(2)} refunded through Stripe — the customer's bank shows it in 5–10 business days.`,
+    message: `$${(cents / 100).toFixed(2)} has been refunded through Stripe. It will appear with the customer's bank within 5 to 10 business days.`,
   });
 }

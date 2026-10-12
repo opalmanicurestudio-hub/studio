@@ -27,23 +27,23 @@ export function findings(input: { q: any; me: any; tz: string; staffNames: Recor
   // ── A specific sale line ──
   if (lineTxn && (lineTxn.type || 'income') === 'income' && lineTxn.category === 'Service Revenue') {
     const rate = Number(lineTxn.commissionPct); const now = Number(me.commissionRate);
-    if (Number.isFinite(rate) && Number.isFinite(now) && rate !== now) out.push({ tone: 'explains', text: `This sale was made at ${rate}% — the rate you had that day. Your rate is now ${now}%; sales keep the rate they were made at.` });
-    if (lineTxn.commissionBase != null && Number(lineTxn.commissionBase) !== amt(lineTxn)) out.push({ tone: 'explains', text: Number(lineTxn.commissionBase) > amt(lineTxn) ? `It was a membership, package or gift visit, so it’s paid on the normal price of ${money(Number(lineTxn.commissionBase))}.` : `The client had a discount — under the business’s pay rules commission is on what they actually paid (${money(Number(lineTxn.commissionBase))}).` });
-    if (Number(lineTxn.productCharge) > 0) out.push({ tone: 'explains', text: `A ${money(Number(lineTxn.productCharge))} product charge comes off before commission (the business’s product rule).` });
-    if (lineTxn.refundedAt) out.push({ tone: 'explains', text: `This sale was refunded later — the pay on it came off in the period of the refund.` });
-    if (lineTxn.splitWith?.staffId) out.push({ tone: 'explains', text: `This service was shared with ${first(staffNames[lineTxn.splitWith.staffId === me.id ? lineTxn.staffId : lineTxn.splitWith.staffId])} — each of you is paid your share.` });
+    if (Number.isFinite(rate) && Number.isFinite(now) && rate !== now) out.push({ tone: 'explains', text: `This sale was made at ${rate}%, which was your rate on that day. Your rate is now ${now}%. Each sale keeps the rate in effect when it was made.` });
+    if (lineTxn.commissionBase != null && Number(lineTxn.commissionBase) !== amt(lineTxn)) out.push({ tone: 'explains', text: Number(lineTxn.commissionBase) > amt(lineTxn) ? `This was a membership, package or gift visit, so commission is paid on the regular price of ${money(Number(lineTxn.commissionBase))}.` : `The client received a discount. Under the business’s pay rules, commission is based on the amount paid (${money(Number(lineTxn.commissionBase))}).` });
+    if (Number(lineTxn.productCharge) > 0) out.push({ tone: 'explains', text: `A product charge of ${money(Number(lineTxn.productCharge))} is deducted before commission, under the business’s product rule.` });
+    if (lineTxn.refundedAt) out.push({ tone: 'explains', text: `This sale was later refunded. The related pay was deducted in the pay period of the refund.` });
+    if (lineTxn.splitWith?.staffId) out.push({ tone: 'explains', text: `This service was shared with ${first(staffNames[lineTxn.splitWith.staffId === me.id ? lineTxn.staffId : lineTxn.splitWith.staffId])}. Each of you is paid your share.` });
   }
   // ── Tips ──
   if (q.reason === 'tip_missing' || q.line?.ref?.startsWith('t')) {
     const others = onVisit.filter((t) => (t.category === 'Tips' || t.tipAmount) && t.staffId && t.staffId !== me.id);
-    for (const t of others) out.push({ tone: 'likely', text: `A ${money(t.tipAmount || amt(t))} tip on this visit is recorded under ${first(staffNames[t.staffId])}.`, suggestAmount: Number(t.tipAmount || amt(t)) });
+    for (const t of others) out.push({ tone: 'likely', text: `A tip of ${money(t.tipAmount || amt(t))} on this visit is recorded under ${first(staffNames[t.staffId])}.`, suggestAmount: Number(t.tipAmount || amt(t)) });
     if (visit && !others.length) {
       const dayKey = new Date(String(visit.startTime)).toLocaleDateString('en-CA', { timeZone: tz });
       const sameDay = txns.filter((t) => (t.category === 'Tips' || t.tipAmount) && t.staffId !== me.id && t.clientId && t.clientId === visit.clientId && new Date(String(t.date)).toLocaleDateString('en-CA', { timeZone: tz }) === dayKey);
-      for (const t of sameDay) out.push({ tone: 'likely', text: `${first(visit.clientName)} left a ${money(t.tipAmount || amt(t))} tip that day, recorded under ${first(staffNames[t.staffId])}${t.paymentMethod ? ` (${t.paymentMethod})` : ''}.`, suggestAmount: Number(t.tipAmount || amt(t)) });
+      for (const t of sameDay) out.push({ tone: 'likely', text: `${first(visit.clientName)} left a tip of ${money(t.tipAmount || amt(t))} that day, which is recorded under ${first(staffNames[t.staffId])}${t.paymentMethod ? ` (${t.paymentMethod})` : ''}.`, suggestAmount: Number(t.tipAmount || amt(t)) });
     }
     const back = txns.filter((t) => t.tipReversal?.staffId === me.id && (!aid || t.appointmentId === aid));
-    for (const t of back) out.push({ tone: 'explains', text: `A ${money(t.tipReversal.amount)} tip was refunded to the client on ${day(t.date, tz)} and came off your pay.` });
+    for (const t of back) out.push({ tone: 'explains', text: `A tip of ${money(t.tipReversal.amount)} was refunded to the client on ${day(t.date, tz)} and was deducted from your pay.` });
   }
   // ── A visit that isn't on the stub ──
   if (q.reason === 'visit_missing' || (aid && !onVisit.some((t) => t.category === 'Service Revenue'))) {
@@ -52,22 +52,22 @@ export function findings(input: { q: any; me: any; tz: string; staffNames: Recor
     for (const a of list.slice(0, 6)) {
       const st = stageOf(a); const sale = txns.find((t) => t.appointmentId === a.id && t.category === 'Service Revenue');
       if (sale && sale.staffId !== me.id) out.push({ tone: 'likely', text: `${first(a.clientName)}’s ${day(a.startTime, tz)} visit was checked out under ${first(staffNames[sale.staffId])}.` });
-      else if (a.closedReason === 'left_open') out.push({ tone: 'likely', text: `${first(a.clientName)}’s ${day(a.startTime, tz)} visit was never checked out — it’s in “Left open” waiting to be settled.` });
-      else if (['in_service', 'ready_to_pay', 'arrived', 'waiting'].includes(st)) out.push({ tone: 'likely', text: `${first(a.clientName)}’s ${day(a.startTime, tz)} visit hasn’t been checked out yet (${st.replace(/_/g, ' ')}).` });
+      else if (a.closedReason === 'left_open') out.push({ tone: 'likely', text: `${first(a.clientName)}’s ${day(a.startTime, tz)} visit has not been checked out. It is listed under “Left open” and is waiting to be settled.` });
+      else if (['in_service', 'ready_to_pay', 'arrived', 'waiting'].includes(st)) out.push({ tone: 'likely', text: `${first(a.clientName)}’s ${day(a.startTime, tz)} visit has not been checked out yet (${st.replace(/_/g, ' ')}).` });
       else if (st === 'complete' && !sale) out.push({ tone: 'likely', text: `${first(a.clientName)}’s ${day(a.startTime, tz)} visit is marked complete but has no sale recorded.` });
     }
   }
   // ── Hours ──
   if (q.reason === 'hours_wrong' || q.line?.ref?.startsWith('s:')) {
     for (const s of input.sessions) {
-      if (s.missingOut) out.push({ tone: 'likely', text: `No clock-out after ${new Date(s.inAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })} on ${day(s.inAt, tz)} — those hours aren’t counted until the clock-out is fixed.` });
-      else if (s.status === 'pending' && input.tenant?.payRules?.approvedHoursOnly) out.push({ tone: 'likely', text: `The ${day(s.inAt, tz)} shift is waiting for a manager’s approval, so it isn’t paid yet.` });
+      if (s.missingOut) out.push({ tone: 'likely', text: `No clock-out after ${new Date(s.inAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })} on ${day(s.inAt, tz)}. These hours will be counted once the clock-out is corrected.` });
+      else if (s.status === 'pending' && input.tenant?.payRules?.approvedHoursOnly) out.push({ tone: 'likely', text: `The ${day(s.inAt, tz)} shift is awaiting a manager’s approval, so it has not been paid yet.` });
       else if (s.status === 'rejected') out.push({ tone: 'explains', text: `The ${day(s.inAt, tz)} shift was not approved${s.note ? `: “${s.note}”` : ''}.` });
-      if (s.unpaidBreakMinutes >= 30) out.push({ tone: 'info', text: `${day(s.inAt, tz)}: ${s.unpaidBreakMinutes} min of unpaid break came off.` });
+      if (s.unpaidBreakMinutes >= 30) out.push({ tone: 'info', text: `${day(s.inAt, tz)}: ${s.unpaidBreakMinutes} minutes of unpaid break were deducted.` });
     }
     for (const p of input.punches.filter((x) => x.editedAt || x.addedByManager)) out.push({ tone: 'info', text: `A manager ${p.addedByManager ? 'added' : 'changed'} a ${String(p.type).replace('_', ' ')} on ${day(p.timestamp, tz)}${p.editNote ? `: “${p.editNote}”` : ''}.` });
   }
-  if (!out.length) out.push({ tone: 'info', text: 'Nothing unusual found in the records automatically — your manager will check it by hand.' });
+  if (!out.length) out.push({ tone: 'info', text: 'The automatic check found nothing unusual in the records. Your manager will review it personally.' });
   // one of each sentence
   return out.filter((f, i) => out.findIndex((g) => g.text === f.text) === i).slice(0, 8);
 }

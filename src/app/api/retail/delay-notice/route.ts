@@ -111,24 +111,24 @@ export async function POST(req: NextRequest) {
     if (!claimed) return NextResponse.json({ ok: true, sent: false });
 
     const num = `#${String(claimed.orderNumber ?? '').padStart(4, '0')}`;
-    const hi = claimed.firstName ? `${claimed.firstName}, ` : '';
+    const hi = `Hi ${claimed.firstName || 'there'}, `;
     if (moment === 'staff_escalation') {
       const waited = Math.max(1, Math.floor((Date.now() - Date.parse(String(claimed.arrivedAt || ''))) / 60000) || 1);
       const res = await sendTenantSms(
         db, tenantId, claimed.phone,
-        `${claimed.firstName || 'A customer'} has been waiting outside ${waited} min for order ${num}${claimed.spot ? ` (${claimed.spot})` : ''}. Nobody has taken it out.`,
+        `Action needed: ${claimed.firstName || 'A customer'} has been waiting outside for ${waited} minutes for order ${num}${claimed.spot ? ` (${claimed.spot})` : ''}. The order has not yet been brought out.`,
       );
       return NextResponse.json({ ok: true, sent: res.ok === true });
     }
 
     const message = moment === 'ready'
       // Said plainly, because they may be reading it while driving.
-      ? `${hi}order ${num} is ready. Park anywhere out front and tap "I'm here" on your order link, or scan the sign at your spot.`
-      : `${hi}we're walking out with order ${num} now${claimed.spot ? ` — ${claimed.spot}` : ''}.`;
+      ? `${hi}your order ${num} is ready. Please park out front and tap "I'm here" on your order link, or scan the sign at your parking spot.`
+      : `${hi}we are bringing order ${num} out to you now${claimed.spot ? ` (${claimed.spot})` : ''}.`;
 
     const res = await sendTenantSms(
       db, tenantId, claimed.phone, message,
-      { email: claimed.email, subject: moment === 'ready' ? `Order ${num} is ready` : `Order ${num} is on its way out` },
+      { email: claimed.email, subject: moment === 'ready' ? `Order ${num} is ready` : `Order ${num} is on its way out to you` },
     );
 
     return NextResponse.json({ ok: true, sent: res.ok === true, why: res.ok ? undefined : res.error });

@@ -19,13 +19,13 @@ export function boothTextsFor(r: any, studio: string, now: number): { key: strin
   const when = hourly ? `${day(r.startDate)}, ${t12(r.startTime)}–${t12(r.endTime)}` : r.startDate === r.endDate || !r.endDate ? day(r.startDate) : `${day(r.startDate)} – ${day(r.endDate)}`;
   const out: { key: string; text: string }[] = [];
   if (r.status === 'confirmed' && recent(r.confirmedAt) && !sent.confirmed)
-    out.push({ key: 'confirmed', text: `${studio}: you're booked — ${space}, ${when}. When you arrive, check in at the front tablet with the last 4 digits of this number.` });
+    out.push({ key: 'confirmed', text: `Hi ${first}, your booking for ${space} on ${when} is confirmed. When you arrive, please check in at the front tablet using the last 4 digits of this phone number.` });
   if (['checked_in', 'completed'].includes(r.status) && recent(r.checked_inAt || r.actualCheckIn) && !sent.checked_in)
-    out.push({ key: 'checked_in', text: hourly ? `Welcome, ${first}! ${space} is yours until ${t12(r.endTime)}. — ${studio}` : `Welcome, ${first}! ${space} is all yours today. — ${studio}` });
+    out.push({ key: 'checked_in', text: hourly ? `Welcome, ${first}! ${space} is reserved for you until ${t12(r.endTime)}.` : `Welcome, ${first}! ${space} is reserved for you for the day.` });
   if (r.creditDecision === 'issued' && Number(r.creditIssuedCents) > 0 && recent(r.creditIssuedAt) && !sent.credit)
-    out.push({ key: 'credit', text: `Good news, ${first} — a ${money(r.creditIssuedCents)} credit for your unused time is on your account. It applies automatically next time you book. — ${studio}` });
+    out.push({ key: 'credit', text: `Hi ${first}, a credit of ${money(r.creditIssuedCents)} for your unused time has been added to your account. It will be applied automatically the next time you book.` });
   if (r.overageStatus === 'charged' && Number(r.overageDueCents) > 0 && recent(r.overageChargedAt) && !sent.overage)
-    out.push({ key: 'overage', text: `Hi ${first} — your stay at ${space} ran ${r.overageMinutes || 'some'} min past the booked time, so ${money(r.overageDueCents)} was charged to your card on file. Questions? Just reply. — ${studio}` });
+    out.push({ key: 'overage', text: `Hi ${first}, your time at ${space} ran ${r.overageMinutes || 'some'} minutes past the reserved time, so ${money(r.overageDueCents)} has been charged to your card on file. If you have any questions, please reply to this message.` });
   return out;
 }
 

@@ -137,6 +137,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true, refundId, amountCents: cents,
-    message: `$${(cents / 100).toFixed(2)} refunded through Stripe — the customer's bank shows it in 5–10 business days.`,
+    message: `$${(cents / 100).toFixed(2)} has been refunded through Stripe. It will appear with the customer's bank within 5 to 10 business days.`,
   });
 }

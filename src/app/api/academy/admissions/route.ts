@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
       const token = await issueApplicationLink(tenantId, String(b.id));
       const link = `${origin}/learn/${tenantId}/application/${token}`;
       if (['inquiry', 'tour'].includes(a.stage)) await setStage(tenantId, String(b.id), 'applied', who, 'Application link sent');
-      const sent = await email(a.email, `Your application — ${t.name || 'our academy'}`, `Hi ${String(a.name).split(' ')[0]},\n\nHere’s your private application page. You can upload your documents, read and sign your enrolment agreement, and make your down payment there:\n\n${link}\n\nKeep this link private. Any questions, just reply.\n\n— ${t.name || 'The academy'}`, tenantId);
+      const sent = await email(a.email, `Your application — ${t.name || 'our academy'}`, `Hi ${String(a.name).split(' ')[0]},\n\nHere is the link to your private application page. On this page you can upload your documents, read and sign your enrollment agreement, and make your down payment:\n\n${link}\n\nPlease keep this link private. If you have any questions, please reply to this email.\n\nKind regards,\n${t.name || 'The academy'}`, tenantId);
       return NextResponse.json({ ok: true, link, emailed: sent });
     }
 
@@ -195,8 +195,8 @@ export async function POST(req: NextRequest) {
       if (!verified && !reason) return NextResponse.json({ ok: false, error: 'Say why it can’t be accepted — the applicant sees this.' }, { status: 400 });
       await aRef(b.id).set({ documents: { [key]: { ...a.documents[key], status: verified ? 'verified' : 'rejected', reason: verified ? null : reason, checkedBy: who, checkedAt: now } }, updatedAt: now }, { merge: true });
       const after = { ...a, id: String(b.id), documents: { ...a.documents, [key]: { ...a.documents[key], status: verified ? 'verified' : 'rejected' } } };
-      if (!verified) await notifyApplicant(tenantId, after, { kind: 'doc_rejected', origin, subject: `Please upload your ${key} again`, body: `We couldn’t accept the **${key}** you uploaded:\n\n${reason}\n\nPlease upload a new one on your application page — it only takes a minute.`, sms: `please upload your ${key} again (${reason.slice(0, 80)}).` });
-      else if ((a.requiredDocs || []).every((k: string) => after.documents?.[k]?.status === 'verified')) await notifyApplicant(tenantId, after, { kind: 'docs_verified', origin, subject: 'Your documents are all checked', body: 'Good news — all your documents have been checked and accepted. Your application is with our admissions team.', sms: 'all your documents are checked and accepted.' });
+      if (!verified) await notifyApplicant(tenantId, after, { kind: 'doc_rejected', origin, subject: `Please upload your ${key} again`, body: `Thank you for uploading your **${key}**. Unfortunately, we were not able to accept it for the following reason:\n\n${reason}\n\nPlease upload a new copy on your application page. It only takes a minute.`, sms: `we were not able to accept your ${key} (${reason.slice(0, 80)}). Please upload a new copy on your application page.` });
+      else if ((a.requiredDocs || []).every((k: string) => after.documents?.[k]?.status === 'verified')) await notifyApplicant(tenantId, after, { kind: 'docs_verified', origin, subject: 'Your documents have been accepted', body: 'All of your documents have been reviewed and accepted. Your application is now with our admissions team, and we will be in touch with the next steps.', sms: 'all of your documents have been reviewed and accepted. Your application is now with our admissions team.' });
       await appendAudit(tenantId, { type: verified ? 'admissions.doc_verified' : 'admissions.doc_rejected', by: who, summary: `${a.name}: ${key} ${verified ? 'verified' : `rejected — ${reason}`}`, data: { admissionId: b.id, sha256: a.documents[key].sha256 || null } });
       return NextResponse.json({ ok: true });
     }

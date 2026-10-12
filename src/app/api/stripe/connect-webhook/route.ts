@@ -244,15 +244,15 @@ export async function POST(req: NextRequest) {
               if (!lateAfterRelease && ap.clientEmail) {
                 const base = process.env.NEXT_PUBLIC_APP_URL || 'https://clarityflow.app';
                 await sendNotification(db, { tenantId: tenant.id, channel: 'email', to: String(ap.clientEmail), kind: 'booking_confirmation',
-                  subject: `You're booked — ${ap.serviceName || 'your appointment'}${when ? `, ${when}` : ''}`,
-                  html: brandedEmailHtml({ studioName, title: 'You’re booked', bodyLines: [`Thank you — your $${(cents / 100).toFixed(2)} deposit went through and your ${ap.serviceName || 'appointment'}${when ? ` on ${when}` : ''} is confirmed.`, 'The deposit comes off your total at your visit.'],
+                  subject: `Your appointment is confirmed: ${ap.serviceName || 'your appointment'}${when ? `, ${when}` : ''}`,
+                  html: brandedEmailHtml({ studioName, title: 'Your appointment is confirmed', bodyLines: [`Hi ${String(ap.clientName || '').trim().split(' ')[0] || 'there'},`, `Thank you. We have received your $${(cents / 100).toFixed(2)} deposit, and your ${ap.serviceName || 'appointment'}${when ? ` on ${when}` : ''} is confirmed.`, 'Your deposit will be applied toward your total at your visit. If you have any questions, please reply to this email.', 'Kind regards,', studioName],
                     cta: ap.checkInToken ? { label: 'View my appointment', url: `${base}/check-in/${ap.checkInToken}` } : undefined }),
                   recipientType: 'client', recipientId: ap.clientId || null, recipientName: ap.clientName || null, appointmentId: payApptId } as any);
               }
               if (lateAfterRelease && (biz.notificationEmail || biz.email)) {
                 await sendNotification(db, { tenantId: tenant.id, channel: 'email', to: String(biz.notificationEmail || biz.email), kind: 'staff_new_request',
-                  subject: `Deposit paid after a hold ran out — ${ap.clientName || 'a client'}`,
-                  html: brandedEmailHtml({ studioName, title: 'A deposit needs your attention', bodyLines: [`${ap.clientName || 'A client'} paid a $${(cents / 100).toFixed(2)} deposit for ${ap.serviceName || 'an appointment'}${when ? ` on ${when}` : ''}, but their 30-minute hold had already ended and the time was released.`, 'Open the appointment to re-confirm it (if the time is still free) or refund the deposit.'] }),
+                  subject: `Action needed: Deposit received after the hold expired for ${ap.clientName || 'a client'}`,
+                  html: brandedEmailHtml({ studioName, title: 'A deposit needs your attention', bodyLines: [`${ap.clientName || 'A client'} paid a $${(cents / 100).toFixed(2)} deposit for ${ap.serviceName || 'an appointment'}${when ? ` on ${when}` : ''}, but their 30-minute hold had already expired and the time was released.`, 'Please open the appointment to re-confirm it if the time is still available, or refund the deposit.'] }),
                   recipientType: 'staff', recipientName: 'Studio', appointmentId: payApptId } as any);
               }
             } catch (e) { console.error('[connect-webhook] deposit message failed (payment is recorded)', e); }

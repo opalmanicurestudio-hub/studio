@@ -174,7 +174,7 @@ export async function decide(tenantId: string, id: string, input: DecisionInput,
   const emailed = await sendLetter(tenantId, fresh, letter, school);
   await ref.set({ letters: [...(a.letters || []), { ...letter, kind: input.outcome, at: now, by, emailed, language: a.language || 'en' }] }, { merge: true });
   // A short text for applicants who opted in — never the news of a "no" by text.
-  await textApplicant(tenantId, { ...fresh, id }, input.outcome === 'accepted' || input.outcome === 'conditional' ? `good news — you’ve been offered a place! Check your email to accept by ${niceDate(patch.offer?.expiresAt)}.` : input.outcome === 'waitlisted' ? 'you’re on our waitlist — details are in your email.' : 'we’ve emailed you about your application.', `decision_${input.outcome}`).catch(() => null);
+  await textApplicant(tenantId, { ...fresh, id }, input.outcome === 'accepted' || input.outcome === 'conditional' ? `we are pleased to offer you a place! Please see your email for details and accept by ${niceDate(patch.offer?.expiresAt)}.` : input.outcome === 'waitlisted' ? 'you have been placed on our waitlist. Please see your email for details.' : 'we have sent you an email about your application. Please check your inbox.', `decision_${input.outcome}`).catch(() => null);
   // A place freed? (e.g. someone holding a seat was moved out)
   if (cohortId && input.outcome !== 'accepted' && input.outcome !== 'conditional') await promoteWaitlist(tenantId, cohortId, origin);
   return { stage, letter, emailed };
@@ -211,7 +211,7 @@ export async function promoteWaitlist(tenantId: string, cohortId: string, origin
     const letter = decisionLetter({ a, program: p.name || 'the program', school, contact, outcome: 'accepted', cohortName: c.name, startDate: c.startDate, expiresAt: offer.expiresAt, conditions: offer.conditions.map((x: any) => x.text), link: await linkFor(tenantId, a.id, origin), fromWaitlist: true });
     const emailed = await sendLetter(tenantId, a, letter, school);
     await db.doc(`tenants/${tenantId}/admissions/${a.id}`).set({ letters: [...(a.letters || []), { ...letter, kind: 'waitlist_offer', at: now, by: 'automatic', emailed, language: a.language || 'en' }] }, { merge: true });
-    await textApplicant(tenantId, a, `a place has opened for you! Check your email to accept by ${niceDate(offer.expiresAt)}.`, 'waitlist_offer').catch(() => null);
+    await textApplicant(tenantId, a, `a place has become available for you! Please see your email for details and accept by ${niceDate(offer.expiresAt)}.`, 'waitlist_offer').catch(() => null);
     free--; offered++;
   }
   return offered;
@@ -235,15 +235,15 @@ export async function admissionsDaily(originFor: (t: any) => string) {
             await setStage(tenantId, a.id, 'withdrawn', 'automatic', 'Offer expired');
             await appendAudit(tenantId, { type: 'admissions.offer_expired', by: 'automatic', summary: `${a.name}’s offer expired`, data: { admissionId: a.id } });
             const { school, contact } = await context(tenantId, a);
-            await sendEmail(a.email, `Your offer has expired — ${school}`, `Hi ${String(a.name).split(' ')[0]},\n\nWe didn’t hear back, so your offer has now expired and the place has been released. If you’d still like to join, please contact us${contact ? ` at ${contact}` : ''} — we’ll do our best to help.\n\n— ${school}`, tenantId);
-            await textApplicant(tenantId, a, 'your offer has expired and the place was released. Contact us if you’d still like to join.', 'offer_expired').catch(() => null);
+            await sendEmail(a.email, `Your offer has expired — ${school}`, `Hi ${String(a.name).split(' ')[0]},\n\nAs we did not receive your acceptance by the deadline, your offer has now expired and the place has been released. If you would still like to join us, please contact us${contact ? ` at ${contact}` : ''} and we will do our best to help.\n\nKind regards,\n${school}`, tenantId);
+            await textApplicant(tenantId, a, 'your offer has now expired and the place has been released. If you would still like to join us, please contact us.', 'offer_expired').catch(() => null);
             if (a.cohortId) await promoteWaitlist(tenantId, a.cohortId, origin);
             out.expired++;
           } else if (left < 2 * DAY && !a.offer.remindedAt) {
             await d.ref.set({ offer: { ...a.offer, remindedAt: new Date().toISOString() } }, { merge: true });
             const { school } = await context(tenantId, a);
-            await sendEmail(a.email, `Reminder: accept your place by ${niceDate(a.offer.expiresAt)} — ${school}`, `Hi ${String(a.name).split(' ')[0]},\n\nJust a reminder that your offer to join us is open until ${niceDate(a.offer.expiresAt)}. You can accept (or let us know you won’t be joining) on your application page:\n\n${await linkFor(tenantId, a.id, origin)}\n\n— ${school}`, tenantId);
-            await textApplicant(tenantId, a, `reminder — please accept your place by ${niceDate(a.offer.expiresAt)} (see your email).`, 'offer_reminder').catch(() => null);
+            await sendEmail(a.email, `Reminder: accept your place by ${niceDate(a.offer.expiresAt)} — ${school}`, `Hi ${String(a.name).split(' ')[0]},\n\nThis is a friendly reminder that your offer to join us is open until ${niceDate(a.offer.expiresAt)}. You can accept your place, or let us know you will not be joining, on your application page:\n\n${await linkFor(tenantId, a.id, origin)}\n\nKind regards,\n${school}`, tenantId);
+            await textApplicant(tenantId, a, `this is a reminder to accept your place by ${niceDate(a.offer.expiresAt)}. Please see your email for details.`, 'offer_reminder').catch(() => null);
             out.reminded++;
           }
         }
@@ -253,7 +253,7 @@ export async function admissionsDaily(originFor: (t: any) => string) {
           if (missing.length && (a.docsNudges || 0) < 3 && now - last > 4 * DAY) {
             await d.ref.set({ docsNudges: (a.docsNudges || 0) + 1, docsNudgedAt: new Date().toISOString() }, { merge: true });
             const { school } = await context(tenantId, a);
-            await sendEmail(a.email, `Your application — a few documents to go — ${school}`, `Hi ${String(a.name).split(' ')[0]},\n\nYour application is waiting on: ${missing.join(', ')}. Once they’re uploaded, our admissions team can review your application.\n\n${await linkFor(tenantId, a.id, origin)}\n\n— ${school}`, tenantId);
+            await sendEmail(a.email, `Your application: a few documents are still needed — ${school}`, `Hi ${String(a.name).split(' ')[0]},\n\nThank you for your application. We are still waiting on the following documents: ${missing.join(', ')}. Once they have been uploaded, our admissions team will be able to review your application.\n\n${await linkFor(tenantId, a.id, origin)}\n\nKind regards,\n${school}`, tenantId);
             out.nudged++;
           }
         }

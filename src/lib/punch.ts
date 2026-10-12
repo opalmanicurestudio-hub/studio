@@ -29,10 +29,10 @@ export function punchState(punches: any[], tenant: any, now = Date.now()): Punch
 /** Can this punch happen now? null = yes, else the reason (plain words for the person at the clock). */
 export function punchProblem(action: PunchAction, st: PunchState, name = 'You'): string | null {
   const hm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '');
-  if (action === 'clock_in' && st.clockedIn) return `${name} clocked in at ${hm(st.since)} and hasn’t clocked out.`;
-  if (action !== 'clock_in' && !st.clockedIn) return st.forgotten ? `${name}’s last shift has no clock-out — a manager needs to fix it on Timesheets first.` : `${name} isn’t clocked in.`;
-  if (action === 'break_start' && st.onBreak) return `${name} has been on a break since ${hm(st.breakSince)}.`;
-  if (action === 'break_end' && !st.onBreak) return `${name} isn’t on a break.`;
+  if (action === 'clock_in' && st.clockedIn) return `${name} ${name === 'You' ? 'are' : 'is'} already clocked in (since ${hm(st.since)}).`;
+  if (action !== 'clock_in' && !st.clockedIn) return st.forgotten ? `${name === 'You' ? 'Your' : `${name}’s`} last shift has no clock-out recorded. A manager needs to correct it in Timesheets first.` : `${name} ${name === 'You' ? 'are' : 'is'} not clocked in.`;
+  if (action === 'break_start' && st.onBreak) return `${name} ${name === 'You' ? 'have' : 'has'} been on a break since ${hm(st.breakSince)}.`;
+  if (action === 'break_end' && !st.onBreak) return `${name} ${name === 'You' ? 'are' : 'is'} not on a break.`;
   return null;
 }
 
@@ -42,20 +42,20 @@ export function punchProblem(action: PunchAction, st: PunchState, name = 'You'):
  */
 export async function recordPunch(db: any, input: { tenantId: string; staffId: string; action: PunchAction; via: string; geo?: { verified?: boolean; warnOnly?: boolean; coords?: any }; actor?: { id?: string; name?: string } ; now?: number }): Promise<{ ok: true; state: PunchState; message: string; note?: string | null } | { ok: false; error: string; state?: PunchState }> {
   const { tenantId, staffId, action } = input; const T = `tenants/${tenantId}`; const now = input.now ?? Date.now(); const iso = new Date(now).toISOString();
-  if (!['clock_in', 'clock_out', 'break_start', 'break_end'].includes(action)) return { ok: false, error: 'Unknown punch.' };
+  if (!['clock_in', 'clock_out', 'break_start', 'break_end'].includes(action)) return { ok: false, error: 'This time clock action is not recognized.' };
   const [tSnap, sSnap] = await Promise.all([db.doc(T).get(), db.doc(`${T}/staff/${staffId}`).get()]);
-  if (!sSnap.exists) return { ok: false, error: 'Team member not found.' };
+  if (!sSnap.exists) return { ok: false, error: 'We could not find this team member.' };
   const tenant: any = tSnap.data() || {}; const staff: any = sSnap.data() || {}; const name = String(staff.name || 'Team member').split(' ')[0];
-  if (staff.isRenter === true || staff.role === 'renter') return { ok: false, error: 'Renters don’t use the time clock.' };
+  if (staff.isRenter === true || staff.role === 'renter') return { ok: false, error: 'Booth renters do not use the time clock.' };
   if (staff.archived === true || staff.status === 'archived') return { ok: false, error: 'This team member is archived.' };
   // Recent punches (eight days back: any open shift, and this workweek's hours for the overtime warning)
   const recent = (await db.collection(`${T}/activityLogs`).where('timestamp', '>=', new Date(now - 8 * 86400000).toISOString()).get()).docs
     .map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((p: any) => p.staffId === staffId);
   const st = punchState(recent, tenant, now); const problem = punchProblem(action, st, name);
   if (problem) return { ok: false, error: problem, state: st };
-  if (action === 'clock_in' && tenant.blockClockInOnExpiredLicense && staff.compliance?.licenseExpiry && Date.parse(staff.compliance.licenseExpiry) < now) return { ok: false, error: `${name}’s licence has expired — see a manager.` };
+  if (action === 'clock_in' && tenant.blockClockInOnExpiredLicense && staff.compliance?.licenseExpiry && Date.parse(staff.compliance.licenseExpiry) < now) return { ok: false, error: `${name}’s license has expired. Please speak with a manager.` };
   if (action === 'clock_out' && Number(tenant.minimumShiftMinutes) > 0 && st.since && (now - Date.parse(st.since)) / 60000 < Number(tenant.minimumShiftMinutes)) {
-    const left = Math.ceil(Number(tenant.minimumShiftMinutes) - (now - Date.parse(st.since)) / 60000); return { ok: false, error: `${left} more minute${left === 1 ? '' : 's'} before ${name} can clock out (minimum shift).` };
+    const left = Math.ceil(Number(tenant.minimumShiftMinutes) - (now - Date.parse(st.since)) / 60000); return { ok: false, error: `${name} can clock out in ${left} more minute${left === 1 ? '' : 's'}, as the minimum shift length has not been reached.` };
   }
 
   // Against the published shift (late / early / no shift)
@@ -64,7 +64,7 @@ export async function recordPunch(db: any, input: { tenantId: string; staffId: s
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: tenant.timezone || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(st.since && action === 'clock_out' ? Date.parse(st.since) : now));
     const shifts = (await db.collection(`${T}/shifts`).where('staffId', '==', staffId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
     note = shiftNote(action, now, shifts, day, tenant);
-    if (action === 'clock_in' && note && /^early:/.test(note) && tenant.earlyClockInMinutes != null && tenant.earlyClockInMinutes !== '') return { ok: false, error: `Too early — ${name}’s shift hasn’t started yet. Clock in closer to the start, or ask a manager.` };
+    if (action === 'clock_in' && note && /^early:/.test(note) && tenant.earlyClockInMinutes != null && tenant.earlyClockInMinutes !== '') return { ok: false, error: `It is too early to clock in. ${name}’s shift has not started yet. Please clock in closer to the start time, or ask a manager.` };
   }
 
   // Required break: clocking out after a long shift with no proper break is noted for a manager.
@@ -73,18 +73,18 @@ export async function recordPunch(db: any, input: { tenantId: string; staffId: s
   if (action === 'clock_out' && needBreakH > 0 && st.since) {
     const open = sessionsFrom(recent, clockPolicy(tenant, now)).find((x) => x.inAt === st.since);
     const elapsedH = (now - Date.parse(st.since)) / 3600000; const longest = open ? open.breakMinutes : 0;
-    if (elapsedH > needBreakH && longest < Math.max(1, minBreak)) { const msg = `no break: ${elapsedH.toFixed(1)}h shift without a ${minBreak || 'proper'}${minBreak ? '-minute' : ''} break`; note = note ? `${note}; ${msg}` : msg; notices.push(`${staff.name || 'A team member'} worked a ${elapsedH.toFixed(1)}-hour shift without a break.`); }
+    if (elapsedH > needBreakH && longest < Math.max(1, minBreak)) { const msg = `no break: ${elapsedH.toFixed(1)}h shift without a ${minBreak || 'proper'}${minBreak ? '-minute' : ''} break`; note = note ? `${note}; ${msg}` : msg; notices.push(`Please note: ${staff.name || 'A team member'} worked a ${elapsedH.toFixed(1)}-hour shift without a recorded break.`); }
   }
   // Late clock-in that a manager must approve
   const lateApproval = action === 'clock_in' && !!note && /^late:/.test(note) && tenant.requireManagerOverrideForLateClockIn === true;
-  if (lateApproval) notices.push(`${staff.name || 'A team member'} clocked in ${note!.replace(/^late:\s*/, '')} — approve it on Timesheets.`);
+  if (lateApproval) notices.push(`Action needed: ${staff.name || 'A team member'} clocked in ${note!.replace(/^late:\s*/, '')}. Please review and approve it in Timesheets.`);
   // Close to overtime this workweek
   const alertH = Number(tenant.overtimeAlertHours) || 0;
   if (action === 'clock_in' && alertH > 0) {
     const tz = tenant.timezone || 'America/New_York'; const ws = Number.isInteger(tenant.workweekStartsOn) ? tenant.workweekStartsOn : 1;
     const thisWeek = weekOf(localDay(now, tz), ws); const limit = (Number(tenant.overtimeThresholdHours) || 40) * 60;
     const worked = sessionsFrom(recent, clockPolicy(tenant, now)).filter((x) => x.weekStart === thisWeek).reduce((a, x) => a + x.workedMinutes, 0);
-    if (worked >= limit - alertH * 60) notices.push(`${staff.name || 'A team member'} has worked ${(worked / 60).toFixed(1)} hours this week — overtime starts after ${limit / 60}.`);
+    if (worked >= limit - alertH * 60) notices.push(`Please note: ${staff.name || 'A team member'} has worked ${(worked / 60).toFixed(1)} hours this week. Overtime begins after ${limit / 60} hours.`);
   }
 
   const batch = db.batch(); const logs = db.collection(`${T}/activityLogs`);
@@ -108,7 +108,7 @@ export async function recordPunch(db: any, input: { tenantId: string; staffId: s
   batch.set(a, { action: `timeclock.${action}`, targetType: 'staff', targetId: staffId, at: iso,
     summary: `${staff.name || 'Team member'} ${LABEL[action]}${input.actor?.id && input.actor.id !== staffId ? ` (by ${input.actor.name || 'a manager'})` : ''} via ${input.via}${extra}${note ? ` — ${note.replace(/^\w+:\s*/, '')}` : ''}`,
     actor: { type: 'user', id: input.actor?.id || staffId, name: input.actor?.name || staff.name || null, via: input.via } });
-  if (entry.breakOverage) notices.push(`${staff.name || 'A team member'} took a ${breakMin}-minute break (the limit is ${tenant.maximumBreakMinutes}).`);
+  if (entry.breakOverage) notices.push(`Please note: ${staff.name || 'A team member'} took a ${breakMin}-minute break. The break limit is ${tenant.maximumBreakMinutes} minutes.`);
   // Each manager (and the owner) gets the notice in their own notifications.
   if (notices.length) {
     const mgrs = (await db.collection(`${T}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs.filter((d: any) => d.data()?.archived !== true).map((d: any) => d.id);

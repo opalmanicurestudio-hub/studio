@@ -27,5 +27,5 @@ ok(gateFields(r, 'block', ['m'], ['rent1']).certifiedStaffIds!.join() === 'm,ren
 ok(gateFields(r, 'warn', ['m']).certifiedStaffIds === null && gateFields(r, 'warn', ['m']).certStaffIds.join() === 'm', 'warn: nothing gated, list kept');
 ok(gateFields(cleanRule({}), 'block', ['m']).certifiedStaffIds === null, 'not required: nothing gated');
 const svc = { name: 'Builder gel', certification: { required: true }, certStaffIds: ['m'] };
-ok(certWarning(svc, 'k', 'Kim Tran') === 'Kim isn’t certified for Builder gel yet.' && certWarning(svc, 'm') === null && certWarning({ name: 'x' }, 'k') === null, 'desk warning');
+ok(certWarning(svc, 'k', 'Kim Tran') === 'Please note: Kim is not yet certified for Builder gel.' && certWarning(svc, 'm') === null && certWarning({ name: 'x' }, 'k') === null, 'desk warning');
 console.log(bad ? `${bad} failed` : 'all passed'); process.exit(bad ? 1 : 0);

@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       const waited = Math.max(1, Math.floor((Date.now() - Date.parse(claimed.requestedAt)) / 60000) || 1);
       const res = await sendTenantSms(
         db, tenantId, to,
-        `${firstName || 'A guest'} has been waiting ${waited} min for ${claimed.itemName}${claimed.stationName ? ` at ${claimed.stationName}` : ''}. Nobody has picked it up.`,
+        `Action needed: ${firstName || 'A guest'} has been waiting ${waited} minutes for ${claimed.itemName}${claimed.stationName ? ` at ${claimed.stationName}` : ''}. This request has not yet been picked up.`,
       );
       return NextResponse.json({ ok: true, sent: res.ok === true });
     }
@@ -110,11 +110,11 @@ export async function POST(req: NextRequest) {
     }
     if (!to) return NextResponse.json({ ok: true, sent: false });
 
-    const who = claimed.bringingOutBy || 'Someone';
+    const who = claimed.bringingOutBy || 'A member of our team';
     const res = await sendTenantSms(
       db, tenantId, to,
-      `${firstName ? `${firstName}, ` : ''}${who} is bringing your ${claimed.itemName} over now.`,
-      { email, subject: 'Your order is on its way over' },
+      `Hi ${firstName || 'there'}, ${who} is bringing your ${claimed.itemName} over to you now.`,
+      { email, subject: 'Your order is on its way to you' },
     );
     return NextResponse.json({ ok: true, sent: res.ok === true });
   } catch (err: any) {

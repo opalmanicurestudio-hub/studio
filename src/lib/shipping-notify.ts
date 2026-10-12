@@ -71,8 +71,10 @@ export function shouldNotify(status: CarrierStatus | null): boolean {
 }
 
 function copyFor(u: CarrierUpdate, shopName: string, firstName: string) {
-  const who = firstName ? `${firstName}, ` : '';
+  const hi = `Hi ${firstName || 'there'},`;
+  const bye = `Kind regards, ${shopName}`;
   const carrier = u.carrier || 'the carrier';
+  const help = 'If you have any questions, please reply to this email.';
 
   switch (u.status) {
     case 'TRANSIT':
@@ -80,48 +82,62 @@ function copyFor(u: CarrierUpdate, shopName: string, firstName: string) {
         title: 'Your order is on its way',
         subject: 'Your order has shipped',
         lines: [
-          `${who}${carrier} has your parcel.`,
-          `Tracking number ${u.trackingNumber}. The tracking page updates as it moves.`,
+          hi,
+          `Thank you for your order. Your order has shipped and is now with ${carrier}.`,
+          `Your tracking number is ${u.trackingNumber}. The tracking page will update as your parcel moves.`,
+          help,
+          bye,
         ],
       };
     case 'OUT_FOR_DELIVERY':
       return {
         title: 'Out for delivery today',
-        subject: 'Out for delivery today',
+        subject: 'Your order is out for delivery today',
         lines: [
-          `${who}your order is on the truck and should arrive today.`,
-          u.location ? `Last scan: ${u.location}.` : '',
-          'If nobody will be home, now is the time to redirect it with the carrier.',
+          hi,
+          'Your order is out for delivery and is expected to arrive today.',
+          u.location ? `Most recent scan: ${u.location}.` : '',
+          'If no one will be available to receive it, you may wish to contact the carrier to redirect your parcel.',
+          help,
+          bye,
         ].filter(Boolean),
       };
     case 'DELIVERED':
       return {
-        title: 'Delivered',
-        subject: 'Your order was delivered',
+        title: 'Your order has been delivered',
+        subject: 'Your order has been delivered',
         lines: [
-          `${who}${carrier} marked your order delivered${u.location ? ` in ${u.location}` : ''}.`,
+          hi,
+          `${carrier.charAt(0).toUpperCase()}${carrier.slice(1)} has marked your order as delivered${u.location ? ` in ${u.location}` : ''}.`,
           u.detail ? `Carrier note: ${u.detail}` : '',
-          'If it is not where you expected, check with anyone else at the address and any safe spot the carrier uses — parcels are often a few feet from where the scan happened.',
-          'Still missing? Tell us within 7 days and we will open a claim with the carrier for you. The sooner you tell us, the more the carrier will look.',
+          'If your parcel is not where you expected, please check with anyone else at the address and any safe place the carrier may use. Parcels are often left a short distance from where they were scanned.',
+          'If you still cannot find it, please let us know within 7 days and we will open a claim with the carrier on your behalf. The sooner we hear from you, the more the carrier is able to do.',
+          bye,
         ].filter(Boolean),
       };
     case 'RETURNED':
       return {
-        title: 'Your order is coming back to us',
+        title: 'Your order is being returned to us',
         subject: 'Your order is being returned to us',
         lines: [
-          `${who}${carrier} is sending this parcel back to us — usually an address problem or nobody available to receive it.`,
-          'Reply to this email or open your order and send us a message with the correct address, and we will get it back out to you.',
+          hi,
+          `${carrier.charAt(0).toUpperCase()}${carrier.slice(1)} is returning your parcel to us. This usually happens because of an address issue or because no one was available to receive it.`,
+          'Please reply to this email, or open your order and send us a message, with the correct address and we will send your order back out to you.',
+          'We apologize for the inconvenience.',
+          bye,
         ],
       };
     case 'FAILURE':
       return {
-        title: 'A delivery problem',
-        subject: 'A problem delivering your order',
+        title: 'An issue with your delivery',
+        subject: 'An issue with the delivery of your order',
         lines: [
-          `${who}${carrier} reported a problem delivering your order.`,
+          hi,
+          `${carrier.charAt(0).toUpperCase()}${carrier.slice(1)} has reported an issue delivering your order.`,
           u.detail ? `Carrier note: ${u.detail}` : '',
-          'We are already looking into it — you do not need to do anything yet.',
+          'We are already looking into this, and there is nothing you need to do at this time. We apologize for the inconvenience.',
+          help,
+          bye,
         ].filter(Boolean),
       };
     case 'DELAYED': {
@@ -129,12 +145,15 @@ function copyFor(u: CarrierUpdate, shopName: string, firstName: string) {
         ? new Date(u.eta).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
         : '';
       return {
-        title: 'Running a little behind',
-        subject: 'Your delivery estimate moved',
+        title: 'An update on your delivery',
+        subject: 'Your delivery estimate has changed',
         lines: [
-          `${who}${carrier} is running behind on this one — your package is still moving, it is just taking longer than first promised.`,
-          etaDate ? `New estimated delivery: ${etaDate}.` : 'The carrier has not committed to a new date yet — the tracking page updates as it moves.',
-          'Nothing is needed from you. If it stops moving entirely, we will take it up with the carrier ourselves.',
+          hi,
+          `${carrier.charAt(0).toUpperCase()}${carrier.slice(1)} has let us know that your parcel is taking longer than first expected. It is still on its way.`,
+          etaDate ? `Your new estimated delivery date is ${etaDate}.` : 'The carrier has not yet confirmed a new delivery date. The tracking page will update as your parcel moves.',
+          'There is nothing you need to do. If your parcel stops moving, we will follow up with the carrier on your behalf.',
+          'We apologize for the delay and appreciate your patience.',
+          bye,
         ].filter(Boolean),
       };
     }
@@ -209,7 +228,7 @@ export async function sendCarrierUpdate(opts: {
     // A read failure must not block a first real send.
   }
 
-  const shopName = String(tenant?.businessName || tenant?.name || 'Your order');
+  const shopName = String(tenant?.businessName || tenant?.name || 'Our team');
   const first = String(order?.customerName || '').split(' ')[0];
   const copy = copyFor(update, shopName, first);
   if (!copy) return { ok: false, reason: 'no_copy_for_status' };
@@ -259,7 +278,7 @@ export async function sendCarrierUpdate(opts: {
     const { sendNotification } = await import('@/lib/notify');
     const r = await sendNotification(db, {
       tenantId, channel: 'email', to,
-      subject: num ? `${copy.subject} — order ${num}` : copy.subject,
+      subject: num ? `${copy.subject} (order ${num})` : copy.subject,
       html,
       kind: update.status === 'DELAYED' ? 'order_delayed' : 'order_shipped',
       recipientType: 'client',

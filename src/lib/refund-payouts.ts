@@ -101,6 +101,9 @@ async function tellDesk(db: any, tenantId: string, tenant: any, type: string, me
   if (urgent) { const { pushNow } = await import('@/lib/push'); await pushNow(db, tenantId); }
 }
 
+/** "Hi Ana, " to open a client text. */
+const hi = (p: any) => `Hi ${p?.clientFirst || 'there'}, `;
+
 async function textClient(db: any, tenantId: string, tenant: any, p: any, body: string, withLink = true): Promise<boolean> {
   try {
     const { sendTenantSms, smsConfigured } = await import('@/lib/sms');
@@ -109,7 +112,7 @@ async function textClient(db: any, tenantId: string, tenant: any, p: any, body: 
     if (!phone && !email) return false; if (!smsConfigured() && !email) return false;
     const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, '');
     const link = withLink && base ? ` ${base}${payoutPath(tenantId, p.id)}` : '';
-    const r: any = await sendTenantSms(db, tenantId, phone, `${body}${link}`, { email, subject: 'Your refund' }, { kind: 'refund', recipientType: 'client', recipientId: p.clientId || null, recipientName: p.clientName || null, appointmentId: p.appointmentId || null } as any);
+    const r: any = await sendTenantSms(db, tenantId, phone, `${body}${link}`, { email, subject: 'An update about your refund' }, { kind: 'refund', recipientType: 'client', recipientId: p.clientId || null, recipientName: p.clientName || null, appointmentId: p.appointmentId || null } as any);
     return !!(r?.ok ?? r?.sent ?? true);
   } catch { return false; }
 }
@@ -174,7 +177,7 @@ export async function createPayout(db: any, tenantId: string, tenant: any, actor
   const markSale = async () => { if (sale) await db.doc(`${T0}/transactions/${sale.id}`).set({ refundPendingId: ref.id }, { merge: true }); };
   if (p.mode === 'client') {
     await ref.set(p); await markSale();
-    const sent = await textClient(db, tenantId, tenant, p, `Hi ${p.clientFirst}, we’re refunding your ${money(amount)}. Choose how you’d like it back here:`);
+    const sent = await textClient(db, tenantId, tenant, p, `${hi(p)}we are refunding ${money(amount)} to you. Please choose how you would like to receive your refund here:`);
     await ref.set({ timeline: FieldValue.arrayUnion(line(actor.name, sent ? 'Texted the client to choose how' : 'Couldn’t text the client — share the link')) }, { merge: true });
     if (c) await db.doc(`${T0}/cases/${c.id}`).set({ payoutId: ref.id, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `Cash refund: client chooses how (${money(amount)})`)) }, { merge: true });
     return { ok: true as const, id: ref.id, sent, link: payoutPath(tenantId, ref.id) };
@@ -195,22 +198,22 @@ async function applyChoice(db: any, tenantId: string, tenant: any, p: any, b: an
     const r = await issueCredit(db, tenantId, p, by); if (!r.ok) return r;
     await ref.set({ method: 'credit', status: 'credited', creditedAt: now(), updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `${money(p.amountCents)} added as store credit`)) }, { merge: true });
     await settle(db, tenantId, tenant, p, 'Store credit', by);
-    await textClient(db, tenantId, tenant, p, `${money(p.amountCents)} is now credit on your account for your next visit.`, false);
-    if (byClient) await tellDesk(db, tenantId, tenant, 'refund_choice', `${p.clientFirst} took ${money(p.amountCents)} as store credit — done.`, p.id);
+    await textClient(db, tenantId, tenant, p, `${hi(p)}${money(p.amountCents)} has been added as credit to your account for your next visit.`, false);
+    if (byClient) await tellDesk(db, tenantId, tenant, 'refund_choice', `${p.clientFirst} has chosen to receive their ${money(p.amountCents)} refund as store credit. No further action is needed.`, p.id);
     return { ok: true as const, status: 'credited' };
   }
   if (isApp(m)) {
     const handle = String(b.handle || '').trim().slice(0, 80); const accountName = String(b.accountName || '').trim().slice(0, 80);
     if (!handle) { await ref.set({ method: m, status: 'choose', updatedAt: now() }, { merge: true }); return { ok: true as const, status: 'needs_details' }; }
     await ref.set({ method: m, status: 'to_send', app: { handle, accountName: accountName || null, confirmedAt: byClient ? now() : null }, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `${PAY_APPS[m].label}: ${handle}${accountName ? ` (${accountName})` : ''}${byClient ? ' — confirmed by the client' : ''}`)) }, { merge: true });
-    await tellDesk(db, tenantId, tenant, 'refund_choice', `Send ${p.clientFirst}’s ${money(p.amountCents)} refund by ${PAY_APPS[m].label}.`, p.id);
-    if (!byClient) await textClient(db, tenantId, tenant, p, `We’ll send your ${money(p.amountCents)} refund by ${PAY_APPS[m].label} to ${handle}. If that’s not right, tell us here:`);
+    await tellDesk(db, tenantId, tenant, 'refund_choice', `Action needed: Please send ${p.clientFirst}’s ${money(p.amountCents)} refund by ${PAY_APPS[m].label}.`, p.id);
+    if (!byClient) await textClient(db, tenantId, tenant, p, `${hi(p)}we will send your ${money(p.amountCents)} refund by ${PAY_APPS[m].label} to ${handle}. If these details are not correct, please let us know here:`);
     return { ok: true as const, status: 'to_send' };
   }
   // pickup
   const w = b.pickup; if (!w?.date || !w?.start) {
     await ref.set({ method: 'pickup', status: 'pickup_time', updatedAt: now() }, { merge: true });
-    if (!byClient) await textClient(db, tenantId, tenant, p, `Hi ${p.clientFirst}, your ${money(p.amountCents)} refund will be ready to pick up at the front desk. Choose a time here:`);
+    if (!byClient) await textClient(db, tenantId, tenant, p, `${hi(p)}your ${money(p.amountCents)} refund will be ready to pick up at the front desk. Please choose a pickup time here:`);
     return { ok: true as const, status: 'pickup_time' };
   }
   return bookPickup(db, tenantId, tenant, { ...p, method: 'pickup' }, w, by, byClient);
@@ -218,20 +221,20 @@ async function applyChoice(db: any, tenantId: string, tenant: any, p: any, b: an
 
 async function bookPickup(db: any, tenantId: string, tenant: any, p: any, w: any, by: string, byClient: boolean) {
   const wins = await pickupWindows(db, tenantId, tenant); const hit = wins.find((x) => x.date === String(w.date) && x.start === String(w.start));
-  if (!hit) return { ok: false as const, error: 'That time isn’t available any more — pick another.' };
+  if (!hit) return { ok: false as const, error: 'We are sorry, but that time is no longer available. Please choose another time.' };
   const tz = tenantTimeZone(tenant); const startAt = wallToUtc(hit.date, Number(hit.start.slice(0, 2)), Number(hit.start.slice(3, 5)), tz).toISOString(); const endAt = wallToUtc(hit.date, Number(hit.end.slice(0, 2)), Number(hit.end.slice(3, 5)), tz).toISOString();
   const code = (await codeOf(db, tenantId, p.id)) || String(randomInt(0, 10000)).padStart(4, '0'); await codeRef(db, tenantId, p.id).set({ code, at: now() }); const when = `${hit.dayLabel === 'Today' || hit.dayLabel === 'Tomorrow' ? hit.dayLabel.toLowerCase() : hit.dayLabel} ${windowLabel(hit)}`;
   await db.doc(`${T(tenantId)}/refundPayouts/${p.id}`).set({ method: 'pickup', status: 'scheduled', pickup: { date: hit.date, start: hit.start, end: hit.end, startAt, endAt }, trip: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Pickup booked: ${when}`)) }, { merge: true });
-  await textClient(db, tenantId, tenant, p, `Your ${money(p.amountCents)} refund will be ready at the front desk ${when}. Your pickup code is ${code}. Details:`);
+  await textClient(db, tenantId, tenant, p, `${hi(p)}your ${money(p.amountCents)} refund will be ready at the front desk ${when}. Your pickup code is ${code}. You can view the details here:`);
   if (byClient) await tellDesk(db, tenantId, tenant, 'refund_choice', `${p.clientFirst} will pick up their ${money(p.amountCents)} refund ${when}.`, p.id);
   return { ok: true as const, status: 'scheduled', code };
 }
 
 /** What the client's page shows. */
 export async function publicView(db: any, tenantId: string, id: string, k: string) {
-  if (!k || k !== payoutKey(tenantId, id)) return { ok: false as const, error: 'This link isn’t valid.' };
+  if (!k || k !== payoutKey(tenantId, id)) return { ok: false as const, error: 'We are sorry, but this link is not valid.' };
   const [ts, ps] = await Promise.all([db.doc(T(tenantId)).get(), db.doc(`${T(tenantId)}/refundPayouts/${id}`).get()]);
-  if (!ts.exists || !ps.exists) return { ok: false as const, error: 'We couldn’t find this refund.' };
+  if (!ts.exists || !ps.exists) return { ok: false as const, error: 'We are sorry, but we could not find this refund.' };
   const tenant: any = ts.data(); const p: any = ps.data(); const C = settingsOf(tenant).cashRefund;
   const needsWindows = ['choose', 'pickup_time'].includes(p.status) || (p.status === 'scheduled' && !p.prep?.tillAt);
   return { ok: true as const, brand: { name: tenant.name || tenant.businessName || '', accent: brandAccent(tenant), logo: brandLogo(tenant), address: tenant.studioAddress || null },
@@ -244,30 +247,30 @@ export async function publicView(db: any, tenantId: string, id: string, k: strin
 
 /** What the client can do from their page. */
 export async function clientAct(db: any, tenantId: string, id: string, k: string, b: any) {
-  if (!k || k !== payoutKey(tenantId, id)) return { ok: false as const, error: 'This link isn’t valid.' };
+  if (!k || k !== payoutKey(tenantId, id)) return { ok: false as const, error: 'We are sorry, but this link is not valid.' };
   const ref = db.doc(`${T(tenantId)}/refundPayouts/${id}`); const [ts, ps] = await Promise.all([db.doc(T(tenantId)).get(), ref.get()]);
-  if (!ps.exists) return { ok: false as const, error: 'We couldn’t find this refund.' };
+  if (!ps.exists) return { ok: false as const, error: 'We are sorry, but we could not find this refund.' };
   const tenant: any = ts.data() || {}; const p: any = { id, ...ps.data() }; const C = settingsOf(tenant).cashRefund; const who = p.clientFirst || 'Client';
-  if (['handed', 'sent', 'credited', 'cancelled'].includes(p.status)) return { ok: false as const, error: 'This refund is already finished.' };
+  if (['handed', 'sent', 'credited', 'cancelled'].includes(p.status)) return { ok: false as const, error: 'This refund has already been completed.' };
   switch (String(b.action)) {
     case 'choose': {
-      if (p.prep?.tillAt) return { ok: false as const, error: 'Your envelope is already being prepared — reply to our text to change it.' };
+      if (p.prep?.tillAt) return { ok: false as const, error: 'Your refund is already being prepared. To make a change, please reply to our text message.' };
       return applyChoice(db, tenantId, tenant, p, { method: b.method, handle: b.handle, accountName: b.accountName, pickup: b.pickup }, who, true);
     }
     case 'book': {
-      if (p.method !== 'pickup') return { ok: false as const, error: 'Choose cash pickup first.' };
-      if (p.prep?.tillAt) return { ok: false as const, error: 'Your envelope is already being prepared — reply to our text to change the time.' };
+      if (p.method !== 'pickup') return { ok: false as const, error: 'Please choose cash pickup first.' };
+      if (p.prep?.tillAt) return { ok: false as const, error: 'Your refund is already being prepared. To change the time, please reply to our text message.' };
       return bookPickup(db, tenantId, tenant, p, b.pickup || {}, who, true);
     }
     case 'change': {
-      if (p.prep?.tillAt) return { ok: false as const, error: 'Your envelope is already being prepared — reply to our text to change it.' };
+      if (p.prep?.tillAt) return { ok: false as const, error: 'Your refund is already being prepared. To make a change, please reply to our text message.' };
       await ref.set({ status: 'choose', method: null, pickup: null, trip: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(who, 'Wants to change how they get it')) }, { merge: true }); return { ok: true as const };
     }
     case 'on_way': {
       if (!C.onTheWay || !['scheduled', 'on_way'].includes(p.status)) return { ok: false as const, error: 'Not available.' };
       const eta = Math.min(120, Math.max(1, Math.round(Number(b.etaMin) || 15))); const live = C.liveLocation && b.live === true;
       await ref.set({ status: 'on_way', trip: { at: now(), etaMin: eta, live, distanceMi: null, updatedAt: now(), nearAt: null, until: new Date(Date.now() + 60 * 60000).toISOString() }, updatedAt: now(), timeline: FieldValue.arrayUnion(line(who, `On the way — about ${eta} min${live ? ' (sharing distance)' : ''}`)) }, { merge: true });
-      await tellDesk(db, tenantId, tenant, 'refund_on_way', `${who} is on the way for their ${money(p.amountCents)} refund — about ${eta} min.${p.prep?.sealedAt ? ' Envelope is ready.' : ' Envelope isn’t ready yet.'}`, id, true);
+      await tellDesk(db, tenantId, tenant, 'refund_on_way', `${who} is on the way to collect their ${money(p.amountCents)} refund and will arrive in about ${eta} minutes.${p.prep?.sealedAt ? ' The envelope is ready.' : ' Action needed: The envelope is not ready yet.'}`, id, true);
       return { ok: true as const };
     }
     case 'trip': {
@@ -275,14 +278,14 @@ export async function clientAct(db: any, tenantId: string, id: string, k: string
       if (p.trip.until && Date.now() > Date.parse(p.trip.until)) { await ref.set({ trip: { ...p.trip, live: false } }, { merge: true }); return { ok: true as const, sharing: false }; }
       if (p.trip.updatedAt && Date.now() - Date.parse(p.trip.updatedAt) < 15000) return { ok: true as const, sharing: true, throttled: true, etaMin: p.trip.etaMin, distanceMi: p.trip.distanceMi };
       const lat = Number(b.lat), lng = Number(b.lng); const home = tenant.studioLocation;
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || !home) return { ok: false as const, error: 'Location unavailable.' };
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || !home) return { ok: false as const, error: 'We are unable to access your location at the moment.' };
       // Only how far and how long are kept — never where they are.
       const R = 3958.8, toR = (d: number) => d * Math.PI / 180, dLat = toR(lat - home.lat), dLng = toR(lng - home.lng);
       const h = Math.sin(dLat / 2) ** 2 + Math.cos(toR(home.lat)) * Math.cos(toR(lat)) * Math.sin(dLng / 2) ** 2;
       const mi = Math.round(2 * R * Math.asin(Math.sqrt(h)) * 10) / 10; const eta = mi < 0.1 ? 0 : Math.max(1, Math.round(mi * 1.3 / 0.42));   // road ≈ 1.3× straight, ~25 mph in town
       const near = eta <= 2 && !p.trip.nearAt; const here = mi < 0.1;
       await ref.set({ trip: { ...p.trip, distanceMi: mi, etaMin: eta, updatedAt: now(), ...(near ? { nearAt: now() } : {}), ...(here ? { live: false, arrivedAt: now() } : {}) }, updatedAt: now() }, { merge: true });
-      if (near) await tellDesk(db, tenantId, tenant, 'refund_near', here ? `${who} is here for their refund.` : `${who} is about 2 minutes away for their refund.`, id, true);
+      if (near) await tellDesk(db, tenantId, tenant, 'refund_near', here ? `${who} has arrived to collect their refund.` : `${who} is about 2 minutes away to collect their refund.`, id, true);
       return { ok: true as const, sharing: !here, etaMin: eta, distanceMi: mi };
     }
     case 'stop_trip': await ref.set({ trip: { ...(p.trip || {}), live: false } }, { merge: true }); return { ok: true as const };
@@ -309,7 +312,7 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
       return applyChoice(db, tenantId, tenant, p, { method: b.method, handle: b.handle, accountName: b.accountName, pickup: b.pickup }, by, false);
     case 'note': await ref.set({ noteText: String(b.text || '').slice(0, 1200), updatedAt: now() }, { merge: true }); return { ok: true as const };
     case 'printed': await push({ prep: { ...(p.prep || {}), printedAt: now() } }, 'Printed the envelope slip and note'); return { ok: true as const };
-    case 'resend': { const sent = await textClient(db, tenantId, tenant, p, p.status === 'scheduled' || p.status === 'on_way' ? `Reminder: your ${money(p.amountCents)} refund is ready at the front desk ${windowLabel(p.pickup)}. Pickup code ${await codeOf(db, tenantId, p.id)}.` : `Hi ${p.clientFirst}, here’s the link for your ${money(p.amountCents)} refund:`);
+    case 'resend': { const sent = await textClient(db, tenantId, tenant, p, p.status === 'scheduled' || p.status === 'on_way' ? `${hi(p)}this is a reminder that your ${money(p.amountCents)} refund is ready at the front desk ${windowLabel(p.pickup)}. Your pickup code is ${await codeOf(db, tenantId, p.id)}.` : `${hi(p)}here is the link for your ${money(p.amountCents)} refund:`);
       await push({}, sent ? 'Texted the client the link again' : 'Couldn’t text the client'); return { ok: true as const, sent, link: payoutPath(tenantId, p.id) }; }
     case 'till': {
       if (p.method !== 'pickup' || !['scheduled', 'on_way'].includes(p.status)) return { ok: false as const, error: 'Book a pickup time first.' };
@@ -350,7 +353,7 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
       if (!signatureUrl) return { ok: false as const, error: 'Ask them to sign first.' };
       await push({ status: 'handed', handedAt: now(), handedBy: by, signatureUrl, trip: p.trip ? { ...p.trip, live: false } : null }, `Handed ${money(p.amountCents)} to ${p.clientFirst} — code matched, signed`);
       await settle(db, tenantId, tenant, p, 'Cash', by);
-      await textClient(db, tenantId, tenant, p, `Thanks for coming in, ${p.clientFirst}. Your ${money(p.amountCents)} refund was handed to you today.`, false);
+      await textClient(db, tenantId, tenant, p, `${hi(p)}thank you for coming in. This confirms that your ${money(p.amountCents)} refund was given to you today.`, false);
       return { ok: true as const };
     }
     case 'sent': {
@@ -361,7 +364,7 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
       const refNo = String(b.ref || '').trim().slice(0, 60) || null; const label = PAY_APPS[p.method as PayApp].label;
       await push({ status: 'sent', app: { ...(p.app || {}), sentAt: now(), sentBy: by, ref: refNo, proofUrl } }, `Sent ${money(p.amountCents)} by ${label}${refNo ? ` (ref ${refNo})` : ''}`);
       await settle(db, tenantId, tenant, { ...p, app: { ...(p.app || {}), ref: refNo } }, label, by);
-      await textClient(db, tenantId, tenant, p, `We’ve sent your ${money(p.amountCents)} refund by ${label} to ${p.app?.handle}. Thanks for your patience, ${p.clientFirst}.`, false);
+      await textClient(db, tenantId, tenant, p, `${hi(p)}we have sent your ${money(p.amountCents)} refund by ${label} to ${p.app?.handle}. Thank you for your patience.`, false);
       return { ok: true as const };
     }
     case 'cancel': {
@@ -387,7 +390,7 @@ export async function missedPickup(db: any, tenantId: string, tenant: any, p: an
   await ref.set({ missed, status: blocked ? 'choose' : 'pickup_time', method: blocked ? null : 'pickup', pickupBlocked: blocked || !!p.pickupBlocked, pickup: null, trip: null,
     prep: p.prep ? { ...p.prep, tillAt: null, countedBy: null, countedAt: null, sealedAt: null, returnedAt: p.prep.tillAt ? now() : (p.prep.returnedAt || null) } : null,
     updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Missed pickup (${missed})${p.prep?.tillAt ? ' — cash back in the till' : ''}${blocked ? ' — pickup no longer offered' : ''}`)) }, { merge: true });
-  await textClient(db, tenantId, tenant, { ...p, id: p.id }, blocked ? `We missed you for your ${money(p.amountCents)} refund. Choose another way to get it here:` : `We missed you for your ${money(p.amountCents)} refund. Pick a new time here:`);
+  await textClient(db, tenantId, tenant, { ...p, id: p.id }, blocked ? `${hi(p)}we were not able to see you for your ${money(p.amountCents)} refund pickup. Please choose another way to receive it here:` : `${hi(p)}we were not able to see you for your ${money(p.amountCents)} refund pickup. Please choose a new time here:`);
   return { ok: true as const, missed, blocked };
 }
 

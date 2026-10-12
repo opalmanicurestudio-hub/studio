@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   if (st?.renterId) {
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({ id: nRef.id, type: 'renter_review', read: false, createdAt: nowIso, link: '/renters',
-      message: `${name || 'A client'} left ${st.name || 'a renter'} a ${rating}-star review — waiting in their portal to publish.` }).catch(() => null);
+      message: `${name || 'A client'} has left ${st.name || 'a renter'} a ${rating}-star review. It is waiting in their portal to be published.` }).catch(() => null);
   }
   return NextResponse.json({ ok: true });
 }

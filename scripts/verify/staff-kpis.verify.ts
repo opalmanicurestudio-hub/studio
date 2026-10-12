@@ -39,7 +39,7 @@ const db: any = { doc: docRef, collection: coll };
   const when = new Date(Date.now() + 2 * day).toISOString();
   store['tenants/t/appointments/busy'] = { staffId: 'ri', startTime: when, endTime: new Date(Date.parse(when) + 3600e3).toISOString(), status: 'confirmed' };
   let r: any = await bookOneOnOne(db, 't', { staffId: 'boss', name: 'Jessica M' }, { staffId: 'ri', startTime: when, minutes: 30 });
-  ok(!r.ok && /Ri is busy/.test(r.error), 'can’t book over their client');
+  ok(!r.ok && /Ri is not available/.test(r.error), 'can’t book over their client');
   const later = new Date(Date.now() + 3 * day).toISOString();
   r = await bookOneOnOne(db, 't', { staffId: 'boss', name: 'Jessica M' }, { staffId: 'ri', startTime: later, minutes: 30, agenda: [{ text: 'Rebooking 58%', source: 'numbers' }], staffCanAdd: true });
   const id = r.id; ok(r.ok && store[`tenants/t/oneOnOnes/${id}`].status === 'booked', 'booked');

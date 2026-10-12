@@ -153,7 +153,7 @@ export async function GET(req: NextRequest) {
     try {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: new Date().toISOString(), link: '/pos?tab=spaces',
-        message: `Card on file added: ${renter.firstName || ''} ${renter.lastName || ''} (${brand} ····${last4}) — rent auto-collect is ready.` });
+        message: `Card on file added: ${renter.firstName || ''} ${renter.lastName || ''} (${brand} ····${last4}). Automatic rent collection is now ready.` });
     } catch { /* best-effort */ }
 
     return NextResponse.json({ ok: true, cardBrand: brand, cardLast4: last4, studioName, renterFirstName: renter.firstName || '' });

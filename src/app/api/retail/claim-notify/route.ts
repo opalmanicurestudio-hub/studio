@@ -81,15 +81,16 @@ export async function POST(req: NextRequest) {
       const orderLink = origin && reqData.orderId ? `${origin}/shop/${tenantId}/order/${reqData.orderId}` : '';
       const html = brandedEmail(emailBrand, `
         <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
-        <p style="font-size:14px;color:#334155;line-height:1.6">One more thing would help us review your report about <strong>${item}</strong>:</p>
+        <p style="font-size:14px;color:#334155;line-height:1.6">Thank you for your report about <strong>${item}</strong>. To help us complete our review, could you please provide the following information?</p>
         <p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${String(reqData.infoRequestText).replace(/</g, '&lt;')}</p>
-        <p style="font-size:14px;color:#334155;line-height:1.6">You can answer (and add photos) right on your order page \u2014 the review continues as soon as it arrives.</p>
-        ${orderLink ? emailButton(orderLink, 'Answer on my order page', emailBrand) : ''}`,
-        { preheader: 'One more thing to review your report' });
+        <p style="font-size:14px;color:#334155;line-height:1.6">You can reply and add photos on your order page. We will continue our review as soon as we receive your response.</p>
+        ${orderLink ? emailButton(orderLink, 'Reply on my order page', emailBrand) : ''}
+        <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
+        { preheader: 'We need a little more information to review your report' });
       const { sendNotification } = await import('@/lib/notify');
       const r = await sendNotification(db, {
         tenantId, channel: 'email', to: String(reqData.customerEmail).trim(),
-        subject: `One more thing about your report \u2014 ${emailBrand.shopName}`, html,
+        subject: `${emailBrand.shopName}: more information needed for your report`, html,
         kind: 'claim_info_request', recipientType: 'client',
         recipientId: reqData.orderId || null, recipientName: reqData.customerName || null,
       });
@@ -131,24 +132,25 @@ export async function POST(req: NextRequest) {
     const cents = Math.max(0, Number(decision.resolutionCents) || 0);
 
     const bodyHtml = approved
-      ? `<p style="font-size:14px;color:#334155;line-height:1.6">Good news — your report about the ${what} (<strong>${item}</strong>) was approved. A refund of <strong>$${(cents / 100).toFixed(2)}</strong> has been queued and will land back on your card once processed (typically 5–10 business days).</p>`
-      : `<p style="font-size:14px;color:#334155;line-height:1.6">We looked into your report about the ${what} (<strong>${item}</strong>) together with the packing record for your order, and we weren't able to approve it this time.</p>
+      ? `<p style="font-size:14px;color:#334155;line-height:1.6">We are sorry for the trouble with your order, and thank you for your patience. Your report about the ${what} (<strong>${item}</strong>) has been approved. A refund of <strong>$${(cents / 100).toFixed(2)}</strong> has been queued and will be returned to your card once processed, typically within 5 to 10 business days.</p>`
+      : `<p style="font-size:14px;color:#334155;line-height:1.6">Thank you for your report about the ${what} (<strong>${item}</strong>). We have carefully reviewed it alongside the packing record for your order, and we are sorry, but we are unable to approve it at this time.</p>
          ${decision.declineReason ? `<p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${String(decision.declineReason)}</p>` : ''}
-         <p style="font-size:14px;color:#334155;line-height:1.6">If we've got this wrong, you can appeal once from your order page — add anything we should know and a person will look at it again.</p>`;
+         <p style="font-size:14px;color:#334155;line-height:1.6">If you believe we have made an error, you may submit one appeal from your order page. Please include any additional details, and a member of our team will review it again.</p>`;
 
     const html = brandedEmail(emailBrand, `
       <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
       ${bodyHtml}
       ${orderLink ? emailButton(orderLink, approved ? 'View my order' : 'View or appeal', emailBrand) : ''}
+      <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>
       <p style="font-size:12px;color:#94a3b8;line-height:1.6">Order #${String(decision.orderNumber ?? '').padStart(4, '0')} at ${shopName}.</p>`,
-      { preheader: approved ? 'Your report was approved' : 'An update on your report' });
+      { preheader: approved ? 'Your report has been approved' : 'An update on your report' });
 
     const { sendNotification } = await import('@/lib/notify');
     const r = await sendNotification(db, {
       tenantId, channel: 'email', to: String(decision.customerEmail).trim(),
       subject: approved
-        ? `Your report was approved — refund on the way from ${shopName}`
-        : `About your report to ${shopName}`,
+        ? `${shopName}: your report has been approved and your refund is on its way`
+        : `${shopName}: an update on your report`,
       html,
       kind: approved ? 'claim_approved' : 'claim_decision', recipientType: 'client',
       recipientId: decision.orderId || null, recipientName: decision.customerName || null,

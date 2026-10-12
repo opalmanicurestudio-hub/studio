@@ -490,7 +490,7 @@ Keep this link private — you can use it any time to check your status.
         await appendAudit(tenantId, { type: 'admissions.doc_uploaded', by: a.email, summary: `${a.name} uploaded ${key}`, data: { admissionId: a.id, sha256: f.sha256 } });
         if (allIn && ['inquiry', 'tour', 'applied'].includes(a.stage)) {
           await setStage(tenantId, a.id, 'review', 'applicant', 'All documents uploaded — ready for review');
-          await notifyApplicant(tenantId, a, { kind: 'docs_received', origin, subject: 'We have your documents', body: 'Thanks — we’ve received all your documents. Our admissions team will check them and review your application, and we’ll keep you posted by email' + (a.textOk ? ' and text' : '') + '.', sms: 'we have all your documents — your application is now being reviewed.' }).catch(() => null);
+          await notifyApplicant(tenantId, a, { kind: 'docs_received', origin, subject: 'We have received your documents', body: 'Thank you for uploading your documents. We have received everything we need, and our admissions team will now review them along with your application. We will keep you updated by email' + (a.textOk ? ' and text' : '') + '.', sms: 'thank you, we have received all of your documents. Your application is now being reviewed.' }).catch(() => null);
         }
         return NextResponse.json({ ok: true });
       }

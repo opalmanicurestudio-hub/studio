@@ -140,14 +140,14 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
   } catch { /* fallback is a bonus */ }
   if (isPhone && smsConfigured()) {
     const sent = await sendTenantSms(db, tenantId, contact,
-      `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
+      `Your renter portal sign-in code is ${code}. It expires in 10 minutes. If you did not request this code, you can safely ignore this message.`,
       { email: fallbackEmail, subject: 'Your sign-in code' });
     if (sent.ok) {
       const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
       await ref.set({
         id: ref.id, userId: null, read: false, createdAt: new Date().toISOString(),
         type: 'renter_code', link: 'inbox',
-        message: `${name || 'A renter'} signed in to the renter portal — code texted to them automatically.`,
+        message: `${name || 'A renter'} has signed in to the renter portal. Their code was sent to them automatically by text.`,
       });
       return;
     }
@@ -167,14 +167,14 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
       const sent = await sendNotification(db, {
         tenantId, channel: 'email',
         to: (contactIsEmail ? contact.trim() : fallbackEmail) || '',
-        subject: `Your sign-in code — ${studioName}`,
-        text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
+        subject: `Your sign-in code for ${studioName}`,
+        text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. If you did not request this code, you can safely ignore this email.`,
         html: brandedEmailHtml({
           studioName,
           title: 'Your sign-in code',
-          bodyLines: ['Use this code to sign in to your renter portal. It expires in 10 minutes.'],
+          bodyLines: ['Please use this code to sign in to your renter portal. It expires in 10 minutes.'],
           bigCode: code,
-          footerNote: `Didn't request this? You can safely ignore it. Sent by ${studioName}.`,
+          footerNote: `If you did not request this code, you can safely ignore this email. Sent by ${studioName}.`,
         }),
         kind: 'renter_signin_code',
         recipientType: 'renter', recipientName: name || null,
@@ -184,7 +184,7 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
         await nRef.set({
           id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(),
           type: 'renter_code', link: 'inbox',
-          message: `${name || 'A renter'} signed in to the renter portal — code emailed to them automatically.`,
+          message: `${name || 'A renter'} has signed in to the renter portal. Their code was sent to them automatically by email.`,
         });
         return;
       }
@@ -198,7 +198,7 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
     createdAt: new Date().toISOString(),
     type: 'renter_code',
     link: 'inbox',
-    message: `${name || 'A renter'} is signing in to the renter portal and needs their code: ${code} (valid 10 min). ${isPhone ? `Text it to ${contact.trim()}.` : `Send it to ${contact.trim()}.`}`,
+    message: `Action needed: ${name || 'A renter'} is signing in to the renter portal and needs their code: ${code} (valid for 10 minutes). ${isPhone ? `Please text it to ${contact.trim()}.` : `Please send it to ${contact.trim()}.`}`,
   });
 }
 
@@ -678,9 +678,9 @@ async function swapNotify(
         html: brandedEmailHtml({
           studioName,
           title: headline,
-          bodyLines: lines,
+          bodyLines: [`Hi ${String(target.name || '').trim().split(' ')[0] || 'there'},`, ...lines, `Kind regards, ${studioName}`],
           ...(portalUrl ? { cta: { label: 'Open my portal', url: portalUrl } } : {}),
-          footerNote: `Day swaps are between you and the other professional — rent is not affected. Sent by ${studioName}.`,
+          footerNote: `Day swaps are arranged between you and the other professional, and rent is not affected. Sent by ${studioName}.`,
         }),
         kind: 'renter_day_swap',
         recipientType: 'renter', recipientName: target.name || null,
@@ -894,7 +894,7 @@ export async function POST(req: NextRequest) {
       });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
-        message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''} — ${priority} priority${photoUrl ? ' · photo attached' : ''}.` });
+        message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''}. Priority: ${priority}${photoUrl ? ' · photo attached' : ''}.` });
       // Rotation: with auto-assign on, the ticket already has a worker (and
       // they already have a text) before the owner even sees the notification.
       const assigned = await autoAssignTicket(db, tenantId, ref.id, { title, boothName, priority }, req.headers.get('origin') || undefined);
@@ -928,7 +928,7 @@ export async function POST(req: NextRequest) {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
         id: nRef.id, type: 'credential', read: false, createdAt: new Date().toISOString(), link: '/renters',
-        message: `${session.name || 'A renter'} uploaded a renewed ${kind}${expiry ? ` (expires ${expiry})` : ''} — it's on their profile.`,
+        message: `${session.name || 'A renter'} has uploaded a renewed ${kind}${expiry ? ` (expires ${expiry})` : ''}. It is now on their profile.`,
       });
       await logAuditAdmin(db, tenantId, {
         action: 'renter.credential_uploaded', targetType: 'renter', targetId: session.renterId,
@@ -982,7 +982,7 @@ export async function POST(req: NextRequest) {
       }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/maintenance',
-        message: `${session.name || 'Renter'} added to ticket "${t.title}"${note ? `: "${note.slice(0, 120)}"` : ' — photo attached.'}` });
+        message: `${session.name || 'A renter'} has added to the ticket "${t.title}"${note ? `: "${note.slice(0, 120)}"` : '. A photo is attached.'}` });
       return NextResponse.json({ ok: true, photoUrl });
     }
 
@@ -1834,18 +1834,18 @@ export async function POST(req: NextRequest) {
       const winText = whole ? 'the whole day' : `${fmtHM(win.start)}–${fmtHM(win.end)}`;
       await swapNotify(db, tenantId, tenant, other,
         `Day swap request from ${me.name}`,
-        conflictCount > 0 ? 'A swap request you may not be able to take' : 'A day swap is waiting for you',
-        [`${me.name} is offering you ${swapDateLabel(giveDate)}, ${winText}.`,
-         ...(note ? [`They said: “${note}”`] : []),
+        conflictCount > 0 ? 'A swap request you may not be able to accept' : 'A day swap request is waiting for you',
+        [`${me.name} would like to offer you ${swapDateLabel(giveDate)}, ${winText}.`,
+         ...(note ? [`Their message: “${note}”`] : []),
          ...(conflictCount > 0
-           ? [`Heads up: you already have ${conflictCount === 1 ? 'a client' : `${conflictCount} clients`} booked in that window, so you can’t accept as things stand. If you move that booking yourself, the request becomes acceptable on its own.`]
-           : ['Open your portal to accept or decline.']),
-         'Nothing changes until you answer, and your rent is not affected either way.'],
-        `${me.name} wants to swap ${swapDateLabel(giveDate)} (${winText}). Open your portal to accept or decline.`,
+           ? [`Please note: you already have ${conflictCount === 1 ? 'a client' : `${conflictCount} clients`} booked during that time, so you are not able to accept as things stand. If you move that booking yourself, you will then be able to accept the request.`]
+           : ['Please open your portal to accept or decline.']),
+         'Nothing changes until you respond, and your rent is not affected either way.'],
+        `${me.name} would like to swap ${swapDateLabel(giveDate)} (${winText}) with you. Please open your portal to accept or decline.`,
         conflictCount > 0);
 
       await swapTellOwner(db, tenantId,
-        `${me.name} asked ${other.name} to cover ${swapDateLabel(giveDate)}, ${winText} — waiting on ${other.name}.`);
+        `${me.name} has asked ${other.name} to cover ${swapDateLabel(giveDate)}, ${winText}. Waiting for ${other.name} to respond.`);
       await logAuditAdmin(db, tenantId, {
         action: 'renter.swap_requested', targetType: 'renterSwap', targetId: ref.id,
         summary: `${me.name} requested a swap with ${other.name} for ${giveDate} ${win.start}-${win.end}${conflictCount > 0 ? ' (sent despite a booking clash)' : ''}`,
@@ -1887,12 +1887,12 @@ export async function POST(req: NextRequest) {
         await ref.set({ status: 'declined', declineReason: reason, respondedAt: new Date().toISOString() }, { merge: true });
         if (from) {
           await swapNotify(db, tenantId, tenant, from,
-            `${sw.toName} declined the swap`, 'Swap declined',
-            [`${sw.toName} can’t take ${swapDateLabel(sw.giveDate)}, ${winText}. Your day is unchanged and your rent was never affected.`,
+            `${sw.toName} has declined the swap`, 'Swap declined',
+            [`${sw.toName} is not able to take ${swapDateLabel(sw.giveDate)}, ${winText}. Your day is unchanged, and your rent is not affected.`,
              reason === 'never_that_day'
-               ? `They said that day doesn’t work for them generally — worth asking someone else next time.`
-               : 'You can offer it to someone else from your portal.'],
-            `${sw.toName} declined the ${swapDateLabel(sw.giveDate)} swap. Your day is unchanged.`);
+               ? `They mentioned that this day generally does not work for them, so you may wish to ask someone else next time.`
+               : 'You are welcome to offer it to someone else from your portal.'],
+            `${sw.toName} has declined the ${swapDateLabel(sw.giveDate)} swap. Your day is unchanged.`);
         }
         await logAuditAdmin(db, tenantId, {
           action: 'renter.swap_declined', targetType: 'renterSwap', targetId: ref.id,
@@ -1950,15 +1950,15 @@ export async function POST(req: NextRequest) {
       batch.set(ref, { status: 'accepted', respondedAt: new Date().toISOString(), acceptedTakerStart: takerSpan.start, acceptedTakerEnd: takerSpan.end }, { merge: true });
       await batch.commit();
 
-      const both = `${to.name} covers ${swapDateLabel(sw.giveDate)}, ${winText}${giverRest ? `; ${from.name} still works ${fmtHM(giverRest.start)}–${fmtHM(giverRest.end)}` : ''}.`;
+      const both = `${to.name} will cover ${swapDateLabel(sw.giveDate)}, ${winText}${giverRest ? `, and ${from.name} will still work ${fmtHM(giverRest.start)}–${fmtHM(giverRest.end)}` : ''}.`;
       for (const target of [from, to]) {
         await swapNotify(db, tenantId, tenant, target,
-          `Swap confirmed — ${swapDateLabel(sw.giveDate)}`, 'Your swap is confirmed',
-          [both, 'Booking hours have already moved for that window only. Rent is unchanged — a swap trades time, not money.'],
-          `Swap confirmed: ${both}`);
+          `Swap confirmed: ${swapDateLabel(sw.giveDate)}`, 'Your swap is confirmed',
+          [both, 'Booking hours have been updated for that time only. Your rent is unchanged, as a swap trades time, not money.'],
+          `Your swap is confirmed: ${both}`);
       }
       await swapTellOwner(db, tenantId,
-        `${to.name} is covering ${from.name} on ${swapDateLabel(sw.giveDate)}, ${winText}${sw.giveBoothName ? ` (${sw.giveBoothName})` : ''}. Rent unchanged.`);
+        `${to.name} is covering for ${from.name} on ${swapDateLabel(sw.giveDate)}, ${winText}${sw.giveBoothName ? ` (${sw.giveBoothName})` : ''}. Rent is unchanged.`);
       await logAuditAdmin(db, tenantId, {
         action: 'renter.swap_accepted', targetType: 'renterSwap', targetId: ref.id,
         summary: `${to.name} accepted ${from.name}'s swap: ${sw.giveDate} ${win.start}-${win.end} (rent unchanged)`,
@@ -2023,15 +2023,15 @@ export async function POST(req: NextRequest) {
       for (const target of eligible) {
         await swapNotify(db, tenantId, tenant, target,
           `${me.name} is offering ${swapDateLabel(giveDate)}`,
-          'A day is up for grabs',
+          'A day is available to take',
           [`${me.name} is offering ${swapDateLabel(giveDate)}, ${winText}${me.boothName ? ` at ${me.boothName}` : ''}.`,
-           ...(note ? [`They said: “${note}”`] : []),
-           `It goes to whoever takes it first — ${eligible.length === 1 ? 'you are the only one who can' : `${eligible.length} of you can`} take this one.`,
-           'Rent is not affected: a swap trades time, not money.'],
+           ...(note ? [`Their message: “${note}”`] : []),
+           `It will go to whoever accepts it first. ${eligible.length === 1 ? 'You are the only one who can' : `${eligible.length} of you can`} take this one.`,
+           'Your rent is not affected, as a swap trades time, not money.'],
           '', true);
       }
       await swapTellOwner(db, tenantId,
-        `${me.name} offered ${swapDateLabel(giveDate)}, ${winText} to whoever can take it (${eligible.length} asked).`);
+        `${me.name} has offered ${swapDateLabel(giveDate)}, ${winText} to anyone available to take it (${eligible.length} asked).`);
       await logAuditAdmin(db, tenantId, {
         action: 'renter.swap_broadcast', targetType: 'renterSwap', targetId: ref.id,
         summary: `${me.name} offered ${giveDate} ${win.start}-${win.end} to ${eligible.length} eligible providers`,
@@ -2109,15 +2109,15 @@ export async function POST(req: NextRequest) {
         throw e;
       }
 
-      const both = `${to.name} covers ${swapDateLabel(sw0.giveDate)}, ${winText}${giverRest ? `; ${from.name} still works ${fmtHM(giverRest.start)}–${fmtHM(giverRest.end)}` : ''}.`;
+      const both = `${to.name} will cover ${swapDateLabel(sw0.giveDate)}, ${winText}${giverRest ? `, and ${from.name} will still work ${fmtHM(giverRest.start)}–${fmtHM(giverRest.end)}` : ''}.`;
       for (const target of [from, to]) {
         await swapNotify(db, tenantId, tenant, target,
-          `Covered — ${swapDateLabel(sw0.giveDate)}`, 'That day is covered',
-          [both, 'Booking hours have already moved for that window only. Rent is unchanged — a swap trades time, not money.'],
-          `Covered: ${both}`);
+          `Covered: ${swapDateLabel(sw0.giveDate)}`, 'That day is now covered',
+          [both, 'Booking hours have been updated for that time only. Your rent is unchanged, as a swap trades time, not money.'],
+          `That day is now covered: ${both}`);
       }
       await swapTellOwner(db, tenantId,
-        `${to.name} took ${from.name}'s offer for ${swapDateLabel(sw0.giveDate)}, ${winText}${sw0.giveBoothName ? ` (${sw0.giveBoothName})` : ''}. Rent unchanged.`);
+        `${to.name} has taken ${from.name}'s offer for ${swapDateLabel(sw0.giveDate)}, ${winText}${sw0.giveBoothName ? ` (${sw0.giveBoothName})` : ''}. Rent is unchanged.`);
       await logAuditAdmin(db, tenantId, {
         action: 'renter.swap_claimed', targetType: 'renterSwap', targetId: ref.id,
         summary: `${to.name} claimed ${from.name}'s open offer: ${sw0.giveDate} ${win.start}-${win.end} (rent unchanged)`,
@@ -2189,7 +2189,7 @@ export async function POST(req: NextRequest) {
       await notifRef.set({
         id: notifRef.id, userId: null, read: false, createdAt: nowIso,
         type: 'booth_reservation', link: '/pos?tab=spaces',
-        message: `${r.name || 'A renter'} checked in to ${r.boothName || 'their space'} (self check-in).`,
+        message: `${r.name || 'A renter'} has checked in to ${r.boothName || 'their space'} (self check-in).`,
       });
       const needsBalance = (r.balanceDueCents || 0) > 0 && !r.balancePaid;
       return NextResponse.json({
@@ -2261,7 +2261,7 @@ export async function POST(req: NextRequest) {
         await notifRef.set({
           id: notifRef.id, userId: null, read: false, createdAt: now.toISOString(),
           type: 'booth_reservation', link: '/pos?tab=spaces',
-          message: `${r.name || 'A renter'} checked out of ${r.boothName || 'their space'} — ${bits.join(', ')}.`,
+          message: `${r.name || 'A renter'} has checked out of ${r.boothName || 'their space'}: ${bits.join(', ')}.`,
         });
       }
       return NextResponse.json({
@@ -2350,7 +2350,7 @@ export async function POST(req: NextRequest) {
           await apptRef.set({ paidByPackageId: null, paidByPackageName: null, packageCreditRestoredAt: new Date().toISOString() }, { merge: true });
           await evRef.set({ ...base, action: 'restore' });
           const v = await renterVoice(db, tenantId, String(session.renterId || ''));
-          await tell(db, v, { email: a.clientEmail, phone: a.clientPhone, clientId: a.clientId, name: a.clientName }, 'A visit went back on your package', [`${d.reason} You have ${left(used)} visit${left(used) === 1 ? '' : 's'} left on ${purchase.packageName || 'your package'}.`], 'renter_package_credit_restored');
+          await tell(db, v, { email: a.clientEmail, phone: a.clientPhone, clientId: a.clientId, name: a.clientName }, 'A visit has been returned to your package', [`${d.reason} You have ${left(used)} visit${left(used) === 1 ? '' : 's'} remaining on ${purchase.packageName || 'your package'}.`], 'renter_package_credit_restored');
           return `Credit returned to ${a.clientName || 'the client'} — ${d.reason}`;
         }
         if (d.action === 'forfeit') {
@@ -2359,7 +2359,7 @@ export async function POST(req: NextRequest) {
           await apptRef.set({ paidByPackageId: purchase.id, paidByPackageName: purchase.packageName || pkg.name || 'Package', packageForfeitedAt: new Date().toISOString() }, { merge: true });
           await evRef.set({ ...base, action: 'forfeit' });
           const v = await renterVoice(db, tenantId, String(session.renterId || ''));
-          await tell(db, v, { email: a.clientEmail, phone: a.clientPhone, clientId: a.clientId, name: a.clientName }, 'A visit was used from your package', [`${d.reason} You have ${left(used)} visit${left(used) === 1 ? '' : 's'} left on ${purchase.packageName || 'your package'}.`], 'renter_package_credit_forfeited');
+          await tell(db, v, { email: a.clientEmail, phone: a.clientPhone, clientId: a.clientId, name: a.clientName }, 'A visit has been used from your package', [`${d.reason} You have ${left(used)} visit${left(used) === 1 ? '' : 's'} remaining on ${purchase.packageName || 'your package'}.`], 'renter_package_credit_forfeited');
           return `One visit used from ${purchase.packageName || 'their package'} — ${d.reason}`;
         }
         return null;
@@ -2426,7 +2426,7 @@ export async function POST(req: NextRequest) {
         const { sendNotification } = await import('@/lib/notify');
         if (to.includes('@')) {
           await sendNotification(db, { tenantId, channel: 'email', to, subject,
-            html: brandedEmailHtml({ studioName: from, title: subject, bodyLines: lines, footerNote: `Sent by ${from}, renting at ${studio}.` }),
+            html: brandedEmailHtml({ studioName: from, title: subject, bodyLines: [`Hi ${String(a.clientName || '').trim().split(' ')[0] || 'there'},`, ...lines, `Kind regards, ${from}`], footerNote: `Sent by ${from}, renting at ${studio}.` }),
             kind, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null });
         }
         if (phone) {
@@ -2486,7 +2486,7 @@ export async function POST(req: NextRequest) {
       }, { merge: true });
       if (body.tellClient !== false) {
         await tellClient(a, st, 'Your appointment has been cancelled',
-          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} has been cancelled.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Reply or rebook any time.'], 'renter_client_cancelled');
+          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} has been cancelled.${note ? ` ${note}` : ''}`, 'I apologize for any inconvenience. Nothing has been charged. If you have any questions, please reply to this message, and you are welcome to rebook at any time.'], 'renter_client_cancelled');
       }
       return NextResponse.json({ ok: true, creditNote });
     }
@@ -2506,14 +2506,14 @@ export async function POST(req: NextRequest) {
       const note = String(body.note || '').trim().slice(0, 300);
       if (accept) {
         await ref.set({ status: 'confirmed', confirmedAt: nowIso, decidedBy: 'renter', decisionNote: note }, { merge: true });
-        await tellClient(a, st, 'You are booked',
-          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} is confirmed.${note ? ` ${note}` : ''}`, 'See you then — reply here if anything changes.'], 'renter_client_confirmed');
+        await tellClient(a, st, 'Your appointment is confirmed',
+          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} is confirmed.${note ? ` ${note}` : ''}`, 'I look forward to seeing you. If anything changes, please reply to this message.'], 'renter_client_confirmed');
       } else {
         await ref.set({ status: 'cancelled', cancelledAt: nowIso, decidedBy: 'renter',
           cancellationAudit: { actorType: 'studio', actorId: st.id, actorName: st.name || 'Provider', reason: 'request_declined', note, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' } }, { merge: true });
         await settleCredit(a, ref, { by: 'renter', how: 'decline' });
-        await tellClient(a, st, 'About your booking request',
-          [`I can't take your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} — sorry about that.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Pick another time any time.'], 'renter_client_declined');
+        await tellClient(a, st, 'Your booking request',
+          [`Unfortunately, I am unable to take your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)}, and I apologize for the inconvenience.${note ? ` ${note}` : ''}`, 'Nothing has been charged. Please choose another time whenever it suits you.'], 'renter_client_declined');
       }
       return NextResponse.json({ ok: true, status: accept ? 'confirmed' : 'cancelled' });
     }
@@ -2606,7 +2606,7 @@ export async function POST(req: NextRequest) {
       const nowIso = new Date().toISOString();
       await ref.set({ renterLateMinutes: mins, renterLateNotifiedAt: nowIso }, { merge: true });
       await tellClient(a, st, `Running about ${mins} minutes behind`,
-        [`Heads up — I'm running about ${mins} minutes behind for your ${a.renterServiceName || 'appointment'} at ${fmtWhen(a.startTime)}. Sorry for the wait!`, 'No need to reply — see you soon.'], 'renter_client_running_late');
+        [`Please note that I am running about ${mins} minutes behind for your ${a.renterServiceName || 'appointment'} at ${fmtWhen(a.startTime)}. I apologize for the wait.`, 'There is no need to reply. Thank you for your patience, and I look forward to seeing you soon.'], 'renter_client_running_late');
       return NextResponse.json({ ok: true, minutes: mins });
     }
     // ── kpis: timing, by month — what the chair clock adds up to ────────────
@@ -3063,8 +3063,8 @@ export async function POST(req: NextRequest) {
         await mRef.set({ cancelAtPeriodEnd: !immediate, cancelRequestedAt: new Date().toISOString(), cancelRequestedBy: 'renter', ...(immediate ? { status: 'cancelled', endedAt: new Date().toISOString() } : {}) }, { merge: true });
         const { renterVoice, tellClient: tell } = await import('@/lib/renter-comms');
         const v = await renterVoice(db, tenantId, String(session.renterId || ''));
-        await tell(db, v, { email: m.clientEmail, clientId: m.clientId, name: m.clientName }, `About your ${m.membershipName || 'membership'}`,
-          [immediate ? `Your ${m.membershipName || 'membership'} has been ended and you won't be billed again.` : `Your ${m.membershipName || 'membership'} will end on ${m.currentPeriodEnd ? new Date(m.currentPeriodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'your renewal date'} — you keep everything until then, and you won't be billed again.`, 'Thank you for being a member — you can always book as usual.'], 'renter_member_cancelled');
+        await tell(db, v, { email: m.clientEmail, clientId: m.clientId, name: m.clientName }, `Your ${m.membershipName || 'membership'}`,
+          [immediate ? `Your ${m.membershipName || 'membership'} has ended, and you will not be billed again.` : `Your ${m.membershipName || 'membership'} will end on ${m.currentPeriodEnd ? new Date(m.currentPeriodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'your renewal date'}. You will keep all of your benefits until then, and you will not be billed again.`, 'Thank you for being a member. You are always welcome to book as usual.'], 'renter_member_cancelled');
         return NextResponse.json({ ok: true });
       } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Stripe refused that.' }, { status: 500 }); }
     }
@@ -3624,7 +3624,7 @@ export async function POST(req: NextRequest) {
         await dRef.set({ status: 'declined', declinedAt: nowIso, declineNote: note }, { merge: true });
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({ id: nRef.id, type: 'renter_document', read: false, createdAt: nowIso, link: '/renters',
-          message: `${renterName} declined "${d.title}"${note ? `: "${note.slice(0, 120)}"` : ''}.` });
+          message: `${renterName} has declined "${d.title}"${note ? `: "${note.slice(0, 120)}"` : ''}.` });
         const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
         await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, documentId: docId, text: `Declined "${d.title}"${note ? `\n\n${note}` : ''}` });
         await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ renterId: session.renterId, lastAt: nowIso, lastText: `Declined "${d.title}"`, lastDirection: 'inbound', unreadForOwner: true }, { merge: true });
@@ -3675,7 +3675,7 @@ export async function POST(req: NextRequest) {
 
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'renter_document', read: false, createdAt: nowIso, link: '/renters',
-        message: `${renterName} ${d.action === 'acknowledge' ? 'acknowledged' : 'signed'} "${d.title}".${leaseNote}` });
+        message: `${renterName} has ${d.action === 'acknowledge' ? 'acknowledged' : 'signed'} "${d.title}".${leaseNote}` });
       const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
       await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, documentId: docId, signedDocumentId: sRef.id,
         text: `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} "${d.title}" as ${signedName}.` });
@@ -3764,8 +3764,8 @@ export async function POST(req: NextRequest) {
             patch.status = 'cancelled'; patch.cancelledAt = nowIso;
             patch.cancellationAudit = { actorType: 'studio', actorId: st.id, actorName: st.name || renterName, reason: 'closure', note: rec.title, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' };
             cancelled++;
-            await tellClient(a, st, `We have to cancel ${fmtWhen(a.startTime)}`,
-              [`${renterName} here — the studio is unexpectedly closed (${rec.title}), so I have to cancel your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)}. I am so sorry.`, 'Nothing has been charged. As soon as we are back open I would love to get you in — reply here or book again any time.'],
+            await tellClient(a, st, `Your appointment on ${fmtWhen(a.startTime)} has been cancelled`,
+              [`Unfortunately, the studio is unexpectedly closed (${rec.title}), so I have to cancel your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)}. I sincerely apologize for the inconvenience.`, 'Nothing has been charged. As soon as we reopen, I would be glad to see you. Please reply to this message or book again at any time.'],
               'renter_client_cancelled');
           }
           await ref.set(patch, { merge: true });
@@ -3855,7 +3855,7 @@ export async function POST(req: NextRequest) {
       }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'renter_concern', read: false, createdAt: nowIso, link: '/renters',
-        message: `${renterName} raised a concern (${ref}) \u2014 ${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}.` });
+        message: `${renterName} has raised a concern (${ref}): ${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}.` });
       // The receipt. Reference, what we have on file, what happens next.
       const to = String(r.email || '').trim();
       if (to.includes('@')) {
@@ -3866,12 +3866,14 @@ export async function POST(req: NextRequest) {
           const { sendNotification } = await import('@/lib/notify');
           await sendNotification(db, {
             tenantId, channel: 'email', to,
-            subject: `We have your concern \u2014 ${ref}`,
+            subject: `We have received your concern (${ref})`,
             html: brandedEmailHtml({
-              studioName, title: 'Received',
+              studioName, title: 'We have received your concern',
               bodyLines: [
-                `Hi ${r.firstName || 'there'} \u2014 your concern is on file as ${ref} (${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}).`,
-                'Keep that reference; quote it if you follow up. You will see its status in your portal, and every reply we send lands there too.',
+                `Hi ${r.firstName || 'there'},`,
+                `Thank you for raising this with us. Your concern has been recorded under the reference ${ref} (${GRIEVANCE_CATEGORY_LABEL[category as keyof typeof GRIEVANCE_CATEGORY_LABEL]}).`,
+                'Please keep this reference and include it if you follow up. You can see the status of your concern in your portal, and every reply we send will appear there as well.',
+                `Kind regards, ${studioName}`,
               ],
               footerNote: `Sent by ${studioName}.`,
             }),
@@ -3922,7 +3924,7 @@ export async function POST(req: NextRequest) {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
         id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
-        message: `${r.firstName || 'A renter'} ${r.lastName || ''} requested ${type} leave, ${startDate} to ${endDate} \u2014 needs your decision.`.replace(/\s+/g, ' '),
+        message: `Action needed: ${r.firstName || 'A renter'} ${r.lastName || ''} has requested ${type} leave from ${startDate} to ${endDate}. Please approve or decline the request.`.replace(/\s+/g, ' '),
       });
       return NextResponse.json({ ok: true, id: ref.id });
     }
@@ -3950,7 +3952,7 @@ export async function POST(req: NextRequest) {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
         id: nRef.id, type: 'renter_leave', read: false, createdAt: nowIso, link: '/rent',
-        message: `${r.firstName || 'A renter'} asked to use ${days} banked rental day${days === 1 ? '' : 's'} \u2014 approve it to credit their rent.`,
+        message: `Action needed: ${r.firstName || 'A renter'} has asked to use ${days} banked rental day${days === 1 ? '' : 's'}. Please approve the request to credit their rent.`,
       });
       return NextResponse.json({ ok: true, days });
     }
@@ -4005,7 +4007,7 @@ export async function POST(req: NextRequest) {
       await rRef.set({ autopayEnabled: on, autopayChangedAt: nowIso, autopayChangedBy: 'renter' }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'renter_autopay', read: false, createdAt: nowIso, link: '/rent',
-        message: `${r.firstName || 'A renter'} ${r.lastName || ''} turned autopay ${on ? 'on' : 'off'} from their portal.`.replace(/\s+/g, ' ') });
+        message: `${r.firstName || 'A renter'} ${r.lastName || ''} has turned autopay ${on ? 'on' : 'off'} from their portal.`.replace(/\s+/g, ' ') });
       return NextResponse.json({ ok: true, autopayEnabled: on });
     }
 
@@ -4165,7 +4167,7 @@ export async function POST(req: NextRequest) {
       await payNotif.set({
         id: payNotif.id, userId: null, read: false, createdAt: nowIso,
         type: 'rent_paid', link: '/rent',
-        message: `💚 ${renterName} paid $${(totalCents / 100).toFixed(2)} rent online.`,
+        message: `${renterName} has paid $${(totalCents / 100).toFixed(2)} in rent online.`,
       });
       return NextResponse.json({ ok: true, paidCents: totalCents });
     }
@@ -4194,7 +4196,7 @@ export async function POST(req: NextRequest) {
       await nRef.set({
         id: nRef.id, userId: null, read: false, createdAt: nowIso,
         type: 'booth_reservation', link: '/pos?tab=spaces',
-        message: `${r.name || 'A renter'} wants to reschedule ${r.boothName || 'their space'} (${r.startDate})${note ? `: “${note}”` : ''} — use Reschedule on their booking card.`,
+        message: `Action needed: ${r.name || 'A renter'} would like to reschedule ${r.boothName || 'their space'} (${r.startDate})${note ? `: “${note}”` : ''}. Please use Reschedule on their booking card.`,
       });
       return NextResponse.json({ ok: true });
     }

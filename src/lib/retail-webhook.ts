@@ -463,7 +463,7 @@ export async function sendOrderConfirmation(
   }
   if (!origin) return;
 
-  let shopName = 'Your order';
+  let shopName = 'Our team';
   let emailBrand = { shopName: 'Your shop', brandColor: '#16171a' };
   try {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
@@ -498,16 +498,17 @@ export async function sendOrderConfirmation(
 
   const method = String(order.method || 'pickup');
   const nextStep = method === 'ship'
-    ? 'We\u2019ll email tracking as soon as your package ships.'
+    ? 'We will email you your tracking details as soon as your order ships.'
     : method === 'curbside'
-      ? 'We\u2019ll text or email when it\u2019s ready \u2014 tap the link below when you arrive and we\u2019ll bring it out.'
-      : 'We\u2019ll let you know the moment it\u2019s ready for pickup \u2014 your QR code is on the order page.';
+      ? 'We will send you a text or email as soon as your order is ready. When you arrive, please tap the link below and we will bring it out to you.'
+      : 'We will let you know as soon as your order is ready for pickup. Your QR code is on your order page.';
   const pickupNote = order.pickupAt && order.pickupAt !== 'ASAP'
-    ? `<p style="font-size:13px;color:#0f172a">Requested time: <strong>${String(order.pickupAt)}</strong></p>`
+    ? `<p style="font-size:13px;color:#0f172a">Your requested pickup time: <strong>${String(order.pickupAt)}</strong></p>`
     : '';
 
   const emailBody = `
-    <p style="font-size:16px;color:#0f172a;margin:0 0 8px"><strong>Thanks${order.customerName ? `, ${String(order.customerName).split(' ')[0]}` : ''}!</strong> Your order ${num} is confirmed.</p>
+    <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${order.customerName ? String(order.customerName).split(' ')[0] : 'there'},</p>
+    <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Thank you for your order. Your order ${num} is confirmed.</p>
     <p style="font-size:13px;color:#64748b">${nextStep}</p>
     ${pickupNote}
     <table style="width:100%;border-collapse:collapse;margin:16px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">
@@ -521,25 +522,27 @@ export async function sendOrderConfirmation(
       ${creditCents > 0 ? `<tr><td style="font-size:13px;color:#64748b">Order total</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.totalCents)}</td></tr>
       <tr><td style="font-size:13px;color:#0f766e;font-weight:700">Store credit applied</td><td style="font-size:13px;text-align:right;color:#0f766e;font-weight:700">\u2212${money(creditCents)}</td></tr>` : ''}
       <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">${creditCents > 0 ? 'Charged to card' : 'Total paid'}</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(chargedCents)}</td></tr>
-      ${fullCredit ? `<tr><td colspan="2" style="font-size:12px;color:#0f766e;padding-top:2px">Paid in full with store credit \u2014 nothing was charged to a card.</td></tr>` : ''}
+      ${fullCredit ? `<tr><td colspan="2" style="font-size:12px;color:#0f766e;padding-top:2px">This order was paid in full with store credit. Nothing was charged to a card.</td></tr>` : ''}
     </table>
     ${(order.lines || []).some((l: any) => l.digital === true && l.digitalUrl)
       ? `<div style="border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0">
-           <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 8px">Ready now</p>
+           <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 8px">Available now</p>
            ${(order.lines || []).filter((l: any) => l.digital === true && l.digitalUrl).map((l: any) =>
              `<p style="font-size:13px;color:#0f172a;margin:0 0 6px"><a href="${l.digitalUrl}" style="color:#0f172a;font-weight:700">${l.name}</a></p>`).join('')}
-           <p style="font-size:11px;color:#94a3b8;margin:8px 0 0">These links are also on your order page, any time you need them again.</p>
+           <p style="font-size:11px;color:#94a3b8;margin:8px 0 0">These links are also available on your order page whenever you need them.</p>
          </div>`
       : ''}
-    ${emailButton(`${origin}/shop/${tenantId}/order/${orderId}`, 'View my order', emailBrand)}`;
-  const html = brandedEmail(emailBrand, emailBody, { preheader: `Order ${num} confirmed` });
+    ${emailButton(`${origin}/shop/${tenantId}/order/${orderId}`, 'View my order', emailBrand)}
+    <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">If you have any questions, please reply to this email.</p>
+    <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${shopName}</p>`;
+  const html = brandedEmail(emailBrand, emailBody, { preheader: `Your order ${num} is confirmed` });
 
   // Through the mailroom: the confirmation is the one retail email a customer
   // will go looking for, so it has to be findable in the delivery log.
   const { sendNotification } = await import('./notify');
   const r = await sendNotification(db, {
     tenantId, channel: 'email', to,
-    subject: `${shopName} \u2014 order ${num} confirmed`,
+    subject: `${shopName}: your order ${num} is confirmed`,
     html, kind: 'order_confirmation',
     recipientType: 'client', recipientId: orderId, recipientName: order.customerName || null,
   });
@@ -613,8 +616,8 @@ async function sendCartRecovery(
     }
     if (!origin) return;
 
-    let shopName = 'the shop';
-    let emailBrand = { shopName: 'the shop', brandColor: '#16171a' };
+    let shopName = 'our shop';
+    let emailBrand = { shopName: 'our shop', brandColor: '#16171a' };
     let enabled = true;
     try {
       const tSnap = await db.collection('tenants').doc(tenantId).get();
@@ -644,17 +647,18 @@ async function sendCartRecovery(
 
     const recoveryBody = `
       <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
-      <p style="font-size:14px;color:#334155;line-height:1.6">Your cart at <strong>${shopName}</strong> is still saved — checkout timed out before payment went through, and nothing was charged.</p>
+      <p style="font-size:14px;color:#334155;line-height:1.6">Your cart at <strong>${shopName}</strong> has been saved for you. Your checkout session expired before payment was completed, so nothing was charged.</p>
       <table style="border-collapse:collapse;margin:14px 0">${rows}</table>
       ${order?.subtotalCents ? `<p style="font-size:13px;color:#64748b">Subtotal ${money(order.subtotalCents)}</p>` : ''}
       ${emailButton(`${origin}/shop/${tenantId}/checkout`, 'Finish my order', emailBrand)}
-      <p style="font-size:12px;color:#94a3b8;line-height:1.6">Stock isn't held forever, so popular items can sell out. If you already placed this order or changed your mind, just ignore this — you won't hear from us about it again.</p>`;
-    const html = brandedEmail(emailBrand, recoveryBody, { preheader: 'Your cart is still saved — nothing was charged' });
+      <p style="font-size:12px;color:#94a3b8;line-height:1.6">Please note that items are not reserved, and popular items may sell out. If you have already placed this order or have changed your mind, you may disregard this email. We will not contact you about it again.</p>
+      <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${shopName.charAt(0).toUpperCase()}${shopName.slice(1)}</p>`;
+    const html = brandedEmail(emailBrand, recoveryBody, { preheader: 'Your cart has been saved. Nothing was charged.' });
 
     const { sendNotification } = await import('./notify');
     const r = await sendNotification(db, {
       tenantId, channel: 'email', to,
-      subject: `Your cart at ${shopName} is still saved`,
+      subject: `Your cart at ${shopName} has been saved`,
       html, kind: 'cart_recovery',
       recipientType: 'client', recipientId: order?.id || null, recipientName: order?.customerName || null,
     });
@@ -739,7 +743,8 @@ export async function sendStoreCreditEmail(
     </tr>`).join('');
 
   const emailBody = `
-    <p style="font-size:16px;color:#0f172a;margin:0 0 8px"><strong>${first ? `${first}, y` : 'Y'}ou've received store credit.</strong></p>
+    <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${first || 'there'},</p>
+    <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Store credit has been added to your account.</p>
     <div style="border:2px solid #e2e8f0;border-radius:16px;padding:18px;margin:14px 0;text-align:center">
       <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Added to your account</p>
       <p style="font-size:30px;font-weight:800;color:#0f766e;margin:0">${money(args.grantedCents)}</p>
@@ -751,18 +756,19 @@ export async function sendStoreCreditEmail(
         <td style="font-size:16px;font-weight:800;text-align:right;color:#0f172a;padding:8px 0">${money(args.balanceCents)}</td>
       </tr>
     </table>
-    ${args.expiresAt ? `<p style="font-size:12px;color:#64748b;margin:0 0 12px">This credit is good through <strong>${fmtDay(args.expiresAt)}</strong>.</p>` : ''}
+    ${args.expiresAt ? `<p style="font-size:12px;color:#64748b;margin:0 0 12px">This credit is valid through <strong>${fmtDay(args.expiresAt)}</strong>.</p>` : ''}
     ${historyRows ? `<p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:14px 0 4px">Recent activity</p>
     <table style="width:100%;border-collapse:collapse;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">${historyRows}</table>` : ''}
-    <p style="font-size:13px;color:#64748b;margin:14px 0 0">Spend it at checkout \u2014 tick \u201cApply my store credit\u201d under this email address and it comes straight off your total. Use as much or as little as you like; the rest stays on your account.</p>
-    ${origin ? emailButton(`${origin}/shop/${tenantId}/catalog`, 'Browse the shop', emailBrand) : ''}`;
+    <p style="font-size:13px;color:#64748b;margin:14px 0 0">To use your credit, select \u201cApply my store credit\u201d at checkout using this email address, and it will be deducted from your total. You may use as much or as little as you like, and any remaining balance will stay on your account.</p>
+    ${origin ? emailButton(`${origin}/shop/${tenantId}/catalog`, 'Browse the shop', emailBrand) : ''}
+    <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`;
 
-  const html = brandedEmail(emailBrand, emailBody, { preheader: `${money(args.grantedCents)} in store credit added \u2014 balance ${money(args.balanceCents)}` });
+  const html = brandedEmail(emailBrand, emailBody, { preheader: `${money(args.grantedCents)} in store credit has been added. Your balance is ${money(args.balanceCents)}.` });
 
   const { sendNotification } = await import('./notify');
   const r = await sendNotification(db, {
     tenantId, channel: 'email', to,
-    subject: `${emailBrand.shopName} \u2014 ${money(args.grantedCents)} store credit added`,
+    subject: `${emailBrand.shopName}: ${money(args.grantedCents)} in store credit has been added to your account`,
     html, kind: 'store_credit_granted',
     recipientType: 'client', recipientName: args.toName || null,
   });

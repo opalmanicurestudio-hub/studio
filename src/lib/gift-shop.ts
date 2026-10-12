@@ -135,17 +135,17 @@ async function sendBuyerReceipt(db: any, tenantId: string, t: any, o: any, card:
   const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(t, reqOrigin || ''); if (!origin) return;
   const { brandAccent } = await import('@/lib/brand-accent'); const A = brandAccent(t); const biz = o.ownerName ? `${o.ownerName}${t.name ? ` at ${t.name}` : ''}` : t.name || 'us';
   const manage = `${origin}${orderPath(tenantId, o.id)}`; const cardLink = `${origin}${giftPath(tenantId, card.id)}`;
-  const when = o.via === 'me' ? 'It’s yours to give — open it, print it or forward the link.' : sentNow ? `We’ve ${o.via === 'text' ? 'texted' : 'emailed'} it to ${esc(o.recipientName)}.`
-    : o.sendAt ? `It will be ${o.via === 'text' ? 'texted' : 'emailed'} to ${esc(o.recipientName)} on ${new Date(o.sendAt).toLocaleString('en-US', { timeZone: t.timezone || 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` : 'We’ll send it shortly.';
+  const when = o.via === 'me' ? 'The gift card is yours to give. You can open it, print it or forward the link.' : sentNow ? `We have ${o.via === 'text' ? 'texted' : 'emailed'} it to ${esc(o.recipientName)}.`
+    : o.sendAt ? `It will be ${o.via === 'text' ? 'texted' : 'emailed'} to ${esc(o.recipientName)} on ${new Date(o.sendAt).toLocaleString('en-US', { timeZone: t.timezone || 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` : 'We will send it shortly.';
   const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#16171a;max-width:520px;margin:0 auto;padding:24px">
 <p style="font-size:13px;color:#6d7075;margin:0 0 6px">${esc(biz)}</p><h1 style="font-weight:400;font-size:28px;letter-spacing:-.02em;margin:0 0 16px">Thank you, ${esc(String(o.buyerName).split(' ')[0])}</h1>
 <div style="border-radius:18px;background:${A};color:#fff;padding:22px 24px;margin:0 0 18px"><div style="font-size:12px;letter-spacing:.16em;opacity:.8">GIFT CARD${o.line ? ` · ${esc(o.line)}` : ''}</div><div style="font-size:40px;letter-spacing:-.03em;margin:10px 0 6px">${money(o.amountCents)}</div><div style="font-size:14px;opacity:.9">For ${esc(o.recipientName)}</div></div>
-<p style="font-size:15px;line-height:1.55;margin:0 0 18px">${when}</p>
+<p style="font-size:15px;line-height:1.55;margin:0 0 6px">Hi ${esc(String(o.buyerName).split(' ')[0])},</p><p style="font-size:15px;line-height:1.55;margin:0 0 18px">Thank you for purchasing a ${money(o.amountCents)} gift card for ${esc(o.recipientName)}. ${when}</p>
 <p style="margin:0 0 10px"><a href="${manage}" style="display:inline-block;background:#16171a;color:#fff;text-decoration:none;border-radius:999px;padding:12px 22px;font-weight:600;font-size:15px">See or change your gift</a></p>
 ${o.via === 'me' ? `<p style="margin:0 0 18px"><a href="${cardLink}" style="color:#16171a;font-weight:600">Open the gift card</a></p>` : ''}
-<p style="font-size:13px;color:#6d7075;line-height:1.5;margin:18px 0 0">Paid ${money(o.amountCents)} by card. Code ${esc(card.code)}. ${esc(shopSettings(t).rules)}</p></div>`;
+<p style="font-size:13px;color:#6d7075;line-height:1.5;margin:18px 0 18px">Paid ${money(o.amountCents)} by card. Gift card code: ${esc(card.code)}. ${esc(shopSettings(t).rules)}</p><p style="font-size:15px;line-height:1.55;margin:0">Kind regards,<br>${esc(t.name || biz)}</p></div>`;
   const { sendNotification } = await import('@/lib/notify');
-  await sendNotification(db, { tenantId, channel: 'email', to: o.buyerEmail, subject: `Your gift card for ${biz}`, text: `Thank you! Your ${money(o.amountCents)} gift card for ${o.recipientName}. ${when.replace(/<[^>]+>/g, '')} See or change it: ${manage}`, html, kind: 'gift_card_receipt', recipientType: 'client', recipientName: o.buyerName } as any);
+  await sendNotification(db, { tenantId, channel: 'email', to: o.buyerEmail, subject: `Your gift card for ${biz}`, text: `Hi ${String(o.buyerName).split(' ')[0]},\n\nThank you for purchasing a ${money(o.amountCents)} gift card for ${o.recipientName}. ${when.replace(/<[^>]+>/g, '')}\n\nTo view or change your gift, please visit ${manage}\n\nKind regards,\n${t.name || biz}`, html, kind: 'gift_card_receipt', recipientType: 'client', recipientName: o.buyerName } as any);
 }
 
 /** The buyer's private page: what they bought, whether it's been sent, and changes while it hasn't. */
@@ -200,10 +200,12 @@ export async function findMyCards(db: any, tenantId: string, contact: string, re
   if (cards.length) {
     const { linkOrigin } = await import('@/lib/app-origin'); const origin = linkOrigin(t, reqOrigin || ''); const link = origin ? `${origin}${walletPath(tenantId, ck)}` : '';
     const total = cards.reduce((s, g) => s + g.balanceCents, 0);
-    const text = `Your gift card${cards.length > 1 ? 's' : ''} at ${t.name || 'us'}: ${money(total)} to spend.${link ? ` See ${cards.length > 1 ? 'them' : 'it'}: ${link}` : ''}`;
+    const facts = (at: string) => `you have ${money(total)} available on your gift card${cards.length > 1 ? 's' : ''}${at}.${link ? ` To view ${cards.length > 1 ? 'them' : 'it'}, please visit ${link}` : ''}`;
+    const smsText = `As requested, ${facts('')}`;
+    const text = `Hello,\n\nAs requested, ${facts(` at ${t.name || 'us'}`)}\n\nKind regards,\n${t.name || ''}`.trimEnd();
     const { sendNotification } = await import('@/lib/notify');
-    if (ck.startsWith('e:')) await sendNotification(db, { tenantId, channel: 'email', to: ck.slice(2), subject: `Your gift card${cards.length > 1 ? 's' : ''} at ${t.name || 'us'}`, text, html: `<p style="font-size:16px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">${esc(text).replace(esc(link), `<a href="${link}">${esc(link)}</a>`)}</p>`, kind: 'gift_card_find', recipientType: 'client' } as any).catch(() => {});
-    else await sendNotification(db, { tenantId, channel: 'sms', to: ck.slice(2), text, kind: 'gift_card_find', recipientType: 'client' } as any).catch(() => {});
+    if (ck.startsWith('e:')) await sendNotification(db, { tenantId, channel: 'email', to: ck.slice(2), subject: `Your gift card${cards.length > 1 ? 's' : ''} at ${t.name || 'us'}`, text, html: `<p style="font-size:16px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">${esc(text).replace(/\n/g, '<br>').replace(esc(link), `<a href="${link}">${esc(link)}</a>`)}</p>`, kind: 'gift_card_find', recipientType: 'client' } as any).catch(() => {});
+    else await sendNotification(db, { tenantId, channel: 'sms', to: ck.slice(2), text: smsText, kind: 'gift_card_find', recipientType: 'client' } as any).catch(() => {});
   }
   return { ok: true as const };   // the same answer whether or not anything was found
 }
@@ -255,8 +257,8 @@ export async function payDepositWithGiftCard(db: any, tenantId: string, appointm
     if (ap.clientEmail) { const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template'); const { tenantTimeZone } = await import('@/lib/tenant-time'); const { linkOrigin } = await import('@/lib/app-origin');
       const when = ap.startTime ? new Date(ap.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenantTimeZone(t) }) : '';
       const base = linkOrigin(t, reqOrigin || '') || process.env.NEXT_PUBLIC_APP_URL || '';
-      await sendNotification(db, { tenantId, channel: 'email', to: String(ap.clientEmail), kind: 'booking_confirmation', subject: `You're booked — ${service}${when ? `, ${when}` : ''}`,
-        html: brandedEmailHtml({ studioName: t.name || 'Your studio', title: 'You’re booked', bodyLines: [`Thank you — your ${money(cents)} deposit was paid with your gift card and your ${service}${when ? ` on ${when}` : ''} is confirmed.`, `It comes off your total at your visit. ${r.balanceAfter > 0 ? `${money(r.balanceAfter)} is still on your gift card.` : ''}`],
+      await sendNotification(db, { tenantId, channel: 'email', to: String(ap.clientEmail), kind: 'booking_confirmation', subject: `Your appointment is confirmed: ${service}${when ? `, ${when}` : ''}`,
+        html: brandedEmailHtml({ studioName: t.name || 'Your studio', title: 'Your appointment is confirmed', bodyLines: [`Hi ${String(ap.clientName || '').split(' ')[0] || 'there'},`, `Thank you. Your ${money(cents)} deposit has been paid with your gift card, and your ${service}${when ? ` on ${when}` : ''} is confirmed.`, `The deposit will be deducted from your total at your visit.${r.balanceAfter > 0 ? ` ${money(r.balanceAfter)} remains on your gift card.` : ''}`, 'Kind regards,', t.name || 'Your studio'],
           cta: ap.checkInToken && base ? { label: 'View my appointment', url: `${base}/check-in/${ap.checkInToken}` } : undefined }), recipientType: 'client', recipientId: ap.clientId || null, recipientName: ap.clientName || null, appointmentId } as any); }
   } catch { /* the deposit is recorded */ }
   if (ap.replacesAppointmentId) { try { const old: any = (await db.doc(`${T(tenantId)}/appointments/${ap.replacesAppointmentId}`).get()).data();

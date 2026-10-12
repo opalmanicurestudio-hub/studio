@@ -64,7 +64,7 @@ export async function claimNextBatch(
     .filter((o: RetailOrder & { id: string }) => !o.batchId && o.holdUntilRestock !== true)
     .sort((a: RetailOrder, b: RetailOrder) => queuePriority(a) - queuePriority(b));
 
-  if (candidates.length === 0) return { error: 'The queue is empty — nothing to pick.' };
+  if (candidates.length === 0) return { error: 'The queue is empty. There are no orders to pick.' };
 
   // Wave composition: ASAP orders pick solo; ship orders batch together.
   const head = candidates[0];
@@ -103,10 +103,10 @@ export async function claimNextBatch(
       return still.map(({ snap }) => snap.id);
     });
 
-    if (claimed.length === 0) return { error: 'Someone grabbed that order first — tap Take Next again.' };
+    if (claimed.length === 0) return { error: 'Another team member has already claimed that order. Please tap Take Next again.' };
     return { batchId: batchRef.id, orderIds: claimed };
   } catch (e: any) {
-    return { error: e?.message || 'Could not claim — try again.' };
+    return { error: e?.message || 'We could not claim that order. Please try again.' };
   }
 }
 
@@ -144,10 +144,10 @@ export async function claimSpecificOrder(
       }));
       return true;
     });
-    if (!ok) return { error: 'Someone grabbed that order first.' };
+    if (!ok) return { error: 'Another team member has already claimed that order.' };
     return { batchId: batchRef.id };
   } catch (e: any) {
-    return { error: e?.message || 'Could not claim.' };
+    return { error: e?.message || 'We could not claim that order.' };
   }
 }
 
@@ -261,7 +261,7 @@ export async function recordItemScan(
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
       const order = oSnap.data() as RetailOrder;
       if (order.stage !== 'picking') {
-        return { ok: false, message: `Order is ${STAGE_LABELS[order.stage]} — scanning is closed.` };
+        return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]}, so scanning is closed.` };
       }
 
       const { result, lines } = applyScan(order.lines, resolvedValue);
@@ -295,7 +295,7 @@ export async function recordItemScan(
       };
     });
   } catch (e: any) {
-    return { ok: false, message: e?.message || 'Scan failed — try again.' };
+    return { ok: false, message: e?.message || 'The scan did not go through. Please try again.' };
   }
 }
 
@@ -410,8 +410,8 @@ export async function resolveShortLine(
       return {
         ok: true,
         message: resolution === 'refund'
-          ? `Shorted ${qtyShorted} — refund of $${(refundCents / 100).toFixed(2)} queued`
-          : `Shorted ${qtyShorted} — backorder created, parked until restock`,
+          ? `Shorted ${qtyShorted}. A refund of $${(refundCents / 100).toFixed(2)} has been queued.`
+          : `Shorted ${qtyShorted}. A backorder has been created and will be held until the item is restocked.`,
       };
     });
 
@@ -535,7 +535,7 @@ export async function markReady(
       }
       return {
         ok: true, autoArrived: customerWaiting,
-        message: customerWaiting ? 'Customer is already outside — take it out!' : 'On the ready shelf',
+        message: customerWaiting ? 'The customer is already waiting outside. Please bring the order out now.' : 'The order is on the ready shelf.',
         // Text a curbside customer who is NOT already outside: they may still
         // be at home, and "it's ready" is the message that starts the trip.
         notifyReady: order.method === 'curbside' && !customerWaiting,
@@ -617,7 +617,7 @@ export async function markBringingOut(
         return { ok: false, message: 'This order is not waiting to go out.' };
       }
       if ((order.curbside as any)?.bringingOutAt) {
-        return { ok: true, message: 'They already know someone is coming.' };
+        return { ok: true, message: 'The customer has already been told someone is on the way.' };
       }
       txn.update(oRef, {
         curbside: {
@@ -632,7 +632,7 @@ export async function markBringingOut(
       }));
       return {
         ok: true,
-        message: 'They know you\u2019re coming out',
+        message: 'The customer has been told you are on the way out.',
         notify: {
           phone: order.customerPhone || '',
           orderNumber: order.orderNumber,
@@ -662,7 +662,7 @@ export async function handoffByScan(
       if (!['ready', 'arrived'].includes(order.stage)) {
         return {
           ok: false,
-          message: `Order #${order.orderNumber} is ${STAGE_LABELS[order.stage]} — it can't be handed off yet.`,
+          message: `Order #${order.orderNumber} is ${STAGE_LABELS[order.stage]}, so it cannot be handed off yet.`,
         };
       }
 
@@ -676,7 +676,7 @@ export async function handoffByScan(
       return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber };
     });
   } catch (e: any) {
-    return { ok: false, message: e?.message || 'Handoff failed — try again.' };
+    return { ok: false, message: e?.message || 'The handoff did not go through. Please try again.' };
   }
 }
 
@@ -691,7 +691,7 @@ export async function handoffWithoutScan(
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
       const order = { ...(oSnap.data() as RetailOrder), id: orderId };
       if (!['ready', 'arrived'].includes(order.stage)) {
-        return { ok: false, message: `Order is ${STAGE_LABELS[order.stage]} — not ready for handoff.` };
+        return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]} and is not ready for handoff.` };
       }
 
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
@@ -744,7 +744,7 @@ export async function reopenShortedLine(
       if (!line) return { ok: false, message: 'Line not found.' };
       if ((line.qtyShorted || 0) <= 0) return { ok: false, message: `${line.name} is not shorted.` };
       if (line.status === 'backordered') {
-        return { ok: false, message: `${line.name} became a backorder order — cancel that order in the Queue first, then reopen.` };
+        return { ok: false, message: `${line.name} has been moved to a backorder. Please cancel that order in the Queue first, then reopen this line.` };
       }
 
       const qty = line.qtyShorted;
@@ -773,7 +773,7 @@ export async function reopenShortedLine(
       })));
       txn.set(doc(collection(oRef, 'events')), evPayload('line_reopened', actor, { lineId, qty }));
 
-      return { ok: true, message: `${line.name} reopened — scan away.` };
+      return { ok: true, message: `${line.name} has been reopened and is ready to scan.` };
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not reopen.' };
@@ -791,7 +791,7 @@ export async function cancelOrder(
       const order = snap.data() as RetailOrder;
 
       if (['shipped', 'handed_off', 'completed'].includes(order.stage)) {
-        return { ok: false, message: `#${order.orderNumber} already ${order.stage.replace('_', ' ')} — handle it as a return instead.` };
+        return { ok: false, message: `Order #${order.orderNumber} has already been ${order.stage.replace('_', ' ')}. Please handle it as a return instead.` };
       }
       if (['cancelled', 'refunded'].includes(order.stage)) {
         return { ok: false, message: `#${order.orderNumber} is already ${order.stage}.` };
@@ -851,8 +851,8 @@ export async function cancelOrder(
       return {
         ok: true,
         message: pending > 0
-          ? `#${order.orderNumber} cancelled — $${(pending / 100).toFixed(2)} queued for refund.`
-          : `#${order.orderNumber} cancelled.`,
+          ? `Order #${order.orderNumber} has been cancelled. A refund of $${(pending / 100).toFixed(2)} has been queued.`
+          : `Order #${order.orderNumber} has been cancelled.`,
       };
     });
   } catch (e: any) {
@@ -934,7 +934,7 @@ export async function splitReadyFromWaiting(
         l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status)));
       const ready = (order.lines || []).filter((l: any) => !waiting.includes(l));
       if (waiting.length === 0) return { ok: false, message: 'Nothing on this order is waiting.' };
-      if (ready.length === 0) return { ok: false, message: 'Everything here is waiting — nothing to ship yet.' };
+      if (ready.length === 0) return { ok: false, message: 'Every item on this order is still waiting, so there is nothing to ship yet.' };
 
       const childRef = doc(orderCol(fs, tenantId));
       const child = {
@@ -960,7 +960,7 @@ export async function splitReadyFromWaiting(
       txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, {
         text: `Split shipment \u2014 ${ready.length} item(s) ship now, ${waiting.length} pre-order item(s) follow when they land`,
       }));
-      return { ok: true, message: `Split \u2014 ${ready.length} ready now, ${waiting.length} to follow`, childOrderId: childRef.id };
+      return { ok: true, message: `Order split: ${ready.length} ready to ship now, ${waiting.length} to follow.`, childOrderId: childRef.id };
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not split the order.' };

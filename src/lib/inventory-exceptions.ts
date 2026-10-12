@@ -554,7 +554,7 @@ export function lossAnalytics(rows: any[], windowDays = 90, now = Date.now()): L
   }
   const staleFiled = inWin.filter((r) => r.recovery?.status === 'filed' && r.recovery?.filedAt && (now - Date.parse(r.recovery.filedAt)) > 21 * 86400000);
   if (staleFiled.length > 0) {
-    signals.push({ severity: 'info', text: `${staleFiled.length} filed claim${staleFiled.length === 1 ? '' : 's'} older than 21 days with no payment — carriers count on you forgetting; follow up.` });
+    signals.push({ severity: 'info', text: `${staleFiled.length} filed claim${staleFiled.length === 1 ? '' : 's'} older than 21 days with no payment. Please follow up with the carrier.` });
   }
   const supplierEvents = inWin.filter((r) => String(r.reasonGroup) === 'supplier');
   if (supplierEvents.length >= 2) {
@@ -564,7 +564,7 @@ export function lossAnalytics(rows: any[], windowDays = 90, now = Date.now()): L
   const uninsured = inWin.filter((r) => String(r.reasonGroup) === 'carrier' && r.insuredCents === 0);
   const uninsuredLanded = uninsured.reduce((a, r) => a + landedOf(r), 0);
   if (uninsured.length >= 1 && uninsuredLanded >= 2000) {
-    signals.push({ severity: 'warn', text: `${uninsured.length} carrier loss${uninsured.length === 1 ? '' : 'es'} rode UNINSURED (${$(uninsuredLanded)} landed, $20+ threshold) — beyond carrier minimums that money is gone; consider lowering the auto-insure threshold in shipping settings.` });
+    signals.push({ severity: 'warn', text: `${uninsured.length} carrier loss${uninsured.length === 1 ? '' : 'es'} shipped uninsured (${$(uninsuredLanded)} landed, $20+ threshold). Losses beyond carrier minimums cannot be recovered. Consider lowering the auto-insure threshold in shipping settings.` });
   }
   const uncosted = inWin.filter((r) => r.costed === false).length;
   if (uncosted > 0) {

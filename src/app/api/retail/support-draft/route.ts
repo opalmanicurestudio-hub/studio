@@ -85,9 +85,9 @@ export async function POST(req: NextRequest) {
   const urgent = ticket.priority === 'urgent';
   const system = `You draft short customer-service email replies for ${shopName}, a small local shop. Rules:
 - Use ONLY the order facts provided. NEVER invent refunds, dates, discounts, or policies not in the facts.
-- Warm, human, concise (3-6 sentences). First name only. No subject line, no signature block.
+- Professional, warm, courteous and concise (3-6 full sentences). US spelling. No greeting, subject line or signature block (these are added automatically). No slang, no emoji, prefer periods to dashes.
 - If a refund is queued, say it will be processed shortly and typically reaches cards in 5-10 business days.
-${urgent ? '- The customer is upset. Lead by acknowledging their specific frustration sincerely, no corporate speak, no exclamation marks, offer a concrete next step, and do not quote policy at them.' : '- Match the customer\u2019s energy and answer their actual question.'}
+${urgent ? '- The customer is upset. Lead by acknowledging their specific frustration sincerely, no corporate speak, no exclamation marks, offer a concrete next step, and do not quote policy at them.' : '- Answer their actual question clearly and courteously.'}
 - If the message asks for something the facts cannot answer, say the team is checking and will follow up \u2014 do not guess.${flagCoaching}`;
 
   try {

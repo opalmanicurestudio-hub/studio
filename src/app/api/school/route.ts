@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
       if (!/^cs_[A-Za-z0-9_]+$/.test(String(b.sessionId || ''))) return NextResponse.json({ ok: false, error: 'Missing gift.' }, { status: 400 });
       try {
         await sponsorFromGift(tenantId, String(b.sessionId), String(b.logo || ''), String(b.url || ''));
-        await alertSchool(tenantId, t, 'A sponsor added their logo', ['A business donor added their logo for your sponsor wall. It won’t show on your website until you approve it.'], `${origin}/academy?section=funding`);
+        await alertSchool(tenantId, t, 'A sponsor added their logo', ['A business donor has added their logo for your sponsor wall. It will not appear on your website until you approve it.'], `${origin}/academy?section=funding`);
         return NextResponse.json({ ok: true });
       } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || 'Couldn’t save your logo.' }, { status: 400 }); }
     }
@@ -127,20 +127,20 @@ export async function POST(req: NextRequest) {
       await logAuditAdmin(db, tenantId, { action: 'tour.book', targetType: 'tour', targetId: tourRef.id, summary: `School tour ${status === 'confirmed' ? 'booked' : 'requested'} for ${date} at ${time} — ${name}`,
         actor: { type: 'user', name, role: 'visitor', via: 'school website' } }).catch(() => {});
       const nRef = db.collection(`${T}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'school_tour', read: false, createdAt: now, link: '/academy?section=admissions', message: `🎓 School tour ${status === 'confirmed' ? 'booked' : 'requested'}: ${name} — ${date} at ${time}${status === 'requested' ? ' (needs your OK)' : ''}` });
+      await nRef.set({ id: nRef.id, type: 'school_tour', read: false, createdAt: now, link: '/academy?section=admissions', message: `${status === 'requested' ? 'Action needed: ' : ''}${name} has ${status === 'confirmed' ? 'booked' : 'requested'} a school tour on ${niceDate(date, time)}.${status === 'requested' ? ' Please confirm the request.' : ''}` });
       let emailed = false;
       if (okEmail(email)) {
         const confirmed = status === 'confirmed';
-        const html = brandedEmailHtml({ studioName: school, title: confirmed ? 'Your tour is booked' : 'Tour request received',
-          bodyLines: [`Hi ${name.split(' ')[0]} — ${confirmed ? `you’re set for ${niceDate(date, time)}.` : `we got your request for ${niceDate(date, time)} and will confirm shortly.`}`,
-            `The tour takes about ${r.tourDurationMins || 30} minutes: you’ll see the classroom and student clinic, meet an instructor, and can ask anything about programs, costs and funding.`,
-            confirmed ? 'If the time stops working, you can move or cancel it yourself with the button below.' : 'If the time stops working, just reply to this email.'],
+        const html = brandedEmailHtml({ studioName: school, title: confirmed ? 'Your tour is confirmed' : 'Tour request received',
+          bodyLines: [`Hi ${name.split(' ')[0]},`, confirmed ? `Thank you for booking a tour. Your visit is confirmed for ${niceDate(date, time)}.` : `Thank you for your tour request for ${niceDate(date, time)}. We have received it and will confirm shortly.`,
+            `The tour takes about ${r.tourDurationMins || 30} minutes. You will see the classroom and student clinic, meet an instructor, and have the opportunity to ask any questions about our programs, costs and funding.`,
+            confirmed ? 'If this time no longer suits you, you can change or cancel your visit using the button below.' : 'If this time no longer suits you, please reply to this email.', 'Kind regards,', school],
           ...(confirmed ? { cta: { label: 'Change or cancel my visit', url: `${origin}/tour-manage/${tenantId}/${tourRef.id}/${manageToken}` } } : {}),
           footerNote: `Sent by ${school} because you booked a tour on our website.` });
-        const sent = await sendNotification(db, { tenantId, channel: 'email', to: email, subject: confirmed ? `Tour booked — ${niceDate(date, time)}` : `Tour request received — ${niceDate(date, time)}`, html, kind: 'tour_confirmation', recipientType: 'contact', recipientId: tourRef.id, recipientName: name }).catch(() => null);
+        const sent = await sendNotification(db, { tenantId, channel: 'email', to: email, subject: confirmed ? `Your tour is confirmed for ${niceDate(date, time)}` : `Tour request received for ${niceDate(date, time)}`, html, kind: 'tour_confirmation', recipientType: 'contact', recipientId: tourRef.id, recipientName: name }).catch(() => null);
         emailed = sent?.status === 'sent';
       }
-      await alertSchool(tenantId, t, `${status === 'confirmed' ? 'Tour booked' : 'Tour request'}: ${name}`, [`${name} ${status === 'confirmed' ? 'booked' : 'asked for'} a school tour on ${niceDate(date, time)}.`, [email, phone].filter(Boolean).join(' · ')], `${origin}/academy?section=admissions`);
+      await alertSchool(tenantId, t, `${status === 'confirmed' ? 'Tour booked' : 'Tour request'}: ${name}`, [`${name} has ${status === 'confirmed' ? 'booked' : 'requested'} a school tour on ${niceDate(date, time)}.`, [email, phone].filter(Boolean).join(' · ')], `${origin}/academy?section=admissions`);
       return NextResponse.json({ ok: true, status, emailed, when: niceDate(date, time) });
     }
 
@@ -161,10 +161,10 @@ export async function POST(req: NextRequest) {
         await ref.set({ id: ref.id, topic, name, email: email || null, phone: phone || null, contactBy, bestTime: bestTime || null, message, language, status: 'new', createdAt: new Date().toISOString() });
       }
       if (okEmail(email)) {
-        const html = brandedEmailHtml({ studioName: school, title: 'We got your message', bodyLines: [`Hi ${name.split(' ')[0]} — thanks for reaching out about ${TOPICS[topic].toLowerCase()}.`, `We’ll ${contactBy === 'email' ? 'reply by email' : contactBy === 'text' ? 'text you' : 'call you'} within ${hrs} hour${hrs === 1 ? '' : 's'}${bestTime ? ` (you said ${bestTime} works best)` : ''}.`], footerNote: `Sent by ${school} because you contacted us on our website.` });
-        await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `We got your message — ${school}`, html, kind: 'website_inquiry_receipt', recipientType: 'contact', recipientId: tenantId, recipientName: name }).catch(() => null);
+        const html = brandedEmailHtml({ studioName: school, title: 'We have received your message', bodyLines: [`Hi ${name.split(' ')[0]},`, `Thank you for contacting us about ${TOPICS[topic].toLowerCase()}. We have received your message.`, `We will ${contactBy === 'email' ? 'reply by email' : contactBy === 'text' ? 'text you' : 'call you'} within ${hrs} hour${hrs === 1 ? '' : 's'}${bestTime ? `, and we will aim for your preferred time (${bestTime})` : ''}.`, 'Kind regards,', school], footerNote: `Sent by ${school} because you contacted us on our website.` });
+        await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `We have received your message — ${school}`, html, kind: 'website_inquiry_receipt', recipientType: 'contact', recipientId: tenantId, recipientName: name }).catch(() => null);
       }
-      await alertSchool(tenantId, t, `New ${TOPICS[topic].toLowerCase()} question: ${name}`, [`${name} wants to hear back by ${contactBy}${bestTime ? ` (${bestTime})` : ''} — please respond within ${hrs} hours.`, [email, phone].filter(Boolean).join(' · '), message].filter(Boolean), `${origin}/academy?section=${where === 'admissions' ? 'admissions' : 'website'}`);
+      await alertSchool(tenantId, t, `New ${TOPICS[topic].toLowerCase()} question: ${name}`, [`Action needed: ${name} would like a reply by ${contactBy}${bestTime ? ` (${bestTime})` : ''}. Please respond within ${hrs} hours.`, [email, phone].filter(Boolean).join(' · '), message].filter(Boolean), `${origin}/academy?section=${where === 'admissions' ? 'admissions' : 'website'}`);
       return NextResponse.json({ ok: true, respondHours: hrs, contactBy });
     }
     return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });

@@ -78,5 +78,5 @@ export function certWarning(service: any, staffId: string | null | undefined, st
   if (!service || !staffId || !certRuleOf(service).required) return null;
   const ids: string[] = Array.isArray(service.certStaffIds) ? service.certStaffIds : [];
   if (ids.includes(staffId)) return null;
-  return `${String(staffName || 'They').split(' ')[0]} isn’t certified for ${service.name || 'this service'} yet.`;
+  return `Please note: ${staffName ? `${String(staffName).split(' ')[0]} is` : 'this team member is'} not yet certified for ${service.name || 'this service'}.`;
 }

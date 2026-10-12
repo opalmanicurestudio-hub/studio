@@ -97,12 +97,15 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   if (b.reviewId) await db.doc(`${T(tenantId)}/externalReviews/${String(b.reviewId).slice(0, 60)}`).set({ caseId: id }, { merge: true }).catch(() => {});
   if (b.inboxId) await db.doc(`${T(tenantId)}/smsInbox/${String(b.inboxId).slice(0, 60)}`).set({ caseId: id }, { merge: true }).catch(() => {});
   const mgrs = [...staff.filter((s: any) => MANAGERS.includes(String(s.role))).map((s: any) => s.id), tenant.userId].filter(Boolean); const desk = staff.filter((s: any) => s.role === 'front_desk').map((s: any) => s.id);
-  if (renterCase) { if (renter.id !== actor.staffId) await tell(db, tenantId, [renter.id], 'case_new', `${clientName} isn’t happy: ${doc.reasonLabel}. It’s your client — open Client cases to handle it.`, id); return { ok: true as const, id, number }; }
-  if (doc.safety) { await tell(db, tenantId, mgrs, 'case_safety', `Safety: ${clientName} — ${doc.reasonLabel}. A manager is needed now.`, id); if (renter && renter.id !== actor.staffId) await tell(db, tenantId, [renter.id], 'case_yours', `A safety report about ${clientName}'s visit with you — the salon's manager will follow up.`, id); }
-  else await tell(db, tenantId, [...mgrs, ...desk].filter((x) => x !== actor.staffId), 'case_new', `${clientName} isn’t happy: ${doc.reasonLabel}${visit?.providerName ? ` (${visit.providerName.split(' ')[0]})` : ''}.`, id);
-  if (visit?.providerId && visit.providerId !== actor.staffId && !doc.safety) await tell(db, tenantId, [visit.providerId], 'case_yours', `${clientName} wasn’t happy with their visit: ${doc.reasonLabel}. The desk will be in touch.`, id);
+  if (renterCase) { if (renter.id !== actor.staffId) await tell(db, tenantId, [renter.id], 'case_new', `Action needed: ${clientName} has raised a concern (${doc.reasonLabel}). As this is your client, please open Client cases to respond.`, id); return { ok: true as const, id, number }; }
+  if (doc.safety) { await tell(db, tenantId, mgrs, 'case_safety', `Action needed: A safety concern has been reported for ${clientName} (${doc.reasonLabel}). A manager is needed now.`, id); if (renter && renter.id !== actor.staffId) await tell(db, tenantId, [renter.id], 'case_yours', `A safety report has been made about ${clientName}'s visit with you. The business's manager will follow up with you.`, id); }
+  else await tell(db, tenantId, [...mgrs, ...desk].filter((x) => x !== actor.staffId), 'case_new', `Action needed: ${clientName} has raised a concern (${doc.reasonLabel})${visit?.providerName ? ` about a visit with ${visit.providerName.split(' ')[0]}` : ''}.`, id);
+  if (visit?.providerId && visit.providerId !== actor.staffId && !doc.safety) await tell(db, tenantId, [visit.providerId], 'case_yours', `${clientName} has raised a concern about their visit with you (${doc.reasonLabel}). The front desk will be in touch.`, id);
   return { ok: true as const, id, number };
 }
+
+/** "Hi Ana, " to open a client text. */
+const hiOf = (c: any) => `Hi ${String(c?.clientName || '').trim().split(' ')[0] || 'there'}, `;
 
 /** Text the client (with their case page link). Best-effort: false when there's no phone or texting isn't set up. */
 async function textClient(db: any, tenantId: string, tenant: any, c: any, body: string): Promise<boolean> {
@@ -114,7 +117,7 @@ async function textClient(db: any, tenantId: string, tenant: any, c: any, body: 
     if (!phone && !email) return false;
     const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, '');
     const link = c.statusPath && base ? ` ${base}${c.statusPath}` : '';
-    const r = await sendTenantSms(db, tenantId, phone || '', `${body}${link}`, { email, subject: `About your visit` }, { kind: 'case_reply', recipientType: 'client', recipientId: c.clientId || null, recipientName: c.clientName || null, appointmentId: c.visit?.appointmentId || null });
+    const r = await sendTenantSms(db, tenantId, phone || '', `${body}${link}`, { email, subject: `An update about your visit` }, { kind: 'case_reply', recipientType: 'client', recipientId: c.clientId || null, recipientName: c.clientName || null, appointmentId: c.visit?.appointmentId || null });
     return !!r.ok;
   } catch { return false; }
 }
@@ -123,7 +126,7 @@ async function textClient(db: any, tenantId: string, tenant: any, c: any, body: 
 export async function bookRedo(db: any, tenantId: string, c: any, o: { staffId: string; date: string; time: string; by: string; byClient: boolean }): Promise<{ ok: true; id: string; when: string } | { ok: false; error: string }> {
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = settingsOf(tenant); const tz = tenant.timezone || 'America/New_York';
   const redo = c.fix?.redo || {}; const moving = !!c.fix?.redoAppointmentId;
-  if (o.byClient && moving && (Number(redo.changes) || 0) >= S.redoChanges) return { ok: false, error: 'This redo can’t be moved online again — please message us and we’ll sort it out.' };
+  if (o.byClient && moving && (Number(redo.changes) || 0) >= S.redoChanges) return { ok: false, error: 'This redo cannot be moved online again. Please send us a message and we will be happy to help.' };
   if (!o.staffId) return { ok: false, error: 'Pick who’ll do the redo.' };
   const { redoSlotFree } = await import('@/lib/redo-times'); const free = await redoSlotFree(db, tenantId, c, o.staffId, o.date, o.time);
   if (!free.ok || !free.start) return { ok: false, error: free.error || 'That time isn’t open.' };
@@ -144,11 +147,11 @@ export async function bookRedo(db: any, tenantId: string, c: any, o: { staffId: 
   const brief = { caseId: c.id, number: c.number, reason: c.reasonLabel, said: c.wordsEn || c.words ? String(c.wordsEn || c.words).slice(0, 240) : null, plan: plan.same ? null : plan.names, note: plan.note, firstVisit: c.visit?.serviceName || null, handover, safety: !!c.safety };
   await r.set({ fixBrief: brief }, { merge: true });
   await db.doc(`${T(tenantId)}/cases/${c.id}`).set({ involvedStaffIds: FieldValue.arrayUnion(o.staffId) }, { merge: true });
-  if (handover) await tell(db, tenantId, [o.staffId], 'case_redo', `You’re doing ${c.clientName}’s fix, ${when}. Their first visit didn’t go right (${c.reasonLabel}) — please read the case before they arrive, in Me → Client cases.`, c.id);
-  else await tell(db, tenantId, [o.staffId], 'case_redo', `${moving ? 'Redo moved' : 'Free redo booked'}: ${c.clientName}, ${when} — ${c.reasonLabel}.`, c.id);
-  if (o.byClient && c.ownerId) await tell(db, tenantId, [c.ownerId], 'case_redo', `${c.clientName} booked their fix: ${when}${handover ? ` with ${String(prov.name || '').split(' ')[0]}` : ''}.`, c.id);
-  if (handover && !moving && origId && staff.some((s: any) => s.id === origId)) await tell(db, tenantId, [origId], 'case_yours', `${c.clientName}’s fix is booked with ${String(prov.name || 'another provider').split(' ')[0]}. Your side is still welcome in Me → Client cases.`, c.id);
-  if (moving && redo.staffId && redo.staffId !== o.staffId && staff.some((s: any) => s.id === redo.staffId)) await tell(db, tenantId, [redo.staffId], 'case_redo', `${c.clientName}’s redo moved to someone else.`, c.id);
+  if (handover) await tell(db, tenantId, [o.staffId], 'case_redo', `Action needed: You are booked for ${c.clientName}’s fix on ${when}. Their first visit did not go as planned (${c.reasonLabel}). Please read the case in Me → Client cases before they arrive.`, c.id);
+  else await tell(db, tenantId, [o.staffId], 'case_redo', `${moving ? 'A redo has been moved' : 'A complimentary redo has been booked'} for ${c.clientName} on ${when} (${c.reasonLabel}).`, c.id);
+  if (o.byClient && c.ownerId) await tell(db, tenantId, [c.ownerId], 'case_redo', `${c.clientName} has booked their fix for ${when}${handover ? ` with ${String(prov.name || '').split(' ')[0]}` : ''}.`, c.id);
+  if (handover && !moving && origId && staff.some((s: any) => s.id === origId)) await tell(db, tenantId, [origId], 'case_yours', `${c.clientName}’s fix has been booked with ${String(prov.name || 'another provider').split(' ')[0]}. You are still welcome to add your side in Me → Client cases.`, c.id);
+  if (moving && redo.staffId && redo.staffId !== o.staffId && staff.some((s: any) => s.id === redo.staffId)) await tell(db, tenantId, [redo.staffId], 'case_redo', `${c.clientName}’s redo has been reassigned to another team member.`, c.id);
   return { ok: true, id: r.id, when };
 }
 
@@ -159,7 +162,7 @@ export async function redoNone(db: any, tenantId: string, c: any, note: string) 
     timeline: FieldValue.arrayUnion(line(c.clientName || 'Client', `None of the redo times work${text ? ` — “${text}”` : ''}`)) }, { merge: true });
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const staff = await staffList(db, tenantId);
   const to = c.ownerId ? [c.ownerId] : [...staff.filter((s: any) => MANAGERS.includes(String(s.role))).map((s: any) => s.id), tenant.userId];
-  await tell(db, tenantId, to, 'case_redo', `${c.clientName} can’t make any redo times${text ? `: “${text}”` : ''}. Book one with them.`, c.id);
+  await tell(db, tenantId, to, 'case_redo', `Action needed: ${c.clientName} is not available at any of the offered redo times${text ? `: “${text}”` : ''}. Please contact them to book a time.`, c.id);
   return { ok: true as const };
 }
 
@@ -167,14 +170,14 @@ export async function redoNone(db: any, tenantId: string, c: any, note: string) 
 export async function clientConfirm(db: any, tenantId: string, caseId: string, good: boolean, words: string) {
   const ref = db.doc(`${T(tenantId)}/cases/${caseId}`); const snap = await ref.get(); if (!snap.exists) return { ok: false as const, error: 'Not found.' };
   const c: any = snap.data(); if (c.locked) return { ok: true as const };
-  if (c.status !== 'done') return { ok: false as const, error: 'We’re still working on this one.' };
+  if (c.status !== 'done') return { ok: false as const, error: 'We are still working on this. Thank you for your patience.' };
   const text = String(words || '').trim().slice(0, 1000); const by = c.clientName || 'Client';
   if (good && !c.safety) { await ref.set({ status: 'closed', checkedBackAt: now(), closedAt: now(), locked: true, closedBy: by, clientConfirmed: true, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Client confirmed it’s made right${text ? ` — “${text}”` : ''}. Case closed.`)) }, { merge: true }); return { ok: true as const }; }
   if (good) { await ref.set({ clientConfirmed: true, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Client says they’re happy${text ? ` — “${text}”` : ''}. A manager closes safety cases.`)) }, { merge: true }); return { ok: true as const }; }
   await ref.set({ status: 'owned', reopenedAt: now(), updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Client says it’s still not right${text ? ` — “${text}”` : ''}. Reopened.`)) }, { merge: true });
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {};
   const staff = await staffList(db, tenantId); const to = c.ownerId ? [c.ownerId] : [...staff.filter((s: any) => MANAGERS.includes(String(s.role))).map((s: any) => s.id), tenant.userId];
-  await tell(db, tenantId, to, 'case_reopened', `${c.clientName} says it’s still not right. The case is open again.`, caseId);
+  await tell(db, tenantId, to, 'case_reopened', `Action needed: ${c.clientName} has let us know the issue has not been resolved. The case has been reopened.`, caseId);
   return { ok: true as const };
 }
 
@@ -213,7 +216,7 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       if (ok.ok && action !== 'approve' && kind === 'redo' && planOf(p.redo?.plan, c) && S.fairUse.sameServiceOnly && !actor.isManager && !renterOwner) ok = { ok: false, why: 'A different service for the fix needs a manager’s OK.' };
       if (!ok.ok) {
         await push({ pending: { kind, amountCents, redo: p.redo || null, askedBy: actor.name, at: now(), why: (ok as any).why }, needsManager: true }, `Asked a manager to approve: ${FIX_LABEL[kind]}${amountCents ? ` ${money(amountCents)}` : ''} (${(ok as any).why})`);
-        await tell(db, tenantId, mgrs.filter((x: string) => x !== actor.staffId), 'case_approval', `${c.clientName}: ${actor.name.split(' ')[0]} wants to give ${FIX_LABEL[kind].toLowerCase()}${amountCents ? ` (${money(amountCents)})` : ''} — needs your OK.`, c.id);
+        await tell(db, tenantId, mgrs.filter((x: string) => x !== actor.staffId), 'case_approval', `Action needed: ${actor.name.split(' ')[0]} would like to offer ${c.clientName} ${FIX_LABEL[kind].toLowerCase()}${amountCents ? ` (${money(amountCents)})` : ''}. Your approval is required.`, c.id);
         return { ok: true as const, pending: true, why: (ok as any).why };
       }
       const provId = String(p.redo?.staffId || c.visit?.providerId || '');
@@ -226,8 +229,8 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
         const fresh = { ...c, fix };
         if (p.redo?.mode === 'book' && p.redo.date && p.redo.time) { const r = await bookRedo(db, tenantId, fresh, { staffId: provId, date: p.redo.date, time: p.redo.time, by: actor.name, byClient: false }); if (!r.ok) return { ok: true as const, warn: `Fix chosen, but the time didn’t book: ${r.error}` }; return { ok: true as const, redoId: r.id }; }
         if (p.redo?.mode === 'team') return { ok: true as const };
-        if (c.renterCase) { const sent = await textClient(db, tenantId, tenant, c, `${actor.name.split(' ')[0]} would love to fix this for you at no charge and will be in touch to set a time.`); return { ok: true as const, sent }; }
-        const pl = redo?.plan; const sent = c.statusPath ? await textClient(db, tenantId, tenant, c, pl ? `We’ve looked at this and here’s how we’ll fix it${pl.priceCents ? '' : ' — no charge'}. Pick a time that suits you:` : `We’d love to fix this for you at no charge. Pick a time that suits you:`) : false;
+        if (c.renterCase) { const sent = await textClient(db, tenantId, tenant, c, `${hiOf(c)}${actor.name.split(' ')[0]} would be glad to fix this for you at no charge and will be in touch to arrange a time.`); return { ok: true as const, sent }; }
+        const pl = redo?.plan; const sent = c.statusPath ? await textClient(db, tenantId, tenant, c, pl ? `${hiOf(c)}we have reviewed your concern, and here is how we will put it right${pl.priceCents ? '' : ' at no charge'}. Please choose a time that suits you:` : `${hiOf(c)}we would be glad to fix this for you at no charge. Please choose a time that suits you:`) : false;
         return { ok: true as const, offered: true, sent };
       }
       return { ok: true as const };
@@ -236,7 +239,7 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       if (c.fix.redoAppointmentId) return { ok: false as const, error: 'It’s already booked — move or cancel the booking first.' };
       const plan = planOf(b.plan, c); if (plan && S.fairUse.sameServiceOnly && !actor.isManager) return { ok: false as const, error: 'A different service for the fix needs a manager.' };
       await push({ fix: { ...c.fix, redo: { ...(c.fix.redo || {}), plan, state: 'choosing' } } }, plan ? `Fix plan: ${plan.names.join(' then ')}${plan.priceCents ? ` — client pays ${money(plan.priceCents)}` : ' — no charge'}` : 'Fix plan: the same service again');
-      if (b.tell !== false && c.statusPath) await textClient(db, tenantId, tenant, c, plan ? `We’ve looked at your photos — here’s how we’ll fix it, and you can pick a time:` : `Pick a time for your free redo:`);
+      if (b.tell !== false && c.statusPath) await textClient(db, tenantId, tenant, c, plan ? `${hiOf(c)}thank you for your photos. We have reviewed them, and here is how we will put it right. Please choose a time that suits you:` : `${hiOf(c)}please choose a time for your complimentary redo:`);
       return { ok: true as const }; }
     case 'redo_with': { if (!actor.isManager && actor.role !== 'front_desk') return { ok: false as const, error: 'The desk or a manager decides this.' };
       const w = b.who === 'original' ? 'original' : b.who === 'other' ? 'other' : null;
@@ -247,7 +250,7 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
     case 'redo_book': { if (!desk && !isProvider) return { ok: false as const, error: 'You can’t book this redo.' }; if (c.fix?.kind !== 'redo') return { ok: false as const, error: 'Choose a free redo first.' };
       const r = await bookRedo(db, tenantId, c, { staffId: String(b.staffId || c.fix.redo?.staffId || c.visit?.providerId || ''), date: String(b.date || ''), time: String(b.time || ''), by: actor.name, byClient: false });
       if (!r.ok) return { ok: false as const, error: r.error };
-      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `Your free redo is booked: ${r.when}.`);
+      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `${hiOf(c)}your complimentary redo is booked for ${r.when}.`);
       return { ok: true as const, redoId: r.id }; }
     case 'refund_card': { if (!desk) return { ok: false as const, error: 'The desk or a manager sends refunds.' };
       if (c.fix?.kind !== 'refund' || !(c.fix.amountCents > 0)) return { ok: false as const, error: 'Choose a refund first.' };
@@ -263,19 +266,19 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       await rev.set({ id: rev.id, date: at, description: `Refund for: ${sale.description || 'visit'}`, clientOrVendor: sale.clientOrVendor || c.clientName || null, clientId: sale.clientId || c.clientId || null, type: 'reversal', context: sale.context || null, category: 'Refunds', amount: cents / 100, paymentMethod: sale.paymentMethod || 'card', reversalOf: sale.id, appointmentId: sale.appointmentId || null, hasReceipt: false, notes: `Making it right ${c.number || ''}`.trim(), refundedToCard: true, caseId: c.id, by: actor.name });
       await db.doc(`${T0}/transactions/${sale.id}`).set({ refundedAt: at, refundTransactionId: rev.id }, { merge: true });
       await push({ fix: { refundedAt: at, refundedCents: cents, todo: null } }, `Refunded ${money(cents)} to the card${r.shortCents > 0 ? ` (${money(r.shortCents)} couldn’t go back — refund the rest from Money)` : ''}`);
-      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `We’ve refunded ${money(cents)} to your card. It can take 5–10 days to show on your statement.`);
+      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `${hiOf(c)}we have refunded ${money(cents)} to your card. Please allow 5 to 10 business days for it to appear on your statement.`);
       return { ok: true as const, refundedCents: cents }; }
     case 'redo_set': {   // a renter books the fix in their own planner and records it here
       if (!renterOwner || c.fix?.kind !== 'redo') return { ok: false as const, error: 'Not available.' };
       const whenText = String(b.when || '').trim().slice(0, 120); if (!whenText) return { ok: false as const, error: 'Add the day and time.' };
       await push({ fix: { ...c.fix, todo: null, redo: { ...(c.fix.redo || {}), state: 'booked', bookedText: whenText, bookedAt: now() } } }, `Fix booked: ${whenText}`);
-      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `Your free fix is booked: ${whenText}.`);
+      if (b.tell !== false) await textClient(db, tenantId, tenant, c, `${hiOf(c)}your complimentary fix is booked for ${whenText}.`);
       return { ok: true as const }; }
     case 'done': if (!desk && !isProvider) return { ok: false as const, error: 'You can’t mark this done.' };
       if (c.fix?.kind === 'refund' && !c.renterCase) { const { refundKeepsPay } = await import('@/lib/redo-pay'); await refundKeepsPay(db, tenantId, tenant, c).catch(() => {}); }
       await push({ status: 'done', doneAt: now(), followUpAt: S.followUpDays ? new Date(Date.now() + S.followUpDays * 86400000).toISOString() : null }, `Marked done${text ? `: ${text}` : ''}${c.fix?.todo ? ` (${c.fix.todo} — done)` : ''}`); return { ok: true as const };
     case 'checked_back': { if (!desk) return { ok: false as const, error: 'The desk or a manager records this.' }; const good = b.answer !== 'no';
-      if (!good) { await push({ status: 'owned', reopenedAt: now() }, `Checked back: still not right${text ? ` — “${text}”` : ''}. Reopened.`); if (c.ownerId) await tell(db, tenantId, [c.ownerId], 'case_reopened', `${c.clientName} says it’s still not right. The case is open again.`, c.id); return { ok: true as const }; }
+      if (!good) { await push({ status: 'owned', reopenedAt: now() }, `Checked back: still not right${text ? ` — “${text}”` : ''}. Reopened.`); if (c.ownerId) await tell(db, tenantId, [c.ownerId], 'case_reopened', `Action needed: ${c.clientName} has let us know the issue has not been resolved. The case has been reopened.`, c.id); return { ok: true as const }; }
       if (c.safety && c.checkInDueAt && !c.incident?.checkIn48At) return { ok: false as const, error: 'Record the follow-up check-in first.' };
       await push({ status: 'closed', checkedBackAt: now(), closedAt: now(), locked: true, closedBy: actor.name }, `Checked back: all good. Case closed by ${actor.name}.`); return { ok: true as const }; }
     case 'close': if (!actor.isManager && !desk) return { ok: false as const, error: 'The desk or a manager closes cases.' };
@@ -292,7 +295,7 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       if (lang !== 'en') { try { const { translateTexts } = await import('@/lib/translate'); const out = await translateTexts(tenantId, [text, voice?.transcript || ''], 'en'); en = text && out[0] !== text ? out[0] : null; if (voice?.transcript && out[1] !== voice.transcript) voice.translation = out[1]; } catch { /* original kept */ } }
       const st = { by: actor.name, staffId: actor.staffId, text, textEn: en, lang: lang !== 'en' ? lang : null, voice, at: now(), signed: true };
       await ref.update({ statements: FieldValue.arrayUnion(st), sideWanted: c.sideWanted === actor.staffId ? null : c.sideWanted || null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `${actor.name} gave ${isProvider ? 'their side' : 'a signed statement'}`)) });
-      if (isProvider && c.ownerId && c.ownerId !== actor.staffId) await tell(db, tenantId, [c.ownerId], 'case_yours', `${actor.name.split(' ')[0]} added their side to ${c.clientName}’s case.`, c.id);
+      if (isProvider && c.ownerId && c.ownerId !== actor.staffId) await tell(db, tenantId, [c.ownerId], 'case_yours', `${actor.name.split(' ')[0]} has added their side to ${c.clientName}’s case.`, c.id);
       return { ok: true as const }; }
     case 'cause': { if (!actor.isManager) return { ok: false as const, error: 'A manager marks the cause.' };
       const { CAUSES } = await import('@/lib/making-it-right'); const k = String(b.cause || ''); if (!CAUSES[k as keyof typeof CAUSES]) return { ok: false as const, error: 'Pick a cause.' };

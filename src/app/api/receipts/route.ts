@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, receipts });
   }
   const ref = db.doc(`${T}/receipts/${receiptId}`); const r: any = (await ref.get()).data();
-  if (!r) return NextResponse.json({ ok: false, error: 'That receipt wasn’t found.' }, { status: 404 });
+  if (!r) return NextResponse.json({ ok: false, error: 'That receipt could not be found.' }, { status: 404 });
   let viewKey = r.viewKey; if (!viewKey) { viewKey = key(); await ref.set({ viewKey }, { merge: true }); }
   const t: any = ((await db.doc(T).get()).data() as any) || {};
   const url = `${linkOrigin(t, req.nextUrl.origin)}/r/${tenantId}/${receiptId}?k=${viewKey}`;
@@ -71,19 +71,20 @@ export async function POST(req: NextRequest) {
     const c: any = r.clientId ? (((await db.doc(`${T}/clients/${r.clientId}`).get()).data() as any) || {}) : {};
     const channel = b.channel === 'sms' ? 'sms' : 'email';
     const to = String(b.to || (channel === 'email' ? c.email : c.phone) || '').trim();
-    if (!to || (channel === 'email' && !to.includes('@'))) return NextResponse.json({ ok: false, error: channel === 'email' ? 'No email address for this client — type one in.' : 'No mobile number for this client — type one in.' }, { status: 400 });
-    const studio = t.name || t.businessName || 'Us';
+    if (!to || (channel === 'email' && !to.includes('@'))) return NextResponse.json({ ok: false, error: channel === 'email' ? 'There is no email address on file for this client. Please enter one.' : 'There is no mobile number on file for this client. Please enter one.' }, { status: 400 });
+    const studio = t.name || t.businessName || 'Our team';
+    const first = String(r.clientName || c.name || '').trim().split(/\s+/)[0] || 'there';
     const what = r.voided ? (r.voidRefunded ? 'your refund slip' : r.cashReturned ? 'your void slip (cash returned)' : 'your void slip') : 'your receipt';
     const { sendNotification } = await import('@/lib/notify');
     let sent: any;
     if (channel === 'email') { const { brandedEmailHtml } = await import('@/lib/email-template');
       const replyTo = String(t.email || t.contactEmail || '').trim();
-      sent = await sendNotification(db, { tenantId, channel: 'email', to, subject: `${r.voided ? 'Void slip' : 'Receipt'} — ${studio}`, kind: r.voided ? 'void_slip' : 'receipt',
-        html: brandedEmailHtml({ studioName: studio, title: r.voided ? 'Your sale was voided' : 'Your receipt', bodyLines: [`Here’s ${what}${r.total ? ` for $${Number(r.total).toFixed(2)}` : ''}.`, ...receiptSummary(r), r.voided && r.voidRefunded ? 'The refund goes back to your card and usually shows within 5–10 business days.' : ''].filter(Boolean), cta: { label: r.voided ? 'View the slip' : 'View your receipt', url } } as any),
+      sent = await sendNotification(db, { tenantId, channel: 'email', to, subject: `${studio}: ${r.voided ? 'your void slip' : 'your receipt'}`, kind: r.voided ? 'void_slip' : 'receipt',
+        html: brandedEmailHtml({ studioName: studio, title: r.voided ? 'Your sale was voided' : 'Your receipt', bodyLines: [`Hi ${first},`, `${r.voided ? 'Here is' : 'Thank you for your business. Here is'} ${what}${r.total ? ` for $${Number(r.total).toFixed(2)}` : ''}.`, ...receiptSummary(r), r.voided && r.voidRefunded ? 'The refund will be returned to your card and usually appears within 5 to 10 business days.' : '', 'If you have any questions, please reply to this email.', `Kind regards, ${studio}`].filter(Boolean), cta: { label: r.voided ? 'View the slip' : 'View your receipt', url } } as any),
         ...(replyTo.includes('@') ? { replyTo } : {}), clientId: r.clientId || null, clientName: r.clientName || null } as any);
-    } else sent = await sendNotification(db, { tenantId, channel: 'sms', to, kind: r.voided ? 'void_slip' : 'receipt', text: `${studio}: here’s ${what} — ${url}`, clientId: r.clientId || null, clientName: r.clientName || null } as any);
+    } else sent = await sendNotification(db, { tenantId, channel: 'sms', to, kind: r.voided ? 'void_slip' : 'receipt', text: `Hi ${first}, here is ${what}: ${url}`, clientId: r.clientId || null, clientName: r.clientName || null } as any);
     await ref.set({ sends: [...(r.sends || []), { at: new Date().toISOString(), channel, to, by: auth.actor.name, ok: !!sent?.ok }].slice(-20) }, { merge: true });
-    return sent?.ok ? NextResponse.json({ ok: true, url }) : NextResponse.json({ ok: false, error: 'It didn’t send — check the address and try again.' }, { status: 502 });
+    return sent?.ok ? NextResponse.json({ ok: true, url }) : NextResponse.json({ ok: false, error: 'The message could not be sent. Please check the address and try again.' }, { status: 502 });
   }
   return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
 }

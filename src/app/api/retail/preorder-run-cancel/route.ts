@@ -148,22 +148,23 @@ export async function POST(req: NextRequest) {
         const html = brandedEmail(brand, `
           <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
           <p style="font-size:14px;color:#334155;line-height:1.6">
-            We\u2019re sorry \u2014 we can\u2019t fulfil the pre-order you placed with us, so we\u2019re refunding you <strong>$${(outcome.lineRefund / 100).toFixed(2)}</strong> in full. You don\u2019t need to do anything.
+            Unfortunately, we are unable to fulfill the pre-order you placed with us, so we are refunding <strong>$${(outcome.lineRefund / 100).toFixed(2)}</strong> to you in full. There is nothing you need to do.
           </p>
           ${reason ? `<p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${reason.replace(/</g, '&lt;')}</p>` : ''}
           <p style="font-size:14px;color:#334155;line-height:1.6">
-            The refund goes back to the card you paid with, usually within 5\u201310 days.${outcome.stillOwed ? ' The rest of your order is unaffected and still on its way.' : ''}
+            The refund will be returned to the card you paid with, usually within 5 to 10 days.${outcome.stillOwed ? ' The rest of your order is unaffected and is still on its way.' : ''}
           </p>
           ${orderLink ? emailButton(orderLink, 'View my order', brand) : ''}
-          <p style="font-size:12px;color:#94a3b8;line-height:1.6">
-            We know that\u2019s disappointing, and we\u2019re sorry to have kept you waiting. Reply to this email any time.
-          </p>`,
-          { preheader: `Refunding $${(outcome.lineRefund / 100).toFixed(2)} \u2014 your pre-order can\u2019t be fulfilled` });
+          <p style="font-size:14px;color:#334155;line-height:1.6">
+            We sincerely apologize for the disappointment and for keeping you waiting. If you have any questions, please reply to this email.
+          </p>
+          <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${brand.shopName}</p>`,
+          { preheader: `We are unable to fulfill your pre-order and are refunding $${(outcome.lineRefund / 100).toFixed(2)}.` });
 
         const { sendNotification } = await import('@/lib/notify');
         await sendNotification(db, {
           tenantId, channel: 'email', to: to,
-            subject: `About your pre-order \u2014 ${brand.shopName}`,
+            subject: `${brand.shopName}: an update about your pre-order`,
             html,
           kind: 'preorder_cancelled', recipientType: 'client',
         });

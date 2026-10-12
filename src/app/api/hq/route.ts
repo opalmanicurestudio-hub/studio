@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   if (b.action === 'whoami') return NextResponse.json({ ok: true, admin: !!admin, role: admin?.role || null, perms: admin ? permsFor(admin.role) : [], name: admin?.name || null, email: admin?.email || null, ai: aiConfigured() });
   if (!admin) return NextResponse.json({ ok: false, error: 'HQ is for the ClarityFlow team. (Owners: PLATFORM_ADMIN_EMAILS in Vercel; others: HQ → Team.)' }, { status: 403 });
   const need = NEEDS[String(b.action)];
-  if (need && !can(admin.role, need)) return NextResponse.json({ ok: false, error: `Your HQ role (${admin.role}) can’t do that.` }, { status: 403 });
+  if (need && !can(admin.role, need)) return NextResponse.json({ ok: false, error: `Your HQ role (${admin.role}) does not have permission for this action.` }, { status: 403 });
   if (b.action === 'fix' && (b.fix === 'suspend' || b.fix === 'restore') && !can(admin.role, 'suspend')) return NextResponse.json({ ok: false, error: 'Only an owner can pause or restore access.' }, { status: 403 });
   const db = getAdminDb();
 
@@ -166,13 +166,16 @@ export async function POST(req: NextRequest) {
       let emailed = false;
       if (b.send && process.env.RESEND_API_KEY) {
         const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: resolveFromAddress(), to: email, reply_to: admin.email, subject: 'Reset your ClarityFlow password', text: `Here’s a link to set a new password:
+          body: JSON.stringify({ from: resolveFromAddress(), to: email, reply_to: admin.email, subject: 'Reset your ClarityFlow password', text: `Hello,
+
+Please use the link below to set a new password for your ClarityFlow account:
 
 ${link}
 
-If you didn’t ask for this, you can ignore it.
+If you did not request a password reset, you can safely ignore this email.
 
-— ClarityFlow` }) }).catch(() => null);
+Kind regards,
+ClarityFlow` }) }).catch(() => null);
         emailed = !!r?.ok;
       }
       await audit(db, admin.email, tenantId, fix, `${emailed ? 'Emailed' : 'Created'} a password reset link for ${email}`);
@@ -181,17 +184,17 @@ If you didn’t ask for this, you can ignore it.
     if (fix === 'suspend' || fix === 'restore') {
       await tRef.set({ accessLocked: fix === 'suspend', accessLockedAt: fix === 'suspend' ? at : null, accessLockedReason: fix === 'suspend' ? String(b.reason || '').slice(0, 200) || null : null }, { merge: true });
       await audit(db, admin.email, tenantId, fix, fix === 'suspend' ? `Paused access${b.reason ? `: ${b.reason}` : ''}` : 'Restored access');
-      return NextResponse.json({ ok: true, message: fix === 'suspend' ? 'Access paused — they’ll see the suspended page.' : 'Access restored.' });
+      return NextResponse.json({ ok: true, message: fix === 'suspend' ? 'Access paused. The business will see the suspended account page.' : 'Access restored.' });
     }
     if (fix === 'set-tools') {
       const tools = (Array.isArray(b.tools) ? b.tools : []).map(String).filter((x: string) => TOOL_BY_ID[x as ToolId]) as ToolId[];
       await tRef.set({ modules: toTenantModules(tools) }, { merge: true });
       await audit(db, admin.email, tenantId, fix, `Set tools: ${tools.join(', ')}`);
-      return NextResponse.json({ ok: true, message: 'Tools updated — their sidebar follows.' });
+      return NextResponse.json({ ok: true, message: 'Tools updated. Their sidebar will reflect the change.' });
     }
     if (fix === 'note') {
       const text = String(b.text || '').trim().slice(0, 2000);
-      if (!text) return NextResponse.json({ ok: false, message: 'Write a note first.' });
+      if (!text) return NextResponse.json({ ok: false, message: 'Please write a note first.' });
       const ref = db.doc(`platformNotes/${tenantId}`);
       const cur = ((await ref.get()).data() as any)?.notes || [];
       await ref.set({ notes: [...cur, { at, by: admin.email, text }].slice(-200) }, { merge: true });
@@ -255,7 +258,7 @@ If you didn’t ask for this, you can ignore it.
     let emailed = false;
     if (b.action === 'ticket-reply') {
       const message = String(b.message || '').trim().slice(0, 4000);
-      if (!message) return NextResponse.json({ ok: false, error: 'Write a reply first.' }, { status: 400 });
+      if (!message) return NextResponse.json({ ok: false, error: 'Please write a reply first.' }, { status: 400 });
       patch.thread = [...(Array.isArray(k.thread) ? k.thread : []), { at, from: 'hq', by: admin.email, message }];
       if (!k.firstRespondedAt) patch.firstRespondedAt = at;
       if (!k.assignee) patch.assignee = admin.email;
@@ -263,7 +266,7 @@ If you didn’t ask for this, you can ignore it.
         try {
           const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ from: resolveFromAddress(), to: k.contactEmail, reply_to: admin.email, subject: `Re: ${k.subject || 'Your help request'} — ClarityFlow`,
-              text: `${message}\n\n—\nYou can also see this reply in ClarityFlow under Help.` }) });
+              text: `${message}\n\nYou can also view this reply in ClarityFlow under Help.\n\nKind regards,\nClarityFlow Support` }) });
           emailed = r.ok;
         } catch { /* saved either way */ }
       }
@@ -328,7 +331,7 @@ If you didn’t ask for this, you can ignore it.
   if (b.action === 'insights-brief') {
     const snap = await db.collection('platformMetrics').orderBy('date', 'desc').limit(8).get();
     const days = snap.docs.map((d: any) => d.data() as any);
-    if (!days.length) return NextResponse.json({ ok: false, error: 'No metrics yet — refresh Insights first.' });
+    if (!days.length) return NextResponse.json({ ok: false, error: 'No metrics are available yet. Please refresh Insights first.' });
     const r = await askAI({ tier: 'smart', maxTokens: 700, purpose: 'insights_brief',
       system: 'You are the chief of staff for ClarityFlow, a small SaaS company run by its founder. Write a short weekly briefing in plain English: 1) what changed (with numbers), 2) three specific actions for this week, most valuable first, 3) one risk to watch. Under 220 words. Use only the data given; never invent figures. No headings with #; use short bold labels.',
       prompt: `Latest platform snapshot:
@@ -341,7 +344,7 @@ ${JSON.stringify(days[days.length - 1]).slice(0, 3000)}` });
 
   // ── Finance (owners only): ClarityFlow the company ──
   if (b.action === 'finance-sync') {
-    if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'STRIPE_SECRET_KEY isn’t set.' }, { status: 400 });
+    if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'STRIPE_SECRET_KEY is not set.' }, { status: 400 });
     const month = /^\d{4}-\d{2}$/.test(String(b.month || '')) ? String(b.month) : monthKey(new Date());
     try { const doc = await syncStripeMonth(month); return NextResponse.json({ ok: true, month, feesCents: doc.feesCents }); }
     catch (e: any) { return NextResponse.json({ ok: false, error: `Stripe: ${String(e?.message || e).slice(0, 200)}` }, { status: 500 }); }
@@ -365,7 +368,7 @@ ${JSON.stringify(days[days.length - 1]).slice(0, 3000)}` });
   }
   // ── Billing: ClarityFlow's own subscriptions ──
   if (b.action === 'billing-setup-prices') {
-    if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'STRIPE_SECRET_KEY isn’t set.' }, { status: 400 });
+    if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'STRIPE_SECRET_KEY is not set.' }, { status: 400 });
     try {
       const r = await ensurePrices();
       await db.doc('platformSettings/billing').set({ pricesReadyAt: new Date().toISOString() }, { merge: true });
@@ -378,7 +381,7 @@ ${JSON.stringify(days[days.length - 1]).slice(0, 3000)}` });
     const next: any = { ...cur };
     if ('enabled' in b) {
       if (b.enabled && !cur.pricesReadyAt) return NextResponse.json({ ok: false, error: 'Set up prices in Stripe first.' }, { status: 400 });
-      if (b.enabled && !process.env.STRIPE_BILLING_WEBHOOK_SECRET) return NextResponse.json({ ok: false, error: 'Add the billing webhook first (STRIPE_BILLING_WEBHOOK_SECRET) — otherwise payments won’t activate accounts.' }, { status: 400 });
+      if (b.enabled && !process.env.STRIPE_BILLING_WEBHOOK_SECRET) return NextResponse.json({ ok: false, error: 'Please add the billing webhook first (STRIPE_BILLING_WEBHOOK_SECRET). Otherwise, payments will not activate accounts.' }, { status: 400 });
       next.enabled = !!b.enabled;
     }
     if ('freeUntil' in b) next.freeUntil = b.freeUntil ? new Date(String(b.freeUntil)).toISOString() : null;

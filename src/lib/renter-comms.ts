@@ -44,7 +44,7 @@ export async function tellClient(db: any, v: RenterVoice, to: { email?: string |
   try {
     if (email.includes('@')) {
       await sendNotification(db, { tenantId: v.tenantId, channel: 'email', to: email, subject,
-        html: brandedEmailHtml({ studioName: v.renterName, title: subject, bodyLines: lines, footerNote: `Sent by ${v.renterName}, renting at ${v.studioName}.` }),
+        html: brandedEmailHtml({ studioName: v.renterName, title: subject, bodyLines: [...lines, `Kind regards, ${v.renterName}`], footerNote: `Sent by ${v.renterName}, renting at ${v.studioName}.` }),
         kind, recipientType: 'client', recipientId: to.clientId || null, recipientName: to.name || null } as any);
     }
     if (phone) {
@@ -63,15 +63,15 @@ export async function alertRenter(db: any, tenantId: string, renterId: string, k
 /** The lines a client reads when they join. Perks are listed exactly as the renter wrote them. */
 export function membershipWelcomeLines(v: RenterVoice, m: { name: string; includedVisits: number; discountPct: number; perks: string[]; priceCents: number }, manageUrl?: string | null): string[] {
   const perks = [
-    m.includedVisits > 0 ? `${m.includedVisits} visit${m.includedVisits === 1 ? '' : 's'} included every month — just book as usual and tell me it's a member visit` : null,
+    m.includedVisits > 0 ? `${m.includedVisits} visit${m.includedVisits === 1 ? '' : 's'} included every month (simply book as usual and let me know it is a member visit)` : null,
     m.discountPct > 0 ? `${m.discountPct}% off every other service` : null,
     ...(m.perks || []),
   ].filter(Boolean) as string[];
   return [
-    `Welcome to ${m.name}! You're in.`,
-    perks.length ? `What you get: ${perks.join(' · ')}.` : '',
-    `$${(m.priceCents / 100).toFixed(2)} a month, billed to the card you used. Cancel any time${manageUrl ? ` here: ${manageUrl}` : ' — just ask me'}.`,
-    v.bookingUrl ? `Book your first member visit: ${v.bookingUrl}` : '',
+    `Welcome to ${m.name}! Your membership is now active.`,
+    perks.length ? `Your membership includes: ${perks.join(' · ')}.` : '',
+    `Your membership is $${(m.priceCents / 100).toFixed(2)} a month, billed to the card you used. You can cancel at any time${manageUrl ? ` here: ${manageUrl}` : ' by letting me know'}.`,
+    v.bookingUrl ? `You can book your first member visit here: ${v.bookingUrl}` : '',
   ].filter(Boolean);
 }
 

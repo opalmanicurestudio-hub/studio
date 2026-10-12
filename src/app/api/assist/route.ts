@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (b.action === 'create') {
     const urgency: AssistUrgency = ['now', 'soon', 'by'].includes(b.urgency) ? b.urgency : 'soon';
     const neededBy = urgency === 'by' && Date.parse(b.neededBy || '') ? new Date(Date.parse(b.neededBy)).toISOString() : null;
-    if (urgency === 'by' && !neededBy) return NextResponse.json({ ok: false, error: 'Choose when it’s needed by.' }, { status: 400 });
+    if (urgency === 'by' && !neededBy) return NextResponse.json({ ok: false, error: 'Please choose when it is needed by.' }, { status: 400 });
     const meStaff: any = me.uid ? (await db.doc(`${T}/staff/${me.uid}`).get().catch(() => null))?.data?.() || null : null;
     const student = !!meStaff?.isStudent;
     const rec: any = { kind: KINDS.includes(b.kind) ? b.kind : 'other', label: str(b.label, 60) || 'Request', note: str(b.note, 200) || null, urgency, neededBy,
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     rec.escalateAt = escalateAt(rec);
     const ref = db.collection(`${T}/assistRequests`).doc(); rec.id = ref.id; await ref.set(rec);
     await logAuditAdmin(db, tenantId, { action: 'assist.asked', targetType: 'assistRequest', targetId: ref.id, actor: { type: 'user', id: me.uid, name: me.name, role: me.role }, summary: `${me.name} asked for ${rec.label.toLowerCase()}${rec.stationName ? ` at ${rec.stationName}` : ''}${rec.clientName ? ` (client: ${rec.clientName})` : ''}` });
-    const msg = `${me.name.split(' ')[0]} needs ${rec.label.toLowerCase()}${rec.stationName ? ` at ${rec.stationName}` : ''}${urgency === 'now' ? ' — now' : neededBy ? ` by ${new Date(neededBy).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}`;
+    const msg = `${me.name.split(' ')[0]} needs ${rec.label.toLowerCase()}${rec.stationName ? ` at ${rec.stationName}` : ''}${urgency === 'now' ? ' right away' : neededBy ? ` by ${new Date(neededBy).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}.`;
     if (student) {   // students → their instructors (managers when there are none)
       const staff = (await db.collection(`${T}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
       const leads = staff.filter((s: any) => /instructor|educator/i.test(String(s.role || s.title || '')) || s.isInstructor);
@@ -51,28 +51,28 @@ export async function POST(req: NextRequest) {
   if (['accept', 'deliver', 'cancel', 'propose-sub', 'decide-sub'].includes(b.action)) {
     try {
       const out = await db.runTransaction(async (tx: any) => {
-        const snap = await tx.get(ref); if (!snap.exists) throw new Error('That request no longer exists.');
+        const snap = await tx.get(ref); if (!snap.exists) throw new Error('This request is no longer available.');
         const r: any = snap.data();
-        if (['delivered', 'cancelled'].includes(r.status)) throw new Error('That request is already closed.');
+        if (['delivered', 'cancelled'].includes(r.status)) throw new Error('This request has already been closed.');
         const mine = r.requestedById && r.requestedById === me.uid;
-        if (b.action === 'accept') { if (r.status === 'accepted' && r.acceptedById !== me.uid) throw new Error(`${r.acceptedByName || 'Someone'} is already on it.`);
-          tx.update(ref, { status: 'accepted', acceptedById: me.uid || null, acceptedByName: me.name, acceptedAt: now }); return { notifyRequester: `${me.name.split(' ')[0]} is on the way with ${String(r.label).toLowerCase()}`, r }; }
+        if (b.action === 'accept') { if (r.status === 'accepted' && r.acceptedById !== me.uid) throw new Error(`${r.acceptedByName || 'Another team member'} is already handling this request.`);
+          tx.update(ref, { status: 'accepted', acceptedById: me.uid || null, acceptedByName: me.name, acceptedAt: now }); return { notifyRequester: `${me.name.split(' ')[0]} is on the way with ${String(r.label).toLowerCase()}.`, r }; }
         if (b.action === 'deliver') { tx.update(ref, { status: 'delivered', deliveredById: me.uid || null, deliveredByName: me.name, deliveredAt: now, ...(r.acceptedById ? {} : { acceptedById: me.uid || null, acceptedByName: me.name, acceptedAt: now }) }); return { r }; }
-        if (b.action === 'cancel') { if (!mine && !me.isManager) throw new Error('Only the person who asked (or a manager) can cancel it.');
+        if (b.action === 'cancel') { if (!mine && !me.isManager) throw new Error('Only the person who made the request, or a manager, can cancel it.');
           tx.update(ref, { status: 'cancelled', cancelledByName: me.name, cancelledAt: now }); return { r }; }
-        if (b.action === 'propose-sub') { const text = str(b.text, 120); if (!text) throw new Error('Say what you can bring instead.');
-          tx.update(ref, { sub: { text, by: me.name, byId: me.uid || null, at: now, decision: null } }); return { notifyRequester: `${me.name.split(' ')[0]} can bring “${text}” instead of ${String(r.label).toLowerCase()} — approve or decline`, r }; }
+        if (b.action === 'propose-sub') { const text = str(b.text, 120); if (!text) throw new Error('Please describe what you can bring instead.');
+          tx.update(ref, { sub: { text, by: me.name, byId: me.uid || null, at: now, decision: null } }); return { notifyRequester: `Action needed: ${me.name.split(' ')[0]} can bring “${text}” instead of ${String(r.label).toLowerCase()}. Please approve or decline.`, r }; }
         if (!r.sub) throw new Error('There’s no alternative to decide on.');   // decide-sub
         if (!mine) throw new Error('Only the person who asked can approve a swap.');
         tx.update(ref, { sub: { ...r.sub, decision: b.approve ? 'approved' : 'declined', decidedAt: now }, ...(b.approve ? { label: r.sub.text, originalLabel: r.label } : {}) });
-        return { notifyRunner: r.sub.byId ? { id: r.sub.byId, text: `${me.name.split(' ')[0]} ${b.approve ? 'approved' : 'declined'} “${r.sub.text}”` } : null, r };
+        return { notifyRunner: r.sub.byId ? { id: r.sub.byId, text: `${me.name.split(' ')[0]} has ${b.approve ? 'approved' : 'declined'} “${r.sub.text}”.` } : null, r };
       });
       if (out?.notifyRequester && out.r?.requestedById) await notify({ userId: out.r.requestedById, type: 'assist', priority: 'normal', message: out.notifyRequester, assistId: str(b.id, 80) });
       if (out?.notifyRunner) await notify({ userId: out.notifyRunner.id, type: 'assist', priority: 'normal', message: out.notifyRunner.text, assistId: str(b.id, 80) });
       { const verb: Record<string, string> = { accept: 'accepted', deliver: 'delivered', cancel: 'cancelled', 'propose-sub': 'offered a swap for', 'decide-sub': b.approve ? 'approved the swap for' : 'declined the swap for' };
         await logAuditAdmin(db, tenantId, { action: `assist.${String(b.action).replace('-', '_')}`, targetType: 'assistRequest', targetId: str(b.id, 80), actor: { type: 'user', id: me.uid, name: me.name, role: me.role }, summary: `${me.name} ${verb[b.action] || b.action} the request: ${String(out?.r?.label || 'request').toLowerCase()}${out?.r?.stationName ? ` at ${out.r.stationName}` : ''}${out?.r?.requestedByName ? ` (asked by ${out.r.requestedByName})` : ''}` }); }
       return NextResponse.json({ ok: true });
-    } catch (e: any) { return NextResponse.json({ ok: false, error: String(e?.message || 'That didn’t work.') }, { status: 409 }); }
+    } catch (e: any) { return NextResponse.json({ ok: false, error: String(e?.message || 'Something went wrong. Please try again.') }, { status: 409 }); }
   }
   return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
 }

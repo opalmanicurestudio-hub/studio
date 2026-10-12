@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'The order helper isn\u2019t set up yet \u2014 the buttons below all still work.' }, { status: 503 });
+      return NextResponse.json({ error: 'The order helper is not available yet. The buttons below are all still available.' }, { status: 503 });
     }
 
     const db = getAdminDb();
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
     }
     if ((Number(order.aiSupportUses) || 0) >= MAX_QUESTIONS_PER_ORDER) {
-      return NextResponse.json({ error: 'This order\u2019s helper has answered a lot already \u2014 use Report a problem below and a person will take it from here.' }, { status: 429 });
+      return NextResponse.json({ error: 'The order helper has reached its limit for this order. Please use Report a problem below and a member of our team will help you.' }, { status: 429 });
     }
 
     // Tenant-wide daily ceiling: the per-order cap bounds one link; this
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
         return true;
       });
       if (!allowed) {
-        return NextResponse.json({ error: 'The helper is resting for today \u2014 the buttons below all still work, and Report a problem reaches a person.' }, { status: 429 });
+        return NextResponse.json({ error: 'The order helper is unavailable for the rest of today. The buttons below are still available, and Report a problem will reach a member of our team.' }, { status: 429 });
       }
     } catch {
       // The meter must never take the helper down; the per-order cap and
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
     });
     if (!aiRes.ok) {
       console.error('[ai-support] AI service error', aiRes.status, (await aiRes.text()).slice(0, 160));
-      return NextResponse.json({ error: 'The helper hit a snag \u2014 the buttons below all still work.' }, { status: 502 });
+      return NextResponse.json({ error: 'We are sorry, the order helper was unable to answer. The buttons below are still available.' }, { status: 502 });
     }
     const data = await aiRes.json();
     const text = (Array.isArray(data.content) ? data.content : [])
@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
       .join('\n')
       .trim();
     if (!text) {
-      return NextResponse.json({ error: 'The helper came back empty \u2014 try rephrasing.' }, { status: 502 });
+      return NextResponse.json({ error: 'The order helper did not return an answer. Please try rephrasing your question.' }, { status: 502 });
     }
 
     // Meter AFTER a successful answer; failures never spend the per-order
@@ -200,6 +200,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, reply: text });
   } catch (err: any) {
     console.error('[ai-support] failed:', err?.message);
-    return NextResponse.json({ error: 'Something went wrong \u2014 the buttons below all still work.' }, { status: 500 });
+    return NextResponse.json({ error: 'We are sorry, something went wrong. The buttons below are still available.' }, { status: 500 });
   }
 }

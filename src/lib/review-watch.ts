@@ -55,7 +55,7 @@ export async function reviewSweep(db: any, tenantId: string, tenant: any, o: { f
     await ref.set({ ...r, clientId: client?.id || null, clientName: client?.name || null, seenAt: new Date().toISOString(), caseId: null });
     const quote = r.text ? ` “${r.text.slice(0, 110)}${r.text.length > 110 ? '…' : ''}”` : '';
     const b = db.batch(); const now = new Date().toISOString();
-    for (const u of to) { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(n, { id: n.id, userId: u, type: 'case_hint', title: `${r.rating}-star Google review`, message: `${r.author} left ${r.rating} star${r.rating === 1 ? '' : 's'} on Google${client ? ' (a client)' : ''}.${quote}`, link: `/cases?start=review&review=${r.id}`, createdAt: now, read: false }); }
+    for (const u of to) { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(n, { id: n.id, userId: u, type: 'case_hint', title: `New ${r.rating}-star Google review`, message: `${r.author}${client ? ', a client,' : ''} has left a ${r.rating}-star review on Google.${quote}`, link: `/cases?start=review&review=${r.id}`, createdAt: now, read: false }); }
     await b.commit(); raised++;
   }
   return { ok: true as const, raised };

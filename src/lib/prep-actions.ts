@@ -66,14 +66,14 @@ export function bookingFieldsFor(a: any, q: Quote, startMs?: number) {
 
 /** Put the agreed change onto the booking. */
 export async function applyPrep(db: any, tenantId: string, apptId: string, by: { name: string; auto?: boolean }) {
-  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
-  const p = a.prep; const q: Quote | null = p?.quote || null; if (!q) return { ok: false, error: 'There’s nothing to approve.' };
-  if (q.safety) return { ok: false, error: 'This is a safety answer — talk to the client first.' };
+  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'This visit is no longer available.' };
+  const p = a.prep; const q: Quote | null = p?.quote || null; if (!q) return { ok: false, error: 'There is nothing to approve.' };
+  if (q.safety) return { ok: false, error: 'This is a safety-related answer. Please speak with the client first.' };
   const { prepCtx } = await import('@/lib/prep-ctx'); const ctx = await prepCtx(db, tenantId, a); const tenant: any = ctx.tenant;   // a renter's visit: the renter's rules
   if (q.switched && a.staffId) { const svc: any = ctx.services.find((x: any) => x.id === q.serviceId) || {};
-    const { isCertified } = await import('@/lib/availability'); if (!isCertified(svc, String(a.staffId))) return { ok: false, error: `${first(a.staffName) || 'This provider'} isn’t certified for ${q.serviceName} — send it to the desk.` }; }
+    const { isCertified } = await import('@/lib/availability'); if (!isCertified(svc, String(a.staffId))) return { ok: false, error: `${first(a.staffName) || 'This provider'} is not certified for ${q.serviceName}. Please send it to the front desk.` }; }
   const extra = Math.max(0, q.newMinutes - (Math.round((endOf(a) - ms(a.startTime)) / 60000)));
-  const fit = await fitsAfter(db, tenantId, apptId, a, extra); if (!fit.fits) return { ok: false, error: 'It doesn’t fit — send it to the desk.', fits: false };
+  const fit = await fitsAfter(db, tenantId, apptId, a, extra); if (!fit.fits) return { ok: false, error: 'This change does not fit in the available time. Please send it to the front desk.', fits: false };
   const now = new Date().toISOString(); const fields = bookingFieldsFor(a, q);
   const S = ctx.S; const word = S.quote === 'about' ? 'about' : 'up to';
   // A bigger price can mean a bigger deposit — only if the business asks for it, and only on a visit that took one.
@@ -81,52 +81,52 @@ export async function applyPrep(db: any, tenantId: string, apptId: string, by: {
   await ref.set({ ...fields, depositTopUp: due ? { cents: due, status: 'due', at: now } : null, prep: { ...p, status: 'approved', approvedAt: now, approvedBy: by.name, auto: !!by.auto } }, { merge: true });
   await mirror(db, tenantId, a, { serviceName: fields.serviceName || a.serviceName, endTime: fields.endTime });
   await releaseHold(db, tenantId, apptId);
-  let topLine = ''; if (due) { const { prepPath } = await import('@/lib/prep-check-server'); const base = linkOrigin(tenant, ''); topLine = ` Your deposit goes up by ${money(due / 100)} with the new price${base ? ` — add it here: ${base}${prepPath(tenantId, apptId)}` : ' — we’ll take it at your visit'}.`; }
-  await textClient(db, tenantId, a, apptId, `You’re all set for ${whenOf(tenant, a.startTime)}: ${q.serviceName}${q.addOns.length ? ` + ${q.addOns.map((x) => (x.qty > 1 ? `${x.name} × ${x.qty}` : x.name)).join(', ')}` : ''}, until ${timeOf(tenant, ms(fields.endTime))}, ${word} ${money(q.newPrice)}.${topLine} See you then!`, 'Your visit is confirmed');
-  if (by.auto && a.staffId) await note(db, tenantId, String(a.staffId), `${first(a.clientName) || 'Your client'}'s visit was updated on its own: ${q.lines.join(' · ')}. It fitted your free time.`, apptId);
+  let topLine = ''; if (due) { const { prepPath } = await import('@/lib/prep-check-server'); const base = linkOrigin(tenant, ''); topLine = ` With the new price, your deposit increases by ${money(due / 100)}${base ? `. You can add it here: ${base}${prepPath(tenantId, apptId)}` : ', which we will collect at your visit'}.`; }
+  await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'}, your visit on ${whenOf(tenant, a.startTime)} is confirmed: ${q.serviceName}${q.addOns.length ? ` + ${q.addOns.map((x) => (x.qty > 1 ? `${x.name} × ${x.qty}` : x.name)).join(', ')}` : ''}, ending at ${timeOf(tenant, ms(fields.endTime))}, ${word} ${money(q.newPrice)}.${topLine} We look forward to seeing you.`, 'Your visit is confirmed');
+  if (by.auto && a.staffId) await note(db, tenantId, String(a.staffId), `${first(a.clientName) || 'Your client'}’s visit was updated automatically: ${q.lines.join(' · ')}. The change fit within your available time.`, apptId);
   return { ok: true };
 }
 
 /** Keep the booking as it is ("do what fits, book the rest" — or the business's own rule). */
 export async function keepPrep(db: any, tenantId: string, apptId: string, by: { name: string }) {
-  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
+  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'This visit is no longer available.' };
   const { prepCtx } = await import('@/lib/prep-ctx'); const ctx = await prepCtx(db, tenantId, a); const tenant: any = ctx.tenant; const S = ctx.S; const now = new Date().toISOString();
   await ref.set({ prep: { ...(a.prep || {}), status: 'kept', keptAt: now, keptBy: by.name } }, { merge: true }); await releaseHold(db, tenantId, apptId);
-  const rule = S.onDay === 'extend_or_move' ? 'If there’s more to do, we’ll extend if there’s time or find you another.' : S.onDay === 'provider' ? `${first(a.staffName) || 'Your provider'} will go over it with you when you arrive.` : 'We’ll do what fits in your time and book the rest.';
-  await textClient(db, tenantId, a, apptId, `Thanks for your answers, ${first(a.clientName) || 'there'}! We’re keeping your visit ${whenOf(tenant, a.startTime)} as booked. ${rule}`, 'About your visit');
+  const rule = S.onDay === 'extend_or_move' ? 'If more is needed, we will extend your visit if there is time, or arrange another time with you.' : S.onDay === 'provider' ? `${first(a.staffName) || 'Your provider'} will review it with you when you arrive.` : 'We will complete what fits in your appointment time and book the remainder with you.';
+  await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'}, thank you for your answers. Your visit on ${whenOf(tenant, a.startTime)} will remain as booked. ${rule}`, 'About your visit');
   return { ok: true };
 }
 
 /** To the desk: it doesn't fit (or the provider wants a second opinion). */
 export async function toDesk(db: any, tenantId: string, apptId: string, by: { name: string }, why?: string) {
-  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
+  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'This visit is no longer available.' };
   await ref.set({ prep: { ...(a.prep || {}), status: 'needs_desk', deskAt: new Date().toISOString(), deskBy: by.name, deskWhy: String(why || '').slice(0, 200) || null } }, { merge: true });
-  await note(db, tenantId, null, `${first(a.clientName) || 'A client'}'s ${String(a.serviceName || 'visit').toLowerCase()} needs a decision — the change doesn’t fit the book.`, apptId, true);
+  await note(db, tenantId, null, `Action needed: ${first(a.clientName) || 'A client'}’s ${String(a.serviceName || 'visit').toLowerCase()} needs a decision. The requested change does not fit the schedule.`, apptId, true);
   return { ok: true };
 }
 
 /** The desk asks the client to pick a new time — free and not counted; the visit link shows the choices. */
 export async function askToMove(db: any, tenantId: string, apptId: string, by: { name: string }) {
-  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
+  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'This visit is no longer available.' };
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const q = a.prep?.quote; const extra = q ? Math.max(0, q.newMinutes - Math.round((endOf(a) - ms(a.startTime)) / 60000)) : 0;
   const now = new Date().toISOString(); const reasonLabel = `your visit needs about ${extra || 'some'} more minutes than we have at that time`;
   const mark = { studioAskedToMove: true, disruption: { kind: 'prep', id: apptId, reasonLabel, at: now, status: 'pending' } };
   await ref.set({ ...mark, prep: { ...(a.prep || {}), status: 'asked_move', askedAt: now, askedBy: by.name } }, { merge: true }); await mirror(db, tenantId, a, mark); await releaseHold(db, tenantId, apptId);
   const base = linkOrigin(tenant, ''); const link = base && a.checkInToken ? `${base}/check-in/${a.checkInToken}` : '';
-  await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'} — thanks for your answers. Your ${String(a.serviceName || 'visit').toLowerCase()} now needs about ${extra || 'some'} more minutes than we have ${whenOf(tenant, a.startTime)}. Pick a new time with room for everything — no fee — or cancel free${link ? `: ${link}` : '.'}`, 'About your visit');
+  await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'}, thank you for your answers. Your ${String(a.serviceName || 'visit').toLowerCase()} now needs about ${extra || 'some'} more minutes than we have available on ${whenOf(tenant, a.startTime)}. We apologize for the inconvenience. Please choose a new time with room for everything, or cancel, at no fee${link ? `: ${link}` : '.'}`, 'About your visit');
   return { ok: true };
 }
 
 /** The desk cancels it — no fee; any deposit is refunded (a decision for the desk to finish), and the time is offered on. */
 export async function cancelFree(db: any, tenantId: string, apptId: string, by: { name: string }) {
-  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
+  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'This visit is no longer available.' };
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const now = new Date().toISOString();
   const fields = { status: 'cancelled', cancelledAt: now, cancelledBy: 'studio', studioCancelled: true, cancellationReason: 'more_time_needed', cancellationFeeCharged: 0, cancellationFeeWaived: true };
   await ref.set({ ...fields, prep: { ...(a.prep || {}), status: 'cancelled', cancelledBy: by.name } }, { merge: true }); await mirror(db, tenantId, a, fields); await releaseHold(db, tenantId, apptId);
   const dep = a.depositStatus === 'paid' ? Number(a.depositAmountCents) || 0 : 0;
   const { renterVisit } = await import('@/lib/prep-ctx'); const isRenter = (await renterVisit(db, tenantId, a)).renter;   // a renter refunds their own deposit; their freed time isn't the studio's
   if (dep > 0 && !isRenter) { const d = db.collection(`${T(tenantId)}/depositDecisions`).doc(); await d.set({ id: d.id, tenantId, appointmentId: apptId, clientId: a.clientId || null, trigger: 'studio_cancel_more_time', amountCents: dep, status: 'pending', suggested: 'refund', createdAt: now }); }
-  await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'} — we’ve had to cancel your ${String(a.serviceName || 'visit').toLowerCase()} ${whenOf(tenant, a.startTime)} because it needs more time than we have. There’s no fee${dep ? ' and your deposit will be refunded' : ''}. We’ll be in touch to find a better time.`, 'Your visit');
+  await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'}, unfortunately we have had to cancel your ${String(a.serviceName || 'visit').toLowerCase()} on ${whenOf(tenant, a.startTime)}, as it needs more time than we have available. There is no fee${dep ? ', and your deposit will be refunded' : ''}. We apologize for the inconvenience and will be in touch to find a better time.`, 'Your visit');
   if (isRenter) return { ok: true, offered: 0, depositToRefund: dep };
   const freed = await offerFreedTime(db, tenantId, tenant, { staffId: a.staffId || null, startMs: ms(a.startTime), minutes: Math.round((endOf(a) - ms(a.startTime)) / 60000), serviceId: a.serviceId || null, providerName: first(a.staffName) });
   return { ok: true, offered: freed.offered };
@@ -141,17 +141,17 @@ export async function offerFreedTime(db: any, tenantId: string, tenant: any, o: 
     await makeOpening(db, tenantId, { id: `op_t_${o.staffId || 'x'}_${o.startMs}`, staffId: o.staffId, staffName: o.providerName || '', start: new Date(o.startMs).toISOString(), end: new Date(o.startMs + o.minutes * 60000).toISOString(), serviceId: o.serviceId, serviceName: '', source: 'freed', chainDepth: 0 }, Date.now());
     offered = 1; } catch { /* the desk still hears about it */ }
   const r = db.collection(`${T(tenantId)}/notifications`).doc();
-  await r.set({ id: r.id, type: 'prep_check', message: `${o.minutes} min opened ${whenOf(tenant, new Date(o.startMs).toISOString())}${o.providerName ? ` with ${o.providerName}` : ''}${offered ? ` — it’s on the waitlist now` : ' — nobody on the waitlist fits; worth a post or a call'}.`, link: '/planner', createdAt: new Date().toISOString(), read: false });
+  await r.set({ id: r.id, type: 'prep_check', message: `${o.minutes} minutes are now available on ${whenOf(tenant, new Date(o.startMs).toISOString())}${o.providerName ? ` with ${o.providerName}` : ''}.${offered ? ' The time has been offered to the waitlist.' : ' No one on the waitlist is a match, so you may wish to share the opening or call clients.'}`, link: '/planner', createdAt: new Date().toISOString(), read: false });
   return { offered };
 }
 
 /** Doesn't fit with their provider: who else is certified and free at the same time for the whole new length? */
 export async function otherProviders(db: any, tenantId: string, apptId: string) {
-  const a: any = (await db.doc(`${T(tenantId)}/appointments/${apptId}`).get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
-  const q: Quote | null = a.prep?.quote || null; if (!q?.changed) return { ok: false, error: 'There’s no change to make room for.' };
+  const a: any = (await db.doc(`${T(tenantId)}/appointments/${apptId}`).get()).data() || null; if (!a) return { ok: false, error: 'This visit is no longer available.' };
+  const q: Quote | null = a.prep?.quote || null; if (!q?.changed) return { ok: false, error: 'There is no change that needs more time.' };
   const { engineFor, openTimesOn } = await import('@/lib/rebook'); const { dayKey } = await import('@/lib/tenant-time');
   const { isCertified } = await import('@/lib/availability'); const { providerFree } = await import('@/lib/provider-availability');
-  const e = await engineFor(db, tenantId); if (!e) return { ok: false, error: 'Unknown business.' };
+  const e = await engineFor(db, tenantId); if (!e) return { ok: false, error: 'We could not find this business.' };
   const start = ms(a.startTime); const date = dayKey(new Date(start), e.tz); const svc: any = e.services.find((s: any) => s.id === q.serviceId);
   const out: Array<{ staffId: string; name: string }> = [];
   for (const m of e.staff) {
@@ -166,18 +166,18 @@ export async function otherProviders(db: any, tenantId: string, apptId: string) 
 
 /** Same time, another provider — with the change on the booking. The client is told, and can still pick a new time instead. */
 export async function moveToProvider(db: any, tenantId: string, apptId: string, staffId: string, by: { name: string }) {
-  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'That visit is gone.' };
-  const q: Quote | null = a.prep?.quote || null; if (!q?.changed) return { ok: false, error: 'There’s no change to make room for.' };
+  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data() || null; if (!a) return { ok: false, error: 'This visit is no longer available.' };
+  const q: Quote | null = a.prep?.quote || null; if (!q?.changed) return { ok: false, error: 'There is no change that needs more time.' };
   const list: any = await otherProviders(db, tenantId, apptId); if (!list.ok) return list;
-  const who = (list.providers || []).find((p: any) => p.staffId === staffId); if (!who) return { ok: false, error: 'They aren’t free for the whole visit any more — pick again.' };
+  const who = (list.providers || []).find((p: any) => p.staffId === staffId); if (!who) return { ok: false, error: 'This provider is no longer available for the whole visit. Please choose again.' };
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = prepSettingsOf(tenant); const word = S.quote === 'about' ? 'about' : 'up to';
   const now = new Date().toISOString(); const fields = bookingFieldsFor(a, q); const due = topUpDue(S.topUp, a, q.oldPrice, q.newPrice);
   await ref.set({ ...fields, staffId: who.staffId, staffName: who.name, previousStaffId: a.staffId || null, previousStaffName: a.staffName || null, depositTopUp: due ? { cents: due, status: 'due', at: now } : null,
     prep: { ...(a.prep || {}), status: 'approved', approvedAt: now, approvedBy: by.name, movedProvider: { from: a.staffName || null, to: who.name, at: now } } }, { merge: true });
   await mirror(db, tenantId, a, { staffName: who.name, serviceName: fields.serviceName || a.serviceName, endTime: fields.endTime }); await releaseHold(db, tenantId, apptId);
   const base = linkOrigin(tenant, ''); const link = base && a.checkInToken ? `${base}/check-in/${a.checkInToken}` : '';
-  await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'} — so there’s time for everything, your ${String(q.serviceName).toLowerCase()} ${whenOf(tenant, a.startTime)} is now with ${first(who.name)} (same time, ${word} ${money(q.newPrice)}).${link ? ` Rather stay with ${first(a.staffName) || 'your provider'}? Pick a new time here, free: ${link}` : ` Rather stay with ${first(a.staffName) || 'your provider'}? Just reply.`}`, 'About your visit');
-  if (a.staffId) await note(db, tenantId, String(a.staffId), `${first(a.clientName) || 'Your client'}'s visit ${whenOf(tenant, a.startTime)} moved to ${first(who.name)} — it needed more time than you had.`, apptId);
-  await note(db, tenantId, who.staffId, `You have ${first(a.clientName) || 'a client'} ${whenOf(tenant, a.startTime)}: ${q.lines.join(' · ')} (moved from ${first(a.staffName) || 'another provider'}).`, apptId);
+  await textClient(db, tenantId, a, apptId, `Hi ${first(a.clientName) || 'there'}, so that there is time for everything, your ${String(q.serviceName).toLowerCase()} on ${whenOf(tenant, a.startTime)} is now with ${first(who.name)} (same time, ${word} ${money(q.newPrice)}).${link ? ` If you would prefer to stay with ${first(a.staffName) || 'your provider'}, you can choose a new time here at no fee: ${link}` : ` If you would prefer to stay with ${first(a.staffName) || 'your provider'}, please reply to this message.`}`, 'About your visit');
+  if (a.staffId) await note(db, tenantId, String(a.staffId), `${first(a.clientName) || 'Your client'}’s visit on ${whenOf(tenant, a.startTime)} has been moved to ${first(who.name)}, as it needed more time than was available in your schedule.`, apptId);
+  await note(db, tenantId, who.staffId, `${first(a.clientName) || 'A client'} has been moved to your schedule on ${whenOf(tenant, a.startTime)}: ${q.lines.join(' · ')} (moved from ${first(a.staffName) || 'another provider'}).`, apptId);
   return { ok: true, to: who.name };
 }

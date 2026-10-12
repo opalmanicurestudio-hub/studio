@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     // ── Tech portal: my queue + my history ────────────────────────────
     if (action === 'worker-view') {
       const worker = await findWorker(db, tenantId, body.token);
-      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link — ask the studio for a new one.' }, { status: 401 });
+      if (!worker) return NextResponse.json({ ok: false, error: 'This link is invalid or has been revoked. Please ask the studio for a new one.' }, { status: 401 });
       const snap = await db.collection(`tenants/${tenantId}/tickets`).get();
       const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
       const isHelperOn = (t: any) => (t.helpers || []).some((h: any) => h.id === worker.id);
@@ -164,10 +164,10 @@ export async function POST(req: NextRequest) {
     // Materials $ logs the purchase to the ledger in the same motion.
     if (action === 'worker-request') {
       const worker = await findWorker(db, tenantId, body.token);
-      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      if (!worker) return NextResponse.json({ ok: false, error: 'This link is invalid or has been revoked.' }, { status: 401 });
       const title = String(body.title || '').trim().slice(0, 140);
       const detail = String(body.detail || '').trim().slice(0, 1000);
-      if (!title) return NextResponse.json({ ok: false, error: 'Say what you need in a few words.' }, { status: 400 });
+      if (!title) return NextResponse.json({ ok: false, error: 'Please describe what you need in a few words.' }, { status: 400 });
       // STRUCTURED context — the difference between "need caulk" and a
       // decision the owner can make from their phone in five seconds:
       // what kind, how many, by when, roughly how much, for which job,
@@ -224,7 +224,7 @@ export async function POST(req: NextRequest) {
           ...(photoUrl ? { photoUrls: [...(Array.isArray(rt.photoUrls) ? rt.photoUrls : []), photoUrl] } : {}),
           updatedAt: nowIso,
         }, { merge: true });
-        await notifyOwner(db, tenantId, `${kindLabel} request on "${rt.title}"${rt.boothName ? ` (${rt.boothName})` : ''} from ${worker.name}: "${title}"${metaBits ? ` (${metaBits})` : ''}${photoUrl ? ' · photo attached' : ''}`);
+        await notifyOwner(db, tenantId, `Action needed: ${worker.name} has submitted a request (${kindLabel}) on "${rt.title}"${rt.boothName ? ` (${rt.boothName})` : ''}: "${title}"${metaBits ? ` (${metaBits})` : ''}${photoUrl ? '. A photo is attached.' : '.'}`);
         await logAuditAdmin(db, tenantId, {
           action: 'maintenance.request_filed', targetType: 'ticket', targetId: relatedTicketId,
           summary: `${worker.name} (tech) requested on "${rt.title}": "${title}"${estCostCents > 0 ? ` · est. $${(estCostCents / 100).toFixed(2)}` : ''}`,
@@ -254,7 +254,7 @@ export async function POST(req: NextRequest) {
         updates: [{ at: nowIso, by: worker.name, byType: 'tech', note: `${kindLabel} request${metaBits ? ` — ${metaBits}` : ''}`, status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
         createdAt: nowIso, updatedAt: nowIso, dueAt: neededBy ? `${neededBy}T23:59:59.000Z` : dueAtFor('normal'), resolvedAt: null,
       });
-      await notifyOwner(db, tenantId, `${kindLabel} request from ${worker.name}: "${title}"${metaBits ? ` (${metaBits})` : ''}${photoUrl ? ' · photo attached' : ''}`);
+      await notifyOwner(db, tenantId, `Action needed: ${worker.name} has submitted a request (${kindLabel}): "${title}"${metaBits ? ` (${metaBits})` : ''}${photoUrl ? '. A photo is attached.' : '.'}`);
       await logAuditAdmin(db, tenantId, {
         action: 'maintenance.request_filed', targetType: 'ticket', targetId: ref.id,
         summary: `${worker.name} (tech) requested: "${title}"${estCostCents > 0 ? ` · est. $${(estCostCents / 100).toFixed(2)}` : ''}`,
@@ -271,7 +271,7 @@ export async function POST(req: NextRequest) {
     // for the hours claimed at resolve — not a leash.
     if (action === 'worker-timer') {
       const worker = await findWorker(db, tenantId, body.token);
-      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      if (!worker) return NextResponse.json({ ok: false, error: 'This link is invalid or has been revoked.' }, { status: 401 });
       const { ticketId } = body;
       const op = body.op === 'stop' ? 'stop' : 'start';
       if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
@@ -320,7 +320,7 @@ export async function POST(req: NextRequest) {
       if (t.quote?.status === 'approved' && (t.quote.hours || 0) > 0 && totalMin > t.quote.hours * 60 && !t.agreementOverNotified) {
         patch.agreementOverNotified = true;
         patch.updates.push({ at: nowIso, by: 'Agreement', byType: 'system', note: `Timed work (${fmtMinutes(totalMin)}) has passed the agreed ${t.quote.hours}h — the studio has been notified.` });
-        await notifyOwner(db, tenantId, `"${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: ${worker.name}'s timed work (${fmtMinutes(totalMin)}) just passed the agreed ${t.quote.hours}h ($${((t.quote.totalCents || 0) / 100).toFixed(2)}). Check in before it grows.`);
+        await notifyOwner(db, tenantId, `Please note: ${worker.name}’s timed work on "${t.title}"${t.boothName ? ` (${t.boothName})` : ''} (${fmtMinutes(totalMin)}) has exceeded the agreed ${t.quote.hours} hours ($${((t.quote.totalCents || 0) / 100).toFixed(2)}). You may wish to check in with them.`);
       }
       await ref.set(patch, { merge: true });
       return NextResponse.json({ ok: true, timedMinutes: totalMin });
@@ -333,7 +333,7 @@ export async function POST(req: NextRequest) {
     // declines from their queue and the tech gets a text either way.
     if (action === 'worker-quote') {
       const worker = await findWorker(db, tenantId, body.token);
-      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      if (!worker) return NextResponse.json({ ok: false, error: 'This link is invalid or has been revoked.' }, { status: 401 });
       const { ticketId } = body;
       if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
       const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
@@ -350,7 +350,7 @@ export async function POST(req: NextRequest) {
       const laborCents = worker.payType !== 'payroll' && rateCents > 0 ? Math.round(hours * rateCents) : 0;
       const totalCents = materialsCents + laborCents;
       if (totalCents <= 0 && hours <= 0) {
-        return NextResponse.json({ ok: false, error: 'Give the quote some substance — hours or materials.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: 'Please include hours or materials in the quote.' }, { status: 400 });
       }
       const nowIso = new Date().toISOString();
       // The BUSINESS'S OWN RULE: quotes at/under their threshold skip the
@@ -371,8 +371,8 @@ export async function POST(req: NextRequest) {
         updatedAt: nowIso,
       }, { merge: true });
       await notifyOwner(db, tenantId, autoApproved
-        ? `Quote auto-approved (your under-$${(rules.autoApproveUnderCents / 100).toFixed(0)} rule): ${worker.name} on "${t.title}" — $${(totalCents / 100).toFixed(2)}.`
-        : `Quote from ${worker.name} on "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: $${(totalCents / 100).toFixed(2)}${hours > 0 ? ` (${hours}h${materialsCents > 0 ? ` + $${(materialsCents / 100).toFixed(2)} materials` : ''})` : ''} — approve or decline in Maintenance.`);
+        ? `A quote from ${worker.name} on "${t.title}" for $${(totalCents / 100).toFixed(2)} was approved automatically under your rule for quotes under $${(rules.autoApproveUnderCents / 100).toFixed(0)}.`
+        : `Action needed: Quote from ${worker.name} on "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: $${(totalCents / 100).toFixed(2)}${hours > 0 ? ` (${hours}h${materialsCents > 0 ? ` + $${(materialsCents / 100).toFixed(2)} materials` : ''})` : ''}. Please approve or decline it in Maintenance.`);
       await logAuditAdmin(db, tenantId, {
         action: 'maintenance.quote_submitted', targetType: 'ticket', targetId: ticketId,
         summary: `${worker.name} quoted $${(totalCents / 100).toFixed(2)} on "${t.title}"`,
@@ -398,7 +398,7 @@ export async function POST(req: NextRequest) {
         const w = (await db.doc(`tenants/${tenantId}/maintenanceWorkers/${t.assigneeId}`).get()).data() as any;
         if (w?.phone && smsConfigured()) {
           const r = await sendTenantSms(db, tenantId, w.phone,
-            `Please send a quote before starting "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''} — there's a Send quote button on the ticket in your portal.`);
+            `Please send a quote before starting "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}. You can use the Send quote button on the ticket in your portal.`);
           sent = r.ok;
         }
         await ref.set({ quoteRequestNotified: t.assigneeId }, { merge: true });
@@ -410,8 +410,8 @@ export async function POST(req: NextRequest) {
         if (w?.phone && smsConfigured()) {
           const r = await sendTenantSms(db, tenantId, w.phone,
             t.quote.status === 'approved'
-              ? `Quote APPROVED for "${t.title}" — $${((t.quote.totalCents || 0) / 100).toFixed(2)}. Go ahead when ready.`
-              : `Quote declined for "${t.title}" — hold off. The studio will follow up${t.quote.declineNote ? `: ${t.quote.declineNote}` : '.'}`);
+              ? `Your quote of $${((t.quote.totalCents || 0) / 100).toFixed(2)} for "${t.title}" has been approved. You may begin the work when you are ready.`
+              : `Your quote for "${t.title}" was not approved. Please do not begin the work. The studio will follow up with you${t.quote.declineNote ? `. Note: ${t.quote.declineNote}` : '.'}`);
           sent = r.ok;
         }
         await ref.set({ quoteNotifiedStatus: t.quote.status }, { merge: true });
@@ -425,7 +425,7 @@ export async function POST(req: NextRequest) {
     // flows straight into the ledger as a Maintenance & Repairs expense.
     if (action === 'worker-update') {
       const worker = await findWorker(db, tenantId, body.token);
-      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      if (!worker) return NextResponse.json({ ok: false, error: 'This link is invalid or has been revoked.' }, { status: 401 });
       const { ticketId } = body;
       const status = ['in_progress', 'resolved'].includes(body.status) ? body.status : null;
       const note = String(body.note || '').slice(0, 1000).trim();
@@ -434,7 +434,7 @@ export async function POST(req: NextRequest) {
       // never backdated below now, and it lands on the thread for everyone.
       const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueAt || '')) ? String(body.dueAt) : null;
       if (!ticketId || (!status && !note && !hasPhoto && !dueDate && !(Number(body.laborHours) > 0))) {
-        return NextResponse.json({ ok: false, error: 'Add a note, a photo, hours, a new deadline, or a status change.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: 'Please add a note, a photo, hours, a new deadline or a status change.' }, { status: 400 });
       }
       const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
       const snap = await ref.get();
@@ -505,7 +505,7 @@ export async function POST(req: NextRequest) {
         ? Math.round(laborHours * rateCents) : 0;
       // Only the ASSIGNEE moves status — helpers contribute, they don't close.
       if (status && t.assigneeId && t.assigneeId !== worker.id) {
-        return NextResponse.json({ ok: false, error: `Only ${t.assigneeName || 'the assigned worker'} can change this job's status — add your notes and hours instead.` }, { status: 403 });
+        return NextResponse.json({ ok: false, error: `Only ${t.assigneeName || 'the assigned worker'} can change this job’s status. You can add your notes and hours instead.` }, { status: 403 });
       }
 
       // Mileage: miles × the studio's per-mile rate (0 rate = no mileage).
@@ -522,11 +522,11 @@ export async function POST(req: NextRequest) {
       if (status === 'resolved' && (costCents > 0 || laborCents > 0)) {
         const actual = costCents + laborCents;
         if (rules.requireQuoteOverCents > 0 && actual > rules.requireQuoteOverCents && t.quote?.status !== 'approved') {
-          return NextResponse.json({ ok: false, error: `This studio requires an approved quote for jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)} — send a quote and wait for approval before resolving at $${(actual / 100).toFixed(2)}.` }, { status: 422 });
+          return NextResponse.json({ ok: false, error: `This studio requires an approved quote for jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)}. Please send a quote and wait for approval before resolving at $${(actual / 100).toFixed(2)}.` }, { status: 422 });
         }
         const hasAnyPhoto = !!photoUrl || (Array.isArray(t.photoUrls) && t.photoUrls.length > 0);
         if (rules.receiptRequiredOverCents > 0 && costCents > rules.receiptRequiredOverCents && !hasAnyPhoto) {
-          return NextResponse.json({ ok: false, error: `This studio requires a receipt photo for materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)} — attach the receipt and resolve again.` }, { status: 422 });
+          return NextResponse.json({ ok: false, error: `This studio requires a receipt photo for materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)}. Please attach the receipt and resolve again.` }, { status: 422 });
         }
       }
       // Labor accumulates on the ticket — totals plus who-did-what.
@@ -618,11 +618,11 @@ export async function POST(req: NextRequest) {
 
       await syncBoothFromTickets(db, tenantId, t.boothId);
       await notifyOwner(db, tenantId,
-        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${materialsNote ? ` · materials: ${materialsNote}` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${mileageNote ? ` · mileage: ${mileageNote}` : ''}${overAgreement ? ` · OVER THE AGREED QUOTE ($${(((costCents + laborCents) - (t.quote.totalCents || 0)) / 100).toFixed(2)} above $${((t.quote.totalCents || 0) / 100).toFixed(2)})` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
+        `Maintenance: ${worker.name} ${status === 'resolved' ? 'resolved' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${materialsNote ? ` · materials: ${materialsNote}` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${mileageNote ? ` · mileage: ${mileageNote}` : ''}${overAgreement ? ` · over the agreed quote ($${(((costCents + laborCents) - (t.quote.totalCents || 0)) / 100).toFixed(2)} above $${((t.quote.totalCents || 0) / 100).toFixed(2)})` : ''}${note ? ` · note: "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}.`);
       // Keep the reporter in the loop automatically.
       if (t.reporter?.phone && smsConfigured() && status) {
         await sendTenantSms(db, tenantId, t.reporter.phone,
-          `Update on your maintenance request "${t.title}": ${TICKET_STATUS_LABELS[status as keyof typeof TICKET_STATUS_LABELS]}${note ? ` — ${note.slice(0, 120)}` : ''}`);
+          `Update on your maintenance request "${t.title}": ${TICKET_STATUS_LABELS[status as keyof typeof TICKET_STATUS_LABELS]}.${note ? ` Note: ${note.slice(0, 120)}` : ''}`);
       }
       await logAuditAdmin(db, tenantId, {
         action: 'maintenance.ticket_updated', targetType: 'ticket', targetId: ticketId,
@@ -656,8 +656,8 @@ export async function POST(req: NextRequest) {
           if (w?.phone && smsConfigured()) {
             const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${w.token}` : '';
             const r = await sendTenantSms(db, tenantId, w.phone,
-              `You've been added to help on "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}${t.assigneeName ? ` (lead: ${t.assigneeName})` : ''}. Log your own hours on the job.${link}`,
-              { email: w.email || null, subject: 'Added to help on a job' });
+              `You have been added to help on "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}${t.assigneeName ? ` (lead: ${t.assigneeName})` : ''}. Please log your own hours on the job.${link}`,
+              { email: w.email || null, subject: 'You have been added to a job' });
             if (r.ok) sent++;
           }
           notified.push(h.id);
@@ -690,7 +690,7 @@ export async function POST(req: NextRequest) {
         if (!base) base = String(body.origin || '').replace(/\/+$/, '');
         const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${w.token}` : '';
         const r = await sendTenantSms(db, tenantId, w.phone,
-          `New ${t.priority} ticket: "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}.${link}`,
+          `A new ${t.priority}-priority ticket has been assigned to you: "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}.${link}`,
           { email: w.email || null, subject: 'New ticket assigned to you' });
         sent = r.ok;
       }
@@ -721,12 +721,12 @@ export async function POST(req: NextRequest) {
       if (kindOf === 'status' && t.lastReporterNotifyStatus === t.status) return NextResponse.json({ ok: true, already: true });
 
       const line = (() => {
-        if (kindOf === 'assigned') return `${t.assigneeName || 'Someone'} is taking care of your ${what}: "${t.title}".${t.dueAt ? ` We aim to have it done by ${String(t.dueAt).slice(0, 10)}.` : ''}`;
+        if (kindOf === 'assigned') return `${t.assigneeName || 'A team member'} is taking care of your ${what}: "${t.title}".${t.dueAt ? ` We aim to have it completed by ${String(t.dueAt).slice(0, 10)}.` : ''}`;
         if (kindOf === 'note') {
           const last = (t.updates || []).filter((u: any) => u.note).slice(-1)[0];
           return `Update on your ${what} "${t.title}": ${String(last?.note || '').slice(0, 400)}`;
         }
-        if (kindOf === 'resolved') return `Your ${what} "${t.title}" is done.${t.resolutionNote ? ` ${String(t.resolutionNote).slice(0, 400)}` : ''} If it is not right, reply and we will come back to it.`;
+        if (kindOf === 'resolved') return `Your ${what} "${t.title}" has been completed.${t.resolutionNote ? ` ${String(t.resolutionNote).slice(0, 400)}` : ''} If anything is not right, please reply to this message and we will follow up.`;
         return `Update on your ${what} "${t.title}": ${TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status}.`;
       })();
 
@@ -753,6 +753,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   } catch (err) {
     console.error('[maintenance] POST failed', err);
-    return NextResponse.json({ ok: false, error: 'Something went wrong — try again.' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 }

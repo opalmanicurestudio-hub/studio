@@ -17,10 +17,10 @@ export async function POST(req: NextRequest) {
   const tenantId = String(b.tenantId || ''), clientId = String(b.clientId || ''), action = String(b.action || '');
   if (!tenantId || !clientId) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
   const auth: any = await verifyStaffActor(req, tenantId);
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
+  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Please sign in to continue.' }, { status: auth.status || 401 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const cRef = db.doc(`${T}/clients/${clientId}`); const c: any = (await cRef.get()).data();
-  if (!c) return NextResponse.json({ ok: false, error: 'That client wasn’t found.' }, { status: 404 });
+  if (!c) return NextResponse.json({ ok: false, error: 'We could not find that client.' }, { status: 404 });
   const dollars = Math.round((Number(c.outstandingBalance) || 0) * 100) / 100;
   if (!(dollars > 0)) return NextResponse.json({ ok: true, already: true });
   const nowIso = new Date().toISOString();
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
   if (action === 'waive') {
     if (!['owner', 'admin', 'manager'].includes(String(auth.actor.role || '').toLowerCase())) return NextResponse.json({ ok: false, error: 'Only a manager can waive a balance.' }, { status: 403 });
     const reason = String(b.reason || '').trim().slice(0, 200);
-    if (!reason) return NextResponse.json({ ok: false, error: 'Add a reason for waiving it.' }, { status: 400 });
+    if (!reason) return NextResponse.json({ ok: false, error: 'Please add a reason for waiving the balance.' }, { status: 400 });
     await cRef.set({ outstandingBalance: 0, unpaidFees: [], balanceWaivedAt: nowIso, balanceWaived: { amount: dollars, reason, by: auth.actor.name }, balanceVersion: nowIso }, { merge: true });
     await logAuditAdmin(db, tenantId, { action: 'balance.waived', targetType: 'client', targetId: clientId, amount: dollars, summary: `$${dollars.toFixed(2)} balance waived for ${c.name || 'client'} — ${reason}`, actor }).catch(() => {});
     return NextResponse.json({ ok: true, waivedDollars: dollars });
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     const last = Date.parse(c.balanceLinkSentAt || '');
     if (Number.isFinite(last) && Date.now() - last < 3600000) return NextResponse.json({ ok: false, error: `A pay link was sent to ${first} less than an hour ago.` }, { status: 429 });
     const email = String(c.email || '').trim(), phone = String(c.phone || '').trim();
-    if (!email.includes('@') && phone.replace(/\D/g, '').length < 7) return NextResponse.json({ ok: false, error: `${first} has no email or phone on file to send it to.` }, { status: 400 });
+    if (!email.includes('@') && phone.replace(/\D/g, '').length < 7) return NextResponse.json({ ok: false, error: `${first} has no email address or phone number on file.` }, { status: 400 });
     const tenant: any = ((await db.doc(T).get()).data() as any) || {};
     const url = `${linkOrigin(tenant, req.nextUrl.origin)}/portal/${tenantId}/${clientId}`;
     const studio = tenant.name || 'the studio';
@@ -56,10 +56,10 @@ export async function POST(req: NextRequest) {
     let sent = false;
     if (email.includes('@')) {
       const { brandedEmailHtml } = await import('@/lib/email-template');
-      sent = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `Your balance with ${studio}`, kind: 'balance_due', html: brandedEmailHtml({ studioName: studio, title: 'Your balance', bodyLines: [`You have a $${dollars.toFixed(2)} balance with us. You can pay it securely here whenever it suits you.`], cta: { label: 'Pay my balance', url } } as any), clientId, clientName: c.name || null } as any))?.ok || sent;
+      sent = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `Your balance with ${studio}`, kind: 'balance_due', html: brandedEmailHtml({ studioName: studio, title: 'Your balance', bodyLines: [`Hi ${String(c.name || '').trim().split(' ')[0] || 'there'},`, `You have an outstanding balance of $${dollars.toFixed(2)} with us. You can pay it securely using the link below at your convenience.`, 'If you have any questions, please reply to this email.', 'Kind regards,', studio], cta: { label: 'Pay my balance', url } } as any), clientId, clientName: c.name || null } as any))?.ok || sent;
     }
-    if (!sent && phone) sent = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'balance_due', text: `${studio}: you have a $${dollars.toFixed(2)} balance. Pay securely here: ${url}`, clientId, clientName: c.name || null } as any))?.ok;
-    if (!sent) return NextResponse.json({ ok: false, error: 'The link didn’t send — check their contact details.' }, { status: 502 });
+    if (!sent && phone) sent = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'balance_due', text: `Hi ${String(c.name || '').trim().split(' ')[0] || 'there'}, you have an outstanding balance of $${dollars.toFixed(2)}. You can pay securely here: ${url}. If you have any questions, please reply to this message.`, clientId, clientName: c.name || null } as any))?.ok;
+    if (!sent) return NextResponse.json({ ok: false, error: 'The payment link could not be sent. Please check their contact details.' }, { status: 502 });
     await cRef.set({ balanceLinkSentAt: nowIso }, { merge: true });
     await logAuditAdmin(db, tenantId, { action: 'balance.link_sent', targetType: 'client', targetId: clientId, amount: dollars, summary: `Pay link sent to ${c.name || 'client'} for a $${dollars.toFixed(2)} balance`, actor }).catch(() => {});
     return NextResponse.json({ ok: true, sentTo: email.includes('@') ? 'email' : 'text' });

@@ -94,11 +94,11 @@ export async function sendReservationConfirmation(
     const paidCents = Number(r.amountCents) || 0;
     const balanceCents = (!r.balancePaid && Number(r.balanceDueCents) > 0) ? Number(r.balanceDueCents) : 0;
     const balanceLine = balanceCents > 0
-      ? `Balance of $${(balanceCents / 100).toFixed(2)} is due ${r.balanceMode === 'at_checkin' ? 'at check-in' : 'in person'}.`
+      ? `A balance of $${(balanceCents / 100).toFixed(2)} is due ${r.balanceMode === 'at_checkin' ? 'at check-in' : 'in person'}.`
       : '';
     const paidLine = r.paidWithPassId
-      ? `Paid with your day pass${r.passDaysUsed ? ` (${r.passDaysUsed} day${r.passDaysUsed === 1 ? '' : 's'} used)` : ''}.`
-      : (paidCents > 0 ? `Paid today: $${(paidCents / 100).toFixed(2)}.` : '');
+      ? `This reservation was paid with your day pass${r.passDaysUsed ? ` (${r.passDaysUsed} day${r.passDaysUsed === 1 ? '' : 's'} used)` : ''}.`
+      : (paidCents > 0 ? `We have received your payment of $${(paidCents / 100).toFixed(2)}.` : '');
 
     const email = String(r.email || '').trim();
     const phone = String(r.phone || '').trim();
@@ -111,19 +111,21 @@ export async function sendReservationConfirmation(
     if (email.includes('@')) {
       const html = brandedEmailHtml({
         studioName,
-        title: "You're booked",
+        title: 'Your reservation is confirmed',
         bodyLines: [
-          `Hi ${firstName} — ${r.boothName || 'your space'} is yours for ${whenStr}.`,
+          `Hi ${firstName},`,
+          `Thank you for your reservation. ${r.boothName || 'Your space'} is reserved for you on ${whenStr}.`,
           [paidLine, balanceLine].filter(Boolean).join(' '),
-          'We\'ll see you then — the buttons below have everything you need.',
+          'You can use the buttons below to manage your reservation or add it to your calendar. We look forward to seeing you.',
+          `Kind regards, ${studioName}`,
         ].filter(Boolean),
-        cta: manageUrl ? { label: 'Manage reservation', url: manageUrl } : null,
+        cta: manageUrl ? { label: 'Manage my reservation', url: manageUrl } : null,
         secondaryCta: calendarUrl ? { label: 'Add to calendar', url: calendarUrl } : null,
-        footerNote: `Plans changed? Use the Manage button any time to request a change. Sent by ${studioName}.`,
+        footerNote: `If your plans change, you can use the Manage button at any time to request a change. Sent by ${studioName}.`,
       });
       await sendNotification(db, {
         tenantId, channel: 'email', to: email,
-        subject: `Booked: ${r.boothName || 'your space'} — ${whenStr}`,
+        subject: `Your reservation is confirmed: ${r.boothName || 'your space'} on ${whenStr}`,
         html, kind: 'reservation_confirmation',
         ...who,
       });
@@ -132,7 +134,7 @@ export async function sendReservationConfirmation(
     if (phone) {
       await sendNotification(db, {
         tenantId, channel: 'sms', to: phone,
-        text: `You're booked — ${r.boothName || 'your space'}, ${whenStr}.${balanceLine ? ` ${balanceLine}` : ''}${manageUrl ? ` Manage: ${manageUrl}` : ''}`,
+        text: `Hi ${firstName}, your reservation for ${r.boothName || 'your space'} on ${whenStr} is confirmed.${balanceLine ? ` ${balanceLine}` : ''}${manageUrl ? ` You can manage your reservation here: ${manageUrl}` : ''}`,
         kind: 'reservation_confirmation',
         ...who,
       });

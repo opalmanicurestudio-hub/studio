@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
     const revisedAt = newDate ? new Date(`${newDate}T23:59:59`) : null;
     if (newDate && (!revisedAt || Number.isNaN(revisedAt.getTime()))) {
-      return NextResponse.json({ error: 'That date isn\u2019t readable.' }, { status: 400 });
+      return NextResponse.json({ error: 'That date could not be read. Please check it and try again.' }, { status: 400 });
     }
 
     const db = getAdminDb();
@@ -126,20 +126,21 @@ export async function POST(req: NextRequest) {
         const html = brandedEmail(brand, `
           <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
           <p style="font-size:14px;color:#334155;line-height:1.6">
-            A heads-up before the date we gave you passes: your pre-order is now expected to ship by <strong>${pretty}</strong>.
+            We wanted to let you know before your original date passes that your pre-order is now expected to ship by <strong>${pretty}</strong>. We apologize for the delay.
           </p>
           ${note ? `<p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${note.replace(/</g, '&lt;')}</p>` : ''}
           <p style="font-size:14px;color:#334155;line-height:1.6">
-            Happy to keep it for you \u2014 nothing to do, we\u2019ll email tracking the moment it ships. If the new date doesn\u2019t work, cancel from your order page and we\u2019ll refund you in full, no reason needed.
+            We are happy to keep your order for you, and there is nothing you need to do. We will email you the tracking details as soon as it ships. If the new date does not work for you, you may cancel from your order page and we will refund you in full.
           </p>
           ${orderLink ? emailButton(orderLink, 'Keep waiting or cancel', brand) : ''}
-          <p style="font-size:12px;color:#94a3b8;line-height:1.6">Thanks for your patience \u2014 reply any time.</p>`,
-          { preheader: `New date: ${pretty} \u2014 keep it or cancel for a full refund` });
+          <p style="font-size:14px;color:#334155;line-height:1.6">Thank you for your patience. If you have any questions, please reply to this email.</p>
+          <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${brand.shopName}</p>`,
+          { preheader: `Your pre-order is now expected to ship by ${pretty}.` });
 
         const { sendNotification } = await import('@/lib/notify');
         await sendNotification(db, {
           tenantId, channel: 'email', to: to,
-            subject: `Your pre-order: new date \u2014 ${brand.shopName}`,
+            subject: `${brand.shopName}: an updated ship date for your pre-order`,
             html,
           kind: 'preorder_eta', recipientType: 'client',
         });

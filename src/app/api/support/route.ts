@@ -43,9 +43,9 @@ export async function POST(req: NextRequest) {
   if (b.action === 'reply') {
     const ref = db.doc(`platformTickets/${String(b.ticketId || '')}`);
     const k = ((await ref.get()).data() as any) || null;
-    if (!k || k.tenantId !== tenantId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+    if (!k || k.tenantId !== tenantId) return NextResponse.json({ ok: false, error: 'We could not find this help request.' }, { status: 404 });
     const message = String(b.message || '').trim().slice(0, 4000);
-    if (!message) return NextResponse.json({ ok: false, error: 'Write a message first.' }, { status: 400 });
+    if (!message) return NextResponse.json({ ok: false, error: 'Please write a message first.' }, { status: 400 });
     await ref.set({ status: 'waiting_on_us', updatedAt: at, thread: [...(k.thread || []), { at, from: 'business', by: auth.actor.name || 'Owner', message }] }, { merge: true });
     return NextResponse.json({ ok: true });
   }
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
   try { actorEmail = (await getAdminAuth().getUser(auth.actor.uid)).email || null; } catch { /* no email on file */ }
   const subject = String(b.subject || '').trim().slice(0, 140);
   const message = String(b.message || '').trim().slice(0, 4000);
-  if (message.length < 5) return NextResponse.json({ ok: false, error: 'Tell us a little more.' }, { status: 400 });
+  if (message.length < 5) return NextResponse.json({ ok: false, error: 'Please tell us a little more so we can help.' }, { status: 400 });
   const kind = ['broken', 'question', 'idea'].includes(b.kind) ? b.kind : 'question';
   const c = b.context || {};
   // Account check findings (from /diagnostics) — a checked, size-limited summary for HQ only.
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
   // Sorted instantly by plain rules; AI refines it just after (below).
   const tri = ruleTriage({ message, kind, errors: context.errors });
   const due = new Date(Date.now() + SLA_HOURS[tri.priority] * 3600000).toISOString();
-  await ref.set({ id: ref.id, tenantId, tenantName: t.name || null, businessType: t.businessType || null, subject: subject || (kind === 'broken' ? 'Something isn’t working' : kind === 'idea' ? 'An idea' : 'A question'),
+  await ref.set({ id: ref.id, tenantId, tenantName: t.name || null, businessType: t.businessType || null, subject: subject || (kind === 'broken' ? 'Something is not working' : kind === 'idea' ? 'An idea' : 'A question'),
     message, kind, status: 'open', createdAt: at, updatedAt: at, contactEmail: actorEmail || null, contactName: auth.actor.name || null, contactUid: auth.actor.uid, context, thread: [],
     category: tri.category, priority: tri.priority, firstResponseDueAt: due, firstRespondedAt: null, assignee: null, internalNotes: [], triagedBy: 'rules' });
 

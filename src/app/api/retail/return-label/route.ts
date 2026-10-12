@@ -89,13 +89,13 @@ export async function POST(req: NextRequest) {
     if (order.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
     if (ret.orderId !== orderId) return NextResponse.json({ error: 'Return does not belong to this order' }, { status: 400 });
     if (ret.status !== 'open') {
-      return NextResponse.json({ error: 'A label can only be sent while the return is open.' }, { status: 409 });
+      return NextResponse.json({ error: 'A return label can only be sent while the return is open.' }, { status: 409 });
     }
     if (ret.labelUrl) {
       return NextResponse.json({ ok: true, alreadySent: true, labelUrl: ret.labelUrl, trackingNumber: ret.labelTrackingNumber || '', message: 'A label was already sent for this return.' });
     }
     if (!order.shippingAddress) {
-      return NextResponse.json({ error: 'This order has no shipping address on file — it was a pickup. No label needed.' }, { status: 409 });
+      return NextResponse.json({ error: 'This order was a pickup order and has no shipping address on file, so a return label is not needed.' }, { status: 409 });
     }
 
     const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
@@ -199,15 +199,16 @@ export async function POST(req: NextRequest) {
           `<tr><td style="font-size:13px;color:#0f172a;padding:4px 0">${String(rl.name || 'Item')}${(Number(rl.qty) || 1) > 1 ? ` \u00d7 ${Number(rl.qty)}` : ''}</td></tr>`
         ).join('');
         const deductHtml = labelDeductCents
-          ? `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping of <strong>$${(labelDeductCents / 100).toFixed(2)}</strong> will be deducted from your refund, per the shop's return policy — you'll see the exact amount before it's processed.</p>`
-          : `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping is on ${shopName} — the label costs you nothing.</p>`;
+          ? `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping of <strong>$${(labelDeductCents / 100).toFixed(2)}</strong> will be deducted from your refund, as outlined in our return policy. You will see the exact amount before your refund is processed.</p>`
+          : `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping is covered by ${shopName}, so there is no cost to you for this label.</p>`;
         const html = brandedEmail(emailBrand, `
-          <p style="font-size:14px;color:#0f172a;font-weight:700">Hi ${firstName},</p>
-          <p style="font-size:14px;color:#334155;line-height:1.6">Your return label for order #${String(order.orderNumber ?? '').padStart(4, '0')} is ready. Print it, tape it over the old label on any box, and drop it with ${cheapest.provider} — that's the whole job.</p>
+          <p style="font-size:14px;color:#0f172a">Hi ${firstName},</p>
+          <p style="font-size:14px;color:#334155;line-height:1.6">Your return label for order #${String(order.orderNumber ?? '').padStart(4, '0')} is ready. Please print the label, attach it over any old labels on your box, and drop it off with ${cheapest.provider}.</p>
           <table style="border-collapse:collapse;margin:14px 0">${itemsHtml}</table>
           ${deductHtml}
           ${emailButton(String(txn.label_url || ''), 'Open my return label', emailBrand)}
-          <p style="font-size:12px;color:#94a3b8;line-height:1.6">Tracking ${String(txn.tracking_number || '')}. Your refund moves once the return arrives and is checked in.</p>`,
+          <p style="font-size:12px;color:#94a3b8;line-height:1.6">Tracking number: ${String(txn.tracking_number || '')}. Your refund will be processed once your return arrives and has been checked in.</p>
+          <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
           { preheader: 'Your return label is ready' });
         const { sendNotification } = await import('@/lib/notify');
         await sendNotification(db, {

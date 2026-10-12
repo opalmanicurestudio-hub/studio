@@ -214,7 +214,7 @@ async function handleCheckout(req: NextRequest) {
       .where('placedAt', '>', windowStart).count().get();
     if ((recent.data().count ?? 0) >= throttle) {
       return NextResponse.json(
-        { error: 'The shop is at capacity right now \u2014 please try again in a few minutes.' },
+        { error: 'We are sorry, but the shop is very busy right now. Please try again in a few minutes.' },
         { status: 429 }
       );
     }
@@ -755,11 +755,11 @@ async function handleCheckout(req: NextRequest) {
     try {
       const { findByCode, holdGiftCard, codeTries } = await import('@/lib/gift-cards');
       const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'shop';
-      if ((await codeTries(db, tenantId, `shop_${ip}`, false)).blocked) return NextResponse.json({ error: 'Too many wrong gift card codes — try again in 15 minutes.' }, { status: 429 });
+      if ((await codeTries(db, tenantId, `shop_${ip}`, false)).blocked) return NextResponse.json({ error: 'Too many incorrect gift card codes have been entered. Please try again in 15 minutes.' }, { status: 429 });
       const g: any = await findByCode(db, tenantId, String(body.giftCode));
-      if (!g) { await codeTries(db, tenantId, `shop_${ip}`, true); return NextResponse.json({ error: 'That gift card code wasn’t found — check it, or remove it to pay by card.' }, { status: 400 }); }
-      if (g.ownerRenterId) return NextResponse.json({ error: 'That gift card is for one provider’s services — it can’t be used in the shop.' }, { status: 400 });
-      if (g.promo) return NextResponse.json({ error: 'Bonus cards are used at the studio on your visit — they can’t be used in the online shop.' }, { status: 400 });
+      if (!g) { await codeTries(db, tenantId, `shop_${ip}`, true); return NextResponse.json({ error: 'We could not find that gift card code. Please check it, or remove it to pay by card.' }, { status: 400 }); }
+      if (g.ownerRenterId) return NextResponse.json({ error: 'This gift card can only be used for one provider’s services, so it cannot be used in the shop.' }, { status: 400 });
+      if (g.promo) return NextResponse.json({ error: 'Bonus cards can be used during your visit, but they cannot be used in the online shop.' }, { status: 400 });
       const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
       // ── The gift card covers the WHOLE order: nothing for the card processor to collect, so skip it (its 50¢
       // minimum would otherwise leave 50¢ to pay). Any store credit is left untouched for next time. Same atomic

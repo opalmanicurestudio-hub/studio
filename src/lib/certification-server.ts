@@ -52,7 +52,7 @@ export async function evaluateStaff(db: any, tenantId: string, staffId: string) 
     await ref.set({ staffId, staffName: staff.name || 'Team member', serviceId: sv.id, serviceName: svc.name || 'Service', status: 'certified', certifiedAt: now, how: 'requirements', by: rec?.watchedBy || null,
       renewBy: renewByFor(rule, today), updatedAt: now }, { merge: true });
     const n = db.collection(`${T(tenantId)}/notifications`).doc();
-    await n.set({ id: n.id, userId: staffId, type: 'certification', message: `You’re certified for ${svc.name || 'a service'}.${certModeOf(tenant) === 'block' ? ' It’s now bookable with you.' : ''}`, link: 'documents', createdAt: now, read: false });
+    await n.set({ id: n.id, userId: staffId, type: 'certification', message: `You are now certified for ${svc.name || 'a service'}.${certModeOf(tenant) === 'block' ? ' Clients can now book this service with you.' : ''}`, link: 'documents', createdAt: now, read: false });
     await syncService(db, tenantId, sv.id, tenant); done.push(sv.id);
   }
   return done;
@@ -67,7 +67,7 @@ export async function certificationSweep(db: any, tenantId: string, tenant: any)
   const now = new Date().toISOString(); const services = new Set<string>();
   for (const d of lapsed) { const r: CertRecord = d.data(); await d.ref.set({ status: 'lapsed', lapsedAt: now, watchedAt: null, watchedBy: null, watchedNote: null, updatedAt: now }, { merge: true }); services.add(r.serviceId);
     const n = db.collection(`${T(tenantId)}/notifications`).doc();
-    await n.set({ id: n.id, userId: r.staffId, type: 'certification', message: `Your certification for ${r.serviceName || 'a service'} needs renewing — ask a manager.`, link: 'documents', createdAt: now, read: false }); }
+    await n.set({ id: n.id, userId: r.staffId, type: 'certification', message: `Action needed: your certification for ${r.serviceName || 'a service'} is due for renewal. Please speak with a manager.`, link: 'documents', createdAt: now, read: false }); }
   for (const s of services) await syncService(db, tenantId, s, tenant);
   return lapsed.length;
 }

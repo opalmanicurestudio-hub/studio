@@ -74,16 +74,16 @@ export async function prepAnswer(db: any, tenantId: string, v: { id: string; ref
   await v.ref.set({ prep: { ...(v.a.prep || {}), answers, quote, version: info.check.version || 1, answeredAt: now, by, status, agreedAt: null, late: info.locked, extra, fits: fit.fits, freeMinutes: fit.freeMinutes, held: !quote.safety && extra > 0 && fit.fits } }, { merge: true });
   if (quote.safety && v.a.prep?.status !== 'safety') {
     const who = info.visit.clientFirst || 'A client';
-    await notify(db, tenantId, v.a.staffId ? String(v.a.staffId) : null, `${who}'s answers before ${info.visit.when} need a call — a safety answer. Don’t start the service before you’ve talked.`, v.id, true);
-    const { soloBusiness } = await import('@/lib/solo'); if (!info.renter && (!(await soloBusiness(db, tenantId)) || !v.a.staffId)) await notify(db, tenantId, null, `${who} gave a safety answer before their ${info.visit.service.toLowerCase()} (${info.visit.when}). Call them — moving it is free.`, v.id, true);
+    await notify(db, tenantId, v.a.staffId ? String(v.a.staffId) : null, `Action needed: ${who} gave a safety-related answer before their visit on ${info.visit.when}. Please call them, and do not start the service until you have spoken with them.`, v.id, true);
+    const { soloBusiness } = await import('@/lib/solo'); if (!info.renter && (!(await soloBusiness(db, tenantId)) || !v.a.staffId)) await notify(db, tenantId, null, `Action needed: ${who} gave a safety-related answer before their ${info.visit.service.toLowerCase()} (${info.visit.when}). Please call them. The visit can be moved at no fee.`, v.id, true);
   }
   return { ok: true, quote, status };
 }
 
 /** "Looks right": their agreement to the quote they saw. */
 export async function prepAgree(db: any, tenantId: string, v: { id: string; ref: any; a: any }, by: 'client' | 'desk' = 'client') {
-  const p = v.a.prep; if (!p?.answeredAt) return { ok: false, error: 'Answer the questions first.' };
-  if (p.status === 'safety') return { ok: false, error: 'We’ll call you about this visit.' };
+  const p = v.a.prep; if (!p?.answeredAt) return { ok: false, error: 'Please answer the questions first.' };
+  if (p.status === 'safety') return { ok: false, error: 'We will call you about this visit. Thank you for your patience.' };
   const now = new Date().toISOString(); await v.ref.set({ prep: { ...p, status: 'agreed', agreedAt: now, agreedVia: by === 'desk' ? 'phone' : 'link' } }, { merge: true });
   const q = p.quote || {}; const who = first(v.a.clientName) || 'Your client';
   // Small changes that fit (add-ons and minutes only, within the business's limit) go on by themselves.
@@ -92,18 +92,18 @@ export async function prepAgree(db: any, tenantId: string, v: { id: string; ref:
     const { applyPrep } = await import('@/lib/prep-actions'); const r = await applyPrep(db, tenantId, v.id, { name: 'Automatically', auto: true }); if (r.ok) return { ok: true, applied: true };
   }
   const what = q.changed ? `${(q.lines || []).join(' · ')}` : 'no change';
-  if (v.a.staffId) await notify(db, tenantId, String(v.a.staffId), `${who} answered the check before their ${String(v.a.serviceName || 'visit').toLowerCase()}: ${what}.${q.changed ? ' Open the visit to approve it.' : ''}`, v.id);
+  if (v.a.staffId) await notify(db, tenantId, String(v.a.staffId), `${q.changed ? 'Action needed: ' : ''}${who} answered the check before their ${String(v.a.serviceName || 'visit').toLowerCase()}: ${what}.${q.changed ? ' Please open the visit to approve it.' : ''}`, v.id);
   return { ok: true };
 }
 
 /** "I have a question": to the desk (and the provider), with the answers attached. */
 export async function prepQuestion(db: any, tenantId: string, v: { id: string; ref: any; a: any }, text: string) {
-  const msg = String(text || '').trim().slice(0, 600); if (!msg) return { ok: false, error: 'Write your question.' };
+  const msg = String(text || '').trim().slice(0, 600); if (!msg) return { ok: false, error: 'Please enter your question.' };
   const now = new Date().toISOString(); const p = v.a.prep || {};
   await v.ref.set({ prep: { ...p, status: p.status === 'safety' ? 'safety' : 'question', questions: [...(Array.isArray(p.questions) ? p.questions : []), { text: msg, at: now }].slice(-10) } }, { merge: true });
   const who = first(v.a.clientName) || 'A client';
-  await notify(db, tenantId, null, `${who} has a question about their ${String(v.a.serviceName || 'visit').toLowerCase()}: “${msg.slice(0, 160)}”`, v.id, true);
-  if (v.a.staffId) await notify(db, tenantId, String(v.a.staffId), `${who} asked a question about their check: “${msg.slice(0, 160)}”`, v.id);
+  await notify(db, tenantId, null, `Action needed: ${who} has a question about their ${String(v.a.serviceName || 'visit').toLowerCase()}: “${msg.slice(0, 160)}”. Please reply to them.`, v.id, true);
+  if (v.a.staffId) await notify(db, tenantId, String(v.a.staffId), `${who} has asked a question about their check: “${msg.slice(0, 160)}”`, v.id);
   return { ok: true };
 }
 
@@ -132,7 +132,7 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
       if (a.prep?.answeredAt && a.prep?.by) {   // answered already — if nobody has decided a change by 12 h before, the desk gets it
         const st = String(a.prep.status || ''); const start0 = ms(a.startTime);
         if (a.prep.quote?.changed && ['answered', 'agreed', 'question'].includes(st) && now >= start0 - 12 * 3600e3 && !a.prep.deskAt && !a.prep.remindedAt) {
-          if (solo || isR) { await d.ref.set({ prep: { ...a.prep, remindedAt: new Date(now).toISOString() } }, { merge: true }); await notify(db, tenantId, a.staffId ? String(a.staffId) : null, `Decide ${first(a.clientName) || 'your client'}'s change before their visit: ${(a.prep.quote.lines || []).join(' · ')}. Approve it, keep it as booked, or ask them to pick a new time.`, d.id, true); }
+          if (solo || isR) { await d.ref.set({ prep: { ...a.prep, remindedAt: new Date(now).toISOString() } }, { merge: true }); await notify(db, tenantId, a.staffId ? String(a.staffId) : null, `Action needed: Please decide on ${first(a.clientName) || 'your client'}’s requested change before their visit: ${(a.prep.quote.lines || []).join(' · ')}. You can approve it, keep the visit as booked, or ask them to choose a new time.`, d.id, true); }
           else { const { toDesk } = await import('@/lib/prep-actions'); await toDesk(db, tenantId, d.id, { name: 'No decision 12 h before' }, 'Nobody decided yet'); }
         }
         continue;
@@ -145,8 +145,8 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
       const when = new Date(start).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: tz });
       const n = (checkOf(svc)?.questions || []).length; const url = `${base}${prepPath(tenantId, d.id)}`;
       const text = !a.prepSentAt
-        ? `Hi ${first(a.clientName) || 'there'}! Your ${String(a.serviceName || 'visit').toLowerCase()} is ${when}${a.staffName ? ` with ${first(a.staffName)}` : ''}. ${n === 1 ? 'One quick question' : `${n} quick questions`} so we save the right time: ${url}`
-        : `A quick reminder, ${first(a.clientName) || 'there'} — answer before your ${String(a.serviceName || 'visit').toLowerCase()} ${when} so we save the right time (takes 20 seconds): ${url}`;
+        ? `Hi ${first(a.clientName) || 'there'}, your ${String(a.serviceName || 'visit').toLowerCase()} is on ${when}${a.staffName ? ` with ${first(a.staffName)}` : ''}. Please answer ${n === 1 ? 'one short question' : `${n} short questions`} so we can reserve the right amount of time: ${url}`
+        : `Hi ${first(a.clientName) || 'there'}, this is a reminder to answer a few short questions before your ${String(a.serviceName || 'visit').toLowerCase()} on ${when}, so we can reserve the right amount of time. It takes about 20 seconds: ${url}`;
       let phone = a.clientPhone || a.phone || null, email = a.clientEmail || a.email || null;
       if ((!phone || !email) && a.clientId) { try { const c: any = (await db.doc(`${T(tenantId)}/clients/${a.clientId}`).get()).data() || {}; phone = phone || c.phone || null; email = email || c.email || null; } catch { /* none */ } }
       let ok = false; const subject = `Before your ${String(a.serviceName || 'visit').toLowerCase()}`;
@@ -168,15 +168,15 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
 
 /** "Add it to my deposit": a card payment for the top-up the business asked for (Stripe Checkout on their account). */
 export async function prepTopUpLink(db: any, tenantId: string, v: { id: string; ref: any; a: any }, origin: string) {
-  const t = v.a.depositTopUp; if (!t || !(Number(t.cents) > 0)) return { ok: false, error: 'There’s nothing to add to your deposit.' };
-  if (t.status === 'paid') return { ok: false, error: 'Your deposit is already topped up — thank you!' };
+  const t = v.a.depositTopUp; if (!t || !(Number(t.cents) > 0)) return { ok: false, error: 'There is nothing to add to your deposit.' };
+  if (t.status === 'paid') return { ok: false, error: 'Your deposit has already been topped up. Thank you!' };
   if (CLOSED.includes(String(v.a.status || ''))) return { ok: false, error: 'This visit has already happened or was cancelled.' };
-  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; if (!tenant.stripeAccountId) return { ok: false, error: 'Card payments aren’t set up here — we’ll take it at your visit.' };
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; if (!tenant.stripeAccountId) return { ok: false, error: 'Online card payments are not available. We will collect this at your visit.' };
   let email = v.a.clientEmail || null; if (!email && v.a.clientId) { try { email = ((await db.doc(`${T(tenantId)}/clients/${v.a.clientId}`).get()).data() as any)?.email || null; } catch { /* none */ } }
   const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' as any });
   const back = `${origin}${prepPath(tenantId, v.id)}`; const md = { type: 'deposit_topup', tenantId, appointmentId: v.id, cents: String(Math.round(Number(t.cents))) };
   const session = await stripe.checkout.sessions.create({ mode: 'payment', ...(email ? { customer_email: String(email) } : {}),
-    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: Math.round(Number(t.cents)), product_data: { name: `Deposit top-up — ${v.a.serviceName || 'your visit'}`, description: 'Comes off your total at your visit.' } } }],
+    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: Math.round(Number(t.cents)), product_data: { name: `Deposit top-up — ${v.a.serviceName || 'your visit'}`, description: 'This amount will be applied to your total at your visit.' } } }],
     metadata: md, payment_intent_data: { metadata: md }, success_url: `${back}&paid=1`, cancel_url: back, expires_at: Math.floor(Date.now() / 1000) + 23 * 3600 }, { stripeAccount: tenant.stripeAccountId });
   return { ok: true, url: session.url as string };
 }

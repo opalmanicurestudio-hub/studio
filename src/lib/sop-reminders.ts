@@ -7,7 +7,7 @@ import { docIsFor } from '@/lib/my-work';
 import { reviewDue } from '@/lib/doc-collections';
 import { dayKey, hourIn, tenantTimeZone, addDays } from '@/lib/tenant-time';
 
-const nice = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+const nice = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
 
 export async function sopReminderSweep(db: any, tenantId: string, tenant: any) {
   const tz = tenantTimeZone(tenant); const now = new Date();
@@ -21,7 +21,7 @@ export async function sopReminderSweep(db: any, tenantId: string, tenant: any) {
     const ownerOk = d.ownerId ? (await db.doc(`tenants/${tenantId}/staff/${d.ownerId}`).get().then((x: any) => x.exists && x.data()?.archived !== true).catch(() => false)) : false;
     const to: string[] = ownerOk ? [d.ownerId] : (await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs.filter((x: any) => x.data()?.archived !== true).map((x: any) => x.id);
     const b = db.batch(); const stamp = new Date().toISOString();
-    for (const u of to) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: u, type: 'document', message: `“${d.title || 'A document'}” is due for review ${due <= today ? 'now' : `by ${nice(due)}`} — check it’s still right, or update it.`, link: '/documents', documentId: d.id, createdAt: stamp, read: false }); reviews++; }
+    for (const u of to) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: u, type: 'document', message: `Action needed: “${d.title || 'A document'}” is due for review ${due <= today ? 'now' : `by ${nice(due)}`}. Please confirm it is still accurate, or update it.`, link: '/documents', documentId: d.id, createdAt: stamp, read: false }); reviews++; }
     b.set(db.doc(`tenants/${tenantId}/documents/${d.id}`), { reviewToldFor: due }, { merge: true }); await b.commit();
   }
   const docs = all.filter((d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d.signBy || '')));
@@ -39,11 +39,11 @@ export async function sopReminderSweep(db: any, tenantId: string, tenant: any) {
     const missing = forThem.filter((_: any, i: number) => !(acks[i] && Number(acks[i].version) === Number(d.version || 1)));
     const b = db.batch(); const title = String(d.title || 'a document');
     if (due) {
-      for (const s of missing) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: s.id, type: 'document', message: `Please read and sign “${title}” by tomorrow.`, link: 'documents', documentId: d.id, createdAt: stamp, read: false }); reminded++; }
+      for (const s of missing) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: s.id, type: 'document', message: `Action needed: Please read and sign “${title}” by tomorrow.`, link: 'documents', documentId: d.id, createdAt: stamp, read: false }); reminded++; }
       b.set(db.doc(`tenants/${tenantId}/documents/${d.id}`), { remindedFor: key }, { merge: true });
     }
     if (late) {
-      if (missing.length) for (const m of managers) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: m, type: 'document', message: `${missing.length} ${missing.length === 1 ? 'person hasn’t' : 'people haven’t'} signed “${title}” (due ${nice(d.signBy)}): ${missing.slice(0, 4).map((s: any) => String(s.name || '').split(' ')[0]).join(', ')}${missing.length > 4 ? '…' : ''}.`, link: '/documents', documentId: d.id, createdAt: stamp, read: false }); told++; }
+      if (missing.length) for (const m of managers) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: m, type: 'document', message: `${missing.length} ${missing.length === 1 ? 'person has not' : 'people have not'} yet signed “${title}” (due ${nice(d.signBy)}): ${missing.slice(0, 4).map((s: any) => String(s.name || '').split(' ')[0]).join(', ')}${missing.length > 4 ? '…' : ''}.`, link: '/documents', documentId: d.id, createdAt: stamp, read: false }); told++; }
       b.set(db.doc(`tenants/${tenantId}/documents/${d.id}`), { overdueToldFor: key }, { merge: true });
     }
     await b.commit();

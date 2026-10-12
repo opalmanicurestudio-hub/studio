@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     const email = normalizeEmail(order.customerEmail);
     if (!email || !email.includes('@')) {
       return NextResponse.json(
-        { error: 'This order has no email on file — ask the shop to add one.' },
+        { error: 'This order has no email address on file. Please contact us and we will add one for you.' },
         { status: 409 }
       );
     }

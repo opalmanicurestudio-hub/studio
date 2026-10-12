@@ -90,11 +90,11 @@ export async function POST(req: NextRequest) {
       const cents = Math.max(0, (Number(ret.refundCents) || 0) - labelDeduct);
       outcomeHtml = `
         <div style="border:2px solid #e2e8f0;border-radius:16px;padding:18px;margin:14px 0;text-align:center">
-          <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Refund on its way</p>
+          <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Your refund is on its way</p>
           <p style="font-size:30px;font-weight:800;color:#0f172a;margin:0">${money(cents)}</p>
-          ${labelDeduct ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0">Return shipping of ${money(labelDeduct)} was deducted, per the return policy shown when your label was issued.</p>` : ''}
+          ${labelDeduct ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0">As outlined in our return policy, which was shown when your label was issued, return shipping of ${money(labelDeduct)} has been deducted.</p>` : ''}
         </div>
-        <p style="font-size:13px;color:#334155;line-height:1.6">Card refunds typically appear in 5\u201310 business days, depending on your bank.</p>`;
+        <p style="font-size:13px;color:#334155;line-height:1.6">Card refunds typically appear within 5 to 10 business days, depending on your bank.</p>`;
     } else if (resolution === 'store_credit') {
       const cents = Math.max(0, (Number(ret.storeCreditCents) || 0) - labelDeduct);
       // Claim the credit's own grant email so the two paths can never both send.
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
         <div style="border:2px solid #e2e8f0;border-radius:16px;padding:18px;margin:14px 0;text-align:center">
           <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Store credit issued</p>
           <p style="font-size:30px;font-weight:800;color:#0f766e;margin:0">${money(cents)}</p>
-          ${labelDeduct ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0">Return shipping of ${money(labelDeduct)} was deducted, per the return policy shown when your label was issued.</p>` : ''}
+          ${labelDeduct ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0">As outlined in our return policy, which was shown when your label was issued, return shipping of ${money(labelDeduct)} has been deducted.</p>` : ''}
         </div>
         <table style="width:100%;border-collapse:collapse;margin:0 0 8px">
           <tr>
@@ -124,30 +124,31 @@ export async function POST(req: NextRequest) {
             <td style="font-size:16px;font-weight:800;text-align:right;color:#0f172a;padding:6px 0">${money(balanceCents)}</td>
           </tr>
         </table>
-        <p style="font-size:13px;color:#334155;line-height:1.6">Spend it at checkout \u2014 sign in with this email and your balance applies right on the payment page, as much or as little as you like.</p>`;
+        <p style="font-size:13px;color:#334155;line-height:1.6">To use your credit, sign in with this email address at checkout and your balance will be applied on the payment page. You may use as much or as little as you like.</p>`;
     } else if (resolution === 'replacement') {
       outcomeHtml = `
         <div style="border:2px solid #e2e8f0;border-radius:16px;padding:18px;margin:14px 0;text-align:center">
-          <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Replacement on the way</p>
-          <p style="font-size:16px;font-weight:800;color:#0f172a;margin:0">Your replacement is in the fulfilment queue \u2014 at no charge.</p>
+          <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Your replacement is on its way</p>
+          <p style="font-size:16px;font-weight:800;color:#0f172a;margin:0">Your replacement is being prepared at no charge.</p>
         </div>
-        <p style="font-size:13px;color:#334155;line-height:1.6">It moves through packing like any order, and your order page updates live as it does.</p>`;
+        <p style="font-size:13px;color:#334155;line-height:1.6">It will be packed and shipped like any other order, and your order page will update as it progresses.</p>`;
     } else {
-      outcomeHtml = `<p style="font-size:13px;color:#334155;line-height:1.6">Your return is closed. If anything looks off, reply from your order page and it lands straight with the team.</p>`;
+      outcomeHtml = `<p style="font-size:13px;color:#334155;line-height:1.6">Your return has now been completed. If anything does not look right, please reply from your order page and our team will be happy to help.</p>`;
     }
 
     const html = brandedEmail(emailBrand, `
-      <p style="font-size:16px;color:#0f172a;margin:0 0 8px"><strong>${first}, your return arrived.</strong></p>
-      <p style="font-size:13px;color:#334155;line-height:1.6">We received and checked in your items from order ${num}:</p>
+      <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${first},</p>
+      <p style="font-size:13px;color:#334155;line-height:1.6">Thank you for sending your return. We have received and checked in the following items from order ${num}:</p>
       <table style="border-collapse:collapse;margin:8px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0;width:100%">${itemsHtml}</table>
       ${outcomeHtml}
-      ${origin ? emailButton(`${origin}/shop/${tenantId}/order/${ret.orderId}`, 'View my order', emailBrand) : ''}`,
-      { preheader: `Return received for order ${num}` });
+      ${origin ? emailButton(`${origin}/shop/${tenantId}/order/${ret.orderId}`, 'View my order', emailBrand) : ''}
+      <p style="font-size:13px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
+      { preheader: `We have received your return for order ${num}` });
 
     const { sendNotification } = await import('@/lib/notify');
     const r = await sendNotification(db, {
       tenantId, channel: 'email', to,
-      subject: `${emailBrand.shopName} \u2014 return received for order ${num}`,
+      subject: `${emailBrand.shopName}: we have received your return for order ${num}`,
       html, kind: 'return_received', recipientType: 'client',
       recipientId: ret.orderId || null, recipientName: order?.customerName || null,
     });

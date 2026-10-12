@@ -34,14 +34,14 @@ export async function watchCrons(now = Date.now(), send?: (to: string, subject: 
     const ref = db.doc(`platformHealth/cron_${j.name}`); const d: any = (await ref.get()).data() || {};
     const last = Date.parse(d.lastRunAt || ''); if (!Number.isFinite(last)) continue;
     const limit = Math.max(20 * 60000, j.everyHours * 4 * 3600e3); const isLate = now - last > limit;
-    if (isLate && (!d.alertedAt || now - Date.parse(d.alertedAt) > 3600e3)) { late.push(`${j.label} — last ran ${Math.round((now - last) / 60000)} minutes ago`); await ref.set({ alertedAt: new Date(now).toISOString(), late: true }, { merge: true }); }
+    if (isLate && (!d.alertedAt || now - Date.parse(d.alertedAt) > 3600e3)) { late.push(`${j.label}: last ran ${Math.round((now - last) / 60000)} minutes ago`); await ref.set({ alertedAt: new Date(now).toISOString(), late: true }, { merge: true }); }
     if (!isLate && d.late) { back.push(j.label); await ref.set({ late: false, alertedAt: null }, { merge: true }); }
   }
   if (!late.length && !back.length) return { late, back };
   const { platformAdminEmails } = await import('@/lib/platform-admin'); const to = process.env.LEADS_NOTIFY_EMAIL || platformAdminEmails()[0] || '';
   const mail = send || (async (t: string, subject: string, text: string) => { if (!process.env.RESEND_API_KEY || !t) return; const { resolveFromAddress } = await import('@/lib/notify');
     await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: resolveFromAddress(), to: t, subject, text }) }).catch(() => {}); });
-  if (late.length) await mail(to, 'ClarityFlow: a background job has stopped', `These jobs are late:\n\n${late.join('\n')}\n\nWhile they're stopped, waitlist offers, unpaid-deposit checks, no-show checks and Tidy my day deadlines don't run. Check the latest deploy in Vercel, then HQ → System.`);
-  if (back.length) await mail(to, 'ClarityFlow: background jobs are running again', `Back to normal:\n\n${back.join('\n')}`);
+  if (late.length) await mail(to, 'Action needed: ClarityFlow background job has stopped', `The following scheduled jobs are running late:\n\n${late.join('\n')}\n\nWhile they are stopped, waitlist offers, unpaid deposit checks, missed appointment checks and Tidy my day deadlines will not run. Please check the latest deployment in Vercel, then review HQ → System.`);
+  if (back.length) await mail(to, 'ClarityFlow: background jobs are running again', `The following scheduled jobs have resumed and are running normally:\n\n${back.join('\n')}`);
   return { late, back };
 }

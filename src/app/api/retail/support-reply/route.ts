@@ -79,9 +79,10 @@ export async function POST(req: NextRequest) {
       const first = String(ticket.customerName || '').trim().split(/\s+/)[0];
       const num = `#${String(ticket.orderNumber).padStart(4, '0')}`;
       const html = brandedEmail(emailBrand, `
-        ${first ? `<p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 10px">Hi ${first},</p>` : ''}
+        <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 10px">Hi ${first || 'there'},</p>
         <p style="font-size:14px;color:#0f172a;line-height:1.7;white-space:pre-wrap;margin:0">${reply.replace(/</g, '&lt;')}</p>
-        <table style="border-collapse:collapse;margin:20px 0 0">
+        <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:16px 0 0">Kind regards,</p>
+        <table style="border-collapse:collapse;margin:8px 0 0">
           <tr>
             <td style="border-left:3px solid ${emailBrand.brandColor};padding:2px 0 2px 12px">
               <p style="font-size:13px;font-weight:800;color:#0f172a;margin:0">${staffName}</p>
@@ -90,13 +91,13 @@ export async function POST(req: NextRequest) {
           </tr>
         </table>
         ${emailButton(link, 'View my order', emailBrand)}
-        <p style="font-size:11px;color:#94a3b8;margin:18px 0 0;border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.6">You wrote: \u201c${String(ticket.message || '').slice(0, 240).replace(/</g, '&lt;')}${String(ticket.message || '').length > 240 ? '\u2026' : ''}\u201d</p>`,
-        { preheader: `${staffName} at ${emailBrand.shopName} replied about order ${num}` });
+        <p style="font-size:11px;color:#94a3b8;margin:18px 0 0;border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.6">Your message: \u201c${String(ticket.message || '').slice(0, 240).replace(/</g, '&lt;')}${String(ticket.message || '').length > 240 ? '\u2026' : ''}\u201d</p>`,
+        { preheader: `${staffName} at ${emailBrand.shopName} has replied about your order ${num}` });
 
       const { sendNotification } = await import('@/lib/notify');
       const r = await sendNotification(db, {
         tenantId, channel: 'email', to: ticket.customerEmail,
-        subject: `${emailBrand.shopName} \u2014 about your order ${num}`,
+        subject: `${emailBrand.shopName}: a reply about your order ${num}`,
         html, kind: 'support_reply', recipientType: 'client',
         recipientId: ticket.orderId || null, recipientName: ticket.customerName || null,
       });
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
     message: emailed
       ? 'Reply sent to the customer by email.'
       : ticket.customerEmail
-        ? 'Reply saved — email could not be sent (check Resend settings).'
-        : 'Reply saved — this order has no email on file.',
+        ? 'Reply saved. The email could not be sent. Please check your email settings.'
+        : 'Reply saved. This order has no email address on file.',
   });
 }

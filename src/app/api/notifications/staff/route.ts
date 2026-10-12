@@ -137,10 +137,10 @@ export async function POST(req: NextRequest) {
           studioName,
           title: studioName,
           bodyLines: [message],
-          cta: { label: 'Open', url: `${base}${link}` },
+          cta: { label: 'View details', url: `${base}${link}` },
         });
         const r = await sendNotification(db, {
-          tenantId, channel: 'email', to: email, subject: `${studioName} — action needed`, html, kind, ...linkage,
+          tenantId, channel: 'email', to: email, subject: `Action needed: A message from ${studioName}`, html, kind, ...linkage,
         });
         mail = !!r.ok;
       }
