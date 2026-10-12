@@ -12,10 +12,17 @@ import { graceRule, graceRemaining } from '@/lib/grace';
 
 export type Mood = 'ok' | 'warn' | 'bad';
 export type Pose = 'sit' | 'stand' | 'lie' | 'chair';
-export type SpotKind = 'hair' | 'barber' | 'wash' | 'nail' | 'pedi' | 'facial' | 'lash' | 'lounge' | 'desk' | 'door' | 'office' | 'street';
+export type SpotKind = 'hair' | 'barber' | 'wash' | 'nail' | 'pedi' | 'facial' | 'lash' | 'lounge' | 'desk' | 'door' | 'office' | 'street' | 'bar';
 export type Spot = { id: string; kind: SpotKind; role: 'client' | 'staff'; x: number; z: number; seat: number; ry: number; pose: Pose; label: string; tilt?: number; accessible?: boolean };
 export type Look = { skin: string; hair?: string; hs: string; outfit: string; legs?: string; scarf?: string; male?: boolean; beard?: boolean; glasses?: boolean; build?: number; foils?: boolean; wheelchair?: boolean };
-export type NeedKind = 'check_in' | 'seat' | 'pay' | 'drink' | 'decide';
+export type NeedKind = 'check_in' | 'seat' | 'pay' | 'drink' | 'decide' | 'break';
+export type Trait = 'first' | 'regular' | 'hurry' | 'chatty';
+export const TRAITS: Record<Trait, { label: string; tip: string }> = {
+  first: { label: 'First visit', tip: 'New here: no card on file yet, a little nervous. A warm welcome goes a long way.' },
+  regular: { label: 'Regular', tip: 'Knows the team and loves being remembered. Tips well.' },
+  hurry: { label: 'In a hurry', tip: 'Has somewhere to be. Waiting costs more patience.' },
+  chatty: { label: 'Chatty', tip: 'Patient and loves a chat. Services run a little longer; open to suggestions.' },
+};
 export type Need = { kind: NeedKind; since: number; to?: string; decision?: string; item?: string; urgent?: boolean };
 export type Person = {
   id: string; name: string; role: 'staff' | 'client'; look: Look; job?: string;
@@ -24,6 +31,7 @@ export type Person = {
   patience: number; drain: number; need: Need | null; serviceUntil: number | null; price: number; paid: boolean;
   service?: string; bookedAt?: number; dur?: number; startedAt?: number | null; provider?: string | null;
   afterArrive?: string | null; returnTo?: string | null; checkedIn?: boolean; done?: boolean; blocked?: boolean;
+  trait?: Trait; visits?: number; notes?: string; energy?: number; home?: string; task?: { kind: 'brew' | 'break'; until: number; for?: string; start: number } | null; cart?: string[]; hand?: string[]; rebookAsked?: boolean; rebookYes?: boolean; asked?: Record<string, boolean>;
 };
 export type Option = { id: string; label: string; what: string; tags: [string, 'green' | 'amber' | 'red'][] };
 export type Decision = { id: string; title: string; body: string; who: string[]; options: Option[]; at: number; deadline: number; fallback: string; fallbackText: string };
@@ -74,9 +82,10 @@ export function makeSpots(): Record<string, Spot> {
   L.push(SP('lounge-open', 'lounge', 'client', 18.0, 11.0, { pose: 'chair', label: 'Lounge (step-free)', accessible: true }));
   L.push(SP('desk', 'desk', 'staff', 16.0, 13.4, { ry: PI, label: 'Front desk' }));
   L.push(SP('desk-front1', 'desk', 'client', 15.0, 16.2, { ry: PI, label: 'At the desk' }), SP('desk-front2', 'desk', 'client', 16.8, 16.3, { ry: PI, label: 'At the desk' }), SP('desk-front3', 'desk', 'client', 13.4, 16.1, { ry: PI, label: 'At the desk' }));
-  L.push(SP('door', 'door', 'client', 21.0, 17.4, { ry: PI, label: 'Entrance' }), SP('door2', 'door', 'client', 22.3, 17.4, { ry: PI, label: 'Entrance' }), SP('door3', 'door', 'client', 19.7, 17.4, { ry: PI, label: 'Entrance' }));
-  L.push(SP('street', 'street', 'client', 21.0, 22.0, { label: 'Outside' }));
+  L.push(SP('door', 'door', 'client', 11.5, 17.4, { ry: PI, label: 'Entrance' }), SP('door2', 'door', 'client', 12.5, 17.6, { ry: PI, label: 'Entrance' }), SP('door3', 'door', 'client', 10.7, 16.9, { ry: PI, label: 'Entrance' }));
+  L.push(SP('street', 'street', 'client', 11.5, 22.0, { label: 'Outside' }));
   L.push(SP('office', 'office', 'staff', 28.6, 16.4, { ry: PI, label: 'Back office' }));
+  L.push(SP('bar-pro', 'bar', 'staff', 20.6, 12.25, { ry: 0, label: 'Drinks bar' }));
   return Object.fromEntries(L.map((s) => [s.id, s]));
 }
 
@@ -84,7 +93,7 @@ export function makeSpots(): Record<string, Spot> {
 const SK = { deep: '#5a3825', brown: '#8d5a3b', tan: '#b07a52', olive: '#c69472', light: '#f0c9a6', fair: '#f6dcc6', golden: '#d9a679' };
 const TOP = { a: '#f2ede6', b: '#e8c9c3', c: '#cfdccf', d: '#d9d3ea' };
 function P(id: string, name: string, role: 'staff' | 'client', at: string | null, look: Look, o: Partial<Person> = {}): Person {
-  return { id, name, role, look, at, x: 0, z: 0, path: [], to: null, state: role === 'staff' ? 'idle' : 'waiting', patience: 1, drain: 0.008, need: null, serviceUntil: null, price: 0, paid: false, ...o };
+  return { id, name, role, look, at, x: 0, z: 0, path: [], to: null, state: role === 'staff' ? 'idle' : 'waiting', patience: 1, drain: 0.008, need: null, serviceUntil: null, price: 0, paid: false, ...(role === 'staff' ? { energy: 1, home: at || undefined } : { visits: 0 }), ...o };
 }
 const TEAM = (): Person[] => [
   P('andre', 'Andre', 'staff', 'hair2-pro', { skin: SK.deep, hair: '#0f0c0a', hs: 'fade', outfit: TOP.a, male: true }, { job: 'Stylist' }),
@@ -118,6 +127,12 @@ const C: Record<string, () => Person> = {
   olivia: () => P('olivia', 'Olivia', 'client', null, { skin: SK.deep, hair: '#120d0a', hs: 'afro', outfit: '#b5838d', legs: '#2f2f3a' }, { service: 'Blowout', price: 65, provider: 'mei', dur: 30 }),
   ben: () => P('ben', 'Ben', 'client', null, { skin: SK.tan, hair: '#1a120c', hs: 'fade', outfit: '#c9a24a', legs: '#2f3340', male: true }, { service: 'Fade', price: 40, provider: 'diego', dur: 25 }),
 };
+export const SHELF: { key: string; name: string; price: number; for: SpotKind[]; color: string }[] = [
+  { key: 'cuticle', name: 'Cuticle oil', price: 18, for: ['nail'], color: '#e8b4b8' }, { key: 'handcream', name: 'Hand cream', price: 24, for: ['nail', 'pedi'], color: '#f3e3c3' },
+  { key: 'footcream', name: 'Foot cream', price: 22, for: ['pedi'], color: '#cfe3d4' }, { key: 'shampoo', name: 'Bond shampoo', price: 28, for: ['hair', 'wash'], color: '#d9d3ea' },
+  { key: 'serum', name: 'Scalp serum', price: 32, for: ['hair', 'wash'], color: '#bcd3e8' }, { key: 'beardoil', name: 'Beard oil', price: 22, for: ['barber'], color: '#d8b48a' },
+  { key: 'vitc', name: 'Vitamin C serum', price: 45, for: ['facial'], color: '#f2c38b' }, { key: 'lashwash', name: 'Lash cleanser', price: 16, for: ['lash'], color: '#e7c3c9' },
+];
 export const PRODUCTS: Record<string, { name: string; price: number }> = {
   nail: { name: 'Cuticle oil', price: 18 }, pedi: { name: 'Foot cream', price: 22 }, hair: { name: 'Bond shampoo', price: 28 }, barber: { name: 'Beard oil', price: 22 },
   wash: { name: 'Scalp serum', price: 32 }, facial: { name: 'Vitamin C serum', price: 45 }, lash: { name: 'Lash cleanser', price: 16 },
@@ -162,7 +177,14 @@ export const PRACTICE_TENANT = { name: 'Opal Salon', bookingPolicies: { grace: {
 let rngState = 1;
 const rnd = () => (rngState = (rngState * 16807) % 2147483647) / 2147483647;
 const hash = (s: string) => { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 100000; return h / 100000; };
-export function newShift(shift: ShiftId = 'opening'): State {
+const TRAIT_OF: Record<ShiftId, Record<string, Trait>> = {
+  opening: { rosa: 'regular', carmen: 'chatty', theo: 'hurry', nina: 'first', marcus: 'regular', elle: 'first', grace: 'regular', sam: 'hurry', kim: 'chatty' },
+  rush: { carmen: 'chatty', theo: 'hurry', nina: 'regular', gia: 'regular', olivia: 'hurry', ben: 'first', marcus: 'regular', grace: 'regular', rosa: 'regular', kim: 'chatty', elle: 'first', dana: 'chatty', sofia: 'regular', priya: 'regular', sam: 'hurry', lena: 'first' },
+};
+const NOTES: Record<string, string> = { rosa: 'Prefers Ana. Short, almond, soft pinks.', grace: 'Silk press every 3 weeks. Likes the end chair.', carmen: 'Loves to chat about her garden.', theo: 'Lunch break: needs to be out by 9:45.', nina: 'New client. Found us on Instagram.', marcus: 'Step-free seating. Prefers Diego.', elle: 'First lash lift. Sensitive eyes noted.', gia: 'Loc retwist every 6 weeks with Andre.', kim: 'Full set, coffin, bold colors.', sam: 'In and out on his lunch hour.', priya: 'Balayage maintenance.', dana: 'Monthly facial.', sofia: 'Prefers a female technician.', lena: 'Gift from her daughter.', olivia: 'Often running from work.', ben: 'Walked in.' };
+let REGULARS: string[] = [];
+export function newShift(shift: ShiftId = 'opening', o: { regulars?: string[] } = {}): State {
+  REGULARS = o.regulars || [];
   const def = SHIFTS[shift]; rngState = def.seed;
   const spots = makeSpots(); const people: Record<string, Person> = {};
   for (const t of TEAM()) people[t.id] = t;
@@ -172,12 +194,16 @@ export function newShift(shift: ShiftId = 'opening'): State {
   for (const p of Object.values(people)) place(s, p, p.at!);
   for (const x of def.inService) { const c = enter(s, x.id, null, x.spot); c.state = 'service'; c.checkedIn = true; c.serviceUntil = x.until; s.flags[`kind:${x.id}`] = s.spots[x.spot].kind; const pro = s.people[c.provider!]; if (pro) pro.state = 'busy'; c.drain = 0.004; }
   for (const x of def.waiting) { const c = enter(s, x.id, x.bookedAt, x.spot); c.checkedIn = true; }
+  const back = REGULARS.filter((id) => C[id]); if (back.length) say(s, `Back again because you rebooked them: ${back.map((id) => C[id]().name).join(', ')}.`, 'ok');
   say(s, `${def.title}, ${clockAt(def.startMin, 0)}. ${shift === 'opening' ? 'Doors are open.' : 'The salon is full and the lounge is busy.'}`);
   return s;
 }
 function place(s: State, p: Person, spotId: string) { const sp = s.spots[spotId]; p.at = spotId; p.x = sp.x; p.z = sp.z; }
 function enter(s: State, id: string, bookedAt: number | null, spotId: string) {
-  const c = C[id](); if (bookedAt != null) c.bookedAt = bookedAt; s.people[id] = c; place(s, c, spotId); return c;
+  const c = C[id](); if (bookedAt != null) c.bookedAt = bookedAt; s.people[id] = c; place(s, c, spotId);
+  c.trait = REGULARS.includes(id) ? 'regular' : TRAIT_OF[s.shift][id]; c.notes = NOTES[id]; c.visits = c.trait === 'first' ? 0 : 3 + Math.floor(hash(id) * 14) + (REGULARS.includes(id) ? 1 : 0);
+  if (c.trait === 'hurry') c.drain *= 1.6; if (c.trait === 'chatty') { c.drain *= 0.7; c.dur = (c.dur ?? 30) + 5; } if (REGULARS.includes(id)) { c.patience = 1; c.drain *= 0.8; }
+  return c;
 }
 /** A client walks in from the street to the door, where they need checking in. */
 function walkIn(s: State, c: Person) {
@@ -206,7 +232,11 @@ function resolved(s: State, p: Person, what: string) {
 
 // ── Paths: people walk along the aisles, not through furniture ─────────
 const AISLE_X = [11.0, 21.4];
-export function route(ax: number, az: number, bx: number, bz: number) {
+/** Around the front desk and the drinks bar: step out to the entrance corridor first. */
+const FRONT = (x: number, z: number) => z > 12.6 && x > 12.8 && x < 22.5;
+export function route(ax: number, az: number, bx: number, bz: number): { x: number; z: number }[] {
+  if (FRONT(ax, az)) return [{ x: 12.4, z: az }, ...route(12.4, az, bx, bz)];
+  if (FRONT(bx, bz)) return [...route(ax, az, 12.4, bz), { x: bx, z: bz }];
   const near = (z: number) => (z < 5.6 ? 5.6 : z > 12 ? 12 : Math.abs(z - 5.6) < Math.abs(z - 12) ? 5.6 : 12);
   const za = az > 17 ? 12 : near(az), zb = bz > 17 ? 12 : near(bz);
   const pts: { x: number; z: number }[] = [{ x: ax, z: za }];
@@ -247,8 +277,8 @@ export function freeTeam(s: State, near?: { x: number; z: number }) {
 /** A team member brings a drink to a client, then goes back. */
 export function serve(s: State, staffId: string, clientId: string) {
   const st = s.people[staffId], c = s.people[clientId]; if (!st || !c || st.state !== 'idle') return { ok: false, error: 'They’re busy right now.' };
-  st.returnTo = st.at; st.path = route(st.x, st.z, c.x + 0.8, c.z + 0.9); st.to = null; st.at = null; st.state = 'walking'; st.afterArrive = `serve:${clientId}`;
-  say(s, `${st.name} is bringing ${c.name} ${c.need?.item || 'a drink'}.`); c.need = c.need ? { ...c.need, urgent: false } : null; s.flags[`serving:${clientId}`] = staffId;
+  st.returnTo = st.at; const bar = s.spots['bar-pro']; st.path = route(st.x, st.z, bar.x, bar.z); st.to = 'bar-pro'; st.at = null; st.state = 'walking'; st.afterArrive = `brew:${clientId}`;
+  say(s, `${st.name} is heading to the drinks bar to make ${c.name} ${c.need?.item || 'a drink'}.`); c.need = c.need ? { ...c.need, urgent: false } : null; s.flags[`serving:${clientId}`] = staffId;
   return { ok: true };
 }
 /** Check a client in at the desk (someone must be at the desk). */
@@ -272,37 +302,66 @@ function seatNeed(s: State, c: Person) {
   setNeed(s, c, { kind: 'seat', to: ready ? chair! : lounge });
 }
 
-// ── Checkout ─────────────────────────────────────────────────────────
-export type Bill = { total: number; service: number; tip: number; method: 'card' | 'cash'; given: number; product: { name: string; price: number } | null };
-export function billFor(s: State, id: string): Bill | null {
+// ── Checkout at the front desk POS ───────────────────────────────────────
+export type Ticket = { lines: { label: string; price: number; kind: 'service' | 'retail' }[]; subtotal: number; tip: number; total: number; method: 'card' | 'cash'; given: number };
+const kindOf = (s: State, id: string) => (s.flags[`kind:${id}`] as SpotKind) || 'nail';
+/** What the client would like to be recommended (the products that fit their service first). */
+export function shelfFor(s: State, id: string) { const k = kindOf(s, id); return [...SHELF].sort((a, b) => Number(b.for.includes(k)) - Number(a.for.includes(k))); }
+export function ticketFor(s: State, id: string): Ticket | null {
   const c = s.people[id]; if (!c || c.need?.kind !== 'pay') return null;
-  const tipPct = c.patience > 0.8 ? 0.2 + hash(id + 'tip') * 0.05 : c.patience > 0.5 ? 0.15 : c.patience > 0.3 ? 0.1 : 0;
-  const tip = Math.round(c.price * tipPct);
-  const kind = (s.flags[`kind:${id}`] as SpotKind) || 'nail'; const product = PRODUCTS[kind] || null;
-  const method: 'card' | 'cash' = hash(id + 'cash') < 0.35 ? 'cash' : 'card';
-  const total = c.price + tip; const given = method === 'cash' ? (total <= 50 ? 60 : total <= 100 ? 100 : Math.ceil(total / 20) * 20 + 20) : total;
-  return { total, service: c.price, tip, method, given, product };
+  const items = (c.cart || []).map((k) => SHELF.find((x) => x.key === k)!).filter(Boolean);
+  const lines = [{ label: `${c.service || 'Service'}${c.provider && s.people[c.provider] ? ` · ${s.people[c.provider].name}` : ''}`, price: c.price, kind: 'service' as const }, ...items.map((x) => ({ label: x.name, price: x.price, kind: 'retail' as const }))];
+  const subtotal = lines.reduce((a, l) => a + l.price, 0);
+  const tipPct = c.patience > 0.8 ? 0.2 + hash(id + 'tip') * 0.05 + (c.trait === 'regular' ? 0.03 : 0) : c.patience > 0.5 ? 0.15 : c.patience > 0.3 ? 0.1 : 0;
+  const tip = Math.round(c.price * tipPct); const total = subtotal + tip;
+  const method: 'card' | 'cash' = c.trait === 'first' ? 'card' : hash(id + 'cash') < 0.35 ? 'cash' : 'card';
+  const given = method === 'cash' ? (total <= 50 ? 60 : total <= 100 ? 100 : Math.ceil(total / 20) * 20 + 20) : total;
+  return { lines, subtotal, tip, total, method, given };
+}
+/** Recommend a product. Whether they say yes depends on how the visit went, whether it fits, and who they are. */
+export function recommend(s: State, id: string, key: string) {
+  const c = s.people[id]; const item = SHELF.find((x) => x.key === key); if (!c || !item) return { ok: false, yes: false, reply: '' };
+  c.asked = c.asked || {}; if (c.asked[key]) return { ok: true, yes: (c.cart || []).includes(key), reply: 'You already asked.' }; c.asked[key] = true;
+  const fits = item.for.includes(kindOf(s, id)); const tries = Object.keys(c.asked).length;
+  let chance = (c.patience > 0.8 ? 0.65 : c.patience > 0.5 ? 0.4 : 0.1) + (fits ? 0.15 : -0.35) + (c.trait === 'chatty' ? 0.2 : c.trait === 'hurry' ? -0.2 : 0) - (tries - 1) * 0.25;
+  const yes = hash(id + key + 'buy') < chance;
+  if (tries > 2) c.patience = Math.max(0, c.patience - 0.08);   // pushing too hard costs goodwill
+  const reply = yes ? (fits ? `Yes, I’ll take the ${item.name.toLowerCase()}!` : 'Sure, why not.') : tries > 2 ? 'No thank you. Just the service today.' : fits ? 'Not today, thanks.' : 'I don’t really need that.';
+  return { ok: true, yes, reply };
+}
+export function scan(s: State, id: string, key: string) { const c = s.people[id]; if (!c) return; c.cart = [...(c.cart || []), key]; s.sfx.push('scan'); }
+export function unscan(s: State, id: string, key: string) { const c = s.people[id]; if (!c?.cart) return; const i = c.cart.indexOf(key); if (i >= 0) c.cart.splice(i, 1); }
+/** Ask to book their next visit. */
+export function askRebook(s: State, id: string) {
+  const c = s.people[id]; if (!c) return { yes: false, when: '' }; if (c.rebookAsked) return { yes: !!c.rebookYes, when: '' };
+  c.rebookAsked = true; c.rebookYes = hash(id + 'rebook') < (c.patience > 0.6 ? 0.88 : 0.35) + (c.trait === 'regular' ? 0.1 : 0) - (c.trait === 'hurry' ? 0.1 : 0);
+  return { yes: c.rebookYes, when: `${c.provider && s.people[c.provider] ? s.people[c.provider].name + ', ' : ''}3 weeks from today` };
 }
 export const DENOMS = [20, 10, 5, 1];
-/** Take payment. Product and rebook are offers: whether the client says yes depends on how their visit went. */
-export function checkout(s: State, id: string, o: { offerProduct: boolean; offerRebook: boolean; change?: number }) {
-  const c = s.people[id]; const bill = billFor(s, id); if (!c || !bill) return { ok: false as const, error: 'Nothing to pay.' };
+/** Take payment (card, or cash with the right change). */
+export function pay(s: State, id: string, o: { change?: number } = {}) {
+  const c = s.people[id]; const tk = ticketFor(s, id); if (!c || !tk) return { ok: false as const, error: 'Nothing to pay.' };
   if (!deskStaffed(s)) return { ok: false as const, error: 'Nobody is at the front desk. Send someone there first.' };
-  const wantProduct = o.offerProduct && bill.product && c.patience > 0.5 && hash(id + 'prod') < (c.patience > 0.8 ? 0.75 : 0.4);
-  const wantRebook = o.offerRebook && hash(id + 'rebook') < (c.patience > 0.6 ? 0.9 : 0.4);
   let exact = false;
-  if (bill.method === 'cash') { const due = bill.given - bill.total; exact = o.change === due; if (o.change != null && !exact) return { ok: false as const, error: `That’s $${o.change}. She should get $${due} back.`, due }; }
-  const total = bill.total + (wantProduct ? bill.product!.price : 0);
-  s.takings += c.price + (wantProduct ? bill.product!.price : 0); s.tips += bill.tip; if (wantProduct) s.retail += bill.product!.price;
+  if (tk.method === 'cash') { const due = tk.given - tk.total; exact = o.change === due; if (o.change != null && !exact) return { ok: false as const, error: `That’s $${o.change}. ${they(c, true)} should get $${due} back.`, due }; }
+  const retail = tk.lines.filter((l) => l.kind === 'retail').reduce((a, l) => a + l.price, 0);
+  s.takings += tk.subtotal; s.tips += tk.tip; s.retail += retail;
   c.paid = true; resolved(s, c, `${c.name} paid`);
-  pop(s, id, `+$${total}${bill.tip ? ` · tip $${bill.tip}` : ''}`, 'gold'); s.sfx.push('coin');
-  xp(s, id, 10 + Math.round(c.price / 20)); if (exact) { s.exactChange++; xp(s, id, 10, 'Exact change'); }
-  if (wantProduct) { xp(s, id, 10); say(s, `${c.name} took the ${bill.product!.name.toLowerCase()}.`, 'ok'); }
-  if (o.offerRebook) { if (wantRebook) { s.rebooked++; xp(s, id, 15, 'Rebooked'); s.sfx.push('chime'); } else say(s, `${c.name} will book online later.`); }
-  if (s.tutorial === 3 && o.offerRebook) s.tutorial = 4;
-  say(s, `${c.name} paid $${total}${bill.tip ? ` with a $${bill.tip} tip` : ''}.`, 'ok');
+  pop(s, id, `+$${tk.total}${tk.tip ? ` · tip $${tk.tip}` : ''}`, 'gold'); s.sfx.push('coin');
+  xp(s, id, 10 + Math.round(c.price / 20) + Math.round(retail / 5)); if (exact) { s.exactChange++; xp(s, id, 10, 'Exact change'); }
+  if (c.rebookYes) { s.rebooked++; s.flags.rebookedIds = [...(s.flags.rebookedIds || []), id]; xp(s, id, 15, 'Rebooked'); s.sfx.push('chime'); }
+  if (c.trait === 'first' && c.rebookYes) { xp(s, id, 10, 'New regular'); }
+  if (s.tutorial === 3) s.tutorial = 4;
+  say(s, `${c.name} paid $${tk.total}${tk.tip ? ` with a $${tk.tip} tip` : ''}${retail ? `, including $${retail} of products` : ''}.`, 'ok');
   leave(s, c);
-  return { ok: true as const, product: !!wantProduct, rebooked: !!(o.offerRebook && wantRebook), exact, total };
+  return { ok: true as const, exact, total: tk.total, retail, rebooked: !!c.rebookYes };
+}
+/** Quick checkout (used by the tests and the "Count it for me" path): offers, then pay. */
+export function checkout(s: State, id: string, o: { offerProduct: boolean; offerRebook: boolean; change?: number }) {
+  const tk0 = ticketFor(s, id); if (!tk0) return { ok: false as const, error: 'Nothing to pay.' };
+  if (o.offerProduct) { const best = shelfFor(s, id)[0]; if (recommend(s, id, best.key).yes) scan(s, id, best.key); }
+  if (o.offerRebook) askRebook(s, id);
+  const tk = ticketFor(s, id)!; return pay(s, id, { change: tk.method === 'cash' ? (o.change ?? tk.given - tk.total) : undefined });
 }
 function leave(s: State, c: Person) { const st = s.spots.street; c.path = route(c.x, c.z, st.x, st.z); c.to = null; c.at = null; c.state = 'walking'; c.afterArrive = 'leave'; }
 
@@ -409,13 +468,15 @@ function arrive(s: State, p: Person) {
   const sp = p.to ? s.spots[p.to] : null; p.path = [];
   if (sp) { p.at = sp.id; p.x = sp.x; p.z = sp.z; p.to = null; }
   const after = p.afterArrive; p.afterArrive = null;
+  if (after?.startsWith('brew:')) { p.state = 'busy'; p.task = { kind: 'brew', until: s.t + 2, start: s.t, for: after.slice(5) }; s.sfx.push('ping'); return; }
   if (after?.startsWith('serve:')) {
-    const c = s.people[after.slice(6)]; if (c && c.need?.kind === 'drink') { resolved(s, c, `${c.name} got ${their(c)} drink`); c.drain = 0.005; c.patience = Math.min(1, c.patience + 0.35); pop(s, c.id, 'Thank you!', 'ok'); xp(s, c.id, 10); s.sfx.push('chime'); say(s, `${c.name} has ${their(c)} ${c.need?.item ? '' : 'drink'}${c.need?.item || ''}. Thank you, ${p.name}.`.replace('  ', ' '), 'ok'); }
+    const c = s.people[after.slice(6)]; if (c) delete s.flags[`serving:${c.id}`]; if (c && c.need?.kind === 'drink') { resolved(s, c, `${c.name} got ${their(c)} drink`); c.drain = 0.005; c.patience = Math.min(1, c.patience + 0.35); pop(s, c.id, 'Thank you!', 'ok'); xp(s, c.id, 10); s.sfx.push('chime'); say(s, `${c.name} has ${their(c)} ${c.need?.item ? '' : 'drink'}${c.need?.item || ''}. Thank you, ${p.name}.`.replace('  ', ' '), 'ok'); }
     const back = p.returnTo && s.spots[p.returnTo] ? p.returnTo : 'desk'; p.returnTo = null; p.state = 'walking'; p.path = route(p.x, p.z, s.spots[back].x, s.spots[back].z); p.to = back; return;
   }
   if (after === 'leave') { p.state = 'gone'; p.at = null; return; }
   if (after === 'arrived') { p.state = 'waiting'; setNeed(s, p, { kind: 'check_in' }); s.sfx.push('bell'); say(s, `${p.name} arrived for ${p.bookedAt != null ? `her ${clock(s, p.bookedAt)}` : 'a visit'}${p.provider ? ` with ${s.people[p.provider]?.name}` : ''}.`.replace('her', p.look.male ? 'his' : 'her')); return; }
   if (after === 'away') { p.state = 'away'; return; }
+  if (after === 'break') { p.state = 'away'; p.task = { kind: 'break', until: s.t + 8, start: s.t }; say(s, `${p.name} is on a short break.`); return; }
   if (after === 'to-pay') { p.state = 'waiting'; setNeed(s, p, { kind: 'pay' }); s.sfx.push('ping'); return; }
   if (p.role === 'staff') { p.state = 'idle'; tryStart(s); if (p.state === 'idle') for (const w of Object.values(s.people)) if (w.provider === p.id && w.state === 'waiting') nextSeat(s, w); return; }
   p.state = 'waiting'; tryStart(s); if (p.state === 'waiting') nextSeat(s, p);
@@ -433,7 +494,7 @@ function tryStart(s: State) {
     const pro = Object.values(s.people).find((p) => p.role === 'staff' && p.at === `${sp.id}-pro` && p.state === 'idle'); if (!pro) continue;
     pro.state = 'busy'; c.state = 'service'; c.startedAt = s.t; c.provider = pro.id; c.need = null; s.flags[`kind:${c.id}`] = sp.kind;
     const dur = sp.kind === 'wash' ? 8 : (c.dur ?? 30) + (sp.kind === 'nail' && s.flags.tiaOverbooked && pro.id === 'tia' ? 10 : 0) + (pro.id === 'mei' && s.flags.late === 'hold' && c.id !== 'olivia' ? 5 : 0);
-    c.serviceUntil = s.t + dur;
+    c.serviceUntil = s.t + Math.round(dur * (1 + (1 - (pro.energy ?? 1)) * 0.35));
     if (c.bookedAt != null && sp.kind !== 'wash') { const late = s.t - c.bookedAt > 10; if (late) s.onTime.late++; else { s.onTime.ok++; pop(s, c.id, 'On time ✓', 'ok'); xp(s, c.id, 5); } c.bookedAt = undefined; }
     say(s, `${pro.name} started ${c.name}’s ${sp.kind === 'wash' ? 'rinse' : (c.service || 'service').toLowerCase()}.`, 'ok');
   }
@@ -446,7 +507,7 @@ function tickPerson(s: State, p: Person, dt: number) {
     if (!p.path.length) arrive(s, p);
     return;
   }
-  if (p.role !== 'client') return;
+  if (p.role === 'staff') return tickStaff(s, p, dt);
   if (p.state === 'service' && p.serviceUntil != null && s.t >= p.serviceUntil) return finishService(s, p);
   if (p.state === 'waiting') {
     let drain = p.drain;
@@ -457,6 +518,23 @@ function tickPerson(s: State, p: Person, dt: number) {
     if (p.need) p.need.urgent = moodOf(p) === 'bad';
   } else if (p.state === 'service') p.patience = Math.min(1, p.patience + 0.002 * dt);
 }
+function tickStaff(s: State, p: Person, dt: number) {
+  const tk = p.task;
+  if (tk?.kind === 'brew' && s.t >= tk.until) { const c = tk.for ? s.people[tk.for] : null; p.task = null; p.state = 'walking';
+    if (c && c.state !== 'gone') { p.path = route(p.x, p.z, c.x + 0.8, c.z + 0.9); p.to = null; p.at = null; p.afterArrive = `serve:${c.id}`; say(s, `${p.name} made ${c.name}’s ${c.need?.item || 'drink'} and is bringing it over.`); }
+    else { const back = p.returnTo || p.home || 'desk'; p.returnTo = null; p.path = route(p.x, p.z, s.spots[back].x, s.spots[back].z); p.to = back; p.at = null; } return; }
+  if (tk?.kind === 'break' && s.t >= tk.until) { p.task = null; p.energy = 1; p.state = 'walking'; const back = p.home || 'desk'; p.path = route(p.x, p.z, s.spots[back].x, s.spots[back].z); p.to = back; p.at = null; say(s, `${p.name} is back from ${p.look.male ? 'his' : 'her'} break, refreshed.`, 'ok'); pop(s, p.id, 'Refreshed', 'ok'); return; }
+  if (tk?.kind === 'break') { p.energy = Math.min(1, (p.energy ?? 1) + dt * 0.06); return; }
+  p.energy = Math.max(0, (p.energy ?? 1) - dt * (p.state === 'busy' ? 0.011 : 0.002));
+  if ((p.energy ?? 1) < 0.3 && p.state === 'idle' && !p.need && p.id !== 'zoe') { p.need = { kind: 'break', since: s.t }; say(s, `${p.name} is running low on energy. A break would help.`, 'warn'); }
+}
+/** Send a team member on a short break (they need to be free). */
+export function takeBreak(s: State, id: string) {
+  const p = s.people[id]; if (!p || p.role !== 'staff') return { ok: false, error: 'Not found.' };
+  if (p.state !== 'idle') return { ok: false, error: `${p.name} is busy. Try when ${p.look.male ? 'he' : 'she'}’s free.` };
+  p.need = null; p.state = 'walking'; p.path = route(p.x, p.z, s.spots.office.x, s.spots.office.z); p.at = null; p.to = 'office'; p.afterArrive = 'break'; s.policy += 0; xp(s, id, 5, 'Break');
+  return { ok: true };
+}
 function finishService(s: State, c: Person) {
   const pro = c.provider ? s.people[c.provider] : null; if (pro) pro.state = 'idle';
   c.serviceUntil = null;
@@ -465,6 +543,7 @@ function finishService(s: State, c: Person) {
     if (s.flags.andreWashes) moveTo(s, 'andre', 'hair2-pro');
     say(s, 'Priya’s color is rinsed. Back to Andre’s chair.', 'ok'); return;
   }
+  c.done = true; if (hash(c.id + 'hand') < 0.4) { const k = shelfFor(s, c.id)[1]; c.hand = [k.key]; }
   c.done = true; say(s, `${c.name}’s ${(c.service || 'service').toLowerCase()} is done${pro ? `. ${pro.name} is free` : ''}.`, 'ok');
   // Off to the desk to pay
   const spot = ['desk-front1', 'desk-front2', 'desk-front3'].find((d) => !occupant(s, d)) || 'desk-front3';
@@ -483,7 +562,8 @@ export function needs(s: State) {
   const out: { pid: string; kind: NeedKind; label: string; wait: number; urgent: boolean; to?: string; decision?: string }[] = [];
   for (const p of Object.values(s.people)) {
     if (!p.need || p.state === 'gone' || p.state === 'walking' || p.need.kind === 'decide') continue;
-    const label = p.need.kind === 'check_in' ? 'Check in at the desk' : p.need.kind === 'pay' ? 'Ready to pay' : p.need.kind === 'drink' ? `Wants ${p.need.item || 'a drink'}` :
+    if (p.need.kind === 'drink' && s.flags[`serving:${p.id}`]) continue;   // someone is already making it
+    const label = p.need.kind === 'break' ? 'Tired: send on a break' : p.need.kind === 'check_in' ? 'Check in at the desk' : p.need.kind === 'pay' ? 'Ready to pay' : p.need.kind === 'drink' ? `Wants ${p.need.item || 'a drink'}` :
       p.need.kind === 'seat' ? (p.need.to && !['lounge'].includes(s.spots[p.need.to]?.kind) ? `Seat at ${s.spots[p.need.to]?.label.toLowerCase()}` : 'Seat in the lounge') : 'Needs you';
     out.push({ pid: p.id, kind: p.need.kind, label, wait: Math.max(0, s.t - p.need.since), urgent: !!p.need.urgent, to: p.need.to, decision: p.need.decision });
   }

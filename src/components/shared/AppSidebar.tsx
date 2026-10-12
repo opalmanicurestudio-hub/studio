@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { AlertTriangle, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox } from 'lucide-react';
+import { AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -103,6 +103,8 @@ const TEAM_FULL = [
   { href: '/schedule',   icon: CalendarDays, label: 'Shift schedule' },
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
   { href: '/payroll/questions', icon: ClipboardList, label: 'Pay questions' },
+  // Practice a shift: a playable salon shift that teaches the front desk and the floor (/practice).
+  { href: '/practice', icon: Gamepad2, label: 'Practice a shift' },
 ];
 
 const TEAM_ADMIN = [
@@ -113,6 +115,8 @@ const TEAM_ADMIN = [
   { href: '/schedule',   icon: CalendarDays, label: 'Shift schedule' },
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
   { href: '/payroll/questions', icon: ClipboardList, label: 'Pay questions' },
+  // Practice a shift: a playable salon shift that teaches the front desk and the floor (/practice).
+  { href: '/practice', icon: Gamepad2, label: 'Practice a shift' },
 ];
 
 // v28 — Ledger, Obligations (Bills), and Payday are now consolidated into

@@ -256,9 +256,18 @@ B(13.6, 14.2, 0, 4.8, 1.0, 1.02, deskM, 0.08); B(17.6, 12.6, 0, 1.0, 2.6, 1.02, 
 B(13.55, 14.15, 1.02, 4.9, 1.1, 0.05, oakM, 0.02); B(17.55, 12.55, 1.02, 1.1, 2.7, 0.05, oakM, 0.02);
 B(15.0, 14.3, 1.07, 0.9, 0.06, 0.55, ink, 0.02); B(15.4, 14.4, 1.07, 0.1, 0.1, 0.12, ink, 0.01);
 add(new THREE.CylinderGeometry(0.16, 0.12, 0.22, 20), mat('#f2c9d1', { r: 0.4 }), 17.0, 1.18, 14.6);
-add(new THREE.PlaneGeometry(4.2, 1.3), mat('#8b7d70', { r: 1 }), 21.0, 0.004, 17.2, { rx: -Math.PI / 2, cast: false });
+add(new THREE.PlaneGeometry(3.0, 1.3), mat('#8b7d70', { r: 1 }), 11.8, 0.004, 17.3, { rx: -Math.PI / 2, cast: false });
 for (const sx of [20.2, 22.8]) { B(sx, 14.6, 0, 1.8, 0.06, 1.9, oakM, 0.02); B(sx, 14.6, 0, 0.06, 0.5, 1.9, oakM, 0.02); B(sx + 1.74, 14.6, 0, 0.06, 0.5, 1.9, oakM, 0.02); for (let k = 0; k < 3; k++) { B(sx + 0.05, 14.62, 0.5 + k * 0.5, 1.7, 0.46, 0.03, mat('#f3efe9'), 0.01);
   for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.06, 0.06, 0.2, 12), mat(['#d9b48a', '#1b1c20', '#f2c9d1', '#bcd3c4', '#f3efe9', '#c97a92'][(i + k) % 6], { r: 0.3 }), sx + 0.2 + i * 0.27, 0.64 + k * 0.5, 14.85); } }
+// DRINKS BAR: coffee machine, water and sparkling, cups (the team makes drinks here, then carries them over)
+B(19.1, 12.85, 0, 3.0, 0.75, 1.0, mat('#f7f4ef', { r: 0.35 }), 0.05); B(19.05, 12.8, 1.0, 3.1, 0.85, 0.05, oakM, 0.02);
+B(19.4, 13.05, 1.05, 0.7, 0.5, 0.55, mat('#b9b9bf', { r: 0.25, m: 0.85 }), 0.05); B(19.45, 13.0, 1.6, 0.6, 0.45, 0.06, ink, 0.02);
+add(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 14), mat('#1b1c20', { r: 0.3 }), 19.75, 1.12, 12.95);
+add(new THREE.CylinderGeometry(0.13, 0.13, 0.42, 24), new THREE.MeshPhysicalMaterial({ color: '#dff1f7', roughness: 0.05, transmission: 0.7, thickness: 0.2 }), 20.55, 1.26, 13.2);
+for (let i = 0; i < 3; i++) add(new THREE.CylinderGeometry(0.045, 0.05, 0.3, 12), mat('#7fbf9a', { r: 0.2 }), 20.95 + i * 0.13, 1.2, 13.25);
+for (let i = 0; i < 4; i++) add(new THREE.CylinderGeometry(0.06, 0.05, 0.11, 14), mat('#ffffff', { r: 0.3 }), 21.5 + (i % 2) * 0.16, 1.08 + Math.floor(i / 2) * 0.11, 13.1);
+B(21.75, 13.0, 1.05, 0.25, 0.25, 0.2, mat('#c97a5a', { r: 0.6 }), 0.03);
+
 
 plantsAll();
 function plantsAll() {

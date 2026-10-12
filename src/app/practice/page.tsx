@@ -5,12 +5,13 @@
 // Nothing here touches real data: no clients, texts or payments.
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import * as G from '@/lib/practice/sim';
+import Pos from './Pos';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', GOLD = '#9a6a00', BLUE = '#2563eb';
 const MOOD_HEX: Record<G.Mood, string> = { ok: '#2f9e63', warn: '#e0911f', bad: '#d6453a' };
 const GAME_MIN_SEC = 1.6;   // one game minute takes 1.6 seconds at 1×
 const TEST_SPEED = typeof window !== 'undefined' ? Math.max(1, Math.min(20, Number(new URLSearchParams(window.location.search).get('fast')) || 1)) : 1;   // ?fast=8 for quick checks
-const XP_KEY = 'cf_practice_xp', MUTE_KEY = 'cf_practice_mute';
+const XP_KEY = 'cf_practice_xp', MUTE_KEY = 'cf_practice_mute', REG_KEY = 'cf_practice_regulars';
 const store = { get: (k: string) => { try { return window.localStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { window.localStorage.setItem(k, v); } catch { /* private mode */ } } };
 
 // ── Our own icons ──────────────────────────────────────────────────────────
@@ -27,10 +28,11 @@ const ICONS: Record<string, string> = {
   star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/>',
   sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/>',
   mute: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/>',
+  coffee: '<path d="M5 9h11v5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M9 3v3M12 3v3"/>',
 };
 const Icon = ({ name, color = INK, size = 18, sw = 1.9 }: { name: string; color?: string; size?: number; sw?: number }) =>
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: ICONS[name] || '' }} />;
-const NEED_ICON: Record<G.NeedKind, string> = { check_in: 'bell', seat: 'seat', pay: 'pay', drink: 'drink', decide: 'alert' };
+const NEED_ICON: Record<G.NeedKind, string> = { check_in: 'bell', seat: 'seat', pay: 'pay', drink: 'drink', decide: 'alert', break: 'coffee' };
 
 // ── Sound: tiny synthesized cues (no files), with a mute ─────────────────────
 function makeSound() {
@@ -49,6 +51,7 @@ function makeSound() {
       else if (k === 'alert') { tone(440, 0, 0.18, 'triangle', 0.06); tone(660, 0.16, 0.25, 'triangle', 0.06); }
       else if (k === 'ping') tone(1046, 0, 0.25, 'sine', 0.05);
       else if (k === 'tap') tone(660, 0, 0.06, 'sine', 0.03);
+      else if (k === 'scan') tone(1760, 0, 0.09, 'square', 0.03);
       if (['coin', 'bell'].includes(k)) try { navigator.vibrate?.(12); } catch { /* no vibration */ }
     },
   };
@@ -185,6 +188,7 @@ export default function PracticePage() {
         }
         const k = 1 - Math.exp(-dt * 3.2);
         view.tx += (gx - view.tx) * k; view.tz += (gz - view.tz) * k; view.zoom += (gzoom - view.zoom) * k;
+        if (Math.abs(gx - view.tx) < 0.002) view.tx = gx; if (Math.abs(gz - view.tz) < 0.002) view.tz = gz; if (Math.abs(gzoom - view.zoom) < 0.001) view.zoom = gzoom;
         cam.position.set(view.tx + DIR.x, DIR.y, view.tz + DIR.z); cam.lookAt(view.tx, 0.6, view.tz); cam.zoom = view.zoom; cam.updateProjectionMatrix();
       };
       // Input: tap to pick, drag a person to move them, drag the floor to look around, wheel or pinch to zoom
@@ -224,7 +228,7 @@ export default function PracticePage() {
       const wheel = (e: WheelEvent) => { e.preventDefault(); view.userZoom = Math.max(0.8, Math.min(3, view.userZoom * (e.deltaY > 0 ? 0.9 : 1.1))); };
       canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move); canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up); canvas.addEventListener('wheel', wheel, { passive: false });
       const ro = new ResizeObserver(() => { const w = el.clientWidth, h = el.clientHeight; if (w && h) { S.setSize(w, h); fit(); setSize({ w, h }); } }); ro.observe(el);
-      eng.current = { S, project: (x: number, y: number, z: number): Pt => { const v = new THREE.Vector3(x, y, z).project(cam); const [w, h] = S.getSize(); return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, on: v.x > -1 && v.x < 1 && v.y > -1 && v.y < 1 }; }, anchorOf,
+      eng.current = { S, project: (x: number, y: number, z: number): Pt => { const v = new THREE.Vector3(x, y, z).project(cam); const [w, h] = S.getSize(); return { x: Math.round((v.x * 0.5 + 0.5) * w), y: Math.round((-v.y * 0.5 + 0.5) * h), on: v.x > -1 && v.x < 1 && v.y > -1 && v.y < 1 }; }, anchorOf,
         reset: () => { for (const rec of groups.values()) scene.remove(rec.g, rec.ring, rec.arc, rec.hit, rec.sel); groups.clear(); const [w, h] = S.getSize(); const phone = w / h < 0.8; view.userX = phone ? 14.5 : 14.8; view.userZ = phone ? 9.6 : 9.4; view.userZoom = phone ? 2.4 : 1; },
         dispose: () => { ro.disconnect(); canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up); canvas.removeEventListener('wheel', wheel); S.renderer.dispose(); canvas.remove(); } };
       let last = performance.now();
@@ -268,12 +272,12 @@ export default function PracticePage() {
     setPanel({ kind: n?.kind === 'check_in' ? 'check_in' : n?.kind === 'pay' ? 'pay' : n?.kind === 'drink' ? 'drink' : 'person', pid });
   };
 
-  const start = (id: G.ShiftId) => { sound.current.unlock(); eng.current?.reset(); sim.current = G.newShift(id); popSeen.current.clear(); saved.current = false; setShift(id); setPanel(null); setMoving(null); setPaused(false); setCoachDone(id !== 'opening'); setScreen('play'); };
+  const start = (id: G.ShiftId) => { sound.current.unlock(); eng.current?.reset(); let regs: string[] = []; try { regs = JSON.parse(store.get(REG_KEY) || '[]'); } catch { regs = []; } sim.current = G.newShift(id, { regulars: regs }); popSeen.current.clear(); saved.current = false; setShift(id); setPanel(null); setMoving(null); setPaused(false); setCoachDone(id !== 'opening'); setScreen('play'); };
 
   // Save XP at the end of a shift
   const st = sim.current;
   useEffect(() => {
-    if (st.ended && screen === 'play' && !saved.current) { saved.current = true; const tot = (Number(store.get(XP_KEY)) || 0) + st.xp; store.set(XP_KEY, String(tot)); setTotalXp(tot); setPanel(null); setMoving(null); window.setTimeout(() => setScreen('report'), 900); }
+    if (st.ended && screen === 'play' && !saved.current) { saved.current = true; const tot = (Number(store.get(XP_KEY)) || 0) + st.xp; store.set(XP_KEY, String(tot)); store.set(REG_KEY, JSON.stringify((st.flags.rebookedIds || []).slice(0, 8))); setTotalXp(tot); setPanel(null); setMoving(null); window.setTimeout(() => setScreen('report'), 900); }
   });
 
   // ── Overlay ────────────────────────────────────────────────────────────
@@ -339,6 +343,10 @@ export default function PracticePage() {
         </button>;
       })}
 
+      {/* A team member making a drink: a little progress bar over them */}
+      {ready && screen === 'play' && !st.ended && Object.values(st.people).filter((p) => p.task?.kind === 'brew' || p.task?.kind === 'break').map((p) => { const pt = P(p.id); if (!pt.on || !p.task) return null; const pct = Math.min(1, (st.t - p.task.start) / Math.max(0.1, p.task.until - p.task.start));
+        return <div key={'task' + p.id} style={{ position: 'absolute', left: pt.x, top: pt.y - 6, transform: 'translate(-50%,-100%)', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 6, zIndex: 3, boxShadow: '0 8px 18px -10px rgba(0,0,0,.4)' }}><Icon name="coffee" size={14} color={AMBER} /><span style={{ width: 46, height: 5, borderRadius: 3, background: SOFT }}><span style={{ display: 'block', width: `${pct * 100}%`, height: 5, borderRadius: 3, background: AMBER }} /></span></div>; })}
+
       {/* Rewards float up from the person */}
       {ready && screen === 'play' && st.pops.map((pp) => {
         const seen = popSeen.current.get(pp.id) ?? (popSeen.current.set(pp.id, now), now); const age = (now - seen) / 1000; if (age > 1.8) return null;
@@ -392,12 +400,13 @@ export default function PracticePage() {
         if (panel.kind === 'check_in') return <Anchored pt={pt} w={300} h={260} W={W} H={H} narrow={narrow}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><H2>{p.name}</H2><Pill>Arrived</Pill></div>
           <Muted>{p.service}{p.bookedAt != null ? ` · ${G.clock(st, p.bookedAt)}` : ''}{p.provider && st.people[p.provider] ? ` with ${st.people[p.provider].name}` : p.provider === 'maya' ? ' with Maya' : ''}</Muted>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Pill tone="green">Forms done ✓</Pill><Pill tone="green">Card on file ✓</Pill>{p.look.wheelchair && <Pill>Step-free seating</Pill>}</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{p.trait && <Pill tone={p.trait === 'hurry' ? 'amber' : p.trait === 'regular' ? 'green' : undefined}>{G.TRAITS[p.trait].label}</Pill>}{p.trait === 'first' ? <Pill tone="amber">New: welcome form at the desk</Pill> : <><Pill tone="green">Forms done ✓</Pill><Pill tone="green">Card on file ✓</Pill></>}{p.look.wheelchair && <Pill>Step-free seating</Pill>}</div>
+          {p.notes && <Muted>{p.notes}</Muted>}
           {!G.deskStaffed(st) && <Muted><b style={{ color: RED }}>Nobody is at the front desk.</b> Tap a free team member and choose “Cover the front desk”.</Muted>}
           <Btn onClick={() => { const r = G.checkIn(st, p.id); if (!r.ok) flash(r.error || ''); else { setPanel(null); window.setTimeout(() => setMoving(p.id), 250); } }}><Icon name="bell" color="#fff" size={15} /> Check in</Btn>
           <Btn small ghost onClick={close}>Not now</Btn>
         </Anchored>;
-        if (panel.kind === 'pay') return <Checkout key={p.id} st={st} pid={p.id} pt={pt} W={W} H={H} narrow={narrow} onDone={(msg) => { setPanel(null); if (msg) flash(msg); }} onCancel={close} />;
+        if (panel.kind === 'pay') return <Pos key={p.id} st={st} pid={p.id} narrow={narrow} onClose={close} onDone={(msg) => { setPanel(null); if (msg) flash(msg); }} sfx={(k) => { if (!muted) sound.current.play(k); }} />;
         if (panel.kind === 'drink') { const free = G.freeTeam(st, p); return <Anchored pt={pt} w={300} h={280} W={W} H={H} narrow={narrow}>
           <H2>{p.name} would like {p.need?.item || 'a drink'}</H2>
           {free.length ? free.slice(0, 4).map((s) => <RowBtn key={s.id} onClick={() => { const r = G.serve(st, s.id, p.id); if (!r.ok) flash(r.error || ''); else setPanel(null); }}>
@@ -410,6 +419,11 @@ export default function PracticePage() {
         return <Anchored pt={pt} w={280} h={240} W={W} H={H} narrow={narrow}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><H2>{p.name}</H2><Pill>{p.role === 'staff' ? p.job || 'Team' : 'Client'}</Pill></div>
           <Muted>{status}</Muted>
+          {p.role === 'client' && p.trait && <div title={G.TRAITS[p.trait].tip}><Pill tone={p.trait === 'hurry' ? 'amber' : p.trait === 'regular' ? 'green' : undefined}>{G.TRAITS[p.trait].label}</Pill></div>}
+          {p.role === 'client' && p.notes && <Muted>{p.notes}</Muted>}
+          {p.role === 'staff' && <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: MUTED }}><span>Energy</span><span>{Math.round((p.energy ?? 1) * 100)}%</span></div><Bar pct={(p.energy ?? 1) * 100} c={(p.energy ?? 1) > 0.5 ? '#2f9e63' : (p.energy ?? 1) > 0.3 ? '#e0911f' : '#d6453a'} /></div>}
+          {p.role === 'staff' && p.task?.kind === 'brew' && <Muted>Making a drink at the bar…</Muted>}
+          {p.role === 'staff' && p.state === 'idle' && p.id !== 'zoe' && (p.energy ?? 1) < 0.7 && <Btn onClick={() => { const r = G.takeBreak(st, p.id); if (!r.ok) flash(r.error || ''); else { setPanel(null); flash(`${p.name} is taking a short break.`); } }}><Icon name="coffee" color="#fff" size={15} /> Send on a break (8 min)</Btn>}
           {p.role === 'client' && <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: MUTED }}><span>Patience</span><span>{Math.round(p.patience * 100)}%</span></div><Bar pct={p.patience * 100} c={MOOD_HEX[G.moodOf(p)]} /></div>}
           {p.state !== 'service' && p.state !== 'walking' && <Btn ghost onClick={() => { setPanel(null); setMoving(p.id); }}>{p.role === 'staff' ? 'Send somewhere…' : 'Seat somewhere…'}</Btn>}
           {p.role === 'staff' && p.state === 'idle' && p.at !== 'desk' && <Btn ghost onClick={() => { const r = G.moveTo(st, p.id, 'desk'); if (!r.ok) flash(r.error || ''); else { setPanel(null); flash(`${p.name} is heading to the front desk.`); } }}>Cover the front desk</Btn>}
@@ -448,6 +462,7 @@ export default function PracticePage() {
             {i === 0 && totalXp < 150 && <Pill tone="green">Start here</Pill>}
           </button>)}
           <Muted>Tap people and icons. Drag a person to a chair to seat them. Drag the floor to look around; scroll or pinch to zoom.</Muted>
+          <a href="/dashboard" style={{ fontSize: 12.5, color: MUTED }}>← Back to ClarityFlow</a>
         </Card></Center>
       )}
 
@@ -480,43 +495,6 @@ function coachLine(s: G.State): { text: string; pid?: string; done?: boolean } |
   if (s.tutorial === 3) return g?.need?.kind === 'pay' ? { text: 'Grace’s silk press is done. Tap the card icon to take payment, and offer to rebook her.', pid: 'grace' } : { text: 'Nice! Rosa is with Ana. Grace finishes her silk press any moment…' };
   if (s.tutorial === 4) return { text: 'That’s the job. Everything that needs you shows in the “Needs you” tray. Have a great shift!', done: true };
   return null;
-}
-
-// ── Checkout: bill → (cash: count the change) → done ──────────────────────
-function Checkout({ st, pid, pt, W, H, narrow, onDone, onCancel }: { st: G.State; pid: string; pt: Pt; W: number; H: number; narrow: boolean; onDone: (msg?: string) => void; onCancel: () => void }) {
-  const bill = G.billFor(st, pid); const p = st.people[pid];
-  const [product, setProduct] = useState(true); const [rebook, setRebook] = useState(true);
-  const [step, setStep] = useState<'bill' | 'change'>('bill'); const [given, setGiven] = useState<number[]>([]); const [err, setErr] = useState<string | null>(null); const [tries, setTries] = useState(0);
-  if (!bill || !p) return null;
-  const finish = (change?: number) => {
-    const r = G.checkout(st, pid, { offerProduct: product, offerRebook: rebook, change });
-    if (!r.ok) { setTries((t) => t + 1); setErr(tries >= 1 ? r.error : 'Not quite. Count it again.'); setGiven([]); return; }
-    onDone(`${p.name} paid $${r.total}.${r.product ? ` Sold ${bill.product!.name.toLowerCase()}.` : ''}${rebook ? (r.rebooked ? ' Rebooked!' : ` ${G.they(p, true)}’ll book online later.`) : ''}`);
-  };
-  const changeDue = bill.given - bill.total; const sum = given.reduce((a, b) => a + b, 0);
-  return <Anchored pt={pt} w={320} h={420} W={W} H={H} narrow={narrow}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><H2>{p.name}</H2><Pill tone="green">Ready to pay</Pill></div>
-    {step === 'bill' ? <>
-      <div style={{ background: SOFT, borderRadius: 12, padding: '9px 11px', display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
-        <Line l={p.service || 'Service'} r={`$${bill.service}`} />
-        <Line l={`Tip (${p.name}’s choice)`} r={`$${bill.tip}`} />
-        <div style={{ borderTop: `1px solid ${LINE}`, marginTop: 3, paddingTop: 4 }}><Line l={<b>Total</b>} r={<b>${bill.total}</b>} /></div>
-      </div>
-      {bill.product && <Toggle on={product} onClick={() => setProduct((x) => !x)} icon="bag" label={`Suggest ${bill.product.name.toLowerCase()} · $${bill.product.price}`} />}
-      <Toggle on={rebook} onClick={() => setRebook((x) => !x)} icon="cal" label="Offer to rebook in 3 weeks" />
-      {bill.method === 'card' ? <Btn onClick={() => finish()}><Icon name="pay" color="#fff" size={15} /> Charge ${bill.total} to {G.their(p)} card</Btn>
-        : <><Muted>{p.name} is paying cash and hands you <b style={{ color: INK }}>${bill.given}</b>.</Muted><Btn onClick={() => setStep('change')}>Take the cash</Btn></>}
-    </> : <>
-      <Muted>{G.they(p, true)} paid <b style={{ color: INK }}>${bill.given}</b> for a <b style={{ color: INK }}>${bill.total}</b> bill. Count {G.their(p)} change from the drawer.</Muted>
-      <div style={{ display: 'flex', gap: 6 }}>{G.DENOMS.map((d) => <button key={d} onClick={() => { setGiven((g) => [...g, d]); setErr(null); }} style={{ flex: 1, padding: '12px 0', borderRadius: 10, border: `1px solid ${LINE}`, background: d >= 5 ? '#e9f3e8' : '#f6f0e2', fontFamily: 'inherit', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>${d}</button>)}</div>
-      <div style={{ minHeight: 26, display: 'flex', gap: 4, flexWrap: 'wrap' }}>{given.map((g, i) => <span key={i} style={{ background: SOFT, borderRadius: 6, padding: '2px 7px', fontSize: 12, fontWeight: 700 }}>${g}</span>)}</div>
-      <div style={{ fontSize: 14 }}>Change: <b>${sum}</b></div>
-      {err && <div style={{ color: RED, fontSize: 12.5, fontWeight: 600 }}>{err}</div>}
-      <div style={{ display: 'flex', gap: 6 }}><Btn onClick={() => finish(sum)}>Hand it over</Btn><Btn small ghost onClick={() => setGiven([])}>Clear</Btn></div>
-      <Btn small ghost onClick={() => finish(changeDue)}>Count it for me (no bonus)</Btn>
-    </>}
-    <Btn small ghost onClick={onCancel}>Not now</Btn>
-  </Anchored>;
 }
 
 // ── Small pieces in the app's style ────────────────────────────────────────
