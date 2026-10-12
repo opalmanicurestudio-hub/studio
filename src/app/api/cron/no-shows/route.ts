@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
     try { const { renterAftercareSweep } = await import('@/lib/renter-aftercare'); await renterAftercareSweep(db, t.id, tenant, now); } catch { /* next run */ }   // renters' own aftercare
     // Before the visit: the check goes out your cancellation window plus a day before, one nudge (lib/prep-check-server).
     try { const { prepSweep } = await import('@/lib/prep-check-server'); await prepSweep(db, t.id, tenant, now); } catch { /* next run */ }
+    // The waitlist: cancelled times become openings, offered to whoever fits; holds that run out move on (lib/waitlist-server).
+    try { const { waitlistSweep } = await import('@/lib/waitlist-server'); await waitlistSweep(db, t.id, tenant, now); } catch { /* next run */ }
     // Opportunities: once a day after 7 am local — find, hand out, expire, check who came back (lib/opportunities-server).
     try { const { opportunitySweep } = await import('@/lib/opportunities-server'); await opportunitySweep(db, t.id, tenant, now); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations

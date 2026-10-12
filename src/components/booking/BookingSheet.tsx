@@ -1308,6 +1308,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             <div style={{ borderRadius: r2 }} className="col-span-full text-center py-8 px-4 border-2 border-dashed">
                               <Clock className="w-6 h-6 text-muted-foreground/30 mx-auto mb-1.5" />
                               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">No availability for this preference</p>
+                              {(tenantIdProp || (tenant as any)?.id) && !(service as any)?.renterProviderId && <a href={`/w/${encodeURIComponent(tenantIdProp || (tenant as any)?.id)}?service=${encodeURIComponent(service?.id || '')}${selectedStaffId && selectedStaffId !== 'any' ? `&provider=${encodeURIComponent(selectedStaffId)}` : ''}`} className="mt-3 inline-block text-[13px] font-semibold underline underline-offset-4">Nothing fits? Join the waitlist — we’ll text you when it opens</a>}
                             </div>
                           )}
                         </div>

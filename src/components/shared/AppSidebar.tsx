@@ -48,6 +48,7 @@ const DAILY_HUB = [
   { href: '/messages',    icon: MessageSquare,   label: 'Messages'       },
   { href: '/message-log', icon: Send,            label: 'Message log'    },
   { href: '/my-schedule', icon: Clock,           label: 'My schedule'    },
+  { href: '/waitlist',    icon: Hourglass,       label: 'Waitlist'       },
   // Only rendered when approval mode is producing requests — see the filter
   // at render time. A permanent link to an always-empty queue is clutter.
   { href: '/appointments/requests', icon: CalendarClock, label: 'Requests' },

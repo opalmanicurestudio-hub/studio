@@ -149,9 +149,10 @@ export function WaitlistSheet({
   // ── Server actions ──────────────────────────────────────────────────────────
 
   const call = async (body: any) => {
+    const { staffAuthHeader } = await import('@/lib/staff-fetch');
     const res = await fetch('/api/waitlist', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
       body: JSON.stringify({ tenantId, ...body }),
     });
     const data = await res.json().catch(() => ({}));

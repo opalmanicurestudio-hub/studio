@@ -136,20 +136,12 @@ export async function cancelFree(db: any, tenantId: string, apptId: string, by: 
 export async function offerFreedTime(db: any, tenantId: string, tenant: any, o: { staffId: string | null; startMs: number; minutes: number; serviceId: string | null; providerName?: string }) {
   if (!o.startMs || o.startMs < Date.now() + 2 * 3600e3 || o.minutes < 15) return { offered: 0 };
   let offered = 0;
-  try {
-    const snap = await db.collection(`${T(tenantId)}/waitlist`).get();
-    const open = snap.docs.map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() || {}) })).filter((w: any) => ['waiting', 'active', 'open', undefined, null, ''].includes(w.status))
-      .map((w: any) => ({ w, score: (o.serviceId && w.serviceId === o.serviceId ? 2 : 0) + (o.staffId && w.staffId === o.staffId ? 1 : 0) })).filter((x: any) => x.score > 0 || !x.w.serviceId)
-      .sort((x: any, y: any) => y.score - x.score || String(x.w.createdAt || '').localeCompare(String(y.w.createdAt || ''))).slice(0, 2);
-    const base = linkOrigin(tenant, ''); const book = base ? `${base}/book/${tenantId}${o.serviceId ? `?service=${encodeURIComponent(o.serviceId)}` : ''}` : '';
-    for (const { w } of open) {
-      const text = `Good news${w.name ? `, ${first(w.name)}` : ''} — a time opened ${whenOf(tenant, new Date(o.startMs).toISOString())}${o.providerName ? ` with ${o.providerName}` : ''}.${book ? ` Book it here before it goes: ${book}` : ' Reply to grab it.'}`;
-      const ok = await textClient(db, tenantId, { clientPhone: w.phone || w.clientPhone, clientEmail: w.email || w.clientEmail, clientId: w.clientId, clientName: w.name }, '', text, 'A time opened up');
-      if (ok) { offered++; await w.ref.set({ status: 'notified', notifiedAt: new Date().toISOString(), offer: { startTime: new Date(o.startMs).toISOString(), minutes: o.minutes, staffId: o.staffId } }, { merge: true }); }
-    }
-  } catch { /* the desk still hears about it */ }
+  // The waitlist does the rest (lib/waitlist-server): it becomes an opening, offered to whoever it really fits.
+  try { const { makeOpening } = await import('@/lib/waitlist-server');
+    await makeOpening(db, tenantId, { id: `op_t_${o.staffId || 'x'}_${o.startMs}`, staffId: o.staffId, staffName: o.providerName || '', start: new Date(o.startMs).toISOString(), end: new Date(o.startMs + o.minutes * 60000).toISOString(), serviceId: o.serviceId, serviceName: '', source: 'freed', chainDepth: 0 }, Date.now());
+    offered = 1; } catch { /* the desk still hears about it */ }
   const r = db.collection(`${T(tenantId)}/notifications`).doc();
-  await r.set({ id: r.id, type: 'prep_check', message: `${o.minutes} min opened ${whenOf(tenant, new Date(o.startMs).toISOString())}${o.providerName ? ` with ${o.providerName}` : ''}${offered ? ` — offered to ${offered} on the waitlist` : ' — nobody on the waitlist fits; worth a post or a call'}.`, link: '/planner', createdAt: new Date().toISOString(), read: false });
+  await r.set({ id: r.id, type: 'prep_check', message: `${o.minutes} min opened ${whenOf(tenant, new Date(o.startMs).toISOString())}${o.providerName ? ` with ${o.providerName}` : ''}${offered ? ` — it’s on the waitlist now` : ' — nobody on the waitlist fits; worth a post or a call'}.`, link: '/planner', createdAt: new Date().toISOString(), read: false });
   return { offered };
 }
 

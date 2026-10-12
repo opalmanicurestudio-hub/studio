@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     const action = str(body?.action, 20);
 
     if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing studio.' }, { status: 400 });
-    if (!['join', 'notify', 'close'].includes(action)) {
+    if (!['join', 'info', 'notify', 'close', 'sooner', 'desk', 'offer_now', 'close_opening', 'auto', 'remove'].includes(action)) {
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     }
 
@@ -100,6 +100,32 @@ export async function POST(req: NextRequest) {
     // Public. The walk-in kiosk calls this when the booking engine has already
     // told the guest there is no chair — so the guest has typed their name and
     // number seconds ago and should not have to type them again.
+    // "Come in sooner" — from the client's own visit link (its private token): the same list, kind 'sooner'.
+    if (action === 'sooner') {
+      const { soonerFor } = await import('@/lib/waitlist-server');
+      return NextResponse.json(await soonerFor(db, tenantId, str(body?.token, 80), body?.on !== false, body?.anyone === true));
+    }
+    // The join page: the business's name and look, what can be booked, and who does it.
+    if (action === 'info') {
+      const sv = (await db.collection(`tenants/${tenantId}/services`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+        .filter((x: any) => x.isActive !== false && !x.isPrivate && !x.hidden && x.type !== 'addon' && !x.isAddOn && x.name).map((x: any) => ({ id: x.id, name: String(x.name).slice(0, 80), minutes: Number(x.duration) || null, price: Number(x.price) || null })).slice(0, 80);
+      const st = (await db.collection(`tenants/${tenantId}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+        .filter((m: any) => !m.archived && m.isActive !== false && m.role !== 'renter' && !m.isRenter && m.showInBooking !== false && m.bookable !== false && !['front_desk', 'owner_only'].includes(String(m.role || ''))).map((m: any) => ({ id: m.id, name: String(m.name || '').split(' ')[0] }));
+      return NextResponse.json({ ok: true, name: tenant.name || tenant.businessName || '', tenant: { name: tenant.name || '', brandColor: tenant.brandColor || null, bookingPageSettings: tenant.bookingPageSettings ? { cfPageConfig: { accentColor: tenant.bookingPageSettings?.cfPageConfig?.accentColor || null } } : null, phone: tenant.phone || null }, services: sv, providers: st });
+    }
+    // Everything below except joining is the team's: who's waiting, live openings, offering by hand.
+    if (action !== 'join') {
+      const { requestActor } = await import('@/lib/request-actor');
+      const w = await requestActor(db, req.headers.get('authorization'), tenantId);
+      if (!w.ok) return NextResponse.json({ ok: false, error: w.error }, { status: w.status });
+      const W = await import('@/lib/waitlist-server');
+      if (action === 'desk') return NextResponse.json(await W.deskView(db, tenantId));
+      if (action === 'auto') { if (!(w.actor.isManager || w.actor.isOwner)) return NextResponse.json({ ok: false, error: 'Managers only.' }, { status: 403 });
+        await db.doc(`tenants/${tenantId}`).set({ waitlistAuto: body?.on !== false }, { merge: true }); return NextResponse.json({ ok: true }); }
+      if (action === 'close_opening') { await db.doc(`tenants/${tenantId}/openings/${str(body?.openingId, 120)}`).set({ status: 'closed', closedAt: new Date().toISOString(), closedBy: w.actor.name }, { merge: true }); return NextResponse.json({ ok: true }); }
+      if (action === 'offer_now') return NextResponse.json(await W.offerTo(db, tenantId, str(body?.openingId, 120), str(body?.entryId, 120)));
+      if (action === 'remove') { await db.doc(`tenants/${tenantId}/waitlist/${str(body?.entryId, 120)}`).set({ status: 'closed', closedAt: new Date().toISOString(), closedBy: w.actor.name }, { merge: true }); return NextResponse.json({ ok: true }); }
+    }
     if (action === 'join') {
       const name = str(body?.name, 80).trim();
       const phone = str(body?.phone, 40).trim();
@@ -166,7 +192,12 @@ export async function POST(req: NextRequest) {
         email,
         serviceId: serviceId || null,
         serviceName,
-        staffId: null,
+        staffId: str(body?.staffId, 120) && str(body?.staffId, 120) !== 'any' ? str(body?.staffId, 120) : null,
+        windows: (await import('@/lib/waitlist-server')).cleanWindows(body?.windows),
+        noticeHours: [1, 3, 24].includes(Number(body?.noticeHours)) ? Number(body?.noticeHours) : 3,
+        until: /^\d{4}-\d{2}-\d{2}$/.test(str(body?.until, 10)) ? str(body?.until, 10) : new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
+        callOk: body?.callOk === true, callOkAt: body?.callOk === true ? new Date().toISOString() : null,
+        kind: 'new',
         requestedDate: str(body?.requestedDate, 40) || now.slice(0, 10),
         note,
         createdAt: now,

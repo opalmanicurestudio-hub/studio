@@ -362,9 +362,22 @@ const StaleAppointmentView = ({ brand }: { brand: VisitBrand; tenantName?: strin
 // add-to-calendar) live right here. The studio's change-window and
 // cancellation-fee policies are enforced by the flows these open — this
 // screen just gets clients to them.
+// "Come in sooner" — the same waitlist (lib/waitlist-server): if an earlier time opens with the same provider, they get
+// a text; tapping it moves this booking (same deposit). Nothing changes unless they say yes.
+const ComeInSooner = ({ tenantId, token, on: on0 }: { tenantId: string; token: string; on: boolean }) => {
+    const [on, setOn] = useState(on0); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+    const flip = async () => { setBusy(true); setErr(''); try { const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'sooner', token, on: !on }) }).then((x) => x.json());
+        if (r.ok) setOn(!!r.on); else setErr(r.error || 'That didn’t work — try again.'); } catch { setErr('No connection — try again.'); } setBusy(false); };
+    return (<VisitCard>
+        <div className="flex items-center justify-between gap-3"><div><p className="text-[16px] font-semibold">Come in sooner?</p><VisitMuted>{on ? 'We’ll text you if an earlier time opens. Your time stays unless you say yes.' : 'If an earlier time opens, we’ll text you first.'}</VisitMuted></div>
+            <button type="button" role="switch" aria-checked={on} aria-label="Come in sooner" disabled={busy} onClick={flip} className="relative h-7 w-12 shrink-0 rounded-full disabled:opacity-50" style={{ background: on ? 'var(--ink, #16171a)' : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: on ? 23 : 3 }} /></button></div>
+        {err && <p className="pt-1 text-[13px]" style={{ color: '#b42318' }}>{err}</p>}
+    </VisitCard>);
+};
 const TooEarlyView = ({
-    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName, disruption, hasDeposit, onDisruptionCancel,
+    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName, disruption, hasDeposit, onDisruptionCancel, sooner,
 }: {
+    sooner?: { tenantId: string; token: string; on: boolean } | null;
     startTime: string; serviceName?: string;
     onReschedule?: () => void; onCancel?: () => void; calendarUrl?: string | null;
     brand: VisitBrand; providerName?: string | null;
@@ -377,6 +390,7 @@ const TooEarlyView = ({
             {providerName && <VisitMuted>with {providerName}</VisitMuted>}
             <VisitMuted>Check in from this link on the day.</VisitMuted>
         </VisitCard>
+        {sooner && <ComeInSooner tenantId={sooner.tenantId} token={sooner.token} on={sooner.on} />}
         {calendarUrl && <VisitButton href={calendarUrl}>Add to calendar</VisitButton>}
         {(onReschedule || onCancel) && (
             <p className="px-1 pt-1 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
@@ -2746,6 +2760,7 @@ export default function CheckInPage() {
                 serviceName={service?.name}
                 onReschedule={() => setShowRescheduleFlow(true)}
                 onCancel={() => setShowCancelFlow(true)}
+                sooner={tenantId && safeDate(appointmentData!.startTime).getTime() - Date.now() > 24 * 3600e3 ? { tenantId, token, on: !!(appointmentData as any)?.soonerOn } : null}
                 calendarUrl={tenantId && appointmentData?.id
                     ? `/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(appointmentData.id)}&k=${encodeURIComponent(token)}`
                     : null}
