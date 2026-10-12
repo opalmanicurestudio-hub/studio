@@ -3,8 +3,14 @@
 // fits the time with no useless scrap left over, the provider they asked for, the days and times they said, enough
 // notice — and HOW depends on how far away it is:
 //   more than a day   → one person at a time, 30 minutes each (fair; nobody gets "someone beat you to it")
-//   later today       → the top three at once, first to tap
+//   later today       → in WAVES: the best fit alone for 10 minutes, then two at once, then three (first to tap) —
+//                       so most openings go to one person and nobody hears about a time they can't have
+//   1–4 hours away    → three at once, first to tap (speed matters more than tidiness that close in)
 //   under an hour     → no texts; the desk handles it (people in the building, the walk-in line, the next client)
+// Someone who misses out (tapped too late, or a round they were in went to someone else) gets the NEXT opening that fits
+// them on their own — no race — and can ask to be the BACKUP for the time they missed: if it falls through (cancelled,
+// or the deposit isn't paid in time), it's theirs first. While one person's offer is live the time is HELD for them —
+// it disappears from the public booking page, so "it's yours for 30 minutes" is true.
 // Moving someone up ("come in sooner") is only allowed when the slot it frees is fillable — far enough away, or someone
 // new on the list wants it — and never more than two moves in a row, so a move never just shifts the hole.
 
@@ -16,6 +22,9 @@ const H = 3600e3, DAY = 864e5;
 export const HOLD_ONE_MIN = 30;     // how long one person's offer is theirs
 export const HOLD_FIRST_MIN = 20;   // how long a first-to-tap round runs before the next three
 export const FIRST_BATCH = 3;
+export const WAVE_SOLO_MIN = 10;    // later today: the best fit's head start
+export const WAVE_FROM_H = 4;       // waves only when there's time for them
+export const PRIORITY_DAYS = 14;    // missed out → the next one that fits is theirs alone, for this long
 export const MAX_CHAIN = 2;
 
 export function offerModeFor(startMs: number, now: number): Mode {
@@ -30,7 +39,8 @@ export function windowFits(windows: Record<string, string[]> | null | undefined,
 }
 
 export interface Entry { id: string; kind?: 'new' | 'sooner'; clientId?: string | null; name?: string; phone?: string; email?: string; serviceId?: string | null; serviceIds?: string[]; staffId?: string | null; preferredStaffId?: string | null;
-  windows?: Record<string, string[]> | null; noticeHours?: number; until?: string | null; createdAt?: string; addedAt?: string; appointmentId?: string | null; status?: string; visits?: number; reliability?: 'ok' | 'misses' }
+  windows?: Record<string, string[]> | null; noticeHours?: number; until?: string | null; createdAt?: string; addedAt?: string; appointmentId?: string | null; status?: string; visits?: number; reliability?: 'ok' | 'misses';
+  priorityUntil?: string | null; missedCount?: number }
 export interface Opening { id: string; staffId: string; start: string; end: string; minutes: number; serviceId?: string | null; chainDepth?: number; offered?: string[] }
 
 const OPEN = ['waiting', 'active', 'open', 'empty', 'notified', 'offered'];
@@ -64,11 +74,12 @@ export function moveUpOk(o: Opening, freedStartMs: number, now: number, newcomer
   return { ok: false, why: 'would leave a hole too soon to fill' };
 }
 
-/** Order: someone new first (one more visit), the provider they asked for, no leftover, then who's waited longest,
- * then regulars (the tie-break). */
-export function rank<T extends { e: Entry; leftover: number }>(list: T[]): T[] {
+/** Order: whoever is owed one (this time's backup, or missed out last time), then someone new (one more visit), the
+ * provider they asked for, no leftover, who's waited longest, then regulars (the tie-break). */
+export function rank<T extends { e: Entry; leftover: number; pri?: string | null }>(list: T[]): T[] {
   const w = (e: Entry) => ms(e.createdAt || e.addedAt) || 0;
-  return [...list].sort((a, b) => (a.e.kind === 'sooner' ? 1 : 0) - (b.e.kind === 'sooner' ? 1 : 0)
+  const p = (x: T) => (x.pri === 'backup' ? 0 : x.pri ? 1 : 2);
+  return [...list].sort((a, b) => p(a) - p(b) || (a.e.kind === 'sooner' ? 1 : 0) - (b.e.kind === 'sooner' ? 1 : 0)
     || (staffWanted(b.e) ? 1 : 0) - (staffWanted(a.e) ? 1 : 0)
     || (a.leftover === 0 ? 0 : 1) - (b.leftover === 0 ? 0 : 1)
     || w(a.e) - w(b.e)
@@ -81,6 +92,28 @@ export function nextOffers(mode: Mode, offers: { status: string; holdUntil?: str
   const live = offers.filter((f) => f.status === 'sent' && ms(f.holdUntil) > now);
   if (live.length) return 0;                       // someone's still holding it (or a round is still running)
   return Math.min(mode === 'one' ? 1 : FIRST_BATCH, ranked.length);
+}
+
+/** Owed one? This time's backup, or they missed out on an earlier time (and haven't had one to themselves since). */
+export function owed(e: Entry, backups: string[] | undefined, now: number): 'backup' | 'missed' | null {
+  if ((backups || []).includes(e.id)) return 'backup';
+  return e.priorityUntil && ms(e.priorityUntil) > now ? 'missed' : null;
+}
+
+/** The next round for an opening: how many to text, whether it's theirs alone ('one' — the time is held) or first to
+ * tap, and for how long. Nothing while an offer or round is still running. */
+export function planRound(startMs: number, now: number, offers: { status: string; holdUntil?: string; mode?: string }[], ranked: { pri?: string | null }[]): { count: number; mode: Mode; holdMin: number } {
+  const none = { count: 0, mode: 'desk' as Mode, holdMin: 0 }; const lead = startMs - now; const base = offerModeFor(startMs, now);
+  if (base === 'desk' || !ranked.length || offers.some((f) => f.status === 'sent' && ms(f.holdUntil) > now)) return none;
+  const soloHold = lead >= 24 * H ? HOLD_ONE_MIN : lead >= WAVE_FROM_H * H ? 15 : WAVE_SOLO_MIN;
+  if (ranked[0].pri) return { count: 1, mode: 'one', holdMin: soloHold };                 // owed one: theirs alone
+  if (base === 'one') return { count: 1, mode: 'one', holdMin: HOLD_ONE_MIN };
+  if (lead >= WAVE_FROM_H * H) {
+    if (!offers.some((f) => f.mode === 'one')) return { count: 1, mode: 'one', holdMin: WAVE_SOLO_MIN };   // the best fit's head start
+    const firsts = offers.filter((f) => f.mode === 'first').length;
+    return { count: Math.min(firsts ? FIRST_BATCH : 2, ranked.length), mode: 'first', holdMin: 15 };
+  }
+  return { count: Math.min(FIRST_BATCH, ranked.length), mode: 'first', holdMin: 15 };
 }
 
 /** The words. Hello-first doesn't apply here: they asked to be told, so the link goes in. */

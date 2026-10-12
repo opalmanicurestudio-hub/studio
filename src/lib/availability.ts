@@ -941,6 +941,9 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
   });
 
   const dayStaffBlocks = (input.staffBlocks || []).filter((b) => {
+    // A hold with its own end (a waitlist offer that's one person's for a while) stops holding at `until` — real
+    // time, not the shifted frame — so a lapsed hold never needs cleaning up before the time is bookable again.
+    if (b?.until && Date.parse(String(b.until)) <= Date.now()) return false;
     const start = safeDate(b?.startTime);
     return start ? isSameDay(start, dateObj) : false;
   });

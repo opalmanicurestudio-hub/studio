@@ -113,5 +113,70 @@ const THU3 = '2026-10-15T19:00:00.000Z';
   check('at 10:30 pm nothing goes out — it waits for the morning', night.sent === 0 && sent.length === n1);
   check('joining keeps only real days and parts of the day', JSON.stringify(W.cleanWindows({ 4: ['afternoon', 'evening', 'bogus'], 9: ['morning'], x: 1 })) === '{"4":["afternoon","evening"]}');
 
+  console.log('Waitlist — when someone else gets there first');
+  const R = (lead: number, offers: any[], ranked: any[] = [{}, {}, {}, {}]) => E.planRound(NOW + lead, NOW, offers, ranked);
+  const old = new Date(NOW - MIN).toISOString();
+  check('a day+ away → one person, 30 minutes', JSON.stringify(R(26 * H, [])) === JSON.stringify({ count: 1, mode: 'one', holdMin: 30 }));
+  check('later today → waves: the best fit alone for 10 minutes, then two at once, then three',
+    R(6 * H, []).count === 1 && R(6 * H, []).mode === 'one' && R(6 * H, []).holdMin === 10
+    && R(6 * H, [{ status: 'lapsed', mode: 'one', holdUntil: old }]).count === 2 && R(6 * H, [{ status: 'lapsed', mode: 'one', holdUntil: old }]).mode === 'first'
+    && R(6 * H, [{ status: 'lapsed', mode: 'one' }, { status: 'lapsed', mode: 'first' }, { status: 'lapsed', mode: 'first' }]).count === 3);
+  check('under 4 hours → three at once (speed matters more)', R(2 * H, []).count === 3 && R(2 * H, []).mode === 'first');
+  check('someone owed one (missed out, or this time’s backup) gets it alone — even same day', R(2 * H, [], [{ pri: 'missed' }, {}]).mode === 'one' && R(2 * H, [], [{ pri: 'backup' }]).count === 1);
+  check('nothing new while a round is still running', R(6 * H, [{ status: 'sent', mode: 'first', holdUntil: new Date(NOW + 5 * MIN).toISOString() }]).count === 0);
+  const rk = E.rank([{ e: { id: 'long', createdAt: '2026-09-01' }, leftover: 0 }, { e: { id: 'missed', createdAt: '2026-10-12' }, leftover: 0, pri: 'missed' }, { e: { id: 'bk', createdAt: '2026-10-13' }, leftover: 0, pri: 'backup' }] as any);
+  check('order: the backup, then whoever missed out, then everyone else', rk.map((x) => x.e.id).join() === 'bk,missed,long', rk.map((x) => x.e.id));
+
+  // Today 6:00 pm with Maya (6 hours away): Lee, Kay and Ro all fit. Their link pages are checked for other people's names.
+  const db5 = makeDb(); await db5.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await db5.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes', role: 'stylist' });
+  const SIX = '2026-10-14T22:00:00.000Z', SEVEN = '2026-10-14T23:00:00.000Z';
+  const people = [['lee', 'Lee Grant', '2026-10-01'], ['kay', 'Kay Moss', '2026-10-02'], ['ro', 'Ro Diaz', '2026-10-03'], ['uma', 'Uma Bell', '2026-10-04']];
+  for (const [i, [id, name, c]] of people.entries()) await db5.doc(`${T}/waitlist/${id}`).set({ id, status: 'waiting', name, phone: `+1555020${i}`, serviceId: 'gel', noticeHours: 1, createdAt: `${c}T12:00:00Z`, ...(id === 'kay' ? { windows: { 3: ['evening'], 4: ['afternoon'], 5: ['morning', 'afternoon'] } } : {}) });
+  await db5.doc(`${T}/appointments/z`).set({ id: 'z', staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', startTime: SIX, endTime: SEVEN, status: 'cancelled', cancelledAt: new Date(NOW).toISOString() });
+  // open times by day (New York): today 6 pm (the opening), Thursday 2 pm & 4 pm & 5 pm, Friday 10 am
+  const daySlots: Record<string, string[]> = { '2026-10-14': [SIX], '2026-10-15': [THU2, '2026-10-15T20:00:00.000Z', '2026-10-15T21:00:00.000Z'], '2026-10-16': ['2026-10-16T14:00:00.000Z'] };
+  const sent5: any[] = []; const booked5: any[] = [];
+  const deps5: any = { ...deps, send: async (_d: any, _t: string, to: string, body: string) => { sent5.push({ to, body }); return { ok: true }; },
+    book: async (_t: any, body: any) => { booked5.push(body); return { ok: true, appointmentId: `b${booked5.length}`, status: 'pending_payment', checkInToken: `ck${booked5.length}` }; },
+    openTimes: (_e: any, o: any) => (daySlots[o.date] || []).map((startIso) => ({ startIso, staffId: 'maya', staffName: 'Maya Reyes' })) };
+  const ten5 = (await db5.doc(T).get()).data();
+  await W.waitlistSweep(db5, 't1', ten5, NOW, deps5);
+  check('6 hours away → only the best fit (Lee) is texted, alone, for 10 minutes', sent5.length === 1 && sent5[0].to === '+15550200' && /yours for the next 10 minutes/.test(sent5[0].body), sent5);
+  const hold = (await db5.doc(`${T}/staffBlocks/wl_op_z`).get()).data();
+  check('while it’s Lee’s, the time is held — gone from the public booking page until her 10 minutes end', hold?.reason === 'waitlist_hold' && hold.staffId === 'maya' && hold.startTime === SIX && hold.duration === 60 && Date.parse(hold.until) === NOW + 10 * MIN, hold);
+  await W.waitlistSweep(db5, 't1', ten5, NOW + 11 * MIN, deps5);
+  check('no answer → the hold lifts and the next two (Kay, Ro) get it, first to tap', !(await db5.doc(`${T}/staffBlocks/wl_op_z`).get()).exists && sent5.length === 3 && sent5.slice(1).every((x) => /whoever taps first/.test(x.body)) && sent5.slice(1).map((x) => x.to).join() === '+15550201,+15550202', sent5);
+  const ops5 = () => db5.doc(`${T}/openings/op_z`).get().then((s: any) => s.data());
+  const tokOf = async (id: string) => (await ops5()).offers.find((f: any) => f.entryId === id).token;
+  const roTok = await tokOf('ro'), kayTok = await tokOf('kay');
+  const ro: any = await W.takeOffer(db5, 't1', roTok, NOW + 13 * MIN, deps5);
+  check('Ro taps first → booked; a deposit gets 20 minutes before it goes to the next person', ro.ok && booked5[0]?.holdUntil === new Date(NOW + 33 * MIN).toISOString() && ro.payBy === booked5[0].holdUntil, { ro, b: booked5[0] });
+  const kayE: any = (await db5.doc(`${T}/waitlist/kay`).get()).data();
+  check('Kay was in that round and missed out → owed the next one (for 14 days)', Date.parse(kayE.priorityUntil) === NOW + 13 * MIN + 14 * DAY && kayE.missedCount === 1 && kayE.status === 'waiting', kayE);
+  const kv: any = await W.viewOffer(db5, 't1', kayTok, NOW + 14 * MIN);
+  check('Kay’s link: “that one just went”, and she can be its backup', kv.state === 'taken' && kv.canBackup && !kv.backup, kv);
+  const kalt: any = await W.alternativesFor(db5, 't1', kayTok, NOW + 14 * MIN, deps5);
+  check('…with other real times that fit HER (Thursday afternoon, Friday morning — her days), two a day at most, soonest first',
+    kalt.times.length === 3 && kalt.times[0].startIso === THU2 && kalt.times[2].startIso === '2026-10-16T14:00:00.000Z' && kalt.times.every((x: any) => x.startIso !== SIX), kalt.times);
+  const kayPage = JSON.stringify(kv) + JSON.stringify(kalt);
+  check('nothing she sees names another client', !/Ro|Lee|Uma|Diaz|Grant|Bell/.test(kayPage.replace(/Room|Gel|Opal|Maya/g, '')), kayPage);
+  const bad: any = await W.bookAlternative(db5, 't1', kayTok, '2026-10-15T15:00:00.000Z', 'maya', NOW + 14 * MIN, deps5);
+  check('a time that isn’t one of hers can’t be booked from her link', !bad.ok && booked5.length === 1);
+  const bk: any = await W.backupFor(db5, 't1', kayTok, NOW + 15 * MIN);
+  check('Kay taps “back me up”', bk.ok && (await ops5()).backups.join() === 'kay');
+  // Ro never pays: the appointment the booking made is released at her deadline → a new opening, Kay first, alone
+  await db5.doc(`${T}/appointments/b1`).set({ id: 'b1', clientName: 'Ro Diaz', staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', startTime: SIX, endTime: SEVEN, status: 'cancelled', cancellationReason: 'payment_not_received', cancelledAt: new Date(NOW + 34 * MIN).toISOString() }, { merge: true });
+  const n5 = sent5.length; await W.waitlistSweep(db5, 't1', ten5, NOW + 35 * MIN, deps5);
+  const fell: any = (await db5.doc(`${T}/openings/op_b1`).get()).data();
+  check('the time comes back as an opening — and its backup (Kay) gets it alone, held for her', fell?.source === 'fell_through' && fell.backups.join() === 'kay' && sent5.length === n5 + 1 && sent5[n5].to === '+15550201' && /yours for the next/.test(sent5[n5].body) && (await db5.doc(`${T}/staffBlocks/wl_op_b1`).get()).exists, { fell, s: sent5.slice(n5) });
+  check('getting one of her own settles what she was owed', !(await db5.doc(`${T}/waitlist/kay`).get()).data().priorityUntil);
+  const kayTok2 = (await db5.doc(`${T}/openings/op_b1`).get()).data().offers[0].token;
+  const kt: any = await W.takeOffer(db5, 't1', kayTok2, NOW + 36 * MIN, deps5);
+  check('Kay taps → the hold lifts and it’s booked for her', kt.ok && !(await db5.doc(`${T}/staffBlocks/wl_op_b1`).get()).exists && booked5.length === 2);
+  // Uma missed nothing; Lee let hers lapse. Neither is owed anything.
+  check('letting your own offer run out isn’t “missing out”', !(await db5.doc(`${T}/waitlist/lee`).get()).data().priorityUntil);
+  const ua: any = await W.bookAlternative(db5, 't1', kayTok, '2026-10-16T14:00:00.000Z', 'maya', NOW + 37 * MIN, deps5);
+  check('another time from the “missed it” screen books through the booking engine', ua.ok && booked5[2]?.startTime === '2026-10-16T14:00:00.000Z' && booked5[2]?.source === 'waitlist', { ua, b: booked5[2] });
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();
