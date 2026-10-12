@@ -23,12 +23,23 @@ export async function POST(req: NextRequest) {
     const snap = await db.collection(`${T}/smsInbox`).orderBy('at', 'desc').limit(300).get();
     let items = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
       .filter((m: any) => !['tech', 'renter'].includes(String(m.senderType || '')))   // maintenance and renter texts live on their own screens
-      .map((m: any) => ({ id: m.id, at: m.at, channel: m.channel === 'email' ? 'email' : 'sms', from: m.from || null, fromName: m.fromName || null, clientId: m.clientId || null, clientName: m.clientName || null,
+      .map((m: any) => ({ id: m.id, at: m.at, channel: m.channel === 'email' ? 'email' : m.channel === 'app' ? 'app' : 'sms', from: m.from || null, appointmentId: m.appointmentId || null, fromName: m.fromName || null, clientId: m.clientId || null, clientName: m.clientName || null,
         subject: m.subject || null, body: m.body || null, mediaCount: m.mediaCount || 0, readAt: m.readAt || null, readBy: m.readBy || null, repliedAt: m.repliedAt || null, repliedBy: m.repliedBy || null,
         via: m.via || null, actionTaken: m.actionTaken || null, complaint: m.complaint ? { match: true, safety: !!m.complaint.safety } : soundsLikeComplaint(m.body) }));
     if (b.filter === 'unread') items = items.filter((m: any) => !m.readAt);
     if (b.filter === 'unknown') items = items.filter((m: any) => !m.clientId);
     return NextResponse.json({ ok: true, items, unread: items.filter((m: any) => !m.readAt).length });
+  }
+  // "Send their link": the client's visit link for their next appointment, opened to an action (cancel, reschedule, message…).
+  if (b.action === 'link_for') {
+    const clientId = s(b.clientId, 120); const act = ['cancel', 'reschedule', 'message', 'confirm', 'late'].includes(b.do) ? b.do : '';
+    const appts = (await db.collection(`${T}/appointments`).where('clientId', '==', clientId).limit(100).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+      .filter((a: any) => ['confirmed', 'pending_payment', 'deposit_pending', 'requested', 'waiting', 'checked_in'].includes(String(a.status || '')) && Date.parse(a.startTime) > Date.now() - 2 * 3600e3 && a.checkInToken)
+      .sort((x: any, y: any) => Date.parse(x.startTime) - Date.parse(y.startTime));
+    if (!appts.length) return NextResponse.json({ ok: false, error: 'This client has no upcoming appointment, so there’s no visit link to send.' }, { status: 404 });
+    const tenant: any = (await db.doc(T).get()).data() || {}; const { internalOrigin } = await import('@/lib/message-policy');
+    const base = internalOrigin(tenant, req.nextUrl.origin) || req.nextUrl.origin;
+    return NextResponse.json({ ok: true, url: `${base}/check-in/${appts[0].checkInToken}${act ? `?do=${act}` : ''}` });
   }
   const ref = db.doc(`${T}/smsInbox/${s(b.id, 120)}`); const m: any = (await ref.get()).data();
   if (!m) return NextResponse.json({ ok: false, error: 'That message was not found.' }, { status: 404 });
@@ -43,6 +54,13 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (!canMessageClients(tenant, auth.actor.isTenantOwner ? 'owner' : auth.actor.role)) return NextResponse.json({ ok: false, error: 'Messaging clients is switched off for staff in this business.' }, { status: 403 });
     const text = s(b.text, 1600); if (!text) return NextResponse.json({ ok: false, error: 'Please write a reply first.' }, { status: 400 });
+    // A message from the visit link or app: the reply shows there (and on their phone); a text follows if it isn't seen in 10 minutes.
+    if (m.channel === 'app') {
+      if (!m.clientId) return NextResponse.json({ ok: false, error: 'Please link this message to a client first.' }, { status: 400 });
+      const { replyInApp } = await import('@/lib/client-messages'); await replyInApp(db, tenantId, m, text, who);
+      await ref.set({ repliedAt: nowIso, repliedBy: who, ...(m.readAt ? {} : { readAt: nowIso, readBy: who }) }, { merge: true });
+      return NextResponse.json({ ok: true, status: 'sent', inApp: true });
+    }
     const email = m.channel === 'email'; const to = String(m.from || ''); if (!to) return NextResponse.json({ ok: false, error: 'There is no address to reply to.' }, { status: 400 });
     if (!email && m.clientId) { const c: any = (await db.doc(`${T}/clients/${m.clientId}`).get()).data() || {}; if (c.smsOptOut === true) return NextResponse.json({ ok: false, error: 'This client has asked not to receive texts.' }, { status: 400 }); }
     const r: any = await sendNotification(db, { tenantId, channel: email ? 'email' : 'sms', to, text, ...(email ? { subject: s(b.subject, 140) || (m.subject ? (/^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`) : `A message from ${tenant.name || 'us'}`) } : {}),

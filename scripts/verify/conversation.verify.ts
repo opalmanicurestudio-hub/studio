@@ -23,7 +23,7 @@ import { makeDb, check, failures } from './fake-db';
   await db.doc('tenants/t1/graceUses/g1').set({ clientId: 'ana', event: 'late_cancellation', at: '2026-10-05T10:00:00.000Z', appliedBy: 'Kim', reason: 'Childcare fell through' });
   const asKim = await C.conversationFor(db, 't1', { id: 'ana', name: 'Ana Ruiz', phone: '(832) 555-0137', email: 'ana@example.com' }, { viewer: { uid: 'kim', manager: false } });
   const types = asKim.map((x) => x.type);
-  check('texts both ways, the call, the courtesy and the team note are all there, oldest first', ['text', 'call', 'courtesy', 'note'].every((t) => types.includes(t)) && asKim.every((x, i) => i === 0 || x.at >= asKim[i - 1].at), types);
+  check('texts both ways, the call, the courtesy and the team note are all there, oldest first', ['text', 'call', 'courtesy', 'note'].every((t) => (types as string[]).includes(t)) && asKim.every((x, i) => i === 0 || x.at >= asKim[i - 1].at), types);
   check('the text from before linking is found by her number', asKim.some((x) => x.text === 'An older text from before linking'));
   check('who wrote what: Kim’s reply is hers; the reminder was automatic', asKim.find((x) => x.text === 'Of course, see you at 11.')?.who === 'Kim' && asKim.find((x) => x.kind === 'appointment_reminder')?.who === 'Automatic');
   check('the whole message is kept, not just a preview', asKim.some((x) => x.text === 'Hi Ana, we’re looking forward to seeing you tomorrow at 10:00 AM.'));

@@ -211,6 +211,10 @@ export default function BookingPoliciesPage() {
               <span className="w-full text-xs text-muted-foreground">Visits left open after their day:</span>
               <Choice field="autoCloseOut" value={t.autoCloseOut !== false} label="Close out overnight" options={[[true, 'Close them out overnight (shown under “Left open”)'], [false, 'Leave them for me']]} />
             </Row>
+            <Row label="Client texts">
+              <Choice field="bookingPolicies.textAssist" value={t.bookingPolicies?.textAssist !== false} label="Answer client texts automatically" options={[[true, 'Answer clear requests straight away'], [false, 'A person answers every text']]} />
+              <span className="w-full text-xs text-muted-foreground">When a client texts to cancel, reschedule, confirm or say they’re running late, they get a reply in seconds with their link opened to that action. Nothing is cancelled from a text alone: any fee is shown before they confirm. Questions, complaints and anything unclear wait in your Inbox for a person.</span>
+            </Row>
             <Row label="When a provider can’t come in">
               <span className="w-full text-xs text-muted-foreground">Their clients choose first: the same time with a colleague, one of the provider’s next times (kept for them), first in line, or cancel with no fee. Choose by:</span>
               <Choice field="bookingPolicies.calloutChooseBy" value={t.bookingPolicies?.calloutChooseBy ?? 'evening'} label="Choose-by time" options={[['evening', '6:00 PM the evening before'], [24, '24 hours before'], [12, '12 hours before'], [6, '6 hours before']]} />

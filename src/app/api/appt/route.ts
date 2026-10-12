@@ -292,6 +292,33 @@ export async function POST(req: NextRequest) {
       await tellTeam(`${who} is running late and has chosen to book a new time.`);
       return NextResponse.json({ ok: true, choice, next: 'reschedule' });
     }
+    // ── Message us, notifications, and how they reach us (lib/client-messages, lib/client-push) ──
+    if (action === 'messages') {
+      if (!a.clientId) return NextResponse.json({ ok: true, items: [] });
+      const { threadForClient } = await import('@/lib/client-messages');
+      return NextResponse.json({ ok: true, items: await threadForClient(db, tenantId, String(a.clientId)) });
+    }
+    if (action === 'message') {
+      const { clientWrites } = await import('@/lib/client-messages'); const r = await clientWrites(db, tenantId, { ...a, id: apptId }, String(body.text || ''));
+      return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+    }
+    if (action === 'link_used') {
+      if (a.clientId) { const { noteLinkUse } = await import('@/lib/client-push'); await noteLinkUse(db, tenantId, String(a.clientId), { standalone: body.standalone === true }).catch(() => null); }
+      return NextResponse.json({ ok: true });
+    }
+    if (action === 'push_register' || action === 'push_remove') {
+      if (!a.clientId) return NextResponse.json({ ok: false, error: 'We couldn’t find your details.' }, { status: 400 });
+      const P = await import('@/lib/client-push');
+      const r = action === 'push_register' ? await P.registerClientDevice(db, tenantId, String(a.clientId), { token: String(body.token || ''), platform: String(body.platform || ''), standalone: body.standalone === true })
+        : await P.removeClientDevice(db, tenantId, String(a.clientId), String(body.token || ''));
+      return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+    }
+    if (action === 'confirm') {
+      if (['cancelled', 'canceled', 'completed', 'no_show'].includes(String(a.status || ''))) return NextResponse.json({ ok: false, error: 'This appointment can’t be confirmed.' }, { status: 409 });
+      if (!a.clientConfirmedAt) { const f = { clientConfirmedAt: new Date().toISOString(), clientConfirmedVia: String(body.via || 'visit_link').slice(0, 20) }; await ref.set(f, { merge: true });
+        if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]); }
+      return NextResponse.json({ ok: true });
+    }
     // A provider callout → their choices (lib/callout-choices): a kept time, the same time with a colleague, or first in line.
     if (action === 'disruption_options' || action === 'disruption_take_time' || action === 'disruption_switch') {
       const CC = await import('@/lib/callout-choices'); const me = { ...a, id: apptId };

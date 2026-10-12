@@ -141,6 +141,14 @@ export async function POST(req: NextRequest) {
       message: `Text from ${senderName}${senderType !== 'unknown' && senderType !== 'client' ? ` (${senderType})` : ''}: "${(body || `${mediaCount} photo(s)`).slice(0, 140)}"${threaded ? ` — added to ticket "${threaded}"` : ''}`,
     }); }
 
+    // A known client asking about their appointment gets an answer in seconds, with the right link (lib/text-assist).
+    // Upset, unclear or unsafe messages wait for a person. An unknown number is asked for their name, once a day.
+    try {
+      const TA = await import('@/lib/text-assist');
+      if (senderType === 'client' && clientId && body) await TA.textAssist(db, tenantId, { clientId, clientName: senderName, from, body, inboxId: iRef.id, complaint: !!flagged });
+      else if (senderType === 'unknown' && body && !flagged) await TA.askWhoItIs(db, tenantId, from);
+    } catch (e) { console.error('[sms/inbound] text assist', e); }
+
     return twimlOk();
   } catch (err) {
     console.error('[sms/inbound] failed', err);

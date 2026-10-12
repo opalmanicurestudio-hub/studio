@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
     // Tidy my day: asks past their deadline end with nobody moved (lib/tidy-server) — before the waitlist looks at gaps.
     try { const { expireTidy } = await import('@/lib/tidy-server'); await expireTidy(db, t.id, now); } catch { /* next run */ }
     try { const { calloutSweep } = await import('@/lib/callout-choices'); await calloutSweep(db, t.id, now); } catch { /* next run */ }   // callouts: call list, then kept times to the waitlist
+    try { const { appReplyFallback } = await import('@/lib/client-messages'); await appReplyFallback(db, t.id, now); } catch { /* next run */ }   // app replies unseen for 10 minutes → a text
     try { const { waitlistSweep } = await import('@/lib/waitlist-server'); await waitlistSweep(db, t.id, tenant, now); } catch { /* next run */ }
     // Opportunities: once a day after 7 am local — find, hand out, expire, check who came back (lib/opportunities-server).
     try { const { opportunitySweep } = await import('@/lib/opportunities-server'); await opportunitySweep(db, t.id, tenant, now); } catch { /* next run */ }

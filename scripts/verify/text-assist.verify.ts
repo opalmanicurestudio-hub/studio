@@ -1,0 +1,71 @@
+// scripts/verify/text-assist.verify.ts — client texts answered with the right link; app messages with a text backup.
+// Run: npx tsx --tsconfig tsconfig.json scripts/verify/text-assist.verify.ts
+import { makeDb, check, failures } from './fake-db';
+const H = 3600e3, MIN = 60000; const iso = (n: number) => new Date(n).toISOString();
+(async () => {
+  process.env.NEXT_PUBLIC_APP_URL = 'https://app.example';
+  const A = await import('../../src/lib/text-assist'); const M = await import('../../src/lib/client-messages'); const P = await import('../../src/lib/client-push');
+  console.log('Reading a text');
+  check('“C” confirms; “X” is a cancel request', A.intentByWords('C').intent === 'confirm' && A.intentByWords('x').intent === 'cancel' && A.intentByWords('X').sure);
+  check('“I need to cancel tomorrow” → cancel', A.intentByWords('Hi, I need to cancel tomorrow, my daughter is sick').intent === 'cancel');
+  check('“can I move my appointment to Friday” → reschedule', A.intentByWords('Can I move my appointment to Friday?').intent === 'reschedule');
+  check('“running 10 min behind” → late', A.intentByWords('running behind, be there in 10').intent === 'late');
+  check('“do you do gel extensions?” → a question (a person answers)', A.intentByWords('Do you do gel extensions?').intent === 'question');
+  const now = Date.parse('2026-10-13T15:00:00-04:00');
+  const fresh = async (extra: any = {}) => { const db = makeDb();
+    await db.doc('tenants/t1').set({ name: 'Opal Nail Studio', timezone: 'America/New_York', cancellationWindowHours: 24, bookingPolicies: { grace: { late_cancellation: { enabled: true, selfServe: true, allowance: 1, periodMonths: 6 } } }, ...extra });
+    await db.doc('tenants/t1/clients/ana').set({ id: 'ana', name: 'Ana Ruiz', phone: '+18325550137' });
+    await db.doc('tenants/t1/appointments/a1').set({ id: 'a1', clientId: 'ana', status: 'confirmed', serviceName: 'Gel fill', startTime: iso(Date.parse('2026-10-14T10:00:00-04:00')), checkInToken: 'tokA' });
+    await db.doc('tenants/t1/smsInbox/i1').set({ id: 'i1', clientId: 'ana', body: 'x' }); return db; };
+  const sent: any[] = []; const send = async (m: any) => { sent.push(m); return { ok: true, status: 'sent' }; };
+  const kind = async () => ({ ok: true, text: '{"intent":"cancel","upset":false,"empathy":"We’re sorry to hear that, and we hope she feels better soon."}' });
+
+  console.log('Answering a client');
+  let db = await fresh();
+  let r: any = await A.textAssist(db, 't1', { clientId: 'ana', from: '+18325550137', body: 'Hi, I need to cancel tomorrow, my daughter is sick', inboxId: 'i1' }, now, { ask: kind, send });
+  check('a kind reply with her link opened to cancelling', r.replied && /we’re sorry to hear that/.test(sent[0].text) && sent[0].text.includes('https://app.example/check-in/tokA?do=cancel'), sent[0]?.text);
+  check('…it tells her the courtesy cancellation covers it (19 hours away, inside 24)', /courtesy cancellation available, so there won’t be a fee/.test(sent[0].text));
+  check('…nothing was cancelled by the text', (await db.doc('tenants/t1/appointments/a1').get()).data().status === 'confirmed');
+  check('…the Inbox shows it answered automatically', (await db.doc('tenants/t1/smsInbox/i1').get()).data().autoReply?.intent === 'cancel');
+  check('a second text within 30 minutes isn’t answered again', !(await A.textAssist(db, 't1', { clientId: 'ana', from: '+1832', body: 'cancel', inboxId: 'i1' }, now + 5 * MIN, { send })).replied);
+  db = await fresh(); sent.length = 0;
+  r = await A.textAssist(db, 't1', { clientId: 'ana', from: '+18325550137', body: 'I need to cancel', inboxId: 'i1' }, now - 3 * 864e5 + 2 * H, { ask: async () => ({ ok: false }), send });
+  check('without the model, a warm fixed line; 3 days out there’s no fee', r.replied && /thank you for letting us know/.test(sent[0].text) && /more than 24 hours away, there’s no fee/.test(sent[0].text), sent[0]?.text);
+  db = await fresh(); sent.length = 0;
+  r = await A.textAssist(db, 't1', { clientId: 'ana', from: '+18325550137', body: 'C', inboxId: 'i1' }, now, { send });
+  check('“C” confirms the appointment and thanks her', r.replied && !!(await db.doc('tenants/t1/appointments/a1').get()).data().clientConfirmedAt && /You’re confirmed/.test(sent[0].text));
+  db = await fresh(); sent.length = 0;
+  r = await A.textAssist(db, 't1', { clientId: 'ana', from: '+1', body: 'This is ridiculous, I was charged for nothing', inboxId: 'i1' }, now, { ask: async () => ({ ok: true, text: '{"intent":"other","upset":true,"empathy":"x"}' }), send });
+  check('an upset message gets no automatic reply (a person answers)', !r.replied && sent.length === 0);
+  db = await fresh(); sent.length = 0;
+  check('a possible complaint gets no automatic reply', !(await A.textAssist(db, 't1', { clientId: 'ana', from: '+1', body: 'cancel', inboxId: 'i1', complaint: true }, now, { send })).replied);
+  db = await fresh({ bookingPolicies: { textAssist: false } }); sent.length = 0;
+  check('switched off → no automatic replies', !(await A.textAssist(db, 't1', { clientId: 'ana', from: '+1', body: 'X', inboxId: 'i1' }, now, { send })).replied);
+  db = await fresh(); sent.length = 0;
+  check('an unknown number is asked for their name once a day', (await A.askWhoItIs(db, 't1', '+15550001111', now, { send })).replied && !(await A.askWhoItIs(db, 't1', '+15550001111', now + H, { send })).replied);
+
+  console.log('Message us, from the visit link');
+  db = await fresh();
+  const w = await M.clientWrites(db, 't1', { id: 'a1', clientId: 'ana', clientName: 'Ana Ruiz' }, 'Can I bring my daughter along?', now);
+  const inbox = (await db.collection('tenants/t1/smsInbox').get()).docs.map((d: any) => d.data()).find((x: any) => x.channel === 'app');
+  check('her message lands in the Inbox, linked to her, and the team is told', w.ok && inbox?.clientId === 'ana' && (await db.collection('tenants/t1/notifications').get()).docs.some((d: any) => /Message from Ana Ruiz/.test(d.data().message)));
+  await M.replyInApp(db, 't1', inbox, 'Of course, she’s very welcome.', { id: 'kim', name: 'Kim Lee' }, now + MIN);
+  let thread = await M.threadForClient(db, 't1', 'ana', now + 2 * MIN);
+  check('Kim’s reply shows on her page, signed “Kim”', thread.some((x: any) => x.dir === 'out' && x.who === 'Kim' && /very welcome/.test(x.text)));
+  check('…seen, so no text backup goes', (await M.appReplyFallback(db, 't1', now + 20 * MIN)).sent === 0);
+  await M.replyInApp(db, 't1', inbox, 'See you tomorrow.', { id: 'kim', name: 'Kim Lee' }, now + 30 * MIN);
+  const before = (await db.collection('tenants/t1/messageLog').get()).docs.length;
+  await M.appReplyFallback(db, 't1', now + 35 * MIN);
+  check('an unseen reply waits 10 minutes before a backup', (await db.collection('tenants/t1/messageLog').get()).docs.length === before);
+  await M.appReplyFallback(db, 't1', now + 41 * MIN);
+  check('…then it’s claimed for a text backup, once', (await db.collection('tenants/t1/messageLog').get()).docs.map((d: any) => d.data()).filter((x: any) => x.channel === 'app' && x.fallbackSentAt).length === 1);
+
+  console.log('How she reaches us');
+  check('texts only, to start', P.reachOf({}).reach === 'texts');
+  await P.noteLinkUse(db, 't1', 'ana', {});
+  check('opening her link → “Uses their visit link”', P.reachOf((await db.doc('tenants/t1/clients/ana').get()).data()).reach === 'link');
+  await P.registerClientDevice(db, 't1', 'ana', { token: 'tok-1', platform: 'iPhone', standalone: true });
+  const c = (await db.doc('tenants/t1/clients/ana').get()).data();
+  check('turning on notifications → “Notifications on · iPhone, saved to home screen”', P.reachOf(c).reach === 'app_push' && /iPhone, saved to home screen/.test(String(P.reachOf(c).detail)) && !!c.appInstalledAt);
+  console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
+})();

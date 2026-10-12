@@ -13,7 +13,7 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   // Housekeeping — stations, kits, cleansing, sterilising, laundry, delays
   turnover_due: 'now', turnover_escalation: 'now', kit_timer: 'now', kit_cleansed: 'now', contact_reached: 'now', cycle_done: 'now', linen_timer: 'now', kit_none_usable: 'now', kit_short: 'now', visit_delay: 'now', delay_affects_you: 'now',
   // Clients reaching out
-  sms: 'now', sms_escalation: 'now', sms_escalation_unassigned: 'now', call_message: 'now', call_reply: 'now',
+  sms: 'now', client_message: 'now', email_in: 'today', sms_escalation: 'now', sms_escalation_unassigned: 'now', call_message: 'now', call_reply: 'now',
   // The team
   staff_message: 'now', pay_question: 'today', case_safety: 'now', case_new: 'now', case_yours: 'today', case_approval: 'now', case_redo: 'now', case_reopened: 'now', case_late: 'now', conduct_report: 'now', case_check_back: 'today', case_report: 'today', case_hint: 'now', gift_alert: 'today', refund_on_way: 'now', refund_near: 'now', refund_choice: 'today', pay_question_update: 'now', shift_changed: 'now', clock_fix: 'today', clock_fix_approved: 'today', clock_fix_declined: 'today', shoutout: 'today', staff_details: 'today', approval_request: 'now', pin_reset: 'now', test: 'now',
   swap_request: 'today', request_approved: 'today', request_denied: 'today', day_off_approved: 'today', swap_approved: 'today', schedule_published: 'today', task: 'today',

@@ -50,7 +50,7 @@ export async function conversationFor(db: any, t: string, client: any, o: { limi
 
   // What we sent.
   for (const m of await safe(async () => rows(await db.collection(`${T}/messageLog`).where('clientId', '==', id).limit(400).get()), [] as any[]))
-    out.push({ id: `m_${m.id}`, at: m.sentAt || m.at, dir: 'out', type: m.channel === 'email' ? 'email' : 'text', who: m.sentBy?.name || (m.kind === 'staff_message' ? 'Team' : 'Automatic'),
+    out.push({ id: `m_${m.id}`, at: m.sentAt || m.at, dir: 'out', type: m.channel === 'email' ? 'email' : 'text', meta: { channel: m.channel, seenAt: m.seenAt || null, pushedAt: m.pushedAt || null }, who: m.sentBy?.name || (m.kind === 'staff_message' ? 'Team' : 'Automatic'),
       text: m.body || m.preview || null, subject: m.subject || null, kind: m.kind || null,
       status: m.bouncedAt ? 'bounced' : m.openedAt ? 'opened' : m.deliveredAt ? 'delivered' : m.status || null });
 
@@ -62,7 +62,7 @@ export async function conversationFor(db: any, t: string, client: any, o: { limi
   if (email) for (const m of await safe(async () => rows(await db.collection(`${T}/smsInbox`).where('fromEmail', '==', email).limit(200).get()), [] as any[])) inbound.set(m.id, m);
   for (const m of Array.from(inbound.values()))
     out.push({ id: `i_${m.id}`, at: m.at, dir: 'in', type: m.channel === 'email' ? 'email' : 'text', who: String(client.name || 'Client'), text: m.body || (m.mediaCount ? `${m.mediaCount} photo(s)` : null),
-      subject: m.subject || null, complaint: m.complaint || null, meta: { inboxId: m.id, via: m.via || null } });
+      subject: m.subject || null, complaint: m.complaint || null, meta: { inboxId: m.id, via: m.via || null, channel: m.channel || 'sms' } });
 
   // Staff text threads.
   const threads = await safe(async () => {
