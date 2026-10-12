@@ -1,6 +1,5 @@
 'use client';
 
-import { periodSettings, periodOf } from '@/lib/pay-periods';
 import { CancellationReview } from '@/components/settings/CancellationReview';
 import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
 import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
@@ -903,19 +902,6 @@ function SettingsPageImpl() {
                 <Row label="Staff can clock in early by" help="Before their published shift starts. Earlier than this and the clock waits. Leave blank to allow any time (early clock-ins are still noted)." inline><Num field="earlyClockInMinutes" suffix="minutes" max={120} /></Row>
               </Section>
               <PayPeriodSettings tenant={tenantData} onChange={(payroll) => setTenantData((prev: any) => ({ ...prev, payroll }))} />
-              {/* PAY PERIODS (lib/pay-periods) — how often the team is paid and when; the Pay tab, stubs and payroll follow it. */}
-              {(() => { const pr: any = (tenantData as any).payroll || {}; const setP = (patch: any) => setTenantData((prev: any) => ({ ...prev, payroll: { ...((prev as any).payroll || {}), ...patch } }));
-                const ps = periodSettings(tenantData); const today = new Date().toLocaleDateString('en-CA', { timeZone: (tenantData as any).timezone || 'America/New_York' });
-                const nice = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-                const now0 = periodOf(tenantData, today); const next = [now0, periodOf(tenantData, new Date(Date.parse(`${now0.to}T12:00:00Z`) + 86400000).toISOString().slice(0, 10))];
-                return (<Section title="Pay periods" help="How often your team is paid, and when. The staff app’s Pay tab, pay stubs and payroll all follow this.">
-                  <Row label="How often" inline><Choice label="How often" value={ps.cadence} options={[{ value: 'weekly', label: 'Weekly' }, { value: 'bi-weekly', label: 'Every two weeks' }, { value: 'monthly', label: 'Monthly' }]} onChange={(v) => setP({ cadence: v })} /></Row>
-                  {ps.cadence !== 'monthly' && <Row label="A period starts on" help="Pick the first day of any one pay period — the rest follow from it." inline>
-                    <input type="date" value={ps.anchor} onChange={(e) => /^\d{4}-\d{2}-\d{2}$/.test(e.target.value) && setP({ periodAnchor: e.target.value })} className={`${cfInput} w-44`} style={cfInputStyle} aria-label="A period starts on" /></Row>}
-                  <Row label="Payday" help="Days after a period ends that it’s paid." inline>
-                    <span className="inline-flex items-center gap-2"><input type="number" min={0} max={30} value={Number.isFinite(Number(pr.paydayAfterDays)) ? pr.paydayAfterDays : 4} onChange={(e) => setP({ paydayAfterDays: Math.max(0, Math.min(30, parseInt(e.target.value) || 0)) })} className={`${cfInput} w-20 text-center`} style={cfInputStyle} aria-label="Days after the period ends" /><span className="text-[14px] cf-muted">days after</span></span></Row>
-                  <Row label="Coming up" inline><span className="text-right text-[13.5px] cf-muted">{next.map((p) => `${nice(p.from)} – ${nice(p.to)}, paid ${nice(p.payday)}`).join(' · ')}</span></Row>
-                </Section>); })()}
               <More help="Stricter rules, overtime and breaks — most studios leave these as they are.">
                 <Section title="Stricter rules">
                   {T('requireAppointmentToClockIn', 'Only clock in with an appointment that day')}
