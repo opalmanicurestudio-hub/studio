@@ -1,5 +1,6 @@
 'use client';
 import { BuildingRules } from '@/components/rent/BuildingRules';
+import { MyDocuments } from '@/components/rent/MyDocuments';
 import { MyGiftCards } from '@/components/rent/MyGiftCards';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
@@ -290,6 +291,7 @@ export default function RenterPortalPage() {
             {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyGiftCards tenantId={tenantId} token={session.token} />}
+            {booksHere && session?.token && data?.renter?.id && <MyDocuments tenantId={tenantId} token={session.token} booksHere />}
 
             {booksHere && (
               <section className="space-y-3">
@@ -710,6 +712,7 @@ export default function RenterPortalPage() {
             {session?.token && data?.renter?.id && (
               <BuildingRules tenantId={tenantId} token={session.token} name={data?.renter?.name || null} />
             )}
+            {!booksHere && session?.token && data?.renter?.id && <MyDocuments tenantId={tenantId} token={session.token} booksHere={false} />}
 
             {session?.token && data?.renter?.id && (
               <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />

@@ -32,6 +32,11 @@ const firstOf = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
  *  else the older plain-text aftercare from Making it right settings. */
 export async function visitAftercare(db: any, tenantId: string, a: any, tenant: any, isRenterVisit: boolean, textFallback: string) {
   const { aftercareDocFor, clientView } = await import('@/lib/aftercare');
+  // A renter's visit: the renter's own aftercare, from their private library (lib/renter-docs) — never the studio's.
+  if (isRenterVisit) { const { renterDocsOf, renterAftercareFor } = await import('@/lib/renter-docs'); let mine: any[] = [];
+    try { mine = a.staffId ? await renterDocsOf(db, tenantId, String(a.staffId)) : []; } catch { /* none */ }
+    const pinned = a.aftercareDocId ? mine.find((x: any) => x.id === a.aftercareDocId && x.status === 'published') : null;
+    const d = pinned || renterAftercareFor(mine, a.serviceId); return { doc: clientView(d), text: d ? null : (textFallback || null) }; }
   let docs: any[] = [];
   try { docs = (await db.collection(`${T(tenantId)}/documents`).where('category', '==', 'aftercare').get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })); } catch { /* none */ }
   const d = aftercareDocFor(docs, a.serviceId, isRenterVisit ? a.staffId : null);

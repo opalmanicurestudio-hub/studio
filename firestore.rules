@@ -569,7 +569,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks', 'certifications',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks', 'certifications', 'renterDocs',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
@@ -626,6 +626,11 @@ service cloud.firestore {
     }
     // CERTIFIED FOR A SERVICE (lib/certification): read and written through the server only (/api/certifications).
     match /tenants/{tenantId}/certifications/{certId} {
+      allow read, write: if false;
+    }
+    // A RENTER'S OWN DOCUMENTS (lib/renter-docs): their SOPs and aftercare — private to the renter; read and written
+    // through the server only (/api/portal/renter-docs), so the studio's app can't read them.
+    match /tenants/{tenantId}/renterDocs/{docId} {
       allow read, write: if false;
     }
     // Each published version, kept as it was (with its "what changed" note).

@@ -10,6 +10,8 @@ import { brandAccent } from '@/lib/brand-accent';
 import { rebookSettingsOf } from '@/lib/client-screen';
 import { aftercareSettingsOf, productsUsed, providerNoteOf, rebookWeeksOf } from '@/lib/aftercare';
 import { AftercareView } from '@/components/documents/AftercareView';
+import { renterBrand } from '@/lib/renter-aftercare';
+import { renterCareSettings } from '@/lib/renter-docs';
 
 export const dynamic = 'force-dynamic';
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
@@ -27,7 +29,10 @@ export default async function AftercarePage({ params, searchParams }: { params: 
   // The business's choices (Settings → Aftercare); a renter's visit follows the renter (their own portal).
   const S = aftercareSettingsOf(tenant); const on = isRenterVisit || S.on;
   const care = on ? await visitAftercare(db, tenantId, a, tenant, isRenterVisit, isRenterVisit ? '' : (tenant.makingItRight ? aftercareFor(settingsOf(tenant), a.serviceId) : '')) : { doc: null, text: null };
-  const accent = brandAccent(tenant); const name = String(tenant.name || tenant.businessName || 'Your visit'); const logo = tenant.logoUrl || tenant.logo || null;
+  // A renter's client sees the renter's business, not the studio's.
+  const rb = isRenterVisit ? await renterBrand(db, tenantId, prov) : null;
+  const RS = isRenterVisit && a.staffId ? await renterCareSettings(db, tenantId, String(a.staffId)) : null;
+  const accent = brandAccent(tenant); const name = rb ? rb.name : String(tenant.name || tenant.businessName || 'Your visit'); const logo = rb ? rb.logo : tenant.logoUrl || tenant.logo || null;
   const mir = !isRenterVisit && !!tenant.makingItRight && tenant.makingItRight?.channels?.survey !== false;
   const visitQ = sp.k ? `k=${encodeURIComponent(String(sp.k))}` : `t=${encodeURIComponent(String(sp.t || ''))}`;
   const howHref = mir ? (sp.k ? feedbackPath(tenantId, appointmentId) : `/how/${tenantId}/${appointmentId}?${visitQ}`) : '';
@@ -35,8 +40,8 @@ export default async function AftercarePage({ params, searchParams }: { params: 
   const tz = tenant.timezone || 'America/New_York';
   const when = a.startTime ? new Date(a.startTime).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: tz }) : '';
   const svc: any = a.serviceId ? (await db.doc(`tenants/${tenantId}/services/${a.serviceId}`).get()).data() || null : null; const weeks = rebookWeeksOf(svc);
-  const note = !isRenterVisit && S.providerNote && providerNoteOf(a) ? { text: providerNoteOf(a)!, by: first(a.aftercareNote?.byName) || from || null } : null;
-  const used = !isRenterVisit && S.showProducts ? productsUsed(a) : [];
+  const note = (isRenterVisit ? !!RS?.providerNote : S.providerNote) && providerNoteOf(a) ? { text: providerNoteOf(a)!, by: first(a.aftercareNote?.byName) || from || null } : null;
+  const used = (isRenterVisit ? !!RS?.showProducts : S.showProducts) ? productsUsed(a) : [];
   const checkIn = sp.c === '1' || a.checkInSentAt ? { tenantId, appointmentId, k: sp.k, t: sp.t, answered: a.aftercareCheckIn?.answer || null,
     reportHref: mir ? `/how/${tenantId}/${appointmentId}?${visitQ}&start=report` : '' } : null;
   return <AftercareView name={name} logo={logo} accent={accent} service={service} from={from} when={when} doc={care.doc} text={care.text} howHref={howHref} note={note} used={used} checkIn={sp.c === '1' ? checkIn : null}
