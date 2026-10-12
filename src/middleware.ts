@@ -84,6 +84,7 @@ const ALWAYS_ALLOWED = [
   '/inquiry/',
   '/quote/',
   '/booking/',
+  '/practice',
 ];
 
 const isAlwaysAllowed = (pathname: string) =>

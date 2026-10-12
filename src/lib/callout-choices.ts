@@ -14,7 +14,8 @@
 //   • BACK AFTER ALL — anyone who hasn't chosen keeps their visit as booked; anyone who moved keeps the new time.
 import { tenantTimeZone, wallParts, wallToUtc, addDays } from '@/lib/tenant-time';
 
-export const CALL_WITHIN_H = 3;
+import { chooseByFor, CALL_WITHIN_H } from '@/lib/callout-timing';
+export { chooseByFor, CALL_WITHIN_H };
 const H = 3600e3, DAY = 864e5, MIN = 60000;
 const iso = (n: number) => new Date(n).toISOString();
 const ms = (v: any) => (v ? Date.parse(String(v)) || 0 : 0);
@@ -31,17 +32,6 @@ async function deps(d: Deps = {}) {
 const ymd = (n: number, tz: string) => { const p = wallParts(new Date(n), tz); return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`; };
 export const whenText = (n: number, tz: string) => new Date(n).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
 const durMin = (a: any) => Math.max(15, Math.round((ms(a.endTime) - ms(a.startTime)) / MIN) || Number(a.durationMin || a.duration) || 60);
-
-/** When this client must choose by. 0 = too soon to wait: the desk calls now. */
-export function chooseByFor(startMs: number, now: number, tz: string, rule: any): number {
-  const latest = startMs - CALL_WITHIN_H * H;
-  let at: number;
-  const hrs = Number(rule);
-  if (Number.isFinite(hrs) && hrs > 0) at = startMs - hrs * H;
-  else at = wallToUtc(addDays(ymd(startMs, tz), -1), 18, 0, tz).getTime();   // 6:00 PM the evening before
-  at = Math.min(at, latest);
-  return at < now + H ? 0 : at;
-}
 
 /** Hold the provider's next free times for her clients, find colleagues for each visit, set each choose-by time. */
 export async function prepareChoices(db: any, t: string, o: { calloutId: string; staffId: string; toMs: number; now: number }, d: Deps = {}) {
