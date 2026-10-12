@@ -76,6 +76,7 @@ export default function SelfCancelPage() {
             .finally(() => setIsLoading(false));
     }, [tenantId, appointmentId]);
 
+    const [undoing, setUndoing] = useState(false); const [undoErr, setUndoErr] = useState<string | null>(null);
     const handleCancel = async () => {
         setIsSubmitting(true);
         setError(null);
@@ -137,7 +138,7 @@ export default function SelfCancelPage() {
                             <CheckCircle2 className="w-12 h-12 text-green-500" />
                         </div>
                         <div className="space-y-2 text-center">
-                            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Appointment Cancelled</h3>
+                            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{result.undone ? 'Still Booked' : 'Appointment Cancelled'}</h3>
                             {!result.alreadyCancelled && (
                                 <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-sm mx-auto">
                                     {result.feeCharged
@@ -146,6 +147,19 @@ export default function SelfCancelPage() {
                                 </p>
                             )}
                         </div>
+                        {result.undone ? <p className="text-sm font-semibold text-green-700">Your cancellation is undone — you’re still booked. We’ve sent you a confirmation.</p>
+                        : result.undoUntil && Date.parse(result.undoUntil) > Date.now() && (
+                            <div className="space-y-3">
+                                <p className="text-sm text-slate-500">Changed your mind? You can undo this until {format(safeDate(result.undoUntil), 'h:mm a')}, as long as nobody has booked the time.</p>
+                                {undoErr && <p className="text-sm text-amber-700">{undoErr}</p>}
+                                <Button disabled={undoing} className="w-full h-14 rounded-full" onClick={async () => {
+                                    setUndoing(true); setUndoErr(null);
+                                    try { const r = await fetch('/api/appointments/undo-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId, k: accessKey }) }).then((x) => x.json());
+                                        if (r.ok) setResult({ ...result, undone: true }); else setUndoErr(r.error || 'That didn’t work — please call us.'); }
+                                    catch { setUndoErr('No connection — please try again.'); } finally { setUndoing(false); }
+                                }}>{undoing ? 'Undoing…' : 'Undo — keep my appointment'}</Button>
+                            </div>
+                        )}
                     </CardContent>
                 </ViewContainer>
             </div>

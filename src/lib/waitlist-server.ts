@@ -68,6 +68,7 @@ export async function detectOpenings(db: any, t: string, now: number) {
   const all = rows(snap); const made: string[] = [];
   for (const a of all) {
     if (!['cancelled', 'canceled'].includes(String(a.status || '')) || a.waitlistOpeningId || a.isRenterBooking || a.isWalkIn || !a.staffId) continue;
+    if (ms(a.undoUntil) > now) continue;   // the client can still undo this cancellation (lib/undo-cancel) — wait
     const when = ms(a.cancelledAt) || ms(a.updatedAt) || now; if (now - when > 3 * DAY) continue;
     const s = ms(a.startTime), e = ms(a.endTime) || s + (Number(a.duration) || 60) * 60000;
     const refilled = all.some((o: any) => o.id !== a.id && o.staffId === a.staffId && !DEAD.includes(String(o.status || '')) && ms(o.startTime) < e && (ms(o.endTime) || ms(o.startTime) + 3600e3) > s);

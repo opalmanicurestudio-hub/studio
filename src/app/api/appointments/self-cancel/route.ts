@@ -357,9 +357,14 @@ export async function POST(req: NextRequest) {
     }, { merge: true });
   }
 
+  // The client's own cancel, with nothing charged or credited, can be taken back for 15 minutes (lib/undo-cancel).
+  const { undoAllowed, UNDO_MIN } = await import('@/lib/undo-cancel');
+  const undoUntil = undoAllowed(appt, { byClient: keyOk, feeCharged: chargeFee, reschedule: isReschedule, series: body.scope === 'series', usedGrace: !!graceNow })
+    ? new Date(Date.now() + UNDO_MIN * 60000).toISOString() : null;
   batch.update(apptRef, {
     status: 'cancelled',
     cancelledAt: now,
+    ...(undoUntil ? { undoUntil, statusBeforeCancel: appt.status } : {}),
     ...(isReschedule ? { rescheduledToId, cancellationReason: 'rescheduled', paidByPackageId: null, paidByPackageName: null, paidByMembershipId: null, paidByMembershipName: null } : {}),
     cancellationAudit,
     cancellationEventId: eventId,
@@ -564,7 +569,7 @@ export async function POST(req: NextRequest) {
     if (moveSeriesDeposit) depositMovedTo = await markDepositMoved(db, tenantId, { ...appt, id: appointmentId }, appt.clientName || 'Client');
     if (!isReschedule && appt.seriesId && body.scope === 'series') laterCancelled = await cancelLaterVisits(db, tenantId, { ...appt, id: appointmentId }, { name: appt.clientName || 'Client', role: 'client' });
   } catch (e) { console.error('[self-cancel series]', e); }
-  return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate, packageNote, lines, ...(appt.seriesId ? { depositMovedTo, laterCancelled } : {}) });
+  return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate, packageNote, lines, undoUntil,...(appt.seriesId ? { depositMovedTo, laterCancelled } : {}) });
 }
 
 // ── Deposit resolution — mirrors useCancellationConfirm v3's client-cancel ────

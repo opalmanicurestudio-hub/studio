@@ -134,6 +134,18 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    /* The client cancelled from their link, then tapped "Undo" within 15 minutes. */
+    id: 'cancellation_undone', group: 'Booking', label: 'Cancellation undone',
+    when: 'A client cancels from their link and taps “Undo” within 15 minutes, while the time is still free.',
+    channels: ['email', 'sms'], canDisable: false,
+    mandatoryNote: 'They were just told it was cancelled. This confirms it is back on.',
+    tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{studio}}'],
+    requiredTokens: ['{{when}}'],
+    defaultSubject: 'You’re still booked — {{service}}, {{when}}',
+    defaultBody: '{{client_first}}, your cancellation is undone. You’re still booked for {{service}} on {{when}}. See you then.',
+    timing: 'immediate',
+  },
+  {
     id: 'appointment_cancelled', group: 'Booking', label: 'Appointment cancelled',
     when: 'A visit is cancelled — by the client from their link, or by your team. Says what happened to any fee and deposit, in your policy wording.',
     channels: ['email', 'sms'], canDisable: false,

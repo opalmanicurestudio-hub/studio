@@ -2135,6 +2135,7 @@ const CancelGateView = ({
             .finally(() => setIsLoading(false));
     }, [tenantId, appointmentId]);
 
+    const [undoing, setUndoing] = useState(false); const [undoErr, setUndoErr] = useState<string | null>(null);
     const handleCancel = async () => {
         setIsSubmitting(true);
         setError(null);
@@ -2167,6 +2168,15 @@ const CancelGateView = ({
         );
     }
 
+    if (result?.undone) {
+        return (
+            <VisitShell brand={brand} title={<>You’re <b>still booked</b></>}>
+                <VisitCard tone="ok"><p className="text-[15px]">Your cancellation is undone — {details?.appointment?.serviceName || 'your appointment'}{details?.appointment?.startTime ? `, ${format(safeDate(details.appointment.startTime), 'EEEE, MMMM d · h:mm a')}` : ''} is back on. We’ve sent you a confirmation.</p></VisitCard>
+                <VisitButton quiet onClick={onBack}>Back</VisitButton>
+            </VisitShell>
+        );
+    }
+
     if (result) {
         return (
             <VisitShell brand={brand} title={<>You’re <b>cancelled</b></>} subtitle={result.alreadyCancelled ? 'This appointment was already cancelled.' : undefined}>
@@ -2177,6 +2187,17 @@ const CancelGateView = ({
                 {(Number(result.laterCancelled) > 0 || result.depositMovedTo) && <VisitCard tone="ok">
                     {Number(result.laterCancelled) > 0 && <p className="text-[15px]">Your {result.laterCancelled} later visit{result.laterCancelled === 1 ? ' is' : 's are'} cancelled too — no fees.</p>}
                     {result.depositMovedTo && <p className="text-[15px]">Your deposit has moved to your next visit.</p>}
+                </VisitCard>}
+                {result.undoUntil && Date.parse(result.undoUntil) > Date.now() && <VisitCard>
+                    <VisitLabel>Changed your mind?</VisitLabel>
+                    <VisitMuted>You can undo this until {format(safeDate(result.undoUntil), 'h:mm a')}, as long as nobody has booked the time.</VisitMuted>
+                    {undoErr && <p className="text-[14px]" style={{ color: '#b45309' }}>{undoErr}</p>}
+                    <VisitButton disabled={undoing} onClick={async () => {
+                        setUndoing(true); setUndoErr(null);
+                        try { const r = await fetch('/api/appointments/undo-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId, k: accessKey }) }).then((x) => x.json());
+                            if (r.ok) setResult({ ...result, undone: true }); else setUndoErr(r.error || 'That didn’t work — please call us.'); }
+                        catch { setUndoErr('No connection — please try again.'); } finally { setUndoing(false); }
+                    }}>{undoing ? 'Undoing…' : 'Undo — keep my appointment'}</VisitButton>
                 </VisitCard>}
                 {brand.bookHref && <VisitButton href={brand.bookHref}>Book another time</VisitButton>}
             </VisitShell>
