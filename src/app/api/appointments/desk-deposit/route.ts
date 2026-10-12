@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
     const next = released ? 'cancelled' : (ap.status === 'pending_payment' ? 'confirmed' : ap.status);
     const batch = db.batch();
     batch.set(aRef, { status: next, depositStatus: 'paid', depositPaidAt: nowIso, depositAmountCents: cents, paymentDueAt: null, depositPaidVia: via, ...extra,
+      depositDeskHold: null, ...(ap.needsAttention === 'deposit_unpaid' && !released ? { needsAttention: null } : {}),
       ...(released ? { needsAttention: 'deposit_paid_after_hold_released', needsAttentionAt: nowIso } : {}) }, { merge: true });
     if (ap.checkInToken) batch.set(db.doc(`appointmentCheckIns/${ap.checkInToken}`), { status: next, depositStatus: 'paid' }, { merge: true });
     const cRef = db.collection(`${T}/depositCredits`).doc();
@@ -147,7 +148,7 @@ export async function POST(req: NextRequest) {
     if (!auth.actor.isManager && !regular) return bad('Only a manager or the owner can confirm this without a deposit.', 403);
     if (!reason) return bad('Add a reason for confirming without a deposit.');
     const batch = db.batch();
-    batch.set(aRef, { status: ap.status === 'pending_payment' ? 'confirmed' : ap.status, depositStatus: 'waived', depositWaivedReason: reason, depositWaivedBy: auth.actor.name, depositWaivedAt: nowIso, paymentDueAt: null }, { merge: true });
+    batch.set(aRef, { status: ap.status === 'pending_payment' ? 'confirmed' : ap.status, depositStatus: 'waived', depositWaivedReason: reason, depositWaivedBy: auth.actor.name, depositWaivedAt: nowIso, paymentDueAt: null, depositDeskHold: null, ...(ap.needsAttention === 'deposit_unpaid' ? { needsAttention: null } : {}) }, { merge: true });
     if (ap.checkInToken) batch.set(db.doc(`appointmentCheckIns/${ap.checkInToken}`), { status: ap.status === 'pending_payment' ? 'confirmed' : ap.status, depositStatus: 'waived' }, { merge: true });
     await batch.commit();
     await logAuditAdmin(db, tenantId, { action: 'deposit.waived', targetType: 'appointment', targetId: appointmentId, summary: `Confirmed without a deposit — ${ap.clientName || 'client'} (${reason})`, actor } as any).catch(() => {});

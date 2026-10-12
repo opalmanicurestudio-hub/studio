@@ -636,6 +636,8 @@ function blocksTime(apt: any, now: Date): boolean {
   // A declined or expired request is a dead row — it must stop holding time
   // the instant it dies, or approval mode slowly eats the calendar.
   if (status === 'declined' || status === 'expired') return false;
+  // A visit whose deposit is late but is inside its protected window stays on the schedule (lib/deposit-release).
+  if (status === 'pending_payment' && apt?.depositDeskHold === true) return true;
   if (status === 'pending_payment') {
     /* Two different holds wear the same status, and they deserve different
      * clocks. Someone sitting at a checkout screen gets the short 30-minute

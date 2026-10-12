@@ -25,9 +25,11 @@ export async function releaseUnpaidHolds(db: any, tenantId: string, opts: { orig
   for (const d of snap.docs) {
     const a: any = d.data() || {};
     if (a.depositStatus === 'paid') continue; // paid in the meantime — the webhook confirms it
-    const createdMs = Date.parse(a.createdAt || '');
-    const due = a.paymentDueAt ? Date.parse(a.paymentDueAt) : Number.isFinite(createdMs) ? createdMs + holdMin * 60000 : NaN;
-    if (!Number.isFinite(due) || due > now) continue;
+    // Never on the visit's own morning: inside the protected window the desk decides (lib/deposit-release).
+    const { releaseCall, tellDeskDeposit } = await import('@/lib/deposit-release');
+    const call = releaseCall({ id: d.id, ...a }, now, t, holdMin);
+    if (call === 'chase' || call === 'desk') { await tellDeskDeposit(db, tenantId, { id: d.id, ...a }, call, now).catch((e: any) => console.error('[release-unpaid] desk', e)); continue; }
+    if (call !== 'release') continue;
     const nowIso = new Date(now).toISOString();
     const wasAccepted = !!a.paymentDueAt; // an accepted request (card declined) — the client was expecting this visit
     const batch = db.batch();

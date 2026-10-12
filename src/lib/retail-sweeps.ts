@@ -510,8 +510,11 @@ export async function sweepUnpaidAccepted(
             ? String(((await db.doc(`tenants/${tenantId}/clients/${apt.clientId}`).get()).data() as any)?.email || '').trim()
             : '');
 
-        // ── 3. Past the deadline: release it ──
+        // ── 3. Past the deadline: release it — but never inside the visit's protected window (lib/deposit-release) ──
         if (now >= due) {
+          const { releaseCall, tellDeskDeposit } = await import('./deposit-release');
+          const call = releaseCall({ id: d.id, ...apt }, now, tenant);
+          if (call !== 'release') { if (call === 'desk') await tellDeskDeposit(db, tenantId, { id: d.id, ...apt }, 'desk', now).catch(() => {}); continue; }
           await d.ref.set({
             status: 'cancelled',
             cancelledAt: new Date(now).toISOString(),
