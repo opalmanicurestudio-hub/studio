@@ -10,9 +10,13 @@ import { myWork, docIsFor, type MyWork } from '@/lib/my-work';
 export function useMyWork(firestore: any, tenantId: string, staff: { id: string; role?: string } | null, today: string): { work: MyWork | null; loading: boolean; reload: () => void } {
   const sid = staff?.id || '';
   const tQ = useMemoFirebase(() => (firestore && tenantId && sid ? query(collection(firestore, `tenants/${tenantId}/tasks`), where('assignedStaffIds', 'array-contains', sid)) : null), [firestore, tenantId, sid]);
-  const dQ = useMemoFirebase(() => (firestore && tenantId && sid ? collection(firestore, `tenants/${tenantId}/documents`) : null), [firestore, tenantId, sid]);
+  // A renter only asks for what's theirs — documents sent to renters, or to them by name (the database allows no more).
+  const renter = staff?.role === 'renter' || (staff as any)?.isRenter === true;
+  const dQ = useMemoFirebase(() => (firestore && tenantId && sid ? (renter ? query(collection(firestore, `tenants/${tenantId}/documents`), where('assignedRoles', 'array-contains', 'renter')) : collection(firestore, `tenants/${tenantId}/documents`)) : null), [firestore, tenantId, sid, renter]);
+  const nQ = useMemoFirebase(() => (firestore && tenantId && sid && renter ? query(collection(firestore, `tenants/${tenantId}/documents`), where('assignedStaffIds', 'array-contains', sid)) : null), [firestore, tenantId, sid, renter]);
   const rQ = useMemoFirebase(() => (firestore && tenantId && sid ? query(collection(firestore, `tenants/${tenantId}/rotations`), where('memberIds', 'array-contains', sid)) : null), [firestore, tenantId, sid]);
-  const { data: tasks, isLoading: tl } = useCollection<any>(tQ); const { data: docs, isLoading: dl } = useCollection<any>(dQ); const { data: rotations } = useCollection<any>(rQ);
+  const { data: tasks, isLoading: tl } = useCollection<any>(tQ); const { data: docsA, isLoading: dl } = useCollection<any>(dQ); const { data: docsB } = useCollection<any>(nQ);
+  const docs = React.useMemo(() => { const m = new Map<string, any>(); for (const x of [...(docsA || []), ...(docsB || [])]) m.set(x.id, x); return [...m.values()]; }, [docsA, docsB]); const { data: rotations } = useCollection<any>(rQ);
   const [acks, setAcks] = React.useState<Record<string, any | null>>({}); const [runs, setRuns] = React.useState<any[]>([]); const [tick, setTick] = React.useState(0);
   const mine = React.useMemo(() => (staff ? (docs || []).filter((d: any) => docIsFor(d, staff)) : []), [docs, staff]);
   const sig = mine.map((d: any) => `${d.id}:${d.version || 1}`).join('|');

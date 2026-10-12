@@ -25,8 +25,12 @@ const nice = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US
 
 export function StaffDocs({ firestore, tenantId, tenant, staffMember, accent = INK, openId, onOpened, stationId, onClearStation }: { firestore: any; tenantId: string; tenant: any; staffMember: any; accent?: string; openId?: string | null; onOpened?: () => void; stationId?: string | null; onClearStation?: () => void }) {
   const me = { id: staffMember.id, role: staffMember.role };
-  const dQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, `tenants/${tenantId}/documents`) : null), [firestore, tenantId]);
-  const { data: docs, isLoading } = useCollection<any>(dQ);
+  // A renter only asks for what's theirs — documents sent to renters, or to them by name (the database allows no more).
+  const renter = staffMember.role === 'renter' || staffMember.isRenter === true;
+  const dQ = useMemoFirebase(() => (firestore && tenantId ? (renter ? query(collection(firestore, `tenants/${tenantId}/documents`), where('assignedRoles', 'array-contains', 'renter')) : collection(firestore, `tenants/${tenantId}/documents`)) : null), [firestore, tenantId, renter]);
+  const nQ = useMemoFirebase(() => (firestore && tenantId && renter ? query(collection(firestore, `tenants/${tenantId}/documents`), where('assignedStaffIds', 'array-contains', staffMember.id)) : null), [firestore, tenantId, renter, staffMember.id]);
+  const { data: docsA, isLoading } = useCollection<any>(dQ); const { data: docsB } = useCollection<any>(nQ);
+  const docs = React.useMemo(() => { const m = new Map<string, any>(); for (const x of [...(docsA || []), ...(docsB || [])]) m.set(x.id, x); return [...m.values()]; }, [docsA, docsB]);
   const mine = React.useMemo(() => (docs || []).filter((d: any) => docIsFor(d, me)), [docs, me.id, me.role]); // eslint-disable-line react-hooks/exhaustive-deps
   const [open, setOpen] = React.useState<string>('');
   React.useEffect(() => { if (openId) { setOpen(openId); onOpened?.(); } }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -112,7 +116,7 @@ function Tag({ children, tone }: { children: React.ReactNode; tone?: 'amber' | '
 /** Today's run of a document's checklists: tick as you go, a photo where one's needed (documents/{id}/runs/{staffId}_{day}). */
 function ChecklistRun({ firestore, tenantId, d, staffMember, accent, big = false, runDoc }: { firestore: any; tenantId: string; d: any; staffMember: any; accent: string; big?: boolean; runDoc?: any }) {
   const full = runDoc || d; const today = bizKey(); const runId = `${staffMember.id}_${today}`;
-  const rQ = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/documents/${full.id}/runs`), where('date', '==', today)) : null), [firestore, tenantId, full.id, today]);
+  const rQ = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/documents/${full.id}/runs`), where('date', '==', today), where('staffId', '==', staffMember.id)) : null), [firestore, tenantId, full.id, today, staffMember.id]);   // only your own run
   const { data } = useCollection<any>(rQ); const run = (data || []).find((r: any) => r.id === runId) || null;
   const items: Record<string, boolean> = run?.items || {}; const photos: Record<string, string> = run?.photos || {};
   const keys = liveKeys(full.sections || []); const done = keys.filter((k) => items[k]).length;

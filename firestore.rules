@@ -616,8 +616,13 @@ service cloud.firestore {
     function canManageDocs(tenantId) {
       return isManager(tenantId) || (inDirectory(tenantId) && 'documents.manage' in dirEntry().data.get('caps', []));
     }
+    // A renter signed in to the staff app reads only documents sent to renters, or to them by name (building rules) —
+    // never the team's handbook and SOPs. Their own documents live in renterDocs (server only).
+    function renterMayRead(tenantId, d) {
+      return isPortalMember(tenantId) && ('renter' in d.get('assignedRoles', []) || portalStaffId() in d.get('assignedStaffIds', []));
+    }
     match /tenants/{tenantId}/documents/{documentId} {
-      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      allow get, list: if isTeam(tenantId) || renterMayRead(tenantId, resource.data);
       allow create, update, delete: if canManageDocs(tenantId);
     }
     // INSPECTOR LINKS (lib/training-proof): made, listed and turned off through the server only.
@@ -635,12 +640,13 @@ service cloud.firestore {
     }
     // Each published version, kept as it was (with its "what changed" note).
     match /tenants/{tenantId}/documents/{documentId}/versions/{versionId} {
-      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      allow get, list: if isTeam(tenantId) || renterMayRead(tenantId, get(/databases/$(database)/documents/tenants/$(tenantId)/documents/$(documentId)).data);
       allow create, update: if canManageDocs(tenantId);
       allow delete: if false;
     }
     match /tenants/{tenantId}/documents/{documentId}/acks/{ackId} {
-      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      // The team sees who has signed; a renter sees only their own sign-off.
+      allow get, list: if isTeam(tenantId) || (isPortalMember(tenantId) && ackId == portalStaffId());
       // A sign-off is your own (or a manager recording one for someone).
       allow create, update: if (
           isManager(tenantId)
@@ -653,7 +659,7 @@ service cloud.firestore {
       allow delete: if isManager(tenantId);
     }
     match /tenants/{tenantId}/documents/{documentId}/runs/{runId} {
-      allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
+      allow get, list: if isTeam(tenantId) || (isPortalMember(tenantId) && resource.data.get('staffId', '') == portalStaffId());
       allow create, update: if (
           isStaff(tenantId)
           || (isPortalMember(tenantId) && request.resource.data.staffId == request.auth.token.staffId)

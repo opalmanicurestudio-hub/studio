@@ -986,8 +986,8 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
 }
 
 // ─── APPOINTMENT ACTION DRAWER ────────────────────────────────────────────────
-function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, currentStaffId, tenantId, firestore, onClose, onAction, onReview, onEscalate, onOpenTicket }: {
-  onOpenTicket?: (id: string) => void;
+function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, currentStaffId, tenantId, firestore, onClose, onAction, onReview, onEscalate, onOpenTicket, viewerIsRenter = false }: {
+  onOpenTicket?: (id: string) => void; viewerIsRenter?: boolean;
   apt: any; service: any; allServices: any[]; allStaff: any[]; allShifts: any[]; currentStaffId: string;
   tenantId: string; firestore: any;
   onClose: () => void;
@@ -1167,7 +1167,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
 
             {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <PrepSummary apt={apt} tenantId={tenantId} solo={isSoloTeam(allStaff || [])} />}
             {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <DayChange apt={apt} tenantId={tenantId} solo={isSoloTeam(allStaff || [])} staffName={(allStaff || []).find((m: any) => m.id === apt.staffId)?.name || apt.staffName} />}
-            {['servicing','in_service','ready_for_checkout','completed','checked_out','paid'].includes(st) && <AftercareNote apt={apt} tenantId={tenantId} firestore={firestore} staffId={currentStaffId} staffName={(allStaff || []).find((m: any) => m.id === currentStaffId)?.name} />}
+            {!viewerIsRenter && ['servicing','in_service','ready_for_checkout','completed','checked_out','paid'].includes(st) && <AftercareNote apt={apt} tenantId={tenantId} firestore={firestore} staffId={currentStaffId} staffName={(allStaff || []).find((m: any) => m.id === currentStaffId)?.name} />}
             {!['cancelled','no_show'].includes(st) && <SomethingHappened apt={apt} tenantId={tenantId} />}
             {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} />}
             {['cancelled','no_show'].includes(st) && (
@@ -5193,6 +5193,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       {/* Appointment action drawer */}
       {drawerApt && (
         <AppointmentDrawer
+          viewerIsRenter={isRenter}
           apt={drawerApt}
           service={drawerSvc}
           allServices={services || []}
