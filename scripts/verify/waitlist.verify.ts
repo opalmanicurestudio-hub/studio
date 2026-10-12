@@ -32,7 +32,7 @@ const THU3 = '2026-10-15T19:00:00.000Z';
 
   console.log('Waitlist — the server');
   const db = makeDb(); const T = 'tenants/t1';
-  await db.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' });
+  await db.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example', tidy: { gapMode: 'waitlist' } });
   for (const sv of [{ id: 'gel', name: 'Gel fill', duration: 60, price: 65 }]) await db.doc(`${T}/services/${sv.id}`).set(sv);
   await db.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes', role: 'stylist' }); await db.doc(`${T}/staff/jo`).set({ id: 'jo', name: 'Jo Park', role: 'front_desk' });
   const services = [{ id: 'gel', name: 'Gel fill', duration: 60, price: 65 }, { id: 'polish', name: 'Polish change', duration: 30, price: 25 }, { id: 'express', name: 'Express fill', duration: 45, price: 45 }];
@@ -95,14 +95,14 @@ const THU3 = '2026-10-15T19:00:00.000Z';
   check('the check-in link shows his new time too', (await db.doc(`${T}/appointmentCheckIns/tokSam`).get()).data()?.startTime === '2026-10-16T14:00:00.000Z');
 
   // Same day → first to tap, three at once; under an hour → the desk; at night → nothing
-  const db2 = makeDb(); await db2.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' });
+  const db2 = makeDb(); await db2.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example', tidy: { gapMode: 'waitlist' } });
   await db2.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes', role: 'stylist' }); await db2.doc(`${T}/staff/jess`).set({ id: 'jess', name: 'Jessica', role: 'owner' });
   for (const [i, n] of ['a', 'b', 'c', 'd'].entries()) await db2.doc(`${T}/waitlist/${n}`).set({ id: n, status: 'waiting', name: `Person ${n}`, phone: `+1555010${i}`, serviceId: 'gel', noticeHours: 1, createdAt: `2026-10-0${i + 1}T12:00:00Z` });
   await db2.doc(`${T}/appointments/x`).set({ id: 'x', staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', startTime: '2026-10-14T19:00:00.000Z', endTime: '2026-10-14T20:00:00.000Z', status: 'cancelled', cancelledAt: new Date(NOW).toISOString() });
   const n0 = sent.length; const t2 = (await db2.doc(T).get()).data();
   const f1: any = await W.waitlistSweep(db2, 't1', t2, NOW, deps);
   check('3 hours away → the top three at once, “whoever taps first”', f1.sent === 3 && sent.slice(n0).every((x) => /whoever taps first/.test(x.body)), { f1, s: sent.slice(n0) });
-  const db4 = makeDb(); await db4.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await db4.doc(`${T}/staff/jess`).set({ id: 'jess', name: 'Jessica', role: 'owner' });
+  const db4 = makeDb(); await db4.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example', tidy: { gapMode: 'waitlist' } }); await db4.doc(`${T}/staff/jess`).set({ id: 'jess', name: 'Jessica', role: 'owner' });
   await db4.doc(`${T}/waitlist/a`).set({ id: 'a', status: 'waiting', name: 'A', phone: '+15550100', serviceId: 'gel', noticeHours: 1 });
   await db4.doc(`${T}/openings/op_soon`).set({ id: 'op_soon', staffId: 'maya', staffName: 'Maya Reyes', start: new Date(NOW + 40 * MIN).toISOString(), end: new Date(NOW + 100 * MIN).toISOString(), minutes: 60, status: 'open', offers: [], createdAt: new Date(NOW).toISOString() });
   const n1 = sent.length; const d1: any = await W.waitlistSweep(db4, 't1', (await db4.doc(T).get()).data(), NOW, deps);
@@ -128,7 +128,7 @@ const THU3 = '2026-10-15T19:00:00.000Z';
   check('order: the backup, then whoever missed out, then everyone else', rk.map((x) => x.e.id).join() === 'bk,missed,long', rk.map((x) => x.e.id));
 
   // Today 6:00 pm with Maya (6 hours away): Lee, Kay and Ro all fit. Their link pages are checked for other people's names.
-  const db5 = makeDb(); await db5.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await db5.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes', role: 'stylist' });
+  const db5 = makeDb(); await db5.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example', tidy: { gapMode: 'waitlist' } }); await db5.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes', role: 'stylist' });
   const SIX = '2026-10-14T22:00:00.000Z', SEVEN = '2026-10-14T23:00:00.000Z';
   const people = [['lee', 'Lee Grant', '2026-10-01'], ['kay', 'Kay Moss', '2026-10-02'], ['ro', 'Ro Diaz', '2026-10-03'], ['uma', 'Uma Bell', '2026-10-04']];
   for (const [i, [id, name, c]] of people.entries()) await db5.doc(`${T}/waitlist/${id}`).set({ id, status: 'waiting', name, phone: `+1555020${i}`, serviceId: 'gel', noticeHours: 1, createdAt: `${c}T12:00:00Z`, ...(id === 'kay' ? { windows: { 3: ['evening'], 4: ['afternoon'], 5: ['morning', 'afternoon'] } } : {}) });
@@ -179,7 +179,7 @@ const THU3 = '2026-10-15T19:00:00.000Z';
   check('another time from the “missed it” screen books through the booking engine', ua.ok && booked5[2]?.startTime === '2026-10-16T14:00:00.000Z' && booked5[2]?.source === 'waitlist', { ua, b: booked5[2] });
 
   console.log('Waitlist — just book it, no double bookings, still hoping?');
-  const mk = async () => { const x = makeDb(); await x.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await x.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes', role: 'stylist' }); return x; };
+  const mk = async () => { const x = makeDb(); await x.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example', tidy: { gapMode: 'waitlist' } }); await x.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes', role: 'stylist' }); return x; };
   const sent6: any[] = []; const booked6: any[] = [];
   const deps6: any = { ...deps, send: async (_d: any, _t: string, to: string, body: string) => { sent6.push({ to, body }); return { ok: true }; }, book: async (_t: any, body: any) => { booked6.push(body); return { ok: true, appointmentId: `a${booked6.length}`, status: 'confirmed' }; } };
   const cancelThu = (x: any, id: string) => x.doc(`${T}/appointments/${id}`).set({ id, staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', startTime: THU2, endTime: THU3, status: 'cancelled', cancelledAt: new Date(NOW).toISOString() });

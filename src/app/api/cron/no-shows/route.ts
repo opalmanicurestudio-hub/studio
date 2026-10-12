@@ -39,6 +39,8 @@ export async function GET(req: NextRequest) {
     // Before the visit: the check goes out your cancellation window plus a day before, one nudge (lib/prep-check-server).
     try { const { prepSweep } = await import('@/lib/prep-check-server'); await prepSweep(db, t.id, tenant, now); } catch { /* next run */ }
     // The waitlist: cancelled times become openings, offered to whoever fits; holds that run out move on (lib/waitlist-server).
+    // Tidy my day: asks past their deadline end with nobody moved (lib/tidy-server) — before the waitlist looks at gaps.
+    try { const { expireTidy } = await import('@/lib/tidy-server'); await expireTidy(db, t.id, now); } catch { /* next run */ }
     try { const { waitlistSweep } = await import('@/lib/waitlist-server'); await waitlistSweep(db, t.id, tenant, now); } catch { /* next run */ }
     // Opportunities: once a day after 7 am local — find, hand out, expire, check who came back (lib/opportunities-server).
     try { const { opportunitySweep } = await import('@/lib/opportunities-server'); await opportunitySweep(db, t.id, tenant, now); } catch { /* next run */ }

@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { AlertTriangle, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target } from 'lucide-react';
+import { AlertTriangle, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -49,6 +49,7 @@ const DAILY_HUB = [
   { href: '/message-log', icon: Send,            label: 'Message log'    },
   { href: '/my-schedule', icon: Clock,           label: 'My schedule'    },
   { href: '/waitlist',    icon: Hourglass,       label: 'Waitlist'       },
+  { href: '/tidy',        icon: AlignVerticalJustifyStart, label: 'Tidy my day' },
   // Only rendered when approval mode is producing requests — see the filter
   // at render time. A permanent link to an always-empty queue is clutter.
   { href: '/appointments/requests', icon: CalendarClock, label: 'Requests' },

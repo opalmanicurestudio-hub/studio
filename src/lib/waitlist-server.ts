@@ -145,6 +145,9 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
   for (const op of ops) {
     const ref = db.doc(`${T(t)}/openings/${op.id}`);
     if (ms(op.start) <= now) { await ref.update({ status: 'expired', closedAt: iso(now) }); await unhold(db, t, op.id); continue; }
+    // A new gap: the provider may want to tidy their day instead (lib/tidy-server) — the waitlist waits for their call.
+    if (!op.gapChecked && op.source !== 'moveup' && op.source !== 'fell_through') { try { const { gapDecision } = await import('@/lib/tidy-server'); if (await gapDecision(db, t, op, tenant, now, d as any)) continue; } catch (e) { console.error('[waitlist] gap decision', e); } }
+    if (op.decided === 'tidy' || (op.awaitUntil && ms(op.awaitUntil) > now && !op.decided)) continue;
     const mode: Mode = offerModeFor(ms(op.start), now);
     const offers = (op.offers || []).map((f: any) => (f.status === 'sent' && ms(f.holdUntil) <= now ? { ...f, status: 'lapsed' } : f));
     if ((op.offers || []).some((f: any) => f.mode === 'one' && f.status === 'sent' && ms(f.holdUntil) <= now)) await unhold(db, t, op.id);

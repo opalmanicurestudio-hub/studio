@@ -76,6 +76,7 @@ async function compressEvidencePhoto(file: File): Promise<Blob> {
 }
 import { registerPushForStaff } from '@/lib/push-notifications';
 import { YourTasks } from '@/components/staff-portal/YourTasks';
+import { TidyPanel } from '@/components/tidy/TidyPanel';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
 import { RenterDocumentsTab } from '@/components/shared/RenterDocumentsTab';
@@ -4860,6 +4861,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 <PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} accent={accentColor} />
 {todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} tenant={portalTenant} accent={accentColor} onOpenDoc={isRenter ? undefined : (id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={(id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} />
+{!isRenter && <TidyPanel tenantId={tenantId} compact />}
 {!isRenter && <YourTasks tenantId={tenantId} accent={accentColor} />}
 <TasksForYou tenantId={tenantId} staffMember={staffMember} />
 <PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />
