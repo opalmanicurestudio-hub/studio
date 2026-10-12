@@ -1,7 +1,6 @@
 // src/app/api/clients/messages/route.ts — ONE CLIENT'S MESSAGES (staff only).
-//   { action: 'list', clientId }                       → what the business sent (messageLog: channel, preview, delivery
-//                                                         status, who it went to) + texts that came in from their number
-//                                                         (smsInbox, matched on the last 10 digits), newest last
+//   { action: 'list', clientId }                       → the client's whole conversation record, oldest first (lib/conversation)
+//   { action: 'export', clientId }                     → the same, as a spreadsheet (CSV)
 //   { action: 'send', clientId, text, channel?, subject? } → a one-off text or email through the shared sender (logged,
 //                                                         policy-governed); text only when they haven't said no to texts
 import { NextRequest, NextResponse } from 'next/server';
@@ -12,7 +11,6 @@ import { canMessageClients } from '@/lib/privacy';
 import { soundsLikeComplaint } from '@/lib/complaint-detect';
 export const dynamic = 'force-dynamic';
 const s = (v: any, n = 200) => String(v ?? '').trim().slice(0, n);
-const last10 = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = s(b.tenantId, 80); const clientId = s(b.clientId, 120);
@@ -23,13 +21,15 @@ export async function POST(req: NextRequest) {
   const client: any = (await db.doc(`${T}/clients/${clientId}`).get()).data();
   if (!client) return NextResponse.json({ ok: false, error: 'We could not find that client.' }, { status: 404 });
 
-  if (b.action === 'list') {
-    const out = (await db.collection(`${T}/messageLog`).where('clientId', '==', clientId).limit(150).get()).docs.map((d: any) => { const m: any = d.data() || {};
-      return { id: d.id, dir: 'out', channel: m.channel, kind: m.kind || null, subject: m.subject || null, text: m.preview || null, at: m.sentAt || m.at || null, status: m.bouncedAt ? 'bounced' : m.deliveredAt ? 'delivered' : m.status || 'sent', to: m.recipientName || null, error: m.error || m.failureDetail || null }; });
-    const digits = last10(client.phone); let inbound: any[] = [];
-    if (digits.length === 10) inbound = (await db.collection(`${T}/smsInbox`).orderBy('at', 'desc').limit(300).get()).docs.map((d: any) => d.data() || {})
-      .filter((m: any) => last10(m.from) === digits).map((m: any) => { const h = m.complaint ? { match: true, safety: !!m.complaint.safety } : soundsLikeComplaint(m.body); return { id: m.id, dir: 'in', channel: 'sms', text: m.body || (m.mediaCount ? `${m.mediaCount} photo(s)` : ''), at: m.at, status: 'received', complaint: h.match ? { safety: h.safety } : null }; });
-    const rows = [...out, ...inbound].filter((r) => r.at).sort((x, y) => String(x.at).localeCompare(String(y.at)));
+  if (b.action === 'list' || b.action === 'export') {
+    // The whole conversation record (lib/conversation): texts and emails both ways, staff threads, calls, the
+    // receptionist's actions, notes, courtesies and cancellation decisions.
+    const { conversationFor, conversationCsv } = await import('@/lib/conversation');
+    const manager = !!auth.actor.isTenantOwner || ['owner', 'admin', 'manager'].includes(String(auth.actor.role || '').toLowerCase());
+    const items = await conversationFor(db, tenantId, { ...client, id: clientId }, { viewer: { uid: auth.actor.uid, manager } });
+    if (b.action === 'export') return NextResponse.json({ ok: true, filename: `conversation-${String(client.name || 'client').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.csv`, csv: conversationCsv(client, items) });
+    const rows = items.map((x: any) => ({ ...x, channel: x.type === 'email' ? 'email' : x.type === 'text' ? 'sms' : x.type,
+      complaint: x.dir === 'in' && x.type !== 'call' ? (x.complaint ? { match: true, safety: !!x.complaint.safety } : soundsLikeComplaint(x.text)) : null }));
     return NextResponse.json({ ok: true, rows, canText: !!client.phone && client.smsConsent !== false && client.smsOptOut !== true, canEmail: !!client.email });
   }
   if (b.action === 'send') {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     if (channel === 'email' && !client.email) return NextResponse.json({ ok: false, error: 'There is no email address on file.' }, { status: 400 });
     const tenant: any = tenantDoc;
     const r: any = await sendNotification(db, { tenantId, channel, to: channel === 'sms' ? String(client.phone) : String(client.email), text, ...(channel === 'email' ? { subject: s(b.subject, 140) || `A message from ${tenant.name || 'us'}`, html: `<p>${text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]).replace(/\n/g, '<br>')}</p>` } : {}),
-      kind: 'staff_message', clientId, clientName: client.name || null, recipientType: 'client', recipientId: clientId, recipientName: client.name || null } as any).catch((e: any) => ({ status: 'failed', error: String(e?.message || e) }));
+      kind: 'staff_message', clientId, clientName: client.name || null, recipientType: 'client', recipientId: clientId, recipientName: client.name || null, sentBy: { id: auth.actor.uid, name: auth.actor.name || null } } as any).catch((e: any) => ({ status: 'failed', error: String(e?.message || e) }));
     if (r?.status === 'failed') return NextResponse.json({ ok: false, error: r.error || 'The message could not be sent.' }, { status: 502 });
     if (r?.status === 'skipped_no_provider') return NextResponse.json({ ok: false, error: channel === 'sms' ? 'Texting is not set up yet for this business.' : 'Email is not set up yet for this business.' }, { status: 400 });
     if (r?.status === 'skipped_by_policy') return NextResponse.json({ ok: false, error: 'Messages like this are switched off in your message settings.' }, { status: 400 });

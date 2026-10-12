@@ -91,6 +91,18 @@ const mask = (to: string) => {
  * it only to the account owner's own inbox — so a shop still on it will see
  * every message to anyone else bounce, and the log will say so.
  */
+/** Where an email reply should go: the app's inbox when receiving is set up, else the business's own email. */
+const replyCache = new Map<string, string | null>();
+export async function replyToFor(db: any, tenantId: string, input: any): Promise<string | null> {
+  if (input?.replyTo && /@/.test(String(input.replyTo))) return String(input.replyTo);
+  const domain = String(process.env.INBOUND_EMAIL_DOMAIN || '').trim().replace(/^@/, '');
+  if (domain) return `reply+${tenantId}@${domain}`;
+  if (replyCache.has(tenantId)) return replyCache.get(tenantId) || null;
+  let biz: string | null = null;
+  try { const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; biz = String(t.email || t.contactEmail || t.ownerEmail || '').trim() || null; } catch { /* none */ }
+  replyCache.set(tenantId, biz && /@/.test(biz) ? biz : null); return replyCache.get(tenantId) || null;
+}
+
 export function resolveFromAddress(): string {
   const raw = String(process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM || '').trim();
   return raw || 'ClarityFlow <onboarding@resend.dev>';
@@ -220,8 +232,9 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
             subject: input.subject || 'A note from your studio',
             html,
             ...(input.text ? { text: input.text } : {}),
-            // Replies go to the business (when it has an email), not the sending address.
-            ...((input as any).replyTo && /@/.test(String((input as any).replyTo)) ? { reply_to: String((input as any).replyTo) } : {}),
+            // Replies come back to the business, never to the shared sending address: into the app when receiving is
+            // set up (INBOUND_EMAIL_DOMAIN, see /api/webhooks/resend), otherwise to the business's own email.
+            ...(await replyToFor(db, tenantId, input) ? { reply_to: await replyToFor(db, tenantId, input) } : {}),
           }),
         });
         const body: any = await res.json().catch(() => null);
@@ -249,7 +262,8 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
           recipientType: input.recipientType || (input.clientId ? 'client' : undefined),
           recipientId: input.recipientId || input.clientId || null,
           recipientName: input.recipientName || input.clientName || null,
-        });
+          sentBy: (input as any).sentBy || null,
+        } as any);
         result = r.ok
           ? { ok: true, status: 'sent', providerId: r.sid || null }
           : { ok: false, status: 'failed', error: r.error || 'SMS failed' };
@@ -275,6 +289,9 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       to,
       subject: input.subject || null,
       preview: input.text ? String(input.text).slice(0, 140) : null,
+      // The whole message, for the conversation record (lib/conversation).
+      body: String(input.text || (input.html ? String(input.html).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/h\d>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim() : '')).slice(0, 6000) || null,
+      sentBy: (input as any).sentBy || null,
       status: result.status,
       error: result.error || null,
       providerId: result.providerId || null,

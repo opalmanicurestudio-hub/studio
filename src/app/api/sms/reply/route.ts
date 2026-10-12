@@ -74,6 +74,8 @@ export async function POST(req: NextRequest) {
       // portal staff share one Firebase login and auth.uid alone can't
       // attribute the reply to a person.
       sentByStaffId: body.senderStaffId || auth.uid,
+      // The conversation record shows who wrote it.
+      staffName: await db.doc(`tenants/${tenantId}/staff/${String(body.senderStaffId || auth.uid)}`).get().then((x: any) => String((x.data() as any)?.name || '') || null).catch(() => null),
       channel: 'sms',
     });
     await threadRef.set(

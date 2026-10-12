@@ -119,6 +119,19 @@ export async function POST(req: NextRequest) {
       { merge: true }, // call_ended writes first, call_analyzed enriches
     );
 
+    // The conversation record: link the call to the client (by their number), and keep our own copy of the recording.
+    try {
+      const callRef = db.doc(`tenants/${tenantId}/voiceCalls/${callId}`); const cur: any = (await callRef.get()).data() || {};
+      if (!cur.clientId) {
+        const theirs = (call.direction || cur.direction) === 'outbound' ? (call.to_number || cur.toNumber) : (call.from_number || cur.fromNumber);
+        const metaClient = call?.metadata?.clientId || null;
+        const { clientByPhone } = await import('@/lib/conversation');
+        const who = metaClient ? { id: String(metaClient), name: '' } : await clientByPhone(db, tenantId, theirs).catch(() => null);
+        if (who) await callRef.set({ clientId: who.id, ...(who.name ? { clientName: who.name } : {}) }, { merge: true });
+      }
+      if (event !== 'call_started' && call.recording_url && !cur.recordingPath) { const { archiveRecording } = await import('@/lib/call-recordings'); await archiveRecording(db, tenantId, callId, call.recording_url); }
+    } catch (e) { console.error('[call-events] record', e); }
+
     // Virtual consultations: stamp the appointment when the session call
     // actually completed (placement alone isn't conducting).
     if (

@@ -538,6 +538,36 @@ service cloud.firestore {
         allow delete: if isStaff(tenantId);
       }
     }
+    // THE CONVERSATION RECORD (lib/conversation) — the team can read it; only the server writes it, so nothing said
+    // to or by a client can be edited or deleted. The receptionist's inbox items can be updated (status) but never deleted.
+    match /tenants/{tenantId}/messageLog/{id} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/smsInbox/{id} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/smsThreads/{threadId}/{rest=**} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/smsThreads/{threadId} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/voiceCalls/{id} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/clientNotes/{id} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/voiceInbox/{id} {
+      allow read, create, update: if isTeam(tenantId);
+      allow delete: if false;
+    }
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isTeam(tenantId) &&
         !(collection in [
@@ -586,7 +616,8 @@ service cloud.firestore {
           'tickets',
           'maintenanceWorkers',
           'maintenancePlans',
-          'locations'
+          'locations',
+          'messageLog', 'smsInbox', 'smsThreads', 'voiceCalls', 'clientNotes', 'voiceInbox'
         ]);
     }
     match /tenants/{tenantId}/jobListings/{listingId} {

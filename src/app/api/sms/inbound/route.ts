@@ -69,7 +69,8 @@ export async function POST(req: NextRequest) {
     // ── Who is texting us? ───────────────────────────────────────────
     const fromDigits = digits(from);
     let senderName = from;
-    let senderType: 'tech' | 'renter' | 'contact' | 'unknown' = 'unknown';
+    let senderType: 'tech' | 'renter' | 'contact' | 'client' | 'unknown' = 'unknown';
+    let clientId: string | null = null;
     let senderWorkerId: string | null = null;
     try {
       const ws = await db.collection(`tenants/${tenantId}/maintenanceWorkers`).get();
@@ -89,6 +90,11 @@ export async function POST(req: NextRequest) {
         const c = cs.docs.map((d) => d.data() as any).find((x: any) => digits(x.phone) === fromDigits);
         if (c) { senderName = c.name || senderName; senderType = 'contact'; }
       } catch { /* keep looking */ }
+    }
+    // A client: linked to their record as it arrives, so it's in their conversation record straight away (lib/conversation).
+    if (senderType === 'unknown') {
+      try { const { clientByPhone } = await import('@/lib/conversation'); const c = await clientByPhone(db, tenantId, from);
+        if (c) { senderName = c.name || senderName; senderType = 'client'; clientId = c.id; } } catch { /* stays unknown */ }
     }
 
     const nowIso = new Date().toISOString();
@@ -118,19 +124,21 @@ export async function POST(req: NextRequest) {
     const iRef = db.collection(`tenants/${tenantId}/smsInbox`).doc();
     await iRef.set({
       id: iRef.id, tenantId, at: nowIso,
-      from, fromName: senderName, senderType,
+      from, fromName: senderName, senderType, channel: 'sms',
+      clientId, clientName: clientId ? senderName : null,
       body: body || null, mediaCount,
       threadedTicketTitle: threaded,
     });
     // A client answering an automatic Opportunities text: a person takes it now, with what they said (lib/opportunities-server).
-    if (senderType === 'unknown' && body) { try { const { opportunityReply } = await import('@/lib/opportunities-server'); await opportunityReply(db, tenantId, fromDigits, body); } catch { /* the inbox record still has it */ } }
+    if ((senderType === 'unknown' || senderType === 'client') && body) { try { const { opportunityReply } = await import('@/lib/opportunities-server'); await opportunityReply(db, tenantId, fromDigits, body); } catch { /* the inbox record still has it */ } }
     // A client's text that sounds like a complaint: the desk gets "Start a case" (nothing opens by itself).
     let flagged: any = null;
-    if (senderType === 'unknown' && body) { try { const { flagClientText } = await import('@/lib/complaint-texts'); const tDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; flagged = await flagClientText(db, tenantId, tDoc, { from, body, inboxId: iRef.id }); } catch (e) { console.error('[sms/inbound] complaint check', e); } }
+    if ((senderType === 'unknown' || senderType === 'client') && body) { try { const { flagClientText } = await import('@/lib/complaint-texts'); const tDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; flagged = await flagClientText(db, tenantId, tDoc, { from, body, inboxId: iRef.id }); } catch (e) { console.error('[sms/inbound] complaint check', e); } }
     if (!flagged) { const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({
-      id: nRef.id, type: 'sms', read: false, createdAt: nowIso, link: '/renters',
-      message: `Text from ${senderName}${senderType !== 'unknown' ? ` (${senderType})` : ''}: "${(body || `${mediaCount} photo(s)`).slice(0, 140)}"${threaded ? ` — added to ticket "${threaded}"` : ''}`,
+      id: nRef.id, type: 'sms', read: false, createdAt: nowIso, link: senderType === 'renter' ? '/renters' : senderType === 'tech' ? '/maintenance' : '/inbox',
+      ...(clientId ? { clientId } : {}),
+      message: `Text from ${senderName}${senderType !== 'unknown' && senderType !== 'client' ? ` (${senderType})` : ''}: "${(body || `${mediaCount} photo(s)`).slice(0, 140)}"${threaded ? ` — added to ticket "${threaded}"` : ''}`,
     }); }
 
     return twimlOk();

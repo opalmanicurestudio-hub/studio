@@ -63,6 +63,8 @@ export async function POST(req: NextRequest) {
     if (!type.startsWith('email.') || !emailId) return NextResponse.json({ ok: true, ignored: true });
 
     const db = getAdminDb();
+    // A client's reply to one of our emails (lib/inbound-email).
+    if (type === 'email.received') { const { receiveEmail } = await import('@/lib/inbound-email'); return NextResponse.json(await receiveEmail(db, evt)); }
     const idxSnap = await db.doc(`msgIndex/${emailId}`).get();
     if (!idxSnap.exists) return NextResponse.json({ ok: true, unmatched: true });
     const { tenantId, logId } = idxSnap.data() as any;

@@ -191,13 +191,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Keep the text on record (the client's Messages tab) and spot complaints for the desk — never blocks the reply.
-    if (fromNumber && messageBody && !keywordActionTaken) {
+    // Every text is kept on the client's record, including the C / X replies the receptionist acted on.
+    if (fromNumber && messageBody) {
       try {
+        const { clientByPhone } = await import('@/lib/conversation'); const who = await clientByPhone(db, tenantId, fromNumber).catch(() => null);
         const iRef = db.collection(`tenants/${tenantId}/smsInbox`).doc();
-        await iRef.set({ id: iRef.id, tenantId, at: new Date().toISOString(), from: fromNumber, fromName: fromNumber, senderType: 'unknown', body: messageBody.slice(0, 1600), mediaCount: 0, via: 'agent' });
-        const { flagClientText } = await import('@/lib/complaint-texts');
-        await flagClientText(db, tenantId, tenant, { from: fromNumber, body: messageBody, inboxId: iRef.id });
-      } catch (e) { console.error('[voice/inbound-sms-webhook] complaint check', e); }
+        await iRef.set({ id: iRef.id, tenantId, at: new Date().toISOString(), from: fromNumber, fromName: who?.name || fromNumber, senderType: who ? 'client' : 'unknown', clientId: who?.id || null, clientName: who?.name || null,
+          channel: 'sms', body: messageBody.slice(0, 1600), mediaCount: 0, via: 'agent', ...(keywordActionTaken ? { actionTaken: String(keywordActionTaken), readAt: new Date().toISOString() } : {}) });
+        if (!keywordActionTaken) { const { flagClientText } = await import('@/lib/complaint-texts'); await flagClientText(db, tenantId, tenant, { from: fromNumber, body: messageBody, inboxId: iRef.id }); }
+      } catch (e) { console.error('[voice/inbound-sms-webhook] record', e); }
     }
 
     const dynamicVariables = await buildTenantVariables(db, tenantId, tenant);

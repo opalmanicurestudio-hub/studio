@@ -232,6 +232,8 @@ export async function sendTenantSms(
         to: result.via === 'email' ? (fallback?.email || '') : (e164 || String(to).slice(0, 30)),
         subject: null,
         preview: body.slice(0, 140),
+        body: body.slice(0, 1600),   // the whole text, for the conversation record
+        sentBy: (meta as any)?.sentBy || null,
         status: result.ok ? 'sent' : 'failed',
         error: result.ok ? null : (result.error || null),
         providerId: result.sid || null,
