@@ -39,7 +39,7 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
     onOfferReply?: (choice: 'accept' | 'decline') => Promise<any>;
     /** A provider callout / business interruption — they choose a new time or cancel (no fee). */
     disruption?: { kind: string; reasonLabel?: string | null; status?: string } | null; hasDeposit?: boolean;
-    onDisruptionCancel?: (deposit: 'refund' | 'credit' | 'keep' | null) => Promise<any>;
+    onDisruptionCancel?: (deposit: 'refund' | 'credit' | 'keep' | null, extra?: any) => Promise<any>;
 }) => {
     const [lateOpen, setLateOpen] = useState(false); const [mins, setMins] = useState<number | null>(null); const [note, setNote] = useState('');
     const [said, setSaid] = useState<string | null>(null); const [past, setPast] = useState(false); const [busy, setBusy] = useState(false);

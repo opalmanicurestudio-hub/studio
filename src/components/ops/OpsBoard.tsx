@@ -184,9 +184,11 @@ function CalloutRecords({ tenantId }: { tenantId: string }) {
   const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<Record<string, string>>({});
   const list = (data || []).slice().sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
   if (!list.length) return null;
-  const act = async (rec: any, action: 'cover_request' | 'chase' | 'reopen') => { setBusy(`${rec.id}:${action}`);
+  const [arm, setArm] = useState<string | null>(null);
+  const act = async (rec: any, action: 'cover_request' | 'chase' | 'reopen' | 'back_after_all') => {
+    if (action === 'back_after_all' && arm !== rec.id) { setArm(rec.id); return; } setArm(null); setBusy(`${rec.id}:${action}`);
     const r = await staffPost('/api/appointments/disruption', { tenantId, action, kind: 'callout', disruptionId: rec.id }); setBusy(null);
-    setMsg((m) => ({ ...m, [rec.id]: !r?.ok ? r?.error || 'That didn’t work.' : action === 'cover_request' ? `Asked ${r.asked} team member${r.asked === 1 ? '' : 's'} to cover ${r.appointments}.` : action === 'chase' ? `Reminded ${r.chased}.` : `Invited ${r.invited} back to book.` })); };
+    setMsg((m) => ({ ...m, [rec.id]: !r?.ok ? r?.error || 'That didn’t work.' : action === 'cover_request' ? `Asked ${r.asked} team member${r.asked === 1 ? '' : 's'} to cover ${r.appointments}.` : action === 'chase' ? `Reminded ${r.chased}.` : action === 'back_after_all' ? `Done. ${r.kept} client${r.kept === 1 ? ' has' : 's have'} been told their appointment is going ahead.` : `Invited ${r.invited} back to book.` })); };
   return (
     <section className="space-y-2 rounded-3xl border bg-card p-4">
       <p className="font-semibold">Recent callouts</p>
@@ -194,9 +196,15 @@ function CalloutRecords({ tenantId }: { tenantId: string }) {
         <div key={rec.id} className="space-y-1.5 rounded-2xl bg-secondary p-3 text-sm">
           <p><b>{rec.staffName || 'Provider'}</b> · {new Date(rec.from).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}{rec.to && new Date(rec.to).toDateString() !== new Date(rec.from).toDateString() ? ` – ${new Date(rec.to).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''} · {rec.hoursLost ?? 0} h</p>
           <p className="text-xs">{t.appointments} affected · {t.rescheduled} rescheduled · {t.reassigned} another provider · {t.cancelled} cancelled · {t.pending} waiting</p>
+          {!rec.withdrawnAt && <ul className="space-y-1">{Object.values<any>(rec.affected || {}).filter((en: any) => !en.isRenterBooking).sort((x: any, y: any) => String(x.startTime).localeCompare(String(y.startTime))).map((en: any) => {
+            const lbl = en.outcome === 'rescheduled' ? `New time${en.newStartTime ? ` · ${new Date(en.newStartTime).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}` : en.outcome === 'reassigned' ? 'Same time, another provider' : en.outcome === 'cancelled' ? (en.firstInLine ? 'Cancelled · first in line' : 'Cancelled · no fee') : en.outcome === 'kept' ? 'Going ahead' : en.needsCall ? 'Please call' : en.chooseBy ? `Choosing · by ${new Date(en.chooseBy).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Waiting';
+            return <li key={en.appointmentId} className="flex items-center justify-between gap-2 text-xs"><span><b>{en.clientName || 'Client'}</b> · {new Date(en.startTime).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</span>
+              <span className={`rounded-full px-2 py-0.5 font-semibold ${en.outcome === 'pending' && en.needsCall ? 'bg-amber-100 text-amber-800' : en.outcome === 'pending' ? 'bg-white' : 'bg-emerald-50 text-emerald-800'}`}>{lbl}</span></li>; })}</ul>}
+          {rec.choices && !rec.choices.done && <p className="text-xs text-muted-foreground">{(rec.choices.keptTimes || []).filter((k: any) => !k.takenBy).length} of {rec.staffName ? String(rec.staffName).split(' ')[0] : 'their'}’s next times are kept for these clients until {new Date(rec.choices.holdUntil).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. Then any left over are offered to the waitlist.</p>}
           <div className="flex flex-wrap gap-2">
             {t.pending > 0 && <button type="button" disabled={!!busy} onClick={() => act(rec, 'cover_request')} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">Ask the team to cover</button>}
             {t.pending > 0 && <button type="button" disabled={!!busy} onClick={() => act(rec, 'chase')} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">Remind undecided</button>}
+            {!rec.withdrawnAt && t.pending > 0 && <button type="button" disabled={!!busy} onClick={() => act(rec, 'back_after_all')} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">{arm === rec.id ? 'Tap again to confirm' : `${rec.staffName ? String(rec.staffName).split(' ')[0] : 'They'} can come in after all`}</button>}
             <button type="button" disabled={!!busy} onClick={() => act(rec, 'reopen')} className="rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-60">They’re back — invite rebooking</button>
             <a href={`/api/booths/interruption-export?tenantId=${tenantId}&id=${rec.id}&kind=callout`} className="rounded-full border px-3 py-1 text-xs font-semibold">Spreadsheet</a>
           </div>

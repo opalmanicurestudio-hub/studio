@@ -43,6 +43,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // ── the provider can come in after all: undecided clients keep their visit; the calendar opens again ──
+  if (action === 'back_after_all') {
+    if (kind !== 'callout') return NextResponse.json({ ok: false, error: 'This is for provider callouts.' }, { status: 400 });
+    const rec: any = (await db.doc(`${T}/providerCallouts/${String(b.disruptionId || '')}`).get()).data();
+    if (!rec) return NextResponse.json({ ok: false, error: 'That record wasn’t found.' }, { status: 404 });
+    if (!isMgr && rec.staffId !== auth.actor.uid) return NextResponse.json({ ok: false, error: 'A manager does that.' }, { status: 403 });
+    const { backAfterAll } = await import('@/lib/callout-choices'); const r = await backAfterAll(db, tenantId, String(b.disruptionId));
+    if (r.ok) await logAuditAdmin(db, tenantId, { action: 'disruption.back_after_all', targetType: 'staff', targetId: String(rec.staffId), summary: `${rec.staffName || 'Provider'} can come in after all — ${(r as any).kept} undecided client${(r as any).kept === 1 ? '' : 's'} kept their appointment`, actor }).catch(() => {});
+    return NextResponse.json(r, { status: r.ok ? 200 : 404 });
+  }
+
   // ── follow-ups on a recorded disruption: chase · reopen · cover requests · volunteers ──
   if (['chase', 'reopen', 'cover_request', 'cover_volunteer'].includes(action)) {
     const coll = kind === 'callout' ? 'providerCallouts' : 'interruptions';
@@ -215,7 +226,11 @@ export async function POST(req: NextRequest) {
     } catch (e) { console.error('[disruption] renter notify failed', e); }
   }
   await ref.set({ affected: Object.fromEntries(entries.map((e) => [e.appointmentId, e])) }, { merge: true });
+  // A callout: the provider's next free times are kept for her clients, colleagues are found, and each client gets a
+  // choose-by time (lib/callout-choices). Visits too soon to wait go straight to the desk's call list.
+  let choices: any = null;
+  if (kind === 'callout' && staffId) { try { const { prepareChoices } = await import('@/lib/callout-choices'); choices = await prepareChoices(db, tenantId, { calloutId: id, staffId, toMs, now: Date.now() }); } catch (e) { console.error('[disruption] choices', e); } }
   await logAuditAdmin(db, tenantId, { action: 'disruption.recorded', targetType: kind === 'callout' ? 'staff' : 'interruption', targetId: kind === 'callout' ? String(staffId) : id,
     summary: `${kind === 'callout' ? `${staff?.name || 'Provider'} called out (${CALLOUT_REASON_LABEL[reason]})` : `Interruption “${interruption?.title}”`} — ${entries.length} appointment${entries.length === 1 ? '' : 's'} affected, ${told} client${told === 1 ? '' : 's'} told, ${byRenter.size} renter${byRenter.size === 1 ? '' : 's'} told`, actor }).catch(() => {});
-  return NextResponse.json({ ok: true, id, affected: entries, totals: disruptionTotals(entries), told, rentersTold: byRenter.size, hoursLost });
+  return NextResponse.json({ ok: true, id, affected: entries, totals: disruptionTotals(entries), told, rentersTold: byRenter.size, hoursLost, choices });
 }

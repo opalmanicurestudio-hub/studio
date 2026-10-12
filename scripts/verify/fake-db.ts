@@ -9,22 +9,24 @@ export const FV = {
   arrayUnion: (...v: any[]) => ({ [SENT]: 'union', v }),
   serverTimestamp: () => ({ [SENT]: 'ts' }),
 };
-function apply(base: Doc, patch: Doc) {
+function apply(base: Doc, patch: Doc, deep = false) {
   const out: Doc = { ...base };
   for (const [k, v] of Object.entries(patch)) {
     const path = k.split('.'); let o = out; for (let i = 0; i < path.length - 1; i++) { o[path[i]] = { ...(o[path[i]] || {}) }; o = o[path[i]]; }
     const last = path[path.length - 1]; const s = v && typeof v === 'object' ? (v as any)[SENT] : undefined;
     if (s === 'inc') o[last] = (Number(o[last]) || 0) + v.n; else if (s === 'del') delete o[last]; else if (s === 'union') o[last] = [...new Set([...(o[last] || []), ...v.v])]; else if (s === 'ts') o[last] = new Date().toISOString();
+    else if (deep && isPlain(v) && isPlain(o[last])) o[last] = apply(o[last], v, true);   // Firestore merges nested maps on set(…, { merge: true })
     else o[last] = v;
   }
   return out;
 }
+const isPlain = (x: any) => !!x && typeof x === 'object' && !Array.isArray(x) && (x as any)[SENT] === undefined;
 export function makeDb() {
   const store = new Map<string, Doc>(); let n = 0;
   const clone = (x: any) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
   const ref = (path: string): any => ({ id: path.split('/').pop(), path,
     get: async () => ({ exists: store.has(path), id: path.split('/').pop(), ref: ref(path), data: () => clone(store.get(path)) }),
-    set: async (v: Doc, o?: any) => { store.set(path, o?.merge ? apply(store.get(path) || {}, v) : apply({}, v)); },
+    set: async (v: Doc, o?: any) => { store.set(path, o?.merge ? apply(store.get(path) || {}, v, true) : apply({}, v)); },
     update: async (v: Doc) => { if (!store.has(path)) throw new Error(`no doc ${path}`); store.set(path, apply(store.get(path)!, v)); },
     delete: async () => { store.delete(path); },
     collection: (c: string) => col(`${path}/${c}`) });

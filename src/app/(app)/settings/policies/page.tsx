@@ -211,6 +211,11 @@ export default function BookingPoliciesPage() {
               <span className="w-full text-xs text-muted-foreground">Visits left open after their day:</span>
               <Choice field="autoCloseOut" value={t.autoCloseOut !== false} label="Close out overnight" options={[[true, 'Close them out overnight (shown under “Left open”)'], [false, 'Leave them for me']]} />
             </Row>
+            <Row label="When a provider can’t come in">
+              <span className="w-full text-xs text-muted-foreground">Their clients choose first: the same time with a colleague, one of the provider’s next times (kept for them), first in line, or cancel with no fee. Choose by:</span>
+              <Choice field="bookingPolicies.calloutChooseBy" value={t.bookingPolicies?.calloutChooseBy ?? 'evening'} label="Choose-by time" options={[['evening', '6:00 PM the evening before'], [24, '24 hours before'], [12, '12 hours before'], [6, '6 hours before']]} />
+              <span className="w-full text-xs text-muted-foreground">Never later than 3 hours before the visit. Anyone who hasn’t chosen by then goes on your call list, and the kept times nobody picked are offered to the waitlist.</span>
+            </Row>
           </Section>
 
           <Section n={3} q="Grace — flexibility for the occasional slip">

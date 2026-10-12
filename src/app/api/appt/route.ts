@@ -292,6 +292,14 @@ export async function POST(req: NextRequest) {
       await tellTeam(`${who} is running late and has chosen to book a new time.`);
       return NextResponse.json({ ok: true, choice, next: 'reschedule' });
     }
+    // A provider callout → their choices (lib/callout-choices): a kept time, the same time with a colleague, or first in line.
+    if (action === 'disruption_options' || action === 'disruption_take_time' || action === 'disruption_switch') {
+      const CC = await import('@/lib/callout-choices'); const me = { ...a, id: apptId };
+      if (a.disruption?.kind !== 'callout' || a.disruption?.status !== 'pending') return NextResponse.json({ ok: false, error: 'Your appointment is going ahead as booked.' }, { status: 409 });
+      if (action === 'disruption_options') return NextResponse.json(await CC.optionsFor(db, tenantId, me));
+      const r: any = action === 'disruption_take_time' ? await CC.takeKeptTime(db, tenantId, me, String(body.keptId || '')) : await CC.switchProvider(db, tenantId, me, String(body.staffId || ''));
+      return NextResponse.json(r, { status: r.ok ? 200 : 409 });
+    }
     // A callout or business interruption → they cancel with no fee, deposit refunded or kept as credit (their choice).
     if (action === 'disruption_reply') {
       const d = a.disruption;
@@ -304,7 +312,8 @@ export async function POST(req: NextRequest) {
         const n0 = db.collection(`tenants/${tenantId}/notifications`).doc(); await n0.set({ id: n0.id, userId: a.staffId || null, read: false, createdAt: new Date().toISOString(), type: 'disruption_reply', link: '/before-the-visit', appointmentId: apptId, message: `${a.clientName || 'A client'} has chosen to keep their appointment time. Please complete what fits in the time and book the remainder.` }).catch(() => {});
         return NextResponse.json({ ok: true, kept: true });
       }
-      if (String(body.choice || '') !== 'cancel') return NextResponse.json({ ok: false, error: 'Choose a new time or cancel.' }, { status: 400 });
+      const lineUp = String(body.choice || '') === 'waitlist' && d.kind === 'callout';   // cancel, then first in line for this provider
+      if (String(body.choice || '') !== 'cancel' && !lineUp) return NextResponse.json({ ok: false, error: 'Choose a new time or cancel.' }, { status: 400 });
       const nowIso = new Date().toISOString();
       const dep = a.depositStatus === 'paid' ? Number(a.depositAmountCents) || 0 : 0;
       const asCredit = body.deposit === 'credit';
@@ -316,7 +325,8 @@ export async function POST(req: NextRequest) {
       const n = db.collection(`tenants/${tenantId}/notifications`).doc();
       await n.set({ id: n.id, userId: a.staffId || null, read: false, createdAt: nowIso, type: 'disruption_reply', link: 'pos', appointmentId: apptId, message: `${a.clientName || 'A client'} has cancelled their appointment because of the ${d.kind === 'callout' ? 'callout' : 'interruption'}. No fee applies.${dep > 0 ? ` Their deposit is ${asCredit ? 'being kept as credit' : 'to be refunded'}.` : ''}` }).catch(() => {});
       await logAuditAdmin(db, tenantId, { action: 'disruption.client_cancelled', targetType: 'appointment', targetId: apptId, summary: `${a.clientName || 'Client'} cancelled because of the ${d.kind === 'callout' ? 'provider callout' : 'business interruption'} — no fee${dep > 0 ? `; $${(dep / 100).toFixed(2)} deposit ${asCredit ? 'kept as credit' : 'to be refunded'}` : ''}`, actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'visit link' } }).catch(() => {});
-      return NextResponse.json({ ok: true, deposit: dep > 0 ? (asCredit ? 'credit' : 'refund') : null });
+      if (lineUp) { try { const { firstInLine } = await import('@/lib/callout-choices'); await firstInLine(db, tenantId, { ...a, id: apptId }); } catch (e) { console.error('[callout first in line]', e); } }
+      return NextResponse.json({ ok: true, deposit: dep > 0 ? (asCredit ? 'credit' : 'refund') : null, firstInLine: lineUp });
     }
     // We offered another provider → they accept (it's applied) or decline (back to the team).
     if (action === 'provider_offer_reply') {
