@@ -1163,7 +1163,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </button>
             )}
 
-            {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <PrepSummary apt={apt} />}
+            {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <PrepSummary apt={apt} tenantId={tenantId} />}
             {['servicing','in_service','ready_for_checkout','completed','checked_out','paid'].includes(st) && <AftercareNote apt={apt} tenantId={tenantId} firestore={firestore} staffId={currentStaffId} staffName={(allStaff || []).find((m: any) => m.id === currentStaffId)?.name} />}
             {!['cancelled','no_show'].includes(st) && <SomethingHappened apt={apt} tenantId={tenantId} />}
             {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} />}

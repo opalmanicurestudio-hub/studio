@@ -1,0 +1,31 @@
+// src/app/api/prep-decide/route.ts — BEFORE THE VISIT, THE TEAM'S SIDE (lib/prep-actions). From the staff app and the app.
+//   approve  { appointmentId }  → the agreed change goes onto the booking (if it fits and the provider is certified)
+//   keep     { appointmentId }  → keep it as booked; the client is told the business's on-the-day rule
+//   desk     { appointmentId, why? } → doesn't fit: to the front desk
+// The desk (anyone who can manage bookings):
+//   move     { appointmentId }  → ask the client to pick a new time — free, not counted
+//   cancel   { appointmentId }  → cancel with no fee; deposit to refund; the time is offered to the waitlist
+// A provider can decide on their own visits; managers and the desk on any.
+import { NextRequest, NextResponse } from 'next/server';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { requestActor } from '@/lib/request-actor';
+import { applyPrep, keepPrep, toDesk, askToMove, cancelFree } from '@/lib/prep-actions';
+
+export const dynamic = 'force-dynamic';
+const j = (b: any, status = 200) => NextResponse.json(b, { status });
+
+export async function POST(req: NextRequest) {
+  const b: any = await req.json().catch(() => ({})); const tenantId = String(b.tenantId || '').slice(0, 120); const id = String(b.appointmentId || '').slice(0, 120);
+  if (!tenantId || !id) return j({ ok: false, error: 'Missing details.' }, 400);
+  const db = getAdminDb(); const who = await requestActor(db, req.headers.get('authorization'), tenantId);
+  if (!who.ok) return j({ ok: false, error: who.error }, who.status);
+  const a = who.actor; const caps = a.caps || []; const desk = a.isOwner || a.isManager || caps.includes('bookings.manage') || caps.includes('bookings.all');
+  const snap = await db.doc(`tenants/${tenantId}/appointments/${id}`).get(); if (!snap.exists) return j({ ok: false, error: 'That visit is gone.' }, 404);
+  const appt: any = snap.data() || {}; const mine = String(appt.staffId || '') === a.staffId;
+  const action = String(b.action || ''); const by = { name: a.name };
+  if (['approve', 'keep', 'desk'].includes(action) && !(mine || desk)) return j({ ok: false, error: 'Only the provider or the desk can decide this.' }, 403);
+  if (['move', 'cancel'].includes(action) && !desk) return j({ ok: false, error: 'The front desk decides this one.' }, 403);
+  const r = action === 'approve' ? await applyPrep(db, tenantId, id, by) : action === 'keep' ? await keepPrep(db, tenantId, id, by) : action === 'desk' ? await toDesk(db, tenantId, id, by, b.why)
+    : action === 'move' ? await askToMove(db, tenantId, id, by) : action === 'cancel' ? await cancelFree(db, tenantId, id, by) : { ok: false, error: 'Unknown action.' };
+  return j(r, r.ok ? 200 : 409);
+}

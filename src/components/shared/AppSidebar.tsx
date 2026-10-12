@@ -41,6 +41,7 @@ export const ClarityFlowLogo = ({ className }: { className?: string }) => (
 const DAILY_HUB = [
   { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'      },
   { href: '/planner',     icon: Calendar,        label: 'Planner'        },
+  { href: '/before-the-visit', icon: ClipboardList, label: 'Before the visit' },
   { href: '/pos',         icon: ListChecks,      label: 'Front desk' },
   { href: '/host',        icon: ConciergeBell,   label: 'Host stand'     },
   { href: '/voice',       icon: Bot,             label: 'Phone assistant'},

@@ -30,6 +30,7 @@ export default function BeforeTheVisitSettings() {
   return (
     <SettingsPage title="Before the visit" help="A few quick questions before maintenance visits — fills, rebalances, touch-ups — so the right time is saved. Clients see the time and price change before they agree; nothing changes on the booking until your team approves."
       actions={isOwner ? <button type="button" disabled={!dirty || saving} onClick={save} className="h-11 rounded-full px-5 text-[14.5px] font-semibold text-white disabled:opacity-40" style={{ background: INK }}>{saving ? 'Saving…' : 'Save'}</button> : null}>
+      <a href="/before-the-visit" className="cf-sheet flex items-center justify-between gap-3 px-5 py-4"><span className="min-w-0"><span className="block text-[15px] font-medium">Visits that need a decision</span><span className="block text-[13.5px] cf-muted">The next 8 days: changes that don’t fit, clients’ questions, safety answers.</span></span><span className="shrink-0 text-[14px] font-medium">Open →</span></a>
       <Section title="Your rules" help="Shown to clients in “Good to know”, so nothing is a surprise.">
         <div className="cf-sheet">
           <Row label="The price clients see" help="“Up to” means anything more needs a new yes. “About” is an estimate." inline><Choice<'upto' | 'about'> value={S.quote} label="Price" onChange={(v) => set({ quote: v })} options={[{ value: 'upto', label: 'Up to' }, { value: 'about', label: 'About' }]} /></Row>

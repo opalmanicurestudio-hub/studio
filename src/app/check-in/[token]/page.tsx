@@ -368,7 +368,7 @@ const TooEarlyView = ({
     startTime: string; serviceName?: string;
     onReschedule?: () => void; onCancel?: () => void; calendarUrl?: string | null;
     brand: VisitBrand; providerName?: string | null;
-    disruption?: any; hasDeposit?: boolean; onDisruptionCancel?: (d: 'refund' | 'credit' | null) => Promise<any>;
+    disruption?: any; hasDeposit?: boolean; onDisruptionCancel?: (d: 'refund' | 'credit' | 'keep' | null) => Promise<any>;
 }) => (
     <VisitShell brand={brand} title={<>You’re <b>booked</b></>} subtitle={format(safeDate(startTime), 'EEEE, MMMM d · h:mm a')}>
         {onDisruptionCancel && <DisruptionCard disruption={disruption} hasDeposit={!!hasDeposit} onReschedule={onReschedule} onCancel={onDisruptionCancel} />}
@@ -2741,7 +2741,7 @@ export default function CheckInPage() {
 
     if (isTooEarly) {
         return (
-            <TooEarlyView disruption={(appointmentData as any)?.disruption || null} hasDeposit={(appointmentData as any)?.depositStatus === 'paid'} onDisruptionCancel={async (dep) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: 'cancel', deposit: dep }) }); return await r.json(); } catch { return { ok: false }; } }} brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} providerName={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
+            <TooEarlyView disruption={(appointmentData as any)?.disruption || null} hasDeposit={(appointmentData as any)?.depositStatus === 'paid'} onDisruptionCancel={async (dep) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: dep === 'keep' ? 'keep' : 'cancel', deposit: dep === 'keep' ? null : dep }) }); return await r.json(); } catch { return { ok: false }; } }} brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} providerName={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
                 startTime={appointmentData!.startTime}
                 serviceName={service?.name}
                 onReschedule={() => setShowRescheduleFlow(true)}
@@ -2789,7 +2789,7 @@ export default function CheckInPage() {
             providerOffer={(appointmentData as any)?.providerOffer || null}
             disruption={(appointmentData as any)?.disruption || null}
             hasDeposit={(appointmentData as any)?.depositStatus === 'paid'}
-            onDisruptionCancel={async (dep) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: 'cancel', deposit: dep }) }); return await r.json(); } catch { return { ok: false }; } }}
+            onDisruptionCancel={async (dep) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: dep === 'keep' ? 'keep' : 'cancel', deposit: dep === 'keep' ? null : dep }) }); return await r.json(); } catch { return { ok: false }; } }}
             onOfferReply={async (choice) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'provider_offer_reply', tenantId, apptId: appointmentData?.id, k: token, choice }) }); return await r.json(); } catch { return { ok: false }; } }}
             onProviderReply={async (choice) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'provider_delay_reply', tenantId, apptId: appointmentData?.id, k: token, choice }) }); return await r.json(); } catch { return { ok: false }; } }}
         />

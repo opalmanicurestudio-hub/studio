@@ -52,7 +52,7 @@ const okAnswers = (check: any, raw: any): Answers => { const out: Answers = {}; 
 
 async function notify(db: any, tenantId: string, userId: string | null, message: string, appointmentId: string, high = false) {
   const r = db.collection(`${T(tenantId)}/notifications`).doc();
-  await r.set({ id: r.id, ...(userId ? { userId } : {}), type: 'prep_check', message, link: '/planner', appointmentId, createdAt: new Date().toISOString(), read: false, ...(high ? { priority: 'high' } : {}) });
+  await r.set({ id: r.id, ...(userId ? { userId } : {}), type: 'prep_check', message, link: '/before-the-visit', appointmentId, createdAt: new Date().toISOString(), read: false, ...(high ? { priority: 'high' } : {}) });
 }
 
 /** Save answers (and the quote they saw). */
@@ -62,7 +62,12 @@ export async function prepAnswer(db: any, tenantId: string, v: { id: string; ref
   const answers = okAnswers(info.check, raw); const service = info.catalog.find((x: any) => x.id === v.a.serviceId) || null;
   const quote = quoteFor(info.check, service, info.catalog, answers, info.booked); const now = new Date().toISOString();
   const status = quote.safety ? 'safety' : 'answered';
-  await v.ref.set({ prep: { ...(v.a.prep || {}), answers, quote, version: info.check.version || 1, answeredAt: now, by: 'client', status, agreedAt: null, late: info.locked } }, { merge: true });
+  // Hold the extra minutes straight away, if they're free — nobody can book them while the provider decides.
+  const { fitsAfter, placeHold, releaseHold, endOf } = await import('@/lib/prep-actions');
+  const extra = Math.max(0, quote.newMinutes - Math.round((endOf(v.a) - ms(v.a.startTime)) / 60000));
+  const fit = quote.safety ? { fits: false, freeMinutes: null } : await fitsAfter(db, tenantId, v.id, v.a, extra);
+  if (!quote.safety && extra > 0 && fit.fits) await placeHold(db, tenantId, v.id, v.a, extra); else await releaseHold(db, tenantId, v.id);
+  await v.ref.set({ prep: { ...(v.a.prep || {}), answers, quote, version: info.check.version || 1, answeredAt: now, by: 'client', status, agreedAt: null, late: info.locked, extra, fits: fit.fits, freeMinutes: fit.freeMinutes, held: !quote.safety && extra > 0 && fit.fits } }, { merge: true });
   if (quote.safety && v.a.prep?.status !== 'safety') {
     const who = info.visit.clientFirst || 'A client';
     await notify(db, tenantId, v.a.staffId ? String(v.a.staffId) : null, `${who}'s answers before ${info.visit.when} need a call — a safety answer. Don’t start the service before you’ve talked.`, v.id, true);
@@ -77,6 +82,11 @@ export async function prepAgree(db: any, tenantId: string, v: { id: string; ref:
   if (p.status === 'safety') return { ok: false, error: 'We’ll call you about this visit.' };
   const now = new Date().toISOString(); await v.ref.set({ prep: { ...p, status: 'agreed', agreedAt: now } }, { merge: true });
   const q = p.quote || {}; const who = first(v.a.clientName) || 'Your client';
+  // Small changes that fit (add-ons and minutes only, within the business's limit) go on by themselves.
+  const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const S = prepSettingsOf(tenant);
+  if (q.changed && !q.switched && p.fits && S.autoMinutes > 0 && (Number(p.extra) || 0) <= S.autoMinutes) {
+    const { applyPrep } = await import('@/lib/prep-actions'); const r = await applyPrep(db, tenantId, v.id, { name: 'Automatically', auto: true }); if (r.ok) return { ok: true, applied: true };
+  }
   const what = q.changed ? `${(q.lines || []).join(' · ')}` : 'no change';
   if (v.a.staffId) await notify(db, tenantId, String(v.a.staffId), `${who} answered the check before their ${String(v.a.serviceName || 'visit').toLowerCase()}: ${what}.${q.changed ? ' Open the visit to approve it.' : ''}`, v.id);
   return { ok: true };
@@ -106,7 +116,11 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
     const a: any = d.data() || {};
     try {
       if (!withCheck.has(String(a.serviceId)) || CLOSED.includes(String(a.status || '')) || ['pending_payment'].includes(String(a.status || '')) || a.isRenterBooking || renterIds.has(String(a.staffId || ''))) continue;
-      if (a.prep?.answeredAt && a.prep?.by) continue;   // answered already (in booking, at the desk, or from the link)
+      if (a.prep?.answeredAt && a.prep?.by) {   // answered already — if nobody has decided a change by 12 h before, the desk gets it
+        const st = String(a.prep.status || ''); const start0 = ms(a.startTime);
+        if (a.prep.quote?.changed && ['answered', 'agreed', 'question'].includes(st) && now >= start0 - 12 * 3600e3 && !a.prep.deskAt) { const { toDesk } = await import('@/lib/prep-actions'); await toDesk(db, tenantId, d.id, { name: 'No decision 12 h before' }, 'Nobody decided yet'); }
+        continue;
+      }
       const start = ms(a.startTime); const svc = services.find((x: any) => x.id === a.serviceId);
       const { sendAt, lockAt } = sendTimes(start, Number(resolvePolicy(tenant, svc).cancel.windowHours.value) || 24);
       if (now >= lockAt) continue;

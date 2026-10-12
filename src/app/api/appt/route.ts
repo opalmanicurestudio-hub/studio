@@ -31,6 +31,7 @@ import { resolvePolicy } from '@/lib/booking-policies';
 import { checkChange, chainAfterMove, deadlineStart, hoursToDeadline } from '@/lib/change-rules';
 import { FieldValue } from 'firebase-admin/firestore';
 import { providersOf } from '@/lib/visit-watch';
+import { bookingFieldsFor } from '@/lib/prep-actions';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -133,6 +134,10 @@ export async function POST(req: NextRequest) {
     const studioCaused = !!a.studioAskedToMove || !!(a.providerDelay && !['keep', 'cancel'].includes(String(a.providerDelay.reply || ''))) || a.disruption?.status === 'pending';
     // Record an outcome against the disruption (callout / interruption) this booking belongs to — for the insurance packet and renter reimbursements.
     const recordDisruption = async (fields: any) => { const d = a.disruption; if (!d?.id || d.status !== 'pending') return;
+      // Before the visit (more time needed): nothing to file — the visit's own record says what happened (lib/prep-actions).
+      if (d.kind === 'prep') { await ref.set({ disruption: { ...d, status: 'resolved', outcome: fields.outcome }, prep: { ...(a.prep || {}), status: fields.outcome === 'cancelled' ? 'cancelled' : fields.outcome === 'kept' ? 'kept' : 'moved', resolvedAt: new Date().toISOString() } }, { merge: true }).catch(() => {});
+        if (fields.outcome !== 'kept') { try { const { offerFreedTime } = await import('@/lib/prep-actions'); await offerFreedTime(db, tenantId, tDoc, { staffId: a.staffId || null, startMs: Date.parse(a.startTime), minutes: Math.round(((Date.parse(a.endTime || a.startTime) || 0) - Date.parse(a.startTime)) / 60000) || 60, serviceId: a.serviceId || null, providerName: String(a.staffName || '').split(' ')[0] }); } catch { /* best-effort */ } }
+        return; }
       await db.doc(`tenants/${tenantId}/${d.kind === 'callout' ? 'providerCallouts' : 'interruptions'}/${d.id}`).set({ affected: { [apptId]: { ...fields, outcomeAt: new Date().toISOString(), by: a.clientName || 'Client' } } }, { merge: true }).catch(() => {});
       await ref.set({ disruption: { ...d, status: 'resolved', outcome: fields.outcome } }, { merge: true }).catch(() => {}); };
     const change = studioCaused ? { ...checkChange(tDoc, a, 'client'), allowed: true, needsApproval: false, blocked: false, canRequest: false, reason: null } : checkChange(tDoc, a, 'client');
@@ -291,11 +296,19 @@ export async function POST(req: NextRequest) {
     if (action === 'disruption_reply') {
       const d = a.disruption;
       if (!d || d.status !== 'pending') return NextResponse.json({ ok: false, error: 'Your appointment is going ahead as booked.' }, { status: 409 });
+      // More time needed (before the visit): they can also keep their time — we do what fits and book the rest.
+      if (d.kind === 'prep' && String(body.choice || '') === 'keep') {
+        const f = { studioAskedToMove: false, disruption: { ...d, status: 'resolved', outcome: 'kept' } };
+        await ref.set(f, { merge: true }); if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set(f, { merge: true }).catch(() => {})]);
+        await recordDisruption({ outcome: 'kept' });
+        const n0 = db.collection(`tenants/${tenantId}/notifications`).doc(); await n0.set({ id: n0.id, userId: a.staffId || null, read: false, createdAt: new Date().toISOString(), type: 'disruption_reply', link: '/before-the-visit', appointmentId: apptId, message: `${a.clientName || 'A client'} is keeping their time — do what fits and book the rest.` }).catch(() => {});
+        return NextResponse.json({ ok: true, kept: true });
+      }
       if (String(body.choice || '') !== 'cancel') return NextResponse.json({ ok: false, error: 'Choose a new time or cancel.' }, { status: 400 });
       const nowIso = new Date().toISOString();
       const dep = a.depositStatus === 'paid' ? Number(a.depositAmountCents) || 0 : 0;
       const asCredit = body.deposit === 'credit';
-      const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve', cancellationReason: d.kind === 'callout' ? 'provider_callout' : 'business_interruption', cancellationFeeCharged: 0, cancellationFeeWaived: true, studioCancelled: true, ...(d.kind === 'interruption' ? { interruptionId: d.id, lostToInterruption: true } : { calloutId: d.id }) };
+      const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve', cancellationReason: d.kind === 'callout' ? 'provider_callout' : d.kind === 'prep' ? 'more_time_needed' : 'business_interruption', cancellationFeeCharged: 0, cancellationFeeWaived: true, studioCancelled: true, ...(d.kind === 'interruption' ? { interruptionId: d.id, lostToInterruption: true } : { calloutId: d.id }) };
       await ref.set(cancelFields, { merge: true });
       if (a.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}), db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {})]);
       if (dep > 0) { const dRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc(); await dRef.set({ id: dRef.id, tenantId, appointmentId: apptId, clientId: a.clientId || null, trigger: d.kind === 'callout' ? 'provider_callout' : 'business_interruption', outcome: asCredit ? 'rollover' : 'refund_pending', reason: `${d.reasonLabel || 'Disruption'} — client cancelled`, amountDollars: dep / 100, decidedAt: nowIso }).catch(() => {}); }
@@ -434,7 +447,9 @@ export async function POST(req: NextRequest) {
       if (newStart.getTime() < nowMs + 2 * 3600000) return NextResponse.json({ ok: false, error: 'Pick a time at least 2 hours from now.' }, { status: 422 });
       if (newStart.getTime() > nowMs + 60 * 86400000) return NextResponse.json({ ok: false, error: 'Pick a time within the next 60 days.' }, { status: 422 });
 
-      const durMs = Math.max(15 * 60000, new Date(a.endTime || a.startTime).getTime() - startMs || 60 * 60000);
+      // Asked to move because the visit needs more time (before the visit): the new time takes the agreed change with it.
+      const prepMove = a.disruption?.kind === 'prep' && a.disruption?.status === 'pending' && a.prep?.quote && !a.prep.quote.safety ? a.prep.quote : null;
+      const durMs = prepMove ? Math.max(15, Number(prepMove.newMinutes) || 60) * 60000 : Math.max(15 * 60000, new Date(a.endTime || a.startTime).getTime() - startMs || 60 * 60000);
       const newEnd = new Date(newStart.getTime() + durMs);
       // Conflict check against the SAME staff member's calendar, honoring pads.
       const dayStart = new Date(newStart.getTime() - 86400000).toISOString();
@@ -479,6 +494,7 @@ export async function POST(req: NextRequest) {
           studioAskedToMove: false, lateReply: null, providerDelay: null, providerLateMinutes: 0, checkInStatus: null, lateTimeMinutes: null, clientCheckInStatus: null, clientLateMinutes: null, clientEtaAt: null, etaAt: null, clientLateNote: null, clientTrip: null,
           startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
           rescheduledAt: new Date().toISOString(), rescheduledBy: 'client_self_serve',
+          ...(prepMove ? { ...bookingFieldsFor(a, prepMove, newStart.getTime()), endTime: newEnd.toISOString(), prep: { ...(a.prep || {}), status: 'moved', approvedAt: new Date().toISOString(), approvedBy: 'Client picked a new time' } } : {}),
           previousStartTime: a.startTime,
           reminderSentAt: null, // the new time earns its own reminder
         };
