@@ -22,6 +22,10 @@ export interface Playbook {
   next: string;
   branches: Branch[];
   never: string;
+  /** Sent automatically (no person waiting to answer, so a one-tap booking link goes in). Empty = person only. */
+  auto?: string[];
+  /** What the person says when an automatic text got no reply and it comes to them. */
+  afterAuto?: string;
 }
 
 const B = (id: OutcomeId, say: string): Branch => ({ id, say });
@@ -43,6 +47,11 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     ],
     next: 'Offer two real times close to their usual day — “Thursday at 2 or Saturday at 10 — which is better?”',
     branches: COMMON([B('booked', '“Yay! You’re all set — you’ll get a text to confirm.”'), B('interested', '“Perfect — I’ll send you a couple of times.” Follow up within a day.')]),
+    auto: [
+      'Hi {first}! It’s {business} 💛 You’re about due for your {service_short} — whenever you’re ready, grab a time that suits you here: {link}',
+      'Hi {first}, hope you’re well! If you’re ready for your next {service_short}, you can pick a time here: {link} — no rush at all.',
+    ],
+    afterAuto: 'Hi {first}, it’s {me} — just following up on our text the other day. Want me to find you a time?',
     never: '“We miss you!” — it’s about us, not them.' },
   first_visit: { kind: 'first_visit', label: 'After a first visit', who: 'provider', marketing: false, priority: 'medium', expiresDays: 7, cooldownDays: 365, winBack: true,
     versions: [
@@ -67,6 +76,11 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     ],
     next: 'Offer two times close to the one they lost.',
     branches: COMMON([B('booked', '“Done — you’ll get a text to confirm.”')]),
+    auto: [
+      'Hi {first}, it’s {business}. Sorry we missed you {when}! Whenever you’d like another time, you can pick one here: {link}',
+      'Hi {first}! No worries about {when}. When you’re ready for a new time, it’s one tap: {link}',
+    ],
+    afterAuto: 'Hi {first}, it’s {me} at {business} — just checking whether you’d like me to find you a new time.',
     never: 'Mentioning a fee that wasn’t charged.' },
   no_show: { kind: 'no_show', label: 'No-show', who: 'desk', marketing: false, priority: 'medium', expiresDays: 7, cooldownDays: 30, winBack: false,
     versions: [
@@ -83,6 +97,11 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     ],
     next: 'Offer their usual day and time, about {weeks} weeks out.',
     branches: COMMON([B('booked', '“Saved! You’ll get a reminder before.”')]),
+    auto: [
+      'Hi {first}, thanks for coming in! When you’d like your next {service_short}, about {weeks} weeks out is usually perfect — grab a time here: {link}',
+      'Hi {first}! So nice seeing you. Whenever you want to book your next one, it’s here: {link}',
+    ],
+    afterAuto: 'Hi {first}! It’s {me} — want me to save your usual time in about {weeks} weeks so you don’t have to think about it?',
     never: 'A hold that doesn’t really release.' },
   quote: { kind: 'quote', label: 'A quote waiting', who: 'owner', marketing: false, priority: 'medium', expiresDays: 10, cooldownDays: 14, winBack: false,
     versions: [
@@ -91,6 +110,10 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     ],
     next: 'Answer questions; if they’re ready, mark it accepted on the quote.',
     branches: COMMON([B('quote_accepted', '“Wonderful — I’ll get everything set up.”'), B('declined', '“Totally understand — thank you for considering us.”')]),
+    auto: [
+      'Hi {first}, it’s {business} — just making sure the quote came through OK. Reply with any questions; happy to adjust anything so it fits.',
+    ],
+    afterAuto: 'Hi {first}, it’s {me} at {business} — wanted to follow up on the quote personally. Anything I can change or answer?',
     never: 'Pressure to decide today.' },
   gift_card: { kind: 'gift_card', label: 'Gift card sitting unused', who: 'desk', marketing: false, priority: 'low', expiresDays: 21, cooldownDays: 180, winBack: false,
     versions: [
@@ -99,6 +122,10 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     ],
     next: 'If they’d like to use it, offer two times.',
     branches: COMMON([B('booked', '“Lovely — it’ll come off at checkout.”')]),
+    auto: [
+      'Hi {first}! Just a friendly heads-up — you’ve still got {balance} on your {business} gift card. Whenever you feel like a treat, you can book with it here: {link}',
+      'Hi {first}, {business} here — you have {balance} waiting on a gift card. It’s yours whenever you’d like it: {link}',
+    ],
     never: '“Use it or lose it” unless it truly expires.' },
   follow_up: { kind: 'follow_up', label: 'Follow-up', who: 'provider', marketing: false, priority: 'medium', expiresDays: 10, cooldownDays: 0, winBack: false,
     versions: ['Hi {first}, it’s {me} again — just circling back, no pressure at all.'],
@@ -125,12 +152,20 @@ export const OUTCOMES: Record<OutcomeId, { label: string; tone: 'good' | 'neutra
 };
 export const MAX_TRIES = 3;
 
-export interface OppSettings { on: boolean; finders: Record<string, boolean>; perPersonPerDay: number; holdoutPct: number }
+export type Mode = 'off' | 'auto' | 'person' | 'auto_then_person';
+export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it automatically', person: 'Give it to a person', auto_then_person: 'Automatic, then a person' };
+/** The starting choice for each kind (canvas, section 31 follow-up): automatic where a friendly text is enough, a person
+ * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
+export const DEFAULT_MODES: Record<string, Mode> = { due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
+export const modesFor = (k: OppKind): Mode[] => (PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
+export interface OppSettings { on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number }
 export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'quote', 'gift_card'];
 export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
-  return { on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, f[k] !== false])), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10) };
+  const m = o.modes || {};
+  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : DEFAULT_MODES[k] || 'person'; if (f[k] === false) v = 'off'; return [k, v]; }));
+  return { on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10) };
 }
 
 // ── Reading a client's history ──────────────────────────────────────────────────────────────
@@ -180,7 +215,7 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
     const pb = PLAYBOOKS[kind];
     out.push({ kind, key: `${kind}:${extra.refs?.quoteId || extra.refs?.giftCardId || extra.refs?.appointmentId || c?.id}`, clientId: c?.id ? String(c.id) : null, clientName: String(c?.name || [c?.firstName, c?.lastName].filter(Boolean).join(' ') || 'Client').slice(0, 120),
       why, valueCents: Math.max(0, Math.round(valueCents)), providerId: h?.last?.staffId ? String(h.last.staffId) : null, dueAt: iso(now), expiresAt: iso(now + pb.expiresDays * DAY), refs: {},
-      facts: { first: firstName(c), service_short: shortService(h?.last?.serviceName), weeks: String(weeksOf(h?.gapDays ?? null)) }, ...extra } as Candidate);
+      facts: { first: firstName(c), service_short: shortService(h?.last?.serviceName), weeks: String(weeksOf(h?.gapDays ?? null)), ...(c?.phone ? { phone: String(c.phone) } : {}) }, ...extra } as Candidate);
   };
   for (const [cid, h] of H) {
     const c = clients.get(cid); if (!c || c.archived || c.deleted) continue;
@@ -222,12 +257,14 @@ export const dollars = (cents: number) => { const d = (Number(cents) || 0) / 100
 
 /** Keep only what should become a task: one open task per client, cooldowns, opt-outs, open cases. */
 export function filterCandidates(c: Candidate[], o: { existing: any[]; clients: Map<string, any>; openCaseClients: Set<string>; recentAutoNudge: Set<string>; now: number }): Candidate[] {
-  const openByClient = new Set(o.existing.filter((e) => ['open', 'holdout'].includes(e.status) && e.clientId).map((e) => String(e.clientId)));
-  const keys = new Set(o.existing.filter((e) => ['open', 'holdout'].includes(e.status)).map((e) => e.key));
+  const ACT = ['open', 'holdout', 'waiting', 'auto'];
+  const openByClient = new Set(o.existing.filter((e) => ACT.includes(e.status) && e.clientId).map((e) => String(e.clientId)));
+  const keys = new Set(o.existing.filter((e) => ACT.includes(e.status)).map((e) => e.key));
   const seen = new Set<string>();
   return c.filter((x) => {
     if (keys.has(x.key)) return false;
     const pb = PLAYBOOKS[x.kind];
+    if (o.existing.some((e) => e.key === x.key && o.now - ms(e.createdAt) < Math.max(1, pb.cooldownDays) * DAY)) return false;   // same thing, recently — even with no client record (a gift card holder)
     if (x.clientId) {
       if (openByClient.has(x.clientId) || seen.has(x.clientId)) return false;
       const cl = o.clients.get(x.clientId); if (cl?.opportunityOptOut || (pb.marketing && cl?.marketingOptOut)) return false;

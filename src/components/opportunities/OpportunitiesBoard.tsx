@@ -8,20 +8,21 @@ import { collection, type Firestore } from 'firebase/firestore';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { payPost } from '@/components/pay/pay-client';
 import { OppTask, EST, PAID, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED } from '@/components/opportunities/OppTask';
-import { PLAYBOOKS, FINDER_KINDS, dollars, type OppKind } from '@/lib/opportunities';
+import { PLAYBOOKS, FINDER_KINDS, modesFor, dollars, type OppKind } from '@/lib/opportunities';
 
 const PRI: Record<string, string> = { high: RED, medium: AMBER, low: MUTED };
 const pill = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` });
 const short = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
 
 export function OpportunitiesBoard({ tenantId }: { tenantId: string }) {
-  const [d, setD] = React.useState<any>(null); const [kind, setKind] = React.useState<string>('all'); const [tab, setTab] = React.useState<'open' | 'done' | 'results'>('open');
+  const [d, setD] = React.useState<any>(null); const [kind, setKind] = React.useState<string>('all'); const [tab, setTab] = React.useState<'open' | 'auto' | 'done' | 'results'>('open');
   const [openId, setOpenId] = React.useState<string | null>(null); const [panel, setPanel] = React.useState<'' | 'settings' | 'add'>(''); const [busy, setBusy] = React.useState(false); const [note, setNote] = React.useState('');
   const load = React.useCallback(() => (tenantId ? payPost('/api/opportunities', { tenantId, action: 'list' }).then(setD) : null), [tenantId]);
   React.useEffect(() => { void load(); }, [load]);
-  const items: any[] = d?.items || []; const open = items.filter((o) => o.status === 'open'); const closed = items.filter((o) => o.status !== 'open');
-  const counts = (FINDER_KINDS as string[]).concat(['follow_up', 'manual']).map((k) => ({ k, n: open.filter((o) => o.kind === k).length, v: open.filter((o) => o.kind === k).reduce((s, o) => s + (o.valueCents || 0), 0) })).filter((x) => x.n);
-  const list = (tab === 'open' ? open : closed).filter((o) => kind === 'all' || o.kind === kind);
+  const items: any[] = d?.items || []; const open = items.filter((o) => o.status === 'open'); const AUTO_ST = ['waiting', 'auto', 'not_sent']; const autos = items.filter((o) => AUTO_ST.includes(o.status)); const closed = items.filter((o) => o.status !== 'open' && !AUTO_ST.includes(o.status));
+  const pool = tab === 'auto' ? autos.filter((o) => o.status !== 'not_sent') : open;
+  const counts = (FINDER_KINDS as string[]).concat(['follow_up', 'manual']).map((k) => ({ k, n: pool.filter((o) => o.kind === k).length, v: pool.filter((o) => o.kind === k).reduce((s, o) => s + (o.valueCents || 0), 0) })).filter((x) => x.n);
+  const list = (tab === 'open' ? open : tab === 'auto' ? autos : closed).filter((o) => kind === 'all' || o.kind === kind);
   const sel = items.find((o) => o.id === openId) || null;
   const run = async () => { setBusy(true); setNote(''); const r = await payPost('/api/opportunities', { tenantId, action: 'run' }); setBusy(false);
     setNote(r.ok ? (r.created ? `Found ${r.created} new.` : 'Nothing new — everyone who qualifies already has a task.') : r.error || 'That didn’t work.'); void load(); };
@@ -39,20 +40,21 @@ export function OpportunitiesBoard({ tenantId }: { tenantId: string }) {
         {note && <p className="text-[13.5px] font-semibold" style={{ color: GREEN }}>{note}</p>}
         {panel === 'settings' && d && <Finders tenantId={tenantId} settings={d.settings} onSaved={() => { setPanel(''); void load(); }} />}
         {panel === 'add' && d && <AddTask tenantId={tenantId} people={d.people} onSaved={() => { setPanel(''); void load(); }} />}
-        <div className="flex flex-wrap gap-2">{(['open', 'done', 'results'] as const).map((t) => <button key={t} type="button" onClick={() => setTab(t)} className="h-9 rounded-full px-4 text-[13.5px] font-semibold" style={pill(tab === t)}>{t === 'open' ? `Open · ${open.length}` : t === 'done' ? 'Closed' : 'Results'}</button>)}</div>
+        <div className="flex flex-wrap gap-2">{(['open', 'auto', 'done', 'results'] as const).map((t) => <button key={t} type="button" onClick={() => setTab(t)} className="h-9 rounded-full px-4 text-[13.5px] font-semibold" style={pill(tab === t)}>{t === 'open' ? `With a person · ${open.length}` : t === 'auto' ? `Sent automatically · ${autos.filter((o) => o.status !== 'not_sent').length}` : t === 'done' ? 'Closed' : 'Results'}</button>)}</div>
         {tab !== 'results' && counts.length > 0 && <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setKind('all')} className="rounded-[16px] px-3.5 py-2.5 text-left" style={pill(kind === 'all')}><span className="block text-[12px] opacity-75">Everything</span><span className="block text-[18px] font-bold">{open.length}</span></button>
+          <button type="button" onClick={() => setKind('all')} className="rounded-[16px] px-3.5 py-2.5 text-left" style={pill(kind === 'all')}><span className="block text-[12px] opacity-75">Everything</span><span className="block text-[18px] font-bold">{pool.length}</span></button>
           {counts.map((c) => <button key={c.k} type="button" onClick={() => setKind(kind === c.k ? 'all' : c.k)} className="rounded-[16px] px-3.5 py-2.5 text-left" style={pill(kind === c.k)}>
             <span className="block text-[12px] opacity-75">{PLAYBOOKS[c.k as OppKind].label}</span><span className="block text-[18px] font-bold">{c.n}</span>{c.v > 0 && <span className="block text-[11.5px] opacity-75">est. {dollars(c.v)}</span>}</button>)}</div>}
-        {tab === 'results' ? <Results tenantId={tenantId} /> : !d ? <p style={{ color: MUTED }}>Loading…</p> : list.length === 0 ? <p className="rounded-[18px] border bg-white p-6 text-[14px]" style={{ borderColor: LINE, color: MUTED }}>{tab === 'open' ? 'Nothing to work on right now. The finders look again every morning.' : 'Nothing closed yet.'}</p> :
+        {tab === 'results' ? <Results tenantId={tenantId} /> : !d ? <p style={{ color: MUTED }}>Loading…</p> : list.length === 0 ? <p className="rounded-[18px] border bg-white p-6 text-[14px]" style={{ borderColor: LINE, color: MUTED }}>{tab === 'open' ? 'Nothing to work on right now. The finders look again every morning.' : tab === 'auto' ? 'No automatic texts waiting on an answer.' : 'Nothing closed yet.'}</p> :
           <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>
-            <div className="hidden grid-cols-[1.7fr_0.8fr_0.7fr_0.7fr_1fr] gap-3 px-4 py-2.5 text-[12px] font-bold md:grid" style={{ color: MUTED, background: '#fafafa' }}><span>Who · why</span><span>Worth</span><span>Priority</span><span>{tab === 'open' ? 'Ends' : 'Closed'}</span><span>With</span></div>
+            <div className="hidden grid-cols-[1.7fr_0.8fr_0.7fr_0.7fr_1fr] gap-3 px-4 py-2.5 text-[12px] font-bold md:grid" style={{ color: MUTED, background: '#fafafa' }}><span>Who · why</span><span>Worth</span><span>Priority</span><span>{tab === 'open' ? 'Ends' : tab === 'auto' ? 'To a person' : 'Closed'}</span><span>{tab === 'auto' ? 'Status' : 'With'}</span></div>
             {list.map((o) => <button key={o.id} type="button" onClick={() => setOpenId(o.id)} className="grid w-full grid-cols-1 gap-1 px-4 py-3 text-left md:grid-cols-[1.7fr_0.8fr_0.7fr_0.7fr_1fr] md:items-center md:gap-3" style={{ borderTop: `1px solid ${LINE}` }}>
               <span className="min-w-0"><span className="block truncate text-[14.5px] font-semibold">{o.title || o.clientName}</span><span className="block text-[12.5px] leading-snug" style={{ color: MUTED }}>{o.why} · <span style={{ color: '#3d5a99' }}>{PLAYBOOKS[o.kind as OppKind]?.label}</span></span></span>
               <span>{o.result?.status === 'paid' ? <PAID cents={o.result.paidCents || 0} /> : <EST cents={o.valueCents || 0} note={o.valueNote} />}</span>
               <span className="text-[13.5px]"><span style={{ color: PRI[o.priority] || MUTED }}>●</span> {String(o.priority || 'medium').replace(/^./, (x: string) => x.toUpperCase())}</span>
-              <span className="text-[13.5px]" style={{ color: MUTED }}>{tab === 'open' ? short(o.expiresAt) : short(o.closedAt)}</span>
-              <span className="text-[13.5px]" style={{ color: o.assigneeName ? INK : AMBER }}>{o.assigneeName || 'Nobody yet'}</span></button>)}
+              <span className="text-[13.5px]" style={{ color: MUTED }}>{tab === 'open' ? short(o.expiresAt) : tab === 'auto' ? (o.status === 'waiting' ? short(o.escalateAt) : '—') : short(o.closedAt)}</span>
+              {tab === 'auto' ? <span className="text-[13.5px]" style={{ color: o.status === 'not_sent' ? AMBER : MUTED }}>{o.status === 'not_sent' ? 'Not sent' : `Sent ${short(o.autoSentAt)} · ${o.status === 'auto' ? 'no task' : 'waiting'}`}</span>
+                : <span className="text-[13.5px]" style={{ color: o.assigneeName ? INK : AMBER }}>{o.assigneeName || 'Nobody yet'}</span>}</button>)}
           </div>}
         <p className="text-[12.5px]" style={{ color: MUTED }}>Never more than your message rules allow: texting hours, the 30-day limit shared with campaigns and reminders, and anyone who said stop is left out. Nobody with an open Making it right case gets a task.</p>
       </div>
@@ -70,10 +72,12 @@ function Finders({ tenantId, settings, onSaved }: { tenantId: string; settings: 
   return (
     <div className="space-y-3 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}>
       <div className="flex items-center justify-between gap-3"><div><p className="text-[15.5px] font-semibold">Finders</p><p className="text-[13px]" style={{ color: MUTED }}>Switch off what doesn’t fit your business.</p></div>{sw(s.on, () => setS({ ...s, on: !s.on }), 'Opportunities on')}</div>
-      <div className="grid gap-x-6 sm:grid-cols-2">{FINDER_KINDS.map((k) => <div key={k} className="flex items-center justify-between gap-3 py-2.5" style={{ borderTop: `1px solid ${LINE}` }}>
-        <span><span className="block text-[14px] font-semibold">{PLAYBOOKS[k].label}</span><span className="block text-[12px]" style={{ color: MUTED }}>{PLAYBOOKS[k].who === 'provider' ? 'Their provider' : PLAYBOOKS[k].who === 'desk' ? 'The desk' : 'The owner'} · {PLAYBOOKS[k].marketing ? 'texts need their yes to marketing' : 'a personal follow-up'}</span></span>
-        {sw(s.finders[k], () => setS({ ...s, finders: { ...s.finders, [k]: !s.finders[k] } }), PLAYBOOKS[k].label)}</div>)}</div>
+      <div>{FINDER_KINDS.map((k) => <div key={k} className="grid items-center gap-2 py-2.5 md:grid-cols-[1fr_auto]" style={{ borderTop: `1px solid ${LINE}` }}>
+        <span><span className="block text-[14px] font-semibold">{PLAYBOOKS[k].label}</span><span className="block text-[12px]" style={{ color: MUTED }}>A person means {PLAYBOOKS[k].who === 'provider' ? 'their provider' : PLAYBOOKS[k].who === 'desk' ? 'the desk' : 'the owner'}{PLAYBOOKS[k].marketing ? ' · texts need their yes to marketing' : ''}</span></span>
+        <span className="flex flex-wrap gap-1.5">{modesFor(k).map((m) => <button key={m} type="button" onClick={() => setS({ ...s, modes: { ...s.modes, [k]: m } })} className="h-8 rounded-full px-3 text-[12.5px] font-semibold" style={pill(s.modes[k] === m)}>{m === 'off' ? 'Off' : m === 'auto' ? 'Automatic' : m === 'person' ? 'A person' : 'Automatic, then a person'}</button>)}</span></div>)}</div>
+      <p className="text-[12.5px] leading-[1.5]" style={{ color: MUTED }}><b style={{ color: INK }}>Automatic</b> sends a friendly text with a booking link — nobody has a task. <b style={{ color: INK }}>Automatic, then a person</b> does the same, and if they don’t book or reply in the days below, it becomes a task. A reply makes it a task straight away. Every automatic text checks their consent, texting hours and the 30-day limit first.</p>
       <div className="grid gap-3 sm:grid-cols-2" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
+        <label className="flex items-center justify-between gap-2 text-[14px]">Days to wait for a reply before a person takes it<input type="number" min={1} max={14} value={s.afterDays} onChange={(e) => setS({ ...s, afterDays: Number(e.target.value) })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} /></label>
         <label className="flex items-center justify-between gap-2 text-[14px]">Open tasks per person, at most<input type="number" min={1} max={30} value={s.perPersonPerDay} onChange={(e) => setS({ ...s, perPersonPerDay: Number(e.target.value) })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} /></label>
         <label className="flex items-center justify-between gap-2 text-[14px]"><span>Left alone, to measure what works<span className="block text-[12px]" style={{ color: MUTED }}>% of win-back clients nobody contacts</span></span><input type="number" min={0} max={30} value={s.holdoutPct} onChange={(e) => setS({ ...s, holdoutPct: Number(e.target.value) })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} /></label></div>
       <button type="button" onClick={save} disabled={busy} className="h-10 rounded-full px-5 text-[14px] font-semibold text-white disabled:opacity-40" style={{ background: INK }}>{busy ? 'Saving…' : 'Save'}</button>
@@ -119,6 +123,7 @@ function Results({ tenantId }: { tenantId: string }) {
         {tile('Booked, not paid yet', String(r.bookedWaiting), 'counted once the visit is paid')}
         {tile('Still possible', `est. ${dollars(r.stillPossibleCents)}`, `${r.open} open — not counted as money`, MUTED, true)}
         {tile('Kept in check', `${r.optOuts} · ${r.complaints}`, 'asked to stop · bad experiences heard')}</div>
+      <p className="rounded-[16px] border bg-white px-4 py-3 text-[14px]" style={{ borderColor: LINE }}><b>{r.autoSent}</b> sent automatically · <b style={{ color: GREEN }}>{r.autoBooked}</b> booked with nobody lifting a finger · <b>{r.toPerson}</b> went on to a person{r.notSent ? <span style={{ color: MUTED }}> · {r.notSent} couldn’t be sent (no consent, no number or the 30-day limit)</span> : null}</p>
       <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>
         <div className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-2.5 text-[12px] font-bold" style={{ color: MUTED, background: '#fafafa' }}><span>Finder</span><span>Tasks</span><span>Reached</span><span>Booked</span><span>Paid</span></div>
         {r.byKind.length === 0 && <p className="px-4 py-4 text-[14px]" style={{ color: MUTED }}>Nothing in the last 30 days yet.</p>}

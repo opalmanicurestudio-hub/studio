@@ -122,6 +122,8 @@ export async function POST(req: NextRequest) {
       body: body || null, mediaCount,
       threadedTicketTitle: threaded,
     });
+    // A client answering an automatic Opportunities text: a person takes it now, with what they said (lib/opportunities-server).
+    if (senderType === 'unknown' && body) { try { const { opportunityReply } = await import('@/lib/opportunities-server'); await opportunityReply(db, tenantId, fromDigits, body); } catch { /* the inbox record still has it */ } }
     // A client's text that sounds like a complaint: the desk gets "Start a case" (nothing opens by itself).
     let flagged: any = null;
     if (senderType === 'unknown' && body) { try { const { flagClientText } = await import('@/lib/complaint-texts'); const tDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; flagged = await flagClientText(db, tenantId, tDoc, { from, body, inboxId: iRef.id }); } catch (e) { console.error('[sms/inbound] complaint check', e); } }

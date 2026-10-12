@@ -28,6 +28,7 @@ export function OppTask({ tenantId, item, manager = false, people = [], onChange
     if (r.ok) { setFlash({ at: 'out', ok: true, t: r.closed ? (r.followUpId ? 'Done — the follow-up is on your list.' : r.caseId ? 'Done — a Making it right case is open.' : say === 'stop' ? 'Done — they won’t be contacted like this again.' : 'Done.') : 'Noted — it stays on your list.' }); setTimeout(() => onChanged(!!r.closed), 900); }
     else setFlash({ at: 'out', ok: false, t: r.error || 'That didn’t save.' }); };
   const phone = String(item.phone || '').trim();
+  const reply = [...(item.attempts || [])].reverse().find((x: any) => x.by === 'client') || null;
   return (
     <div className="flex flex-col gap-3.5" style={{ color: INK }}>
       <div className="flex items-start justify-between gap-3">
@@ -42,6 +43,12 @@ export function OppTask({ tenantId, item, manager = false, people = [], onChange
         <select value={item.assigneeId || ''} disabled={!!busy} onChange={async (e) => { const r = await go('assign', { staffId: e.target.value || null }); if (r.ok) onChanged(); else setFlash({ ok: false, t: r.error }); }} className="h-10 max-w-[60%] rounded-[12px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }} aria-label="Who has this task">
           <option value="">Nobody yet</option>{people.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
 
+      {open && reply && <div className="space-y-2 rounded-[18px] p-3.5" style={{ background: '#eef6f1' }}>
+        <p className="text-[12px] font-bold tracking-[0.04em]" style={{ color: GREEN }}>THEY REPLIED · {new Date(reply.at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>
+        <p className="text-[15.5px] leading-[1.5]">{String(reply.note || '').replace(/^Replied: /, '')}</p>
+        <p className="text-[12.5px]" style={{ color: MUTED }}><b style={{ color: INK }}>Next:</b> {pb.next.replace('{weeks}', item.facts?.weeks || '4')} Answer by phone, or in Messages from the business’s number.</p>
+        {phone && <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className="inline-flex h-11 items-center rounded-full px-4 text-[14px] font-semibold text-white" style={{ background: INK }}>Call {item.facts?.first || ''}</a>}
+      </div>}
       {open && msg && <div className="space-y-2 rounded-[18px] border bg-white p-3.5" style={{ borderColor: LINE }}>
         <p className="text-[12px] font-bold tracking-[0.04em]" style={{ color: MUTED }}>SAY · OR SEND</p>
         <p className="text-[15.5px] leading-[1.5]">{msg}</p>
@@ -74,7 +81,11 @@ export function OppTask({ tenantId, item, manager = false, people = [], onChange
 
       {(item.attempts || []).length > 0 && <div className="space-y-1"><p className="text-[12px] font-bold" style={{ color: MUTED }}>SO FAR</p>
         {[...item.attempts].reverse().map((a: any, i: number) => <p key={i} className="text-[13px]" style={{ color: MUTED }}>{new Date(a.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {a.byName} · {a.outcome ? OUTCOMES[a.outcome as OutcomeId]?.label : a.note}{a.outcome && a.note ? ` — “${a.note}”` : ''}</p>)}</div>}
-      {!open && <p className="text-[13.5px]" style={{ color: MUTED }}>{item.status === 'expired' ? 'Expired — it wasn’t worked in time.' : item.status === 'dismissed' ? `Set aside${item.dismissedBy ? ` by ${item.dismissedBy}` : ''}.` : `Closed${item.outcome ? ` — ${OUTCOMES[item.outcome as OutcomeId]?.label.toLowerCase()}` : ''}.`}</p>}
+      {item.status === 'waiting' && <div className="space-y-2 rounded-[16px] p-3.5 text-[13.5px] leading-[1.45]" style={{ background: '#eef2fa' }}><p><b>Sent automatically</b> on {new Date(item.autoSentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. If they don’t book or reply by {new Date(item.escalateAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}, it comes to {pb.who === 'provider' ? (item.providerName || 'their provider') : pb.who === 'desk' ? 'the desk' : 'the owner'}. A reply brings it to them straight away.</p>
+        {manager && <button type="button" disabled={!!busy} onClick={async () => { const r = await go('escalate'); if (r.ok) onChanged(); else setFlash({ ok: false, t: r.error }); }} className="h-10 rounded-full bg-white px-4 text-[13.5px] font-semibold">Give it to a person now</button>}</div>}
+      {item.status === 'auto' && <p className="rounded-[16px] p-3.5 text-[13.5px] leading-[1.45]" style={{ background: '#eef2fa' }}><b>Sent automatically</b> on {new Date(item.autoSentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — no task for anyone. It closes as booked if they book, and on its own after {new Date(item.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. A reply comes to a person.</p>}
+      {item.status === 'not_sent' && <p className="rounded-[16px] p-3.5 text-[13.5px]" style={{ background: '#fdf3e6', color: '#7a3e05' }}><b>Not sent automatically:</b> {item.notSentWhy}</p>}
+      {!open && !['waiting', 'auto', 'not_sent'].includes(item.status) && <p className="text-[13.5px]" style={{ color: MUTED }}>{item.status === 'expired' ? 'Expired — it wasn’t worked in time.' : item.status === 'dismissed' ? `Set aside${item.dismissedBy ? ` by ${item.dismissedBy}` : ''}.` : `Closed${item.outcome ? ` — ${OUTCOMES[item.outcome as OutcomeId]?.label.toLowerCase()}` : ''}.`}</p>}
       {manager && open && <button type="button" disabled={!!busy} onClick={async () => { const r = await go('dismiss'); if (r.ok) onChanged(); }} className="self-start text-[13px] underline" style={{ color: MUTED }}>Not worth doing — set it aside</button>}
     </div>);
 }

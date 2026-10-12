@@ -93,7 +93,8 @@ const ahead = (d: number) => new Date(NOW + d * DAY).toISOString();
   for (const x of clients) await db.doc(`${T}/clients/${x.id}`).set(x);
   for (const a of appointments) await db.doc(`${T}/appointments/${a.id}`).set(a);
   const tenant = (await db.doc(T).get()).data();
-  const r1: any = await Srv.opportunitySweep(db, 't1', { ...tenant, opportunities: { holdoutPct: 0 } }, NOW);
+  const PERSON = { holdoutPct: 0, modes: Object.fromEntries(O.FINDER_KINDS.map((k) => [k, 'person'])) };
+  const r1: any = await Srv.opportunitySweep(db, 't1', { ...tenant, opportunities: PERSON }, NOW);
   const opps = (await db.collection(`${T}/opportunities`).get()).docs.map((d: any) => d.data());
   const mo = opps.find((o: any) => o.clientId === 'maria');
   check('the sweep makes tasks and hands them to the right people', r1.created >= 3 && mo?.assigneeId === 'maya' && opps.find((o: any) => o.clientId === 'ana')?.assigneeId === 'jo', { r1, opps: opps.map((o: any) => [o.clientId, o.kind, o.assigneeId]) });
@@ -102,7 +103,7 @@ const ahead = (d: number) => new Date(NOW + d * DAY).toISOString();
   check('one bell per person, not one per task', bells.filter((b: any) => b.userId === 'maya').length === 1 && /new task/.test(bells[0].message), bells);
   const r2: any = await Srv.opportunitySweep(db, 't1', tenant, NOW + 3600e3);
   check('once a day — a second run the same day does nothing', r2.skipped === 'done today');
-  const r3: any = await Srv.opportunitySweep(db, 't1', tenant, NOW + 7200e3, { force: true });
+  const r3: any = await Srv.opportunitySweep(db, 't1', { ...tenant, opportunities: PERSON }, NOW + 7200e3, { force: true });
   check('running it again never doubles a task', r3.created === 0, r3);
 
   const mgr = { staffId: 'jess', name: 'Jessica', role: 'owner', isManager: true, isOwner: true, portal: false };
@@ -142,5 +143,49 @@ const ahead = (d: number) => new Date(NOW + d * DAY).toISOString();
   const res: any = await Srv.actOnOpportunity(db, 't1', mgr as any, { action: 'results' }, NOW);
   check('results keep paid money apart from estimates', res.ok && res.paidCents === 0 && res.stillPossibleCents > 0 && res.optOuts === 1, res);
 
+
+  console.log('Opportunities — automatic first');
+  const S2 = O.oppSettingsOf({});
+  check('defaults: gift cards and cancels automatic; due, didn’t-rebook and quotes automatic then a person; first visits, long gone and no-shows a person',
+    S2.modes.gift_card === 'auto' && S2.modes.cancelled === 'auto' && S2.modes.due === 'auto_then_person' && S2.modes.no_rebook === 'auto_then_person' && S2.modes.quote === 'auto_then_person' && S2.modes.first_visit === 'person' && S2.modes.long_gone === 'person' && S2.modes.no_show === 'person', S2.modes);
+  check('kinds that need a person can’t be set to automatic', O.oppSettingsOf({ opportunities: { modes: { long_gone: 'auto' } } }).modes.long_gone === 'person' && O.modesFor('first_visit').join() === 'off,person');
+  const db2 = makeDb(); const sentTo: any[] = [];
+  const fakeSend: any = async (_db: any, _t: string, to: string, body: string) => { sentTo.push({ to, body }); return { ok: true, via: 'sms' }; };
+  await db2.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' });
+  for (const m of team) await db2.doc(`${T}/staff/${m.id}`).set(m);
+  for (const x of clients) await db2.doc(`${T}/clients/${x.id}`).set(x);
+  for (const a of appointments) await db2.doc(`${T}/appointments/${a.id}`).set(a);
+  const tn2 = { ...(await db2.doc(T).get()).data(), opportunities: { holdoutPct: 0 } };
+  const a1: any = await Srv.opportunitySweep(db2, 't1', tn2, NOW, { send: fakeSend });
+  const all2 = (await db2.collection(`${T}/opportunities`).get()).docs.map((d: any) => d.data());
+  const m2 = all2.find((o: any) => o.clientId === 'maria'); const an2 = all2.find((o: any) => o.clientId === 'ana'); const s2 = all2.find((o: any) => o.clientId === 'sam');
+  check('Maria (said yes to marketing texts) gets the automatic text — no task for anyone yet', m2?.status === 'waiting' && !m2?.assigneeId && m2?.attempts?.[0]?.by === 'auto', m2);
+  check('it carries a one-tap booking link with her provider', sentTo.some((x) => x.to === '+15550001' && x.body.includes('https://opal.example/book/t1?provider=maya')), sentTo);
+  check('Ana’s cancel follow-up goes automatically and stays automatic', an2?.status === 'auto');
+  check('Sam’s first visit still goes to a person', s2?.status === 'open' && s2?.assigneeId === 'jo');
+  check('nobody gets a bell for what went automatically', !(await db2.collection(`${T}/notifications`).get()).docs.some((d: any) => d.data().userId === 'maya'));
+  const lena = { ...clients[0], id: 'lena', name: 'Lena Ortiz', phone: '+15550111', smsMarketingOptIn: false };
+  await db2.doc(`${T}/clients/lena`).set(lena); for (const d of [90, 70, 50]) await db2.doc(`${T}/appointments/l${d}`).set(ap(`l${d}`, 'lena', ago(d)));
+  await Srv.opportunitySweep(db2, 't1', tn2, NOW + 1000, { send: fakeSend, force: true });
+  const l2 = (await db2.collection(`${T}/opportunities`).get()).docs.map((d: any) => d.data()).find((o: any) => o.clientId === 'lena');
+  check('no yes to marketing texts → it can’t go automatically, so it goes straight to a person as a call', l2?.status === 'open' && l2?.assigneeId === 'maya' && /couldn’t text automatically/.test(l2?.why), l2);
+  // Four days later, no booking, no reply → Maria's comes to Maya, with the follow-up wording
+  const a2: any = await Srv.opportunitySweep(db2, 't1', tn2, NOW + 4 * DAY, { send: fakeSend, force: true });
+  const m3 = (await db2.doc(`${T}/opportunities/${m2.id}`).get()).data();
+  check('no reply by the day chosen → a person takes it, knowing the automatic text went', m3?.status === 'open' && m3?.assigneeId === 'maya' && /got the automatic text on/.test(m3?.why) && /following up on our text/.test(m3?.message) && a2.toPerson >= 1, { a2, m3 });
+  // Ana books through the link → closes as booked by itself
+  await db2.doc(`${T}/appointments/anaNew`).set(ap('anaNew', 'ana', ahead(9), 'confirmed', { createdAt: new Date(NOW + DAY).toISOString() }));
+  await Srv.opportunitySweep(db2, 't1', tn2, NOW + 5 * DAY, { send: fakeSend, force: true });
+  const an3 = (await db2.doc(`${T}/opportunities/${an2.id}`).get()).data();
+  check('she booked through the link → it closes as booked on its own', an3?.status === 'done' && an3?.outcome === 'booked' && an3?.result?.status === 'booked', an3);
+  // A reply makes it a task straight away
+  const db3 = makeDb(); await db3.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); for (const m of team) await db3.doc(`${T}/staff/${m.id}`).set(m);
+  await db3.doc(`${T}/opportunities/w1`).set({ id: 'w1', kind: 'due', status: 'waiting', clientId: 'maria', clientName: 'Maria Lopez', phone: '+1 (555) 000-0001', providerId: 'maya', why: '35 days since…', facts: {}, attempts: [], createdAt: ago(1) });
+  await Srv.opportunityReply(db3, 't1', '5550000001', 'Yes please! Thursday?', NOW);
+  const w1 = (await db3.doc(`${T}/opportunities/w1`).get()).data(); const bell = (await db3.collection(`${T}/notifications`).get()).docs.map((d: any) => d.data());
+  check('“Yes please! Thursday?” → Maya has it now, with what Maria said, and a bell', w1?.status === 'open' && w1?.assigneeId === 'maya' && /Yes please/.test(w1?.why) && bell.some((b: any) => b.userId === 'maya' && /replied/.test(b.message)), { w1, bell });
+  await db3.doc(`${T}/opportunities/w2`).set({ id: 'w2', kind: 'cancelled', status: 'auto', clientId: 'ana', clientName: 'Ana', phone: '5550004', facts: {}, attempts: [], createdAt: ago(1) });
+  await Srv.opportunityReply(db3, 't1', '5550004', 'STOP', NOW);
+  check('a STOP reply closes it as stop', (await db3.doc(`${T}/opportunities/w2`).get()).data()?.outcome === 'stop');
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();
