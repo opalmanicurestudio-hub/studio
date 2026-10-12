@@ -2,12 +2,13 @@
 // src/components/clients/ClientsList.tsx — THE CLIENTS LIST, PEOPLE FIRST.
 // Figures about people (due back this week · new this month · have their next visit booked · gone quiet · owe), segments
 // with counts (everyone · due back · gone quiet · new · regulars · members · owe money · birthdays · not to be booked ·
-// archived), sort, rich rows (who they are, next / last visit, what they usually have and how often, value, what needs
+// how they reach us · archived), sort, rich rows (who they are, next / last visit, what they usually have and how often, value, what needs
 // attention, one fitting action), and a bulk bar (message · invite back · tag · export · archive). Everything is worked
 // out from appointments already on the device — one pass, indexed by client. Money only for people who may see it;
 // contact details only for people who may see them.
 import * as React from 'react';
 import { format, differenceInDays, differenceInYears } from 'date-fns';
+import { reachOf, type Reach } from '@/lib/client-reach';
 
 const safe = (v: any) => new Date(v?.toDate ? v.toDate() : v);
 const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
@@ -18,7 +19,7 @@ const pill = (l: string, tone: 'warn' | 'ok' | 'soft' = 'soft') => <span key={l}
 const last10 = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
 
 export type Row = { c: any; visits: number; first: Date | null; last: Date | null; next: any | null; everyDays: number | null; usual: string | null; spent: number; dueBack: Date | null; dueThisWeek: boolean; quiet: boolean; isNew: boolean; regular: boolean; member: boolean; birthday: boolean; formDue: boolean; owes: number; age: number | null; dup: boolean };
-type Seg = 'all' | 'due' | 'quiet' | 'new' | 'regulars' | 'members' | 'owe' | 'birthdays' | 'banned' | 'archived';
+type Seg = 'all' | 'due' | 'quiet' | 'new' | 'regulars' | 'members' | 'owe' | 'birthdays' | 'banned' | 'reach_push' | 'reach_link' | 'reach_texts' | 'archived';
 
 export function buildRows(clients: any[], appointments: any[], services: any[], staff: any[], now = new Date()): Row[] {
   const byClient = new Map<string, any[]>(); for (const a of appointments) { if (!a?.clientId) continue; (byClient.get(a.clientId) || byClient.set(a.clientId, []).get(a.clientId)!).push(a); }
@@ -58,10 +59,15 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
   const [sel, setSel] = React.useState<Set<string>>(new Set()); const [limit, setLimit] = React.useState(50); const [compose, setCompose] = React.useState<null | 'message' | 'invite'>(null);
   const [selecting, setSelecting] = React.useState(false); const [menu, setMenu] = React.useState(false);   // phones: selecting is a mode; extras live in ⋯
   const live = all.filter((r) => !r.c.isArchived && r.c.status !== 'archived');
+  // How each client reaches us (notifications on · saved the app or uses their visit link · texts only).
+  const reach = React.useMemo(() => { const m = new Map<string, Reach>(); for (const c of clients) m.set(c.id, reachOf(c).reach); return m; }, [clients]);
+  const reachIs = (r: Row, ...k: Reach[]) => k.includes(reach.get(r.c.id) || 'texts');
+  const pushCount = live.filter((r) => reachIs(r, 'app_push')).length;
   const segs: { k: Seg; l: string; f: (r: Row) => boolean; money?: boolean }[] = [
     { k: 'all', l: 'Everyone', f: (r) => r.c.status !== 'banned' }, { k: 'due', l: 'Due back', f: (r) => r.dueThisWeek }, { k: 'quiet', l: 'Gone quiet', f: (r) => r.quiet }, { k: 'new', l: 'New', f: (r) => r.isNew },
     { k: 'regulars', l: 'Regulars', f: (r) => r.regular }, { k: 'members', l: 'Members', f: (r) => r.member }, { k: 'owe', l: 'Owe money', f: (r) => r.owes > 0, money: true },
-    { k: 'birthdays', l: 'Birthdays', f: (r) => r.birthday }, { k: 'banned', l: 'Not to be booked', f: (r) => r.c.status === 'banned' }];
+    { k: 'birthdays', l: 'Birthdays', f: (r) => r.birthday }, { k: 'banned', l: 'Not to be booked', f: (r) => r.c.status === 'banned' },
+    { k: 'reach_push', l: 'Notifications on', f: (r) => reachIs(r, 'app_push') }, { k: 'reach_link', l: 'Visit link', f: (r) => reachIs(r, 'link', 'app') }, { k: 'reach_texts', l: 'Texts only', f: (r) => reachIs(r, 'texts') }];
   const segRows = (k: Seg) => k === 'archived' ? all.filter((r) => r.c.isArchived || r.c.status === 'archived') : live.filter(segs.find((s) => s.k === k)!.f);
   const term = q.trim().toLowerCase(); const qd = term.replace(/\D/g, '');
   const rows = segRows(seg).filter((r) => !term || String(r.c.name || '').toLowerCase().includes(term) || (showContact && ((qd.length >= 3 && last10(r.c.phone).includes(qd)) || String(r.c.email || '').toLowerCase().includes(term))) || (!showContact && qd.length === 4 && String(r.c.phoneHint || '').endsWith(qd)))
@@ -89,7 +95,7 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1"><h1 className="text-[28px] font-light leading-tight md:text-[32px]">Clients</h1>
-          <p className="hidden text-[14px] md:block" style={muted}>{live.length} {live.length === 1 ? 'person' : 'people'} · {seen90} seen in the last 90 days</p>
+          <p className="hidden text-[14px] md:block" style={muted}>{live.length} {live.length === 1 ? 'person' : 'people'} · {seen90} seen in the last 90 days{pushCount > 0 ? ` · ${pushCount} of ${live.length} clients get notifications` : ''}</p>
           <p className="truncate text-[13px] md:hidden" style={muted}>{[`${live.filter((r) => r.c.status !== 'banned').length} people`, dueWeek.length ? `${dueWeek.length} due back` : null, live.some((r) => r.quiet) ? `${live.filter((r) => r.quiet).length} gone quiet` : null, showMoney && owing.length ? `${money(owing.reduce((x, r) => x + r.owes, 0))} owed` : null].filter(Boolean).join(' · ')}</p></div>
         {dupCount > 0 && canManage && <button type="button" onClick={onFindDuplicates} className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'var(--soft, #efebe6)' }}>Possible duplicates · {dupCount}</button>}
         {canManage && <a href="/import" className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'var(--soft, #efebe6)' }}>Import</a>}

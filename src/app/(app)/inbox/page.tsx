@@ -1,5 +1,5 @@
 'use client';
-// src/app/(app)/inbox/page.tsx — INBOX: everything clients send us (texts and emails), newest first. Opening a message
+// src/app/(app)/inbox/page.tsx — INBOX: everything clients send us (texts, emails and messages from their visit link), newest first. Opening a message
 // marks it read; a reply goes out from the business's number or email and is saved to the client's record. Messages
 // from a number or address we don't know can be linked to a client here. /api/inbox, lib/conversation.
 import * as React from 'react';
@@ -23,6 +23,7 @@ const when = (v: any) => { const d = new Date(v); if (isNaN(d.getTime())) return
 const ACTION: Record<string, string> = { confirmed: 'Their appointment was confirmed by this reply.', cancel_requested: 'They asked to cancel.', ambiguous_appointment: 'They replied, but they have more than one upcoming appointment. Please check which one they mean.' };
 const FILTERS: [Filter, string][] = [['unread', 'Unread'], ['all', 'All'], ['unknown', 'Not linked']];
 type Filter = 'unread' | 'all' | 'unknown';
+const LINKS: [string, string][] = [['cancel', 'Cancel'], ['reschedule', 'Reschedule'], ['message', 'Message'], ['', 'Visit']];
 
 /** Find a client by name (the start of their first or full name). */
 function ClientFinder({ tenantId, onPick, onCancel }: { tenantId: string; onPick: (c: { id: string; name: string }) => void; onCancel: () => void }) {
@@ -54,7 +55,8 @@ function ClientFinder({ tenantId, onPick, onCancel }: { tenantId: string; onPick
 }
 
 function InboxItem({ m, tenantId, open, onToggle, onChanged }: { m: any; tenantId: string; open: boolean; onToggle: () => void; onChanged: () => void }) {
-  const email = m.channel === 'email'; const unread = !m.readAt;
+  const email = m.channel === 'email'; const app = m.channel === 'app'; const unread = !m.readAt;
+  const boxRef = React.useRef<HTMLTextAreaElement | null>(null); const [linkBusy, setLinkBusy] = React.useState<string | null>(null);
   const [text, setText] = React.useState(''); const [subject, setSubject] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const [note, setNote] = React.useState<{ ok: boolean; t: string } | null>(null); const [linking, setLinking] = React.useState(false);
   const name = m.clientId ? (m.clientName || 'Client') : null; const fromLabel = m.fromName && m.from ? `${m.fromName} · ${m.from}` : m.fromName || m.from || 'Unknown sender';
@@ -63,6 +65,17 @@ function InboxItem({ m, tenantId, open, onToggle, onChanged }: { m: any; tenantI
     const r = await payPost('/api/inbox', { tenantId, action: 'reply', id: m.id, text, ...(email && subject.trim() ? { subject: subject.trim() } : {}) }); setBusy(false);
     if (!r?.ok) { setNote({ ok: false, t: r?.error || 'The reply could not be sent.' }); return; }
     setText(''); setSubject(''); setNote({ ok: true, t: 'Your reply was sent.' }); onChanged(); };
+  // "Send their link": the visit link for their next appointment, opened to an action, put into the reply at the cursor.
+  const insertLink = async (act: string) => { setLinkBusy(act); setNote(null);
+    const r = await payPost('/api/inbox', { tenantId, action: 'link_for', clientId: m.clientId, ...(act ? { do: act } : {}) }); setLinkBusy(null);
+    if (!r?.ok || !r.url) { setNote({ ok: false, t: r?.error || 'We couldn’t get their link.' }); return; }
+    const el = boxRef.current; const url = String(r.url);
+    const at = el && document.activeElement === el ? el.selectionStart : null; const end = el && document.activeElement === el ? el.selectionEnd : null;
+    setText((cur) => {
+      if (at == null || end == null) return cur ? `${cur.replace(/\s+$/, '')} ${url}` : url;
+      const before = cur.slice(0, at); const after = cur.slice(end);
+      return `${before}${before && !/\s$/.test(before) ? ' ' : ''}${url}${after && !/^\s/.test(after) ? ' ' : ''}${after}`;
+    }); };
   const link = async (c: { id: string; name: string }) => { setNote(null);
     const r = await payPost('/api/inbox', { tenantId, action: 'link', id: m.id, clientId: c.id });
     if (!r?.ok) { setNote({ ok: false, t: r?.error || 'We could not link this message.' }); return; }
@@ -74,7 +87,7 @@ function InboxItem({ m, tenantId, open, onToggle, onChanged }: { m: any; tenantI
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {name ? <Link href={`/clients/${m.clientId}`} className="text-[15px] font-semibold underline-offset-2 hover:underline">{name}</Link> : <span className="break-all text-[15px] font-semibold">{fromLabel}</span>}
-            {chip(email ? 'Email' : 'Text')}
+            {chip(email ? 'Email' : app ? 'App' : 'Text')}
             {m.complaint?.match && chip(m.complaint.safety ? 'Possible safety concern' : 'Possible complaint', m.complaint.safety ? { background: '#fdecec', color: '#b42318' } : { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' })}
             <span className="ml-auto whitespace-nowrap text-[12px]" style={muted}>{when(m.at)}</span>
           </div>
@@ -91,10 +104,15 @@ function InboxItem({ m, tenantId, open, onToggle, onChanged }: { m: any; tenantI
               : <button type="button" onClick={() => setLinking(true)} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={soft}>Link to a client</button>)}
             <div className="space-y-2 border-t pt-2.5" style={{ borderColor: 'var(--line, #efebe6)' }}>
               {email && <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={m.subject ? (/^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`) : 'Subject'} aria-label="Subject" className="h-10 w-full rounded-full border px-4 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />}
-              <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`Write ${email ? 'an email' : 'a text'} reply${name ? ` to ${String(name).split(' ')[0]}` : ''}…`} aria-label="Reply" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
+              <textarea ref={boxRef} value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`Write ${email ? 'an email' : app ? 'a' : 'a text'} reply${name ? ` to ${String(name).split(' ')[0]}` : ''}…`} aria-label="Reply" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
               <div className="flex flex-wrap items-center gap-3">
                 <button type="button" onClick={reply} disabled={busy || !text.trim()} className="h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-50" style={ink}>{busy ? 'Sending…' : 'Send reply'}</button>
-                <span className="text-[12px]" style={muted}>Sent from the business’s {email ? 'email' : 'number'}.</span></div>
+                <span className="text-[12px]" style={muted}>{app ? 'Shows on their visit page. If they haven’t seen it in 10 minutes, it’s sent by text.' : `Sent from the business’s ${email ? 'email' : 'number'}.`}</span></div>
+              {m.clientId && <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[12px] font-semibold" style={muted}>Send their link:</span>
+                {LINKS.map(([act, label]) => <button key={label} type="button" disabled={!!linkBusy} onMouseDown={(e) => e.preventDefault()} onClick={() => void insertLink(act)}
+                  className="h-7 rounded-full px-3 text-[12px] font-semibold disabled:opacity-50" style={soft}>{linkBusy === act ? 'Getting link…' : label}</button>)}
+              </div>}
             </div>
           </div>}
           {note && <p className="text-[13px]" style={note.ok ? okc : warn}>{note.t}</p>}

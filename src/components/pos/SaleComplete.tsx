@@ -41,6 +41,19 @@ export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, on
     const r: any = await receiptCall({ tenantId, receiptId: sale.receiptId, action: 'send', channel: ch, to: to.trim() || undefined }); setBusy(false);
     setMsg(r?.ok ? `Sent to ${to.trim() || (ch === 'email' ? sale.email : sale.phone)}.` : r?.error || 'It didn’t send.'); if (r?.ok) setCh(null);
   };
+  // Their visit link for their next appointment, as a QR code: they scan it to manage appointments, message us and
+  // turn on notifications (/api/inbox 'link_for'). Shown only when there's an upcoming appointment.
+  const [appQr, setAppQr] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!sale?.clientId) return; let live = true;
+    (async () => { try {
+      const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken();
+      const r = await fetch('/api/inbox', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'link_for', clientId: sale.clientId, do: 'message' }) }).then((x) => x.json());
+      if (!r?.ok || !r.url) return;
+      const QR = (await import('qrcode')).default; const src = await QR.toDataURL(String(r.url), { margin: 1, width: 240 }); if (live) { setAppQr(src); setLeft((n) => (n === null ? null : Math.max(n, 30))); }   // time to scan
+    } catch { /* no code: nothing to show */ } })();
+    return () => { live = false; };
+  }, [sale?.clientId, sale?.receiptId, tenantId]);
   const box = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties;
   const btn = 'h-12 rounded-full px-5 text-[15px] font-semibold disabled:opacity-40';
   return (
@@ -101,6 +114,11 @@ export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, on
       {hadVisit && sale.clientId && sale.serviceId && onBookOnScreen && <button type="button" onClick={onBookOnScreen} className={btn} style={{ background: 'color-mix(in srgb, var(--accent) 12%, var(--soft))' }}>Book their next visit on {screenName || 'the client screen'}</button>}
       {hadVisit && sale.clientId && <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('cf:resume-callback', { detail: { fromCheckout: true, snapshotKind: 'staff_book_sheet', snapshot: { clientId: sale.clientId, serviceId: sale.serviceId || undefined } } }))}
         className={`${btn} w-full`} style={{ background: 'var(--soft)' }}>Book {first ? `${first}’s` : 'their'} next visit</button>}
+      {appQr && <section className="space-y-2 rounded-3xl p-4 text-center" style={box}>
+        <p className="text-[15px] font-semibold">Scan to manage your appointments and get updates</p>
+        <img src={appQr} alt="Scan to manage your appointments and get updates" className="mx-auto h-48 w-48 rounded-xl" onClick={() => setLeft(null)} />
+        <p className="text-[12px]" style={{ color: 'var(--muted)' }}>Tell {first || 'them'}: “If you scan this, you can change appointments and message us any time.”</p>
+      </section>}
       {(sale.warnings || []).map((w: string, i: number) => <p key={i} className="rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--warn) 10%, transparent)' }}>{w}</p>)}
       <div className="grid grid-cols-2 gap-2">
         {left !== null && <p className="col-span-2 text-center text-[13px]" style={{ color: 'var(--muted)' }} aria-live="polite">Back to the desk in {left}s · <button type="button" onClick={() => setLeft(null)} className="font-semibold underline underline-offset-4">Stay</button></p>}

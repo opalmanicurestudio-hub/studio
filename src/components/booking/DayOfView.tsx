@@ -13,7 +13,7 @@ const safeDate = (v: any): Date => { try { const d = v?.toDate ? v.toDate() : ne
 // when it's past it), optional trip sharing (distance only; ends at check-in),
 // and the ways to change it. Replaces the old "Enter Studio / Portal Active" screens.
 const LATE_CHOICES = [5, 10, 15, 20, 30, 45];
-export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel }: {
+export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel, onMessage, openLate, notice }: {
     /** Where it happens — online (with a link) or at the client's place skip check-in, directions and trips. */
     place?: ServicePlace | null;
     /** Their number to call, for "they call us" phone appointments. */
@@ -40,12 +40,19 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
     /** A provider callout / business interruption — they choose a new time or cancel (no fee). */
     disruption?: { kind: string; reasonLabel?: string | null; status?: string } | null; hasDeposit?: boolean;
     onDisruptionCancel?: (deposit: 'refund' | 'credit' | 'keep' | null, extra?: any) => Promise<any>;
+    /** "Message us" — opens the visit link's messages. */
+    onMessage?: () => void;
+    /** Open the running-late section straight away (a "?do=late" link). */
+    openLate?: boolean;
+    /** A short notice under the greeting (e.g. "you're confirmed"). */
+    notice?: React.ReactNode;
 }) => {
-    const [lateOpen, setLateOpen] = useState(false); const [mins, setMins] = useState<number | null>(null); const [note, setNote] = useState('');
+    const [lateOpen, setLateOpen] = useState(!!openLate); const [mins, setMins] = useState<number | null>(null); const [note, setNote] = useState('');
     const [said, setSaid] = useState<string | null>(null); const [past, setPast] = useState(false); const [busy, setBusy] = useState(false);
     const [sharing, setSharing] = useState(false); const [tripMsg, setTripMsg] = useState<string | null>(null);
     const [dist, setDist] = useState<number | null>(null); const [confirmHere, setConfirmHere] = useState(false); const [tripNudge, setTripNudge] = useState(false);
     const watchRef = React.useRef<number | null>(null); const lastSent = React.useRef(0);
+    React.useEffect(() => { if (openLate) setLateOpen(true); }, [openLate]);
     const sendTrip = async (body: any) => { if (!trip) return null; try { const r = await fetch('/api/checkins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...trip, ...body }) }); return await r.json(); } catch { return null; } };
     const stopTrip = async (silent = false) => { if (watchRef.current !== null && typeof navigator !== 'undefined') navigator.geolocation?.clearWatch(watchRef.current); watchRef.current = null; setSharing(false); if (!silent) setTripMsg('Stopped sharing.'); await sendTrip({ trip: null }); };
     const startTrip = () => {
@@ -89,6 +96,7 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
                     <h1 className="text-4xl">Hi <b>{first}</b></h1>
                     <p className="text-[15px]" style={{ color: 'var(--muted)' }}>Your visit today</p>
                 </header>
+                {notice}
                 <section className="pub-card pub-rise space-y-3 p-5">
                     <p className="text-[18px] font-semibold">{serviceName || 'Your appointment'}</p>
                     <p className="text-[15px]" style={{ color: 'var(--muted)' }}>{when}</p>
@@ -169,6 +177,7 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
                         <button type="button" onClick={() => (sharing ? stopTrip() : startTrip())} className="h-9 rounded-full px-4 text-[14px]" style={sharing ? { background: '#f1ece6' } : { background: 'var(--accent)', color: '#fff' }}>{sharing ? 'Stop' : 'Start'}</button></div>
                     <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{tripMsg || (tripNudge ? 'On your way? Tap Start and we’ll see roughly how far away you are — only the distance, and it stops when you check in.' : 'Let us see roughly how far away you are until you arrive. Only the distance is shared, and it stops when you check in.')}</p>
                 </section>}
+                {onMessage && <button type="button" className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={onMessage}>Message us</button>}
                 <section className="space-y-2 px-1 pt-2 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
                     {(onReschedule || onCancel) && <p>Need to change it? {onReschedule && <button type="button" className="underline underline-offset-2" onClick={onReschedule}>Reschedule</button>}{onReschedule && onCancel && ' · '}{onCancel && <button type="button" className="underline underline-offset-2" onClick={onCancel}>Cancel</button>}</p>}
                     <p>{portalHref && <a className="underline underline-offset-2" href={portalHref}>Your account</a>}{portalHref && onNotifications && ' · '}{onNotifications && <button type="button" className="underline underline-offset-2" onClick={onNotifications}>Message settings</button>}</p>

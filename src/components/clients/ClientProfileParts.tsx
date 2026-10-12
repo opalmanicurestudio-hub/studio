@@ -9,6 +9,7 @@
 // guesses; with nothing to say it says nothing.
 import * as React from 'react';
 import { format, differenceInYears, differenceInDays, isSameDay, subMonths, startOfMonth, isAfter } from 'date-fns';
+import { reachOf } from '@/lib/client-reach';
 
 const safe = (v: any) => new Date(v?.toDate ? v.toDate() : v);
 const money = (n: number) => `$${Math.abs(n).toFixed(2)}`;
@@ -51,6 +52,18 @@ export function clientSummary(client: any, f: ReturnType<typeof clientFacts>, op
   return parts.join(' ');
 }
 
+/** How this client reaches us: notifications on, saved the app, uses their visit link, or texts only. */
+export function ReachPill({ client }: { client: any }) {
+  const r = reachOf(client);
+  const style: React.CSSProperties = r.reach === 'app_push' ? { background: 'color-mix(in srgb, var(--ok, #15803d) 12%, transparent)', color: 'var(--ok, #15803d)' }
+    : r.reach === 'texts' ? { background: 'var(--soft, #efebe6)', color: 'var(--muted, #6b635c)' } : { background: 'var(--soft, #efebe6)' };
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold" style={style} title={r.detail || undefined}>{r.label}</span>
+      {r.detail && <span className="text-[12px]" style={muted}>{r.detail}</span>}
+    </span>);
+}
+
 export function ClientHeader({ client, facts, showMoney, canSeeContact, balance, credit, linkCount, avatar, onBook, onMessage, onPay, onEdit, summaryOn = true, extraFlags = [] }: {
   extraFlags?: [string, 'warn' | 'info'][];
   client: any; facts: ReturnType<typeof clientFacts>; showMoney: boolean; canSeeContact: boolean; balance: number; credit: number; linkCount: number; avatar: React.ReactNode;
@@ -75,7 +88,7 @@ export function ClientHeader({ client, facts, showMoney, canSeeContact, balance,
     <header className="space-y-3 rounded-3xl p-4 md:p-6" style={{ background: 'linear-gradient(color-mix(in srgb, var(--accent, #2e6f6a) 7%, var(--paper, #faf8f5)), var(--paper, #faf8f5))', border: '1px solid var(--line, #e7e2dc)' }}>
       <div className="flex flex-wrap items-center gap-4">
         <div className="shrink-0">{avatar}</div>
-        <div className="min-w-0 flex-1"><h1 className="truncate text-[28px] font-light leading-tight md:text-[36px]">{client.name || 'Client'}</h1>{contact && <p className="mt-1 text-[14px]" style={muted}>{contact}</p>}</div>
+        <div className="min-w-0 flex-1"><h1 className="truncate text-[28px] font-light leading-tight md:text-[36px]">{client.name || 'Client'}</h1>{contact && <p className="mt-1 text-[14px]" style={muted}>{contact}</p>}<div className="mt-1.5"><ReachPill client={client} /></div></div>
         <div className="flex w-full flex-wrap gap-2 md:w-auto">
           {client.status !== 'banned' && <button type="button" onClick={onBook} className={`${btn} order-first h-12 w-full text-[15px] md:order-last md:h-10 md:w-auto md:text-[14px]`} style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Book {String(client.name || '').split(' ')[0] || 'them'}</button>}
           {onMessage && <button type="button" onClick={onMessage} className={`${btn} flex-1 md:flex-none`} style={{ background: 'var(--soft, #efebe6)' }}>Message</button>}

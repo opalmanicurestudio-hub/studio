@@ -34,6 +34,8 @@ import { placeOf } from '@/lib/service-place';
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
 import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
 import { DayOfView } from '@/components/booking/DayOfView';
+import { VisitMessages } from '@/components/booking/VisitMessages';
+import { ClientNotifyCard, isStandalone } from '@/components/booking/ClientNotifyCard';
 import { resolvePolicy } from '@/lib/booking-policies';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -375,15 +377,17 @@ const ComeInSooner = ({ tenantId, token, on: on0 }: { tenantId: string; token: s
     </VisitCard>);
 };
 const TooEarlyView = ({
-    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName, disruption, hasDeposit, onDisruptionCancel, sooner,
+    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName, disruption, hasDeposit, onDisruptionCancel, sooner, onMessage, notice, notify,
 }: {
     sooner?: { tenantId: string; token: string; on: boolean } | null;
+    onMessage?: () => void; notice?: React.ReactNode; notify?: React.ReactNode;
     startTime: string; serviceName?: string;
     onReschedule?: () => void; onCancel?: () => void; calendarUrl?: string | null;
     brand: VisitBrand; providerName?: string | null;
     disruption?: any; hasDeposit?: boolean; onDisruptionCancel?: (d: 'refund' | 'credit' | 'keep' | null, extra?: any) => Promise<any>;
 }) => (
     <VisitShell brand={brand} title={<>You’re <b>booked</b></>} subtitle={format(safeDate(startTime), 'EEEE, MMMM d · h:mm a')}>
+        {notice}
         {onDisruptionCancel && <DisruptionCard disruption={disruption} hasDeposit={!!hasDeposit} onReschedule={onReschedule} onCancel={onDisruptionCancel} />}
         <VisitCard>
             <p className="text-[18px] font-semibold">{serviceName || 'Your appointment'}</p>
@@ -392,6 +396,8 @@ const TooEarlyView = ({
         </VisitCard>
         {sooner && <ComeInSooner tenantId={sooner.tenantId} token={sooner.token} on={sooner.on} />}
         {calendarUrl && <VisitButton href={calendarUrl}>Add to calendar</VisitButton>}
+        {onMessage && <VisitButton quiet onClick={onMessage}>Message us</VisitButton>}
+        {notify}
         {(onReschedule || onCancel) && (
             <p className="px-1 pt-1 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
                 Need to change it?{' '}
@@ -2407,6 +2413,10 @@ export default function CheckInPage() {
     const [showCancelFlow, setShowCancelFlow] = useState(false);
     const [showRescheduleFlow, setShowRescheduleFlow] = useState(false);
     const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+    const [showMessages, setShowMessages] = useState(false);
+    const [openLate, setOpenLate] = useState(false);
+    // "?do=confirm" → the answer, shown as a small card at the top (dismissible).
+    const [confirmNote, setConfirmNote] = useState<{ ok: boolean; text: string } | null>(null);
     // v2 -- once the completion gate is submitted, we don't want the
     // still-cached-in-memory `completion` doc (which may not have refreshed
     // yet) to flash the gate again before Firestore's snapshot updates.
@@ -2427,6 +2437,18 @@ export default function CheckInPage() {
 
     const tenantId = appointmentData?.tenantId;
     const clientId = appointmentData?.clientId;
+
+    // A visit that's over (done, missed, cancelled a while ago, or long past): move on to their next appointment, so a
+    // link saved to the home screen always opens what's coming up. A just-cancelled visit stays (it may be undone).
+    useEffect(() => {
+        const ap: any = appointmentData; if (!ap?.id || !tenantId) return;
+        const st = String(ap.status || ''); const end = Date.parse(ap.endTime || ap.startTime || '');
+        const over = ['completed', 'no_show', 'noshow'].includes(st) || (['cancelled', 'canceled'].includes(st) && Date.now() - Date.parse(ap.cancelledAt || '') > 30 * 60000) || (Number.isFinite(end) && Date.now() - end > 3 * 3600e3);
+        if (!over) return; let live = true;
+        fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'next_link', tenantId, apptId: ap.id, k: token }) })
+            .then((r) => r.json()).then((d) => { if (live && d?.token && d.token !== token) window.location.replace(`/check-in/${d.token}${window.location.search || ''}`); }).catch(() => {});
+        return () => { live = false; };
+    }, [appointmentData?.id, (appointmentData as any)?.status, tenantId, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const tenantDocRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
     const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
@@ -2532,6 +2554,40 @@ export default function CheckInPage() {
         fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'viewed', token }) }).catch(() => {}); // best-effort
     }, [firestore, tenantId, appointmentData?.id, appointmentData?.completionLinkFirstViewedAt]);
 
+    // Every visit-link action goes through /api/appt with this page's token.
+    const apptApi = async (payload: any): Promise<any> => {
+        try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, apptId: appointmentData?.id, k: token, ...payload }) }); return await r.json(); }
+        catch { return { ok: false, error: 'We couldn’t connect. Please check your connection and try again.' }; }
+    };
+    const apptReady = !!(tenantId && appointmentData?.id);
+    // Once per page view: note that the client used their link (and whether from their home screen).
+    const linkNoted = React.useRef(false);
+    useEffect(() => {
+        if (!apptReady || linkNoted.current) return; linkNoted.current = true;
+        void apptApi({ action: 'link_used', standalone: isStandalone() });
+    }, [apptReady]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Links we send open the page straight to an action: ?do=cancel | reschedule | message | confirm | late. Applied
+    // once, then removed from the address so going back (or reloading) doesn't open it again.
+    const deepLinked = React.useRef(false);
+    useEffect(() => {
+        if (!apptReady || deepLinked.current || typeof window === 'undefined') return; deepLinked.current = true;
+        let act = '';
+        try { const u = new URL(window.location.href); act = String(u.searchParams.get('do') || ''); if (act) { u.searchParams.delete('do'); window.history.replaceState(window.history.state, '', u.pathname + (u.search || '') + u.hash); } } catch { /* no action */ }
+        if (act === 'cancel') setShowCancelFlow(true);
+        else if (act === 'reschedule') setShowRescheduleFlow(true);
+        else if (act === 'message') setShowMessages(true);
+        else if (act === 'late') setOpenLate(true);
+        else if (act === 'confirm') void apptApi({ action: 'confirm' }).then((r) => setConfirmNote(r?.ok ? { ok: true, text: 'Thank you, you’re confirmed. We look forward to seeing you.' } : { ok: false, text: r?.error || 'We couldn’t confirm your appointment here. Please give us a call.' }));
+    }, [apptReady]); // eslint-disable-line react-hooks/exhaustive-deps
+    const confirmCard = confirmNote ? (
+        <VisitCard tone={confirmNote.ok ? 'ok' : 'warn'}>
+            <div className="flex items-start justify-between gap-3">
+                <p className="text-[15px]" role="status">{confirmNote.text}</p>
+                <button type="button" aria-label="Dismiss" onClick={() => setConfirmNote(null)} className="shrink-0 text-[14px] underline underline-offset-2" style={{ color: 'var(--muted)' }}>Close</button>
+            </div>
+        </VisitCard>
+    ) : null;
+
     const updateStatus = async (status: string, lateMinutes?: number, lateNote?: string): Promise<any> => {
         if (!firestore || !token || !appointmentData) return null;
         const updates: any = { checkInStatus: status };
@@ -2591,6 +2647,18 @@ export default function CheckInPage() {
                     </Button>
                 </div>
             </ViewContainer>
+        );
+    }
+
+    // Message us — open from any state of the visit (a reply link can arrive after it's finished or cancelled).
+    if (showMessages && tenantId && appointmentData?.id) {
+        return (
+            <VisitMessages
+                brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)}
+                tenantId={tenantId}
+                api={apptApi}
+                onBack={() => setShowMessages(false)}
+            />
         );
     }
 
@@ -2781,6 +2849,9 @@ export default function CheckInPage() {
                 serviceName={service?.name}
                 onReschedule={() => setShowRescheduleFlow(true)}
                 onCancel={() => setShowCancelFlow(true)}
+                onMessage={() => setShowMessages(true)}
+                notice={confirmCard}
+                notify={tenantId ? <ClientNotifyCard tenantId={tenantId} api={apptApi} hideWhenOn /> : null}
                 sooner={tenantId && safeDate(appointmentData!.startTime).getTime() - Date.now() > 24 * 3600e3 ? { tenantId, token, on: !!(appointmentData as any)?.soonerOn } : null}
                 calendarUrl={tenantId && appointmentData?.id
                     ? `/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(appointmentData.id)}&k=${encodeURIComponent(token)}`
@@ -2813,6 +2884,9 @@ export default function CheckInPage() {
             onLate={(m, n) => updateStatus('running_late', m, n)}
             onReschedule={() => setShowRescheduleFlow(true)}
             onCancel={() => setShowCancelFlow(true)}
+            onMessage={() => setShowMessages(true)}
+            openLate={openLate}
+            notice={confirmCard}
             portalHref={tenantId && clientId ? `/portal/${tenantId}/${clientId}` : null}
             onNotifications={tenant?.notificationDefaults?.allowClientOverride !== false ? () => setShowNotificationSettings(true) : undefined}
             trip={tenantId && token && appointmentData?.id ? { tenantId, token, appointmentId: appointmentData.id } : null}

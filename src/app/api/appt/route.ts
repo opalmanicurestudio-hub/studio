@@ -302,6 +302,14 @@ export async function POST(req: NextRequest) {
       const { clientWrites } = await import('@/lib/client-messages'); const r = await clientWrites(db, tenantId, { ...a, id: apptId }, String(body.text || ''));
       return NextResponse.json(r, { status: r.ok ? 200 : 400 });
     }
+    // The saved home-screen app always opens their next appointment: once this visit is over, where to go instead.
+    if (action === 'next_link') {
+      if (!a.clientId) return NextResponse.json({ ok: true, token: null });
+      const next = (await db.collection(`tenants/${tenantId}/appointments`).where('clientId', '==', String(a.clientId)).limit(100).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((x: any) => x.id !== apptId && x.checkInToken && ['confirmed', 'pending_payment', 'deposit_pending', 'requested', 'waiting', 'checked_in'].includes(String(x.status || '')) && Date.parse(x.startTime) > Date.now() - 2 * 3600e3)
+        .sort((x: any, y: any) => Date.parse(x.startTime) - Date.parse(y.startTime))[0];
+      return NextResponse.json({ ok: true, token: next?.checkInToken || null });
+    }
     if (action === 'link_used') {
       if (a.clientId) { const { noteLinkUse } = await import('@/lib/client-push'); await noteLinkUse(db, tenantId, String(a.clientId), { standalone: body.standalone === true }).catch(() => null); }
       return NextResponse.json({ ok: true });

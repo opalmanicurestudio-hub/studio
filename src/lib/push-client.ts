@@ -14,12 +14,14 @@ export function pushState(): PushState {
   if (typeof window === 'undefined') return 'unsupported';
   if (!('Notification' in window) || !('serviceWorker' in navigator)) return isIOS() && !standalone() ? 'needs_home_screen' : 'unsupported';
   if (Notification.permission === 'denied') return 'blocked';
-  if (Notification.permission === 'granted' && localStorage.getItem('cf_push_registered') === '1') return 'on';
+  let saved = false; try { saved = localStorage.getItem('cf_push_registered') === '1'; } catch { /* private mode */ }
+  if (Notification.permission === 'granted' && saved) return 'on';
   return 'off';
 }
 
-/** Call DIRECTLY from a button's onClick. Returns the new state and, on failure, a plain reason. */
-export async function enablePush(tenantId: string): Promise<{ state: PushState; error?: string }> {
+/** This device's notification address. Asks permission FIRST (call it straight from a tap), then gets the token from
+ *  Firebase. Shared by staff (enablePush) and clients (their visit link), which each save it their own way. */
+export async function getDeviceToken(): Promise<{ token?: string; state: PushState; error?: string }> {
   if (typeof window === 'undefined' || !('Notification' in window)) return { state: pushState() };
   const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();   // first, while it's still the tap
   if (permission === 'denied') return { state: 'blocked' };
@@ -32,6 +34,16 @@ export async function enablePush(tenantId: string): Promise<{ state: PushState; 
     const swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     const token = await getToken(getMessaging(getApp()), { vapidKey, serviceWorkerRegistration: swReg });
     if (!token) return { state: 'off', error: 'This device did not provide a notification address. Please try again.' };
+    return { state: 'on', token };
+  } catch (e: any) { return { state: 'off', error: String(e?.message || 'Something went wrong. Please try again.').slice(0, 160) }; }
+}
+
+/** Call DIRECTLY from a button's onClick. Returns the new state and, on failure, a plain reason. */
+export async function enablePush(tenantId: string): Promise<{ state: PushState; error?: string }> {
+  const d = await getDeviceToken();
+  if (!d.token) return { state: d.state, ...(d.error ? { error: d.error } : {}) };
+  const token = d.token;
+  try {
     const idToken = await getAuth().currentUser?.getIdToken();
     const r = await fetch('/api/push/register', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) }, body: JSON.stringify({ tenantId, token }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No internet connection. Please try again.' }));
     if (!r.ok) return { state: 'off', error: r.error || 'Your notification settings could not be saved. Please try again.' };
