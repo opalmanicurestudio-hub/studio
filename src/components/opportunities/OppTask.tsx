@@ -15,18 +15,18 @@ export const PAID = ({ cents }: { cents: number }) => <span className="inline-fl
 const when = (iso: string) => { const d = new Date(iso); const days = Math.round((d.getTime() - Date.now()) / 864e5); return days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days === -1 ? 'Yesterday' : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); };
 const ORDER: OutcomeId[] = ['booked', 'quote_accepted', 'interested', 'not_now', 'price', 'no_answer', 'voicemail', 'declined', 'bad_experience', 'stop', 'no_longer_applies', 'done'];
 
-export function OppTask({ tenantId, item, manager = false, people = [], onChanged, onClose }: { tenantId: string; item: any; manager?: boolean; people?: any[]; onChanged: () => void; onClose?: () => void }) {
+export function OppTask({ tenantId, item, manager = false, people = [], onChanged, onClose }: { tenantId: string; item: any; manager?: boolean; people?: any[]; onChanged: (closed?: boolean) => void; onClose?: () => void }) {
   const pb = PLAYBOOKS[item.kind as OppKind] || PLAYBOOKS.manual;
   const [msg, setMsg] = React.useState(item.message || ''); const [busy, setBusy] = React.useState(''); const [say, setSay] = React.useState<OutcomeId | null>(null);
-  const [note, setNote] = React.useState(''); const [channel, setChannel] = React.useState<'call' | 'text' | 'in_person'>('call'); const [flash, setFlash] = React.useState<{ ok: boolean; t: string } | null>(null);
+  const [note, setNote] = React.useState(''); const [channel, setChannel] = React.useState<'call' | 'text' | 'in_person'>('call'); const [flash, setFlash] = React.useState<{ ok: boolean; t: string; at?: 'msg' | 'out' } | null>(null);
   React.useEffect(() => { setMsg(item.message || ''); setSay(null); setNote(''); setFlash(null); }, [item.id, item.message]);
   const go = async (action: string, extra: any = {}) => { setBusy(action); setFlash(null); const r = await payPost('/api/opportunities', { tenantId, action, id: item.id, ...extra }); setBusy(''); return r; };
   const open = item.status === 'open'; const branches = pb.branches; const allowed = new Set(branches.map((b) => b.id));
   const outcomes = ORDER.filter((o) => allowed.has(o) || ['no_longer_applies'].includes(o) || (o === 'voicemail' && allowed.has('no_answer')) || (o === 'declined' && item.kind !== 'manual'));
   const sayFor = (o: OutcomeId) => branches.find((b) => b.id === o)?.say || (o === 'voicemail' ? 'Keep it short: who you are, why you called, and that you’ll text too. No pressure.' : o === 'declined' ? '“Totally understand — thank you for letting me know.”' : '');
   const finish = async () => { if (!say) return; const r = await go('outcome', { outcome: say, note, channel });
-    if (r.ok) { setFlash({ ok: true, t: r.closed ? (r.followUpId ? 'Done — the follow-up is on your list.' : r.caseId ? 'Done — a Making it right case is open.' : say === 'stop' ? 'Done — they won’t be contacted like this again.' : 'Done.') : 'Noted — it stays on your list.' }); setTimeout(onChanged, 700); }
-    else setFlash({ ok: false, t: r.error || 'That didn’t save.' }); };
+    if (r.ok) { setFlash({ at: 'out', ok: true, t: r.closed ? (r.followUpId ? 'Done — the follow-up is on your list.' : r.caseId ? 'Done — a Making it right case is open.' : say === 'stop' ? 'Done — they won’t be contacted like this again.' : 'Done.') : 'Noted — it stays on your list.' }); setTimeout(() => onChanged(!!r.closed), 900); }
+    else setFlash({ at: 'out', ok: false, t: r.error || 'That didn’t save.' }); };
   const phone = String(item.phone || '').trim();
   return (
     <div className="flex flex-col gap-3.5" style={{ color: INK }}>
@@ -48,10 +48,11 @@ export function OppTask({ tenantId, item, manager = false, people = [], onChange
         <p className="text-[12.5px]" style={{ color: MUTED }}><b style={{ color: INK }}>When they answer:</b> {pb.next.replace('{weeks}', item.facts?.weeks || '4')}</p>
         <div className="flex flex-wrap gap-2 pt-1">
           {phone && <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className="inline-flex h-11 items-center rounded-full px-4 text-[14px] font-semibold text-white" style={{ background: INK }}>Call {item.facts?.first || ''}</a>}
-          <button type="button" disabled={!!busy} onClick={async () => { const r = await go('text'); if (r.ok) { setFlash({ ok: true, t: r.via === 'email' ? 'Sent — by email (no mobile number worked).' : 'Sent. Replies come to your messages.' }); onChanged(); } else setFlash({ ok: false, t: r.error }); }}
+          <button type="button" disabled={!!busy} onClick={async () => { const r = await go('text'); if (r.ok) { setFlash({ at: 'msg', ok: true, t: r.via === 'email' ? 'Sent — by email (no mobile number worked).' : 'Sent. Replies come to your messages.' }); onChanged(false); } else setFlash({ at: 'msg', ok: false, t: r.error }); }}
             className="h-11 rounded-full border bg-white px-4 text-[14px] font-semibold disabled:opacity-40" style={{ borderColor: LINE }}>{busy === 'text' ? 'Sending…' : 'Send as a text'}</button>
-          {pb.versions.length > 1 && <button type="button" disabled={!!busy} onClick={async () => { const r = await go('reword'); if (r.ok) setMsg(r.message); else setFlash({ ok: false, t: r.error }); }} className="h-11 rounded-full px-3 text-[13.5px]" style={{ color: MUTED }}>Another wording</button>}
+          {pb.versions.length > 1 && <button type="button" disabled={!!busy} onClick={async () => { const r = await go('reword'); if (r.ok) setMsg(r.message); else setFlash({ at: 'msg', ok: false, t: r.error }); }} className="h-11 rounded-full px-3 text-[13.5px]" style={{ color: MUTED }}>Another wording</button>}
         </div>
+        {flash && flash.at === 'msg' && <p className="text-[13.5px] font-semibold" style={{ color: flash.ok ? GREEN : RED }}>{flash.t}</p>}
         {pb.never && <p className="text-[12px]" style={{ color: RED }}><b>Never:</b> {pb.never}</p>}
       </div>}
 
@@ -66,9 +67,10 @@ export function OppTask({ tenantId, item, manager = false, people = [], onChange
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder={say === 'bad_experience' ? 'What did they say? (goes on the case)' : 'A note for next time (optional)'} aria-label="Note" className="w-full rounded-[12px] border bg-white p-2.5 text-[14px]" style={{ borderColor: LINE }} />
           <p className="text-[12.5px]" style={{ color: MUTED }}>{say === 'booked' ? 'Book it in the planner as usual — it’s counted once the visit is paid.' : say === 'not_now' ? 'Closes this one and puts a gentle follow-up on your list in 3 weeks.' : say === 'interested' ? 'Puts a follow-up on your list for tomorrow.' : say === 'no_answer' || say === 'voicemail' ? `Stays on your list. After ${3} tries it stops on its own.` : say === 'bad_experience' ? 'Opens a Making it right case. Nothing is offered to them while it’s open.' : say === 'stop' ? 'Takes them off every list — campaigns, reminders and tasks.' : say === 'price' ? 'Stays on your list.' : 'Closes it.'}</p>
           <button type="button" disabled={!!busy || (say === 'bad_experience' && !note.trim())} onClick={finish} className="h-11 w-full rounded-full text-[14.5px] font-semibold text-white disabled:opacity-40" style={{ background: INK }}>{busy === 'outcome' ? 'Saving…' : `Save — ${OUTCOMES[say].label.toLowerCase()}`}</button>
+          {flash && flash.at === 'out' && <p className="text-[13.5px] font-semibold" style={{ color: flash.ok ? GREEN : RED }}>{flash.t}</p>}
         </div>}
       </div>}
-      {flash && <p className="text-[13.5px] font-semibold" style={{ color: flash.ok ? GREEN : RED }}>{flash.t}</p>}
+      {flash && !flash.at && <p className="text-[13.5px] font-semibold" style={{ color: flash.ok ? GREEN : RED }}>{flash.t}</p>}
 
       {(item.attempts || []).length > 0 && <div className="space-y-1"><p className="text-[12px] font-bold" style={{ color: MUTED }}>SO FAR</p>
         {[...item.attempts].reverse().map((a: any, i: number) => <p key={i} className="text-[13px]" style={{ color: MUTED }}>{new Date(a.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {a.byName} · {a.outcome ? OUTCOMES[a.outcome as OutcomeId]?.label : a.note}{a.outcome && a.note ? ` — “${a.note}”` : ''}</p>)}</div>}

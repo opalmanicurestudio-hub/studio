@@ -15,7 +15,7 @@ export function YourTasks({ tenantId, accent = INK }: { tenantId: string; accent
   const open = (items || []).filter((o) => o.status === 'open');
   const sel = (items || []).find((o) => o.id === openId) || null;
   if (!open.length && !sel) return null;
-  const dueWord = (iso: string) => { const t = new Date(iso); const eod = new Date(); eod.setHours(23, 59, 59, 999); if (t <= eod) return 'Due today'; if (t.getTime() <= eod.getTime() + 864e5) return 'Due tomorrow'; return `Due ${t.toLocaleDateString('en-US', { weekday: 'short' })}`; };
+  const dueWord = (iso: string) => { const t = new Date(iso); const eod = new Date(); eod.setHours(23, 59, 59, 999); if (t <= eod) return 'Due today'; if (t.getTime() <= eod.getTime() + 864e5) return 'Due tomorrow'; return t.getTime() - eod.getTime() < 6 * 864e5 ? `Due ${t.toLocaleDateString('en-US', { weekday: 'short' })}` : `Due ${t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`; };
   const shown = all ? open : open.slice(0, 3);
   return (
     <section className="space-y-2.5" aria-label="Your tasks" style={{ color: INK }}>
@@ -28,6 +28,6 @@ export function YourTasks({ tenantId, accent = INK }: { tenantId: string; accent
           <span className="inline-flex h-9 items-center rounded-full px-4 text-[13.5px] font-semibold" style={i === 0 ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>{i === 0 ? 'Start' : 'Open'}</span></span></button>)}
       {sel && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[80] overflow-y-auto" style={{ background: '#fff' }} role="dialog" aria-label="Task">
-          <div className="mx-auto max-w-[520px] px-4 pb-10 pt-5"><OppTask tenantId={tenantId} item={sel} onClose={() => setOpenId(null)} onChanged={() => { void load().then(() => setOpenId(null)); }} /></div></div>, document.body)}
+          <div className="mx-auto max-w-[520px] px-4 pb-10 pt-5"><OppTask tenantId={tenantId} item={sel} onClose={() => setOpenId(null)} onChanged={(closed) => { void load().then(() => { if (closed) setOpenId(null); }); }} /></div></div>, document.body)}
     </section>);
 }
