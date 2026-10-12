@@ -86,6 +86,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
   };
 
   const people = staff.filter((m: any) => !m.archived && m.role !== 'renter' && !m.isRenter);
+  const renters = staff.filter((m: any) => !m.archived && m.isActive !== false && (m.role === 'renter' || m.isRenter));
   return (
     <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE, color: INK }}>
       <div className="flex flex-wrap items-center gap-2.5 border-b px-4 py-3 md:px-5" style={{ borderColor: LINE, background: 'rgba(255,255,255,.8)' }}>
@@ -142,9 +143,10 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
               <option value="">The business’s choice</option><option value="0">No check-in</option><option value="2">2 days</option><option value="3">3 days</option><option value="7">7 days</option></select></label></Side> : <>
           <Side title="Shows up during work"><DocLinksEditor tenantId={tenantId} value={links} onChange={setLinks} />
             {isLive && <p className="text-[12px]" style={{ color: MUTED }}>Changes here apply when you save the draft. Nobody has to sign again.</p>}</Side>
-          <Side title="Who it’s for"><div className="flex flex-wrap gap-1.5"><Chip on={assignedRoles.includes('all')} onClick={() => toggleRole('all')}>Everyone</Chip>{roles.map(([id, r]) => <Chip key={id} on={assignedRoles.includes(id)} onClick={() => toggleRole(id)}>{r.name}</Chip>)}</div>
+          <Side title="Who it’s for"><div className="flex flex-wrap gap-1.5"><Chip on={assignedRoles.includes('all')} onClick={() => toggleRole('all')}>Everyone</Chip>{roles.map(([id, r]) => <Chip key={id} on={assignedRoles.includes(id)} onClick={() => toggleRole(id)}>{r.name}</Chip>)}{renters.length > 0 && <Chip on={assignedRoles.includes('renter')} onClick={() => toggleRole('renter')}>Renters</Chip>}</div>
+            {renters.length > 0 && <p className="text-[12px]" style={{ color: MUTED }}>“Everyone” is your team. Renters only get documents sent to renters — they read and sign them in their portal.</p>}
             <details><summary className="cursor-pointer text-[13px] underline underline-offset-2" style={{ color: MUTED }}>Or pick people{assignedStaffIds.length ? ` (${assignedStaffIds.length})` : ''}</summary>
-              <div className="mt-2 flex flex-wrap gap-1.5">{people.map((m: any) => <Chip key={m.id} on={assignedStaffIds.includes(m.id)} onClick={() => setAssignedStaffIds((p) => (p.includes(m.id) ? p.filter((x) => x !== m.id) : [...p, m.id]))}>{m.name}</Chip>)}</div></details></Side>
+              <div className="mt-2 flex flex-wrap gap-1.5">{[...people, ...renters].map((m: any) => <Chip key={m.id} on={assignedStaffIds.includes(m.id)} onClick={() => setAssignedStaffIds((p) => (p.includes(m.id) ? p.filter((x) => x !== m.id) : [...p, m.id]))}>{m.name}{m.role === 'renter' || m.isRenter ? ' (renter)' : ''}</Chip>)}</div></details></Side>
           <Side title="Signing">
             <label className="flex items-center justify-between gap-2 text-[14px]"><span>Sign by</span><input type="date" value={signBy} onChange={(e) => setSignBy(e.target.value)} className="h-10 rounded-[10px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }} /></label>
             {signBy && <label className="flex items-center justify-between gap-2 text-[14px]"><span>Remind them the day before</span><input type="checkbox" checked={remindBefore} onChange={(e) => setRemindBefore(e.target.checked)} className="h-5 w-5" /></label>}

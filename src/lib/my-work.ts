@@ -17,7 +17,10 @@ export type WorkItem = {
 export function docIsFor(d: any, staff: { id: string; role?: string }) {
   if (!d || d.status !== 'published' || d.category === 'aftercare') return false;   // aftercare is for clients
   const roles: string[] = Array.isArray(d.assignedRoles) ? d.assignedRoles : [];
-  return roles.includes('all') || (!!staff.role && roles.includes(String(staff.role))) || (Array.isArray(d.assignedStaffIds) && d.assignedStaffIds.includes(staff.id));
+  if (Array.isArray(d.assignedStaffIds) && d.assignedStaffIds.includes(staff.id)) return true;
+  // "Everyone" is the team — renters only get documents sent to renters (building rules) or to them by name.
+  if (staff.role === 'renter' || (staff as any).isRenter === true) return roles.includes('renter');
+  return roles.includes('all') || (!!staff.role && roles.includes(String(staff.role)));
 }
 const dayOf = (iso?: string | null) => (iso ? String(iso).slice(0, 10) : '');
 const nice = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });

@@ -3426,6 +3426,10 @@ export async function POST(req: NextRequest) {
       if (t.unreadForRenter === true) items.push({ kind: 'message', tab: 'studio', title: 'The studio replied', body: String(t.lastText || '').slice(0, 90), at: t.lastAt || since(0), tone: 'amber' });
 
       for (const d of docs.docs) { const x = d.data() as any; items.push({ kind: 'document', tab: 'studio', title: x.action === 'acknowledge' ? 'A document to read' : 'A document to sign', body: x.title, at: x.sentAt, tone: 'amber' }); }
+      // Building rules from the studio (lib/renter-rules) — new ones to sign, or a new version to sign again.
+      try { const { rulesFor } = await import('@/lib/renter-rules'); const br = await rulesFor(db, tenantId, rid);
+        for (const x of br.rules) if (x.state !== 'signed') items.push({ kind: 'document', tab: 'studio', title: x.state === 'resign' ? 'The building rules changed — sign again' : 'Building rules to sign', body: `${x.title}${x.signBy ? ` · by ${x.signBy}` : ''}`, at: new Date(now).toISOString(), tone: 'amber' });
+      } catch { /* the rest of Today still shows */ }
 
       for (const d of tickets.docs) {
         const x = d.data() as any;

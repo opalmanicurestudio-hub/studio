@@ -27,7 +27,7 @@ const CATEGORIES = [
   ['other', 'Other'],
 ] as const;
 
-const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: string; sections: Array<{ heading: string; body: string; type?: string }> }> = [
+const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: string; forRenters?: boolean; sections: Array<{ heading: string; body: string; type?: string }> }> = [
   {
     key: 'opening',
     title: 'Opening checklist',
@@ -126,6 +126,43 @@ const TEMPLATES: Array<{ key: string; title: string; category: string; blurb: st
       { type: 'step', heading: 'Day to day', body: 'The small habits that make it last — and the products we recommend.' },
       { type: 'tip', heading: 'Make it last', body: 'Book your next visit before this one grows out, so you get your favorite time.' },
       { type: 'warning', heading: 'Something not right?', body: 'If anything changes in the first week, tell us — we’ll look at it and make it right.' },
+    ],
+  },
+  {
+    key: 'building-shared', forRenters: true,
+    title: 'Shared spaces & the back room',
+    category: 'policy',
+    blurb: 'Building rules for renters — they read and sign it in their portal.',
+    sections: [
+      { type: 'text', heading: 'Why we have these', body: 'Everyone in the building shares these spaces. A few simple rules keep them clean, safe and fair for every business here.' },
+      { type: 'step', heading: 'The back room', body: 'Label your products and tools. Nothing on the floor. Wipe down shared counters after use.' },
+      { type: 'step', heading: 'Shared equipment', body: 'Book shared equipment on the sheet. Report anything broken through the portal the same day.' },
+      { type: 'step', heading: 'Closing up', body: 'The last one out runs the closing checklist for the shared spaces.' },
+      { type: 'warning', heading: 'Safety', body: 'Never prop an outside door open. Keep fire exits and extinguishers clear.' },
+    ],
+  },
+  {
+    key: 'building-hours', forRenters: true,
+    title: 'Hours, keys & the alarm',
+    category: 'policy',
+    blurb: 'When the building is open, keys and codes, and the alarm — for renters to sign.',
+    sections: [
+      { type: 'step', heading: 'Building hours', body: 'The hours the building is open, and how early you can arrive or late you can stay.' },
+      { type: 'step', heading: 'Keys and codes', body: 'Keys and door codes are yours only — never share or copy them. Tell us straight away if one is lost.' },
+      { type: 'checklist', heading: 'If you’re last out', body: 'Lights off in shared spaces\nBack door locked\nAlarm set' },
+      { type: 'warning', heading: 'If the alarm goes off', body: 'Who to call, and what to do while you wait.' },
+    ],
+  },
+  {
+    key: 'building-sanitation', forRenters: true,
+    title: 'Sanitation in the building',
+    category: 'policy',
+    blurb: 'The building’s standard for shared sinks, laundry and waste — your own station is yours to run.',
+    sections: [
+      { type: 'text', heading: 'Your station, the shared spaces', body: 'How you clean and disinfect your own station is part of your business. These are the rules for the spaces everyone uses.' },
+      { type: 'step', heading: 'Shared sinks', body: 'Rinse and wipe after every use. No product left in the basin.' },
+      { type: 'step', heading: 'Laundry and waste', body: 'Used towels in the laundry bin. Sharps in the sharps container only.' },
+      { type: 'tip', heading: 'Running low?', body: 'Tell the studio through the portal before something runs out.' },
     ],
   },
 ];
@@ -825,7 +862,8 @@ export default function DocumentsPage() {
       category: tpl ? tpl.category : 'sop',
       // Keep each template section's type (checklist, step, warning, tip) and photo lines — they used to be dropped.
       sections: tpl ? withItemIds(tpl.sections.map((x: any) => ({ id: nanoid(), type: x.type || 'text', heading: x.heading, body: x.body, photoLines: Array.isArray(x.photoLines) ? x.photoLines : [] }))) : [],
-      assignedRoles: tpl?.category === 'aftercare' ? [] : ['all'],   // aftercare is for clients
+      assignedRoles: tpl?.category === 'aftercare' ? [] : (tpl as any)?.forRenters ? ['renter'] : ['all'],   // aftercare is for clients; building rules for renters
+      ...((tpl as any)?.forRenters ? { collectionId: 'building', requireSignature: true } : {}),
       assignedStaffIds: [],
       status: 'draft',
       version: 1,

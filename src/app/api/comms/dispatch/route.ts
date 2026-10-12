@@ -423,10 +423,12 @@ async function handleDocument(db: any, tenantId: string, documentId: string) {
     return { ok: false, reason: 'staff_read_failed' };
   }
 
+  // "Everyone" is the team; renters get building rules (sent to renters, or to them by name) in their own portal.
+  const isRenter = (m: any) => m.role === 'renter' || m.isRenter === true;
   const recipients = staff.filter(m =>
     !m.archived &&
     m.email &&
-    (roles.includes('all') || (m.role && roles.includes(m.role)) || ids.includes(m.id))
+    (ids.includes(m.id) || (isRenter(m) ? roles.includes('renter') : (roles.includes('all') || (m.role && roles.includes(m.role)))))
   ).slice(0, 50);
 
   if (recipients.length === 0) return { ok: true, sent: 0 };
@@ -436,6 +438,7 @@ async function handleDocument(db: any, tenantId: string, documentId: string) {
 
   let sent = 0;
   for (const m of recipients) {
+    const renter = isRenter(m);
     const result = await sendEmail({
       db, tenantId, kind: 'staff_document_notice', recipientType: 'staff', recipientId: m.id || null,
       recipientName: m.name || null,
@@ -444,17 +447,19 @@ async function handleDocument(db: any, tenantId: string, documentId: string) {
       subject,
       html: brandedEmailHtml({
         studioName: businessName,
-        title: isUpdate ? 'A document you’ve read has changed.' : 'Something new to read.',
+        title: renter ? (isUpdate ? 'The building rules changed — please sign again.' : 'Building rules to sign.') : isUpdate ? 'A document you’ve read has changed.' : 'Something new to read.',
         bodyHtml: `
           ${detailCard([
             `<p style="margin:0;font-size:15px;font-weight:800;color:#0f172a;">${esc(title)}</p>`,
             `<p style="margin:4px 0 0;color:#64748b;font-size:13px;">Version ${version}</p>`,
           ])}
-          <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">${isUpdate
+          <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">${renter
+            ? `Open your renter portal, tap <strong>Studio</strong>, read ${isUpdate ? 'what changed' : 'it'} and sign.${after.signBy ? ` Please sign by ${esc(String(after.signBy))}.` : ''}`
+            : isUpdate
             ? 'It was updated since you last confirmed it. Open your staff portal, tap <strong>Documents</strong>, read the new version, and tap “I’ve read and understood this.”'
             : 'Open your staff portal, tap <strong>Documents</strong>, read it, and tap “I’ve read and understood this” when you’re done.'}</p>`,
-        cta: { label: 'Open my portal', url: portalUrl },
-        footerNote: `Sent by ${businessName} via their team documents system.`,
+        cta: { label: 'Open my portal', url: renter ? `${appBase()}/rent/${tenantId}?tab=studio` : portalUrl },
+        footerNote: renter ? `Sent by ${businessName}.` : `Sent by ${businessName} via their team documents system.`,
       }),
     });
     if (result.ok) sent++;

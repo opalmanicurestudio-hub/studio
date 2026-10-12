@@ -1,4 +1,5 @@
 'use client';
+import { BuildingRules } from '@/components/rent/BuildingRules';
 import { MyGiftCards } from '@/components/rent/MyGiftCards';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
@@ -706,6 +707,10 @@ export default function RenterPortalPage() {
             </section>
             </div>
             <div className={tab === 'studio' ? 'space-y-8' : 'hidden'}>
+            {session?.token && data?.renter?.id && (
+              <BuildingRules tenantId={tenantId} token={session.token} name={data?.renter?.name || null} />
+            )}
+
             {session?.token && data?.renter?.id && (
               <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />
             )}

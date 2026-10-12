@@ -12,10 +12,13 @@ export const DEFAULT_COLLECTIONS: DocCollection[] = [
   { id: 'front-desk', name: 'Front desk', color: '#3d5a99', soft: '#e6ecf7' },
   { id: 'handbook', name: 'Handbook', color: '#4b5563', soft: '#eceef1' },
   { id: 'policies', name: 'Policies', color: '#8a3b3b', soft: '#f5e7e7' },
+  { id: 'building', name: 'Building rules', color: '#a14d6b', soft: '#f6e6ec' },
   { id: 'aftercare', name: 'Client aftercare', color: '#2d6a3e', soft: '#e5f0e8' },
 ];
 /** Client aftercare (lib/aftercare) always has its own collection, even when a business names its own. */
 export const AFTERCARE_COLLECTION = DEFAULT_COLLECTIONS[DEFAULT_COLLECTIONS.length - 1];
+/** Rules for everyone in the building — renters sign these in their portal (Part 6). */
+export const BUILDING_COLLECTION = DEFAULT_COLLECTIONS.find((c) => c.id === 'building')!;
 /** Colors a business can pick for its own collections (cover, soft background). */
 export const COLLECTION_COLORS: Array<[string, string]> = [['#2f6f6a', '#e3efed'], ['#7a4b8c', '#efe6f3'], ['#9a6a1f', '#f6eedf'], ['#3d5a99', '#e6ecf7'], ['#4b5563', '#eceef1'], ['#8a3b3b', '#f5e7e7'], ['#2d6a3e', '#e5f0e8'], ['#a14d6b', '#f6e6ec']];
 
@@ -53,7 +56,9 @@ export function docStats(d: any) {
 export function assignedPeople(d: any, staff: any[]) {
   if (d?.category === 'aftercare') return [];   // for clients — nobody on the team signs it
   const roles: string[] = Array.isArray(d?.assignedRoles) ? d.assignedRoles : [];
-  return (staff || []).filter((m: any) => !m.archived && (roles.includes('all') || (m.role && roles.includes(m.role)) || (Array.isArray(d?.assignedStaffIds) && d.assignedStaffIds.includes(m.id))));
+  // "Everyone" is the team. Renters get a document only when it's sent to renters, or to them by name (building rules).
+  const isRenter = (m: any) => m.role === 'renter' || m.isRenter === true;
+  return (staff || []).filter((m: any) => !m.archived && ((isRenter(m) ? roles.includes('renter') : roles.includes('all') || (m.role && roles.includes(m.role))) || (Array.isArray(d?.assignedStaffIds) && d.assignedStaffIds.includes(m.id))));
 }
 
 /** Searching titles and what's inside. */
