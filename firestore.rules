@@ -205,8 +205,10 @@ service cloud.firestore {
       allow read: if isStaff(tenantId);
       allow write: if false;
     }
+    // The completion record holds the client's email and form ids: the team only. Clients reach it through
+    // /api/visit-completion, which checks their link and returns a safe copy.
     match /tenants/{tenantId}/bookingCompletions/{token} {
-      allow get: if true;
+      allow get: if isTeam(tenantId);
       allow list, write: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/completionSubmissions/{subId} {
@@ -217,9 +219,11 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isStaff(tenantId);
     }
+    // Lounge and kiosk orders: the team only. Guests and the kiosk go through /api/guest-lounge and
+    // /api/concierge/requests, which check the link or the menu and return only what the screen shows.
     match /tenants/{tenantId}/refreshmentRequests/{requestId} {
-      allow read, create: if true;
-      allow update: if isStaff(tenantId);
+      allow read, create, update: if isTeam(tenantId);
+      allow delete: if false;
     }
     match /tenants/{tenantId}/notifications/{notificationId} {
       // The team and the portal can post; the public quote page can only post its own quote notices to the owner —
@@ -568,6 +572,18 @@ service cloud.firestore {
       allow read, create, update: if isTeam(tenantId);
       allow delete: if false;
     }
+    // Identity checks: codes sent to clients and the phones they've confirmed. Server only.
+    match /tenants/{tenantId}/clientVerifications/{id} {
+      allow read, write: if false;
+    }
+    match /tenants/{tenantId}/clientDevices/{id} {
+      allow read, write: if false;
+    }
+    // Who opened a client's health information. Written by the server; managers may read it.
+    match /tenants/{tenantId}/healthViewLog/{id} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isTeam(tenantId) &&
         !(collection in [
@@ -617,7 +633,8 @@ service cloud.firestore {
           'maintenanceWorkers',
           'maintenancePlans',
           'locations',
-          'messageLog', 'smsInbox', 'smsThreads', 'voiceCalls', 'clientNotes', 'voiceInbox'
+          'messageLog', 'smsInbox', 'smsThreads', 'voiceCalls', 'clientNotes', 'voiceInbox',
+          'clientVerifications', 'clientDevices', 'healthViewLog'
         ]);
     }
     match /tenants/{tenantId}/jobListings/{listingId} {

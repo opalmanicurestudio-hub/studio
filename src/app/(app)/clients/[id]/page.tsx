@@ -4,6 +4,9 @@ import { ClientTimingCard } from '@/components/clients/ClientTimingCard';
 import { canSeeClientContact, canMessageClients, stripHiddenContact } from '@/lib/privacy';
 import { ClientTimeline, ClientMessages, ClientFormsNeeded, ClientPhotos, ClientNotes, useClientMessages } from '@/components/clients/ClientTabs';
 import { ClientHeader, NextVisitCard, ClientRail, ClientQuickFacts, clientFacts } from '@/components/clients/ClientProfileParts';
+import { ContactStatus, HealthViewLog } from '@/components/clients/ClientPrivacyParts';
+import { logHealthOpen } from '@/lib/health-view-client';
+import { privacyOf } from '@/lib/health-privacy';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
@@ -353,7 +356,9 @@ export default function ClientDetailPage() {
       resource: 'client_documents_tab',
       accessedAt: new Date().toISOString(),
     }).catch(() => { /* best-effort — never blocks the UI on a logging failure */ });
-  }, [firestore, tenantId, clientId, currentUser]);
+    // Health information mode: opening signed forms and consent answers is also recorded on the server (who, when).
+    logHealthOpen(selectedTenant, { clientId: String(clientId), what: 'Forms and consent answers' });
+  }, [firestore, tenantId, clientId, currentUser, selectedTenant]);
 
   const [docLightboxImages, setDocLightboxImages] = useState<{ url: string; name: string }[]>([]);
   const [docLightboxIndex, setDocLightboxIndex] = useState(0);
@@ -548,6 +553,8 @@ export default function ClientDetailPage() {
       return <div className="flex min-h-screen w-full flex-col bg-slate-50/50"><AppHeader title="Profile" /><main className="flex-1 p-4 md:p-10 flex items-center justify-center"><Loader className="w-8 h-8 animate-spin text-primary" /></main></div>;
   }
   if (clientError || !client || !tenantId) return notFound();
+  const isPrivacyManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase()) || (!!(selectedTenant as any)?.userId && (selectedTenant as any).userId === currentUser?.uid);
+  const healthMode = privacyOf(selectedTenant).healthMode;
 
   const upcomingAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) > new Date() && apt.status !== 'cancelled');
   const pastAppointments = appointmentsForThisClient.filter(apt => safeDate(apt.startTime) <= new Date()).sort((a,b) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime());
@@ -572,6 +579,7 @@ export default function ClientDetailPage() {
                 className="h-16 w-16 rounded-full text-xl sm:h-20 sm:w-20"
                 fallbackClassName="bg-[var(--soft)] text-[var(--ink)]"
               />}
+          contactStatus={seesContact ? <ContactStatus tenantId={tenantId} client={client} isManager={isPrivacyManager} /> : null}
           onBook={() => setBookOpen(true)} onPay={showFinancials ? () => { void handleQuickSettle(); } : undefined} extraFlags={isHighRisk && selectedTenant?.guardianProtocolEnabled !== false ? [['Stricter booking rules (cancellation history)', 'warn']] : []} onEdit={isOwnerOrAdmin ? () => setIsEditClientOpen(true) : undefined}
           onMessage={!seesContact && mayMessage ? () => setTab('messages') : seesContact && (client.phone || client.email) ? () => { window.location.href = client.phone ? `sms:${String(client.phone).replace(/[^\d+]/g, '')}` : `mailto:${client.email}`; } : undefined} />
         <ClientQuickFacts facts={facts!} showMoney={!!showFinancials} ltv={safeLTV} balance={safeBalance} credit={safeStoreCredit} />
@@ -653,6 +661,7 @@ export default function ClientDetailPage() {
 
               <TabsContent value="documents" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                 <ClientFormsNeeded appointments={facts!.mine} services={services || []} consentForms={consentFormDefs} consents={signedConsents || []} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} />
+                {healthMode && isPrivacyManager && tab === 'documents' && <HealthViewLog tenantId={tenantId} clientId={client.id} />}
                 <div className="space-y-4 text-left">
                   <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
                     <FileSignature className="w-5 h-5" />Signed Consent Forms

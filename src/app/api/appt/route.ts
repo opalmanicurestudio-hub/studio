@@ -96,11 +96,9 @@ const fmtWhen = (iso: string, tzOffset: number, zone?: string | null) => {
   return `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
 };
 
-/** Has the client verified this device (a code sent to their phone or email)? lib/client-verify. Until it's built, nothing is trusted. */
+/** Has the client confirmed this device with a code (lib/client-verify)? */
 async function deviceTrusted(db: any, tenantId: string, clientId: string, device: string): Promise<boolean> {
-  if (!device || !clientId) return false;
-  try { const v: any = (await db.doc(`tenants/${tenantId}/clientDevices/${device.replace(/[^\w-]/g, '').slice(0, 80)}`).get()).data();
-    return !!v && v.clientId === clientId && !v.revokedAt && Date.parse(v.expiresAt || '') > Date.now(); } catch { return false; }
+  const V = await import('@/lib/client-verify'); return V.deviceTrusted(db, tenantId, clientId, device);
 }
 
 export async function POST(req: NextRequest) {
@@ -118,6 +116,35 @@ export async function POST(req: NextRequest) {
     // used forever). Their newer visits have their own links.
     { const end = Date.parse(a.endTime || a.startTime || ''); if (action !== 'view' && Number.isFinite(end) && Date.now() - end > 30 * 864e5)
       return NextResponse.json({ ok: false, code: 'expired', error: 'This link has expired. Please use the link in your most recent confirmation, or contact us.' }, { status: 410 }); }
+
+    // Someone reported this link reached the wrong person: it stays off until the desk sends a new one.
+    if (a.linkRevokedAt && action !== 'not_me') return NextResponse.json({ ok: false, code: 'revoked', error: 'This link has been turned off. Please contact us for a new one.' }, { status: 410 });
+
+    // "IS THIS YOU?" A code to the phone or email on record; the phone is then trusted for 90 days.
+    if (action === 'verify_status') {
+      const trusted = !!a.clientId && await deviceTrusted(db, tenantId, String(a.clientId), String(body.device || ''));
+      const c: any = a.clientId ? (await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).get()).data() || {} : {};
+      const V = await import('@/lib/client-verify');
+      return NextResponse.json({ ok: true, trusted, options: [c.phone && !c.phoneReportedWrongAt && c.smsOptOut !== true ? { channel: 'sms', label: `Text the number ${V.maskPhone(c.phone)}` } : null, c.email ? { channel: 'email', label: `Email ${V.maskEmail(c.email)}` } : null].filter(Boolean) });
+    }
+    if (action === 'verify_start') {
+      if (!a.clientId) return NextResponse.json({ ok: false, error: 'Please contact us to confirm your details.' }, { status: 400 });
+      { const { limitPublic } = await import('@/lib/rate-limit'); const blocked = await limitPublic(req, 'verify', tenantId, { perHour: 10, perDay: 30 }); if (blocked) return blocked; }
+      const V = await import('@/lib/client-verify');
+      return NextResponse.json(await V.startVerify(db, tenantId, String(a.clientId), { channel: body.channel === 'email' ? 'email' : 'sms', purpose: 'device' }));
+    }
+    if (action === 'verify_check') {
+      const V = await import('@/lib/client-verify');
+      const r: any = await V.checkVerify(db, tenantId, { verificationId: String(body.verificationId || ''), code: String(body.code || ''), device: String(body.device || ''), platform: String(body.platform || '') });
+      if (r.ok && r.clientId !== a.clientId) return NextResponse.json({ ok: false, error: 'That code doesn’t match. Please check it and try again.' });
+      return NextResponse.json(r);
+    }
+    if (action === 'not_me') {
+      if (!a.clientId) return NextResponse.json({ ok: true });
+      const V = await import('@/lib/client-verify');
+      await V.notMe(db, tenantId, { clientId: String(a.clientId), via: 'link' });
+      return NextResponse.json({ ok: true, message: 'Thank you for letting us know. We’ve stopped messages to this number, and this link no longer works.' });
+    }
 
     const tDoc = (await db.doc(`tenants/${tenantId}`).get()).data() as any || {};
     const studioName = tDoc.name || tDoc.businessName || 'The studio';

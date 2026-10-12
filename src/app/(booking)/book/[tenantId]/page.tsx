@@ -73,7 +73,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   /* What the server actually made of the last booking — read by the sheet's
    * confirmation screen so it never claims "confirmed" for a request. */
-  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean } | null>(null);
+  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null } | null>(null);
   const [tenant,          setTenant]          = useState<any>(null);
   const [services,        setServices]        = useState<any[]>([]);
   const [staff,           setStaff]           = useState<any[]>([]);
@@ -572,7 +572,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       }
       /* The SERVER decided what this booking became; the screen, the email
        * and the text all say the same thing. */
-      setBookingOutcome({ status: String(out.status || 'confirmed'), notice: String(out.clientNotice || ''), depositCents: Number(out.depositCents) || 0, cardOnFile: !!out.requiresCardOnFile });
+      setBookingOutcome({ status: String(out.status || 'confirmed'), notice: String(out.clientNotice || ''), depositCents: Number(out.depositCents) || 0, cardOnFile: !!out.requiresCardOnFile,
+        // "Confirm your number" (optional) on the confirmation screen, for a new client or a phone never confirmed.
+        verify: out.phoneUnconfirmed && out.appointmentId && out.checkInToken ? { tenantId, apptId: String(out.appointmentId), k: String(out.checkInToken) } : null });
 
       // A deposit is due now → pay against THIS appointment.
       if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {

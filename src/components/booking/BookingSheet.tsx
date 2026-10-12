@@ -1,5 +1,6 @@
 'use client';
 
+import { ConfirmNumberCard } from '@/components/visit/VerifyCard';
 import { emptyParty, partyHasMore, type Party } from '@/components/booking/PartyBuilder';
 import { groupPolicy } from '@/lib/group-policy';
 import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
@@ -210,7 +211,7 @@ interface BookingSheetProps {
   calendarEvents?:  any[];
   /** What the SERVER made of the booking. Absent = an older caller, in
    *  which case the sheet keeps its original confirmed wording. */
-  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean } | null;
+  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null } | null;
   /** 'page' renders the flow as an ordinary page instead of a floating panel.
    *
    * Every mobile failure this component had came from being a floating box:
@@ -1143,6 +1144,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                       </div>
                     </div>
                   </div>
+                  <div className="mx-auto max-w-sm text-left"><ConfirmNumberCard verify={bookingOutcome?.verify} businessName={tenant?.name} /></div>
                   <Button style={{ borderRadius: r2 }} className="w-full h-12 text-sm font-black uppercase tracking-widest shadow-xl shadow-primary/20" variant="outline" onClick={() => onOpenChange(false)}>Finish</Button>
                 </motion.div>
 

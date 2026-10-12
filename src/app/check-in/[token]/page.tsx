@@ -36,6 +36,7 @@ import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice
 import { DayOfView } from '@/components/booking/DayOfView';
 import { VisitMessages } from '@/components/booking/VisitMessages';
 import { ClientNotifyCard, isStandalone } from '@/components/booking/ClientNotifyCard';
+import { VerifyCard, NotMeLink, LinkOffView, VisitNotice, visitDevice } from '@/components/visit/VerifyCard';
 import { resolvePolicy } from '@/lib/booking-policies';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -192,13 +193,8 @@ const CancelledView = ({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    // The server reads who, what and how much from the completion record itself.
                     tenantId, completionToken: token,
-                    appointmentId: completion?.owedFeeAppointmentId,
-                    clientId: completion?.clientId,
-                    clientName: completion?.clientName,
-                    clientEmail: completion?.clientEmail,
-                    depositAmount: feeAmount,
-                    serviceName: completion?.serviceName,
                 }),
             });
             const out = await res.json().catch(() => null);
@@ -1345,16 +1341,14 @@ const ConciergeExperienceView = ({
         }
     };
 
-    // Live from the browser's own listener — `refreshmentRequests` is one of the
-    // few collections a guest CAN read, so this stays in sync when the back of
-    // house changes a status. (The API also returns a snapshot of these, used
-    // only as a cross-check on load.)
+    // From /api/guest-lounge (polled by the parent) — the server already narrows
+    // the list to this visit, so a row without an appointmentId is this visit's.
     // Live = on the board somewhere. Delivered and recalled orders drop out,
     // which is also what re-enables that item's Request button — so a guest who
     // has already had a cold brew can ask for a second one, and a guest whose
     // drink is still being made cannot double-order it.
     const pendingRequestsForThisSession = activeRequests.filter(r => {
-        if (r.appointmentId !== appointment?.id) return false;
+        if (r.appointmentId && r.appointmentId !== appointment?.id) return false;
         const stage = guestStageOf(r);
         return stage !== 'delivered' && stage !== 'cancelled';
     });
@@ -1792,10 +1786,8 @@ const CompletionGateView = ({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    // The server reads who, what and how much from the completion record itself.
                     tenantId, completionToken: token,
-                    appointmentId: completion?.appointmentId, clientId: completion?.clientId,
-                    clientName: completion?.clientName, clientEmail: completion?.clientEmail,
-                    depositAmount: depositDollars, serviceName: completion?.serviceName,
                 }),
             });
             const out = await res.json().catch(() => null);
@@ -2403,6 +2395,13 @@ const RescheduleGateView = ({
     );
 };
 
+/** Could this phone turn on notifications right now? (Otherwise the card only shows steps, and needs no code.) */
+const pushCanAsk = () => {
+    if (typeof window === 'undefined') return false;
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !isStandalone()) return false;
+    return 'Notification' in window && 'serviceWorker' in navigator && Notification.permission !== 'denied';
+};
+
 export default function CheckInPage() {
     const params = useParams();
     const token = params.token as string;
@@ -2427,12 +2426,19 @@ export default function CheckInPage() {
     // THE VISIT ITSELF (T4): the copy above can lag if a screen forgot to update it — so whenever it changes (and every
     // 20 s while open) the page asks the server for the visit's live, safe view and shows that on top.
     const [liveView, setLiveView] = useState<any>(null);
+    // "IS THIS YOU?" (lib/client-verify). revoked: "Not you?" turned this link off. notMeMsg: they just reported it.
+    // trust: has this phone confirmed a code? Private things (messages, notifications, their next appointment) wait for it.
+    const [revoked, setRevoked] = useState(false);
+    const [revokedBiz, setRevokedBiz] = useState<{ name: string | null; phone: string | null } | null>(null);
+    const [notMeMsg, setNotMeMsg] = useState<string | null>(null);
+    const [trust, setTrust] = useState<'unknown' | 'trusted' | 'untrusted'>('unknown');
+    const [viewNonce, setViewNonce] = useState(0);
     useEffect(() => {
         if (!token) return; let stop = false; let t: any = null;
-        const pull = async () => { try { const r = await fetch(`/api/visit-view?token=${encodeURIComponent(token)}`, { cache: 'no-store' }); const d = await r.json(); if (!stop && d?.ok) setLiveView(d.view); } catch { /* keep the copy */ } finally { if (!stop) setLiveTried(true); }
+        const pull = async () => { try { const r = await fetch(`/api/visit-view?token=${encodeURIComponent(token)}&device=${encodeURIComponent(visitDevice())}`, { cache: 'no-store' }); const d = await r.json(); if (!stop && d?.revoked) { setRevokedBiz({ name: d.businessName || null, phone: d.businessPhone || null }); setRevoked(true); return; } if (!stop && d?.ok) setLiveView(d.view); } catch { /* keep the copy */ } finally { if (!stop) setLiveTried(true); }
             if (!stop) t = setTimeout(pull, document.visibilityState === 'hidden' ? 60000 : 20000); };
         pull(); return () => { stop = true; clearTimeout(t); };
-    }, [token, (copyData as any)?.status, (copyData as any)?.checkInStatus, (copyData as any)?.stage, (copyData as any)?.visitUpdatedAt]);
+    }, [token, viewNonce, (copyData as any)?.status, (copyData as any)?.checkInStatus, (copyData as any)?.stage, (copyData as any)?.visitUpdatedAt]);
     // The server's view is the source (whitelisted fields only); the public copy is a fallback while it loads.
     const appointmentData = useMemo(() => (copyData || liveView ? ({ ...((copyData as any) || {}), ...(liveView || {}) } as Appointment) : copyData), [copyData, liveView]);
     const [liveTried, setLiveTried] = useState(false);
@@ -2441,6 +2447,10 @@ export default function CheckInPage() {
 
     const tenantId = appointmentData?.tenantId;
     const clientId = appointmentData?.clientId;
+    // A contact not confirmed or used in a year: the server sent only the business and the date until this phone confirms.
+    const verifyFirst = !!(liveView as any)?.verifyFirst;
+    const followAsked = React.useRef(false);
+    const [noNext, setNoNext] = useState(false);
 
     // A visit that's over (done, missed, cancelled a while ago, or long past): move on to their next appointment, so a
     // link saved to the home screen always opens what's coming up. A just-cancelled visit stays (it may be undone).
@@ -2448,11 +2458,18 @@ export default function CheckInPage() {
         const ap: any = appointmentData; if (!ap?.id || !tenantId) return;
         const st = String(ap.status || ''); const end = Date.parse(ap.endTime || ap.startTime || '');
         const over = ['completed', 'no_show', 'noshow'].includes(st) || (['cancelled', 'canceled'].includes(st) && Date.now() - Date.parse(ap.cancelledAt || '') > 30 * 60000) || (Number.isFinite(end) && Date.now() - end > 3 * 3600e3);
-        if (!over) return; let live = true;
-        fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'next_link', tenantId, apptId: ap.id, k: token }) })
-            .then((r) => r.json()).then((d) => { if (live && d?.token && d.token !== token) window.location.replace(`/check-in/${d.token}${window.location.search || ''}`); }).catch(() => {});
+        if (!over || verifyFirst || revoked) return; let live = true;
+        // Only on a phone that has confirmed a code: the server answers nothing otherwise (see the footer's "Is this you?").
+        fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'next_link', tenantId, apptId: ap.id, k: token, device: visitDevice() }) })
+            .then((r) => r.json()).then((d) => {
+                if (!live) return;
+                if (d?.code === 'revoked') { setRevoked(true); return; }
+                if (d?.needsVerify) { setTrust('untrusted'); return; }
+                if (d?.token && d.token !== token) window.location.replace(`/check-in/${d.token}${window.location.search || ''}`);
+                else if (followAsked.current) setNoNext(true);
+            }).catch(() => {});
         return () => { live = false; };
-    }, [appointmentData?.id, (appointmentData as any)?.status, tenantId, token]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [appointmentData?.id, (appointmentData as any)?.status, tenantId, token, verifyFirst, revoked, trust]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const tenantDocRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
     const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
@@ -2465,15 +2482,6 @@ export default function CheckInPage() {
 
     const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
     const { data: resources } = useCollection<Resource>(resourcesQuery);
-
-    const allClientRequestsQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !clientId) return null;
-        return query(
-            collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
-            where('clientId', '==', clientId)
-        );
-    }, [firestore, tenantId, clientId]);
-    const { data: clientRequests } = useCollection(allClientRequestsQuery);
 
     // ── Guest lounge payload ─────────────────────────────────────────────────
     // A guest opening this link is NOT signed in to Firebase, and firestore.rules
@@ -2488,22 +2496,29 @@ export default function CheckInPage() {
     const [loungeNonce, setLoungeNonce] = useState(0);
     const isLoungeActive = appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing';
 
+    // Polled every 15 s while the lounge is showing (60 s when the tab is in the
+    // background) — this is also how the guest's own amenity requests stay in
+    // step with the back of house. The request list is no longer readable from
+    // a browser, so the server's token-checked list is the only source.
     useEffect(() => {
         if (!token || !isLoungeActive) return;
-        let cancelled = false;
-        (async () => {
+        let cancelled = false; let timer: any = null; let hadData = false;
+        const pull = async () => {
             try {
-                const res = await fetch(`/api/guest-lounge?token=${encodeURIComponent(token)}`);
+                const res = await fetch(`/api/guest-lounge?token=${encodeURIComponent(token)}`, { cache: 'no-store' });
                 const d = await res.json().catch(() => ({}));
                 if (cancelled) return;
-                if (!res.ok || !d?.ok) { setLoungeError(true); return; }
-                setLounge(d);
-                setLoungeError(false);
+                if (!res.ok || !d?.ok) { if (!hadData) setLoungeError(true); }
+                else { hadData = true; setLounge(d); setLoungeError(false); }
             } catch {
-                if (!cancelled) setLoungeError(true);
+                // A dropped poll keeps the last good payload on screen.
+                if (!cancelled && !hadData) setLoungeError(true);
+            } finally {
+                if (!cancelled) timer = setTimeout(pull, document.visibilityState === 'hidden' ? 60000 : 15000);
             }
-        })();
-        return () => { cancelled = true; };
+        };
+        pull();
+        return () => { cancelled = true; clearTimeout(timer); };
     }, [token, isLoungeActive, loungeNonce]);
 
     // useCallback is not imported in this file, so a plain arrow it is. It is
@@ -2524,8 +2539,20 @@ export default function CheckInPage() {
     // by the SAME token as everything else on this page. Both queries are
     // no-ops (return null) until tenantId resolves, same pattern as every
     // other query on this page.
-    const completionRef = useMemoFirebase(() => !firestore || !tenantId || !token ? null : doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), [firestore, tenantId, token]);
-    const { data: completion, isLoading: completionLoading } = useDoc<any>(completionRef);
+    // The completion record itself is team-only; the server returns a safe copy (no email, first name only), checked
+    // against this visit's token. Re-asked whenever the visit's status or completion status moves.
+    const [completion, setCompletion] = useState<any>(null);
+    const [completionLoading, setCompletionLoading] = useState(true);
+    const completionKey = `${(appointmentData as any)?.status || ''}|${(appointmentData as any)?.completionStatus || ''}`;
+    useEffect(() => {
+        if (!token) { setCompletionLoading(false); return; }
+        let stop = false;
+        fetch(`/api/visit-completion?token=${encodeURIComponent(token)}`, { cache: 'no-store' })
+            .then((r) => r.json()).then((d) => { if (!stop && d?.ok) setCompletion(d.completion || null); })
+            .catch(() => { /* keep what we have */ })
+            .finally(() => { if (!stop) setCompletionLoading(false); });
+        return () => { stop = true; };
+    }, [token, completionKey]);
 
     const allConsentFormsQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
     const { data: allConsentForms } = useCollection<any>(allConsentFormsQuery);
@@ -2559,22 +2586,36 @@ export default function CheckInPage() {
     }, [firestore, tenantId, appointmentData?.id, appointmentData?.completionLinkFirstViewedAt]);
 
     // Every visit-link action goes through /api/appt with this page's token.
+    // This phone's id travels with every call (private things open only on a phone that has confirmed a code).
     const apptApi = async (payload: any): Promise<any> => {
-        try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, apptId: appointmentData?.id, k: token, ...payload }) }); return await r.json(); }
+        try {
+            const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, apptId: appointmentData?.id, k: token, device: visitDevice(), ...payload }) });
+            const d = await r.json();
+            if (d?.code === 'revoked') setRevoked(true);
+            else if (d?.needsVerify) setTrust('untrusted');
+            return d;
+        }
         catch { return { ok: false, error: 'We couldn’t connect. Please check your connection and try again.' }; }
     };
     const apptReady = !!(tenantId && appointmentData?.id);
-    // Once per page view: note that the client used their link (and whether from their home screen).
+    // Once per page view: note that the client used their link (and whether from their home screen). Not while the
+    // page is waiting for "Is this you?": opening an old number's link isn't the client using it.
     const linkNoted = React.useRef(false);
     useEffect(() => {
-        if (!apptReady || linkNoted.current) return; linkNoted.current = true;
+        if (!apptReady || verifyFirst || revoked || linkNoted.current) return; linkNoted.current = true;
         void apptApi({ action: 'link_used', standalone: isStandalone() });
-    }, [apptReady]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [apptReady, verifyFirst, revoked]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Has this phone confirmed a code? Asked once the full visit is showing.
+    useEffect(() => {
+        if (!apptReady || verifyFirst || revoked || trust !== 'unknown') return; let live = true;
+        void apptApi({ action: 'verify_status' }).then((r) => { if (live && r?.ok) setTrust(r.trusted ? 'trusted' : 'untrusted'); });
+        return () => { live = false; };
+    }, [apptReady, verifyFirst, revoked, trust]); // eslint-disable-line react-hooks/exhaustive-deps
     // Links we send open the page straight to an action: ?do=cancel | reschedule | message | confirm | late. Applied
     // once, then removed from the address so going back (or reloading) doesn't open it again.
     const deepLinked = React.useRef(false);
     useEffect(() => {
-        if (!apptReady || deepLinked.current || typeof window === 'undefined') return; deepLinked.current = true;
+        if (!apptReady || verifyFirst || revoked || deepLinked.current || typeof window === 'undefined') return; deepLinked.current = true;
         let act = '';
         try { const u = new URL(window.location.href); act = String(u.searchParams.get('do') || ''); if (act) { u.searchParams.delete('do'); window.history.replaceState(window.history.state, '', u.pathname + (u.search || '') + u.hash); } } catch { /* no action */ }
         if (act === 'cancel') setShowCancelFlow(true);
@@ -2582,7 +2623,7 @@ export default function CheckInPage() {
         else if (act === 'message') setShowMessages(true);
         else if (act === 'late') setOpenLate(true);
         else if (act === 'confirm') void apptApi({ action: 'confirm' }).then((r) => setConfirmNote(r?.ok ? { ok: true, text: 'Thank you, you’re confirmed. We look forward to seeing you.' } : { ok: false, text: r?.error || 'We couldn’t confirm your appointment here. Please give us a call.' }));
-    }, [apptReady]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [apptReady, verifyFirst, revoked]); // eslint-disable-line react-hooks/exhaustive-deps
     const confirmCard = confirmNote ? (
         <VisitCard tone={confirmNote.ok ? 'ok' : 'warn'}>
             <div className="flex items-start justify-between gap-3">
@@ -2626,6 +2667,38 @@ export default function CheckInPage() {
         }
     };
 
+    // ── "Is this you?", "Not you?", and a link that's been turned off ──
+    const bizName: string | null = (tenant as any)?.name || (tenant as any)?.businessName || (liveView as any)?.businessName || revokedBiz?.name || null;
+    const bizPhone: string | null = (tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || revokedBiz?.phone || null;
+    if (revoked) return <LinkOffView businessName={bizName} businessPhone={bizPhone} />;
+    if (notMeMsg) return <VisitNotice title="This link is now turned off" body={notMeMsg} businessName={bizName} businessPhone={bizPhone} />;
+    const linkOf = tenantId && appointmentData?.id ? { tenantId, apptId: appointmentData.id, k: token } : null;
+    const verifyShared = { businessName: bizName, businessPhone: bizPhone, onRevoked: () => setRevoked(true), onNotMe: (m: string) => setNotMeMsg(m) };
+    // Notifications: on a phone that hasn't confirmed a code, "Is this you?" comes first (where the phone could turn them on).
+    const notifySlot = !linkOf ? null
+        : trust === 'trusted' || !pushCanAsk() ? <ClientNotifyCard tenantId={linkOf.tenantId} api={apptApi} hideWhenOn />
+        : trust === 'untrusted' ? <VerifyCard {...linkOf} {...verifyShared} onNotMe={undefined} onVerified={() => setTrust('trusted')}
+            prompt={{ title: 'Get updates here, not by text', text: 'For your privacy, please confirm it’s you first. Then you can turn on notifications for replies, reminders and early openings.', button: 'Confirm it’s me' }} />
+        : null;
+    // At the bottom of the visit: "Not you?", and (once the visit is over) the way on to their next appointment.
+    const visitOver = (() => {
+        const ap: any = appointmentData; if (!ap) return false;
+        const st = String(ap.status || ''); const end = Date.parse(ap.endTime || ap.startTime || '');
+        return ['completed', 'no_show', 'noshow'].includes(st) || (['cancelled', 'canceled'].includes(st) && Date.now() - Date.parse(ap.cancelledAt || '') > 30 * 60000) || (Number.isFinite(end) && Date.now() - end > 3 * 3600e3);
+    })();
+    const footer = linkOf && clientId ? (
+        <div style={{ background: '#faf8f5', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+            <div className="mx-auto max-w-md space-y-4 px-4 pb-10 pt-2">
+                {visitOver && trust === 'untrusted' && <VerifyCard {...linkOf} {...verifyShared} onNotMe={undefined}
+                    onVerified={() => { followAsked.current = true; setTrust('trusted'); }}
+                    prompt={{ title: 'Looking for your next appointment?', text: 'For your privacy, please confirm it’s you, and we’ll take you straight there.', button: 'Confirm it’s me' }} />}
+                {noNext && <p className="text-center text-[14px]" role="status" style={{ color: '#6d7075' }}>You don’t have another appointment booked with us yet.</p>}
+                <div className="text-center"><NotMeLink {...linkOf} businessName={bizName} onDone={(m) => setNotMeMsg(m)} onRevoked={() => setRevoked(true)} /></div>
+            </div>
+        </div>
+    ) : null;
+    const withFooter = (node: React.ReactNode) => <>{node}{footer}</>;
+
     if (visitLoading || clientLoading || serviceLoading || tenantLoading || staffLoading || completionLoading) {
         return (
             <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-background text-center text-left">
@@ -2654,7 +2727,34 @@ export default function CheckInPage() {
         );
     }
 
+    // A contact not confirmed or used in 12 months: just the business and the date, and "Is this you?" first.
+    if (verifyFirst && linkOf) {
+        const at = appointmentData?.startTime ? safeDate(appointmentData.startTime) : null;
+        return (
+            <VisitShell brand={brandOf(tenant, tenantId, null)} title={<>Your <b>appointment</b></>}>
+                {at && <VisitCard>
+                    <p className="text-[15px] font-semibold">{bizName || 'Your appointment'}</p>
+                    <p className="text-[15px]" style={{ color: 'var(--muted)' }}>{format(at, 'EEEE, MMMM d')} at {format(at, 'h:mm a')}</p>
+                </VisitCard>}
+                <VerifyCard {...linkOf} {...verifyShared} title="For your privacy, please confirm it’s you"
+                    intro="It’s been a while since we last confirmed your details, so we’ll send a 6-digit code to the phone or email we have for you. Then you’ll see everything about your appointment."
+                    onVerified={() => { setTrust('trusted'); setViewNonce((n) => n + 1); }} />
+            </VisitShell>
+        );
+    }
+
     // Message us — open from any state of the visit (a reply link can arrive after it's finished or cancelled).
+    // The thread is private: on a phone that hasn't confirmed a code, "Is this you?" comes first.
+    if (showMessages && linkOf && trust !== 'trusted') {
+        return (
+            <VisitShell brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} title={<>Message <b>us</b></>}>
+                <VerifyCard {...linkOf} {...verifyShared} title="Is this you?"
+                    intro="Your messages are private. To open them on this phone, we’ll send a 6-digit code to the phone or email we have for you."
+                    onVerified={() => setTrust('trusted')} />
+                <VisitButton quiet onClick={() => setShowMessages(false)}>Back</VisitButton>
+            </VisitShell>
+        );
+    }
     if (showMessages && tenantId && appointmentData?.id) {
         return (
             <VisitMessages
@@ -2667,7 +2767,7 @@ export default function CheckInPage() {
     }
 
     if (appointmentData?.status === 'completed') {
-        return (
+        return withFooter(
             <CompletedView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} 
                 tenant={tenant || null} 
                 client={client || null} 
@@ -2679,7 +2779,7 @@ export default function CheckInPage() {
     }
 
     if (appointmentData?.status === 'cancelled') {
-        return (
+        return withFooter(
             <CancelledView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} 
                 reason={appointmentData.cancellationReason}
                 tenantId={tenantId}
@@ -2778,7 +2878,7 @@ export default function CheckInPage() {
         const who = (assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null;
         const at = appointmentData?.startTime ? safeDate(appointmentData.startTime) : null;
         const inService = appointmentData?.status === 'servicing';
-        return (
+        return withFooter(
             <div className="flex min-h-dvh items-center justify-center p-6" style={{ background: '#faf8f5', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
                 <div className="w-full max-w-sm space-y-5 text-center">
                     <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-white text-3xl shadow" aria-hidden>✓</div>
@@ -2804,7 +2904,7 @@ export default function CheckInPage() {
                 tenant={tenant || null} 
                 client={client || null} 
                 inventory={inventory || []} 
-                activeRequests={clientRequests || []}
+                activeRequests={Array.isArray(lounge?.requests) ? lounge.requests : []}
                 appointment={appointmentData}
                 staff={assignedStaff || null}
                 resources={resources || []}
@@ -2833,7 +2933,7 @@ export default function CheckInPage() {
         : false;
 
     if (isStaleUnresolved) {
-        return <StaleAppointmentView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} tenantName={tenant?.name} tenantPhone={tenant?.twilioPhoneNumber} />;
+        return withFooter(<StaleAppointmentView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} tenantName={tenant?.name} tenantPhone={tenant?.twilioPhoneNumber} />);
     }
 
     // v8 — NEW: the mirror check. isSameDay rather than an hours-based
@@ -2847,7 +2947,7 @@ export default function CheckInPage() {
         : false;
 
     if (isTooEarly) {
-        return (
+        return withFooter(
             <TooEarlyView disruption={(appointmentData as any)?.disruption || null} hasDeposit={(appointmentData as any)?.depositStatus === 'paid'} onDisruptionCancel={async (dep, extra) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(extra?.action ? { tenantId, apptId: appointmentData?.id, k: token, ...extra } : { action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: extra?.choice || (dep === 'keep' ? 'keep' : 'cancel'), deposit: dep === 'keep' ? null : dep }) }); return await r.json(); } catch { return { ok: false }; } }} brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} providerName={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
                 startTime={appointmentData!.startTime}
                 serviceName={service?.name}
@@ -2855,7 +2955,7 @@ export default function CheckInPage() {
                 onCancel={() => setShowCancelFlow(true)}
                 onMessage={() => setShowMessages(true)}
                 notice={confirmCard}
-                notify={tenantId ? <ClientNotifyCard tenantId={tenantId} api={apptApi} hideWhenOn /> : null}
+                notify={notifySlot}
                 sooner={tenantId && safeDate(appointmentData!.startTime).getTime() - Date.now() > 24 * 3600e3 ? { tenantId, token, on: !!(appointmentData as any)?.soonerOn } : null}
                 calendarUrl={tenantId && appointmentData?.id
                     ? `/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(appointmentData.id)}&k=${encodeURIComponent(token)}`
@@ -2864,7 +2964,7 @@ export default function CheckInPage() {
         );
     }
 
-    return (
+    return withFooter(
         <DayOfView
             place={placeOf(service, appointmentData)}
             callNumber={(tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null}

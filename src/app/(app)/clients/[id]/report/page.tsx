@@ -20,6 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { collection, doc, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { logHealthOpen } from '@/lib/health-view-client';
 import Image from 'next/image';
 
 const ClientReportPage = () => {
@@ -61,6 +62,8 @@ const ClientReportPage = () => {
         return collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`);
     }, [firestore, tenantId, clientId]);
     const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
+    // Health information mode: this report shows every signed form's answers, so opening it is recorded (who, when).
+    useEffect(() => { if (signedConsents && signedConsents.length > 0) logHealthOpen(selectedTenant, { clientId: String(clientId), what: 'Client report (form answers)' }); }, [signedConsents, selectedTenant, clientId]);
 
     const clientAppointments = useMemo(() => {
         if (!appointments) return [];

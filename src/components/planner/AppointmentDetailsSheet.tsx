@@ -1,4 +1,5 @@
 'use client';
+import { logHealthOpen } from '@/lib/health-view-client';
 import { PrepSummary } from '@/components/staff-portal/PrepSummary';
 import { DayChange } from '@/components/staff-portal/DayChange';
 import { isSoloTeam } from '@/lib/solo';
@@ -1605,6 +1606,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   useNow(open && initialAppointment?.status === 'servicing' ? 1000 : 60000);   // the header's live timer
   const [visitTab, setVisitTab] = useState<'now' | 'client' | 'service' | 'money' | 'history'>('now');
   useEffect(() => { setVisitTab('now'); }, [initialAppointment?.id]);
+  // Health information mode: the visit shows allergy and medical notes, intake files and form status, so opening it is
+  // recorded (who, when, which client). Only when there is something of that kind to see.
+  useEffect(() => {
+    const a: any = initialAppointment; const c: any = client;
+    if (!open || !a?.id || !c?.id) return;
+    if (c.allergyNotes || c.medicalNotes || a.prep?.answers || (a.requirementFiles || []).length || (a.signedForms || []).length || a.healthDisclosedAt)
+      logHealthOpen(selectedTenant, { clientId: String(c.id), what: 'Visit: health notes and intake', appointmentId: String(a.id) });
+  }, [open, initialAppointment?.id, client?.id, selectedTenant]);   // eslint-disable-line react-hooks/exhaustive-deps
   // This visit's formula lives on checkoutState.formula — the hand-off review opens with it and saves it.
   const writeFormula = (items: any[] | null) => { if (!firestore || !tenantId || !initialAppointment?.id) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, initialAppointment.id), { 'checkoutState.formula': items === null ? deleteField() : items } as any); };
   const { toast } = useToast();

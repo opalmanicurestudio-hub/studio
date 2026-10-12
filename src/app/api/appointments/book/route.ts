@@ -1265,9 +1265,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // A new client, or a phone number never confirmed with a code: the confirmation screen offers "Confirm your number"
+    // (lib/client-verify, through the visit link's /api/appt with checkInToken).
+    let phoneUnconfirmed = false;
+    try { const cl: any = r.clientId ? (await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get()).data() : null; phoneUnconfirmed = !!cl?.phone && !cl.phoneVerifiedAt && !cl.phoneReportedWrongAt && cl.smsOptOut !== true; } catch { /* the offer is optional */ }
+
     return NextResponse.json({
       ok: true,
       ...(packageRedeemed !== null ? { packageRedeemed } : {}),
+      phoneUnconfirmed,
       appointmentId: r.aptId,
       checkInToken: r.token,
       shortCode: r.shortCode,

@@ -189,6 +189,25 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     }
   }
 
+  /* WRONG NUMBER AND DISCREET MESSAGES. A number someone reported as "Not you?" gets nothing more until the desk fixes
+   * it. Discreet businesses (health privacy mode) send only "you have an update" with the link: nothing about the
+   * service or treatment shows on a lock screen. lib/client-verify, lib/health-privacy. */
+  let wrongNumber = false;
+  const cid = (input as any).clientId || ((input as any).recipientType === 'client' ? input.recipientId : null);
+  if (cid && (input as any).recipientType !== 'staff') {
+    try {
+      const c: any = (await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() || {};
+      const d10 = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
+      if (channel === 'sms' && c.phoneReportedWrongAt && d10(c.phone) === d10(to) && kind !== 'wrong_number_ack') wrongNumber = true;
+      tenantDoc = tenantDoc || (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      const { privacyOf, discreetVersion } = await import('./health-privacy');
+      if (privacyOf(tenantDoc).discreet && c.discreetOff !== true) {
+        const dv = discreetVersion({ kind, text: input.text, subject: input.subject, channel }, tenantDoc.name || 'your studio');
+        if (dv) input = { ...input, ...dv, html: undefined };
+      }
+    } catch { /* fail open */ }
+  }
+
   /* QUIET HOURS — texts only. An email at 3am waits in an inbox; a text at
    * 3am wakes someone up. Deferred rather than dropped: the log records why,
    * and nothing that must reach a person tonight is a text anyway. */
@@ -201,7 +220,9 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     } catch { /* fail open */ }
   }
 
-  if (suppressed) {
+  if (wrongNumber) {
+    result = { ok: false, status: 'skipped_by_policy', error: 'not sent: this number was reported as not the client’s' };
+  } else if (suppressed) {
     result = { ok: false, status: 'skipped_by_policy', error: `${kind} is switched off in message settings` };
   } else if (quietDeferred) {
     result = { ok: false, status: 'skipped_by_policy', error: 'held back — inside your quiet hours' };

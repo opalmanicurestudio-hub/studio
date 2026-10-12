@@ -50,6 +50,15 @@ export async function textAssist(db: any, t: string, m: { clientId: string; clie
   if (tenant.bookingPolicies?.textAssist === false) return { replied: false, why: 'off' };
   if (m.complaint) return { replied: false, why: 'possible complaint: a person answers' };
   const c: any = (await db.doc(`${T}/clients/${m.clientId}`).get()).data() || {};
+  // "WRONG": this isn't the client's number. Texts to it stop, their links turn off, and the desk is told.
+  if (/^(wrong|wrong number|wrong person|not me)[.!]*$/i.test(String(m.body || '').trim())) {
+    const { notMe } = await import('@/lib/client-verify'); await notMe(db, t, { clientId: m.clientId, via: 'text', phone: m.from, now });
+    const send = d.send || (async (msg: any) => { const { sendNotification } = await import('@/lib/notify'); return sendNotification(db, msg); });
+    await send({ tenantId: t, channel: 'sms', to: m.from, kind: 'wrong_number_ack', clientId: m.clientId, recipientType: 'client', recipientId: m.clientId, essential: true,
+      text: 'Thank you for letting us know. We’ve stopped messages to this number and turned off the links we sent. We’re sorry for the trouble.' });
+    return { replied: true, why: 'wrong number reported' };
+  }
+  if (c.phoneReportedWrongAt) return { replied: false, why: 'number reported as wrong: a person answers' };
   if (c.status === 'banned' || c.status === 'blocked') return { replied: false, why: 'not to be booked: a manager answers' };
   if (Date.parse(c.textAssistAt || '') > now - 30 * MIN) return { replied: false, why: 'answered recently' };
   const words = intentByWords(m.body);

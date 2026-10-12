@@ -63,14 +63,16 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
       const db = getDb();
       if (!db || !tenantId || !token) { setLoading(false); return; }
       try {
-        const [tSnap, cSnap] = await Promise.all([
+        // The completion record is team-only; the server returns a safe copy (no email, first name only) for this token.
+        const [tSnap, cRes] = await Promise.all([
           getDoc(doc(db, 'tenants', tenantId)),
-          getDoc(doc(db, 'tenants', tenantId, 'bookingCompletions', token)),
+          fetch(`/api/visit-completion?token=${encodeURIComponent(token)}&tenantId=${encodeURIComponent(tenantId)}`, { cache: 'no-store' })
+            .then((r) => r.json()).catch(() => null),
         ]);
         if (cancelled) return;
         if (tSnap.exists()) setTenant({ id: tSnap.id, ...tSnap.data() });
-        if (cSnap.exists()) {
-          const comp = { id: cSnap.id, ...cSnap.data() } as any;
+        if (cRes?.ok && cRes.completion) {
+          const comp = cRes.completion as any;
           setCompletion(comp);
           const ids: string[] = comp.requiredConsentFormIds || [];
           if (ids.length > 0) {
@@ -195,14 +197,9 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          // The server reads who, what and how much from the completion record itself.
           tenantId,
           completionToken: token,
-          appointmentId: completion?.appointmentId,
-          clientId:      completion?.clientId,
-          clientName:    completion?.clientName,
-          clientEmail:   completion?.clientEmail,
-          depositAmount: depositDollars,
-          serviceName:   completion?.serviceName,
         }),
       });
       const out = await res.json().catch(() => null);

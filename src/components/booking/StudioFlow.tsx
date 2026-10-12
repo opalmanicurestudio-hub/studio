@@ -11,6 +11,7 @@
 //   Pay    only when a deposit is due — the secure card form
 //   Done   the server's own words · who/when/where · calendar · directions
 
+import { ConfirmNumberCard } from '@/components/visit/VerifyCard';
 import { PartyBuilder } from '@/components/booking/PartyBuilder';
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -219,6 +220,7 @@ export function StudioFlow({ c }: { c: any }) {
         {ev && !isRequest && <><a href={icsHref(ev)} download="appointment.ics" className="rounded-full bg-white px-4 py-2.5 text-[14px] shadow-sm">Add to Apple / Outlook</a><a href={googleHref(ev)} target="_blank" rel="noreferrer" className="rounded-full bg-white px-4 py-2.5 text-[14px] shadow-sm">Add to Google</a></>}
         {tenant?.address && <a href={`https://maps.google.com/?q=${encodeURIComponent(tenant.address)}`} target="_blank" rel="noreferrer" className="rounded-full bg-white px-4 py-2.5 text-[14px] shadow-sm">Directions</a>}
       </div>
+      <div className="mx-auto max-w-sm text-left"><ConfirmNumberCard verify={outcome.verify} businessName={tenant?.name} /></div>
       <p className="text-[13px] text-stone-500">Your email has links to change or cancel.</p>
       <button type="button" onClick={() => c.onOpenChange(false)} className="h-12 w-full max-w-sm rounded-full text-[16px] font-medium text-white" style={{ background: accent }}>Done</button>
     </div>

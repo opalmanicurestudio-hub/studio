@@ -36,6 +36,9 @@ export interface AiResult { ok: boolean; text: string; costUsd: number; error?: 
 export async function askAI(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
   if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'AI isn’t connected — add ANTHROPIC_API_KEY in Vercel.' };
   const model = MODELS[opts.tier || 'fast'];
+  // Health privacy mode: nothing about clients goes to the model until the business confirms a signed agreement.
+  if (opts.tenantId) { try { const t: any = (await getAdminDb().doc(`tenants/${opts.tenantId}`).get()).data() || {};
+    const { privacyOf } = await import('@/lib/health-privacy'); if (!privacyOf(t).modelAllowed) return { ok: false, text: '', costUsd: 0, error: 'Off in health privacy mode.' }; } catch { /* fail open only on lookup errors */ } }
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

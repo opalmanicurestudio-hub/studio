@@ -5,6 +5,7 @@
 // approves the change onto the booking (if it fits), keeps it as booked, or sends it to the desk (/api/prep-decide).
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
+import { logHealthOpen } from '@/lib/health-view-client';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', BLUE = '#3d5a99', RED = '#b42318';
 const money = (n: number) => `$${Number.isInteger(Math.round(n * 100) / 100) ? Math.round(n) : n.toFixed(2)}`;
@@ -13,6 +14,8 @@ export function PrepSummary({ apt, tenantId, solo = false }: { apt: any; tenantI
   const [busy, setBusy] = React.useState(''); const [msg, setMsg] = React.useState(''); const [done, setDone] = React.useState('');
   const decide = async (action: string) => { setBusy(action); setMsg(''); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: apt.id, action }); setBusy(''); if (r.ok) setDone(action); else setMsg(r.error || 'That didn’t work.'); };
   const p = apt?.prep; const sug = apt?.prepSuggestion;
+  // Health information mode: the client's answers can include safety and health answers, so seeing them is recorded.
+  React.useEffect(() => { if (apt?.prep?.answers && apt?.clientId) logHealthOpen(tenantId, { clientId: String(apt.clientId), what: 'Before-the-visit answers', appointmentId: apt.id ? String(apt.id) : null }); }, [apt?.id, apt?.clientId, tenantId]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (!p && !sug && !apt?.prepSentAt) return null;
   const first = String(apt?.clientName || 'They').split(' ')[0];
   const q = p?.quote; const photos = Object.values(p?.answers || {}).filter((v: any) => typeof v === 'string' && /^https:\/\//.test(v)) as string[];

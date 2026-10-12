@@ -2,6 +2,7 @@
 import { VisitTicketHost } from '@/components/visit/VisitTicketHost';
 import { StudioTheme } from '@/components/shared/StudioTheme';
 import { StaffPayOverlay } from '@/components/shared/StaffPayOverlay';
+import { IdleSignOut } from '@/components/shared/IdleSignOut';
 import { HelpDesk } from '@/components/support/HelpDesk';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
@@ -88,6 +89,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <TenantProvider>
         <StudioTheme />
         <StaffPayOverlay />
+        <IdleSignOut />
         <LocationProvider>
           <SidebarProvider>
             <AppSidebar />

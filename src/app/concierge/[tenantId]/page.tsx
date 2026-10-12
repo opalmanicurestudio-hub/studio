@@ -52,12 +52,10 @@ import {
     Receipt,
     AlertTriangle
 } from 'lucide-react';
-import { startOfMonth, subMonths, subYears, isAfter } from 'date-fns';
-import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, getDocs, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { cn, safeNumber, hexToHSLComponents } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { nanoid } from 'nanoid';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
@@ -355,47 +353,36 @@ function ConciergeKioskContent() {
     // free all month. The billing cycle, the per-item allotment and the usage
     // count below are the SAME arithmetic the client portal shows the member, so
     // the kiosk and their app can never disagree about what is left.
-    const clientRequestsQuery = useMemoFirebase(
-        () => (!firestore || !tenantId || !identifiedClient?.id)
-            ? null
-            : query(collection(firestore, `tenants/${tenantId}/refreshmentRequests`), where('clientId', '==', identifiedClient.id)),
-        [firestore, tenantId, identifiedClient?.id],
-    );
-    const { data: clientRequests } = useCollection<any>(clientRequestsQuery);
-
-    const cycleStart = useMemo(() => {
-        const sub: any = (identifiedClient as any)?.subscription;
-        if (!sub?.nextBillingDate || !activeMembership) return startOfMonth(new Date());
-        const nextBilling = safeDate(sub.nextBillingDate);
-        if (isNaN(nextBilling.getTime())) return startOfMonth(new Date());
-        return startOfMonth((activeMembership as any).interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1));
-    }, [identifiedClient, activeMembership]);
+    // What the club allowance has left this cycle comes from the server (the order list itself is team-only).
+    // Re-asked after every order; until the answer lands, this session's own perks are held locally so a member
+    // can't tap the same complimentary item twice inside a few seconds and have both come through as included.
+    const [serverPerks, setServerPerks] = useState<Record<string, number>>({});
+    const [perkNonce, setPerkNonce] = useState(0);
+    const identifiedPhone = String((identifiedClient as any)?.phone || '');
+    useEffect(() => {
+        if (!tenantId || !identifiedClient?.id || !identifiedPhone) { setServerPerks({}); return; }
+        let stop = false;
+        fetch(`/api/concierge/requests?tenantId=${encodeURIComponent(tenantId)}&phone=${encodeURIComponent(identifiedPhone)}`, { cache: 'no-store' })
+            .then((r) => r.json())
+            .then((d) => {
+                if (stop || !d?.ok) return;
+                setServerPerks((d.perkRemaining && typeof d.perkRemaining === 'object') ? d.perkRemaining : {});
+                setSessionPerkUsed({});
+            })
+            .catch(() => { /* keep the last answer */ });
+        return () => { stop = true; };
+    }, [tenantId, identifiedClient?.id, identifiedPhone, perkNonce]);
 
     // itemId -> how many of that product the membership still covers this cycle.
     const perkRemainingByItem = useMemo(() => {
         const out: Record<string, number> = {};
-        const included: any[] = ((activeMembership as any)?.includedProducts) || [];
-        if (included.length === 0) return out;
-
-        const cycleRequests = (clientRequests || []).filter((r: any) => {
-            if (!r || r.status === 'cancelled') return false;
-            const when = safeDate(r.requestedAt);
-            return !isNaN(when.getTime()) && isAfter(when, cycleStart);
-        });
-
-        included.forEach((perk: any) => {
-            const allotted = Math.max(0, Math.floor(safeNumber(perk?.quantity)) || 0);
-            // Only the orders the studio actually treated as included count
-            // against the allowance. A latte the member paid for is not a perk
-            // they spent, so priceAtRequest > 0 is deliberately excluded.
-            const usedOnRecord = cycleRequests
-                .filter((r: any) => r.itemId === perk?.id && safeNumber(r.priceAtRequest) === 0)
-                .reduce((sum: number, r: any) => sum + Math.max(1, Math.floor(safeNumber(r.quantity)) || 1), 0);
-            const usedThisSession = Math.max(0, Math.floor(safeNumber(sessionPerkUsed[perk?.id])) || 0);
-            out[String(perk?.id)] = Math.max(0, allotted - usedOnRecord - usedThisSession);
+        Object.keys(serverPerks).forEach((id) => {
+            const left = Math.max(0, Math.floor(safeNumber(serverPerks[id])) || 0);
+            const usedThisSession = Math.max(0, Math.floor(safeNumber(sessionPerkUsed[id])) || 0);
+            out[id] = Math.max(0, left - usedThisSession);
         });
         return out;
-    }, [activeMembership, clientRequests, cycleStart, sessionPerkUsed]);
+    }, [serverPerks, sessionPerkUsed]);
 
     const perkRemainingFor = (itemId: string): number => safeNumber(perkRemainingByItem[itemId]);
 
@@ -673,107 +660,35 @@ function ConciergeKioskContent() {
                 ? (activeStay?.boothName || 'Station')
                 : (seatNumber ? `Seat/Table #${seatNumber}` : (activeStay ? activeStay.boothName : 'Lounge / Waiting Area'));
 
-            const requestId = nanoid();
-            const batch = writeBatch(firestore);
-
-            const reqRef = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId);
-            batch.set(reqRef, {
-                id: requestId,
-                tenantId: tenantId,
-                clientId: identifiedClient?.id || 'guest-walkin',
-                clientName: guestName || 'Guest',
-                itemId: item.id,
-                itemName: item.name,
-                quantity: qty,
-                status: 'pending',
-                requestedAt: new Date().toISOString(),
-                stationName,
-                boothId: boothParam || null,
-                renterId: (activeStay?.payerType === 'renter' ? activeStay.renterId : null) || null,
-                chargedToStation,
-                compedByRenter,
-                // A membership perk, so the KDS can say "club perk" rather than
-                // implying the studio gave it away.
-                isRedemption: isComped,
-                // How the money settled, for the runner and for the audit trail.
-                settledBy,
-                paidAtKiosk: settledBy === 'card_on_file',
-                stripePaymentIntentId,
-                guestDescription: guestDescription,
-                notes: orderNotes,
-                // Zero when the order is already covered — a station charge, the
-                // host's comp allowance, a club perk, a real card charge, or a
-                // balance the desk will collect. Anything left above zero is
-                // money the runner still has to take at the station, which is
-                // exactly what the KDS money badge reads.
-                priceAtRequest: (chargedToStation || compedByRenter || isComped
-                    || settledBy === 'card_on_file' || settledBy === 'balance')
-                    ? 0
-                    : safeNumber(item.price),
-                isGuestKiosk: true
-            });
-
-            // Income is booked in exactly one case: a card charge that actually
-            // succeeded. Everything else is either already booked server-side
-            // (station charges) or is money the studio has not collected yet.
-            if (settledBy === 'card_on_file' && stripePaymentIntentId) {
-                const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-                batch.set(txnRef, {
-                    id: txnRef.id,
-                    date: new Date().toISOString(),
-                    description: `Lounge Sale: ${item.name} (x${qty})`,
-                    clientOrVendor: guestName,
-                    clientId: identifiedClient?.id || 'guest-walkin',
-                    type: 'income',
-                    context: 'Business',
-                    category: 'Hospitality Revenue',
-                    amount: orderTotal,
-                    paymentMethod: 'Card on File (Stripe)',
-                    stripePaymentIntentId,
-                    hasReceipt: true,
-                    tenantId
-                });
+            // The order is written by the server, which checks the item against the menu, the perk and host
+            // allowances, the station charge and the card payment before anything is recorded as settled.
+            const settle = isComped ? 'perk'
+                : chargedToStation ? 'station'
+                : compedByRenter ? 'renter_comp'
+                : (settledBy || 'desk');
+            const orderRes = await fetch('/api/concierge/requests', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tenantId,
+                    itemId: item.id,
+                    quantity: qty,
+                    clientName: (guestName || 'Guest').slice(0, 60),
+                    phone: identifiedClient?.id ? ((identifiedClient as any).phone || undefined) : undefined,
+                    boothId: boothParam || undefined,
+                    reservationId: activeStay?.payerType === 'reservation' ? activeStay.reservationId : undefined,
+                    stationName,
+                    guestDescription,
+                    notes: orderNotes,
+                    settle,
+                    stripePaymentIntentId: stripePaymentIntentId || undefined,
+                }),
+            }).catch(() => null);
+            const orderData: any = orderRes ? await orderRes.json().catch(() => ({})) : {};
+            if (!orderRes || !orderRes.ok || !orderData?.ok) {
+                toast({ variant: 'destructive', title: 'Request Failed', description: orderData?.error || 'Please ask the team.' });
+                return;
             }
-
-            // Owed, not collected. This is the same shape the aging report and
-            // the checkout screens already read, so it shows up as "Outstanding
-            // $X — settle at checkout" and gets booked as income the moment it
-            // is actually collected.
-            if (settledBy === 'balance' && identifiedClient?.id) {
-                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, identifiedClient.id);
-                batch.update(clientRef, {
-                    outstandingBalance: increment(orderTotal),
-                    unpaidFees: arrayUnion({
-                        feeId: nanoid(),
-                        appointmentId: null,
-                        appointmentDate: new Date().toISOString(),
-                        feeAmount: orderTotal,
-                        reason: `Lounge order — ${item.name} (x${qty})`
-                    })
-                });
-            }
-
-            // Owner-visible audit trail — kiosk sales appear in the activity
-            // feed with how the money was (or wasn't) collected.
-            const auditRef = doc(collection(firestore, `tenants/${tenantId}/auditLogs`));
-            batch.set(auditRef, {
-                action: 'sale.lounge',
-                targetType: 'refreshmentRequest',
-                targetId: requestId,
-                summary: `Concierge order: ${item.name} (x${qty}) for ${guestName || 'guest'} @ ${stationName}${
-                    chargedToStation ? ' — charged to station card'
-                    : compedByRenter ? ' — comped (host allowance)'
-                    : isComped ? ' — club perk (membership allowance)'
-                    : settledBy === 'card_on_file' ? ` — $${orderTotal.toFixed(2)} charged to card on file`
-                    : settledBy === 'balance' ? ` — $${orderTotal.toFixed(2)} added to client balance (uncollected)`
-                    : settledBy === 'desk' ? ` — $${orderTotal.toFixed(2)} to collect at the station`
-                    : ''}`,
-                amount: orderTotal,
-                actor: { type: 'system', id: 'concierge-kiosk', name: 'Concierge Kiosk', via: 'concierge-kiosk' },
-                at: new Date().toISOString(),
-            });
-
-            await batch.commit();
+            setPerkNonce(n => n + 1);
             if (compedByRenter) setSessionCompUsed(n => n + 1);
             // Hold the perk locally too. The Firestore listener needs a moment to
             // catch up, and without this a member could tap the same

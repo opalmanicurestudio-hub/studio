@@ -20,6 +20,7 @@ import { resolvePolicy, sourceLabel, type Source } from '@/lib/booking-policies'
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { GRACE_EVENTS, PERMIT_LABEL, graceRule } from '@/lib/grace';
 import { moduleEnabled } from '@/lib/modules';
+import { privacyOf, BREACH_STEPS } from '@/lib/health-privacy';
 
 const NEXT = 'starts next update';
 
@@ -86,6 +87,44 @@ function GraceUses({ tenantId }: { tenantId: string }) {
         </li>))}</ul>}
       {msg && <p className="text-sm font-semibold">{msg}</p>}
     </div>
+  );
+}
+
+/** Privacy: health mode, discreet messages, auto sign-out, the signed agreement for AI features, and record keeping. */
+function PrivacySection({ n, t }: { n: number; t: any }) {
+  const { save, isMgr, busy } = React.useContext(Ctx);
+  const pv = privacyOf(t); const raw = t?.privacy || {};
+  const [open, setOpen] = useState(false);
+  return (
+    <Section n={n} q="Privacy">
+      <p className="mb-3 text-sm text-muted-foreground">For businesses that keep health information, such as med spas, clinics and wellness practices. Any business can turn these on.</p>
+      <Row label="Health information mode" note="Staff screens sign out when left idle, every time someone opens a client’s health or consent answers it’s recorded, and AI features stay off for client information until you confirm a signed agreement below.">
+        <Choice field="privacy.healthMode" value={pv.healthMode} label="Health information mode" options={[[true, 'On'], [false, 'Off']]} />
+        {pv.detected && typeof raw.healthMode !== 'boolean' && <span className="w-full text-xs text-muted-foreground">We think your business handles health information, so this is on.</span>}
+      </Row>
+      <Row label="Discreet messages" note="Texts and emails say only that there’s an update, with the secure link. Nothing about the service or treatment appears in a lock-screen preview. Verification codes are always sent as written.">
+        <Choice field="privacy.discreet" value={pv.discreet} label="Discreet messages" options={[[true, 'On'], [false, 'Off']]} />
+      </Row>
+      {pv.healthMode && <Row label="Sign staff out when idle" note="After this long without a tap, click or key press, staff are signed out. They get a one-minute warning first.">
+        <Choice field="privacy.autoSignOutMin" value={pv.autoSignOutMin} label="Auto sign-out" options={[[5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes'], [30, '30 minutes']]} />
+      </Row>}
+      <Row label="Agreement covering AI features" note={pv.healthMode ? 'While health information mode is on, AI features (suggested replies, summaries and automatic answers) stay off for anything about a client until this is checked.' : 'Needed only when health information mode is on.'}>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4" disabled={!isMgr || busy === 'privacy.modelAgreementSigned'} checked={raw.modelAgreementSigned === true}
+            onChange={(e) => save('privacy.modelAgreementSigned', e.target.checked, 'Signed agreement')} />
+          <span>We have a signed business associate agreement covering the AI features.</span>
+        </label>
+      </Row>
+      <Row label="Keep health and consent records for" note="Most health businesses keep records for at least six years. Check what your state requires.">
+        <Choice field="privacy.retentionYears" value={pv.retentionYears} label="Record keeping" options={[[3, '3 years'], [6, '6 years'], [7, '7 years'], [10, '10 years']]} />
+      </Row>
+      <div className="border-t pt-4">
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="text-sm font-semibold underline underline-offset-2">
+          {open ? 'Hide' : 'Show'}: if information reaches the wrong person
+        </button>
+        {open && <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">{BREACH_STEPS.map((s) => <li key={s}>{s}</li>)}</ol>}
+      </div>
+    </Section>
   );
 }
 
@@ -308,6 +347,8 @@ export default function BookingPoliciesPage() {
               {P.renterDesk.billing.value !== 'included' && <Num field="bookingPolicies.renterDeskSupport.amount" value={P.renterDesk.amount.value} unit={P.renterDesk.billing.value === 'monthly' ? 'dollars a month' : 'dollars a booking'} label="Desk support fee" step={0.5} />}
             </Row>
           </Section>}
+
+          <PrivacySection n={renters ? 6 : 5} t={t} />
         </div>
 
         <aside className="lg:sticky lg:top-4 lg:self-start">

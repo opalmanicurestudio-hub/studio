@@ -64,8 +64,10 @@ export function ReachPill({ client }: { client: any }) {
     </span>);
 }
 
-export function ClientHeader({ client, facts, showMoney, canSeeContact, balance, credit, linkCount, avatar, onBook, onMessage, onPay, onEdit, summaryOn = true, extraFlags = [] }: {
+export function ClientHeader({ client, facts, showMoney, canSeeContact, balance, credit, linkCount, avatar, onBook, onMessage, onPay, onEdit, summaryOn = true, extraFlags = [], contactStatus }: {
   extraFlags?: [string, 'warn' | 'info'][];
+  /** Beside the reach pill: whether the phone on record is confirmed (ClientPrivacyParts ContactStatus). */
+  contactStatus?: React.ReactNode;
   client: any; facts: ReturnType<typeof clientFacts>; showMoney: boolean; canSeeContact: boolean; balance: number; credit: number; linkCount: number; avatar: React.ReactNode;
   onBook: () => void; onMessage?: () => void; onPay?: () => void; onEdit?: () => void; summaryOn?: boolean;
 }) {
@@ -88,7 +90,7 @@ export function ClientHeader({ client, facts, showMoney, canSeeContact, balance,
     <header className="space-y-3 rounded-3xl p-4 md:p-6" style={{ background: 'linear-gradient(color-mix(in srgb, var(--accent, #2e6f6a) 7%, var(--paper, #faf8f5)), var(--paper, #faf8f5))', border: '1px solid var(--line, #e7e2dc)' }}>
       <div className="flex flex-wrap items-center gap-4">
         <div className="shrink-0">{avatar}</div>
-        <div className="min-w-0 flex-1"><h1 className="truncate text-[28px] font-light leading-tight md:text-[36px]">{client.name || 'Client'}</h1>{contact && <p className="mt-1 text-[14px]" style={muted}>{contact}</p>}<div className="mt-1.5"><ReachPill client={client} /></div></div>
+        <div className="min-w-0 flex-1"><h1 className="truncate text-[28px] font-light leading-tight md:text-[36px]">{client.name || 'Client'}</h1>{contact && <p className="mt-1 text-[14px]" style={muted}>{contact}</p>}<div className="mt-1.5 flex flex-wrap items-center gap-2"><ReachPill client={client} />{contactStatus}</div></div>
         <div className="flex w-full flex-wrap gap-2 md:w-auto">
           {client.status !== 'banned' && <button type="button" onClick={onBook} className={`${btn} order-first h-12 w-full text-[15px] md:order-last md:h-10 md:w-auto md:text-[14px]`} style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Book {String(client.name || '').split(' ')[0] || 'them'}</button>}
           {onMessage && <button type="button" onClick={onMessage} className={`${btn} flex-1 md:flex-none`} style={{ background: 'var(--soft, #efebe6)' }}>Message</button>}
