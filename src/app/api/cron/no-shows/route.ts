@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
     try { const { missedPickupSweep } = await import('@/lib/refund-payouts'); await missedPickupSweep(db, t.id, tenant); } catch { /* next run */ }
     // Client aftercare right after checkout, and the check-in a few days later (lib/aftercare-send).
     try { const { aftercareSweep } = await import('@/lib/aftercare-send'); await aftercareSweep(db, t.id, tenant, now); } catch { /* next run */ }
+    // Before the visit: the check goes out your cancellation window plus a day before, one nudge (lib/prep-check-server).
+    try { const { prepSweep } = await import('@/lib/prep-check-server'); await prepSweep(db, t.id, tenant, now); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {

@@ -694,6 +694,9 @@ function SettingsPageImpl() {
                   onChange={(e) => { const v = e.target.value === '' ? undefined : (int ? parseInt(e.target.value) : parseFloat(e.target.value)); setTenantData((prev) => ({ ...prev, [field]: Number.isFinite(v as any) ? v : 0 } as any)); }} className={`${cfInput} ${width} text-center`} style={cfInputStyle} />{suffix && <span className="text-[14px] cf-muted">{suffix}</span>}</span>);
               const T = (field: string, label: string, help?: string, invert = false) => <Row key={field} label={label} help={help} inline><Toggle checked={invert ? (tenantData as any)[field] !== false : !!(tenantData as any)[field]} onChange={(v) => setTenantData((prev) => ({ ...prev, [field]: v } as any))} label={label} /></Row>;
               return (<>
+              <a href="/settings/before-the-visit" className="cf-sheet flex items-center justify-between gap-3 px-5 py-4">
+                <span className="min-w-0"><span className="block text-[15px] font-medium">Before the visit</span><span className="block text-[13.5px] cf-muted">Quick questions before fills and touch-ups, so the right time is saved — with the price shown before clients agree.</span></span>
+                <span className="shrink-0 text-[14px] font-medium">Open →</span></a>
               <a href="/settings/aftercare" className="cf-sheet flex items-center justify-between gap-3 px-5 py-4">
                 <span className="min-w-0"><span className="block text-[15px] font-medium">Aftercare</span><span className="block text-[13.5px] cf-muted">What clients get after a visit — when it’s sent, a check-in a few days later, and what’s on their page.</span></span>
                 <span className="shrink-0 text-[14px] font-medium">Open →</span></a>
