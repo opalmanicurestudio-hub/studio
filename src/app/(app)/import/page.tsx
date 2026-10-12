@@ -11,6 +11,7 @@ import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
 import { PhotosDrawer } from '@/components/import/PhotosDrawer';
+import { totalsCheck } from '@/lib/pdf-table';
 import { parseCsv, autoMatch, cleanRow, mergeWithin, guessKind, howToGet, FIELDS, APPS, type ImportKind, type CleanRow } from '@/lib/import-records';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -53,7 +54,7 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
   const [kind, setKind] = React.useState<ImportKind>(startKind === 'other' ? 'clients' : startKind); const [guessed, setGuessed] = React.useState(false);
   const [step, setStep] = React.useState(0); const [file, setFile] = React.useState(''); const [headers, setHeaders] = React.useState<string[]>([]); const [body, setBody] = React.useState<string[][]>([]);
   const [map, setMap] = React.useState<Record<string, number>>({}); const [err, setErr] = React.useState(''); const [drag, setDrag] = React.useState(false); const [reading, setReading] = React.useState(false);
-  const [cols, setCols] = React.useState(false); const [shuffle, setShuffle] = React.useState(0);
+  const [cols, setCols] = React.useState(false); const [shuffle, setShuffle] = React.useState(0); const [pdfTotals, setPdfTotals] = React.useState<any>(null);
   const [qs, setQs] = React.useState<any>(null); const [staffMap, setStaffMap] = React.useState<Record<string, string>>({}); const [serviceMap, setServiceMap] = React.useState<Record<string, string>>({});
   const [keepMarketing, setKeepMarketing] = React.useState(true); const [reminders, setReminders] = React.useState(false);
   const [check, setCheck] = React.useState<any>(null); const [busy, setBusy] = React.useState(false); const [progress, setProgress] = React.useState<number | null>(null); const [done, setDone] = React.useState<any>(null);
@@ -63,11 +64,11 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
   const nameOk = kind === 'sales' ? map.date !== undefined && map.total !== undefined : kind === 'clients' ? ['name', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) : kind === 'appointments' ? (map.start !== undefined || map.date !== undefined) && ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) : ['packages', 'memberships', 'formulas'].includes(kind) ? ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) && !missingRequired.length : kind === 'balances' ? ['client', 'firstName', 'email', 'phone'].some((k) => map[k] !== undefined) && ['credit', 'owed', 'balance'].some((k) => map[k] !== undefined) : !missingRequired.length;
 
   const read = async (f?: File | null) => {
-    if (!f) return; setErr(''); setCheck(null); setQs(null); setDone(null);
+    if (!f) return; setErr(''); setCheck(null); setQs(null); setDone(null); setPdfTotals(null);
     if (f.size > 25 * 1024 * 1024) { setErr('That file is over 25 MB. Split it into smaller files, or export fewer columns.'); return; }
     setReading(true); let rows: string[][] = [];
     try { rows = await readRows(f); } catch (e: any) { setReading(false); setErr(e?.message || 'We couldn’t read that file.'); return; }
-    setReading(false); if (rows.length < 2) { setErr('We couldn’t find any rows in that file. Is it the export?'); return; }
+    setReading(false); setPdfTotals((rows as any).totals || null); if (rows.length < 2) { setErr('We couldn’t find any rows in that file. Is it the export?'); return; }
     const h = rows[0]; const w = h.length; let k = kind;
     if (startKind === 'other') { k = guessKind(h); setKind(k); setGuessed(true); }
     setFile(f.name); setHeaders(h); setBody(rows.slice(1).map((r) => (r.length < w ? [...r, ...Array(w - r.length).fill('')] : r))); setMap(autoMatch(k, h)); setStep(1);
@@ -104,7 +105,8 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
   };
 
   // Side by side
-  const matchedCols = new Set(Object.values(map)); const showCols = headers.map((h, i) => ({ h, i })).filter(({ i }) => body.slice(0, 30).some((r) => r[i])).slice(0, 6);
+  const matchedCols = new Set(Object.values(map));
+  const sums = React.useMemo(() => (pdfTotals ? totalsCheck([headers, ...body], pdfTotals) : []), [pdfTotals, headers, body]); const showCols = headers.map((h, i) => ({ h, i })).filter(({ i }) => body.slice(0, 30).some((r) => r[i])).slice(0, 6);
   const sample = good.length ? [0, 1, 2].map((j) => good[(j * 7 + shuffle * 3) % good.length]).filter((x, j, a) => a.indexOf(x) === j) : [];
   const Card2 = ({ r }: { r: CleanRow }) => { const d = r.data; const line = (t: any, c = MUTED) => t ? <p className="text-[12.5px]" style={{ color: c }}>{t}</p> : null;
     const probs = r.problems.map((p, i) => <p key={i} className="text-[12px]" style={{ color: AMBER }}>{p}</p>);
@@ -161,6 +163,9 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
             <select value={col ?? -1} onChange={(e) => { const v = Number(e.target.value); setMap((m) => { const o = { ...m }; if (v < 0) delete o[f.key]; else o[f.key] = v; return o; }); }} className="h-10 w-full rounded-xl border bg-white px-3 text-[14px]" style={{ borderColor: LINE }} aria-label={f.label}>
               <option value={-1}>Not in my file</option>{headers.map((h, j) => <option key={j} value={j}>{h || `Column ${j + 1}`}</option>)}</select></div>; })}</div>}
           <div className="grid grid-cols-3 gap-2">{[[good.length, `${NOUN[kind][1]} ready`, INK], [cleaned.merged, 'duplicates joined', MUTED], [skipped.length, 'left out', skipped.length ? AMBER : MUTED]].map(([n, l, c]) => <div key={String(l)} className="rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[24px] font-normal tracking-[-0.03em]" style={{ color: c as string }}>{Number(n).toLocaleString()}</p><p className="text-[12px]" style={{ color: MUTED }}>{l}</p></div>)}</div>
+          {sums.length > 0 && (sums.every((x) => x.ok)
+            ? <p className="rounded-2xl p-3 text-[13.5px] font-semibold" style={{ background: '#e9f3ed', color: GREEN }}>✓ Adds up to the report’s own total{sums.length > 1 ? 's' : ''}: {sums.map((x) => `${x.column} ${$(x.report)}`).join(' · ')}.</p>
+            : <p className="rounded-2xl p-3 text-[13.5px]" style={{ background: '#fdf3e6', color: '#7a3e05' }}><b>This doesn’t add up to the report’s total.</b> {sums.filter((x) => !x.ok).map((x) => `${x.column}: the report says ${$(x.report)}, the rows we read add up to ${$(x.read)}`).join(' · ')}. A row may have been missed or misread — compare a few against the PDF before bringing them in.</p>)}
           {(problems.length > 0 || skipped.length > 0) && <details className="rounded-2xl p-3 text-[13.5px]" style={{ background: '#fdf3e6' }}><summary className="cursor-pointer font-semibold" style={{ color: AMBER }}>See what was left out and why</summary>
             <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">{[...skipped.map((r) => `Row ${r.row}: ${r.skip}`), ...problems.flatMap((r) => r.problems.map((p) => `Row ${r.row} (${r.data.name}): ${p}`))].slice(0, 200).map((x, i) => <li key={i}>{x}</li>)}</ul></details>}
           {!nameOk && <p className="text-[14px] font-semibold" style={{ color: RED }}>We couldn’t find {missingRequired.length ? missingRequired.map((f) => f.label.toLowerCase()).join(' and ') : 'the key columns'} — <button type="button" onClick={() => setCols(true)} className="underline">choose the columns</button>.</p>}

@@ -129,6 +129,20 @@ import { makeDb, check, failures } from './fake-db';
       w('Total', 40, 700), w('$115.00', 320, 700), w('Page', 280, 40), w('1', 306, 40),
       w('Code', 40, 760, 2), w('Customer', 160, 760, 2), w('Balance', 320, 760, 2), w('ZZZZ-9999', 40, 740, 2), w('Ana', 160, 740, 2), w('$10.00', 320, 740, 2)]);
     check('a PDF table becomes rows: header, names joined, totals and page numbers dropped, header not repeated', JSON.stringify(rows) === JSON.stringify([['Code', 'Customer', 'Balance'], ['K7QX-M2PA', 'Maria Lopez', '$40.00'], ['ABCD-1234', 'Tia Grant', '$75.00'], ['ZZZZ-9999', 'Ana', '$10.00']]), rows);
+    // A name that spills onto a second line joins its row; the totals line becomes a check
+    const t2 = P.wordsToTable([w('Code', 40, 760), w('Customer', 160, 760), w('Balance', 320, 760),
+      w('GC-1', 40, 740), w('Alexandra', 160, 740), w('Montgomery-', 210, 740), w('$150.00', 320, 740),
+      w('Reyes', 160, 726),
+      w('GC-2', 40, 712), w('Sam', 160, 712), w('Taylor', 182, 712), w('$20.00', 320, 712),
+      w('Total', 40, 690), w('$170.00', 320, 690), w('Page', 280, 40), w('1', 306, 40)]);
+    check('a wrapped name joins the row above it (not lost); the page number is still left out', JSON.stringify(t2.rows) === JSON.stringify([['Code', 'Customer', 'Balance'], ['GC-1', 'Alexandra Montgomery-Reyes', '$150.00'], ['GC-2', 'Sam Taylor', '$20.00']]), t2.rows);
+    const sums = P.totalsCheck(t2.rows, t2.totals);
+    check('the rows add up to the report’s own total', sums.length === 1 && sums[0].ok && sums[0].report === 170 && sums[0].column === 'Balance', sums);
+    const off = P.totalsCheck([t2.rows[0], t2.rows[1]], t2.totals);
+    check('a missed row shows as not adding up', off.length === 1 && !off[0].ok && off[0].read === 150, off);
+    const g = P.wordsToTable([w('Code', 40, 760), w('Balance', 320, 760), w('A', 40, 740), w('$5.00', 320, 740), w('Total', 40, 720), w('$5.00', 320, 720),
+      w('Code', 40, 760, 2), w('Balance', 320, 760, 2), w('B', 40, 740, 2), w('$7.00', 320, 740, 2), w('Total', 40, 720, 2), w('$7.00', 320, 720, 2), w('Grand', 40, 700, 2), w('total', 70, 700, 2), w('$12.00', 320, 700, 2)]);
+    check('page totals are added up, and a grand total wins', g.totals?.kind === 'grand' && g.totals.byColumn[1] === 12 && P.totalsCheck(g.rows, g.totals)[0]?.ok, g);
     // Photos: matching a file to a client
     const people = [{ id: 'm', name: 'Maria Lopez', email: 'maria@x.com' }, { id: 't', name: 'Tia Grant' }, { id: 'a1', name: 'Ana Ruiz' }, { id: 'a2', name: 'Ana Ruiz' }];
     const who = (p: string) => F.matchFile(p, people)?.id || null;
