@@ -569,7 +569,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks', 'certifications', 'renterDocs', 'oneOnOnes',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks', 'certifications', 'renterDocs', 'oneOnOnes', 'opportunities', 'opportunityTexts', 'tasks', 'notifications',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',
@@ -683,13 +683,17 @@ service cloud.firestore {
       allow write: if isManager(tenantId);
     }
     match /tenants/{tenantId}/tasks/{taskId} {
+      // Explicit only (tasks is off the team catch-all): anyone can complete their own, managers and document managers run the list.
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);
-      allow create, delete: if isManager(tenantId);
-      allow update: if isManager(tenantId)
+      allow create, delete: if canManageDocs(tenantId);
+      allow update: if canManageDocs(tenantId)
         || (isPortalMember(tenantId)
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['status', 'completedBy', 'completedByName', 'completedAt', 'photoUrl', 'photoUrls'])
-            && request.resource.data.completedBy == request.auth.token.staffId);
+            && request.resource.data.completedBy == request.auth.token.staffId)
+        || (isStaff(tenantId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'completedBy', 'completedByName', 'completedAt', 'photoUrl', 'photoUrls']));
     }
     match /tenants/{tenantId}/rotations/{rotationId} {
       allow get, list: if isStaff(tenantId) || isPortalMember(tenantId);

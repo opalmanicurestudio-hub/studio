@@ -77,6 +77,11 @@ export async function recentMarketingTexts(db: any, tenantId: string, now = Date
       const x = d.data() as any; if (x.clientId && x.channel === 'sms') bump(x.clientId);
     }
   } catch { /* none yet */ }
+  try {   // texts sent from an Opportunities task count too (lib/opportunities-server) — one limit across everything
+    for (const d of (await db.collection(`tenants/${tenantId}/opportunityTexts`).where('at', '>=', since).get()).docs) {
+      const x = d.data() as any; if (x.clientId && x.channel === 'sms' && x.marketing) bump(x.clientId);
+    }
+  } catch { /* none yet */ }
   return out;
 }
 
