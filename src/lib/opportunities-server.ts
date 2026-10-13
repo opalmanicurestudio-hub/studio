@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -98,7 +98,9 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
       }
     }
     // Booked since the task was made (in person at checkout, online, at the desk): nothing left to ask. Results still credit it.
-    if (e.status === 'open' && e.clientId && ['due', 'no_rebook', 'first_visit', 'long_gone', 'cancelled', 'no_show', 'follow_up'].includes(e.kind)) {
+    if (e.status === 'open' && e.kind === 'renewal_failed' && e.clientId) {   // the card was updated, or the membership ended
+      const st = String(clients.get(String(e.clientId))?.subscription?.status || ''); if (st !== 'past_due') { writes.push([ref, { status: 'done', outcome: 'no_longer_applies', closedAt: nowIso(now), closedWhy: st === 'active' ? 'Their membership payment went through.' : 'The membership has ended.' }, 'update']); continue; } }
+    if (e.status === 'open' && e.clientId && ['due', 'no_rebook', 'first_visit', 'long_gone', 'cancelled', 'no_show', 'follow_up', 'unused_visits'].includes(e.kind)) {
       const up = Hx.get(String(e.clientId))?.upcoming; if (up && (ms(up.createdAt) || ms(up.startTime)) >= ms(e.createdAt)) { writes.push([ref, { status: 'done', outcome: 'no_longer_applies', closedAt: nowIso(now), closedWhy: 'They booked their next visit.' }, 'update']); continue; } }
     if (e.status === 'open' && ms(e.expiresAt) && ms(e.expiresAt) < now) { writes.push([ref, { status: 'expired', closedAt: nowIso(now) }, 'update']); expired++; continue; }
     // Who came back — checked for 45 days after we reached out (and for the left-alone group, the same way).
@@ -266,6 +268,56 @@ export async function opportunityDue(db: any, t: string, tenant: any, now = Date
   return { ok: true, launched, dropped };
 }
 
+// ── Fill a gap ─────────────────────────────────────────────────────────────────────────
+/** An opening the waitlist couldn't fill (nobody on it fits), 3 to 48 hours away: a short "would you like it?" to up to
+ * three clients who are about due, whose usual service fits the time, with the provider they usually see (or anyone
+ * who does that service if the opening's provider is theirs too). The first yes books it (answerAskFirst); the others
+ * are closed. Runs every pass, within texting hours. Marketing rules apply (consent, the per-person text budget). */
+export async function opportunityGaps(db: any, t: string, tenant: any, now = Date.now(), o: { send?: Sender } = {}) {
+  const S = oppSettingsOf(tenant); if (!S.on || S.modes.fill_gap !== 'auto' ) return { ok: true, skipped: 'off' };
+  const zone = await tz(tenant); const { inTextWindow } = await import('@/lib/campaigns'); if (!inTextWindow(zone, new Date(now))) return { ok: true, skipped: 'quiet hours' };
+  const ops = rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get().catch(() => ({ docs: [] })))
+    .filter((x: any) => x.nobodyFits && !x.gapAskedAt && ms(x.start) - now >= 3 * 3600e3 && ms(x.start) - now <= 48 * 3600e3).slice(0, 5);
+  if (!ops.length) return { ok: true, asked: 0 };
+  const send: Sender = o.send || (async (...a: any[]) => { const { sendTenantSms } = await import('@/lib/sms'); return (sendTenantSms as any)(...a); });
+  const x = await loadAll(db, t, now); const staff = await team(db, t); const services = rows(await db.collection(`${T(t)}/services`).get().catch(() => ({ docs: [] })));
+  const minsOf = (id: any) => { const v = services.find((z: any) => z.id === id); return v ? Number(v.duration || v.durationMinutes || 0) || null : null; };
+  const renterIds = new Set<string>(staff.filter((m: any) => m.role === 'renter' || m.isRenter).map((m: any) => String(m.id)));
+  const clients = new Map<string, any>(x.clients.map((c: any) => [String(c.id), c]));
+  const H = historyOf(x.appointments.filter((a: any) => !a.isRenterBooking && !renterIds.has(String(a.staffId || ''))), now);
+  const busy = new Set<string>(x.opps.filter((e: any) => ACTIVE.includes(e.status) || (e.kind === 'fill_gap' && now - ms(e.createdAt) < PLAYBOOKS.fill_gap.cooldownDays * DAY)).map((e: any) => String(e.clientId || '')));
+  const ctx: Ctx = { db, t, tenant, S, staff, clients, opps: x.opps, load: openLoad(x.opps), send };
+  let asked = 0;
+  for (const op of ops) {
+    const list = gapAskList({ opening: op, H, clients, busy, minsOf, now, tz: zone });
+    const when = gapWhen(ms(op.start), now, zone); const prov = staff.find((m: any) => m.id === op.staffId);
+    for (const c of list) {
+      const ref = db.collection(`${T(t)}/opportunities`).doc();
+      const base = { ...baseOf(c, ref.id, 'auto', tenant, staff, clients, now), providerId: op.staffId || null, providerName: prov?.name || op.staffName || null,
+        expiresAt: nowIso(ms(op.start)), refs: { openingId: String(op.id) }, offeredTimes: [{ startIso: new Date(ms(op.start)).toISOString(), staffId: op.staffId || null, label: when }] };
+      base.facts = { ...base.facts, when, provider: first(prov?.name || op.staffName) || 'us' };
+      const r = await launch(ctx, base, now);
+      if (r.doc.status !== 'not_sent') { await ref.set(r.doc); for (const w of r.extra) await w[0].set(w[1]); busy.add(String(c.clientId)); if (r.sent) asked++; }
+    }
+    await db.doc(`${T(t)}/openings/${op.id}`).set({ gapAskedAt: nowIso(now), gapAsked: list.length }, { merge: true });
+  }
+  return { ok: true, asked };
+}
+const gapWhen = (t: number, now: number, zone: string) => {
+  const f = (d: number, o: any) => new Date(d).toLocaleDateString('en-US', { ...o, timeZone: zone });
+  const day = f(t, { weekday: 'long' }); const today = f(now, { weekday: 'long' }); const tmrw = f(now + DAY, { weekday: 'long' });
+  const time = new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone }).replace(':00', '');
+  return `${day === today ? 'today' : day === tmrw ? 'tomorrow' : day} at ${time}`;
+};
+/** The first yes on a "fill a gap" text got the time: the others asked about it are told nothing more (their tasks close),
+ * and the opening is marked filled. */
+async function closeGapSiblings(db: any, t: string, e: any, appointmentId: string, now: number) {
+  const openingId = String(e.refs?.openingId || ''); if (!openingId) return;
+  const sib = rows(await db.collection(`${T(t)}/opportunities`).where('refs.openingId', '==', openingId).get().catch(() => ({ docs: [] })));
+  for (const s2 of sib) if (s2.id !== e.id && ACTIVE.includes(s2.status)) await db.doc(`${T(t)}/opportunities/${s2.id}`).update({ status: 'done', outcome: 'no_longer_applies', closedAt: nowIso(now), closedWhy: 'Someone else took the time.' });
+  await db.doc(`${T(t)}/openings/${openingId}`).set({ status: 'filled', filledAt: nowIso(now), filledBy: { kind: 'opportunity', appointmentId, opportunityId: e.id, name: e.clientName || '' } }, { merge: true });
+}
+
 /** A client texted back (lib: /api/sms/inbound). STOP closes it. On an ask-first text, a plain yes gets two real times
  * back and a 1 or 2 books that time — no person needed. Anything else (a question, "not now", a price) goes to a person
  * now, with what they said, instead of after the waiting days. */
@@ -295,8 +347,12 @@ export async function opportunityReply(db: any, t: string, fromDigits: string, b
  * (deposit: their card on file if the business allows, otherwise a deposit link); the booking sends its usual
  * confirmation. Returns false when a person should take it instead. */
 async function answerAskFirst(db: any, t: string, tenant: any, S: OppSettings, e: any, ref: any, att: any[], body: string, now: number, io: TaskIO): Promise<boolean> {
-  const offered: any[] = Array.isArray(e.offeredTimes) ? e.offeredTimes : [];
-  const n = offered.length ? pickedNumber(body, offered.length) : null;
+  const offered: any[] = Array.isArray(e.offeredTimes) ? e.offeredTimes : []; const gap = e.kind === 'fill_gap';
+  const n = offered.length ? pickedNumber(body, offered.length) || (gap && isYes(body) ? 1 : null) : null;
+  if (gap && !n) {   // "no thanks" to one spare time isn't worth a person's time; a question is
+    if (body.includes('?')) return false;
+    await ref.update({ status: 'done', outcome: 'declined', closedAt: nowIso(now), attempts: att, repliedAt: nowIso(now) }); return true;
+  }
   if (!(n || (!offered.length && isYes(body)))) return false;
   const ctx = await rebookCtxFor(db, t, e); if (!ctx) return false;
   const { rebookStart, rebookBook } = await import('@/lib/rebook-actions');
@@ -322,14 +378,22 @@ async function answerAskFirst(db: any, t: string, tenant: any, S: OppSettings, e
     return true;
   }
   const pick = offered[n - 1]; const dep = Number(plan.depositCents) || 0;
+  const gone = async () => {   // a spare time someone else already took: a kind word, and no task for anyone
+    await say(`Thank you, ${firstName}. I am sorry, that time has just been taken. We will keep you in mind next time something opens up.`);
+    await ref.update({ status: 'done', outcome: 'no_longer_applies', closedWhy: 'Someone else took the time first.', closedAt: nowIso(now), attempts: [...att, auto('Told them the time had been taken')].slice(-20), repliedAt: nowIso(now) });
+    return true;
+  };
+  if (gap) { const op: any = (await db.doc(`${T(t)}/openings/${String(e.refs?.openingId || '')}`).get().catch(() => null))?.data?.() || {}; if ((op.status && op.status !== 'open') || ms(pick.startIso) <= now + 30 * 60000) return gone(); }
   const deposit = dep === 0 ? 'none' : plan.choices?.cardHold ? 'card_hold' : plan.choices?.cardCharge ? 'card_charge' : 'later';
   const bk: any = await rebookBook(db, ctx, { ...plan, choices: { ...plan.choices, later: true } }, { startIso: pick.startIso, staffId: pick.staffId, deposit }, io.internal, io.origin);
+  if (!bk?.ok && gap) return gone();
   if (!bk?.ok) {
     await say(`I am sorry, ${firstName}, that time has just been taken.${linkWithService ? ` You can choose another time here: ${linkWithService}` : ' Someone from our team will be in touch shortly.'}`);
     return false;   // a person follows up too
   }
   const appointmentId = String(bk.rebook?.appointmentId || bk.appointmentId || '');
   if (appointmentId) await db.doc(`${T(t)}/appointments/${appointmentId}`).set({ opportunityId: e.id, opportunityKind: e.kind }, { merge: true }).catch(() => {});
+  if (gap) await closeGapSiblings(db, t, e, appointmentId, now).catch((err) => console.error('[opportunities] fill a gap: siblings', err));
   await ref.update({ status: 'done', outcome: 'booked', closedAt: nowIso(now), refs: { ...(e.refs || {}), appointmentId }, result: { status: 'booked', appointmentId, checkedAt: nowIso(now) },
     attempts: [...att, auto(`Booked ${pick.label} from their reply`)].slice(-20), repliedAt: nowIso(now), lastContactAt: nowIso(now) });
   return true;

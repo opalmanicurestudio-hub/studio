@@ -73,9 +73,9 @@ function Finders({ tenantId, settings, onSaved }: { tenantId: string; settings: 
     <div className="space-y-3 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}>
       <div className="flex items-center justify-between gap-3"><div><p className="text-[15.5px] font-semibold">Finders</p><p className="text-[13px]" style={{ color: MUTED }}>Switch off what doesn’t fit your business.</p></div>{sw(s.on, () => setS({ ...s, on: !s.on }), 'Opportunities on')}</div>
       <div>{FINDER_KINDS.map((k) => <div key={k} className="grid items-center gap-2 py-2.5 md:grid-cols-[1fr_auto]" style={{ borderTop: `1px solid ${LINE}` }}>
-        <span><span className="block text-[14px] font-semibold">{PLAYBOOKS[k].label}</span><span className="block text-[12px]" style={{ color: MUTED }}>A person means {PLAYBOOKS[k].who === 'provider' ? 'their provider' : PLAYBOOKS[k].who === 'desk' ? 'the desk' : 'the owner'}{PLAYBOOKS[k].marketing ? ' · texts need their yes to marketing' : ''}</span></span>
+        <span><span className="block text-[14px] font-semibold">{PLAYBOOKS[k].label}</span><span className="block text-[12px]" style={{ color: MUTED }}>A person means {PLAYBOOKS[k].who === 'provider' ? 'their provider' : PLAYBOOKS[k].who === 'desk' ? 'the desk' : 'the owner'}{PLAYBOOKS[k].marketing ? ' · texts need their yes to marketing' : ''}</span>{KIND_HINT[k] && <span className="block text-[12px]" style={{ color: MUTED }}>{KIND_HINT[k]}</span>}</span>
         <span className="flex flex-wrap gap-1.5">{modesFor(k).map((m) => <button key={m} type="button" onClick={() => setS({ ...s, modes: { ...s.modes, [k]: m } })} className="h-8 rounded-full px-3 text-[12.5px] font-semibold" style={pill(s.modes[k] === m)}>{m === 'off' ? 'Off' : m === 'auto' ? 'Automatic' : m === 'person' ? 'A person' : 'Automatic, then a person'}</button>)}</span>
-        {PLAYBOOKS[k].ask?.length && ['auto', 'auto_then_person'].includes(s.modes[k]) ? <span className="flex flex-wrap items-center gap-1.5 md:col-span-2"><span className="text-[12px]" style={{ color: MUTED }}>First text:</span>
+        {PLAYBOOKS[k].ask?.length && k !== 'fill_gap' && ['auto', 'auto_then_person'].includes(s.modes[k]) ? <span className="flex flex-wrap items-center gap-1.5 md:col-span-2"><span className="text-[12px]" style={{ color: MUTED }}>First text:</span>
           {[[false, 'Ask first (no link)'], [true, 'Include a booking link']].map(([v, l]) => <button key={String(v)} type="button" aria-pressed={!!s.linkFirst?.[k] === v} onClick={() => setS({ ...s, linkFirst: { ...(s.linkFirst || {}), [k]: v } })} className="h-7 rounded-full px-2.5 text-[12px] font-semibold" style={pill(!!s.linkFirst?.[k] === v)}>{l as string}</button>)}</span> : null}</div>)}</div>
       <p className="text-[12.5px] leading-[1.5]" style={{ color: MUTED }}><b style={{ color: INK }}>Automatic</b> sends a friendly text — nobody has a task. <b style={{ color: INK }}>Ask first</b> asks without a link: a yes gets two real times back, and a reply of 1 or 2 books it; anything else goes to a person. Cancellations and gift cards include the link, since the client expects it. <b style={{ color: INK }}>Automatic, then a person</b> does the same, and if they don’t book or reply in the days below, it becomes a task. A reply makes it a task straight away. Every automatic text checks their consent, texting hours and the 30-day limit first.</p>
       <div className="grid gap-3 sm:grid-cols-2" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
@@ -119,6 +119,11 @@ function AddTask({ tenantId, people, onSaved }: { tenantId: string; people: any[
     </div>);
 }
 
+const KIND_HINT: Record<string, string> = {
+  fill_gap: 'A time the waitlist couldn’t fill, 3 to 48 hours away: up to three clients who are about due are asked if they’d like it. The first yes gets it booked.',
+  renewal_failed: 'A membership payment that hasn’t gone through for 3 days and no new card yet. They already have the secure card link; this is a friendly word from the desk.',
+  unused_visits: 'Members with no visit in 45 days, or package visits left and no visit in 60 days.',
+};
 const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', visit: 'Booked before they left (checkout and visit link)', campaigns: 'Campaigns', winback: 'Win-back reminders (before they moved here)' };
 function Results({ tenantId }: { tenantId: string }) {
   const [r, setR] = React.useState<any>(null);

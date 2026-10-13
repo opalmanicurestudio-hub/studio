@@ -54,6 +54,8 @@ export async function GET(req: NextRequest) {
     // that client now, sent at its time — then anything scheduled whose time has come.
     try { const { opportunityEvents } = await import('@/lib/opportunities-server'); await opportunityEvents(db, t.id, tenant, now, justCancelled); } catch { /* next run */ }
     try { const { opportunityDue } = await import('@/lib/opportunities-server'); await opportunityDue(db, t.id, tenant, now); } catch { /* next run */ }
+    // A spare time the waitlist couldn't fill, 3 to 48 hours away: a "would you like it?" to a few clients who are about due.
+    try { const { opportunityGaps } = await import('@/lib/opportunities-server'); await opportunityGaps(db, t.id, tenant, now); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {

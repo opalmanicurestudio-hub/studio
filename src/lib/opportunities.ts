@@ -10,7 +10,7 @@
 
 import { moduleEnabled, type ModuleId } from '@/lib/modules';
 
-export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'manual' | 'follow_up';
+export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'manual' | 'follow_up';
 export type Who = 'provider' | 'desk' | 'owner';
 export type OutcomeId = 'booked' | 'waitlist' | 'interested' | 'not_now' | 'price' | 'no_answer' | 'voicemail' | 'bad_experience' | 'stop' | 'declined' | 'quote_accepted' | 'no_longer_applies' | 'done';
 
@@ -149,6 +149,33 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
       'Hi {first}, this is {business}. You have {balance} available on a gift card, and it is yours whenever you would like to use it. You can book here: {link}',
     ],
     never: '“Use it or lose it” unless it truly expires.' },
+  fill_gap: { kind: 'fill_gap', label: 'Fill a gap', who: 'provider', marketing: true, priority: 'high', expiresDays: 2, cooldownDays: 14, winBack: false,
+    versions: ['Hi {first}, this is {me}. A time has opened up {when} for your {service_short}. Would you like it?'],
+    next: 'If they would like it, book the time that opened (Find two times shows it first).',
+    branches: COMMON([B('booked', '“Wonderful. It is yours, and you will receive a confirmation shortly.”')]),
+    // Sent only after the waitlist has had its turn; the first yes gets the time, and the others are closed.
+    ask: ['Hi {first}, this is {business}. A time has opened up {when} with {provider} for your {service_short}. Would you like it? Just reply yes and it is yours.'],
+    auto: ['Hi {first}, this is {business}. A time has opened up {when} with {provider} for your {service_short}. Would you like it? Just reply yes and it is yours.'],
+    never: 'Pretending it is the last time available, or a discount to fill it.' },
+  renewal_failed: { kind: 'renewal_failed', label: 'Membership payment didn’t go through', who: 'desk', marketing: false, priority: 'high', expiresDays: 14, cooldownDays: 30, winBack: false,
+    versions: [
+      'Hi {first}, this is {me} at {business}. Your membership payment did not go through this month. When you have a moment, you can update your card with the secure link we sent, or I am happy to help.',
+      'Hi {first}, this is {me} from {business}. Just a note that your membership payment did not go through. The secure link we sent lets you update your card whenever it suits you.',
+    ],
+    next: 'Help them update their card through the secure link. Never take card numbers over the phone or by text.',
+    branches: COMMON([B('done', 'Card updated, or they chose to pause or cancel. Mark it done.')]),
+    never: 'Asking for card numbers, or sounding like a debt collector.' },
+  unused_visits: { kind: 'unused_visits', label: 'Included visits not being used', who: 'provider', marketing: false, priority: 'medium', expiresDays: 14, cooldownDays: 45, winBack: true,
+    versions: [
+      'Hi {first}, this is {me}. You still have {left} included in your {plan}. Would you like me to find you a time?',
+      'Hi {first}, this is {me}. I noticed you have {left} waiting in your {plan}. I would be glad to see you, so just let me know if you would like a time.',
+    ],
+    next: 'Offer two real times close to their usual day.',
+    branches: COMMON([B('booked', '“Wonderful. Your appointment is confirmed.”'), B('interested', '“Thank you. I will send you a few times.”')]),
+    ask: ['Hi {first}, this is {business}. You still have {left} included in your {plan}. Would you like us to find you a time? Just reply yes and we will send you a couple of options.'],
+    auto: ['Hi {first}, this is {business}. You still have {left} included in your {plan}. Whenever you would like to use it, you can book a time here: {link}'],
+    afterAuto: 'Hi {first}, this is {me}. I wanted to make sure you get the most from your {plan}. Would you like me to find you a time?',
+    never: 'Making them feel guilty for not coming in.' },
   follow_up: { kind: 'follow_up', label: 'Follow-up', who: 'provider', marketing: false, priority: 'medium', expiresDays: 10, cooldownDays: 0, winBack: false,
     versions: ['Hi {first}, this is {me} again. I wanted to follow up, with no pressure at all.'],
     next: 'Pick up where you left off.',
@@ -179,14 +206,14 @@ export type Mode = 'off' | 'auto' | 'person' | 'auto_then_person';
 export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it automatically', person: 'Give it to a person', auto_then_person: 'Automatic, then a person' };
 /** The starting choice for each kind (canvas, section 31 follow-up): automatic where a friendly text is enough, a person
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
-export const DEFAULT_MODES: Record<string, Mode> = { due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
-export const modesFor = (k: OppKind): Mode[] => (PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
+export const DEFAULT_MODES: Record<string, Mode> = { fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
+export const modesFor = (k: OppKind): Mode[] => (k === 'fill_gap' ? ['off', 'auto'] : PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
 export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number> }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
 export type Tool = 'appointments' | 'quotes' | 'gift_cards' | 'memberships' | 'shop' | 'booths' | 'academy' | 'hiring' | 'calls';
-export const TOOL_OF: Record<OppKind, Tool> = { due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
+export const TOOL_OF: Record<OppKind, Tool> = { fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
 const TOOL_GATE: Partial<Record<Tool, ModuleId>> = { quotes: 'classes_events', memberships: 'memberships', shop: 'retail', booths: 'booth_rental', academy: 'academy', hiring: 'team', calls: 'voice' };
 export const toolOn = (tenant: any, tool: Tool) => { const g = TOOL_GATE[tool]; return !g || moduleEnabled(tenant, g); };
 
@@ -197,7 +224,7 @@ export const WINDOW_DAYS: Record<Tool, number> = { appointments: 14, gift_cards:
 // ── Room on the schedule ────────────────────────────────────────────────────────────────────
 // Win-back only makes sense when there is time to see the client. When a provider's next few weeks are nearly full,
 // these kinds wait (they're found again the next day); recovering a lost visit, quotes and first-visit check-ins always go.
-export const PACED: OppKind[] = ['due', 'long_gone', 'no_rebook', 'gift_card'];
+export const PACED: OppKind[] = ['due', 'long_gone', 'no_rebook', 'gift_card', 'unused_visits'];
 /** Share of each provider's bookable start times still open over the next `days` days (0–1), worked out once a day. */
 export interface Pace { day: string; days: number; byStaff: Record<string, { share: number; name?: string }>; business: number | null; held?: Record<string, number> }
 export function heldForRoom(kind: OppKind, providerId: string | null, pace: Pace | null | undefined, S: OppSettings): boolean {
@@ -205,7 +232,7 @@ export function heldForRoom(kind: OppKind, providerId: string | null, pace: Pace
   const share = providerId && pace.byStaff?.[providerId] ? pace.byStaff[providerId].share : pace.business;
   return typeof share === 'number' && share * 100 < S.paceMin;
 }
-export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'quote', 'gift_card'];
+export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'renewal_failed', 'unused_visits', 'quote', 'gift_card'];
 export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
@@ -216,7 +243,7 @@ export function oppSettingsOf(tenant: any): OppSettings {
   if (rc.enabled === true) { carried.due = rc.dueEnabled === false ? 'off' : 'auto_then_person'; carried.long_gone = rc.missEnabled === false ? 'person' : 'auto_then_person'; }
   const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : carried[k] || DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
   const lf = o.linkFirst || {};
-  const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, typeof lf[k] === 'boolean' ? lf[k] : !PLAYBOOKS[k].ask?.length]));
+  const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, k === 'fill_gap' ? false : typeof lf[k] === 'boolean' ? lf[k] : !PLAYBOOKS[k].ask?.length]));
   const bo = o.bonus || {};
   const bonus = { on: bo.on === true, cents: n(bo.cents, 0, 10000, 500), capCents: n(bo.capCents, 0, 500000, 0) };   // off by default; cap 0 = no cap
   return { bonus, linkFirst, on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
@@ -274,10 +301,33 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
       why, valueCents: Math.max(0, Math.round(valueCents)), providerId: h?.last?.staffId ? String(h.last.staffId) : null, dueAt: iso(now), expiresAt: iso(now + pb.expiresDays * DAY), refs: {},
       facts: { first: firstName(c), service_short: shortService(h?.last?.serviceName), weeks: String(weeksOf(h?.gapDays ?? null)), ...(c?.phone ? { phone: String(c.phone) } : {}) }, ...extra } as Candidate);
   };
+  // Memberships and packages (tool: memberships), for every client, booked or not, with or without past visits here.
+  // A payment that didn't go through comes first: it's a service to the client, not a sale.
+  const taken = new Set<string>();
+  for (const c of x.clients) {
+    if (!c?.id || c.archived || c.deleted) continue; const cid = String(c.id); const h = H.get(cid) || null; const sub = c.subscription || {};
+    const due = ms(sub.pastDueSince); const cardAt = ms(c.cardOnFile?.savedAt);
+    if (S.finders.renewal_failed && sub.status === 'past_due' && due && now - due >= 3 * DAY && !(cardAt > due)) {
+      add('renewal_failed', c, h, `Membership payment didn’t go through ${day((now - due) / DAY)} ago, and no new card yet`, (Number(sub.price) || 0) * 100, { refs: { membershipId: String(sub.membershipId || c.activeMembershipId || '') }, providerId: null });
+      out[out.length - 1].facts.plan = 'membership'; taken.add(cid); continue; }
+    if (!S.finders.unused_visits || h?.upcoming) continue;
+    const lastVisitAgo = h?.last ? (now - ms(h.last.startTime)) / DAY : Infinity;
+    const pk = (Array.isArray(c.activePackages) ? c.activePackages : []).filter((p: any) => Number(p.sessionsRemaining) > 0);
+    const joined = ms(sub.startedAt || sub.createdAt || sub.startDate);
+    const member = sub.status === 'active' && !!c.activeMembershipId && joined > 0 && now - joined > 30 * DAY;
+    const pkOld = pk.length && now - ms(pk[0].purchasedAt) > 30 * DAY;
+    if ((member && lastVisitAgo >= 45) || (pkOld && lastVisitAgo >= 60)) {
+      const usePk = !member; const nLeft = Number(pk[0]?.sessionsRemaining) || 0;
+      const left = usePk ? `${nLeft} visit${nLeft === 1 ? '' : 's'}` : 'visits';
+      const ago = Number.isFinite(lastVisitAgo) ? `no visit in ${Math.round(lastVisitAgo)} days` : 'no visit yet';
+      add('unused_visits', c, h, usePk ? `${left} left on a package, ${ago}` : `Member, ${ago}`, (h?.avg || 0) * 100);
+      const f = out[out.length - 1].facts; f.left = left; f.plan = usePk ? String(pk[0].name || 'package') : 'membership'; taken.add(cid); }
+  }
   for (const [cid, h] of H) {
     const c = clients.get(cid); if (!c || c.archived || c.deleted) continue;
     const since = h.last ? (now - ms(h.last.startTime)) / DAY : null; const g = h.gapDays; const n = h.visits.length;
     if (h.upcoming) continue;
+    if (taken.has(cid)) continue;
     const la = h.lastAny; const laT = la ? ms(la.startTime) : 0;
     // A cancel or no-show that's the most recent thing, and never rebooked.
     if (la && isCancel(la.status) && S.finders.cancelled) { const at = ms(la.cancelledAt) || ms(la.updatedAt) || laT; const d = (now - at) / DAY;
@@ -315,6 +365,30 @@ export const quoteTotal = (q: any) => { const sub = (q.lineItems || []).reduce((
 export const dollars = (cents: number) => { const d = (Number(cents) || 0) / 100; return `$${d % 1 ? d.toFixed(2) : d.toLocaleString('en-US')}`; };
 
 /** Keep only what should become a task: one open task per client, cooldowns, opt-outs, open cases. */
+/** Fill a gap: who to ask about one spare time. Clients with past visits and nothing booked, who aren't opted out, whose
+ * usual service fits in the time, and who are at least most of the way to their usual next visit. Those who see this
+ * provider, and usually come on this weekday, first. At most three. */
+export function gapAskList(o: { opening: any; H: Map<string, History>; clients: Map<string, any>; busy: Set<string>; minsOf: (serviceId: any) => number | null; now: number; tz?: string }): Candidate[] {
+  const { opening: op, now } = o; const start = ms(op.start); const mins = Number(op.minutes) || Math.round((ms(op.end) - start) / 60000) || 0; if (!mins) return [];
+  const wd = (t: number) => new Date(t).toLocaleDateString('en-US', { weekday: 'short', ...(o.tz ? { timeZone: o.tz } : {}) }); const opDay = wd(start);
+  const scored: Array<{ c: any; h: History; score: number }> = [];
+  for (const [cid, h] of o.H) {
+    const c = o.clients.get(cid); if (!c || c.archived || c.deleted || c.opportunityOptOut || c.marketingOptOut || o.busy.has(cid)) continue;
+    if (h.upcoming || !h.last || !(c.phone || c.phoneNumber)) continue;
+    const since = (now - ms(h.last.startTime)) / DAY; const g = h.gapDays || 28; if (since < g * 0.8 || since > Math.max(g * 3, 120)) continue;
+    const need = o.minsOf(h.last.serviceId) || Number(h.last.duration) || 0; if (!need || need > mins) continue;
+    const sameProv = op.staffId && String(h.last.staffId || '') === String(op.staffId); const sameDay = h.visits.slice(-4).filter((a: any) => wd(ms(a.startTime)) === opDay).length;
+    if (op.staffId && !sameProv && !h.visits.some((a: any) => String(a.staffId || '') === String(op.staffId))) continue;   // only people who have seen this provider before
+    scored.push({ c, h, score: (sameProv ? 4 : 0) + sameDay * 2 + Math.min(3, since / g) + Math.min(2, h.visits.length / 5) });
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, 3).map(({ c, h }) => ({
+    kind: 'fill_gap', tool: 'appointments', subject: { type: 'client', id: String(c.id) }, key: `fill_gap:${op.id}:${c.id}`, clientId: String(c.id),
+    clientName: String(c.name || [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Client').slice(0, 120),
+    why: `A time opened ${new Date(start).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', ...(o.tz ? { timeZone: o.tz } : {}) })} that nobody on the waitlist fits, and they are about due`,
+    valueCents: Math.round(h.avg * 100), providerId: op.staffId ? String(op.staffId) : null, dueAt: new Date(now).toISOString(), expiresAt: new Date(start).toISOString(), refs: { openingId: String(op.id) },
+    facts: { first: firstName(c), service_short: shortService(h.last?.serviceName), weeks: String(weeksOf(h.gapDays)), ...(c.phone ? { phone: String(c.phone) } : {}) } } as Candidate));
+}
+
 export function filterCandidates(c: Candidate[], o: { existing: any[]; clients: Map<string, any>; openCaseClients: Set<string>; recentAutoNudge: Set<string>; now: number }): Candidate[] {
   const ACT = ['open', 'holdout', 'waiting', 'auto', 'scheduled'];
   const openByClient = new Set(o.existing.filter((e) => ACT.includes(e.status) && e.clientId).map((e) => String(e.clientId)));
