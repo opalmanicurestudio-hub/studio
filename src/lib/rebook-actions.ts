@@ -11,7 +11,7 @@ export type Internal = (path: string, body: any) => Promise<any>;
 const CLOSED = ['cancelled', 'canceled', 'no_show', 'declined', 'expired'];
 
 /** Everything the rebook screens need: already booked? — else the plan, the best times, the deposit and its choices. */
-export async function rebookStart(db: any, ctx: RebookCtx, via: 'client_screen' | 'visit_link' = 'client_screen') {
+export async function rebookStart(db: any, ctx: RebookCtx, via: 'client_screen' | 'visit_link' | 'task' = 'client_screen') {
   const T = `tenants/${ctx.tenantId}`; const t: any = ((await db.doc(T).get()).data() as any) || {}; const rs = rebookSettingsOf(t);
   const e = await engineFor(db, ctx.tenantId); if (!e) return { ok: false, error: 'Unknown business.' };
   const client: any = ((await db.doc(`${T}/clients/${ctx.clientId}`).get()).data() as any) || null; if (!client) return { ok: false, error: 'We couldn’t find your details.' };
@@ -59,7 +59,7 @@ export async function rebookBook(db: any, ctx: RebookCtx, rb: any, pick: { start
   const allowed = dep === 0 ? ['none'] : [rb.choices?.cardHold && 'card_hold', rb.choices?.cardCharge && 'card_charge', rb.choices?.payNow && 'pay_now', rb.choices?.later && 'later'].filter(Boolean);
   if (!allowed.includes(choice)) return { ok: false, error: 'Choose how to settle the deposit.', status: 400 };
   const staffId = String(pick.staffId || rb.staffId || 'any');
-  const note = rb.via === 'visit_link' ? 'Booked from their visit link' : 'Booked on the client screen';
+  const note = rb.via === 'visit_link' ? 'Booked from their visit link' : rb.via === 'task' ? 'Booked from a follow-up task' : 'Booked on the client screen';
   const body: any = { tenantId: ctx.tenantId, source: 'front_desk', serviceId: rb.serviceId, addOnIds: rb.addOnIds || [], staffId, startTime: new Date(when).toISOString(), client: { id: ctx.clientId }, notes: note,
     ...(dep > 0 ? { holdOnly: true } : { depositCovered: true, depositCoveredBy: 'rebook_rule' }),
     ...(choice === 'card_hold' ? { depositScheduledAt: new Date(Math.max(Date.now() + 3600000, when - 48 * 3600000)).toISOString() } : {}) };
@@ -94,6 +94,6 @@ export async function rebookBook(db: any, ctx: RebookCtx, rb: any, pick: { start
 export async function rebookWaitlist(db: any, ctx: RebookCtx, rb: any, note: string, post: (path: string, body: any) => Promise<any>) {
   const client: any = ((await db.doc(`tenants/${ctx.tenantId}/clients/${ctx.clientId}`).get()).data() as any) || {};
   const r: any = await post('/api/waitlist', { tenantId: ctx.tenantId, action: 'join', name: client.name || 'Client', phone: client.phone || '', email: client.email || '', serviceId: rb.serviceId,
-    note: `From ${rb.via === 'visit_link' ? 'their visit link' : 'the client screen'}: wants ${rb.staffName ? `${rb.staffName}, ` : ''}${String(note || '').slice(0, 120) || `in ${rb.window?.min}–${rb.window?.max} weeks`}`, source: rb.via || 'client_screen' });
+    note: `From ${rb.via === 'visit_link' ? 'their visit link' : rb.via === 'task' ? 'a follow-up task' : 'the client screen'}: wants ${rb.staffName ? `${rb.staffName}, ` : ''}${String(note || '').slice(0, 120) || `in ${rb.window?.min}–${rb.window?.max} weeks`}`, source: rb.via || 'client_screen' });
   return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'Couldn’t add you to the waitlist.' };
 }

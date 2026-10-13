@@ -12,7 +12,7 @@ import { moduleEnabled, type ModuleId } from '@/lib/modules';
 
 export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'manual' | 'follow_up';
 export type Who = 'provider' | 'desk' | 'owner';
-export type OutcomeId = 'booked' | 'interested' | 'not_now' | 'price' | 'no_answer' | 'voicemail' | 'bad_experience' | 'stop' | 'declined' | 'quote_accepted' | 'no_longer_applies' | 'done';
+export type OutcomeId = 'booked' | 'waitlist' | 'interested' | 'not_now' | 'price' | 'no_answer' | 'voicemail' | 'bad_experience' | 'stop' | 'declined' | 'quote_accepted' | 'no_longer_applies' | 'done';
 
 export interface Branch { id: OutcomeId; say: string }
 export interface Playbook {
@@ -140,6 +140,7 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
 
 export const OUTCOMES: Record<OutcomeId, { label: string; tone: 'good' | 'neutral' | 'bad'; closes: boolean; followUpDays?: number }> = {
   booked: { label: 'Booked', tone: 'good', closes: true },
+  waitlist: { label: 'On the waitlist', tone: 'good', closes: true },
   quote_accepted: { label: 'Quote accepted', tone: 'good', closes: true },
   interested: { label: 'Interested', tone: 'good', closes: true, followUpDays: 1 },
   not_now: { label: 'Not now', tone: 'neutral', closes: true, followUpDays: 21 },

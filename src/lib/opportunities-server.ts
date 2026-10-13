@@ -296,13 +296,13 @@ const rank = (o: any) => ({ high: 0, medium: 1, low: 2 } as any)[o.priority] ?? 
 async function getOpp(db: any, t: string, id: string) { const s = await db.doc(`${T(t)}/opportunities/${str(id, 80)}`).get(); return s.exists ? { id: s.id, ...(s.data() || {}) } as any : null; }
 const canTouch = (o: any, a: RequestActor) => a.isManager || a.isOwner || (o.assigneeId && o.assigneeId === a.staffId);
 
-export async function textCheck(db: any, t: string, tenant: any, o: any, client: any, now: number): Promise<{ ok: true; phone: string } | { ok: false; error: string }> {
+export async function textCheck(db: any, t: string, tenant: any, o: any, client: any, now: number, opts: { answering?: boolean } = {}): Promise<{ ok: true; phone: string } | { ok: false; error: string }> {
   const pb = PLAYBOOKS[o.kind as OppKind] || PLAYBOOKS.manual;
   const phone = String(client?.phone || client?.phoneNumber || o.phone || '').trim();
   if (!phone) return { ok: false, error: 'There is no mobile number on file. Please call or email this client instead.' };
   if (client?.smsOptOut || client?.smsConsent === false) return { ok: false, error: 'This client has opted out of texts. Please call instead.' };
   if (client?.opportunityOptOut) return { ok: false, error: 'This client has asked not to be contacted in this way.' };
-  if (pb.marketing) {
+  if (pb.marketing && !opts.answering) {   // answering a client who wrote back is a conversation, not marketing
     if (client?.marketingOptOut || client?.smsMarketingOptIn !== true) return { ok: false, error: 'This client has not agreed to marketing texts, so please call instead.' };
     const { recentMarketingTexts, MARKETING_TEXTS_PER_30_DAYS } = await import('@/lib/campaigns');
     const n = (await recentMarketingTexts(db, t, now)).get(String(o.clientId || '')) || 0;
@@ -310,12 +310,14 @@ export async function textCheck(db: any, t: string, tenant: any, o: any, client:
   }
   const { inTextWindow } = await import('@/lib/campaigns');
   if (!inTextWindow(await tz(tenant), new Date(now))) return { ok: false, error: 'It is outside texting hours (9:00 AM to 8:00 PM). Please send it tomorrow, or call instead.' };
-  if ((o.attempts || []).some((x: any) => x.channel === 'text' && now - ms(x.at) < 2 * DAY)) return { ok: false, error: 'A text was sent in the last two days. Please give the client time to reply.' };
+  if (!opts.answering && (o.attempts || []).some((x: any) => x.channel === 'text' && now - ms(x.at) < 2 * DAY)) return { ok: false, error: 'A text was sent in the last two days. Please give the client time to reply.' };
   { const { budgetLeft } = await import('@/lib/text-budget'); if ((await budgetLeft(db, t, phone, 'opportunity', now)) <= 0) return { ok: false, error: 'This client has already received texts from us today. Please try again tomorrow, or call instead.' }; }
   return { ok: true, phone };
 }
 
-export async function actOnOpportunity(db: any, t: string, actor: RequestActor, b: any, now = Date.now()) {
+/** What acting inside a task needs from the request: the booking service (signed internal call), public routes, the app's address. */
+export type TaskIO = { internal: (path: string, body: any) => Promise<any>; post: (path: string, body: any) => Promise<any>; origin: string };
+export async function actOnOpportunity(db: any, t: string, actor: RequestActor, b: any, now = Date.now(), io?: TaskIO) {
   const action = str(b.action, 20); const manager = actor.isManager || actor.isOwner;
   const tenant: any = (await db.doc(T(t)).get()).data() || {};
   if (action === 'settings') { if (!manager) return { ok: false, error: 'Only managers can do this.' };
@@ -344,6 +346,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
     return { ok: true }; }
   if (action === 'dismiss') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; await ref.update({ status: 'dismissed', closedAt: nowIso(now), dismissedBy: actor.name }); return { ok: true }; }
   if (o.status !== 'open') return { ok: false, error: 'This task is already closed.' };
+  if (['times', 'book', 'send_times', 'send_link', 'waitlist'].includes(action)) return actInTask(db, t, tenant, actor, o, ref, action, b, now, io);
   if (action === 'reword') { const pb = PLAYBOOKS[o.kind as OppKind]; if (!pb || pb.versions.length < 2) return { ok: false, error: 'There is only one wording available for this message.' };
     const v = ((Number(o.version) || 0) + 1) % pb.versions.length; const m = staff.find((x: any) => x.id === o.assigneeId);
     const message = fill(pb.versions[v], { ...(o.facts || {}), business: businessName(tenant), me: first(m?.name || actor.name) }); await ref.update({ version: v, message }); return { ok: true, message, version: v }; }
@@ -432,4 +435,82 @@ export async function opportunityResults(db: any, t: string, now = Date.now()) {
     toPerson: real.filter((o: any) => o.escalatedAt || o.repliedAt).length, notSent: list.filter((o: any) => o.status === 'not_sent').length,
     paidLabel: dollars(real.reduce((s: number, o: any) => s + (o.result?.status === 'paid' ? Number(o.result.paidCents) || 0 : 0), 0)),
   };
+}
+
+
+// ── Acting inside the task (step 2) ────────────────────────────────────────────────────────────
+// Everything goes through what already owns it: open times and booking through the rebooking helpers the client
+// screen and visit link use (same rules, deposits and double-booking guard); prices from the menu; texts through
+// the same checks as every other text. The task never builds its own version of booking.
+async function rebookCtxFor(db: any, t: string, o: any) {
+  if (!o.clientId) return null;
+  const appts = rows(await db.collection(`${T(t)}/appointments`).where('clientId', '==', o.clientId).get());
+  const last = appts.filter((a: any) => ['completed', 'checked_out', 'paid', 'cancelled', 'canceled', 'no_show'].includes(String(a.status || '')) && a.serviceId && !a.isRenterBooking)
+    .sort((x: any, y: any) => ms(y.startTime) - ms(x.startTime))[0];
+  if (!last) return null;
+  return { tenantId: t, clientId: String(o.clientId), serviceId: String(last.serviceId), staffId: o.providerId || last.staffId || null, addOnIds: Array.isArray(last.addOnIds) ? last.addOnIds : [], appointmentId: String(last.id) };
+}
+const timeWords = (s: any) => `${String(s.dayLabel || '').replace(/,/g, '')} at ${s.label}`;
+async function actInTask(db: any, t: string, tenant: any, actor: RequestActor, o: any, ref: any, action: string, b: any, now: number, io?: TaskIO) {
+  const ctx = await rebookCtxFor(db, t, o);
+  if (!ctx) return { ok: false, error: 'There is no past visit to work from. Please book in the planner.' };
+  const { rebookStart, rebookBook, rebookWaitlist } = await import('@/lib/rebook-actions');
+  const r: any = await rebookStart(db, ctx, 'task'); if (!r.ok) return r;
+  const plan = r.rebook; const by = { at: nowIso(now), by: actor.staffId, byName: actor.name };
+  if (plan.stage === 'already') {
+    if (action === 'times') return { ok: true, plan };
+    return { ok: false, error: `They already have a visit booked: ${plan.label}.` };
+  }
+  const svc = (await db.doc(`${T(t)}/services/${plan.serviceId}`).get()).data() || {};
+  const price = Number(svc.price) > 0 ? { name: plan.serviceName || svc.name || 'Service', dollars: Number(svc.price), from: svc.priceType === 'from' || svc.priceFrom === true } : null;
+  if (action === 'times') return { ok: true, plan, price };
+  const client = (await db.doc(`${T(t)}/clients/${o.clientId}`).get()).data() || {};
+  const sendText = async (body: string, note: string, extra: any = {}) => {
+    const chk = await textCheck(db, t, tenant, o, client, now, { answering: !!o.repliedAt }); if (!chk.ok) return chk;
+    const { sendTenantSms } = await import('@/lib/sms');
+    const s2 = await sendTenantSms(db, t, chk.phone, body, client?.email ? { email: client.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: o.clientId || undefined, recipientName: o.clientName || undefined } as any);
+    if (!s2.ok) return { ok: false, error: 'The text could not be sent. Please try again, or call instead.' };
+    { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
+    await ref.update({ attempts: [...(o.attempts || []), { ...by, channel: s2.via === 'email' ? 'email' : 'text', note }].slice(-20), firstContactAt: o.firstContactAt || nowIso(now), lastContactAt: nowIso(now), ...extra });
+    return { ok: true, via: s2.via || 'sms' };
+  };
+  const firstName = String(o.facts?.first || client.firstName || String(client.name || o.clientName || '').split(' ')[0] || 'there');
+  const me = first(actor.name) || businessName(tenant);
+  if (action === 'send_times') {
+    const want: string[] = (Array.isArray(b.startIsos) ? b.startIsos : []).map(String).slice(0, 2);
+    const picks = (plan.suggestions || []).filter((x: any) => want.includes(x.startIso)); if (!picks.length) return { ok: false, error: 'Those times are no longer open. Please find times again.' };
+    const who = plan.staffName ? ` with ${plan.staffName}` : '';
+    const list = picks.length === 2 ? `${timeWords(picks[0])} or ${timeWords(picks[1])}` : timeWords(picks[0]);
+    const body = `Hi ${firstName}, this is ${me}. I have ${list}${who} for your ${String(plan.serviceName || 'next visit').toLowerCase()}. ${picks.length === 2 ? 'Which would suit you better?' : 'Would that suit you?'} Just reply here.`;
+    return sendText(body, `Sent ${picks.length === 2 ? 'two times' : 'a time'}: ${list}`, { offeredTimes: picks.map((x: any) => ({ startIso: x.startIso, staffId: x.staffId, label: timeWords(x) })) });
+  }
+  if (action === 'send_link') {
+    const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, io?.origin || ''); if (!base) return { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' };
+    const q = new URLSearchParams({ service: plan.serviceId, ...(plan.staffId ? { provider: plan.staffId } : {}), opp: o.id });
+    const link = `${base}/book/${encodeURIComponent(t)}?${q.toString()}`;
+    const body = `Hi ${firstName}, this is ${me}. Here is a link to choose a time that suits you for your ${String(plan.serviceName || 'next visit').toLowerCase()}: ${link}`;
+    return sendText(body, 'Sent a booking link', { linkSentAt: nowIso(now) });
+  }
+  if (!io) return { ok: false, error: 'Booking isn’t available here.' };
+  if (action === 'waitlist') {
+    const w: any = await rebookWaitlist(db, ctx, plan, String(b.note || '').slice(0, 120), io.post); if (!w?.ok) return { ok: false, error: w?.error || 'They could not be added to the waitlist.' };
+    await ref.update({ status: 'done', outcome: 'waitlist', closedAt: nowIso(now), attempts: [...(o.attempts || []), { ...by, channel: 'call', outcome: 'waitlist', note: 'Added to the waitlist' }].slice(-20), lastContactAt: nowIso(now) });
+    return { ok: true, closed: true };
+  }
+  if (action === 'book') {
+    const dep = Number(plan.depositCents) || 0;
+    const allowed = dep === 0 ? ['none'] : [plan.choices?.cardHold && 'card_hold', plan.choices?.cardCharge && 'card_charge', 'later'].filter(Boolean) as string[];
+    const deposit = allowed.includes(String(b.deposit)) ? String(b.deposit) : allowed[0];
+    const startIso = String(b.startIso || ''); const staffId = b.staffId ? String(b.staffId) : plan.staffId;
+    const bk: any = await rebookBook(db, ctx, { ...plan, choices: { ...plan.choices, later: true } }, { startIso, staffId, deposit }, io.internal, io.origin);
+    if (!bk?.ok) return { ok: false, error: bk?.error || 'That time was just taken. Please choose another.' };
+    const appointmentId = String(bk.rebook?.appointmentId || bk.appointmentId || '');
+    if (appointmentId) await db.doc(`${T(t)}/appointments/${appointmentId}`).set({ opportunityId: o.id, opportunityKind: o.kind }, { merge: true }).catch(() => {});
+    const zone = await tz(tenant); const label = new Date(startIso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: zone });
+    await ref.update({ status: 'done', outcome: 'booked', closedAt: nowIso(now), refs: { ...(o.refs || {}), appointmentId }, result: { status: 'booked', appointmentId, checkedAt: nowIso(now) },
+      attempts: [...(o.attempts || []), { ...by, channel: b.channel === 'text' ? 'text' : b.channel === 'in_person' ? 'in_person' : 'call', outcome: 'booked', note: `Booked ${label}` }].slice(-20),
+      firstContactAt: o.firstContactAt || nowIso(now), lastContactAt: nowIso(now) });
+    return { ok: true, closed: true, appointmentId, label, depositNote: bk.rebook?.depositNote || null };
+  }
+  return { ok: false, error: 'Unknown action.' };
 }
