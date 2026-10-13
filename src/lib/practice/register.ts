@@ -65,8 +65,18 @@ export type Customer = {
   slips: Slip[]; arrive: number; hello: string; visits: number;
   /** Cash payers: how they hand it over, and whether they keep the change as a tip. */
   pays?: { cash: 'one' | 'round'; keep: 'none' | 'all' | number };
+  kind: 'new' | 'returning' | 'regular' | 'group';
+  receipt: 'print' | 'text' | 'email' | 'none';
+  voice: { pitch: number; rate: number };
+  /** First visit: the details they'll read out, and whether they want promo texts. */
+  details?: { phone: string; email: string; promo: boolean; sayPhone: string; sayEmail: string };
+  /** A group checking out together. */
+  party?: { members: { name: string; look: Look; service: { label: string; price: number; provider: string } }[]; split: Split; payer?: string; methods: ('card' | 'cash')[]; ask: string };
 };
-export type Line = { id: number; kind: 'service' | 'retail' | 'discount'; label: string; price: number; sku?: string; voided?: string; via?: 'gun' | 'typed' | 'usb' | 'name'; approvedBy?: string };
+export type Split = 'own' | 'even' | 'one';
+export type Part = { who: string; amount: number; method: 'card' | 'cash'; paid: boolean; tip: number };   // cents
+export type Tender = { who: string; method: 'card' | 'cash'; amount: number; given?: number; change?: number; tip: number };
+export type Line = { id: number; kind: 'service' | 'retail' | 'discount'; label: string; price: number; sku?: string; voided?: string; via?: 'gun' | 'typed' | 'usb' | 'camera' | 'name'; approvedBy?: string };
 export type Mistake = { at: number; who: string; what: string; later: string; right: string; minor?: boolean };
 export type Checkout = { who: string; seconds: number; clean: boolean; total: number; points: number };
 
@@ -74,32 +84,46 @@ export type RegState = {
   t: number; end: number; queue: Customer[]; waiting: Record<string, number>;   // patience of people in line
   currency: CurrencyCode; drawer: Record<number, number>; float: number; cashSales: number; tipJar: number;   // cents
   close: null | CloseOut;
-  cur: null | { c: Customer; lines: Line[]; start: number; mood: number; claim: null | 'open' | 'discount' | 'refused'; tries: Record<string, number>; read: Record<string, number>; said: string; note: string | null; given?: number[]; kept?: number };
+  cur: null | { c: Customer; lines: Line[]; start: number; mood: number; claim: null | 'open' | 'discount' | 'refused'; tries: Record<string, number>; read: Record<string, number>; said: string; note: string | null; given?: number[]; kept?: number;
+    greeted?: 'great' | 'ok' | 'poor'; contact?: { phone: string; email: string; promo: boolean }; asked: { phone: number; email: number };
+    parts?: Part[]; partIdx: number; split?: Split; tenders: Tender[]; method?: 'card' | 'cash'; mStart: number };
+  lastReceipt: null | Receipt; receiptNo: number; busy: boolean;   // busy: finishing up (receipt), the next client waits
   nextLine: number; done: Checkout[]; mistakes: Mistake[]; streak: number; bestStreak: number; points: number; log: string[]; coach: number; sfx: string[];
 };
 
+const V = (pitch: number, rate: number) => ({ pitch, rate });
 const PEOPLE: Customer[] = [
-  { id: 'rosa', name: 'Rosa', pron: 'she', look: { skin: '#c68a62', hair: '#2b1d16', top: '#e9a7a0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
+  { id: 'rosa', name: 'Rosa', pron: 'she', kind: 'regular', receipt: 'none', voice: V(1.15, 1), look: { skin: '#c68a62', hair: '#2b1d16', top: '#e9a7a0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
     items: [{ sku: 'cuticle', n: 1 }], slips: [], arrive: 0, hello: 'Hi! Just this cuticle oil too, please.', visits: 4 },
-  { id: 'theo', name: 'Theo', pron: 'he', look: { skin: '#e7c3a4', hair: '#6b4a2f', top: '#9fc2a8', style: 'short' }, service: { label: 'Fade', price: 40, provider: 'Diego' },
-    items: [{ sku: 'beardoil', n: 1 }], slips: [{ kind: 'unreadable', sku: 'beardoil' }], arrive: 20, hello: 'And the beard oil. The label got a little wet, sorry.', visits: 2, pays: { cash: 'round', keep: 3 } },
-  { id: 'grace', name: 'Grace', pron: 'she', look: { skin: '#8d5a3b', hair: '#1d1612', top: '#c9b6e4', style: 'curls' }, service: { label: 'Silk press', price: 95, provider: 'Mei' },
-    items: [{ sku: 'serum2', n: 1 }, { sku: 'shampoo', n: 1 }], slips: [{ kind: 'double', sku: 'shampoo' }], arrive: 45, hello: 'The serum and the shampoo, please.', visits: 6 },
-  { id: 'lena', name: 'Lena', pron: 'she', look: { skin: '#f0d2b8', hair: '#c9a24f', top: '#a7c7e7', style: 'long' }, service: { label: 'Facial', price: 85, provider: 'Hana' },
-    items: [{ sku: 'vitc', n: 1 }], slips: [{ kind: 'shelf', sku: 'vitc', claim: 39 }], arrive: 70, hello: 'Oh, and the shelf sign said this serum was $39.', visits: 1 },
-  { id: 'marcus', name: 'Marcus', pron: 'he', look: { skin: '#5c3b2a', hair: '#0f0b09', top: '#f2c38b', style: 'fade' }, service: { label: 'Beard trim', price: 25, provider: 'Diego' },
-    items: [{ sku: 'beardoil', n: 2 }], slips: [], arrive: 95, hello: 'Two of the beard oils. One’s a gift.', visits: 3, pays: { cash: 'one', keep: 'none' } },
-  { id: 'priya', name: 'Priya', pron: 'she', look: { skin: '#b07a52', hair: '#1a1210', top: '#e7c3c9', style: 'braids' }, service: { label: 'Color', price: 150, provider: 'Jordan' },
-    items: [{ sku: 'serum4', n: 1 }], slips: [{ kind: 'unreadable', sku: 'serum4' }, { kind: 'allergy', allergy: 'fragrance' }], arrive: 120, hello: 'The big scalp serum, please.', visits: 5 },
+  { id: 'theo', name: 'Theo', pron: 'he', kind: 'returning', receipt: 'print', voice: V(0.9, 1.05), look: { skin: '#e7c3a4', hair: '#6b4a2f', top: '#9fc2a8', style: 'short' }, service: { label: 'Fade', price: 40, provider: 'Diego' },
+    items: [{ sku: 'beardoil', n: 1 }], slips: [{ kind: 'unreadable', sku: 'beardoil' }], arrive: 20, hello: 'And the beard oil. The label got a little wet, sorry. I’ll pay cash.', visits: 2, pays: { cash: 'round', keep: 3 } },
+  { id: 'ava', name: 'Ava', pron: 'she', kind: 'new', receipt: 'email', voice: V(1.25, 1.08), look: { skin: '#f3d6c2', hair: '#3b2a20', top: '#bfe0d2', style: 'long' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
+    items: [], slips: [], arrive: 40, hello: 'Hi! It’s my first time here. That was amazing.', visits: 1,
+    details: { phone: '9195550142', email: 'ava.reyes@mailbox.com', promo: false, sayPhone: 'It’s 919, 555, 0142.', sayEmail: 'It’s ava dot reyes at mailbox dot com. Reminders are fine, but no promo texts, please.' } },
+  { id: 'grace', name: 'Grace', pron: 'she', kind: 'regular', receipt: 'text', voice: V(1.05, 0.98), look: { skin: '#8d5a3b', hair: '#1d1612', top: '#c9b6e4', style: 'curls' }, service: { label: 'Silk press', price: 95, provider: 'Mei' },
+    items: [{ sku: 'serum2', n: 1 }, { sku: 'shampoo', n: 1 }], slips: [{ kind: 'double', sku: 'shampoo' }], arrive: 60, hello: 'The serum and the shampoo, please.', visits: 6 },
+  { id: 'party', name: 'Maya’s bridal party', pron: 'they', kind: 'group', receipt: 'print', voice: V(1.2, 1.12), look: { skin: '#a8714f', hair: '#2a1a12', top: '#f3c6d0', style: 'bun' }, service: { label: 'Bridal party', price: 175, provider: 'Ana, Mei, Hana' },
+    items: [{ sku: 'handcream', n: 1 }], slips: [], arrive: 85, hello: 'Hi! We’re the bridal party. We had the best time!', visits: 2,
+    party: { members: [
+      { name: 'Maya', look: { skin: '#a8714f', hair: '#2a1a12', top: '#f3c6d0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' } },
+      { name: 'Jo', look: { skin: '#e9c9a8', hair: '#8a5a2b', top: '#c9dcef', style: 'short' }, service: { label: 'Blowout', price: 55, provider: 'Mei' } },
+      { name: 'Sam', look: { skin: '#6b4430', hair: '#120c09', top: '#f2e2b0', style: 'braids' }, service: { label: 'Lash lift', price: 75, provider: 'Hana' } } ],
+      split: 'even', methods: ['card', 'cash', 'card'], ask: 'Can we split it three ways, evenly? Jo’s paying her part in cash.' } },
+  { id: 'lena', name: 'Lena', pron: 'she', kind: 'returning', receipt: 'email', voice: V(1.1, 0.95), look: { skin: '#f0d2b8', hair: '#c9a24f', top: '#a7c7e7', style: 'long' }, service: { label: 'Facial', price: 85, provider: 'Hana' },
+    items: [{ sku: 'vitc', n: 1 }], slips: [{ kind: 'shelf', sku: 'vitc', claim: 39 }], arrive: 115, hello: 'Oh, and the shelf sign said this serum was $39.', visits: 2 },
+  { id: 'marcus', name: 'Marcus', pron: 'he', kind: 'returning', receipt: 'none', voice: V(0.8, 0.95), look: { skin: '#5c3b2a', hair: '#0f0b09', top: '#f2c38b', style: 'fade' }, service: { label: 'Beard trim', price: 25, provider: 'Diego' },
+    items: [{ sku: 'beardoil', n: 2 }], slips: [], arrive: 140, hello: 'Two of the beard oils. One’s a gift. Cash is fine.', visits: 3, pays: { cash: 'one', keep: 'none' } },
+  { id: 'priya', name: 'Priya', pron: 'she', kind: 'regular', receipt: 'print', voice: V(1.0, 1.0), look: { skin: '#b07a52', hair: '#1a1210', top: '#e7c3c9', style: 'braids' }, service: { label: 'Color', price: 150, provider: 'Jordan' },
+    items: [{ sku: 'serum4', n: 1 }], slips: [{ kind: 'unreadable', sku: 'serum4' }, { kind: 'allergy', allergy: 'fragrance' }], arrive: 165, hello: 'The big scalp serum, please.', visits: 5 },
 ];
 
 export const they = (c: Customer) => c.pron;
 export const their = (c: Customer) => (c.pron === 'she' ? 'her' : c.pron === 'he' ? 'his' : 'their');
 
 export function newRegister(currency: CurrencyCode = 'USD'): RegState {
-  const queue = PEOPLE.map((p) => ({ ...p, items: p.items.map((i) => ({ ...i })), slips: [...p.slips] }));
+  const queue = PEOPLE.map((p) => ({ ...p, items: p.items.map((i) => ({ ...i })), slips: [...p.slips], party: p.party ? { ...p.party, members: p.party.members.map((m) => ({ ...m })) } : undefined }));
   const drawer = { ...$.CURRENCIES[currency].float };
-  return { t: 0, end: 240, queue, waiting: {}, currency, drawer, float: $.drawerTotal(drawer), cashSales: 0, tipJar: 0, close: null, cur: null, nextLine: 1, done: [], mistakes: [], streak: 0, bestStreak: 0, points: 0, log: [], coach: 0, sfx: [] };
+  return { t: 0, end: 240, queue, waiting: {}, currency, drawer, float: $.drawerTotal(drawer), cashSales: 0, tipJar: 0, close: null, lastReceipt: null, receiptNo: 1041, busy: false, cur: null, nextLine: 1, done: [], mistakes: [], streak: 0, bestStreak: 0, points: 0, log: [], coach: 0, sfx: [] };
 }
 
 // ── Time and the line ───────────────────────────────────────────────────
@@ -109,13 +133,15 @@ export function advance(s: RegState, dt: number) {
   s.t += dt;
   for (const c of line(s)) s.waiting[c.id] = Math.max(0, (s.waiting[c.id] ?? 1) - dt * 0.006);
   if (s.cur) s.cur.mood = Math.max(0, s.cur.mood - dt * 0.002);
-  if (!s.cur && line(s).length) callNext(s);
+  if (!s.cur && !s.busy && line(s).length) callNext(s);
 }
 export function callNext(s: RegState) {
   const c = line(s)[0]; if (!c || s.cur) return false;
   s.queue = s.queue.filter((x) => x !== c);
   const mood = s.waiting[c.id] ?? 1; delete s.waiting[c.id];
-  s.cur = { c, lines: [{ id: s.nextLine++, kind: 'service', label: `${c.service.label} · ${c.service.provider}`, price: c.service.price }], start: s.t, mood, claim: c.slips.some((x) => x.kind === 'shelf') ? 'open' : null, tries: {}, read: {}, said: c.hello, note: null };
+  const lines: Line[] = c.party ? c.party.members.map((m) => ({ id: s.nextLine++, kind: 'service' as const, label: `${m.name}: ${m.service.label} · ${m.service.provider}`, price: m.service.price }))
+    : [{ id: s.nextLine++, kind: 'service', label: `${c.service.label} · ${c.service.provider}`, price: c.service.price }];
+  s.cur = { c, lines, start: s.t, mood, claim: c.slips.some((x) => x.kind === 'shelf') ? 'open' : null, tries: {}, read: {}, said: c.hello, note: null, asked: { phone: 0, email: 0 }, partIdx: 0, tenders: [], mStart: s.mistakes.length };
   s.sfx.push('bell');
   return true;
 }
@@ -129,7 +155,7 @@ function addRetail(s: RegState, sku: Sku, via: Line['via']) {
   s.cur!.lines.push(l); return l;
 }
 /** Scan a barcode. `via` says how: the on-screen gun, typing the number, a real USB scanner, or a name lookup. */
-export function scan(s: RegState, code: string, via: 'gun' | 'typed' | 'usb'): ScanResult {
+export function scan(s: RegState, code: string, via: 'gun' | 'typed' | 'usb' | 'camera'): ScanResult {
   const cur = s.cur; if (!cur) return { ok: false, kind: 'none' };
   const sku = skuByCode(code);
   if (!sku) { s.sfx.push('err'); return { ok: false, kind: 'unknown' }; }
@@ -220,40 +246,120 @@ function ticketChecks(s: RegState) {
   const al = allergy(c);
   if (al && live(cur).some((l) => l.sku && skuBy(l.sku).fragrance)) s.mistakes.push({ at, who, what: `Sold ${who} a product with ${al}`, later: `${who} had a reaction two days later and called the salon.`, right: `Check the allergy flag. Suggest the ${al}-free option.` });
 }
-function finalize(s: RegState, before: number, paid: number, tip: number, how: string) {
+// ── Greeting and first-visit details ───────────────────────────────────
+export type Greeting = { text: string; q: 'great' | 'ok' | 'poor' };
+export function greetOptions(c: Customer): Greeting[] {
+  const g: Greeting[] = c.kind === 'new' ? [{ text: 'Welcome! Is this your first time with us?', q: 'great' }, { text: 'Hi, all done?', q: 'ok' }, { text: 'Name?', q: 'poor' }]
+    : c.kind === 'group' ? [{ text: 'Hi everyone, congratulations! How did everything turn out?', q: 'great' }, { text: 'Hi, who’s paying?', q: 'ok' }, { text: 'One at a time, please.', q: 'poor' }]
+    : [{ text: `Welcome back, ${c.name}! How was your ${c.service.label.toLowerCase()}?`, q: 'great' }, { text: 'Hi there, all set?', q: 'ok' }, { text: 'Next!', q: 'poor' }];
+  const k = c.id.length % 3; return [...g.slice(k), ...g.slice(0, k)];
+}
+export function greet(s: RegState, q: Greeting['q']) {
+  const cur = s.cur; if (!cur || cur.greeted) return;
+  cur.greeted = q; cur.mood = Math.max(0, Math.min(1, cur.mood + (q === 'great' ? 0.12 : q === 'poor' ? -0.15 : 0)));
+  const c = cur.c;
+  cur.said = q === 'poor' ? (c.kind === 'new' ? 'Oh… it’s Ava. It’s my first time.' : 'Oh. Okay.') : c.kind === 'new' ? 'Yes! It was so good. I’ll definitely be back.' : c.kind === 'group' ? `${c.party?.ask}` : c.hello;
+  if (q === 'great') s.points += 15;
+  if (q === 'poor') s.mistakes.push({ at: s.t, who: c.name, what: `Greeted ${c.name} with “${greetOptions(c).find((x) => x.q === 'poor')!.text}”`, later: c.kind === 'regular' ? `${c.name} has been coming for months and felt like a number.` : `${c.name} felt rushed.`, right: c.kind === 'new' ? 'Welcome first-timers warmly and ask about their visit.' : 'Use their name and ask how their service went.', minor: true });
+}
+/** Ask a first-time client for a detail. They read it out (once; asking again is fine but costs a little patience). */
+export function askDetail(s: RegState, k: 'phone' | 'email') {
+  const cur = s.cur; const d = cur?.c.details; if (!cur || !d) return null;
+  cur.asked[k]++; if (cur.asked[k] > 1) cur.mood = Math.max(0, cur.mood - 0.04);
+  cur.said = (cur.asked[k] > 1 ? 'Sure. ' : '') + (k === 'phone' ? d.sayPhone : d.sayEmail);
+  return cur.said;
+}
+export function saveContact(s: RegState, v: { phone: string; email: string; promo: boolean }) {
+  const cur = s.cur; if (!cur) return; cur.contact = { phone: v.phone.replace(/\D/g, ''), email: v.email.trim().toLowerCase(), promo: v.promo };
+  cur.said = 'Perfect, thank you!';
+}
+function peopleChecks(s: RegState) {
+  const cur = s.cur!; const c = cur.c, who = c.name, at = s.t, d = c.details;
+  if (d) {
+    if (!cur.contact) s.mistakes.push({ at, who, what: `Didn’t take ${who}’s details on ${their(c)} first visit`, later: `${who} never got a reminder or ${their(c)} receipt, and isn’t in the client list to rebook.`, right: 'On a first visit, ask for a phone number and email, read them back, and save them before payment.' });
+    else {
+      if (cur.contact.phone !== d.phone) s.mistakes.push({ at, who, what: `Saved ${who}’s phone as ${cur.contact.phone || '(blank)'}`, later: `${their(c)[0].toUpperCase() + their(c).slice(1)} reminder went to a stranger and ${they(c)} missed the next visit.`, right: 'Read the number back to the client before saving it.' });
+      if (cur.contact.email !== d.email) s.mistakes.push({ at, who, what: `Saved ${who}’s email as ${cur.contact.email || '(blank)'}`, later: `The emailed receipt bounced, and ${they(c)} called asking for it.`, right: 'Spell the email back letter by letter.' });
+      if (cur.contact.promo && !d.promo) s.mistakes.push({ at, who, what: `Signed ${who} up for promo texts`, later: `${who} had said no. ${they(c)[0].toUpperCase() + they(c).slice(1)} unsubscribed and complained.`, right: 'Never turn on marketing unless the client says yes.' });
+    }
+  }
+  if (c.party) {
+    const want = c.party.split, got = cur.split || 'one';
+    const name = (x: Split) => (x === 'even' ? 'split evenly' : x === 'own' ? 'each pay their own' : 'have one person pay');
+    if (got !== want) s.mistakes.push({ at, who, what: `Charged the party to ${name(got)}; they asked to ${name(want)}`, later: 'They had to stop at the desk while you refunded and re-charged. The line waited.', right: `Listen for how a group wants to pay before you start: “${c.party.ask}”` });
+  }
+}
+
+function finalize(s: RegState, before: number) {
   const cur = s.cur!; const who = cur.c.name;
   const seconds = Math.round(s.t - cur.start);
-  const clean = s.mistakes.slice(before).filter((m) => !m.minor).length === 0;
+  const clean = s.mistakes.slice(Math.min(before, cur.mStart)).filter((m) => !m.minor).length === 0;
   let points = clean ? 100 + Math.max(0, 60 - seconds) : 40;
   if (slip(cur.c, 'shelf') && cur.claim === 'discount') points += 20;
   s.streak = clean ? s.streak + 1 : 0; s.bestStreak = Math.max(s.bestStreak, s.streak); if (clean && s.streak > 1) points += 10 * (s.streak - 1);
   s.points += points;
-  const total = Math.round((paid + tip) * 100) / 100;
+  const paid = $.sum(cur.tenders.map((t) => t.amount)), tip = $.sum(cur.tenders.map((t) => t.tip));
+  const total = (paid + tip) / 100;
   s.done.push({ who, seconds, clean, total, points });
-  s.log.push(`${who} paid ${fm(s, paid)} ${how}${tip ? `, plus a ${fm(s, tip)} tip` : ''}.`);
+  const how = [...new Set(cur.tenders.map((t) => (t.method === 'card' ? 'by card' : 'in cash')))].join(' and ');
+  s.log.push(`${who} paid ${$.fmt(s.currency, paid)} ${how}${tip ? `, plus ${$.fmt(s.currency, tip)} in tips` : ''}.`);
+  s.lastReceipt = { no: s.receiptNo++, who, t: s.t, lines: live(cur).map((l) => ({ label: l.label, price: l.price })), total: totalOf(cur), tenders: cur.tenders, currency: s.currency, choice: cur.c.receipt, email: cur.contact?.email || null };
   s.sfx.push('coin'); s.cur = null;
-  return { total, tip: { amount: tip, pct: 0 }, seconds, clean, points };
+  return { total, tip: { amount: tip / 100, pct: 0 }, seconds, clean, points };
+}
+export type Receipt = { no: number; who: string; t: number; lines: { label: string; price: number }[]; total: number; tenders: Tender[]; currency: CurrencyCode; choice: Customer['receipt']; email: string | null };
+
+// ── Who pays, how, and splitting the bill ───────────────────────────────
+export const part = (s: RegState) => (s.cur?.parts ? s.cur.parts[s.cur.partIdx] : null);
+export const payerName = (s: RegState) => part(s)?.who || s.cur?.c.name || '';
+/** How the person paying now would like to pay. */
+export const prefers = (s: RegState): 'card' | 'cash' => part(s)?.method || (s.cur?.c.pays ? 'cash' : 'card');
+/** What's due from the person paying now, in cents (before cash rounding). */
+export const dueNow = (s: RegState) => part(s)?.amount ?? $.cents(totalOf(s.cur!));
+/** Split a group's bill. Each pays their own (retail goes with the first guest), evenly, or one person pays it all. */
+export function setSplit(s: RegState, mode: Split, payer?: string) {
+  const cur = s.cur; const pty = cur?.c.party; if (!cur || !pty) return null;
+  const T = $.cents(totalOf(cur)); const n = pty.members.length; let parts: Part[];
+  if (mode === 'even') { const each = Math.floor(T / n); parts = pty.members.map((m, i) => ({ who: m.name, amount: each + (i === 0 ? T - each * n : 0), method: pty.methods[i], paid: false, tip: 0 })); }
+  else if (mode === 'own') { const svc = pty.members.map((m) => $.cents(m.service.price)); svc[0] += T - $.sum(svc); parts = pty.members.map((m, i) => ({ who: m.name, amount: svc[i], method: pty.methods[i], paid: false, tip: 0 })); }
+  else { const i = Math.max(0, pty.members.findIndex((m) => m.name === payer)); parts = [{ who: pty.members[i].name, amount: T, method: pty.methods[i], paid: false, tip: 0 }]; }
+  cur.parts = parts; cur.partIdx = 0; cur.split = mode; cur.given = undefined; cur.kept = undefined;
+  cur.said = mode === pty.split ? 'Perfect, thank you!' : 'Oh… that’s not quite what we said.';
+  return parts;
+}
+function cardTip(s: RegState, amountCents: number) {
+  const cur = s.cur!; const pct = cur.mood > 0.75 ? 0.2 : cur.mood > 0.45 ? 0.18 : cur.mood > 0.2 ? 0.15 : 0;
+  if (!cur.parts) return { pct: Math.round(pct * 100), amount: $.cents(Math.round(cur.c.service.price * pct)) };
+  return { pct: Math.round(pct * 100), amount: Math.round((amountCents * pct * 0.85) / 100) * 100 };
+}
+/** The tip the person paying now chooses on the client screen. */
+export const tipNow = (s: RegState) => cardTip(s, dueNow(s));
+function nextPart(s: RegState, t: Tender) {
+  const cur = s.cur!; cur.tenders.push(t); cur.given = undefined; cur.kept = undefined;
+  if (cur.parts) { cur.parts[cur.partIdx].paid = true; cur.parts[cur.partIdx].tip = t.tip; if (cur.partIdx < cur.parts.length - 1) { cur.partIdx++; s.sfx.push('coin'); return true; } }
+  return false;
 }
 
-/** Card payment. The tip is chosen by the client on the client screen. */
+/** Card payment for whoever is paying now. The tip is chosen on the client screen. */
 export function pay(s: RegState) {
   const cur = s.cur; if (!cur) return null;
-  const before = s.mistakes.length; ticketChecks(s);
-  const tip = tipFor(cur);
-  const r = finalize(s, before, totalOf(cur), tip.amount, 'by card');
-  return { ...r, tip };
+  const amount = dueNow(s); const tip = cardTip(s, amount);
+  if (nextPart(s, { who: payerName(s), method: 'card', amount, tip: tip.amount })) return { partial: true as const, tip: { amount: tip.amount / 100, pct: tip.pct }, total: (amount + tip.amount) / 100, clean: true, seconds: 0, points: 0 };
+  const before = s.mistakes.length; ticketChecks(s); peopleChecks(s);
+  const r = finalize(s, before);
+  return { ...r, partial: false as const, tip: { amount: tip.amount / 100, pct: tip.pct } };
 }
 
 // ── Cash ────────────────────────────────────────────────────────────────
 export const paysCash = (c: Customer) => !!c.pays;
 /** What's due in cash, in cents (rounded to 5 cents in Canada). */
-export const cashDue = (s: RegState) => $.cashRound(s.currency, $.cents(totalOf(s.cur!)));
+export const cashDue = (s: RegState) => $.cashRound(s.currency, dueNow(s));
 /** The notes the client hands over. */
-export function handOver(s: RegState) { const cur = s.cur!; if (!cur.given) cur.given = $.clientCash(s.currency, cashDue(s), cur.c.pays?.cash || 'round'); return cur.given; }
+export function handOver(s: RegState) { const cur = s.cur!; if (!cur.given) cur.given = $.clientCash(s.currency, cashDue(s), part(s) ? 'round' : cur.c.pays?.cash || 'round'); return cur.given; }
 /** After seeing the total: keep the change as a tip, keep part of it, or "my change, please". Cents. */
 export function keepChoice(s: RegState) {
   const cur = s.cur!; if (cur.kept !== undefined) return cur.kept;
-  const extra = $.sum(handOver(s)) - cashDue(s); const k = cur.c.pays?.keep ?? 'none';
+  const extra = $.sum(handOver(s)) - cashDue(s); const k = part(s) ? 'none' : cur.c.pays?.keep ?? 'none';
   cur.kept = k === 'all' ? extra : k === 'none' ? 0 : Math.min(extra, $.cents(k));
   return cur.kept;
 }
@@ -269,21 +375,24 @@ export const changeShown = (s: RegState, tendered: number) => tendered - cashDue
 
 export function payCash(s: RegState, tendered: number, change: number[]) {
   const cur = s.cur; if (!cur) return null;
-  const code = s.currency, who = cur.c.name, at = s.t;
+  const code = s.currency, who = payerName(s), at = s.t;
   const given = handOver(s), due = cashDue(s), kept = keepChoice(s);
   const have = { ...s.drawer };
   for (const d of change) { if (!have[d]) return { ok: false as const, error: `There’s no ${$.denomLabel(code, d)} left in the drawer.` }; have[d]--; }
-  for (const g of given) have[g] = (have[g] || 0) + 1;                       // her notes go in after the change is out
+  for (const g of given) have[g] = (have[g] || 0) + 1;                       // their notes go in after the change is out
   if (kept > 0) { const t = $.makeChange(code, kept, have); if (t) { for (const x of t) have[x]--; s.tipJar += kept; } else s.cashSales += kept; }
   s.drawer = have; s.cashSales += due;
-  const before = s.mistakes.length; ticketChecks(s);
+  const before = s.mistakes.length;
   const right = $.sum(given) - due - kept, gave = $.sum(change), diff = gave - right;
   const f = (x: number) => $.fmt(code, x);
-  if (tendered !== $.sum(given)) s.mistakes.push({ at, who, what: `Entered ${f(tendered)} received; ${they(cur.c)} handed you ${f($.sum(given))}`, later: diff === 0 ? 'You still counted the right change, but the sale record is wrong.' : 'The register worked out the change from the wrong amount.', right: 'Leave the client’s notes on the drawer ledge and read them before you type the amount.', minor: diff === 0 });
+  if (tendered !== $.sum(given)) s.mistakes.push({ at, who, what: `Entered ${f(tendered)} received; ${who} handed you ${f($.sum(given))}`, later: diff === 0 ? 'You still counted the right change, but the sale record is wrong.' : 'The register worked out the change from the wrong amount.', right: 'Leave the client’s notes on the drawer ledge and read them before you type the amount.', minor: diff === 0 });
   if (diff > 0) s.mistakes.push({ at, who, what: `Gave ${f(gave)} change instead of ${f(right)}`, later: `The drawer came out ${f(diff)} short at close.`, right: `Count it back up from the total: ${f(due + kept)} to ${f($.sum(given))}.` });
   if (diff < 0) s.mistakes.push({ at, who, what: `Gave ${f(gave)} change instead of ${f(right)}`, later: `${who} noticed at home and called. The drawer came out ${f(-diff)} over.`, right: `Count it back up from the total: ${f(due + kept)} to ${f($.sum(given))}.` });
-  const r = finalize(s, before, due / 100, kept / 100, 'in cash');
-  return { ok: true as const, ...r, change: gave, right };
+  const tender: Tender = { who, method: 'cash', amount: due, given: $.sum(given), change: gave, tip: kept };
+  if (nextPart(s, tender)) return { ok: true as const, partial: true as const, change: gave, right, clean: true, total: due / 100, seconds: 0, points: 0, tip: { amount: kept / 100, pct: 0 } };
+  ticketChecks(s); peopleChecks(s);
+  const r = finalize(s, before);
+  return { ok: true as const, partial: false as const, ...r, change: gave, right };
 }
 
 // ── Closing the drawer ──────────────────────────────────────────────────
@@ -296,7 +405,7 @@ export function closeOut(s: RegState, counted: Record<number, number>): CloseOut
   return s.close;
 }
 
-export const finished = (s: RegState) => !s.cur && s.queue.length === 0;
+export const finished = (s: RegState) => !s.cur && !s.busy && s.queue.length === 0;
 export function review(s: RegState) {
   const n = s.done.length, clean = s.done.filter((d) => d.clean).length;
   const avg = n ? Math.round(s.done.reduce((a, d) => a + d.seconds, 0) / n) : 0;

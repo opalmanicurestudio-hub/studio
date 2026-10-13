@@ -1,7 +1,7 @@
 'use client';
 // Drawn pieces for the register view: clients, products with real UPC-A barcodes,
 // the scanner, the card reader and the client screen. Original shapes, app colors.
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import * as R from '@/lib/practice/register';
 import * as $ from '@/lib/practice/currency';
 
@@ -68,16 +68,36 @@ export function Say({ children, tone = 'soft', style }: { children: ReactNode; t
   return <div style={{ background: bg, color: fg, border: `1px solid ${LINE}`, borderRadius: '16px 16px 16px 4px', padding: '9px 13px', fontSize: 14, fontWeight: 600, lineHeight: 1.4, boxShadow: '0 10px 24px -14px rgba(0,0,0,.35)', maxWidth: 320, ...style }}>{children}</div>;
 }
 
-/** The scanner gun. The red beam shows while it reads. */
-export function ScannerGun({ beam, size = 1 }: { beam: boolean; size?: number }) {
+/** A handheld scanner: graphite body, soft-white shell, glass window, and a status light that turns green on a good read. */
+export function ScannerGun({ beam, size = 1, ok = false }: { beam: boolean; size?: number; ok?: boolean }) {
+  const W = 190 * size, H = 170 * size;
   return (
-    <div style={{ position: 'relative', width: 96 * size, height: 130 * size, transform: 'rotate(-24deg)', flexShrink: 0 }} aria-hidden>
-      {beam && <div style={{ position: 'absolute', left: -150 * size, top: 30 * size, width: 156 * size, height: 3, background: 'linear-gradient(90deg, transparent, #ff3b30)', boxShadow: '0 0 12px 3px #ff3b3088', transform: 'rotate(24deg)', transformOrigin: 'right center', animation: 'regBeam .35s ease-in-out infinite alternate' }} />}
-      <div style={{ width: 96 * size, height: 58 * size, background: 'linear-gradient(160deg,#4a4b51,#1d1e22)', borderRadius: `${16 * size}px ${30 * size}px ${12 * size}px ${12 * size}px`, position: 'relative' }}>
-        <div style={{ position: 'absolute', left: 4 * size, top: 12 * size, width: 10 * size, height: 34 * size, borderRadius: 4, background: beam ? '#ff3b30' : '#ff3b3088' }} />
-      </div>
-      <div style={{ width: 36 * size, height: 76 * size, marginLeft: 46 * size, marginTop: -8 * size, background: 'linear-gradient(90deg,#2a2b30,#3d3e44)', borderRadius: `${6 * size}px ${6 * size}px ${14 * size}px ${14 * size}px` }} />
-    </div>
+    <svg width={W} height={H} viewBox="0 0 190 170" aria-hidden style={{ flexShrink: 0, overflow: 'visible' }}>
+      <defs>
+        <linearGradient id="sgBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#4a4c53" /><stop offset=".55" stopColor="#2a2b30" /><stop offset="1" stopColor="#17181b" /></linearGradient>
+        <linearGradient id="sgShell" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ffffff" /><stop offset="1" stopColor="#dfe2e6" /></linearGradient>
+        <linearGradient id="sgGrip" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#1d1e22" /><stop offset=".5" stopColor="#34363c" /><stop offset="1" stopColor="#1a1b1e" /></linearGradient>
+        <linearGradient id="sgGlass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#5a1b1b" /><stop offset=".5" stopColor="#c0392b" stopOpacity=".85" /><stop offset="1" stopColor="#3a0f0f" /></linearGradient>
+        <linearGradient id="sgFan" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stopColor="#ff3b30" stopOpacity=".38" /><stop offset="1" stopColor="#ff3b30" stopOpacity="0" /></linearGradient>
+        <filter id="sgGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4" /></filter>
+      </defs>
+      {beam && <g style={{ animation: 'regBeam .3s ease-in-out infinite alternate' }}>
+        <polygon points="40,46 -150,8 -150,104" fill="url(#sgFan)" />
+        <line x1="-150" y1="8" x2="-150" y2="104" stroke="#ff3b30" strokeWidth="5" filter="url(#sgGlow)" />
+        <line x1="-150" y1="8" x2="-150" y2="104" stroke="#ff6b60" strokeWidth="1.6" />
+      </g>}
+      <g transform="rotate(-12 100 80)">
+        <path d="M70 70 L118 70 L132 158 Q133 166 125 167 L98 167 Q90 167 89 159 Z" fill="url(#sgGrip)" />
+        <path d="M86 92 Q80 104 88 116" stroke="#0f1012" strokeWidth="9" strokeLinecap="round" fill="none" />
+        <rect x="30" y="22" width="150" height="58" rx="28" fill="url(#sgBody)" />
+        <path d="M58 24 Q100 14 168 30 Q178 36 178 50 L58 50 Z" fill="url(#sgShell)" opacity=".95" />
+        <rect x="32" y="30" width="18" height="42" rx="7" fill="url(#sgGlass)" />
+        <rect x="35" y="34" width="5" height="30" rx="2.5" fill="#fff" opacity=".25" />
+        <circle cx="150" cy="36" r="4.2" fill={ok ? '#34c759' : '#9aa0a6'} />
+        {ok && <circle cx="150" cy="36" r="8" fill="#34c759" opacity=".35" filter="url(#sgGlow)" />}
+        <path d="M60 74 Q110 82 176 66" stroke="#ffffff" strokeOpacity=".08" strokeWidth="2" fill="none" />
+      </g>
+    </svg>
   );
 }
 
@@ -144,52 +164,151 @@ export function Cash({ code, value, size = 1 }: { code: $.CurrencyCode; value: n
   return $.isNote(code, value) ? <NoteArt code={code} value={value} scale={0.62 * size} /> : <CoinArt code={code} value={value} scale={1.6 * size} />;
 }
 
-/** The open cash drawer. In 'give' mode tap a slot to take one piece; in 'count' mode each slot shows its pile and a counter. */
-export function CashDrawer({ code, drawer, onTake, counts, setCount, narrow }: { code: $.CurrencyCode; drawer: Record<number, number>; onTake?: (v: number) => void; counts?: Record<number, number>; setCount?: (v: number, n: number) => void; narrow?: boolean }) {
-  const cur = $.CURRENCIES[code]; const fl = cur.float;
-  const noteSlots = cur.notes.map((n) => n.value).filter((v) => fl[v]).sort((a, b) => b - a);
+/** A realistic till drawer: note compartments under chrome bill weights at the back, coin cups at the front,
+ *  big notes under the tray. In 'give' mode tap a compartment to lift the weight and take one; in 'count' mode the
+ *  weights lift, the notes fan out so they can be counted, and each slot gets a counter. */
+export function CashDrawer({ code, drawer, onTake, counts, setCount, narrow, w }: { code: $.CurrencyCode; drawer: Record<number, number>; onTake?: (v: number) => void; counts?: Record<number, number>; setCount?: (v: number, n: number) => void; narrow?: boolean; w?: number }) {
+  const cur = $.CURRENCIES[code]; const fl = cur.float; const counting = !!counts;
+  const noteSlots = cur.notes.map((n) => n.value).filter((v) => fl[v]).sort((a, b) => a - b);      // small to large, left to right
   const under = cur.notes.map((n) => n.value).filter((v) => !fl[v] && drawer[v]);
-  const coins = cur.coins.map((c) => c.value);
+  const coins = cur.coins.map((c) => c.value).sort((a, b) => a - b);
+  const W = w ?? (narrow ? 360 : 660); const gap = 6, pad = 12;
+  const slotW = (W - pad * 2 - gap * (noteSlots.length - 1)) / noteSlots.length;
   const maxW = Math.max(...cur.notes.filter((n) => noteSlots.includes(n.value)).map((n) => n.w));
-  const slotW = narrow ? 76 : 118; const sc = (slotW - 12) / maxW;
+  const sc = (slotW - 14) / maxW;
+  const [lift, setLift] = useState<number | null>(null);
+  const take = (v: number) => { if (!onTake || !(drawer[v] > 0)) return; setLift(v); window.setTimeout(() => { setLift(null); onTake(v); }, 220); };
   const counter = (v: number) => counts && setCount && (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 4 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 6 }}>
       <button onClick={() => setCount(v, Math.max(0, (counts[v] || 0) - 1))} style={stepBtn}>−</button>
       <input aria-label={`Count of ${$.denomLabel(code, v)}`} inputMode="numeric" value={counts[v] ?? ''} onChange={(e) => setCount(v, Math.max(0, Number(e.target.value.replace(/\D/g, '')) || 0))} style={{ width: 34, textAlign: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '3px 0', fontSize: 13, fontFamily: 'inherit', color: INK, background: '#fff' }} />
       <button onClick={() => setCount(v, (counts[v] || 0) + 1)} style={stepBtn}>+</button>
     </div>);
-  const slotBg = '#ecebe7';
+  const noteH = Math.max(...cur.notes.map((n) => n.h)) * sc;
+  const FAN = 11; const compH = counting ? noteH + 10 + Math.max(0, Math.min(18, Math.max(...noteSlots.map((v) => drawer[v] || 0))) - 1) * FAN : noteH + 26;
+  const coinCupH = counting ? 74 : 58;
   return (
-    <div style={{ background: 'linear-gradient(180deg,#3a3b40,#26272b)', borderRadius: 16, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, boxShadow: '0 22px 40px -22px rgba(0,0,0,.7)', maxWidth: '100%', overflowX: 'auto' }}>
-      <div style={{ display: 'flex', gap: 6 }}>
-        {noteSlots.map((v) => { const n = drawer[v] || 0; const show = counts ? Math.min(n, 30) : Math.min(n, 4);
-          return <div key={v} style={{ width: slotW, flexShrink: 0, background: slotBg, borderRadius: 9, padding: 6, boxSizing: 'border-box' }}>
-            {counts ? <div aria-label={`${$.denomLabel(code, v)} notes`} style={{ display: 'flex', flexWrap: 'wrap', gap: 3, minHeight: 40, alignContent: 'flex-start' }}>
-              {Array.from({ length: show }, (_, k) => <NoteArt key={k} code={code} value={v} scale={(slotW - 24) / 3 / maxW} style={{ boxShadow: '0 1px 2px rgba(0,0,0,.25)' }} />)}
-            </div> : <button disabled={!onTake || !n} onClick={() => onTake?.(v)} aria-label={`Take ${$.denomLabel(code, v)}`} style={{ position: 'relative', width: '100%', height: 74, border: 'none', background: 'none', padding: 0, cursor: onTake && n ? 'pointer' : 'default' }}>
-              {Array.from({ length: show }, (_, k) => <div key={k} style={{ position: 'absolute', left: 0, top: k * 4 }}><NoteArt code={code} value={v} scale={sc} /></div>)}
-              {!n && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: MUTED }}>empty</div>}
-            </button>}
-            <div style={{ textAlign: 'center', fontSize: 11.5, fontWeight: 700, color: MUTED }}>{$.denomLabel(code, v)}{!counts && <span style={{ fontWeight: 500 }}> · {n}</span>}</div>
-            {counter(v)}
-          </div>; })}
-        {under.length > 0 && <div style={{ width: narrow ? 70 : 96, flexShrink: 0, background: '#1d1e22', borderRadius: 9, padding: 6, color: '#fff', fontSize: 11, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <b style={{ fontSize: 11 }}>Under the tray</b>
-          {under.map((v) => <div key={v}><div style={{ opacity: 0.9 }}>{$.denomLabel(code, v)} {counts ? '' : `· ${drawer[v]}`}</div>{counts && <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', margin: '3px 0' }}>{Array.from({ length: drawer[v] }, (_, k) => <NoteArt key={k} code={code} value={v} scale={0.18} />)}</div>}{counter(v)}</div>)}
-        </div>}
+    <div style={{ width: W, maxWidth: '100%', flexShrink: 0 }}>
+      {/* the drawer body */}
+      <div style={{ position: 'relative', borderRadius: '12px 12px 4px 4px', padding: `${pad}px ${pad}px 10px`, background: 'linear-gradient(180deg,#45474d 0%,#2f3035 8%,#26272b 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.18), 0 30px 50px -26px rgba(0,0,0,.75)' }}>
+        {/* under the tray: big notes slipped in at the back */}
+        <div style={{ height: under.length ? 22 : 10, marginBottom: 6, borderRadius: 4, background: 'linear-gradient(180deg,#0c0c0e,#1a1b1e)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,.8)', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px' }}>
+          {under.map((v) => <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#c9ccd2', fontSize: 10.5, fontWeight: 700 }}><span style={{ display: 'inline-block', height: 12, overflow: 'hidden', borderRadius: 2 }}><NoteArt code={code} value={v} scale={0.28} /></span>{$.denomLabel(code, v)} × {drawer[v]}</span>)}
+          {under.length > 0 && <span style={{ marginLeft: 'auto', fontSize: 9.5, color: '#8b8f96', letterSpacing: '.06em' }}>UNDER THE TRAY</span>}
+        </div>
+        {/* note compartments */}
+        <div style={{ display: 'flex', gap, background: '#111214', borderRadius: 6, padding: 0, boxShadow: 'inset 0 3px 8px rgba(0,0,0,.85)' }}>
+          {noteSlots.map((v, i) => { const n = drawer[v] || 0; const show = counting ? Math.min(n, 18) : Math.min(n, 5); const up = counting || lift === v;
+            return <button key={v} disabled={!onTake || !n} onClick={() => take(v)} aria-label={`Take ${$.denomLabel(code, v)}`} style={{ position: 'relative', width: slotW, height: compH, border: 'none', padding: 0, cursor: onTake && n ? 'pointer' : 'default', background: 'linear-gradient(180deg,#1d1e21,#141517)', borderRadius: 5, boxShadow: i ? 'inset 2px 0 0 #2a2b2f' : undefined, overflow: 'hidden' }}>
+              {Array.from({ length: show }, (_, k) => <div key={k} style={{ position: 'absolute', left: 7 + ((k * 7) % 3) - 1, top: counting ? 6 + k * FAN : 8 + (show - 1 - k) * 1.5, transform: `rotate(${((k * 37) % 5) - 2}deg)`, transition: 'top .2s' }}><NoteArt code={code} value={v} scale={sc} /></div>)}
+              {!n && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#6b6f76' }}>empty</div>}
+              {/* chrome bill weight */}
+              <div style={{ position: 'absolute', left: '50%', top: 2, width: 12, marginLeft: -6, height: up ? 16 : noteH * 0.82, borderRadius: 6, background: 'linear-gradient(90deg,#7f868f,#f4f6f8 35%,#aeb4bc 60%,#e8ebef 80%,#7f868f)', boxShadow: '0 3px 4px rgba(0,0,0,.55)', transition: 'height .2s ease' }}>
+                <div style={{ position: 'absolute', left: -5, right: -5, bottom: -5, height: 10, borderRadius: 5, background: 'linear-gradient(180deg,#f4f6f8,#9ba1a9)', boxShadow: '0 2px 3px rgba(0,0,0,.5)' }} />
+              </div>
+              <div style={{ position: 'absolute', left: '50%', top: 0, width: 22, marginLeft: -11, height: 6, borderRadius: '0 0 4px 4px', background: 'linear-gradient(180deg,#5a5e65,#2a2c30)' }} />
+              <div style={{ position: 'absolute', left: 6, bottom: 4, padding: '1px 6px', borderRadius: 4, background: '#efe9dc', color: INK, fontSize: 10, fontWeight: 800 }}>{$.denomLabel(code, v)}{!counting && <span style={{ fontWeight: 600, color: MUTED }}> · {n}</span>}</div>
+            </button>; })}
+        </div>
+        {/* coin cups */}
+        <div style={{ display: 'flex', gap: 5, marginTop: 8 }}>
+          {coins.map((v) => { const n = drawer[v] || 0; const show = counting ? Math.min(n, 30) : Math.min(n, 6); const k0 = $.CURRENCIES[code].coins.find((c) => c.value === v)!;
+            const cs = (narrow ? 0.55 : 0.8) * (counting ? 0.85 : 1);
+            return <button key={v} disabled={!onTake || !n} onClick={() => take(v)} aria-label={`Take ${$.denomLabel(code, v)}`} style={{ position: 'relative', flex: 1, minWidth: 0, height: coinCupH, border: 'none', padding: 0, cursor: onTake && n ? 'pointer' : 'default', borderRadius: '10px 10px 22px 22px', background: 'radial-gradient(120% 90% at 50% 15%, #2c2d31 0%, #141517 70%)', boxShadow: 'inset 0 6px 10px rgba(0,0,0,.85), inset 0 -2px 0 rgba(255,255,255,.08)', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', inset: '6px 4px 14px', display: 'flex', flexWrap: 'wrap', alignContent: counting ? 'flex-start' : 'center', justifyContent: 'center' }}>
+                {Array.from({ length: show }, (_, k) => <span key={k} style={{ marginLeft: counting || k % 3 === 0 ? 0 : -(k0.mm * cs * 0.9), marginTop: counting ? 0 : k > 2 ? -(k0.mm * cs * 0.9) : 0, transform: `rotate(${(k * 53) % 40 - 20}deg)` }}><CoinArt code={code} value={v} scale={cs} /></span>)}
+              </div>
+              {!n && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#6b6f76' }}>empty</div>}
+              <div style={{ position: 'absolute', left: 0, right: 0, bottom: 2, textAlign: 'center', fontSize: 9.5, fontWeight: 800, color: '#c9ccd2' }}>{$.denomLabel(code, v)}{!counting && <span style={{ fontWeight: 600, color: '#8b8f96' }}> · {n}</span>}</div>
+            </button>; })}
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        {coins.map((v) => { const n = drawer[v] || 0; const show = counts ? Math.min(n, 30) : Math.min(n, 3);
-          return <div key={v} style={{ flex: 1, minWidth: narrow ? 44 : 56, background: slotBg, borderRadius: 9, padding: 5, boxSizing: 'border-box' }}>
-            <button disabled={!onTake || !n} onClick={() => onTake?.(v)} aria-label={`Take ${$.denomLabel(code, v)}`} style={{ width: '100%', minHeight: 40, border: 'none', background: 'none', padding: 0, cursor: onTake && n ? 'pointer' : 'default', display: 'flex', flexWrap: 'wrap', gap: counts ? 1 : 0, justifyContent: 'center', alignItems: 'center' }}>
-              {Array.from({ length: show }, (_, k) => <span key={k} style={{ marginLeft: counts || k === 0 ? 0 : -14 }}><CoinArt code={code} value={v} scale={counts ? 0.8 : narrow ? 1.05 : 1.3} /></span>)}
-              {!n && <span style={{ fontSize: 10.5, color: MUTED }}>empty</span>}
-            </button>
-            <div style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: MUTED }}>{$.denomLabel(code, v)}{!counts && <span style={{ fontWeight: 500 }}> · {n}</span>}</div>
-            {counter(v)}
-          </div>; })}
+      {/* drawer front with handle and lock */}
+      <div style={{ height: 22, borderRadius: '0 0 12px 12px', background: 'linear-gradient(180deg,#2c2d32,#1b1c1f)', boxShadow: '0 14px 22px -12px rgba(0,0,0,.7)', position: 'relative' }}>
+        <div style={{ position: 'absolute', left: '50%', top: 6, width: 90, marginLeft: -45, height: 8, borderRadius: 4, background: '#0e0f11', boxShadow: 'inset 0 2px 3px rgba(0,0,0,.9)' }} />
+        <div style={{ position: 'absolute', right: 18, top: 5, width: 12, height: 12, borderRadius: 6, background: 'radial-gradient(circle at 35% 35%,#f4f6f8,#8b9199)' }}><div style={{ position: 'absolute', left: 5, top: 2, width: 2, height: 8, background: '#2a2c30', borderRadius: 1 }} /></div>
       </div>
+      {counting && <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+        {[...noteSlots, ...under, ...coins].map((v) => <div key={v} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '6px 8px', textAlign: 'center' }}><div style={{ fontSize: 11.5, fontWeight: 700 }}>{$.denomLabel(code, v)}</div>{counter(v)}</div>)}
+      </div>}
     </div>
   );
 }
 const stepBtn: CSSProperties = { width: 22, height: 22, borderRadius: 11, border: `1px solid ${LINE}`, background: '#fff', color: INK, fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: 0, fontFamily: 'inherit' };
+
+// ── Receipts ────────────────────────────────────────────────────────────
+const clockAt = (t: number) => { const m = 11 * 60 + Math.floor(t / 2); const h = Math.floor(m / 60), mm = m % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+/** The paper receipt. Also used for real printing (80 mm thermal printers). */
+export function ReceiptPaper({ r, width = 230 }: { r: R.Receipt; width?: number | string }) {
+  const f = (c: number) => $.fmt(r.currency, c);
+  const row = (a: ReactNode, b: ReactNode, bold?: boolean) => <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontWeight: bold ? 800 : 500 }}><span>{a}</span><span>{b}</span></div>;
+  const tips = $.sum(r.tenders.map((t) => t.tip));
+  return (
+    <div style={{ width, background: '#fffefb', color: '#111', font: '500 11px/1.45 ui-monospace, Menlo, Consolas, monospace', padding: '12px 12px 16px', boxSizing: 'border-box' }}>
+      <div style={{ textAlign: 'center', fontWeight: 800, fontSize: 13, letterSpacing: '.08em' }}>OPAL SALON</div>
+      <div style={{ textAlign: 'center', fontSize: 10 }}>** TRAINING · NOT A REAL SALE **</div>
+      <div style={{ textAlign: 'center', fontSize: 10, marginBottom: 6 }}>Sat · {clockAt(r.t)} · #{r.no}</div>
+      <div style={{ borderTop: '1px dashed #999', margin: '4px 0' }} />
+      {r.lines.map((l, i) => <div key={i}>{row(l.label.length > 26 ? `${l.label.slice(0, 25)}…` : l.label, f($.cents(l.price)))}</div>)}
+      <div style={{ borderTop: '1px dashed #999', margin: '4px 0' }} />
+      {row('TOTAL', f($.cents(r.total)), true)}
+      {r.tenders.map((t, i) => <div key={i}>{row(`${t.method === 'card' ? 'Card •••• 4821' : 'Cash'}${r.tenders.length > 1 ? ` · ${t.who}` : ''}`, f(t.amount))}{t.method === 'cash' && t.given !== undefined && <>{row('  Received', f(t.given))}{row('  Change', f(t.change || 0))}</>}</div>)}
+      {tips > 0 && row('Tips', f(tips))}
+      <div style={{ borderTop: '1px dashed #999', margin: '6px 0 4px' }} />
+      <div style={{ textAlign: 'center' }}>Thank you, {r.who}!</div>
+      <div style={{ textAlign: 'center', fontSize: 10 }}>Book your next visit at opal.salon</div>
+    </div>
+  );
+}
+/** The receipt printer on the counter. While printing, the paper feeds out line by line. */
+export function ReceiptPrinter({ r, printing }: { r: R.Receipt | null; printing: boolean }) {
+  const [h, setH] = useState(0); const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (!printing || !r) { setH(0); return; } let x = 0; const full = ref.current?.scrollHeight || 260; const id = window.setInterval(() => { x = Math.min(full, x + 9); setH(x); if (x >= full) window.clearInterval(id); }, 30); return () => window.clearInterval(id); }, [printing, r]);
+  return (
+    <div style={{ position: 'relative', width: 170, height: 96 }}>
+      {r && <div style={{ position: 'absolute', left: 13, bottom: 64, width: 144, height: h, overflow: 'hidden', boxShadow: '0 6px 14px -6px rgba(0,0,0,.35)', transition: 'height .03s linear', display: 'flex', alignItems: 'flex-end' }}>
+        <div ref={ref} style={{ transform: 'scale(.62)', transformOrigin: 'bottom left', width: 232 }}><ReceiptPaper r={r} /></div>
+      </div>}
+      <div style={{ position: 'absolute', inset: 0, top: 22, borderRadius: 16, background: 'linear-gradient(160deg,#ffffff,#dfe1e5)', boxShadow: '0 14px 24px -14px rgba(0,0,0,.55), inset 0 1px 0 #fff' }}>
+        <div style={{ position: 'absolute', left: 14, right: 14, top: 8, height: 6, borderRadius: 3, background: '#16171a' }} />
+        <div style={{ position: 'absolute', right: 14, bottom: 12, width: 8, height: 8, borderRadius: 4, background: printing ? '#34c759' : '#b9bec6' }} />
+        <div style={{ position: 'absolute', left: 14, bottom: 10, fontSize: 9, fontWeight: 700, color: '#9aa0a6', letterSpacing: '.1em' }}>RECEIPTS</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Phone / laptop camera scanning ──────────────────────────────────────
+/** Scans barcodes with the device camera (back camera on phones). Calls onCode once per new code. */
+export function CameraScanner({ onCode, onClose }: { onCode: (code: string) => void; onClose: () => void }) {
+  const video = useRef<HTMLVideoElement>(null);
+  const [err, setErr] = useState<string | null>(null); const [last, setLast] = useState<string | null>(null);
+  useEffect(() => {
+    let stop: (() => void) | null = null; let lastAt = 0, lastCode = ''; let alive = true;
+    (async () => {
+      try {
+        const { BrowserMultiFormatReader } = await import('@zxing/browser');
+        const reader = new BrowserMultiFormatReader();
+        const ctl = await reader.decodeFromConstraints({ video: { facingMode: { ideal: 'environment' } } }, video.current!, (res) => {
+          if (!res || !alive) return; const code = res.getText(); const now = Date.now();
+          if (code === lastCode && now - lastAt < 1800) return; lastCode = code; lastAt = now; setLast(code); onCode(code);
+        });
+        stop = () => ctl.stop();
+      } catch (e: any) { setErr(e?.name === 'NotAllowedError' ? 'Camera access was blocked. Allow the camera for this site, then try again.' : 'No camera found on this device.'); }
+    })();
+    return () => { alive = false; stop?.(); };
+  }, [onCode]);
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(22,23,26,.82)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+      <div style={{ background: '#fff', borderRadius: 22, padding: 14, width: 'min(520px, 100%)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><b style={{ flex: 1, fontSize: 15 }}>Scan with your camera</b><Btn small ghost onClick={onClose}>Done</Btn></div>
+        <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', background: '#000', aspectRatio: '4 / 3' }}>
+          <video ref={video} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <div style={{ position: 'absolute', left: '12%', right: '12%', top: '34%', bottom: '34%', border: '2px solid rgba(255,255,255,.9)', borderRadius: 12, boxShadow: '0 0 0 999px rgba(0,0,0,.35)' }} />
+          <div style={{ position: 'absolute', left: '14%', right: '14%', top: '50%', height: 2, background: '#ff3b30', boxShadow: '0 0 10px 2px #ff3b3088', animation: 'regBeam .4s ease-in-out infinite alternate' }} />
+        </div>
+        <div style={{ fontSize: 12.5, color: err ? RED : MUTED }}>{err || (last ? `Read ${last}. Keep going.` : 'Hold a barcode from the practice sheet (or a real product) inside the frame.')}</div>
+      </div>
+    </div>
+  );
+}

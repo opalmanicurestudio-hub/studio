@@ -5,9 +5,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import * as R from '@/lib/practice/register';
 import * as $ from '@/lib/practice/currency';
-import { Barcode, Bottle, Btn, Cash, CashDrawer, Chip, Person, Reader, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
+import { Barcode, Bottle, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
 
-type PayStep = null | 'tip' | 'reader' | 'processing' | 'approved' | 'cash-total' | 'cash-keep' | 'cash-count' | 'cash-done';
+type PayStep = null | 'split' | 'method' | 'tip' | 'reader' | 'processing' | 'approved' | 'cash-total' | 'cash-keep' | 'cash-count' | 'cash-done' | 'receipt';
 type Mode = 'scan' | 'type' | 'name';
 
 // ── Sounds (tiny synth, shares the practice mute setting) ───────────────
@@ -31,6 +31,18 @@ const SFX: Record<string, () => void> = {
 const muted = () => { try { return localStorage.getItem('cf_practice_mute') === '1'; } catch { return false; } };
 
 const CUR_KEY = 'cf_practice_currency';
+const VOICE_KEY = 'cf_practice_voice';
+/** Clients talk: the browser's own speech voices, a different pitch and pace for each client. */
+function speak(text: string, v: { pitch: number; rate: number }, pron: string) {
+  try {
+    const ss = window.speechSynthesis; if (!ss) return; ss.cancel();
+    const u = new SpeechSynthesisUtterance(text.replace(/[“”]/g, '')); u.pitch = v.pitch; u.rate = v.rate; u.lang = 'en-US';
+    const voices = ss.getVoices().filter((x) => x.lang.startsWith('en'));
+    const fem = /female|samantha|victoria|karen|zira|susan|serena|moira|tessa|fiona|ava|allison|jenny|aria/i, mal = /male|daniel|alex|fred|david|guy|tom|aaron|arthur|oliver/i;
+    const pick = voices.find((x) => (pron === 'he' ? mal.test(x.name) && !/female/i.test(x.name) : fem.test(x.name))) || voices[0];
+    if (pick) u.voice = pick; ss.speak(u);
+  } catch { /* no speech */ }
+}
 const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 const clockOf = (t: number) => { const m = 11 * 60 + Math.floor(t / 2); const h = Math.floor(m / 60), mm = m % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
 
@@ -48,6 +60,12 @@ export default function RegisterPractice() {
   const [cashErr, setCashErr] = useState<string | null>(null);
   const [keepShown, setKeepShown] = useState(false);
   const [counts, setCounts] = useState<Record<number, number>>({});
+  const [voice, setVoice] = useState(true);
+  const [camera, setCamera] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [receiptShown, setReceiptShown] = useState(false);
+  const [lastC, setLastC] = useState<R.Customer | null>(null);
+  const [details, setDetails] = useState({ phone: '', email: '', promo: false });
   const [paused, setPaused] = useState(false);
   const [sel, setSel] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('scan');
@@ -69,11 +87,19 @@ export default function RegisterPractice() {
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search); const f = Number(p.get('fast')); if (f > 0) { speed.current = f; (window as any).__register = { s: () => sRef.current, rerender, codes: Object.fromEntries(R.SKUS.map((k) => [k.key, k.code])) }; }
-    try { const c = localStorage.getItem(CUR_KEY) as $.CurrencyCode | null; if (c && $.CODES.includes(c)) setCode(c); } catch { /* private mode */ }
+    try { const c = localStorage.getItem(CUR_KEY) as $.CurrencyCode | null; if (c && $.CODES.includes(c)) setCode(c); if (localStorage.getItem(VOICE_KEY) === '0') setVoice(false); } catch { /* private mode */ }
     const onR = () => { setNarrow(window.innerWidth < 860); setCompact(window.innerWidth < 1500); }; onR(); window.addEventListener('resize', onR); return () => window.removeEventListener('resize', onR);
   }, [rerender]);
 
   const drainSfx = useCallback(() => { const q = sRef.current.sfx.splice(0); if (!muted()) q.forEach((k, i) => window.setTimeout(() => SFX[k]?.(), i * 90)); }, []);
+
+  // Scan messages fade after a moment when the scan panel isn't open.
+  useEffect(() => { if (!msg || sel) return; const id = window.setTimeout(() => setMsg(null), 2200); return () => window.clearTimeout(id); }, [msg, sel]);
+
+  // Clients talk out loud when they say something new.
+  const said = s.cur?.said; const saidBy = s.cur?.c.id;
+  useEffect(() => { const c = sRef.current.cur?.c; if (!voice || screen !== 'play' || !said || !c) return; speak(said, c.voice, c.pron); }, [said, saidBy, voice, screen]);
+  const toggleVoice = () => { setVoice((v) => { try { localStorage.setItem(VOICE_KEY, v ? '0' : '1'); } catch { /* private mode */ } if (v) try { window.speechSynthesis?.cancel(); } catch { /* none */ } return !v; }); };
 
   // The clock keeps running: the line grows while you work.
   useEffect(() => {
@@ -82,7 +108,7 @@ export default function RegisterPractice() {
       if (paused) return;
       const st = sRef.current; const had = st.cur?.c.id;
       R.advance(st, 0.25 * speed.current);
-      if (st.cur && st.cur.c.id !== had) { setSel(null); setMsg(null); setFlag(null); setNote(null); setVoidFor(null); setMode('scan'); }
+      if (st.cur && st.cur.c.id !== had) { setSel(null); setMsg(null); setFlag(null); setNote(null); setVoidFor(null); setMode('scan'); setDetails({ phone: '', email: '', promo: false }); }
       drainSfx();
       if (R.finished(st) && !pay) window.setTimeout(() => setScreen('closeout'), 500);
       rerender();
@@ -92,7 +118,7 @@ export default function RegisterPractice() {
 
   const afterScan = useCallback((r: R.ScanResult, via: string) => {
     if (r.kind === 'added') {
-      setMsg({ text: via === 'usb' ? 'Beep. Read by your scanner.' : 'Beep. Added to the ticket.', tone: 'ok' });
+      setMsg({ text: via === 'usb' ? 'Beep. Read by your scanner.' : via === 'camera' ? 'Beep. Read by your camera.' : 'Beep. Added to the ticket.', tone: 'ok' });
       if (r.flag && r.lines) setFlag({ id: r.lines[0].id, text: r.flag });
     } else if (r.kind === 'unreadable') setMsg({ text: 'Beep-beep. The label won’t read.', tone: 'warn' });
     else if (r.kind === 'unknown') setMsg({ text: 'That number isn’t in the system. Check it and try again.', tone: 'bad' });
@@ -110,13 +136,17 @@ export default function RegisterPractice() {
       if (e.key === 'Enter' && buf.length >= 11 && now - first < 900) {
         const code = buf.slice(-14); buf = '';
         if (!sRef.current.cur) return;
-        setUsb(true); const sku = R.skuByCode(code); if (sku) setSel(sku.key);
+        setUsb(true); const sku = R.skuByCode(code);
         afterScan(R.scan(sRef.current, sku ? sku.code : code, 'usb'), 'usb');
       } else if (e.key === 'Enter') buf = '';
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   }, [screen, afterScan]);
 
+  const onCamera = useCallback((code: string) => {
+    if (!sRef.current.cur) return; const sku = R.skuByCode(code);
+    afterScan(R.scan(sRef.current, sku ? sku.code : code, 'camera'), 'camera');
+  }, [afterScan]);
   const start = () => { sRef.current = R.newRegister(code); setScreen('play'); setSel(null); setMsg(null); setPay(null); setFlag(null); setPaused(false); setHand([]); setTendered(null); setCounts({}); rerender(); };
   const pickCurrency = (c: $.CurrencyCode) => { setCode(c); try { localStorage.setItem(CUR_KEY, c); } catch { /* private mode */ } };
   const cur = s.cur;
@@ -140,23 +170,43 @@ export default function RegisterPractice() {
     window.setTimeout(() => { setPay('cash-count'); if (!muted()) SFX.tap(); }, 2300);
   };
   const takePiece = (v: number) => { const left = (s.drawer[v] || 0) - hand.filter((x) => x === v).length; if (left > 0) { setHand((h) => [...h, v]); if (!muted()) SFX.tap(); } };
+  const finishReceipt = () => { sRef.current.busy = false; setPrinting(false); setReceiptShown(false); setPay(null); resetCash(); setSel(null); setMsg(null); setFlag(null); setNote(null); rerender(); };
+  /** After a payment: the next person in a group, or the receipt. */
+  const afterPaid = (r: { partial?: boolean } | null) => {
+    drainSfx();
+    if (r?.partial) { const st = sRef.current; if (st.cur) st.cur.said = `${R.payerName(st)}: ${R.prefers(st) === 'cash' ? 'I’ll pay my part in cash.' : 'Card for me, please.'}`; resetCash(); setPay('method'); rerender(); return; }
+    const rc = sRef.current.lastReceipt; sRef.current.busy = true; setPay('receipt'); setReceiptShown(false); rerender();
+    window.setTimeout(() => setReceiptShown(true), 900);
+    if (rc?.choice === 'print') window.setTimeout(() => { setPrinting(true); if (!muted()) { tone(180, 0.6, 'sawtooth', 0, 0.012); } }, 1300);
+    else window.setTimeout(finishReceipt, 2800);
+  };
   const handOverChange = () => {
     const r = R.payCash(s, tendered ?? 0, hand);
     if (!r) return; if (!r.ok) { setCashErr(r.error); return; }
     drainSfx(); setPay('cash-done');
-    window.setTimeout(() => { setPay(null); resetCash(); setSel(null); setMsg(null); setFlag(null); setNote(null); rerender(); }, 1300);
+    window.setTimeout(() => afterPaid(r), 900);
+  };
+  const startMethod = () => {
+    const st = sRef.current; if (!st.cur) return;
+    st.cur.said = st.cur.parts ? `${R.payerName(st)}: ${R.prefers(st) === 'cash' ? 'I’ll pay my part in cash.' : 'Card for me, please.'}` : R.prefers(st) === 'cash' ? 'I’ll pay cash.' : 'Card, please.';
+    setPay('method'); rerender();
   };
   const takePayment = () => {
-    if (!cur) return; setSel(null); resetCash();
-    if (R.paysCash(cur.c)) { R.handOver(s); setPay('cash-total'); return; }
+    if (!cur) return; setSel(null); resetCash(); setLastC(cur.c);
+    if (cur.c.party && !cur.split) { cur.said = cur.c.party.ask; setPay('split'); rerender(); return; }
+    startMethod();
+  };
+  const chooseMethod = (m: 'card' | 'cash') => {
+    if (!cur) return; resetCash();
+    if (m === 'cash') { R.handOver(s); setPay('cash-total'); rerender(); return; }
     setPay('tip'); setTipShown(null);
-    window.setTimeout(() => { if (sRef.current.cur) setTipShown(R.tipFor(sRef.current.cur).pct); }, 1000);
+    window.setTimeout(() => { if (sRef.current.cur) setTipShown(R.tipNow(sRef.current).pct); }, 1000);
     window.setTimeout(() => setPay('reader'), 2000);
   };
   const cardGo = () => {
     setPay('processing'); SFX.tap();
     window.setTimeout(() => { setPay('approved'); if (!muted()) SFX.chime(); }, 1000);
-    window.setTimeout(() => { R.pay(sRef.current); drainSfx(); setPay(null); setSel(null); setMsg(null); setFlag(null); setNote(null); rerender(); }, 1800);
+    window.setTimeout(() => afterPaid(R.pay(sRef.current)), 1800);
   };
 
   // ── Screens ──
@@ -168,7 +218,7 @@ export default function RegisterPractice() {
   const avg = done.length ? Math.round(done.reduce((a, d) => a + d.seconds, 0) / done.length) : 0;
   const waiting = R.line(s); const longest = Math.min(1, ...waiting.map((c) => s.waiting[c.id] ?? 1));
   const retail = cur ? cur.lines.filter((l) => l.kind === 'retail' && !l.voided).length : 0;
-  const coach = cur && cur.c.id === 'rosa' && done.length === 0 && !pay ? (retail === 0 ? (sel ? (narrow ? 'Press and hold the barcode to scan it.' : 'Press and hold on the barcode to scan it.') : 'Tap the cuticle oil on the counter.') : 'One bottle, one line on the ticket. Take payment.') : null;
+  const coach = cur && cur.c.id === 'rosa' && done.length === 0 && !pay ? (!cur.greeted ? 'Rosa is at the desk. Greet her: pick what to say.' : retail === 0 ? (sel ? (narrow ? 'Press and hold the barcode to scan it.' : 'Press and hold on the barcode to scan it.') : 'Tap the cuticle oil on the counter.') : 'One bottle, one line on the ticket. Take payment.') : null;
   const items = cur ? cur.c.items.flatMap((it) => Array.from({ length: it.n }, (_, k) => ({ key: it.sku, k }))) : [];
   const total = cur ? R.totalOf(cur) : 0;
 
@@ -181,6 +231,8 @@ export default function RegisterPractice() {
       <Chip tone="blue">{s.points} pts</Chip>
       {usb && <Chip tone="green">Scanner connected</Chip>}
       <span style={{ flex: 1 }} />
+      <button onClick={() => setCamera(true)} style={pill} aria-label="Scan with camera">📷 {narrow ? '' : 'Camera'}</button>
+      <button onClick={toggleVoice} style={pill} aria-label={voice ? 'Turn voices off' : 'Turn voices on'}>{voice ? '🔊' : '🔇'} {narrow ? '' : 'Voices'}</button>
       <button onClick={() => setPaused((p) => !p)} style={pill}>{paused ? 'Resume' : 'Pause'}</button>
       <button onClick={() => setScreen('menu')} style={pill}>Exit</button>
     </div>
@@ -194,18 +246,18 @@ export default function RegisterPractice() {
 
   const claimCard = cur?.claim === 'open' && (() => { const sh = R.slip(cur.c, 'shelf')!; const k = R.skuBy(sh.sku); return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 340, boxShadow: '0 10px 24px -16px rgba(0,0,0,.4)' }}>
-      <div style={{ fontSize: 12.5, color: MUTED }}>The system says {k.name} is <b style={{ color: INK }}>${k.price}</b>. {cur.c.name} says the sign said <b style={{ color: INK }}>${sh.claim}</b>.</div>
+      <div style={{ fontSize: 12.5, color: MUTED }}>The system says {k.name} is <b style={{ color: INK }}>{money(k.price)}</b>. {cur.c.name} says the sign said <b style={{ color: INK }}>{money(sh.claim)}</b>.</div>
       {calling ? <div style={{ fontSize: 13, fontWeight: 600, color: BLUE }}>Calling {R.MANAGER}… she’s checking on her phone</div> : <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <Btn small onClick={manager}>Ask {R.MANAGER} to approve ${k.price - sh.claim} off</Btn>
-        <Btn small ghost onClick={() => { R.refuseClaim(s); rerender(); }}>Explain it’s ${k.price}</Btn></div>}
+        <Btn small onClick={manager}>Ask {R.MANAGER} to approve {money(k.price - sh.claim)} off</Btn>
+        <Btn small ghost onClick={() => { R.refuseClaim(s); rerender(); }}>Explain it’s {money(k.price)}</Btn></div>}
     </div>); })();
 
   const pos = cur && (
     <div style={{ background: '#fff', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: narrow ? 0 : 300, boxSizing: 'border-box', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 28, height: 28, borderRadius: 14, background: cur.c.look.top, color: '#fff', fontSize: 12.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{cur.c.name[0]}</span>
-        <div style={{ flex: 1 }}><div style={{ fontSize: 13.5, fontWeight: 700 }}>{cur.c.name}</div><div style={{ fontSize: 11, color: MUTED }}>{cur.c.visits === 1 ? 'First visit' : `${ordinal(cur.c.visits)} visit`} · {cur.c.service.label} with {cur.c.service.provider}</div></div>
-        <Chip>Ticket</Chip>
+        <div style={{ flex: 1 }}><div style={{ fontSize: 13.5, fontWeight: 700 }}>{cur.c.name}</div><div style={{ fontSize: 11, color: MUTED }}>{cur.c.party ? `Group · ${cur.c.party.members.length} guests` : cur.c.kind === 'new' ? 'First visit' : `${ordinal(cur.c.visits)} visit`} · {cur.c.party ? cur.c.party.members.map((m) => m.name).join(', ') : `${cur.c.service.label} with ${cur.c.service.provider}`}</div></div>
+        {cur.c.kind === 'new' ? <Chip tone="blue">New client</Chip> : cur.c.kind === 'regular' ? <Chip tone="green">Regular</Chip> : <Chip>Ticket</Chip>}
       </div>
       {flag && <div style={{ background: '#fdf6ec', border: '1px solid #f3dfc4', borderRadius: 10, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#9a4a07' }}>Health flag · private</div><div style={{ fontSize: 12, color: '#9a4a07' }}>{flag.text}</div>
@@ -227,11 +279,30 @@ export default function RegisterPractice() {
         ))}
       </div>
       {note && <div style={{ fontSize: 12, color: RED, fontWeight: 600 }}>{note}</div>}
+      {cur.c.details && !pay && <div style={{ background: '#f4f7ff', border: '1px solid #dbe4ff', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><b style={{ fontSize: 12.5, flex: 1 }}>First visit: save {R.their(cur.c)} details</b>{cur.contact && <Chip tone="green">Saved</Chip>}</div>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><button style={mini} onClick={() => { R.askDetail(s, 'phone'); rerender(); }}>Ask for {R.their(cur.c)} phone</button><button style={mini} onClick={() => { R.askDetail(s, 'email'); rerender(); }}>Ask for {R.their(cur.c)} email</button></div>
+        <input aria-label="Client phone" value={details.phone} onChange={(e) => setDetails((d) => ({ ...d, phone: e.target.value }))} placeholder="Mobile number" inputMode="tel" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
+        <input aria-label="Client email" value={details.email} onChange={(e) => setDetails((d) => ({ ...d, email: e.target.value }))} placeholder="Email" inputMode="email" autoCapitalize="none" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><input type="checkbox" checked={details.promo} onChange={(e) => setDetails((d) => ({ ...d, promo: e.target.checked }))} />Send offers by text <span style={{ color: MUTED }}>(only if they say yes)</span></label>
+        <div><Btn small onClick={() => { R.saveContact(s, details); rerender(); }}>{cur.contact ? 'Update details' : 'Save details'}</Btn></div>
+      </div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1.5px solid ${INK}`, paddingTop: 7, fontSize: 16, fontWeight: 800 }}><span>Total</span><span>{money(total)}</span></div>
-      {!pay && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><Btn small onClick={takePayment}>Take payment · {money(total)}</Btn>{R.paysCash(cur.c) && <Chip tone="green">Paying cash</Chip>}</div>}
+      {!pay && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><Btn small onClick={takePayment}>Take payment · {money(total)}</Btn></div>}
+      {pay === 'split' && cur.c.party && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontSize: 12, color: MUTED }}>How is the group paying?</div>
+        {(['own', 'even', 'one'] as const).map((m) => m === 'one' ? <div key={m} style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}><span style={{ fontSize: 12.5 }}>One person pays:</span>{cur.c.party!.members.map((mm) => <button key={mm.name} style={mini} onClick={() => { R.setSplit(s, 'one', mm.name); startMethod(); }}>{mm.name}</button>)}</div>
+          : <button key={m} style={{ ...rowBtn, padding: '7px 10px', fontSize: 13 }} onClick={() => { R.setSplit(s, m); startMethod(); }}>{m === 'own' ? 'Each pays for their own' : `Split evenly, ${cur.c.party!.members.length} ways`}</button>)}
+      </div>}
+      {pay === 'method' && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {cur.parts && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{cur.parts.map((p, i) => <Chip key={i} tone={p.paid ? 'green' : i === cur.partIdx ? 'ink' : undefined}>{p.paid ? '✓ ' : ''}{p.who} · {cash(p.amount)}</Chip>)}</div>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5 }}><span>{cur.parts ? `${R.payerName(s)} pays` : 'Amount due'}</span><b>{cash(R.dueNow(s))}</b></div>
+        <div style={{ fontSize: 12, color: MUTED }}>{R.payerName(s)} would like to pay by {R.prefers(s)}. You can take either.</div>
+        <div style={{ display: 'flex', gap: 6 }}><Btn small ghost={R.prefers(s) !== 'card'} onClick={() => chooseMethod('card')}>💳 Card</Btn><Btn small ghost={R.prefers(s) !== 'cash'} onClick={() => chooseMethod('cash')}>💵 Cash</Btn></div>
+      </div>}
       {pay === 'cash-total' && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ fontSize: 12, color: MUTED }}>{cur.c.name} handed you this. Leave it on the drawer ledge, then enter the amount received.</div>
-        {R.cashDue(s) !== $.cents(total) && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span>Cash total <span style={{ color: MUTED }}>(rounded to 5¢)</span></span><b>{cash(R.cashDue(s))}</b></div>}
+        <div style={{ fontSize: 12, color: MUTED }}>{R.payerName(s)} handed you this. Leave it on the drawer ledge, then enter the amount received.</div>
+        {R.cashDue(s) !== R.dueNow(s) && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span>Cash total <span style={{ color: MUTED }}>(rounded to 5¢)</span></span><b>{cash(R.cashDue(s))}</b></div>}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>{(cur.given || []).map((v, i) => <Cash key={i} code={s.currency} value={v} size={0.62} />)}</div>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>CASH RECEIVED</div>
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{R.tenderOptions(s).map((v) => <button key={v} onClick={() => chooseTender(v)} style={mini}>{cash(v)}</button>)}</div>
@@ -239,39 +310,55 @@ export default function RegisterPractice() {
         {cashErr && <div style={{ fontSize: 12, color: RED, fontWeight: 600 }}>{cashErr}</div>}
       </div>}
       {(pay === 'cash-keep' || pay === 'cash-count') && tendered !== null && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
-        {R.cashDue(s) !== $.cents(total) && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cash total (rounded)</span><b>{cash(R.cashDue(s))}</b></div>}
+        {R.cashDue(s) !== R.dueNow(s) && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cash total (rounded)</span><b>{cash(R.cashDue(s))}</b></div>}
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Cash received</span><b>{cash(tendered)}</b></div>
         {pay === 'cash-count' && (cur.kept || 0) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: GREEN }}><span>Kept as a tip</span><b>{cash(cur.kept || 0)}</b></div>}
-        {pay === 'cash-count' ? <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 800 }}><span>Change due</span><span>{cash(R.changeShown(s, tendered))}</span></div> : <div style={{ color: MUTED }}>{cur.c.name} is choosing on the client screen…</div>}
+        {pay === 'cash-count' ? <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 800 }}><span>Change due</span><span>{cash(R.changeShown(s, tendered))}</span></div> : <div style={{ color: MUTED }}>{R.payerName(s)} is choosing on the client screen…</div>}
       </div>}
     </div>
   );
 
-  const clientScreen = pay && cur && (
+  const rc = s.lastReceipt;
+  const saleDone = pay === 'receipt' && rc && (
+    <div style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 28, height: 28, borderRadius: 14, background: '#eaf6ef', color: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>✓</span><b style={{ fontSize: 15, flex: 1 }}>Sale complete</b><Chip>#{rc.no}</Chip></div>
+      <div style={{ fontSize: 13, color: MUTED }}>{rc.who}</div>
+      {rc.tenders.map((t, i) => <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span>{t.method === 'card' ? '💳 Card' : '💵 Cash'}{rc.tenders.length > 1 ? ` · ${t.who}` : ''}</span><b>{cash(t.amount + t.tip)}</b></div>)}
+      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1.5px solid ${INK}`, paddingTop: 7, fontSize: 15, fontWeight: 800 }}><span>Total</span><span>{money(rc.total)}</span></div>
+      <div style={{ fontSize: 12.5, color: MUTED }}>Receipt: {rc.choice === 'print' ? 'printing at the desk' : rc.choice === 'text' ? 'sent by text' : rc.choice === 'email' ? 'sent by email' : 'none'}</div>
+    </div>
+  );
+  const clientScreen = pay && (cur || pay === 'receipt') && (
     <div style={{ background: '#1d1e22', borderRadius: 20, padding: 9, width: narrow ? '100%' : 330, boxSizing: 'border-box', boxShadow: '0 26px 40px -20px rgba(0,0,0,.6)' }}>
       <div style={{ background: 'linear-gradient(180deg,#fbfaf8,#f1eee9)', borderRadius: 13, padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, minHeight: 190, justifyContent: 'center' }}>
         <div style={{ fontSize: 11, letterSpacing: '.12em', color: MUTED }}>CLIENT SCREEN</div>
         {pay === 'tip' ? <>
-          <div style={{ fontSize: 18 }}>Add a tip for {cur.c.service.provider}?</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, width: '100%' }}>{[15, 18, 20].map((p) => { const on = tipShown === p; return <div key={p} style={{ border: `1.5px solid ${on ? INK : LINE}`, background: on ? INK : '#fff', color: on ? '#fff' : INK, borderRadius: 14, padding: '10px 0', textAlign: 'center', transition: 'all .2s' }}><b>{p}%</b><div style={{ fontSize: 10.5, opacity: 0.7 }}>{money(Math.round(cur.c.service.price * p / 100))}</div></div>; })}</div>
-          <div style={{ fontSize: 11.5, color: tipShown === 0 ? AMBER : MUTED }}>{tipShown === 0 ? `${cur.c.name} chose no tip.` : tipShown ? `${cur.c.name} chose ${tipShown}%.` : `${cur.c.name} is choosing…`}</div>
+          <div style={{ fontSize: 18 }}>Add a tip?</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, width: '100%' }}>{[15, 18, 20].map((p) => { const on = tipShown === p; const base = cur!.parts ? R.dueNow(s) * 0.85 : $.cents(cur!.c.service.price); return <div key={p} style={{ border: `1.5px solid ${on ? INK : LINE}`, background: on ? INK : '#fff', color: on ? '#fff' : INK, borderRadius: 14, padding: '10px 0', textAlign: 'center', transition: 'all .2s' }}><b>{p}%</b><div style={{ fontSize: 10.5, opacity: 0.7 }}>{cash(Math.round((base * p) / 10000) * 100)}</div></div>; })}</div>
+          <div style={{ fontSize: 11.5, color: tipShown === 0 ? AMBER : MUTED }}>{tipShown === 0 ? `${R.payerName(s)} chose no tip.` : tipShown ? `${R.payerName(s)} chose ${tipShown}%.` : `${R.payerName(s)} is choosing…`}</div>
         </> : pay === 'reader' ? <>
-          <div style={{ fontSize: 17 }}>{money(total + R.tipFor(cur).amount)}</div>
-          <div style={{ fontSize: 12.5, color: MUTED }}>{cur.c.name} is ready to pay by card.</div>
+          <div style={{ fontSize: 17 }}>{cash(R.dueNow(s) + R.tipNow(s).amount)}</div>
+          <div style={{ fontSize: 12.5, color: MUTED }}>{R.payerName(s)} is ready to pay by card.</div>
           <div style={{ display: 'flex', gap: 6 }}><Btn small onClick={cardGo}>Tap</Btn><Btn small onClick={cardGo}>Insert chip</Btn><Btn small onClick={cardGo}>Swipe</Btn></div>
         </> : pay === 'processing' ? <div style={{ fontSize: 15, fontWeight: 600 }}>Processing…</div>
           : pay === 'cash-total' ? <>
           <div style={{ fontSize: 12.5, color: MUTED }}>Total · paying with cash</div>
           <div style={{ fontSize: 26, fontWeight: 800 }}>{cash(R.cashDue(s))}</div>
-          {R.cashDue(s) !== $.cents(total) && <div style={{ fontSize: 11.5, color: MUTED }}>Rounded from {money(total)} for cash</div>}
+          {R.cashDue(s) !== R.dueNow(s) && <div style={{ fontSize: 11.5, color: MUTED }}>Rounded from {cash(R.dueNow(s))} for cash</div>}
         </> : pay === 'cash-keep' ? <>
-          <div style={{ fontSize: 17 }}>Your change is {cash($.sum(cur.given || []) - R.cashDue(s))}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>{(['all', 'part', 'none'] as const).map((k) => { const kept = cur.kept ?? -1; const extra = $.sum(cur.given || []) - R.cashDue(s);
+          <div style={{ fontSize: 17 }}>Your change is {cash($.sum(cur!.given || []) - R.cashDue(s))}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>{(['all', 'part', 'none'] as const).map((k) => { const kept = cur!.kept ?? -1; const extra = $.sum(cur!.given || []) - R.cashDue(s);
             const on = keepShown && (k === 'all' ? kept === extra && kept > 0 : k === 'none' ? kept === 0 : kept > 0 && kept < extra);
             return <div key={k} style={{ border: `1.5px solid ${on ? INK : LINE}`, background: on ? INK : '#fff', color: on ? '#fff' : INK, borderRadius: 12, padding: '8px 10px', fontSize: 13, fontWeight: 600, textAlign: 'center', transition: 'all .2s' }}>{k === 'all' ? 'Keep the change as a tip' : k === 'none' ? 'My change, please' : on ? `Keep ${cash(kept)} as a tip` : 'Keep part as a tip'}</div>; })}</div>
-          <div style={{ fontSize: 11.5, color: MUTED }}>{keepShown ? `${cur.c.name} chose.` : `${cur.c.name} is choosing…`}</div>
-        </> : pay === 'cash-count' ? <><div style={{ fontSize: 12.5, color: MUTED }}>Change</div><div style={{ fontSize: 24, fontWeight: 800 }}>{cash(Math.max(0, $.sum(cur.given || []) - R.cashDue(s) - (cur.kept || 0)))}</div><div style={{ fontSize: 11.5, color: MUTED }}>{cur.kept ? `Tip: ${cash(cur.kept)}. Thank you!` : 'Thank you!'}</div></>
+          <div style={{ fontSize: 11.5, color: MUTED }}>{keepShown ? `${R.payerName(s)} chose.` : `${R.payerName(s)} is choosing…`}</div>
+        </> : pay === 'cash-count' ? <><div style={{ fontSize: 12.5, color: MUTED }}>Change</div><div style={{ fontSize: 24, fontWeight: 800 }}>{cash(Math.max(0, $.sum(cur!.given || []) - R.cashDue(s) - (cur!.kept || 0)))}</div><div style={{ fontSize: 11.5, color: MUTED }}>{cur!.kept ? `Tip: ${cash(cur!.kept)}. Thank you!` : 'Thank you!'}</div></>
           : pay === 'cash-done' ? <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>Thank you ✓</div>
+          : pay === 'receipt' && rc ? <>
+          <div style={{ fontSize: 17 }}>Would you like a receipt?</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, width: '100%' }}>{(['print', 'text', 'email', 'none'] as const).map((k) => { const on = receiptShown && rc.choice === k; return <div key={k} style={{ border: `1.5px solid ${on ? INK : LINE}`, background: on ? INK : '#fff', color: on ? '#fff' : INK, borderRadius: 12, padding: '8px 6px', fontSize: 12.5, fontWeight: 600, textAlign: 'center', transition: 'all .2s' }}>{k === 'print' ? 'Print' : k === 'text' ? 'Text it' : k === 'email' ? 'Email it' : 'No receipt'}</div>; })}</div>
+          <div style={{ fontSize: 11.5, color: MUTED }}>{!receiptShown ? 'Choosing…' : rc.choice === 'print' ? 'Printing at the desk…' : rc.choice === 'text' ? 'Texted to •••• 0187' : rc.choice === 'email' ? `Emailed${rc.email ? ` to ${rc.email}` : ''}` : 'No receipt. Thank you!'}</div>
+        </>
+          : pay === 'split' || pay === 'method' ? <><div style={{ fontSize: 12.5, color: MUTED }}>Total</div><div style={{ fontSize: 26, fontWeight: 800 }}>{cur ? money(total) : ''}</div><div style={{ fontSize: 11.5, color: MUTED }}>Waiting for the desk…</div></>
           : <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>Approved ✓</div>}
       </div>
     </div>
@@ -285,7 +372,7 @@ export default function RegisterPractice() {
       {mode === 'scan' && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: narrow ? 6 : 40, background: 'linear-gradient(180deg,#f4f4f6,#e4e4e8)', borderRadius: 16, padding: '14px 10px', userSelect: 'none', touchAction: 'none' }}
         onPointerDown={holdStart} onPointerUp={holdEnd} onPointerLeave={holdEnd}>
         <Bottle sku={sku} w={narrow ? 92 : 112} h={narrow ? 180 : 214} smudge={smudged} />
-        <ScannerGun beam={holding} size={narrow ? 0.8 : 1} />
+        <ScannerGun beam={holding} ok={!holding && msg?.tone === 'ok'} size={narrow ? 0.62 : 0.85} />
       </div>}
       {mode === 'scan' && <div style={{ fontSize: 12.5, color: MUTED, textAlign: 'center' }}>Press and hold on the counter to scan. A real scanner works too: just scan the practice sheet.</div>}
       {mode === 'type' && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
@@ -296,7 +383,7 @@ export default function RegisterPractice() {
       </div>}
       {mode === 'name' && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products" style={input} />
-        {R.lookup(q).map((k) => <button key={k.key} onClick={() => nameGo(k.key)} style={{ ...rowBtn }}><span style={{ width: 14, height: 22, borderRadius: 4, background: k.color }} /><span style={{ flex: 1, textAlign: 'left' }}>{R.skuLabel(k)}</span><b>${k.price}</b></button>)}
+        {R.lookup(q).map((k) => <button key={k.key} onClick={() => nameGo(k.key)} style={{ ...rowBtn }}><span style={{ width: 14, height: 22, borderRadius: 4, background: k.color }} /><span style={{ flex: 1, textAlign: 'left' }}>{R.skuLabel(k)}</span><b>{money(k.price)}</b></button>)}
         {!q && <div style={{ fontSize: 12, color: MUTED }}>Similar products have similar names. Check the size.</div>}
       </div>}
       {msg && <div style={{ fontSize: 13, fontWeight: 600, color: msg.tone === 'ok' ? GREEN : msg.tone === 'warn' ? AMBER : RED, textAlign: 'center' }}>{msg.text}</div>}
@@ -307,6 +394,12 @@ export default function RegisterPractice() {
     </div>
   );
 
+  const receiptPanel = pay === 'receipt' && rc && rc.choice === 'print' && (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <ReceiptPrinter r={rc} printing={printing} />
+      {printing && <div style={{ display: 'flex', gap: 6 }}><Btn small onClick={finishReceipt}>Tear it off and hand it over</Btn><Btn small ghost onClick={() => window.print()}>🖨 Print for real</Btn></div>}
+    </div>
+  );
   const handSum = $.sum(hand);
   const drawerPanel = cur && (pay === 'cash-count' || pay === 'cash-done') && tendered !== null && (
     <div style={{ background: 'rgba(255,255,255,.97)', border: `1px solid ${LINE}`, borderRadius: 22, padding: 14, boxShadow: '0 30px 60px -30px rgba(0,0,0,.6)', display: 'flex', flexDirection: 'column', gap: 10, width: narrow ? '100%' : 'auto', boxSizing: 'border-box' }}>
@@ -314,7 +407,7 @@ export default function RegisterPractice() {
         <b style={{ fontSize: 15, flex: 1 }}>Count the change</b>
         <span style={{ fontSize: 12.5, color: MUTED }}>Change due</span><b style={{ fontSize: 17 }}>{cash(R.changeShown(s, tendered))}</b>
       </div>
-      <CashDrawer code={s.currency} drawer={Object.fromEntries(Object.entries(s.drawer).map(([v, n]) => [v, n - hand.filter((x) => x === Number(v)).length]))} onTake={pay === 'cash-count' ? takePiece : undefined} narrow={narrow || compact} />
+      <CashDrawer code={s.currency} drawer={Object.fromEntries(Object.entries(s.drawer).map(([v, n]) => [v, n - hand.filter((x) => x === Number(v)).length]))} onTake={pay === 'cash-count' ? takePiece : undefined} narrow={narrow} w={narrow ? undefined : compact ? 540 : 660} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: SOFT, borderRadius: 14, padding: '8px 10px', minHeight: 54, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, color: MUTED }}>In your hand:</span>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', flex: 1 }}>{hand.length ? hand.map((v, i) => <button key={i} aria-label={`Put back ${$.denomLabel(s.currency, v)}`} onClick={() => setHand((h) => h.filter((_, k) => k !== i))} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}><Cash code={s.currency} value={v} size={0.5} /></button>) : <span style={{ fontSize: 12, color: MUTED }}>Tap the drawer to take notes and coins.</span>}</div>
@@ -332,29 +425,45 @@ export default function RegisterPractice() {
     </div>
   );
 
-  const client = cur ? (
+  const shownC = cur?.c || (pay === 'receipt' ? lastC : null);
+  const greetEl = cur && !cur.greeted && !pay && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxWidth: 340 }}>
+      <span style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>SAY</span>
+      {R.greetOptions(cur.c).map((g) => <button key={g.text} onClick={() => { R.greet(s, g.q); drainSfx(); rerender(); }} style={{ ...rowBtn, padding: '7px 11px', fontSize: 13, textAlign: 'left', background: INK, color: '#fff', borderColor: INK, borderRadius: '14px 14px 4px 14px' }}>“{g.text}”</button>)}
+    </div>
+  );
+  const client = shownC ? (
     <div style={{ display: 'flex', alignItems: narrow ? 'center' : 'flex-end', gap: narrow ? 10 : 18 }}>
-      <div style={{ flexShrink: 0, transition: 'transform .3s' }}><Person look={cur.c.look} size={narrow ? 120 : 300} mood={cur.mood} /></div>
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-end' }}>
+        {shownC.party ? shownC.party.members.map((m, i) => { const now = cur?.parts ? R.payerName(s) === m.name : i === 0; return <div key={m.name} style={{ marginLeft: i ? (narrow ? -34 : -90) : 0, opacity: cur?.parts && !now ? 0.75 : 1, transform: now ? 'translateY(-6px)' : undefined, transition: 'all .3s', zIndex: now ? 2 : 1 }}><Person look={m.look} size={narrow ? 84 : 220} mood={cur?.mood ?? 0.9} /></div>; })
+          : <Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} />}
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: narrow ? 0 : 90 }}>
-        <Say tone={cur.mood < 0.3 ? 'warn' : cur.claim === 'discount' || pay === 'approved' ? 'ok' : 'soft'}>{pay === 'approved' ? 'Thank you! See you next time.' : cur.said}</Say>
+        <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : cur?.said}</Say>
+        {!narrow && greetEl}
         {!narrow && claimCard}
       </div>
     </div>
   ) : <div style={{ fontSize: 15, color: MUTED, padding: 40 }}>{waiting.length ? 'Next client is walking up…' : 'Nobody at the desk right now.'}</div>;
 
   const coachEl = coach && <div style={{ background: BLUE, color: '#fff', borderRadius: 14, padding: '10px 16px', fontSize: 14, fontWeight: 600, boxShadow: '0 14px 30px -14px rgba(37,99,235,.6)' }}>{coach}</div>;
+  const toast = msg && !zoom && <div role="status" style={{ position: 'fixed', left: '50%', top: narrow ? 118 : 120, transform: 'translateX(-50%)', zIndex: 40, background: msg.tone === 'ok' ? '#eaf6ef' : msg.tone === 'warn' ? '#fdf6ec' : '#fdecec', color: msg.tone === 'ok' ? GREEN : msg.tone === 'warn' ? AMBER : RED, border: `1px solid ${LINE}`, borderRadius: 999, padding: '8px 16px', fontSize: 13.5, fontWeight: 700, boxShadow: '0 10px 24px -14px rgba(0,0,0,.4)', whiteSpace: 'nowrap' }}>{msg.text}</div>;
+  const printEl = rc && <div id="cf-print" style={{ display: 'none' }}><ReceiptPaper r={rc} width="72mm" /></div>;
   const pauseEl = paused && <div style={{ position: 'fixed', inset: 0, background: 'rgba(22,23,26,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}><div style={{ background: '#fff', borderRadius: 18, padding: 24, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}><b style={{ fontSize: 18 }}>Paused</b><Btn onClick={() => setPaused(false)}>Resume</Btn></div></div>;
 
   if (narrow) return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f6f3ef,#efe9e2)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, display: 'flex', flexDirection: 'column', gap: 10, padding: 10, boxSizing: 'border-box' }}>
       <Fonts />{hud}{coachEl}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{queue}</div>
-      {client}{claimCard}
-      <div style={{ background: '#16171a', borderRadius: 16, padding: 7 }}>{pos}</div>
+      {client}{greetEl}{claimCard}
+      <div style={{ background: '#16171a', borderRadius: 16, padding: 7 }}>{pos || saleDone}</div>
       {clientScreen}
+      {receiptPanel && <div style={{ paddingTop: 250, display: 'flex', justifyContent: 'center' }}>{receiptPanel}</div>}
       <div style={{ background: 'linear-gradient(180deg,#f4f4f6,#dfdfe3)', borderTop: '4px solid #fff', borderRadius: 16, padding: 8 }}>{counter}</div>
       {zoom && <div style={{ position: 'fixed', left: 8, right: 8, bottom: 8, zIndex: 20 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'fixed', left: 6, right: 6, bottom: 6, zIndex: 20, maxHeight: '70vh', overflow: 'auto' }}>{drawerPanel}</div>}
+      {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
+      {toast}{printEl}
       {pauseEl}
     </div>
   );
@@ -373,12 +482,15 @@ export default function RegisterPractice() {
       {/* the counter */}
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '42%', background: 'linear-gradient(180deg,#f4f4f6 0%,#e9e9ec 40%,#dfdfe3 100%)', borderTop: '8px solid #fff', zIndex: 2 }} />
       <div style={{ position: 'absolute', left: 28, bottom: 34, width: 'min(430px, 34vw)', height: 'min(430px, 58vh)', zIndex: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ background: '#16171a', borderRadius: 16, padding: 8, width: '100%', height: '100%', boxSizing: 'border-box', boxShadow: '0 26px 40px -20px rgba(0,0,0,.6)' }}>{pos}</div>
+        <div style={{ background: '#16171a', borderRadius: 16, padding: 8, width: '100%', height: '100%', boxSizing: 'border-box', boxShadow: '0 26px 40px -20px rgba(0,0,0,.6)' }}>{pos || saleDone}</div>
       </div>
       <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 70px)', bottom: 40, zIndex: 3 }}>{counter}</div>
+      <div style={{ position: 'absolute', right: 400, bottom: 40, zIndex: 4 }}>{receiptPanel || <ReceiptPrinter r={null} printing={false} />}</div>
       <div style={{ position: 'absolute', right: 40, bottom: 40, zIndex: 3 }}>{clientScreen || (cur && <Reader amount={money(total)} line1="Waiting for payment" />)}</div>
       {zoom && <div style={{ position: 'absolute', left: '50%', bottom: 30, transform: 'translateX(-30%)', zIndex: 10 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 50px)', right: 390, bottom: 24, zIndex: 10, display: 'flex', justifyContent: 'center' }}>{drawerPanel}</div>}
+      {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
+      {toast}{printEl}
       {pauseEl}
     </div>
   );
@@ -388,7 +500,7 @@ export default function RegisterPractice() {
 function Shell({ children }: { children: ReactNode }) {
   return <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f6f3ef,#ece6df)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, boxSizing: 'border-box' }}><Fonts />{children}</div>;
 }
-function Fonts() { return <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'); @keyframes regBeam { from { opacity: .55 } to { opacity: 1 } }`}</style>; }
+function Fonts() { return <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'); @keyframes regBeam { from { opacity: .55 } to { opacity: 1 } } #cf-print { display: none } @media print { body * { visibility: hidden !important } #cf-print, #cf-print * { visibility: visible !important } #cf-print { display: block !important; position: fixed; left: 0; top: 0 } @page { size: 80mm auto; margin: 3mm } }`}</style>; }
 const cardS = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, padding: '22px 24px', display: 'flex', flexDirection: 'column' as const, gap: 12, width: '100%', boxShadow: '0 30px 60px -36px rgba(22,23,26,.5)' };
 
 function MenuCard({ onStart, code, onCode }: { onStart: () => void; code: $.CurrencyCode; onCode: (c: $.CurrencyCode) => void }) {

@@ -120,6 +120,50 @@ console.log('Closing the drawer');
   const s2 = R.newRegister('USD'); const wrong = { ...s2.drawer, 100: s2.drawer[100] - 1 }; const c2 = R.closeOut(s2, wrong);
   check('miscounting the drawer is caught', c2.countOff === -100 && c2.off.includes(100)); }
 
+
+console.log('Greeting people');
+{ const s = R.newRegister(); R.advance(s, 0.5); const o = R.greetOptions(s.cur!.c);
+  check('three greetings, one great', o.length === 3 && o.filter((x) => x.q === 'great').length === 1 && /Welcome back, Rosa/.test(o.find((x) => x.q === 'great')!.text));
+  const m = s.cur!.mood; R.greet(s, 'great'); check('a warm greeting lifts the mood and scores', s.cur!.mood > m && s.points === 15); }
+{ const s = R.newRegister(); R.advance(s, 0.5); R.greet(s, 'poor'); check('“Next!” to a regular is a training moment', s.mistakes.some((m) => m.minor && /Next!/.test(m.what))); }
+
+console.log('A first-time client (Ava)');
+{ const s = R.newRegister(); until(s, 'ava');
+  check('she’s new and greeted as new', s.cur!.c.kind === 'new' && /first time/.test(R.greetOptions(s.cur!.c).find((x) => x.q === 'great')!.text));
+  check('she reads out her number', /919, 555, 0142/.test(R.askDetail(s, 'phone')!));
+  R.askDetail(s, 'email'); R.saveContact(s, { phone: '(919) 555-0142', email: ' Ava.Reyes@mailbox.com ', promo: false });
+  check('details saved right = clean', !!R.pay(s)?.clean, s.mistakes); }
+{ const s = R.newRegister(); until(s, 'ava'); R.saveContact(s, { phone: '9195550124', email: 'ava.reyes@mailbox.com', promo: true }); R.pay(s);
+  check('a swapped digit: reminder goes to a stranger', s.mistakes.some((m) => /stranger/.test(m.later)));
+  check('promo texts she said no to: complaint', s.mistakes.some((m) => /promo/.test(m.what))); }
+{ const s = R.newRegister(); until(s, 'ava'); R.askDetail(s, 'phone'); const m = s.cur!.mood; R.askDetail(s, 'phone');
+  check('asking again is fine but costs a little patience', s.cur!.mood < m && /^Sure\./.test(s.cur!.said)); }
+
+console.log('A group splitting the bill');
+const scanAllUsb = (s: R.RegState) => { for (const it of s.cur!.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); };
+for (const cc of ['USD', 'CAD'] as const) { const s = R.newRegister(cc); until(s, 'party'); scanAllUsb(s);
+  check(`${cc}: three service lines`, s.cur!.lines.filter((l) => l.kind === 'service').length === 3);
+  const parts = R.setSplit(s, 'even')!; const T = $.cents(R.totalOf(s.cur!));
+  check(`${cc}: split evenly adds up exactly`, $.sum(parts.map((p) => p.amount)) === T && parts.length === 3, parts);
+  check(`${cc}: Maya pays first by card`, R.payerName(s) === 'Maya' && R.prefers(s) === 'card');
+  const r1 = R.pay(s)!; check(`${cc}: first part paid, ticket stays open`, r1.partial === true && !!s.cur && R.payerName(s) === 'Jo');
+  check(`${cc}: Jo prefers cash`, R.prefers(s) === 'cash');
+  const right = $.sum(R.handOver(s)) - R.cashDue(s) - R.keepChoice(s);
+  const r2 = R.payCash(s, $.sum(R.handOver(s)), $.makeChange(cc, right, s.drawer)!)!; check(`${cc}: Jo pays cash`, r2.ok && r2.partial === true && R.payerName(s) === 'Sam');
+  const r3 = R.pay(s)!; check(`${cc}: last part closes the ticket, clean`, r3.partial === false && (r3 as any).clean && !s.cur, s.mistakes);
+  check(`${cc}: the receipt shows three payments`, s.lastReceipt?.tenders.length === 3 && s.lastReceipt.choice === 'print'); }
+{ const s = R.newRegister(); until(s, 'party'); scanAllUsb(s); const parts = R.setSplit(s, 'own')!;
+  check('each pays their own: retail goes with Maya', parts[0].amount === $.cents(45 + 24) && parts[1].amount === 5500 && parts[2].amount === 7500, parts);
+  R.pay(s); R.pay(s); R.pay(s); check('wrong split: they had to redo it', s.mistakes.some((m) => /asked to split evenly/.test(m.what))); }
+
+console.log('Card or cash for anyone');
+{ const s = R.newRegister(); R.advance(s, 0.5); R.scan(s, code('cuticle'), 'usb');
+  check('Rosa prefers card', R.prefers(s) === 'card');
+  const right = $.sum(R.handOver(s)) - R.cashDue(s) - R.keepChoice(s);
+  const r = R.payCash(s, $.sum(R.handOver(s)), $.makeChange('USD', right, s.drawer)!)!;
+  check('but can pay cash, clean', r.ok && r.partial === false && (r as any).clean);
+  check('receipt: she didn’t want one', s.lastReceipt?.choice === 'none' && s.lastReceipt.tenders[0].method === 'cash'); }
+
 console.log('Pace and the review');
 { const s = R.newRegister(); R.advance(s, 0.5); R.advance(s, 60);
   check('the line builds while you’re slow', R.line(s).length >= 2);
@@ -127,8 +171,8 @@ console.log('Pace and the review');
 { const s = R.newRegister(); let guard = 0;
   while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } }
   const rv = R.review(s);
-  check('a whole shift runs to the end', rv.checkouts === 6, rv);
-  check('scanning straight through still trips on the shelf price and the allergy', rv.mistakes.length === 2 && rv.stars === 2, rv.mistakes.map((m) => m.what));
+  check('a whole shift runs to the end (8 checkouts, 10 people)', rv.checkouts === 8, rv);
+  check('scanning straight through trips on new-client details, the split, the shelf price and the allergy', rv.mistakes.length === 4 && rv.stars === 1, rv.mistakes.map((m) => m.what));
   check('the review names a best moment', !!rv.best); }
 
 console.log(fails ? `\n${fails} failed` : '\nAll checks passed');

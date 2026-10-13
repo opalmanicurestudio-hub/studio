@@ -466,6 +466,15 @@ export default function PracticePage() {
             <span style={{ flex: 1 }}><b style={{ display: 'block', fontSize: 14.5 }}>Behind the desk: work the register</b><span style={{ fontSize: 12.5, color: MUTED }}>Scan products (a real scanner works too), fix slips, take payment while the line grows. About 3 minutes.</span></span>
             <Pill tone="green">New</Pill>
           </a>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.08em', marginTop: 4 }}>EVERY ROLE IN THE BUSINESS</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+            {[['🧾', 'Front desk', 'The register', '/practice/register'], ['🗺', 'Floor manager', 'The salon floor', null], ['💅', 'Provider', 'Do the service', ''], ['🧽', 'Assistant', 'Turnover and cleaning', ''], ['📈', 'Owner', 'Money and the team', ''], ['🎓', 'Student', 'Academy practice', '']].map(([e, t, d, href]) => {
+              const live = href !== '';
+              const inner = <><span style={{ fontSize: 20 }}>{e}</span><span style={{ flex: 1, minWidth: 0 }}><b style={{ display: 'block', fontSize: 13 }}>{t}</b><span style={{ fontSize: 11.5, color: MUTED }}>{d}</span></span>{!live && <span style={{ fontSize: 10.5, color: MUTED, fontWeight: 600 }}>Soon</span>}</>;
+              const st = { display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${LINE}`, borderRadius: 14, padding: '9px 10px', background: live ? '#fff' : SOFT, textDecoration: 'none', color: INK, opacity: live ? 1 : 0.75 } as const;
+              return href ? <a key={t as string} href={href as string} style={st}>{inner}</a> : <div key={t as string} style={st}>{inner}</div>;
+            })}
+          </div>
           <Muted>Tap people and icons. Drag a person to a chair to seat them. Drag the floor to look around; scroll or pinch to zoom.</Muted>
           <a href="/dashboard" style={{ fontSize: 12.5, color: MUTED }}>← Back to ClarityFlow</a>
         </Card></Center>
