@@ -1,6 +1,6 @@
 // The practice client's real voice. Returns spoken audio for one short line.
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePlayer, limitPlayer, voicesConfigured, speak } from '@/lib/practice/voice-server';
+import { requirePlayer, limitPlayer, voicesConfigured, speak, explainVoiceError } from '@/lib/practice/voice-server';
 export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   const who = await requirePlayer(req); if (who instanceof NextResponse) return who;
@@ -11,6 +11,6 @@ export async function POST(req: NextRequest) {
   const voiceId = String(body?.voiceId || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 40);
   if (!text || !voiceId) return NextResponse.json({ ok: false, error: 'Nothing to say.' }, { status: 400 });
   const r = await speak(text, voiceId, String(body?.tone || 'neutral'), Number(body?.speed) || 1);
-  if (!r.ok || !r.body) return NextResponse.json({ ok: false, error: 'The voice didn’t load. Try again.' }, { status: 502 });
+  if (!r.ok || !r.body) { const d = await r.json().catch(() => ({})); const e = explainVoiceError(r.status, d, 'voices'); console.error('practice speak failed', { status: r.status, code: e.code }); return NextResponse.json({ ok: false, error: e.plain, code: e.code }, { status: 502 }); }
   return new Response(r.body, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' } });
 }
