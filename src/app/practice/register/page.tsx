@@ -8,6 +8,7 @@ import * as $ from '@/lib/practice/currency';
 import * as Room from '@/lib/practice/room';
 import * as T from '@/lib/practice/talk';
 import { Mic, BrowserEars } from '@/lib/practice/mic';
+import { LiveFace } from '@/lib/practice/face';
 import { isEcho, listenError, encodeWav } from '@/lib/practice/vad';
 import { autoPick, browserVoices, type Pick as VPick, type Preset, type VoiceOpt } from '@/lib/practice/voices';
 import { VoicePicker, VoiceCheck, type CheckRow } from './voice-panels';
@@ -335,7 +336,7 @@ export default function RegisterPractice() {
   // ── Talking out loud: your mic, the client's real voice, and a coach ──
   const [talkOn, setTalkOn] = useState(false);
   const [coachOn, setCoachOn] = useState(true);
-  const [caps, setCaps] = useState({ ai: false, voices: false, listen: false });
+  const [caps, setCaps] = useState({ ai: false, voices: false, listen: false, faces: false });
   const [signedIn, setSignedIn] = useState(false);
   /** idle = mic off · listening = open, waiting for you · hearing = you're talking · thinking = the client is working out a reply · client = the client is talking */
   const [talkState, setTalkStateRaw] = useState<'idle' | 'listening' | 'hearing' | 'thinking' | 'client'>('idle');
@@ -359,7 +360,7 @@ export default function RegisterPractice() {
   const flagRef = useRef(flag); flagRef.current = flag;
   useEffect(() => {
     try { if (localStorage.getItem(TALK_KEY) === '1') setTalkOn(true); } catch { /* private mode */ }
-    fetch('/api/practice/status').then((r) => r.json()).then((d) => setCaps({ ai: !!d.ai, voices: !!d.voices, listen: !!d.listen })).catch(() => {});
+    fetch('/api/practice/status').then((r) => r.json()).then((d) => setCaps({ ai: !!d.ai, voices: !!d.voices, listen: !!d.listen, faces: !!d.faces })).catch(() => {});
     const off = auth?.onAuthStateChanged?.((u) => setSignedIn(!!u && !u.isAnonymous)); return () => off?.();
   }, [auth]);
   const idToken = async () => { const u = auth?.currentUser; if (!u || u.isAnonymous) return null; try { return await u.getIdToken(); } catch { return null; } };
@@ -369,7 +370,7 @@ export default function RegisterPractice() {
   const [preset, setPreset] = useState<Preset>('matched'); const [phoneFx, setPhoneFx] = useState(true);
   const [panel, setPanel] = useState<null | 'voices' | 'check'>(null); const panelRef = useRef(panel); panelRef.current = panel;
   const lastSpeakErr = useRef<string | null>(null);
-  const checkLevel = useRef(0); const [seenRv, setSeenRv] = useState(0);
+  const checkLevel = useRef(0); const [faceChk, setFaceChk] = useState<{ ok: boolean; text: string } | null>(null); const [seenRv, setSeenRv] = useState(0);
   const [chk, setChk] = useState<{ mic: boolean | null; heard: string | null | false; voice: boolean | null; ai: { ok: boolean; text: string } | null; busy: string | null }>({ mic: null, heard: null, voice: null, ai: null, busy: null });
   const everyone = () => [...R.PEOPLE.map((c) => ({ id: c.id, name: c.party ? 'Maya' : c.name, voiceHint: c.voiceHint, line: c.hello, role: 'desk' as const })), ...[...R.CALLS, ...R.OVERNIGHT].map((c) => ({ id: c.id, name: c.name, voiceHint: c.voiceHint, line: c.opener, role: 'call' as const }))];
   const savePicks = (pr: Preset) => { try { localStorage.setItem('cf_practice_voice_picks', JSON.stringify({ preset: pr, picks: picks.current, phone: phoneFxRef.current })); } catch { /* private mode */ } };
@@ -409,6 +410,21 @@ export default function RegisterPractice() {
     let done = false; const finished = () => { if (done) return; done = true; stopAudio.current = null; if (micRef.current) micRef.current.clientTalking = false; if (talkStateRef.current === 'client') { setTalkState(resting()); earsRef.current && handsFreeRef.current && talkOnRef.current && earsRef.current.listen(); } };
     const begin = () => { lastVoiceOk.current = true; if (talkOnRef.current) { setTalkState('client'); if (micRef.current) micRef.current.clientTalking = true; earsRef.current?.pause(); } };
     const pick = picks.current[c.id]; const tk = caps.voices && pick?.src === 'eleven' ? await idToken() : null;
+    // Face to face: her voice goes into the live face, which speaks and moves its lips.
+    const f = face.current;
+    if (tk && pick && !phone && f && f.state === 'live' && f.who === c.id) {
+      try {
+        const r = await fetch('/api/practice/speak', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ text, voiceId: pick.id, tone, speed: pick.speed, format: 'pcm' }) });
+        if (r.ok && r.body) {
+          lastSpeakErr.current = null; const t0 = performance.now(); let timer = 0;
+          stopAudio.current = () => { window.clearTimeout(timer); f.interrupt(); finished(); };
+          begin(); const ms = await f.say(r.body);
+          if (!done) timer = window.setTimeout(finished, Math.max(300, ms - (performance.now() - t0) + 500));
+          return;
+        }
+        const d = await r.json().catch(() => ({})); lastSpeakErr.current = d.error || null;
+      } catch { /* fall back to plain voice */ }
+    }
     if (tk && pick) {
       try {
         const r = await fetch('/api/practice/speak', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ text, voiceId: pick.id, tone, speed: pick.speed }) });
@@ -447,6 +463,23 @@ export default function RegisterPractice() {
     speak(text, c.voice, c.pron, finished, pick?.src === 'browser' ? pick.id : null, sp);
   };
   const lastVoiceOk = useRef(false);
+
+  // ── Face to face: a live, photo-real face for the client at the desk ──
+  const [faceOn, setFaceOn] = useState(false); const [facePaused, setFacePaused] = useState<string | null>(null);
+  const [, faceTick] = useState(0); const face = useRef<LiveFace | null>(null);
+  if (!face.current && typeof window !== 'undefined') face.current = new LiveFace(() => faceTick((n) => n + 1));
+  useEffect(() => { try { setFaceOn(localStorage.getItem('cf_practice_face') === '1'); } catch { /* private mode */ } return () => { face.current?.stop(); }; }, []);
+  const faceToken = async (character: string) => {
+    const tk = await idToken(); if (!tk) return { ok: false, error: 'Sign in to ClarityFlow for live video.' };
+    try { const r = await fetch('/api/practice/avatar', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ character }) }); return await r.json(); }
+    catch { return { ok: false, error: 'Couldn’t reach the live video service.' }; }
+  };
+  const faceWho = faceOn && talkOn && screen === 'play' && caps.faces && caps.voices && signedIn && !twoP && cur && !s.onCall && facePaused !== cur.c.id ? cur.c.id : null;
+  useEffect(() => { const f = face.current; if (!f) return; if (faceWho) f.start(faceWho, 'cf-face', () => faceToken(faceWho)); else f.stop(); }, [faceWho]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Save minutes: a quiet face for two minutes pauses until you tap it.
+  useEffect(() => { const iv = window.setInterval(() => { const f = face.current; if (f?.state === 'live' && Date.now() - f.lastUsed > 120000 && f.who) { setFacePaused(f.who); } }, 15000); return () => window.clearInterval(iv); }, []);
+  const toggleFace = () => { primePlayer(); const n = !faceOn; setFaceOn(n); setFacePaused(null); try { localStorage.setItem('cf_practice_face', n ? '1' : '0'); } catch { /* private mode */ } };
+
   const stageNow = (p: PayStep) => !p ? 'the ticket is open and not paid yet' : p === 'split' || p === 'method' ? 'staff is about to take payment' : p === 'declined' || p === 'decline-wait' ? 'your card was just declined' : p === 'chip' ? 'the reader showed a chip error' : p === 'offline' || p === 'reconnecting' ? 'the card reader is offline' : p.startsWith('cash') ? 'paying with cash' : p === 'receipt' ? 'paid; choosing a receipt' : 'paying by card';
   /** What the client knows right now, for the conversation. */
   const contextFor = (st: R.RegState) => {
@@ -962,6 +995,7 @@ export default function RegisterPractice() {
         <span style={{ flex: 1 }} />
         <span>{caps.ai && signedIn ? 'AI client' : 'Basic mode'} · {caps.voices && signedIn ? 'real voices' : 'browser voice'} · {cloudEars ? 'clear listening' : 'browser listening'}</span>
         <button onClick={() => { primePlayer(); setPanel('voices'); }} style={{ ...mini, fontSize: 10.5 }}>Choose voices</button>
+        {caps.faces && <button onClick={toggleFace} style={{ ...mini, fontSize: 10.5, background: faceOn ? INK : '#fff', color: faceOn ? '#fff' : INK }}>{faceOn ? 'Face to face: on' : 'Face to face'}</button>}
         <button onClick={() => setPanel('check')} style={{ ...mini, fontSize: 10.5 }}>Voice check</button>
         <button onClick={() => setCoachOn((v) => !v)} style={{ ...mini, fontSize: 10.5 }}>{coachOn ? 'Hide coach' : 'Show coach'}</button>
       </div>
@@ -978,7 +1012,17 @@ export default function RegisterPractice() {
     <div style={{ display: 'flex', alignItems: narrow ? 'center' : 'flex-end', gap: narrow ? 10 : 18 }}>
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-end' }}>
         {shownC.party ? shownC.party.members.map((m, i) => { const now = cur?.parts ? R.payerName(s) === m.name : i === 0; return <div key={m.name} style={{ marginLeft: i ? (narrow ? -34 : -90) : 0, opacity: cur?.parts && !now ? 0.75 : 1, transform: now ? 'translateY(-6px)' : undefined, transition: 'all .3s', zIndex: now ? 2 : 1 }}><Person look={m.look} size={narrow ? 84 : 220} mood={cur?.mood ?? 0.9} /></div>; })
-          : <Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} />}
+          : face.current && face.current.state !== 'off' && face.current.who === shownC.id ? (
+            <div style={{ position: 'relative', width: narrow ? 150 : 300, height: narrow ? 200 : 400, borderRadius: 22, overflow: 'hidden', background: '#1b1a20', boxShadow: '0 30px 50px -24px rgba(0,0,0,.55)' }}>
+              <video id="cf-face" autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              {face.current.state === 'live' && <span style={{ position: 'absolute', left: 10, top: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 9px', borderRadius: 999, background: 'rgba(220,38,38,.9)', color: '#fff', fontSize: 10.5, fontWeight: 800 }}><span style={{ width: 7, height: 7, borderRadius: 4, background: '#fff' }} />LIVE</span>}
+              {face.current.state === 'connecting' && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12.5, fontWeight: 600, background: 'rgba(0,0,0,.35)' }}>Connecting live video…</div>}
+              {face.current.state === 'error' && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, textAlign: 'center', color: '#fff', fontSize: 12, background: 'rgba(0,0,0,.6)' }}>{face.current.error}</div>}
+              {face.current.state === 'live' && !face.current.videoStarted && <button onClick={() => { (document.getElementById('cf-face') as HTMLVideoElement | null)?.play().catch(() => {}); }} style={{ position: 'absolute', left: '50%', bottom: 12, transform: 'translateX(-50%)', ...mini }}>Tap to start video</button>}
+            </div>
+          ) : facePaused === shownC.id && faceOn ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} /><button onClick={() => setFacePaused(null)} style={{ ...mini, fontSize: 11 }}>Paused to save minutes · resume live video</button></div>
+          ) : <Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} />}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: narrow ? 0 : 90 }}>
         <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : talkOn && talkState === 'thinking' && !s.onCall ? '…' : cur?.said}</Say>
@@ -1039,12 +1083,14 @@ export default function RegisterPractice() {
     } catch { setChk((c) => ({ ...c, busy: null, ai: { ok: false, text: 'Couldn’t reach the server.' } })); }
   };
   const micLive = !!micRef.current?.open || earsOn.current;
+  const runFace = async () => { setChk((c) => ({ ...c, busy: 'face' })); const t = await faceToken(cur?.c.id || 'test'); setFaceChk(t.ok ? { ok: true, text: 'A live video session can start. Turn on Face to face in the talk panel.' } : { ok: false, text: t.error || 'The live video didn’t start.' }); setChk((c) => ({ ...c, busy: null })); };
   const checkRows: CheckRow[] = [
     { label: 'Signed in', ok: signedIn ? true : caps.ai || caps.voices ? false : null, detail: signedIn ? 'You’re signed in, so clear listening, real voices and the AI client can be used.' : 'Sign in to ClarityFlow (not as a guest). Without it you get browser listening, device voices and simple replies.' },
     { label: 'Voices on', ok: voice, detail: voice ? 'Clients will answer out loud.' : 'Voices are off in the top bar, so clients only answer in text.', action: voice ? undefined : { label: 'Turn on', run: toggleVoice } },
     { label: 'Microphone', ok: chk.mic === true ? true : talkErr && !micLive ? false : micLive ? null : null, detail: !micLive ? (talkErr || 'Open the mic, then say something: the bar should move.') : chk.mic ? 'Hearing sound.' : oneMicOnly() && !cloudEars ? 'On (this browser can’t show the level while it listens).' : 'Open. Say something: the bar should move.', action: micLive ? undefined : { label: 'Open mic', run: () => { openMic(); } } },
     { label: 'Listening', ok: chk.heard ? true : chk.heard === false ? false : null, detail: (cloudEars ? 'Clear listening (your voice account). ' : `Browser listening${caps.listen && !signedIn ? ' (sign in for clear listening)' : !caps.listen ? ' (clear listening isn’t connected on the server)' : ''}. `) + (chk.busy === 'hear' ? 'Say: “Hi, welcome to Opal.”' : chk.heard ? `Heard: “${chk.heard}”` : chk.heard === false ? (talkErr || 'Nothing came through. Check the mic choice and try again, or use Chrome.') : 'Press Test, then say a sentence.'), action: { label: chk.busy === 'hear' ? 'Listening…' : 'Test', run: runHear, busy: chk.busy === 'hear' } },
     { label: 'Client voice', ok: chk.voice, detail: (caps.voices && signedIn ? 'Real voices. ' : `Device voices${!caps.voices ? ' (real voices aren’t connected on the server)' : ' (sign in for real voices)'}. `) + (chk.voice === false ? (lastSpeakErr.current || 'No sound played. Check the volume, then tap Play again.') : chk.voice ? 'Played.' : 'Press Play: you should hear a client.'), action: { label: 'Play', run: runVoice, busy: chk.busy === 'voice' } },
+    { label: 'Live video (face to face)', ok: faceChk ? faceChk.ok : null, detail: faceChk ? faceChk.text : caps.faces ? 'Optional. Press Test to check a live video session can start.' : 'Optional, not connected: add ANAM_API_KEY and ANAM_AVATAR_ID in Vercel.', action: caps.faces ? { label: 'Test', run: runFace, busy: chk.busy === 'face' } : undefined },
     { label: 'AI client', ok: chk.ai ? chk.ai.ok : null, detail: chk.ai ? chk.ai.text : caps.ai ? 'Press Test to send one line.' : 'Not connected on the server: clients use simple keyword replies (still playable).', action: { label: 'Test', run: runAi, busy: chk.busy === 'ai' } },
   ];
   const checkPanel = panel === 'check' && <VoiceCheck narrow={narrow} rows={checkRows} level={checkLevel.current} onClose={() => setPanel(null)} />;

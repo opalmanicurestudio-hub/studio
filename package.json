@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anam-ai/js-sdk": "4.27.1",
     "@genkit-ai/google-genai": "^1.20.0",
     "@hookform/resolvers": "^4.1.3",
     "@pdf-lib/fontkit": "^1.1.1",

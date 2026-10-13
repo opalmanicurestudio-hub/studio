@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   const text = String(body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 320);
   const voiceId = String(body?.voiceId || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 40);
   if (!text || !voiceId) return NextResponse.json({ ok: false, error: 'Nothing to say.' }, { status: 400 });
-  const r = await speak(text, voiceId, String(body?.tone || 'neutral'), Number(body?.speed) || 1);
+  const pcm = body?.format === 'pcm'; const r = await speak(text, voiceId, String(body?.tone || 'neutral'), Number(body?.speed) || 1, pcm ? 'pcm' : 'mp3');
   if (!r.ok || !r.body) { const d = await r.json().catch(() => ({})); const e = explainVoiceError(r.status, d, 'voices'); console.error('practice speak failed', { status: r.status, code: e.code }); return NextResponse.json({ ok: false, error: e.plain, code: e.code }, { status: 502 }); }
-  return new Response(r.body, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' } });
+  return new Response(r.body, { headers: { 'content-type': pcm ? 'audio/pcm' : 'audio/mpeg', 'cache-control': 'no-store' } });
 }
