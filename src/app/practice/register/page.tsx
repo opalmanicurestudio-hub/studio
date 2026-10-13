@@ -124,11 +124,12 @@ export default function RegisterPractice() {
     const id = window.setInterval(() => {
       if (paused) return;
       const st = sRef.current; const had = st.cur?.c.id;
-      R.advance(st, 0.25 * speed.current);
+      const talkingNow = ['thinking', 'client', 'hearing'].includes(talkStateRef.current) || face.current?.state === 'connecting';
+      if (!(st.pace === 'relaxed' && talkingNow)) R.advance(st, 0.25 * speed.current);
       if (st.cur && st.cur.c.id !== had) { setSel(null); setMsg(null); setFlag(null); setNote(null); setVoidFor(null); setMode('scan'); setDetails({ phone: '', email: '', promo: false }); }
       if (st.ringing && (st.t - st.ringing.since) % 3 < 0.25 * speed.current && !muted()) SFX.ring();
       drainSfx();
-      if (R.finished(st) && !pay) { R.phoneWrapUp(st); window.setTimeout(() => setScreen('closeout'), 500); }
+      if (R.finished(st) && !pay) { R.phoneWrapUp(st); window.setTimeout(() => setScreen(st.mode === 'drill' ? 'review' : 'closeout'), 500); }
       rerender();
     }, 250);
     return () => window.clearInterval(id);
@@ -165,8 +166,8 @@ export default function RegisterPractice() {
     if (!sRef.current.cur) return; const sku = R.skuByCode(code);
     afterScan(R.scan(sRef.current, sku ? sku.code : code, 'camera'), 'camera');
   }, [afterScan]);
-  const [shift, setShift] = useState<R.PhoneMode>('full');
-  const start = () => { sRef.current = R.newRegister(code, shift); setSeenRv(0); setScreen('play'); setSel(null); setMsg(null); setPay(null); setFlag(null); setPaused(false); setHand([]); setTendered(null); setCounts({}); rerender(); };
+  const [shift, setShift] = useState<R.PhoneMode>('full'); const [pace, setPace] = useState<R.Pace>('relaxed'); const [callsOpt, setCallsOpt] = useState<'off' | 'few' | 'busy'>('few'); const [drillWho, setDrillWho] = useState('rosa');
+  const start = () => { sRef.current = R.newRegister(code, shift, { pace, calls: shift === 'phones' ? 'busy' : callsOpt, client: drillWho }); setSeenRv(0); setScreen('play'); setSel(null); setMsg(null); setPay(null); setFlag(null); setPaused(false); setHand([]); setTendered(null); setCounts({}); rerender(); };
   const pickCurrency = (c: $.CurrencyCode) => { setCode(c); try { localStorage.setItem(CUR_KEY, c); } catch { /* private mode */ } };
   const cur = s.cur;
   const sku = sel ? R.skuBy(sel) : null;
@@ -477,7 +478,7 @@ export default function RegisterPractice() {
   const faceWho = faceOn && talkOn && screen === 'play' && caps.faces && caps.voices && signedIn && !twoP && cur && !s.onCall && facePaused !== cur.c.id ? cur.c.id : null;
   useEffect(() => { const f = face.current; if (!f) return; if (faceWho) f.start(faceWho, 'cf-face', () => faceToken(faceWho)); else f.stop(); }, [faceWho]); // eslint-disable-line react-hooks/exhaustive-deps
   // Save minutes: a quiet face for two minutes pauses until you tap it.
-  useEffect(() => { const iv = window.setInterval(() => { const f = face.current; if (f?.state === 'live' && Date.now() - f.lastUsed > 120000 && f.who) { setFacePaused(f.who); } }, 15000); return () => window.clearInterval(iv); }, []);
+  useEffect(() => { const iv = window.setInterval(() => { const f = face.current; if (f?.state === 'live' && Date.now() - f.lastUsed > 60000 && f.who) { setFacePaused(f.who); } }, 15000); return () => window.clearInterval(iv); }, []);
   const toggleFace = () => { primePlayer(); const n = !faceOn; setFaceOn(n); setFacePaused(null); try { localStorage.setItem('cf_practice_face', n ? '1' : '0'); } catch { /* private mode */ } };
 
   const stageNow = (p: PayStep) => !p ? 'the ticket is open and not paid yet' : p === 'split' || p === 'method' ? 'staff is about to take payment' : p === 'declined' || p === 'decline-wait' ? 'your card was just declined' : p === 'chip' ? 'the reader showed a chip error' : p === 'offline' || p === 'reconnecting' ? 'the card reader is offline' : p.startsWith('cash') ? 'paying with cash' : p === 'receipt' ? 'paid; choosing a receipt' : 'paying by card';
@@ -678,7 +679,7 @@ export default function RegisterPractice() {
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Screens ──
-  if (screen === 'menu') return <Shell><MenuCard onStart={start} code={code} onCode={pickCurrency} mode={shift} onMode={setShift} /></Shell>;
+  if (screen === 'menu') return <Shell><MenuCard onStart={start} code={code} onCode={pickCurrency} mode={shift} onMode={setShift} pace={pace} onPace={setPace} calls={callsOpt} onCalls={setCallsOpt} drillWho={drillWho} onDrill={setDrillWho} /></Shell>;
   if (screen === 'review') return <Shell><ReviewCard s={s} onAgain={start} /></Shell>;
   if (screen === 'closeout') return <Shell><CloseOutCard s={s} narrow={narrow} counts={counts} setCounts={setCounts} onDone={() => setScreen('review')} rerender={rerender} /></Shell>;
 
@@ -996,6 +997,7 @@ export default function RegisterPractice() {
         <span>{caps.ai && signedIn ? 'AI client' : 'Basic mode'} · {caps.voices && signedIn ? 'real voices' : 'browser voice'} · {cloudEars ? 'clear listening' : 'browser listening'}</span>
         <button onClick={() => { primePlayer(); setPanel('voices'); }} style={{ ...mini, fontSize: 10.5 }}>Choose voices</button>
         {caps.faces && <button onClick={toggleFace} style={{ ...mini, fontSize: 10.5, background: faceOn ? INK : '#fff', color: faceOn ? '#fff' : INK }}>{faceOn ? 'Face to face: on' : 'Face to face'}</button>}
+        {caps.faces && faceOn && <span style={{ fontSize: 10.5, color: MUTED }}>Live video today {(() => { const ms = face.current?.usedNow() || 0; return `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`; })()}</span>}
         <button onClick={() => setPanel('check')} style={{ ...mini, fontSize: 10.5 }}>Voice check</button>
         <button onClick={() => setCoachOn((v) => !v)} style={{ ...mini, fontSize: 10.5 }}>{coachOn ? 'Hide coach' : 'Show coach'}</button>
       </div>
@@ -1020,6 +1022,8 @@ export default function RegisterPractice() {
               {face.current.state === 'error' && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, textAlign: 'center', color: '#fff', fontSize: 12, background: 'rgba(0,0,0,.6)' }}>{face.current.error}</div>}
               {face.current.state === 'live' && !face.current.videoStarted && <button onClick={() => { (document.getElementById('cf-face') as HTMLVideoElement | null)?.play().catch(() => {}); }} style={{ position: 'absolute', left: '50%', bottom: 12, transform: 'translateX(-50%)', ...mini }}>Tap to start video</button>}
             </div>
+          ) : faceOn && caps.faces && s.onCall && cur?.c.id === shownC.id ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} /><span style={{ fontSize: 11, color: MUTED, fontWeight: 600 }}>Live video paused while you’re on the phone</span></div>
           ) : facePaused === shownC.id && faceOn ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} /><button onClick={() => setFacePaused(null)} style={{ ...mini, fontSize: 11 }}>Paused to save minutes · resume live video</button></div>
           ) : <Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} />}
@@ -1157,7 +1161,11 @@ function Shell({ children }: { children: ReactNode }) {
 function Fonts() { return <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'); @keyframes regBeam { from { opacity: .55 } to { opacity: 1 } } #cf-print { display: none } @media print { body * { visibility: hidden !important } #cf-print, #cf-print * { visibility: visible !important } #cf-print { display: block !important; position: fixed; left: 0; top: 0 } @page { size: 80mm auto; margin: 3mm } }`}</style>; }
 const cardS = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, padding: '22px 24px', display: 'flex', flexDirection: 'column' as const, gap: 12, width: '100%', boxShadow: '0 30px 60px -36px rgba(22,23,26,.5)' };
 
-function MenuCard({ onStart, code, onCode, mode, onMode }: { onStart: () => void; code: $.CurrencyCode; onCode: (c: $.CurrencyCode) => void; mode: R.PhoneMode; onMode: (m: R.PhoneMode) => void }) {
+function Seg<T extends string>({ value, onChange, items }: { value: T; onChange: (v: T) => void; items: readonly (readonly [T, string, string])[] }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${items.length}, 1fr)`, gap: 6 }}>{items.map(([k, t, d]) => { const on = value === k;
+    return <button key={k} onClick={() => onChange(k)} style={{ border: `1.5px solid ${on ? INK : LINE}`, background: on ? INK : '#fff', color: on ? '#fff' : INK, borderRadius: 12, padding: '8px 10px', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}><b style={{ fontSize: 13 }}>{t}</b><div style={{ fontSize: 11, opacity: 0.8, marginTop: 2, lineHeight: 1.35 }}>{d}</div></button>; })}</div>;
+}
+function MenuCard({ onStart, code, onCode, mode, onMode, pace, onPace, calls, onCalls, drillWho, onDrill }: { onStart: () => void; code: $.CurrencyCode; onCode: (c: $.CurrencyCode) => void; mode: R.PhoneMode; onMode: (m: R.PhoneMode) => void; pace: R.Pace; onPace: (p: R.Pace) => void; calls: 'off' | 'few' | 'busy'; onCalls: (c: 'off' | 'few' | 'busy') => void; drillWho: string; onDrill: (id: string) => void }) {
   return (
     <div style={{ ...cardS, maxWidth: 580 }}>
       <div style={{ fontSize: 12, letterSpacing: '.1em', color: MUTED }}>PRACTICE A SHIFT · BEHIND THE DESK</div>
@@ -1169,10 +1177,23 @@ function MenuCard({ onStart, code, onCode, mode, onMode }: { onStart: () => void
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>SHIFT</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
-          {([['full', 'Full shift', 'The counter, check-ins and five phone calls, plus a voicemail to return.'], ['phones', 'Phone practice', 'Ten callers on two lines: bookings, prices, gift cards, an upset client, a wrong number, a sales call. Two voicemails waiting.']] as const).map(([k, t, d]) => { const on = mode === k;
+          {([['full', 'Full shift', 'The counter, check-ins and phone calls.'], ['drill', 'One conversation', 'One client, no phone, no clock. Best for talking and face to face.'], ['phones', 'Phone practice', 'Ten callers on two lines, two voicemails waiting.']] as const).map(([k, t, d]) => { const on = mode === k;
             return <button key={k} onClick={() => onMode(k)} style={{ border: `1.5px solid ${on ? INK : LINE}`, background: on ? INK : '#fff', color: on ? '#fff' : INK, borderRadius: 14, padding: '10px 12px', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}><b style={{ fontSize: 14 }}>{t}</b><div style={{ fontSize: 12, opacity: 0.8, marginTop: 3, lineHeight: 1.4 }}>{d}</div></button>; })}
         </div>
       </div>
+      {mode === 'drill' && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>WHO</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 6 }}>{R.DRILLS.map((d) => { const on = drillWho === d.id;
+          return <button key={d.id} onClick={() => onDrill(d.id)} style={{ border: `1.5px solid ${on ? INK : LINE}`, background: on ? INK : '#fff', color: on ? '#fff' : INK, borderRadius: 12, padding: '8px 10px', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}><b style={{ fontSize: 13 }}>{d.title}</b><div style={{ fontSize: 11, opacity: 0.8, marginTop: 2, lineHeight: 1.35 }}>{d.sub}</div></button>; })}</div>
+      </div>}
+      {mode !== 'drill' && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>PACE</div>
+        <Seg value={pace} onChange={onPace} items={[['relaxed', 'Relaxed', 'Waits for you. Best for talking.'], ['normal', 'Normal', 'A steady Saturday.'], ['rush', 'Rush', 'Lines and ringing phones.']] as const} />
+      </div>}
+      {mode === 'full' && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>PHONE CALLS</div>
+        <Seg value={calls} onChange={onCalls} items={[['off', 'Off', 'Just the counter.'], ['few', 'A few', 'Two calls.'], ['busy', 'Busy', 'Five calls and a voicemail.']] as const} />
+      </div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>CURRENCY</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8 }}>

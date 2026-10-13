@@ -4,7 +4,7 @@
 // (a manager approves a discount instead), voids need a reason, and every
 // slip is allowed to go through, then shows up later in the shift review.
 
-import { advancePhone, phoneBusy, CALLS, OVERNIGHT, CALL_SETS, MANAGER, type Call, type CallState, type Voicemail, type CallReview, type PhoneMode } from './phone';
+import { advancePhone, phoneBusy, CALLS, OVERNIGHT, CALL_SETS, MANAGER, type Call, type CallState, type Voicemail, type CallReview, type PhoneMode, type Pace } from './phone';
 import * as $ from './currency';
 import type { CurrencyCode } from './currency';
 
@@ -119,6 +119,7 @@ export type RegState = {
   calls: Call[]; ringing: null | { call: Call; since: number }; onCall: null | CallState;
   /** The phone: callers on hold (two lines), voicemails to return, and a review of every call. */
   held: CallState[]; voicemails: Voicemail[]; reviews: CallReview[]; wrapped?: boolean; mode: PhoneMode;
+  pace: Pace; midCallUsed?: boolean;
   talk: { who: string; you: string; reply: string; scores: { awareness: number; confidence: number; warmth: number; retention: number }; tip: string; fillers: number; wpm: number | null }[];   // busy: finishing up (receipt), the next client waits
   nextLine: number; done: Checkout[]; mistakes: Mistake[]; streak: number; bestStreak: number; points: number; log: string[]; coach: number; sfx: string[];
 };
@@ -163,12 +164,23 @@ export const their = (c: Customer) => (c.pron === 'she' ? 'her' : c.pron === 'he
 /** Phone practice: calls close together, so line 2 rings while you're on line 1. */
 const PHONE_TIMES: Record<string, number> = { 'call-ben': 12, 'call-dana': 40, 'call-aisha': 52, 'call-wrong': 95, 'call-tasha': 108, 'call-carmen': 125, 'call-kim': 150, 'call-casey': 162, 'call-nina': 185, 'call-sofia': 196 };
 /** mode: 'full' = the counter plus a few calls; 'phones' = phone practice (two guests at the desk, every kind of call, voicemails). */
-export function newRegister(currency: CurrencyCode = 'USD', mode: PhoneMode = 'full'): RegState {
-  const set = CALL_SETS[mode];
-  const queue = PEOPLE.filter((p) => mode === 'full' || ['rosa', 'ava'].includes(p.id)).map((p) => ({ ...p, items: p.items.map((i) => ({ ...i })), slips: [...p.slips], party: p.party ? { ...p.party, members: p.party.members.map((m) => ({ ...m })) } : undefined }));
+export type ShiftOptions = { pace?: Pace; calls?: 'off' | 'few' | 'busy'; client?: string };
+/** Conversation drills: one client, no phone, all the time you need. */
+export const DRILLS: { id: string; title: string; sub: string }[] = [
+  { id: 'rosa', title: 'Rosa', sub: 'A regular: greet her, rebook her, offer the Nail Club' },
+  { id: 'ava', title: 'Ava', sub: 'First visit: take her details, make her feel welcome' },
+  { id: 'grace', title: 'Grace', sub: 'Her card declines: keep it kind and private' },
+  { id: 'lena', title: 'Lena', sub: 'The shelf price doesn’t match' },
+  { id: 'priya', title: 'Priya', sub: 'An allergy and a smudged label' },
+  { id: 'olivia', title: 'Olivia', sub: 'Checking in 15 minutes late' },
+];
+export function newRegister(currency: CurrencyCode = 'USD', mode: PhoneMode = 'full', opts: ShiftOptions = {}): RegState {
+  const set = CALL_SETS[mode]; const drill = mode === 'drill' ? opts.client || 'rosa' : null;
+  const callIds = opts.calls === 'off' ? [] : opts.calls === 'few' ? set.calls.slice(0, 2) : set.calls;
+  const queue = PEOPLE.filter((p) => (drill ? p.id === drill : mode === 'full' || ['rosa', 'ava'].includes(p.id))).map((p) => (drill ? { ...p, arrive: 0 } : p)).map((p) => ({ ...p, items: p.items.map((i) => ({ ...i })), slips: [...p.slips], party: p.party ? { ...p.party, members: p.party.members.map((m) => ({ ...m })) } : undefined }));
   const drawer = { ...$.CURRENCIES[currency].float };
-  return { t: 0, end: 240, queue, waiting: {}, currency, drawer, float: $.drawerTotal(drawer), cashSales: 0, tipJar: 0, close: null, lastReceipt: null, receiptNo: 1041, busy: false, sales: { rebooks: 0, rebookChances: 0, members: 0, packages: 0 }, bookings: BOOKINGS.map((b) => ({ ...b })), calls: CALLS.filter((c) => set.calls.includes(c.id)).map((c) => ({ ...c, at: mode === 'phones' ? PHONE_TIMES[c.id] ?? c.at : c.at })).sort((a, b) => a.at - b.at), ringing: null, onCall: null, held: [], reviews: [], mode,
-    voicemails: OVERNIGHT.filter((c) => set.overnight.includes(c.id)).map((c) => ({ id: c.id, call: { ...c }, at: 0, listened: false, returned: false, overnight: true })), talk: [], cur: null, nextLine: 1, done: [], mistakes: [], streak: 0, bestStreak: 0, points: 0, log: [], coach: 0, sfx: [] };
+  return { t: 0, end: 240, queue, waiting: {}, currency, drawer, float: $.drawerTotal(drawer), cashSales: 0, tipJar: 0, close: null, lastReceipt: null, receiptNo: 1041, busy: false, sales: { rebooks: 0, rebookChances: 0, members: 0, packages: 0 }, bookings: BOOKINGS.map((b) => ({ ...b })), calls: CALLS.filter((c) => callIds.includes(c.id)).map((c) => ({ ...c, at: mode === 'phones' ? PHONE_TIMES[c.id] ?? c.at : c.at })).sort((a, b) => a.at - b.at), ringing: null, onCall: null, held: [], reviews: [], mode, pace: drill ? 'relaxed' : opts.pace || 'normal',
+    voicemails: OVERNIGHT.filter((c) => opts.calls !== 'off' && set.overnight.includes(c.id)).map((c) => ({ id: c.id, call: { ...c }, at: 0, listened: false, returned: false, overnight: true })), talk: [], cur: null, nextLine: 1, done: [], mistakes: [], streak: 0, bestStreak: 0, points: 0, log: [], coach: 0, sfx: [] };
 }
 
 // ── Time and the line ───────────────────────────────────────────────────
@@ -176,8 +188,12 @@ export function newRegister(currency: CurrencyCode = 'USD', mode: PhoneMode = 'f
 export const line = (s: RegState) => s.queue.filter((c) => c.arrive <= s.t);
 export function advance(s: RegState, dt: number) {
   s.t += dt;
-  for (const c of line(s)) s.waiting[c.id] = Math.max(0, (s.waiting[c.id] ?? 1) - dt * 0.006);
-  if (s.cur) s.cur.mood = Math.max(0, s.cur.mood - dt * (s.onCall ? 0.005 : 0.002)); // a guest at the desk waits harder while you're on the phone
+  const relaxed = s.pace === 'relaxed', rush = s.pace === 'rush';
+  // Relaxed: while you're with someone (or on the phone), nobody new walks in, and people wait more patiently.
+  if (relaxed && (s.cur || s.busy || s.onCall)) for (const c of s.queue) if (c.arrive > s.t - dt) c.arrive += dt;
+  const calm = relaxed ? 0.35 : rush ? 1.4 : 1;
+  for (const c of line(s)) s.waiting[c.id] = Math.max(0, (s.waiting[c.id] ?? 1) - dt * 0.006 * calm);
+  if (s.cur) s.cur.mood = Math.max(0, s.cur.mood - dt * (s.onCall ? 0.005 : 0.002) * calm); // a guest at the desk waits harder while you're on the phone
   if (!s.cur && !s.busy && line(s).length) callNext(s);
   advancePhone(s);
 }

@@ -87,11 +87,18 @@ export const OVERNIGHT: Call[] = [
   { id: 'vm-joy', at: 0, name: 'Joy Park', phone: '9195550129', known: false, kind: 'price', goal: 'You left a voicemail asking the price of a silk press. If they offer to book, say yes to Sat 10:00 AM.', persona: 'Busy mom in her 30s who left a voicemail asking about silk press prices.', voiceHint: { gender: 'female', age: 'middle_aged' }, voice: CV(1.05, 1.1), opener: 'Hi! Yes, thanks for calling back. How much is a silk press?', voicemail: 'Hi, it’s Joy Park, just wondering how much a silk press is. 919-555-0129. Thanks!',
     facts: { name: 'Joy Park', phone: '9195550129', email: 'joy.park@mailbox.com', service: 'silk', slot: 'Sat 10:00 AM' }, say: { name: 'Joy Park. J-O-Y.', phone: `${sayPhone('9195550129')}.`, email: `${sayEmail('joy.park@mailbox.com')}.`, when: 'Saturday morning works.', service: 'A silk press.' }, outbound: true },
 ];
-export type PhoneMode = 'full' | 'phones';
+export type PhoneMode = 'full' | 'phones' | 'drill';
+/** relaxed: nobody walks in and the phone waits while you're with someone (best for talking); normal; rush: a busy Saturday. */
+export type Pace = 'relaxed' | 'normal' | 'rush';
 export const CALL_SETS: Record<PhoneMode, { calls: string[]; overnight: string[] }> = {
   full: { calls: ['call-dana', 'call-aisha', 'call-tasha', 'call-kim', 'call-sofia'], overnight: ['vm-leo'] },
   phones: { calls: CALLS.map((c) => c.id), overnight: OVERNIGHT.map((c) => c.id) },
+  drill: { calls: [], overnight: [] },
 };
+/** How long a phone rings before voicemail, and how patient callers on hold are, at each pace. */
+export const ringLimit = (s: RegState) => (s.pace === 'relaxed' ? 60 : s.pace === 'rush' ? 16 : RING_LIMIT);
+export const holdWarn = (s: RegState) => (s.pace === 'relaxed' ? 75 : s.pace === 'rush' ? 30 : HOLD_WARN);
+export const holdLimit = (s: RegState) => (s.pace === 'relaxed' ? 180 : s.pace === 'rush' ? 70 : HOLD_LIMIT);
 /** The caller-ID directory: existing clients the desk would see by name. */
 export const clientByPhone = (s: RegState, phone: string) => {
   const b = s.bookings.find((x) => x.phone === phone); const c = [...CALLS, ...OVERNIGHT].find((x) => x.phone === phone && x.known);
@@ -109,14 +116,19 @@ const oops = (s: RegState, who: string, what: string, later: string, right: stri
 export function advancePhone(s: RegState) {
   for (const h of [...s.held]) {
     const held = s.t - h.hold!.since;
-    if (held > HOLD_WARN && !h.hold!.warned) { h.hold!.warned = true; h.longHoldMissed = true; s.sfx.push('ring'); s.log.push(`${h.call.name} has been on hold a while.`); }
-    if (held > HOLD_LIMIT) {
+    if (held > holdWarn(s) && !h.hold!.warned) { h.hold!.warned = true; h.longHoldMissed = true; s.sfx.push('ring'); s.log.push(`${h.call.name} has been on hold a while.`); }
+    if (held > holdLimit(s)) {
       const c = h.call; oops(s, c.name, `Left ${c.name} on hold until they hung up`, `${c.name} took their business elsewhere.`, 'Check back about every 30 to 45 seconds: “Thanks for holding, I’m still working on it,” or offer to call them right back.');
       s.held = s.held.filter((x) => x !== h); s.reviews.push(reviewOf(s, h, 'Hung up on hold')); s.done.push({ who: `📞 ${c.name}`, seconds: Math.round(s.t - h.started), clean: false, total: 0, points: 0 }); s.streak = 0;
     }
   }
-  if (!s.ringing && linesUsed(s) < 2) { const next = s.calls.find((c) => c.at <= s.t); if (next) { s.calls = s.calls.filter((c) => c !== next); s.ringing = { call: next, since: s.t }; s.sfx.push('ring'); } }
-  if (s.ringing && s.t - s.ringing.since > RING_LIMIT) {
+  // Relaxed: the phone doesn't ring while you're with a client (except once, to practice hold), or while you're on a call.
+  if (s.pace === 'relaxed') {
+    const busy = linesUsed(s) > 0 || s.ringing; const withGuest = !!(s.cur || s.busy);
+    for (const c of s.calls) if (c.at <= s.t && (busy || (withGuest && s.midCallUsed))) c.at = s.t + 0.01;
+  }
+  if (!s.ringing && linesUsed(s) < (s.pace === 'relaxed' ? 1 : 2)) { const next = s.calls.find((c) => c.at <= s.t); if (next && s.pace === 'relaxed' && (s.cur || s.busy)) s.midCallUsed = true; if (next) { s.calls = s.calls.filter((c) => c !== next); s.ringing = { call: next, since: s.t }; s.sfx.push('ring'); } }
+  if (s.ringing && s.t - s.ringing.since > ringLimit(s)) {
     const c = s.ringing.call; s.ringing = null;
     s.voicemails.push({ id: `vm-${c.id}`, call: { ...c, outbound: true, opener: `Oh, hi! Thanks for calling me back.` }, at: s.t, listened: false, returned: false, overnight: false });
     oops(s, c.name, `Let ${c.name}’s call go to voicemail`, 'They waited for a call back instead of getting help right away.', 'Answer within three rings, even mid-checkout: “Excuse me one moment,” then pick up. If both lines are busy, call back as soon as you can.', true);
@@ -155,7 +167,7 @@ export function checkBack(s: RegState, id: string) {
 export function resumeCall(s: RegState, id?: string) {
   if (s.onCall) return false; const h = id ? s.held.find((x) => x.call.id === id) : s.held[0]; if (!h?.hold) return false;
   const held = s.t - h.hold.since; h.holdTotal += held; h.hold = null; s.held = s.held.filter((x) => x !== h); s.onCall = h;
-  h.said = held > HOLD_WARN ? 'Yes, I’m still here.' : 'Hi, yes, I’m here.'; return true;
+  h.said = held > holdWarn(s) ? 'Yes, I’m still here.' : 'Hi, yes, I’m here.'; return true;
 }
 
 // ── What you can do on a call ───────────────────────────────────────────

@@ -328,5 +328,20 @@ for (const id of ['call-ben', 'call-aisha', 'call-carmen', 'call-tasha', 'call-s
   const t2 = R.talkCall(s, 'A gel manicure is $45. Would you like me to book that for you?'); check('talking: saying the price and offering to book both count', s.onCall!.did.quoted === 'gel' && !!s.onCall!.did.offeredBook, t2); }
 { const s = R.newRegister('USD', 'phones'); R.phoneWrapUp(s); check('voicemails nobody returned are caught at the end of the shift', s.mistakes.filter((m) => /call .* back/.test(m.what)).length === 2); }
 
+console.log('Pacing');
+{ const s = R.newRegister('USD', 'full', { pace: 'relaxed' }); R.advance(s, 0.5); const first = s.cur!.c.id;
+  for (let i = 0; i < 2 * 200; i++) R.advance(s, 0.5);   // stand at the desk with the first client for 200 seconds
+  check('relaxed: nobody new walks in while you’re with a client', R.line(s).length === 0 && s.cur?.c.id === first, R.line(s).map((c) => c.id));
+  const rang = s.reviews.length + (s.ringing ? 1 : 0) + s.voicemails.filter((v) => !v.overnight).length;
+  check('relaxed: the phone rings at most once during a checkout (the hold lesson)', rang <= 1, rang);
+  check('relaxed: a ringing phone waits a full minute before voicemail', R.ringLimit(s) === 60 && R.holdLimit(s) === 180); }
+{ const s = R.newRegister('USD', 'full', { pace: 'normal' }); R.advance(s, 0.5); for (let i = 0; i < 2 * 120; i++) R.advance(s, 0.5);
+  check('normal: the line still builds when you’re slow', R.line(s).length >= 3); }
+{ const s = R.newRegister('USD', 'full', { pace: 'relaxed', calls: 'off' }); check('calls off: no calls, no voicemails', s.calls.length === 0 && s.voicemails.length === 0); }
+{ const s = R.newRegister('USD', 'full', { calls: 'few' }); check('a few calls: two', s.calls.length === 2); }
+{ const s = R.newRegister('USD', 'drill', { client: 'grace' }); R.advance(s, 0.5);
+  check('drill: one client, no phone, relaxed', s.cur?.c.id === 'grace' && s.queue.length === 0 && s.calls.length === 0 && s.voicemails.length === 0 && s.pace === 'relaxed');
+  for (let i = 0; i < 2 * 600; i++) R.advance(s, 0.5); check('drill: she waits as long as you need', s.cur!.mood > 0.2, s.cur!.mood); }
+
 console.log(fails ? `\n${fails} failed` : '\nAll checks passed');
 process.exit(fails ? 1 : 0);

@@ -33,11 +33,11 @@ export function PhoneDock({ s, narrow, excused, done, onExcuse, onAnswer, onList
         {cur && excused && !oc && <Chip tone="green">{cur.c.name} knows ✓</Chip>}
         {oc ? <Btn small onClick={() => { R.holdCall(s, true); done(); onAnswer(); }}>Ask {first(oc.call.name)} to hold, answer</Btn> : <Btn small onClick={onAnswer}>Answer</Btn>}
       </div>}
-      {s.held.map((h) => { const t = s.t - h.hold!.since; const warn = t > R.HOLD_WARN;
+      {s.held.map((h) => { const t = s.t - h.hold!.since; const warn = t > R.holdWarn(s);
         return <div key={h.call.id} style={{ ...box, padding: '8px 8px 8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', boxShadow: warn ? '0 0 0 6px #fdecec, 0 12px 26px -14px rgba(0,0,0,.45)' : box.boxShadow }}>
           <span style={{ fontSize: 16 }}>⏸</span>
           <div style={{ flex: 1, minWidth: 140 }}><div style={{ fontSize: 13 }}><b>Line {h.line}</b> · {h.call.name} on hold · {mmss(t)}</div>
-            <div style={{ height: 4, background: SOFT, borderRadius: 2, marginTop: 4, overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, (t / R.HOLD_LIMIT) * 100)}%`, background: warn ? RED : AMBER }} /></div>
+            <div style={{ height: 4, background: SOFT, borderRadius: 2, marginTop: 4, overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, (t / R.holdLimit(s)) * 100)}%`, background: warn ? RED : AMBER }} /></div>
             {warn && <div style={{ fontSize: 11.5, color: RED, fontWeight: 600, marginTop: 3 }}>Check back now, or they’ll hang up.</div>}</div>
           <button style={mini} onClick={() => { R.checkBack(s, h.call.id); done(); }}>“Thanks for holding”</button>
           <Btn small onClick={() => { if (s.onCall) R.holdCall(s, true); R.resumeCall(s, h.call.id); done(); }}>{s.onCall ? `Switch to ${first(h.call.name)}` : `Back to ${first(h.call.name)}`}</Btn>

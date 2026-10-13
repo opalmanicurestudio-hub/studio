@@ -16,7 +16,19 @@ export class LiveFace {
   state: FaceState = 'off'; who: string | null = null; error: string | null = null; lastUsed = 0; videoStarted = false;
   private client: Client | null = null; private input: ReturnType<Client['createAgentAudioInputStream']> | null = null; private reader: ReadableStreamDefaultReader<Uint8Array> | null = null; private gen = 0;
   constructor(private onChange: () => void) {}
-  private set(s: FaceState, err: string | null = null) { this.state = s; this.error = err; this.onChange(); }
+  private liveSince = 0;
+  private set(s: FaceState, err: string | null = null) {
+    if (s === 'live' && this.state !== 'live') this.liveSince = Date.now();
+    if (s !== 'live' && this.state === 'live' && this.liveSince) { LiveFace.addUsed(Date.now() - this.liveSince); this.liveSince = 0; }
+    this.state = s; this.error = err; this.onChange();
+  }
+  /** Live-video time used today on this device (connected time is what the face service bills). */
+  static usedToday(): number {
+    try { const d = JSON.parse(localStorage.getItem('cf_practice_face_used') || '{}'); return d.day === new Date().toDateString() ? Number(d.ms) || 0 : 0; } catch { return 0; }
+  }
+  private static addUsed(ms: number) { try { localStorage.setItem('cf_practice_face_used', JSON.stringify({ day: new Date().toDateString(), ms: LiveFace.usedToday() + ms })); } catch { /* private mode */ } }
+  /** Including the session that's open right now. */
+  usedNow() { return LiveFace.usedToday() + (this.state === 'live' && this.liveSince ? Date.now() - this.liveSince : 0); }
 
   /** Connect a face for this client. `token` comes from our server, so the face account's key never reaches the browser. */
   async start(who: string, videoId: string, getToken: () => Promise<{ ok: boolean; sessionToken?: string; error?: string }>) {
