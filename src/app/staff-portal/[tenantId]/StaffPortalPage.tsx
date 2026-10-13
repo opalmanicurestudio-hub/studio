@@ -75,7 +75,7 @@ async function compressEvidencePhoto(file: File): Promise<Blob> {
   return blob || file;
 }
 import { registerPushForStaff } from '@/lib/push-notifications';
-import { YourTasks } from '@/components/staff-portal/YourTasks';
+import { TodoList } from '@/components/staff-portal/TodoList';
 import { TidyPanel } from '@/components/tidy/TidyPanel';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
@@ -4858,12 +4858,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   mine={allMyApts || []} rentInvoice={isRenter || isHybrid ? myOpenInvoice : null} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
   onCases={() => { setActiveTab('me' as any); setViewingCases(true); }} onRent={() => setActiveTab('rent')} />}
 {!isRenter && <ForgotClockOut firestore={firestore} tenantId={tenantId} staffId={staffMember.id} tenant={portalTenant} shifts={allShiftsRaw || []} accent={accentColor} />}
-<PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} accent={accentColor} />
+{isRenter ? <PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} accent={accentColor} />
+  : <TodoList tenantId={tenantId} staffMember={staffMember} calls={myCalls || []} isManager={isMgr} accent={accentColor} teamTasks={<TasksForYou tenantId={tenantId} staffMember={staffMember} />} />}
 {todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} tenant={portalTenant} accent={accentColor} onOpenDoc={isRenter ? undefined : (id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={(id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} />
 {!isRenter && <TidyPanel tenantId={tenantId} compact />}
-{!isRenter && <YourTasks tenantId={tenantId} accent={accentColor} />}
-<TasksForYou tenantId={tenantId} staffMember={staffMember} />
+{isRenter && <TasksForYou tenantId={tenantId} staffMember={staffMember} />}
 <PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />
 {stuckApts.length > 0 && (
                   <div className="rounded-[2rem] border-2 border-amber-300 bg-amber-50 overflow-hidden">
