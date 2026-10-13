@@ -3,6 +3,7 @@ import { BuildingRules } from '@/components/rent/BuildingRules';
 import { MyDocuments } from '@/components/rent/MyDocuments';
 import { RenterPrep } from '@/components/rent/RenterPrep';
 import { RenterFollowUps } from '@/components/rent/RenterFollowUps';
+import { RenterMessages } from '@/components/rent/RenterMessages';
 import { MyGiftCards } from '@/components/rent/MyGiftCards';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
@@ -250,6 +251,7 @@ export default function RenterPortalPage() {
           <div className="space-y-8 pb-24">
             {session?.token && <TodayQuick data={data} booksHere={booksHere} onGo={setTab} tenantId={tenantId} token={session.token} onBadges={setBadges} visible={tab === 'today'} />}
             <div className={tab === 'today' ? 'space-y-8' : 'hidden'}>
+            {session?.token && data?.renter?.id && <RenterMessages tenantId={tenantId} token={session.token} always={booksHere} />}
             {todays.length > 0 && (
               <section className="space-y-3">
                 <SectionTitle icon={Clock}>Today</SectionTitle>

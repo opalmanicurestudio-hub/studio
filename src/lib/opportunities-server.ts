@@ -601,7 +601,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
     const chk = await textCheck(db, t, tenant, o, client, now); if (!chk.ok) return chk;
     const body = str(o.message, 600); if (!body) return { ok: false, error: 'There is no message for this task.' };
     const { sendTenantSms } = await import('@/lib/sms');
-    const r = await sendTenantSms(db, t, chk.phone, body, client?.email ? { email: client.email, subject: o.renterId ? String(o.facts?.business || businessName(tenant)) : businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: o.clientId || undefined, recipientName: o.clientName || undefined } as any);
+    const r = await sendTenantSms(db, t, chk.phone, body, client?.email ? { email: client.email, subject: o.renterId ? String(o.facts?.business || businessName(tenant)) : businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: o.clientId || undefined, recipientName: o.clientName || undefined, renterId: o.renterId ? (staff.find((x: any) => x.id === o.renterId)?.renterId || null) : null } as any);
     if (!r.ok) return { ok: false, error: 'The text could not be sent. Please try again, or call instead.' };
     { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
     const pb = PLAYBOOKS[o.kind as OppKind];

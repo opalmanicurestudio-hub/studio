@@ -3236,9 +3236,10 @@ export async function POST(req: NextRequest) {
       const mine = new Set(cSnap.docs.map((d) => d.id));
       let log: any[] = [];
       try {
-        const lSnap = await db.collection(`tenants/${tenantId}/messageLog`).where('kind', 'in', ['renter_client_reminder', 'renter_client_thanks', 'renter_client_cancelled']).orderBy('createdAt', 'desc').limit(80).get();
-        log = lSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((m) => m.recipientId && mine.has(String(m.recipientId)))
-          .slice(0, 30).map((m) => ({ id: m.id, kind: m.kind, channel: m.channel, status: m.status, to: m.recipientName || m.to || '', at: m.createdAt }));
+        const lSnap = await db.collection(`tenants/${tenantId}/messageLog`).where('sentAt', '>=', new Date(Date.now() - 30 * 864e5).toISOString()).get();
+        // The log has sentAt, not createdAt (ordering by createdAt always came back empty); sorted here, no extra index.
+        log = lSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((m) => ['renter_client_reminder', 'renter_client_thanks', 'renter_client_cancelled', 'renter_message'].includes(m.kind) && m.recipientId && mine.has(String(m.recipientId)))
+          .sort((x, y) => String(y.sentAt || '').localeCompare(String(x.sentAt || ''))).slice(0, 30).map((m) => ({ id: m.id, kind: m.kind, channel: m.channel, status: m.status, to: m.recipientName || m.to || '', at: m.sentAt }));
       } catch { /* index may be pending; the switches still work */ }
       // Defaults ON — a renter's clients get the same reminders and thank-yous
       // the studio's clients do, in the renter's name, unless the renter

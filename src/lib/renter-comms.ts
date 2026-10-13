@@ -48,7 +48,7 @@ export async function tellClient(db: any, v: RenterVoice, to: { email?: string |
         kind, recipientType: 'client', recipientId: to.clientId || null, recipientName: to.name || null } as any);
     }
     if (phone) {
-      await sendNotification(db, { tenantId: v.tenantId, channel: 'sms', to: phone, text: `${v.renterName}: ${lines[0]}`, kind, recipientType: 'client', recipientId: to.clientId || null, recipientName: to.name || null } as any);
+      await sendNotification(db, { tenantId: v.tenantId, channel: 'sms', to: phone, text: `${v.renterName}: ${lines[0]}`, kind, recipientType: 'client', recipientId: to.clientId || null, recipientName: to.name || null, renterId: v.renterId } as any);
     }
   } catch { /* best-effort; the event itself already stands */ }
 }
@@ -82,13 +82,14 @@ export function membershipWelcomeLines(v: RenterVoice, m: { name: string; includ
 // messages → "Tell me when…". Defaults: requests and cancellations by text
 // and email (they need action or change the day), everything else inbox-only.
 
-export type RenterNotifyKind = 'new_booking' | 'request' | 'cancelled' | 'rescheduled' | 'running_late' | 'arrived' | 'money' | 'offers' | 'desk_messages';
+export type RenterNotifyKind = 'new_booking' | 'request' | 'cancelled' | 'rescheduled' | 'running_late' | 'arrived' | 'money' | 'offers' | 'desk_messages' | 'client_replies';
 export type RenterChannel = 'off' | 'inbox' | 'sms' | 'email' | 'both';
 
 export const RENTER_NOTIFY_DEFAULTS: Record<RenterNotifyKind, RenterChannel> = {
   new_booking: 'sms', request: 'both', cancelled: 'both', rescheduled: 'sms', running_late: 'sms', arrived: 'inbox', money: 'inbox',
   offers: 'off',   // OPT-IN: renters receive front-desk client offers only once they switch this on
   desk_messages: 'sms',
+  client_replies: 'sms',   // a client texted back: it's in their portal's Messages
 };
 export const RENTER_NOTIFY_LABELS: Record<RenterNotifyKind, string> = {
   new_booking: 'Someone books with me',
@@ -100,6 +101,7 @@ export const RENTER_NOTIFY_LABELS: Record<RenterNotifyKind, string> = {
   money: 'Packages, memberships and payments',
   offers: 'The front desk offers me a client (I can accept or decline)',
   desk_messages: 'The front desk passes on a message or call for me',
+  client_replies: 'A client replies to one of my texts',
 };
 
 export function channelFor(prefs: any, kind: RenterNotifyKind): RenterChannel {

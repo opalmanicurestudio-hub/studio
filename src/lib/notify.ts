@@ -295,6 +295,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
           recipientId: input.recipientId || input.clientId || null,
           recipientName: input.recipientName || input.clientName || null,
           sentBy: (input as any).sentBy || null,
+          renterId: (input as any).renterId || null,   // sent on a renter's behalf: replies go back to them (lib/renter-inbox)
         } as any);
         result = r.ok
           ? { ok: true, status: 'sent', providerId: r.sid || null }

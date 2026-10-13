@@ -97,6 +97,13 @@ export async function POST(req: NextRequest) {
         if (c) { senderName = c.name || senderName; senderType = 'client'; clientId = c.id; } } catch { /* stays unknown */ }
     }
 
+    // A reply to a renter's text goes to that renter, privately (lib/renter-inbox): by who texted last, then whose
+    // client it is. STOP, HELP and the like always stay with the studio, which owns the number.
+    if ((senderType === 'client' || senderType === 'unknown') && !/^\s*(stop|stopall|unsubscribe|cancel|end|quit|help|info|start|unstop)\s*$/i.test(body)) {
+      try { const RI = await import('@/lib/renter-inbox'); const o = await RI.replyOwner(db, tenantId, from);
+        if (o.owner === 'renter') { await RI.routeToRenter(db, tenantId, o, from, body, mediaCount); return twimlOk(); } } catch (e) { console.error('[sms/inbound] renter routing', e); }
+    }
+
     const nowIso = new Date().toISOString();
     const noteBody = `${body}${mediaCount > 0 ? `${body ? ' ' : ''}(${mediaCount} photo${mediaCount === 1 ? '' : 's'} sent by MMS — view in Twilio console until media forwarding is set up)` : ''}`;
 

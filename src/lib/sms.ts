@@ -234,6 +234,7 @@ export async function sendTenantSms(
         preview: body.slice(0, 140),
         body: body.slice(0, 1600),   // the whole text, for the conversation record
         sentBy: (meta as any)?.sentBy || null,
+        renterId: (meta as any)?.renterId || null,
         status: result.ok ? 'sent' : 'failed',
         error: result.ok ? null : (result.error || null),
         providerId: result.sid || null,
@@ -256,6 +257,10 @@ export async function sendTenantSms(
         } catch { /* tracking is best-effort */ }
       }
     } catch { /* the log never blocks the message */ }
+  // Sent on a renter's behalf: the renter's conversation keeps it too, so a reply reads in context (lib/renter-inbox).
+  if ((meta as any)?.renterId && result.ok && result.via !== 'email') {
+    try { const { recordRenterSent } = await import('@/lib/renter-inbox'); await recordRenterSent(db, tenantId, String((meta as any).renterId), to, body, { clientId: meta?.recipientType === 'client' ? meta?.recipientId || null : null, clientName: meta?.recipientName || null, kind: meta?.kind || null }); } catch { /* best-effort */ }
+  }
   }
   return result;
 }

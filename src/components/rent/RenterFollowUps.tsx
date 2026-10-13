@@ -31,6 +31,6 @@ export function RenterFollowUps({ tenantId, token }: { tenantId: string; token: 
         {err && <p className="text-[13px] font-semibold" style={{ color: RED }}>{err}</p>}
       </div>
       {S.on && <FiveMinuteList tenantId={tenantId} items={d.items || []} hour={S.hour} reload={() => { void load(); }}
-        post={(body) => call({ tenantId, token, ...body })} note="Texts go from the studio’s number, signed with your name and business name. Replies arrive in the studio’s messages, so for a back-and-forth, Call instead or text from your own phone." />}
+        post={(body) => call({ tenantId, token, ...body })} note="Texts go from the studio’s number, signed with your name and business name. Replies come to your Messages, and you get an alert." />}
     </section>);
 }
