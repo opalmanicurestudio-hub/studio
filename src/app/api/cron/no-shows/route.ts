@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
     try { const { waitlistSweep } = await import('@/lib/waitlist-server'); await waitlistSweep(db, t.id, tenant, now); } catch { /* next run */ }
     // Opportunities: once a day after 9 am local — find, hand out, expire, check who came back (lib/opportunities-server).
     try { const { opportunitySweep } = await import('@/lib/opportunities-server'); await opportunitySweep(db, t.id, tenant, now); } catch { /* next run */ }
+    try { const { renterOpportunitySweep } = await import('@/lib/opportunities-server'); await renterOpportunitySweep(db, t.id, tenant, now); } catch { /* next run */ }   // renters' own, when the business allows it
     // …and the moment something happens (a cancellation, a confirmed no-show, a checkout with nothing booked next): a task for
     // that client now, sent at its time — then anything scheduled whose time has come.
     try { const { opportunityEvents } = await import('@/lib/opportunities-server'); await opportunityEvents(db, t.id, tenant, now, justCancelled); } catch { /* next run */ }

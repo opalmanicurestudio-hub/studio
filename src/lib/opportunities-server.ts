@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, isSolo, soloAdjust, toolOn, bizCandidates, BIZ_KINDS, type Purchase, type Biz, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, isSolo, soloAdjust, renterOppOf, renterSettings, RENTER_KINDS, toolOn, bizCandidates, BIZ_KINDS, type Purchase, type Biz, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -369,6 +369,44 @@ const gapWhen = (t: number, now: number, zone: string) => {
   const time = new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone }).replace(':00', '');
   return `${day === today ? 'today' : day === tmrw ? 'tomorrow' : day} at ${time}`;
 };
+// ── Renters' own follow-ups (when the business allows it) ─────────────────────────────────────────
+/** Once a day after 9 AM: for each renter who switched it on, their own clients (ownerRenterId) and their own visits,
+ * found by the same rules, as a short list of drafts from them under their business name — at their hour, at most
+ * their limit. Kept apart: renterId on every task; the studio's lists and Results never include them. */
+export async function renterOpportunitySweep(db: any, t: string, tenant: any, now = Date.now(), o: { force?: boolean } = {}) {
+  const S = oppSettingsOf(tenant); if (!S.renters) return { ok: true, skipped: 'off' };
+  const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const today = dayKey(new Date(now), zone);
+  const mark = db.doc(`${T(t)}/private/opportunities`);
+  if (!o.force) { if (((await mark.get()).data() || {}).renterDay === today) return { ok: true, skipped: 'done today' };
+    const { localHour } = await import('@/lib/campaigns'); if (localHour(zone, new Date(now)) < 9) return { ok: true, skipped: 'too early' }; }
+  await mark.set({ renterDay: today }, { merge: true });
+  const renters = rows(await db.collection(`${T(t)}/staff`).get()).filter((m: any) => (m.role === 'renter' || m.isRenter) && !m.archived && m.renterId);
+  const { renterBrand } = await import('@/lib/renter-aftercare'); let created = 0;
+  for (const st of renters) {
+    const r = renterOppOf(((await db.doc(`${T(t)}/renterSettings/${st.id}`).get()).data() || {}).opportunities); if (!r.on) continue;
+    const RS = renterSettings(S, r); const safe = (p: Promise<any>) => p.then(rows).catch(() => [] as any[]);
+    const [clients, ap, existing, nudges] = await Promise.all([safe(db.collection(`${T(t)}/clients`).where('ownerRenterId', '==', st.renterId).get()), safe(db.collection(`${T(t)}/appointments`).where('staffId', '==', st.id).get()),
+      safe(db.collection(`${T(t)}/opportunities`).where('renterId', '==', st.id).get()), safe(db.collection(`${T(t)}/reconnectNudges`).where('sentAt', '>=', nowIso(now - 14 * DAY)).get())]);
+    const appts = ap.map((a: any) => ({ ...a, price: Number(a.renterServicePrice ?? a.price) || 0, serviceName: a.renterServiceName || a.serviceName }));
+    const cmap = new Map<string, any>(clients.map((c: any) => [String(c.id), c]));
+    const room = r.max - existing.filter((e: any) => e.status === 'open').length; if (room <= 0) continue;
+    const cand = filterCandidates(findCandidates({ clients, appointments: appts, quotes: [], giftCards: [], settings: RS, now, tz: zone, renterOnly: st.id }).filter((c) => RENTER_KINDS.includes(c.kind) && cmap.has(String(c.clientId))), {
+      existing, clients: cmap, now, openCaseClients: new Set(), recentAutoNudge: new Set(nudges.map((n: any) => String(n.clientId || ''))) }).slice(0, room);
+    if (!cand.length) continue;
+    const brand = await renterBrand(db, t, st); const at = await listAt(now, zone, r.hour);
+    for (const c of cand) {
+      const ref = db.collection(`${T(t)}/opportunities`).doc(); const used = existing.filter((e: any) => e.clientId === c.clientId && e.kind === c.kind && Number.isInteger(e.version)).map((e: any) => e.version);
+      const version = pickVersion(c.kind, used); const facts = { ...c.facts, business: brand.name }; const cl = cmap.get(String(c.clientId));
+      await ref.set({ id: ref.id, kind: c.kind, tool: 'appointments', subject: c.subject, key: `renter:${st.id}:${c.key}`, renterId: st.id, clientId: c.clientId, clientName: c.clientName, phone: cl?.phone || c.facts.phone || null,
+        why: c.why, valueCents: c.valueCents, priority: PLAYBOOKS[c.kind].priority, dueAt: at, expiresAt: c.expiresAt, refs: c.refs, facts, providerId: st.id, providerName: st.name || null, mode: 'person', tries: 0, attempts: [],
+        createdAt: nowIso(now), createdBy: 'rules', result: { status: 'none' }, status: 'open', assigneeId: st.id, assigneeName: st.name || null, version,
+        message: fill(PLAYBOOKS[c.kind].versions[version] || '', { ...facts, me: first(st.name) || brand.name }) });
+      created++;
+    }
+  }
+  return { ok: true, created };
+}
+
 /** Solo: one bell when the list is ready ("Your 5-minute list: 3 messages"), at their hour, once a day. */
 export async function opportunitySoloList(db: any, t: string, tenant: any, now = Date.now()) {
   const S = oppSettingsOf(tenant); if (!S.on) return { ok: true, skipped: 'off' };
@@ -480,7 +518,7 @@ async function answerAskFirst(db: any, t: string, tenant: any, S: OppSettings, e
 export async function listOpportunities(db: any, t: string, actor: RequestActor, now = Date.now()) {
   const manager = actor.isManager || actor.isOwner;
   const col = db.collection(`${T(t)}/opportunities`);
-  const items = manager ? rows(await col.where('createdAt', '>=', nowIso(now - 60 * DAY)).get()) : rows(await col.where('assigneeId', '==', actor.staffId).get());
+  const items = (manager ? rows(await col.where('createdAt', '>=', nowIso(now - 60 * DAY)).get()) : rows(await col.where('assigneeId', '==', actor.staffId).get())).filter((o: any) => !o.renterId);   // renters' own stay theirs
   const shown = items.filter((o: any) => manager ? o.status !== 'holdout' : (o.status === 'open' || (o.closedAt && now - ms(o.closedAt) < 7 * DAY)))
     .sort((a: any, b: any) => (a.status === 'open' ? 0 : 1) - (b.status === 'open' ? 0 : 1) || rank(a) - rank(b) || ms(a.dueAt) - ms(b.dueAt));
   const tenant = (await db.doc(T(t)).get()).data() || {};
@@ -557,13 +595,13 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
     await ref.update({ skips: n, dueAt: await listAt(now + DAY, zone, S.solo.hour), attempts: [...(o.attempts || []), { ...by, channel: 'note', note: 'Skipped for today' }].slice(-20) }); return { ok: true }; }
   if (action === 'reword') { const pb = PLAYBOOKS[o.kind as OppKind]; if (!pb || pb.versions.length < 2) return { ok: false, error: 'There is only one wording available for this message.' };
     const v = ((Number(o.version) || 0) + 1) % pb.versions.length; const m = staff.find((x: any) => x.id === o.assigneeId);
-    const message = fill(pb.versions[v], { ...(o.facts || {}), business: businessName(tenant), me: first(m?.name || actor.name) }); await ref.update({ version: v, message }); return { ok: true, message, version: v }; }
+    const message = fill(pb.versions[v], { ...(o.facts || {}), business: o.renterId ? (o.facts?.business || businessName(tenant)) : businessName(tenant), me: first(m?.name || actor.name) }); await ref.update({ version: v, message }); return { ok: true, message, version: v }; }
   if (action === 'text') {
     const client = o.clientId ? ((await db.doc(`${T(t)}/clients/${o.clientId}`).get()).data() || {}) : {};
     const chk = await textCheck(db, t, tenant, o, client, now); if (!chk.ok) return chk;
     const body = str(o.message, 600); if (!body) return { ok: false, error: 'There is no message for this task.' };
     const { sendTenantSms } = await import('@/lib/sms');
-    const r = await sendTenantSms(db, t, chk.phone, body, client?.email ? { email: client.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: o.clientId || undefined, recipientName: o.clientName || undefined } as any);
+    const r = await sendTenantSms(db, t, chk.phone, body, client?.email ? { email: client.email, subject: o.renterId ? String(o.facts?.business || businessName(tenant)) : businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: o.clientId || undefined, recipientName: o.clientName || undefined } as any);
     if (!r.ok) return { ok: false, error: 'The text could not be sent. Please try again, or call instead.' };
     { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
     const pb = PLAYBOOKS[o.kind as OppKind];
@@ -628,7 +666,7 @@ async function createManual(db: any, t: string, tenant: any, actor: RequestActor
 export async function resultsPass(db: any, t: string, tenant: any, now = Date.now()) {
   const S = oppSettingsOf(tenant); const since = nowIso(now - 120 * DAY);
   const opps = rows(await db.collection(`${T(t)}/opportunities`).where('createdAt', '>=', since).get());
-  const byClient = new Map<string, any[]>(); for (const o of opps) if (o.clientId && (o.firstContactAt || o.status === 'done')) (byClient.get(String(o.clientId)) || byClient.set(String(o.clientId), []).get(String(o.clientId))!).push(o);
+  const byClient = new Map<string, any[]>(); for (const o of opps) if (o.clientId && !o.renterId && (o.firstContactAt || o.status === 'done')) (byClient.get(String(o.clientId)) || byClient.set(String(o.clientId), []).get(String(o.clientId))!).push(o);
   const safe = (p: Promise<any>) => p.catch(() => ({ docs: [] }));
   const out: Array<{ a: any; c: any }> = [];
   for (const [cid, list] of byClient) {
@@ -722,7 +760,7 @@ export async function opportunityResults(db: any, t: string, now = Date.now(), t
   const sum = (l: any[], f = 'paidCents') => l.reduce((s: number, r: any) => s + (Number(r[f]) || 0), 0);
   const byType = { generated: sum(paid.filter((r: any) => r.type === 'generated')), recovered: sum(paid.filter((r: any) => r.type === 'recovered')), influenced: sum(paid.filter((r: any) => r.type === 'influenced')) };
   const booked = ledger.filter((r: any) => r.state === 'booked');
-  const list = rows(await db.collection(`${T(t)}/opportunities`).where('createdAt', '>=', nowIso(now - 30 * DAY)).get());
+  const list = rows(await db.collection(`${T(t)}/opportunities`).where('createdAt', '>=', nowIso(now - 30 * DAY)).get()).filter((o: any) => !o.renterId);
   const real = list.filter((o: any) => !['holdout', 'not_sent'].includes(o.status)); const openL = real.filter((o: any) => o.status === 'open');
   const tools = [...new Set([...paid.map((r: any) => r.tool), ...openL.map((o: any) => o.tool || TOOL_OF[o.kind as OppKind])])].filter(Boolean);
   const byTool = tools.map((tool: string) => { const p = paid.filter((r: any) => r.tool === tool);

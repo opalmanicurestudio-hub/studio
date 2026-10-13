@@ -10,7 +10,7 @@ import { PLAYBOOKS, type OppKind } from '@/lib/opportunities';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
 
-export function FiveMinuteList({ tenantId, items, hour, reload, accent = INK }: { tenantId: string; items: any[]; hour: number; reload: () => void; accent?: string }) {
+export function FiveMinuteList({ tenantId, items, hour, reload, accent = INK, post, note }: { tenantId: string; items: any[]; hour: number; reload: () => void; accent?: string; post?: (body: any) => Promise<any>; note?: string }) {
   const ready = React.useMemo(() => items.filter((o) => o.status === 'open' && o.message && (Date.parse(o.dueAt || '') || 0) <= Date.now()), [items]);
   const later = items.filter((o) => o.status === 'open' && o.message && (Date.parse(o.dueAt || '') || 0) > Date.now()).length;
   const [list, setList] = React.useState<any[] | null>(null); const [i, setI] = React.useState(0);
@@ -21,7 +21,7 @@ export function FiveMinuteList({ tenantId, items, hour, reload, accent = INK }: 
   const next = () => { if (!list) return; if (i + 1 >= list.length) { setList(null); setI(0); reload(); } else setI(i + 1); };
   const act = async (action: string) => {
     if (!cur) return; setBusy(action); setMsg(null);
-    const r = await payPost('/api/opportunities', { tenantId, action, id: cur.id });
+    const r = await (post ? post({ action, id: cur.id }) : payPost('/api/opportunities', { tenantId, action, id: cur.id }));
     setBusy('');
     if (action === 'reword') { if (r?.ok) setText(r.message || text); else setMsg({ ok: false, t: r?.error || 'That didn’t work.' }); return; }
     if (!r?.ok) { setMsg({ ok: false, t: r?.error || 'That didn’t send.' }); return; }
@@ -54,6 +54,6 @@ export function FiveMinuteList({ tenantId, items, hour, reload, accent = INK }: 
         <button type="button" disabled={!!busy} onClick={() => act('skip')} className="h-10 rounded-full border px-4 text-[13.5px]" style={{ borderColor: LINE }}>Skip</button>
         {tel && <a href={`tel:${tel}`} className="inline-flex h-10 items-center rounded-full border px-4 text-[13.5px]" style={{ borderColor: LINE }}>Call instead</a>}</div>
       {msg && <p className="text-[13px] font-semibold" style={{ color: msg.ok ? GREEN : RED }}>{msg.t}{!msg.ok && <button type="button" onClick={next} className="ml-2 underline">Next</button>}</p>}
-      <p className="text-[12px] leading-snug" style={{ color: MUTED }}>Texts go from your business number, written from you. A reply comes back to your To do list.</p>
+      <p className="text-[12px] leading-snug" style={{ color: MUTED }}>{note || 'Texts go from your business number, written from you. A reply comes back to your To do list.'}</p>
     </section>);
 }

@@ -263,7 +263,7 @@ export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it aut
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
 export const DEFAULT_MODES: Record<string, Mode> = { shop_reorder: 'auto', fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
 export const modesFor = (k: OppKind): Mode[] => (k === 'fill_gap' ? ['off', 'auto'] : PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
-export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number>; solo: { mode: 'auto' | 'on' | 'off'; hour: number; max: number } }
+export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number>; solo: { mode: 'auto' | 'on' | 'off'; hour: number; max: number }; renters: boolean }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
@@ -303,7 +303,8 @@ export function oppSettingsOf(tenant: any): OppSettings {
   const bonus = { on: bo.on === true, cents: n(bo.cents, 0, 10000, 500), capCents: n(bo.capCents, 0, 500000, 0) };   // off by default; cap 0 = no cap
   return { bonus, linkFirst, on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
     windows: Object.fromEntries((Object.keys(WINDOW_DAYS) as Tool[]).map((k) => [k, n(o.windows?.[k], 7, 30, WINDOW_DAYS[k])])) as Record<Tool, number>,
-    solo: { mode: ['on', 'off'].includes(o.solo?.mode) ? o.solo.mode : 'auto', hour: n(o.solo?.hour, 7, 21, 18), max: n(o.solo?.max, 1, 10, 3) } };
+    solo: { mode: ['on', 'off'].includes(o.solo?.mode) ? o.solo.mode : 'auto', hour: n(o.solo?.hour, 7, 21, 18), max: n(o.solo?.max, 1, 10, 3) },
+    renters: o.renters === true && toolOn(tenant, 'booths') };   // renters' own follow-ups: the business chooses (off unless switched on)
 }
 
 // ── Solo (decided Oct 13; design canvas OE4) ───────────────────────────────────────────────────
@@ -316,6 +317,18 @@ export function isSolo(staff: any[], S: OppSettings): boolean {
   return staff.filter((m: any) => !m.archived && m.isActive !== false && m.role !== 'renter' && !m.isRenter && m.appAccess !== 'off').length <= 1;
 }
 /** The settings as they apply today: solo caps the day and skips the left-alone group while numbers are small. */
+// Renters' own (decided Oct 13): when the business allows it, a renter can switch on follow-ups for their own clients —
+// always the solo way (a short list of drafts, from them, under their business name). Their win-back texts stay in their
+// own Reconnect settings; this is the person side. The studio never sees these tasks.
+export const RENTER_KINDS: OppKind[] = ['first_visit', 'no_rebook', 'cancelled', 'no_show', 'due', 'long_gone'];
+export interface RenterOpp { on: boolean; hour: number; max: number }
+export function renterOppOf(raw: any): RenterOpp { const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
+  return { on: raw?.on === true, hour: n(raw?.hour, 7, 21, 18), max: n(raw?.max, 1, 10, 3) }; }
+/** The renter's own settings as the engine uses them: their kinds only, each with a person (them), nobody held back. */
+export function renterSettings(S: OppSettings, r: RenterOpp): OppSettings {
+  const modes = Object.fromEntries(FINDER_KINDS.map((k) => [k, RENTER_KINDS.includes(k) ? 'person' : 'off'])) as Record<string, Mode>;
+  return { ...S, on: r.on, modes, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), perPersonPerDay: r.max, holdoutPct: 0, solo: { mode: 'on', hour: r.hour, max: r.max } };
+}
 export function soloAdjust(S: OppSettings, solo: boolean, contacted: number): OppSettings {
   if (!solo) return S;
   return { ...S, perPersonPerDay: Math.min(S.perPersonPerDay, S.solo.max), holdoutPct: contacted < SOLO_COMPARE_AFTER ? 0 : S.holdoutPct };
@@ -360,10 +373,10 @@ const whenWord = (t: number, now: number, tz?: string) => { const d = Math.round
 /** The rules. Returns everything that qualifies today; the server drops what's already open, cooling down or opted out.
  * `fresh`: called the moment something happened (a cancellation, a no-show, a checkout), so those kinds qualify the
  * same day; the server decides when the client actually hears from us. */
-export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; purchases?: Purchase[]; biz?: Biz; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean }): Candidate[] {
+export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; purchases?: Purchase[]; biz?: Biz; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean; renterOnly?: string }): Candidate[] {
   const { now, settings: S } = x; const minAge = x.fresh ? 0 : 1; const iso = (t: number) => new Date(t).toISOString();
   const renter = x.renterStaffIds || new Set<string>();
-  const appts = x.appointments.filter((a) => !a.isRenterBooking && !renter.has(String(a.staffId || '')) && !a.isWalkIn);
+  const appts = x.renterOnly ? x.appointments.filter((a) => String(a.staffId || '') === x.renterOnly && !a.isWalkIn) : x.appointments.filter((a) => !a.isRenterBooking && !renter.has(String(a.staffId || '')) && !a.isWalkIn);
   const H = historyOf(appts, now); const clients = new Map(x.clients.map((c) => [String(c.id), c]));
   const out: Candidate[] = [];
   const add = (kind: OppKind, c: any, h: History | null, why: string, valueCents: number, extra: Partial<Candidate> = {}) => {

@@ -531,5 +531,27 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
   const li: any = await Srv.listOpportunities(dbO, 't1', owner, morning);
   check('the app knows it’s solo (the 5-minute list shows)', li.solo?.on === true && li.solo?.hour === 18);
 
+
+  console.log('Opportunities — step 7: renters’ own follow-ups');
+  check('renters’ own follow-ups are off unless the business switches them on, and only with Booth rental on', O.oppSettingsOf({}).renters === false && O.oppSettingsOf({ opportunities: { renters: true } }).renters === true && O.oppSettingsOf({ opportunities: { renters: true }, modules: { booth_rental: false } }).renters === false);
+  const dbR = makeDb(); await dbR.doc(T).set({ name: 'Opal', timezone: 'America/New_York', opportunities: { renters: true } });
+  await dbR.doc(`${T}/staff/jess`).set({ id: 'jess', name: 'Jessica', role: 'owner', isActive: true });
+  await dbR.doc(`${T}/staff/rs1`).set({ id: 'rs1', name: 'Rosa Diaz', role: 'renter', renterId: 'rent1', isActive: true });
+  await dbR.doc(`${T}/renters/rent1`).set({ businessName: 'Rosa Nails' });
+  await dbR.doc(`${T}/renterSettings/rs1`).set({ opportunities: { on: true, hour: 19, max: 2 } });
+  await dbR.doc(`${T}/clients/rc1`).set({ id: 'rc1', name: 'Gwen Park', phone: '+15550901', ownerRenterId: 'rent1' });
+  await dbR.doc(`${T}/clients/rc2`).set({ id: 'rc2', name: 'Studio Client', phone: '+15550902' });
+  for (const [id, cid, d] of [['ra1', 'rc1', 77], ['ra2', 'rc1', 56], ['ra3', 'rc1', 35], ['sa1', 'rc2', 77], ['sa2', 'rc2', 56], ['sa3', 'rc2', 35]] as const)
+    await dbR.doc(`${T}/appointments/${id}`).set({ id, clientId: cid, startTime: ago(d), status: 'completed', staffId: id.startsWith('r') ? 'rs1' : 'rs1x', isRenterBooking: id.startsWith('r'), renterServiceName: 'Gel fill', renterServicePrice: 50, serviceName: 'Gel fill' });
+  const rSweep: any = await Srv.renterOpportunitySweep(dbR, 't1', (await dbR.doc(T).get()).data(), NOW, { force: true });
+  const ro = (await dbR.collection(`${T}/opportunities`).get()).docs.map((d: any) => d.data());
+  check('her own client who is due → on her list, signed with her name and business, ready at 7 PM', rSweep.created === 1 && ro[0]?.renterId === 'rs1' && ro[0]?.assigneeId === 'rs1' && ro[0]?.clientId === 'rc1' && /Rosa/.test(ro[0]?.message || '') && ro[0]?.facts?.business === 'Rosa Nails' && new Date(ro[0]?.dueAt).toISOString() === new Date('2026-10-12T19:00:00-04:00').toISOString(), ro);
+  check('…never a studio client', !ro.some((o: any) => o.clientId === 'rc2'));
+  const sl: any = await Srv.listOpportunities(dbR, 't1', { staffId: 'jess', name: 'Jessica', isOwner: true, isManager: true } as any, NOW);
+  check('the studio’s list never shows a renter’s follow-ups', !sl.items.some((o: any) => o.renterId));
+  await dbR.doc(`${T}/renterSettings/rs1`).set({ opportunities: { on: false } }, { merge: true });
+  check('a renter who hasn’t switched it on gets nothing', ((await Srv.renterOpportunitySweep(dbR, 't1', (await dbR.doc(T).get()).data(), NOW + DAY, { force: true })) as any).created === 0);
+  check('with the business switch off, nothing runs', ((await Srv.renterOpportunitySweep(dbR, 't1', { name: 'Opal' }, NOW, { force: true })) as any).skipped === 'off');
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

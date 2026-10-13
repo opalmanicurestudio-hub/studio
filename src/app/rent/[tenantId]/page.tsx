@@ -2,6 +2,7 @@
 import { BuildingRules } from '@/components/rent/BuildingRules';
 import { MyDocuments } from '@/components/rent/MyDocuments';
 import { RenterPrep } from '@/components/rent/RenterPrep';
+import { RenterFollowUps } from '@/components/rent/RenterFollowUps';
 import { MyGiftCards } from '@/components/rent/MyGiftCards';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
@@ -290,6 +291,7 @@ export default function RenterPortalPage() {
             </div>
             <div className={tab === 'book' ? 'space-y-8' : 'hidden'}>
             {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
+            {booksHere && session?.token && data?.renter?.id && <RenterFollowUps tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && <MyGiftCards tenantId={tenantId} token={session.token} />}
             {booksHere && session?.token && data?.renter?.id && <RenterPrep tenantId={tenantId} token={session.token} />}
