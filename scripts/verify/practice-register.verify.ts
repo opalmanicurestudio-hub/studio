@@ -1,5 +1,6 @@
 // Practice a shift: register rules. Run: npx tsx scripts/verify/practice-register.verify.ts
 import * as R from '../../src/lib/practice/register';
+import * as $ from '../../src/lib/practice/currency';
 let fails = 0;
 const check = (name: string, ok: boolean, info?: unknown) => { console.log(`${ok ? '  ✓' : '  ✗'} ${name}${ok ? '' : ` (${JSON.stringify(info)})`}`); if (!ok) fails++; };
 const code = (k: string) => R.skuBy(k).code;
@@ -70,6 +71,54 @@ console.log('Unreadable label + allergy (Priya)');
   check('suggesting the fragrance-free one = clean', p.clean, s.mistakes); }
 { const s = R.newRegister(); until(s, 'priya'); R.scan(s, code('serum4'), 'typed'); R.pay(s);
   check('ignoring the flag = a reaction call later', s.mistakes.some((m) => /reaction/.test(m.later))); }
+
+
+console.log('Currencies');
+check('dollars format as $61.99', $.fmt('USD', 6199) === '$61.99');
+check('euros format as 61,99 € (non-breaking space)', $.fmt('EUR', 6199).replace(/\s/g, ' ') === '61,99 €');
+check('pounds format as £61.99', $.fmt('GBP', 6199) === '£61.99');
+check('Canadian cash rounds to 5 cents', $.cashRound('CAD', 6199) === 6200 && $.cashRound('CAD', 6197) === 6195 && $.cashRound('USD', 6199) === 6199);
+check('euro notes get bigger with value', (() => { const n = $.CURRENCIES.EUR.notes; return n.every((x, i) => i === 0 || x.w <= n[i - 1].w); })());
+check('dollar notes are all the same size', new Set($.CURRENCIES.USD.notes.map((n) => n.w)).size === 1);
+check('pounds: 20p and 50p have 7 sides, £1 has 12', $.CURRENCIES.GBP.coins.find((c) => c.value === 50)?.sides === 7 && $.CURRENCIES.GBP.coins.find((c) => c.value === 100)?.sides === 12);
+check('denomination labels', $.denomLabel('USD', 2000) === '$20' && $.denomLabel('EUR', 2000) === '20 €' && $.denomLabel('GBP', 50) === '50p' && $.denomLabel('EUR', 200) === '2€' && $.denomLabel('USD', 25) === '25¢');
+check('fewest pieces of change', JSON.stringify($.makeChange('USD', 3102)) === JSON.stringify([2000, 1000, 100, 1, 1]));
+check('a client with no note big enough hands two (GBP has no £100)', JSON.stringify($.clientCash('GBP', 6898, 'one')) === JSON.stringify([5000, 5000]));
+
+console.log('Cash at the register');
+for (const code of $.CODES) {
+  const s = R.newRegister(code); until(s, 'theo'); R.scan(s, code === 'USD' ? R.skuBy('beardoil').code : R.skuBy('beardoil').code, 'typed');
+  const due = R.cashDue(s), given = R.handOver(s), kept = R.keepChoice(s), right = $.sum(given) - due - kept;
+  const change = $.makeChange(code, right, s.drawer)!;
+  const r = R.payCash(s, $.sum(given), change)!;
+  check(`${code}: Theo keeps ${$.fmt(code, kept)} as a tip and gets ${$.fmt(code, right)} back`, r.ok && (r as any).clean && kept === 300 && s.tipJar === 300, { due, given, kept, right });
+}
+{ const s = R.newRegister('CAD'); until(s, 'theo'); R.scan(s, R.skuBy('beardoil').code, 'typed');
+  check('CAD: $61.99 is $62.00 in cash', R.cashDue(s) === 6200); }
+{ const s = R.newRegister('USD'); until(s, 'theo'); R.scan(s, R.skuBy('beardoil').code, 'typed');
+  check('tender buttons include what was handed over', R.tenderOptions(s).includes($.sum(R.handOver(s))));
+  const right = $.sum(R.handOver(s)) - R.cashDue(s) - R.keepChoice(s);
+  R.payCash(s, $.sum(R.handOver(s)), $.makeChange('USD', right - 100, s.drawer)!);
+  check('a dollar too little: the client calls, the drawer is over', s.mistakes.some((m) => /noticed at home/.test(m.later) && /\$1\.00 over/.test(m.later))); }
+{ const s = R.newRegister('USD'); until(s, 'theo'); R.scan(s, R.skuBy('beardoil').code, 'typed');
+  const right = $.sum(R.handOver(s)) - R.cashDue(s) - R.keepChoice(s);
+  R.payCash(s, $.sum(R.handOver(s)), $.makeChange('USD', right + 100, s.drawer)!);
+  check('a dollar too much: the drawer is short', s.mistakes.some((m) => /\$1\.00 short at close/.test(m.later))); }
+{ const s = R.newRegister('USD'); until(s, 'theo'); R.scan(s, R.skuBy('beardoil').code, 'typed');
+  const right = $.sum(R.handOver(s)) - R.cashDue(s) - R.keepChoice(s);
+  const r = R.payCash(s, 10000, $.makeChange('USD', right, s.drawer)!);
+  check('wrong amount typed but right change = training moment only', !!r && (r as any).clean && s.mistakes.some((m) => m.minor && /Entered/.test(m.what))); }
+{ const s = R.newRegister('USD'); until(s, 'theo'); R.scan(s, R.skuBy('beardoil').code, 'typed'); s.drawer[100] = 0; s.drawer[1] = 0;
+  const r = R.payCash(s, 7000, [100]); check('can’t hand over what isn’t in the drawer', !!r && !r.ok); }
+console.log('Closing the drawer');
+{ const s = R.newRegister('EUR'); let guard = 0;
+  while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, R.skuBy(it.sku).code, 'usb');
+    if (R.paysCash(s.cur.c)) { const right = $.sum(R.handOver(s)) - R.cashDue(s) - R.keepChoice(s); R.payCash(s, $.sum(R.handOver(s)), $.makeChange('EUR', right, s.drawer)!); } else R.pay(s); } }
+  const c = R.closeOut(s, { ...s.drawer });
+  check('right change all day = the drawer balances', c.overShort === 0 && c.countOff === 0, c);
+  check('cash sales are in the drawer, tips are not', c.actual === s.float + s.cashSales);
+  const s2 = R.newRegister('USD'); const wrong = { ...s2.drawer, 100: s2.drawer[100] - 1 }; const c2 = R.closeOut(s2, wrong);
+  check('miscounting the drawer is caught', c2.countOff === -100 && c2.off.includes(100)); }
 
 console.log('Pace and the review');
 { const s = R.newRegister(); R.advance(s, 0.5); R.advance(s, 60);

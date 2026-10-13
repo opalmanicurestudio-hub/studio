@@ -3,6 +3,7 @@
 // the scanner, the card reader and the client screen. Original shapes, app colors.
 import type { CSSProperties, ReactNode } from 'react';
 import * as R from '@/lib/practice/register';
+import * as $ from '@/lib/practice/currency';
 
 export const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#2563eb';
 
@@ -101,3 +102,94 @@ export function Chip({ children, tone }: { children: ReactNode; tone?: 'green' |
   const [bg, fg] = { green: ['#e8f3ec', GREEN], amber: ['#fdf1e3', AMBER], red: ['#fdecec', RED], ink: [INK, '#fff'], blue: ['#eef2ff', '#1e3a8a'] }[tone || 'green'] || [SOFT, INK];
   return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, background: tone ? bg : SOFT, color: tone ? fg : INK, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>{children}</span>;
 }
+
+// ── Practice cash ───────────────────────────────────────────────────────
+
+/** A practice banknote: real size ratio, color and denomination; original artwork; marked PRACTICE. */
+export function NoteArt({ code, value, scale = 1, style }: { code: $.CurrencyCode; value: number; scale?: number; style?: CSSProperties }) {
+  const n = $.CURRENCIES[code].notes.find((x) => x.value === value)!; const w = n.w * scale, h = n.h * scale, ink = n.ink;
+  const lab = $.denomLabel(code, value);
+  return (
+    <div aria-label={lab} style={{ width: w, height: h, borderRadius: Math.max(2, 4 * scale), position: 'relative', overflow: 'hidden', flexShrink: 0, boxShadow: '0 4px 10px -5px rgba(0,0,0,.35)',
+      background: `repeating-radial-gradient(circle at 70% 50%, ${ink}12 0 1px, transparent 1px ${5 * scale}px), repeating-linear-gradient(115deg, ${ink}0d 0 1px, transparent 1px ${7 * scale}px), linear-gradient(135deg, ${n.bg}, #ffffff 55%, ${n.bg})`, ...style }}>
+      <div style={{ position: 'absolute', inset: h * 0.07, border: `1px solid ${ink}55`, borderRadius: 3 }} />
+      <div style={{ position: 'absolute', left: w * 0.06, top: h * 0.08, fontWeight: 800, fontSize: h * 0.24, color: ink, lineHeight: 1 }}>{lab}</div>
+      <div style={{ position: 'absolute', right: w * 0.06, bottom: h * 0.1, fontWeight: 800, fontSize: h * 0.18, color: ink, lineHeight: 1 }}>{value / 100}</div>
+      <div style={{ position: 'absolute', left: '50%', top: '50%', width: h * 0.5, height: h * 0.5, transform: 'translate(-30%,-50%)', borderRadius: '50%', background: `radial-gradient(circle at 40% 35%, #ffffffcc, ${n.bg} 60%, ${ink}44)`, boxShadow: `inset 0 0 0 2px ${ink}33` }} />
+      <div style={{ position: 'absolute', left: w * 0.68, top: 0, bottom: 0, width: Math.max(2, w * 0.025), background: 'linear-gradient(180deg,#e9edf3,#c9d2de,#f4f6f9,#c9d2de)' }} />
+      {h > 30 && <div style={{ position: 'absolute', left: w * 0.06, bottom: h * 0.1, fontWeight: 700, fontSize: Math.max(5, h * 0.09), letterSpacing: '.2em', color: `${ink}aa` }}>PRACTICE</div>}
+    </div>
+  );
+}
+const METAL: Record<string, [string, string, string]> = { copper: ['#e7a77a', '#b8693e', '#8a4a2a'], nickel: ['#eef0f3', '#b9bec6', '#868b93'], gold: ['#f3dc8f', '#cfa64a', '#97752a'], brass: ['#f0d79a', '#c8a457', '#937532'] };
+const polyPts = (c: number, r: number, n: number) => Array.from({ length: n }, (_, i) => `${(c + r * Math.sin((2 * Math.PI * i) / n)).toFixed(1)},${(c - r * Math.cos((2 * Math.PI * i) / n)).toFixed(1)}`).join(' ');
+/** A practice coin: real relative size, metal and shape (7-sided 20p and 50p, 12-sided £1, 11-sided loonie, two-metal coins). */
+export function CoinArt({ code, value, scale = 2 }: { code: $.CurrencyCode; value: number; scale?: number }) {
+  const k = $.CURRENCIES[code].coins.find((x) => x.value === value)!; const d = k.mm * scale, r = d / 2, c = r + 1.5, S = d + 3;
+  const id = `c${code}${value}`;
+  const bi = k.metal.startsWith('bi-'); const outer = METAL[bi ? (k.metal[3] === 'g' ? 'gold' : 'nickel') : k.metal]; const inner = bi ? METAL[k.metal[4] === 'g' ? 'gold' : 'nickel'] : outer;
+  const grad = (gid: string, m: [string, string, string]) => <radialGradient id={gid} cx="35%" cy="30%"><stop offset="0" stopColor={m[0]} /><stop offset=".7" stopColor={m[1]} /><stop offset="1" stopColor={m[2]} /></radialGradient>;
+  const fs = Math.max(6, d * 0.27);
+  return (
+    <svg width={S} height={S} aria-label={k.label} style={{ filter: 'drop-shadow(0 2px 2px rgba(0,0,0,.28))', flexShrink: 0 }}>
+      <defs>{grad(`${id}o`, outer)}{grad(`${id}i`, inner)}</defs>
+      {k.sides ? <polygon points={polyPts(c, r, k.sides)} fill={`url(#${id}o)`} stroke={outer[2]} strokeWidth={0.8} /> : <circle cx={c} cy={c} r={r} fill={`url(#${id}o)`} stroke={outer[2]} strokeWidth={0.8} />}
+      {bi ? <circle cx={c} cy={c} r={r * 0.62} fill={`url(#${id}i)`} stroke={inner[2]} strokeWidth={0.7} /> : <circle cx={c} cy={c} r={r * 0.82} fill="none" stroke={outer[2]} strokeOpacity={0.45} strokeWidth={0.7} />}
+      <text x={c} y={c + fs * 0.35} textAnchor="middle" fontWeight={800} fontSize={fs} fill={inner[2]} fontFamily="inherit">{k.label}</text>
+    </svg>
+  );
+}
+/** One piece of cash, note or coin. */
+export function Cash({ code, value, size = 1 }: { code: $.CurrencyCode; value: number; size?: number }) {
+  return $.isNote(code, value) ? <NoteArt code={code} value={value} scale={0.62 * size} /> : <CoinArt code={code} value={value} scale={1.6 * size} />;
+}
+
+/** The open cash drawer. In 'give' mode tap a slot to take one piece; in 'count' mode each slot shows its pile and a counter. */
+export function CashDrawer({ code, drawer, onTake, counts, setCount, narrow }: { code: $.CurrencyCode; drawer: Record<number, number>; onTake?: (v: number) => void; counts?: Record<number, number>; setCount?: (v: number, n: number) => void; narrow?: boolean }) {
+  const cur = $.CURRENCIES[code]; const fl = cur.float;
+  const noteSlots = cur.notes.map((n) => n.value).filter((v) => fl[v]).sort((a, b) => b - a);
+  const under = cur.notes.map((n) => n.value).filter((v) => !fl[v] && drawer[v]);
+  const coins = cur.coins.map((c) => c.value);
+  const maxW = Math.max(...cur.notes.filter((n) => noteSlots.includes(n.value)).map((n) => n.w));
+  const slotW = narrow ? 76 : 118; const sc = (slotW - 12) / maxW;
+  const counter = (v: number) => counts && setCount && (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 4 }}>
+      <button onClick={() => setCount(v, Math.max(0, (counts[v] || 0) - 1))} style={stepBtn}>−</button>
+      <input aria-label={`Count of ${$.denomLabel(code, v)}`} inputMode="numeric" value={counts[v] ?? ''} onChange={(e) => setCount(v, Math.max(0, Number(e.target.value.replace(/\D/g, '')) || 0))} style={{ width: 34, textAlign: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '3px 0', fontSize: 13, fontFamily: 'inherit', color: INK, background: '#fff' }} />
+      <button onClick={() => setCount(v, (counts[v] || 0) + 1)} style={stepBtn}>+</button>
+    </div>);
+  const slotBg = '#ecebe7';
+  return (
+    <div style={{ background: 'linear-gradient(180deg,#3a3b40,#26272b)', borderRadius: 16, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, boxShadow: '0 22px 40px -22px rgba(0,0,0,.7)', maxWidth: '100%', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {noteSlots.map((v) => { const n = drawer[v] || 0; const show = counts ? Math.min(n, 30) : Math.min(n, 4);
+          return <div key={v} style={{ width: slotW, flexShrink: 0, background: slotBg, borderRadius: 9, padding: 6, boxSizing: 'border-box' }}>
+            {counts ? <div aria-label={`${$.denomLabel(code, v)} notes`} style={{ display: 'flex', flexWrap: 'wrap', gap: 3, minHeight: 40, alignContent: 'flex-start' }}>
+              {Array.from({ length: show }, (_, k) => <NoteArt key={k} code={code} value={v} scale={(slotW - 24) / 3 / maxW} style={{ boxShadow: '0 1px 2px rgba(0,0,0,.25)' }} />)}
+            </div> : <button disabled={!onTake || !n} onClick={() => onTake?.(v)} aria-label={`Take ${$.denomLabel(code, v)}`} style={{ position: 'relative', width: '100%', height: 74, border: 'none', background: 'none', padding: 0, cursor: onTake && n ? 'pointer' : 'default' }}>
+              {Array.from({ length: show }, (_, k) => <div key={k} style={{ position: 'absolute', left: 0, top: k * 4 }}><NoteArt code={code} value={v} scale={sc} /></div>)}
+              {!n && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: MUTED }}>empty</div>}
+            </button>}
+            <div style={{ textAlign: 'center', fontSize: 11.5, fontWeight: 700, color: MUTED }}>{$.denomLabel(code, v)}{!counts && <span style={{ fontWeight: 500 }}> · {n}</span>}</div>
+            {counter(v)}
+          </div>; })}
+        {under.length > 0 && <div style={{ width: narrow ? 70 : 96, flexShrink: 0, background: '#1d1e22', borderRadius: 9, padding: 6, color: '#fff', fontSize: 11, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <b style={{ fontSize: 11 }}>Under the tray</b>
+          {under.map((v) => <div key={v}><div style={{ opacity: 0.9 }}>{$.denomLabel(code, v)} {counts ? '' : `· ${drawer[v]}`}</div>{counts && <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', margin: '3px 0' }}>{Array.from({ length: drawer[v] }, (_, k) => <NoteArt key={k} code={code} value={v} scale={0.18} />)}</div>}{counter(v)}</div>)}
+        </div>}
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {coins.map((v) => { const n = drawer[v] || 0; const show = counts ? Math.min(n, 30) : Math.min(n, 3);
+          return <div key={v} style={{ flex: 1, minWidth: narrow ? 44 : 56, background: slotBg, borderRadius: 9, padding: 5, boxSizing: 'border-box' }}>
+            <button disabled={!onTake || !n} onClick={() => onTake?.(v)} aria-label={`Take ${$.denomLabel(code, v)}`} style={{ width: '100%', minHeight: 40, border: 'none', background: 'none', padding: 0, cursor: onTake && n ? 'pointer' : 'default', display: 'flex', flexWrap: 'wrap', gap: counts ? 1 : 0, justifyContent: 'center', alignItems: 'center' }}>
+              {Array.from({ length: show }, (_, k) => <span key={k} style={{ marginLeft: counts || k === 0 ? 0 : -14 }}><CoinArt code={code} value={v} scale={counts ? 0.8 : narrow ? 1.05 : 1.3} /></span>)}
+              {!n && <span style={{ fontSize: 10.5, color: MUTED }}>empty</span>}
+            </button>
+            <div style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: MUTED }}>{$.denomLabel(code, v)}{!counts && <span style={{ fontWeight: 500 }}> · {n}</span>}</div>
+            {counter(v)}
+          </div>; })}
+      </div>
+    </div>
+  );
+}
+const stepBtn: CSSProperties = { width: 22, height: 22, borderRadius: 11, border: `1px solid ${LINE}`, background: '#fff', color: INK, fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: 0, fontFamily: 'inherit' };

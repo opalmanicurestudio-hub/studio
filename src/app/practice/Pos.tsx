@@ -5,6 +5,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import * as G from '@/lib/practice/sim';
 
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#2563eb';
 type Step = 'ticket' | 'tip' | 'card' | 'processing' | 'approved' | 'cash' | 'receipt' | 'printing' | 'done';
 
@@ -45,7 +46,7 @@ export default function Pos({ st, pid, narrow, onClose, onDone, sfx }: { st: G.S
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <span style={{ width: 46, height: 46, borderRadius: 23, background: c.look.outfit, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 17, textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{c.name[0]}</span>
-        <div><div style={{ fontSize: 17, fontWeight: 700 }}>{c.name}</div><div style={{ fontSize: 12, color: MUTED }}>{c.trait === 'first' ? 'First visit' : `${(c.visits || 0) + 1}th visit`}</div></div>
+        <div><div style={{ fontSize: 17, fontWeight: 700 }}>{c.name}</div><div style={{ fontSize: 12, color: MUTED }}>{c.trait === 'first' ? 'First visit' : `${ordinal((c.visits || 0) + 1)} visit`}</div></div>
       </div>
       {c.trait && <div title={G.TRAITS[c.trait].tip} style={{ background: SOFT, borderRadius: 12, padding: '8px 10px' }}><Chip tone={c.trait === 'hurry' ? 'amber' : c.trait === 'regular' ? 'green' : c.trait === 'first' ? 'blue' : undefined}>{G.TRAITS[c.trait].label}</Chip><div style={{ fontSize: 12, color: MUTED, marginTop: 5, lineHeight: 1.4 }}>{G.TRAITS[c.trait].tip}</div></div>}
       <Field k="Today" v={`${c.service || 'Service'}${c.provider && st.people[c.provider] ? ` with ${st.people[c.provider].name}` : ''}`} />
