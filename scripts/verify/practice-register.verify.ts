@@ -4,8 +4,15 @@ import * as $ from '../../src/lib/practice/currency';
 let fails = 0;
 const check = (name: string, ok: boolean, info?: unknown) => { console.log(`${ok ? '  ✓' : '  ✗'} ${name}${ok ? '' : ` (${JSON.stringify(info)})`}`); if (!ok) fails++; };
 const code = (k: string) => R.skuBy(k).code;
+/** Do arrivals and phone calls the right way (so other tests can focus on checkouts). */
+const deskRight = (s: R.RegState) => {
+  if (s.ringing) { R.answer(s); const oc = s.onCall!; R.callFind(s, oc.call.booking); R.offerAnotherDay(s); R.callReschedule(s, oc.call.prefers); R.endCall(s); }
+  const c = s.cur?.c; if (c && R.isArrival(c)) { const b = R.bookingBy(s, c.booking)!; R.pickBooking(s, b.id); R.confirmDetails(s, { phone: b.phone, email: b.email, promo: false }, 'client');
+    if (R.consentNeeded(s)) R.signConsent(s, 'client'); if ((c.late || 0) > R.GRACE_MIN) R.chooseLate(s, 'short', true); R.notifyProvider(s); R.finishArrival(s); return true; }
+  return false;
+};
 const until = (s: R.RegState, id: string) => {
-  for (let i = 0; i < 4000 && s.cur?.c.id !== id; i++) { if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } R.advance(s, 0.5); }
+  for (let i = 0; i < 4000 && s.cur?.c.id !== id; i++) { if (s.cur?.c.id !== id && !deskRight(s) && s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } if (s.cur?.c.id !== id) R.advance(s, 0.5); }
   s.mistakes = []; s.streak = 0;
 };
 
@@ -112,7 +119,7 @@ for (const code of $.CODES) {
   const r = R.payCash(s, 7000, [100]); check('can’t hand over what isn’t in the drawer', !!r && !r.ok); }
 console.log('Closing the drawer');
 { const s = R.newRegister('EUR'); let guard = 0;
-  while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, R.skuBy(it.sku).code, 'usb');
+  while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (deskRight(s)) continue; if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, R.skuBy(it.sku).code, 'usb');
     if (R.paysCash(s.cur.c)) { const right = $.sum(R.handOver(s)) - R.cashDue(s) - R.keepChoice(s); R.payCash(s, $.sum(R.handOver(s)), $.makeChange('EUR', right, s.drawer)!); } else R.pay(s); } }
   const c = R.closeOut(s, { ...s.drawer });
   check('right change all day = the drawer balances', c.overShort === 0 && c.countOff === 0, c);
@@ -199,15 +206,61 @@ console.log('Card slips');
 { const s = R.newRegister(); R.advance(s, 0.5); R.setTip(s, 25); const r = R.pay(s)!;
   check('a tip chosen on the client screen is used', Math.abs(r.tip.amount - 11) < 0.01, r.tip); }
 
+
+console.log('Checking guests in');
+const arrive = (id: string) => { const s = R.newRegister(); until(s, id); return s; };
+{ const s = arrive('nina');
+  check('Nina is an arrival with no ticket', R.isArrival(s.cur!.c) && s.cur!.lines.length === 0);
+  check('searching “Nina” finds both Ninas', R.searchBookings(s, 'nina').length === 2);
+  check('searching her number finds only her', R.searchBookings(s, '0178').map((b) => b.name).join() === 'Nina Patel');
+  R.pickBooking(s, 'b-nina-patel'); check('her balayage needs a consent form', R.consentNeeded(s));
+  R.confirmDetails(s, { phone: '919-555-0178', email: 'nina.patel@mailbox.com', promo: false }, 'client'); R.signConsent(s, 'client'); R.notifyProvider(s);
+  const r = R.finishArrival(s)!; check('done right = clean, booking arrived, consent on file', r.clean && R.bookingBy(s, 'b-nina-patel')!.status === 'arrived' && R.bookingBy(s, 'b-nina-patel')!.consentOnFile, s.mistakes); }
+{ const s = arrive('nina'); R.pickBooking(s, 'b-nina-park'); R.notifyProvider(s); R.finishArrival(s);
+  check('the wrong Nina: wrong notes, the other provider waits', s.mistakes.some((m) => /instead of Nina Patel/.test(m.what)));
+  check('and no consent form for the color', s.mistakes.some((m) => /consent/.test(m.what))); }
+{ const s = arrive('nina'); R.pickBooking(s, 'b-nina-patel'); R.confirmDetails(s, { phone: '9195550178', email: 'nina.patel@mailbox.com', promo: false }, 'desk'); R.signConsent(s, 'client'); R.finishArrival(s);
+  check('forgetting to tell Mei: she sat in the lounge', s.mistakes.some((m) => /know Nina was here/.test(m.what))); }
+{ const s = arrive('jamal'); R.pickBooking(s, 'b-jamal'); R.signConsent(s, 'client'); R.notifyProvider(s); R.finishArrival(s);
+  check('a first-timer without details is a real mistake', s.mistakes.some((m) => !m.minor && /contact details/.test(m.what))); }
+{ const s = arrive('jamal'); R.pickBooking(s, 'b-jamal'); R.confirmDetails(s, { phone: '9195550161', email: 'jamal.wright@mailbox.com', promo: true }, 'desk'); R.signConsent(s, 'client'); R.notifyProvider(s); R.finishArrival(s);
+  check('promo texts he didn’t ask for', s.mistakes.some((m) => /promo/.test(m.what))); }
+{ const s = arrive('olivia'); check('Olivia is 15 minutes late (past the 10-minute grace)', R.minutesLate(s) === 15);
+  R.pickBooking(s, 'b-olivia'); R.confirmDetails(s, { phone: '9195550109', email: 'olivia.chen@mailbox.com', promo: false }, 'client'); R.chooseLate(s, 'short', true); R.notifyProvider(s);
+  check('a shorter style with her courtesy = clean', R.finishArrival(s)!.clean && R.bookingBy(s, 'b-olivia')!.courtesyLeft === 0, s.mistakes); }
+{ const s = arrive('olivia'); R.pickBooking(s, 'b-olivia'); R.chooseLate(s, 'full', false); R.notifyProvider(s); R.finishArrival(s);
+  check('the full service late: the next guest waits', s.mistakes.some((m) => /full blowout/.test(m.what)));
+  check('a late fee despite her courtesy: coached', s.mistakes.some((m) => m.minor && /late fee/.test(m.what))); }
+
+console.log('The phone');
+const ring = (id: string) => { const s = R.newRegister(); for (let i = 0; i < 4000 && s.ringing?.call.id !== id; i++) { if (s.ringing) { R.answer(s); R.callFind(s, s.onCall!.call.booking); R.offerAnotherDay(s); R.callReschedule(s, s.onCall!.call.prefers); R.endCall(s); } if (!deskRight(s) && s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } R.advance(s, 0.5); } return s; };
+{ const s = ring('call-dana'); check('the phone rings', !!s.ringing);
+  R.answer(s); check('answering starts the call', !!s.onCall && !s.ringing);
+  check('two Danas on Thursday', R.searchBookings(s, 'dana').length === 2);
+  R.callFind(s, 'b-dana'); R.offerAnotherDay(s); R.callReschedule(s, 'Sat 10:00 AM'); const r = R.endCall(s)!;
+  check('moved to Saturday morning, clean', r.clean && R.bookingBy(s, 'b-dana')!.movedTo === 'Sat 10:00 AM'); }
+{ const s = ring('call-dana'); R.answer(s); R.callFind(s, 'b-dana-li'); R.callReschedule(s, 'Tue 4:30 PM'); R.endCall(s);
+  check('moving the wrong Dana is a real mistake', s.mistakes.some((m) => /Dana Li’s booking instead/.test(m.what))); }
+{ const s = ring('call-dana'); for (let i = 0; i < 80; i++) R.advance(s, 0.5);
+  check('a call that rings out goes to voicemail, and she books elsewhere', !s.ringing && s.mistakes.some((m) => /ring out/.test(m.what))); }
+{ const s = ring('call-kim'); R.answer(s); R.callFind(s, 'b-kim'); R.offerAnotherDay(s);
+  check('offered another day, Kim would rather move than cancel', /Saturday|Sat/.test(s.onCall!.said)); R.callReschedule(s, 'Sat 1:00 PM'); check('kept: clean', R.endCall(s)!.clean); }
+{ const s = ring('call-kim'); R.answer(s); R.callFind(s, 'b-kim'); R.callCancel(s, true); R.endCall(s);
+  check('cancel with a fee despite her courtesy = real mistake', s.mistakes.some((m) => !m.minor && /late-cancel fee/.test(m.what)));
+  check('and not offering another day is coached', s.mistakes.some((m) => m.minor && /without offering another day/.test(m.what))); }
+{ const s = ring('call-kim'); R.answer(s); R.callFind(s, 'b-kim'); R.offerAnotherDay(s); R.callCancel(s, false);
+  check('cancel using her courtesy = no fee', R.endCall(s)!.clean && R.bookingBy(s, 'b-kim')!.courtesyLeft === 0 && R.bookingBy(s, 'b-kim')!.feeCharged === false); }
+{ const s = ring('call-kim'); R.answer(s); R.endCall(s); check('hanging up without helping', s.mistakes.some((m) => /Hung up/.test(m.what))); }
+
 console.log('Pace and the review');
 { const s = R.newRegister(); R.advance(s, 0.5); R.advance(s, 60);
   check('the line builds while you’re slow', R.line(s).length >= 2);
   check('people waiting lose patience', Object.values(s.waiting).some((v) => v < 1)); }
 { const s = R.newRegister(); let guard = 0;
-  while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } }
+  while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (deskRight(s)) continue; if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } }
   const rv = R.review(s);
-  check('a whole shift runs to the end (8 checkouts, 10 people)', rv.checkouts === 8, rv);
-  check('scanning straight through trips on new-client details, the split, the shelf price and the allergy', rv.mistakes.filter((m) => !m.minor).length === 4 && rv.stars === 1, rv.mistakes.map((m) => m.what));
+  check('a whole shift runs to the end (8 checkouts, 3 check-ins, 2 calls)', rv.checkouts === 13, rv.checkouts);
+  check('scanning straight through trips on new-client details, the split, the shelf price and the allergy', rv.mistakes.filter((m) => !m.minor).length === 4 && rv.stars === 2, rv.mistakes.map((m) => m.what));
   check('and coaches on every missed rebook and membership', rv.mistakes.filter((m) => /next visit/.test(m.what)).length === 6 && rv.mistakes.filter((m) => /Didn’t mention/.test(m.what)).length === 3);
   check('the review names a best moment', !!rv.best); }
 

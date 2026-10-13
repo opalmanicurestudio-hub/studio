@@ -29,6 +29,7 @@ const SFX: Record<string, () => void> = {
   err: () => { tone(320, 0.09, 'square', 0, 0.03); tone(320, 0.09, 'square', 0.13, 0.03); },
   coin: () => { tone(988, 0.12); tone(1319, 0.2, 'sine', 0.09); },
   bell: () => { tone(1568, 0.5, 'sine', 0, 0.04); tone(2093, 0.4, 'sine', 0.02, 0.02); },
+  ring: () => { for (let i = 0; i < 6; i++) { tone(i % 2 ? 1250 : 1000, 0.07, 'sine', i * 0.08, 0.035); } },
   chime: () => { tone(784, 0.18); tone(1047, 0.25, 'sine', 0.12); },
   tap: () => tone(600, 0.04, 'triangle', 0, 0.03),
 };
@@ -115,6 +116,7 @@ export default function RegisterPractice() {
       const st = sRef.current; const had = st.cur?.c.id;
       R.advance(st, 0.25 * speed.current);
       if (st.cur && st.cur.c.id !== had) { setSel(null); setMsg(null); setFlag(null); setNote(null); setVoidFor(null); setMode('scan'); setDetails({ phone: '', email: '', promo: false }); }
+      if (st.ringing && (st.t - st.ringing.since) % 3 < 0.25 * speed.current && !muted()) SFX.ring();
       drainSfx();
       if (R.finished(st) && !pay) window.setTimeout(() => setScreen('closeout'), 500);
       rerender();
@@ -296,6 +298,29 @@ export default function RegisterPractice() {
       .then((a2) => { R.offer(sRef.current, key, a2 === 'yes' ? 'yes' : 'no'); setAsking(null); drainSfx(); rerender(); });
   };
 
+  // ── Checking guests in, and the phone ──────────────────────────────────
+  const [arrQ, setArrQ] = useState(''); const [callQ, setCallQ] = useState(''); const [formWait, setFormWait] = useState<string | null>(null);
+  const [lateCourtesy, setLateCourtesy] = useState(false);
+  const truthOf = (st: R.RegState) => { const c = st.cur!.c; const b = R.bookingBy(st, c.booking || null); return { name: b?.name || c.name, phone: c.details?.phone || b?.phone || '', email: c.details?.email || b?.email || '', promo: c.details?.promo || false }; };
+  const consentText = (svc: string, provider: string) => `${svc} with ${provider} · Opal Salon\n\n• I’ve told my provider about any allergies, sensitivities, medications, or skin, scalp or nail conditions.\n• I understand results vary and aren’t guaranteed.\n• I was offered a patch test where it applies.\n• I’ll follow the aftercare I’m given.\n• I can ask questions or stop the service at any time.\n\nPractice form: nothing is stored.`;
+  /** The client checks or updates their own details on the client screen. */
+  const sendDetails = (forCheckout = false) => {
+    const st = sRef.current; if (!st.cur) return; const c = st.cur.c; const b = R.bookingBy(st, st.cur.arr?.booking || c.booking || null); const tr = truthOf(st);
+    setFormWait('details');
+    ask({ stage: 'details', who: c.name, title: c.kind === 'new' ? 'Welcome! Your details' : 'Is this still right?', note: c.kind === 'new' ? 'So we can send your reminders and receipts.' : 'Update anything that’s changed.', prefill: { name: b?.name || c.name, phone: c.kind === 'new' ? '' : b?.phone || '', email: c.kind === 'new' ? '' : b?.email || '' } },
+      () => JSON.stringify({ phone: tr.phone, email: tr.email, promo: tr.promo }), 2200)
+      .then((raw) => { let v = { phone: '', email: '', promo: false }; try { v = JSON.parse(String(raw)); } catch { /* keep empty */ } const st2 = sRef.current; setFormWait(null); if (!st2.cur) return;
+        if (forCheckout) R.saveContact(st2, v); else R.confirmDetails(st2, v, 'client'); setDetails({ phone: v.phone, email: v.email, promo: v.promo }); rerender(); });
+  };
+  const sendConsent = () => {
+    const st = sRef.current; if (!st.cur) return; const b = R.bookingBy(st, st.cur.arr?.booking || null); if (!b) return; setFormWait('consent');
+    ask({ stage: 'consent', who: st.cur.c.name, title: `${b.service} consent form`, text: consentText(b.service, b.provider), prefill: { name: b.name, phone: '', email: '' } }, () => JSON.stringify({ signed: true, name: b.name }), 2600)
+      .then(() => { setFormWait(null); if (sRef.current.cur) { R.signConsent(sRef.current, 'client'); rerender(); } });
+  };
+  const doneArrival = () => { R.finishArrival(s); drainSfx(); setArrQ(''); setLateCourtesy(false); view({ stage: 'idle' }); rerender(); };
+  const answerCall = () => { R.answer(s); setCallQ(''); drainSfx(); rerender(); };
+  const hangUp = () => { R.endCall(s); setCallQ(''); drainSfx(); rerender(); };
+
   // ── Talking out loud: your mic, the client's real voice, and a coach ──
   const [talkOn, setTalkOn] = useState(false);
   const [coachOn, setCoachOn] = useState(true);
@@ -325,7 +350,7 @@ export default function RegisterPractice() {
     try {
       const r = await fetch('/api/practice/voices', { headers: { authorization: `Bearer ${tk}` } }); const d = await r.json(); if (!d.ok) return;
       const vs: { id: string; gender: string; age: string; accent: string }[] = d.voices; const used = new Set<string>();
-      const all = [...(sRef.current.cur ? [sRef.current.cur.c] : []), ...sRef.current.queue];
+      const all: { id: string; voiceHint: R.Customer['voiceHint'] }[] = [...(sRef.current.cur ? [sRef.current.cur.c] : []), ...sRef.current.queue, ...sRef.current.calls, ...(sRef.current.ringing ? [sRef.current.ringing.call] : []), ...(sRef.current.onCall ? [sRef.current.onCall.call] : [])];
       for (const c of all) {
         const score = (v: typeof vs[0]) => (v.gender.toLowerCase() === c.voiceHint.gender ? 10 : 0) + (v.age.toLowerCase().startsWith(c.voiceHint.age.split('_')[0]) ? 4 : 0) + (/americ/i.test(v.accent) ? 1 : 0) - (used.has(v.id) ? 8 : 0);
         const best = [...vs].sort((a, b) => score(b) - score(a))[0]; if (best) { voiceMap.current[c.id] = best.id; used.add(best.id); }
@@ -361,7 +386,25 @@ export default function RegisterPractice() {
     };
   };
   /** You said something: the client answers, and what you offered or did counts in the game. */
+  /** On a call, what you say goes to the caller. */
+  const callTalk = async (text: string, seconds: number | null) => {
+    const st = sRef.current; const oc = st.onCall; if (!oc) return; setHeard(text); setTalkState('thinking'); setTalkErr(null);
+    const b = R.bookingBy(st, oc.call.booking)!; const found = R.bookingBy(st, oc.found);
+    const ctx = { name: oc.call.name, persona: oc.call.persona, kind: 'returning', visits: 3, service: b.service, provider: b.provider, items: [], total: '', prefersPay: 'card',
+      rebook: { wants: oc.call.want === 'cancel' ? `you called to cancel ${b.when}; if offered another day you'd take ${oc.call.prefers}` : `you called to move ${b.when}; you'd like ${oc.call.prefers}`, done: oc.outcome?.kind === 'rescheduled' ? oc.outcome.slot : null },
+      offer: { wants: null, offered: [], catalog: [] }, details: { phone: b.phone, email: b.email, promo: false, saved: true },
+      mood: 0.8, waitedMinutes: 0, lineLength: 0, stage: `on a phone call with the salon front desk${found ? `; they found the booking for ${found.name}, ${found.when}` : '; they haven’t found your booking yet'}${oc.outcome ? `; result: ${oc.outcome.kind}` : ''}`, history: oc.history };
+    let res: T.TalkReply | null = null; const tk = caps.ai ? await idToken() : null;
+    if (tk) { try { const r = await fetch('/api/practice/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ context: ctx, said: text }) }); const d = await r.json(); if (d.ok) res = d; } catch { /* basic */ } }
+    if (!res) res = T.basicTalk(T.sanitizeContext(ctx), text, OFFER_NAMES);
+    const oc2 = sRef.current.onCall; if (!oc2) { setTalkState('idle'); return; }
+    if (res.detected.offeredRebook && !oc2.offeredAnotherDay) R.offerAnotherDay(st);
+    oc2.history.push({ who: 'you', text }); oc2.history.push({ who: 'client', text: res.reply }); toneRef.current = res.tone; oc2.said = res.reply;
+    const dl = T.delivery(text, seconds); st.talk.push({ who: `📞 ${oc2.call.name}`, you: text, reply: res.reply, scores: res.coach.scores, tip: res.coach.tip, fillers: dl.fillers, wpm: dl.wpm });
+    setCoachTip({ tip: res.coach.tip, scores: res.coach.scores, fillers: dl.fillers, pace: dl.pace }); setTalkState('idle'); rerender();
+  };
   const handleSaid = async (raw: string, seconds: number | null) => {
+    if (sRef.current.onCall) { await callTalk(raw.trim(), seconds); return; }
     const st = sRef.current; const c0 = st.cur; const text = raw.trim(); if (!c0 || !text) { setTalkState('idle'); return; }
     setHeard(text); setTalkState('thinking'); setTalkErr(null);
     const ctx = contextFor(st); let res: T.TalkReply | null = null;
@@ -389,7 +432,7 @@ export default function RegisterPractice() {
   };
   /** Listen: real listening when connected (recorded, sent once, not kept), otherwise the browser's own. */
   const startListening = async () => {
-    if (talkState !== 'idle' || !sRef.current.cur) return; setTalkErr(null);
+    if (talkState !== 'idle' || (!sRef.current.cur && !sRef.current.onCall)) return; setTalkErr(null);
     if (caps.listen && signedIn && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -419,6 +462,8 @@ export default function RegisterPractice() {
     recRef.current = { stop: () => r.stop() }; r.start(); setTalkState('listening');
   };
   const stopListening = () => recRef.current?.stop();
+  const callSaid = s.onCall?.said; const callId = s.onCall?.call.id;
+  useEffect(() => { const oc = sRef.current.onCall; if (!voice || screen !== 'play' || !oc || !callSaid) return; sayOut(callSaid, { id: oc.call.id, voice: oc.call.voice, pron: 'she' } as R.Customer, toneRef.current); toneRef.current = 'neutral'; }, [callSaid, callId, voice, screen]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleTalk = () => setTalkOn((v) => { const n = !v; try { localStorage.setItem(TALK_KEY, n ? '1' : '0'); } catch { /* private mode */ } if (n) assignVoices(); return n; });
   useEffect(() => { if (talkOn && screen === 'play' && caps.voices && signedIn && !Object.keys(voiceMap.current).length) assignVoices(); }, [talkOn, screen, caps.voices, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
   // Hold the space bar to talk (desktop).
@@ -476,7 +521,43 @@ export default function RegisterPractice() {
         <Btn small ghost onClick={() => { R.refuseClaim(s); rerender(); }}>Explain it’s {money(k.price)}</Btn></div>}
     </div>); })();
 
-  const pos = cur && (
+  const ab = cur?.arr ? R.bookingBy(s, cur.arr.booking) : null;
+  const late = cur ? R.minutesLate(s) : 0;
+  const step = (n: number, title: string, done: boolean, body: ReactNode) => <div style={{ borderTop: `1px solid ${LINE}`, paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}><span style={{ width: 20, height: 20, borderRadius: 10, background: done ? GREEN : INK, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{done ? '✓' : n}</span><b style={{ fontSize: 12.8 }}>{title}</b></div>{body}</div>;
+  const arrivalPanel = cur && R.isArrival(cur.c) && cur.arr && (
+    <div style={{ background: '#fff', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, height: '100%', boxSizing: 'border-box', overflow: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ width: 28, height: 28, borderRadius: 14, background: cur.c.look.top, color: '#fff', fontSize: 12.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{cur.c.name[0]}</span>
+        <div style={{ flex: 1 }}><div style={{ fontSize: 13.5, fontWeight: 700 }}>Checking in · {cur.c.name}</div><div style={{ fontSize: 11, color: MUTED }}>Arrived {clockOf(cur.arr.arrivedAt)}</div></div>
+        {late > R.GRACE_MIN ? <Chip tone="amber">{late} min late</Chip> : <Chip tone="blue">Check-in</Chip>}
+      </div>
+      {step(1, 'Find the booking', !!ab, <>
+        {!ab && <><input aria-label="Search bookings" value={arrQ} onChange={(e) => setArrQ(e.target.value)} placeholder="Name or phone" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
+          {R.searchBookings(s, arrQ).slice(0, 5).map((b) => <button key={b.id} onClick={() => { R.pickBooking(s, b.id); rerender(); }} style={{ ...rowBtn, padding: '6px 10px', fontSize: 12.5 }}><b style={{ flex: 1, textAlign: 'left' }}>{b.name}</b><span style={{ color: MUTED }}>{b.when} · {b.service} · {b.provider}</span></button>)}</>}
+        {ab && <div style={{ background: SOFT, borderRadius: 10, padding: '7px 10px', fontSize: 12.5, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><b style={{ flex: 1 }}>{ab.name} · {ab.when}</b><button style={mini} onClick={() => { cur.arr!.booking = null; rerender(); }}>Change</button></div>
+          <div>{ab.service} with {ab.provider}</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{ab.deposit > 0 && <Chip tone="green">Deposit {money(ab.deposit)} paid</Chip>}{ab.consentNeeded && <Chip tone={ab.consentOnFile ? 'green' : 'amber'}>{ab.consentOnFile ? 'Consent on file' : 'Consent form needed'}</Chip>}<Chip>{ab.courtesyLeft} courtesy left</Chip></div>
+        </div>}
+      </>)}
+      {step(2, cur.c.kind === 'new' ? 'Their details (new client)' : 'Confirm their details', !!cur.arr.details, <>
+        {cur.arr.details ? <div style={{ fontSize: 12.5 }}>{cur.arr.details.phone.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')} · {cur.arr.details.email}{cur.arr.details.promo ? ' · offers on' : ''} <span style={{ color: MUTED }}>({cur.arr.details.by === 'client' ? 'entered by the client' : 'typed by you'})</span></div>
+          : <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Btn small onClick={() => sendDetails(false)} disabled={!!formWait || !ab}>{formWait === 'details' ? `${cur.c.name} is filling them in…` : 'Send to the client screen'}</Btn>
+            {ab && cur.c.kind !== 'new' && <button style={mini} onClick={() => { R.confirmDetails(s, { phone: ab.phone, email: ab.email, promo: false }, 'desk'); rerender(); }}>They said it’s all the same</button>}</div>}
+      </>)}
+      {ab && ab.consentNeeded && !ab.consentOnFile && step(3, `${ab.service} consent form`, !!cur.arr.consent, cur.arr.consent ? <div style={{ fontSize: 12.5, color: GREEN }}>Signed on the client screen.</div>
+        : <div><Btn small onClick={sendConsent} disabled={!!formWait}>{formWait === 'consent' ? `${cur.c.name} is reading and signing…` : 'Send the form to the client screen'}</Btn></div>)}
+      {late > R.GRACE_MIN && step(4, `${late} minutes late (grace is ${R.GRACE_MIN})`, !!cur.arr.late, cur.arr.late ? <div style={{ fontSize: 12.5 }}>{cur.arr.late === 'short' ? 'A shorter service today' : cur.arr.late === 'reschedule' ? 'Moved to another day' : 'Full service (the next guest will wait)'}{cur.arr.courtesy ? ' · courtesy used, no late fee' : ' · late fee charged'}</div> : <>
+        <div style={{ fontSize: 12, color: MUTED }}>{ab ? `${ab.provider}’s next guest is at ${ab.provider === 'Mei' ? '12:45' : '1:00'}.` : 'Find the booking first.'} Offer choices; the client decides.</div>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12.5 }}><input type="checkbox" checked={lateCourtesy} onChange={(e) => setLateCourtesy(e.target.checked)} />Use a courtesy (no late fee){ab ? ` · ${ab.courtesyLeft} left` : ''}</label>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{([['short', 'Shorter service today'], ['reschedule', 'Another day'], ['full', 'Full service anyway']] as const).map(([k, l]) => <button key={k} style={mini} onClick={() => { R.chooseLate(s, k, lateCourtesy); rerender(); }}>{l}</button>)}</div></>)}
+      {step(late > R.GRACE_MIN ? 5 : 4, `Let ${ab?.provider || 'their provider'} know`, cur.arr.notified, cur.arr.notified ? <div style={{ fontSize: 12.5, color: GREEN }}>{ab?.provider || 'Their provider'} has been told {cur.c.name} is here.</div> : <div><button style={mini} onClick={() => { R.notifyProvider(s); drainSfx(); rerender(); }}>Send {ab?.provider || 'provider'} an “arrived” alert</button></div>)}
+      <div style={{ flex: 1 }} />
+      <Btn small onClick={doneArrival}>Finish check-in · send to the lounge</Btn>
+    </div>
+  );
+  const pos = cur && !R.isArrival(cur.c) && (
     <div style={{ background: '#fff', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: narrow ? 0 : 300, boxSizing: 'border-box', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 28, height: 28, borderRadius: 14, background: cur.c.look.top, color: '#fff', fontSize: 12.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{cur.c.name[0]}</span>
@@ -509,7 +590,7 @@ export default function RegisterPractice() {
         <input aria-label="Client phone" value={details.phone} onChange={(e) => setDetails((d) => ({ ...d, phone: e.target.value }))} placeholder="Mobile number" inputMode="tel" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
         <input aria-label="Client email" value={details.email} onChange={(e) => setDetails((d) => ({ ...d, email: e.target.value }))} placeholder="Email" inputMode="email" autoCapitalize="none" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><input type="checkbox" checked={details.promo} onChange={(e) => setDetails((d) => ({ ...d, promo: e.target.checked }))} />Send offers by text <span style={{ color: MUTED }}>(only if they say yes)</span></label>
-        <div><Btn small onClick={() => { R.saveContact(s, details); rerender(); }}>{cur.contact ? 'Update details' : 'Save details'}</Btn></div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Btn small onClick={() => { R.saveContact(s, details); rerender(); }}>{cur.contact ? 'Update details' : 'Save details'}</Btn><Btn small ghost onClick={() => sendDetails(true)} disabled={!!formWait}>{formWait === 'details' ? `Waiting for ${cur.c.name}…` : 'Let her type them on the client screen'}</Btn></div>
       </div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1.5px solid ${INK}`, paddingTop: 7, fontSize: 16, fontWeight: 800 }}><span>Total</span><span>{money(total)}</span></div>
       {!pay && <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>
@@ -744,6 +825,32 @@ export default function RegisterPractice() {
     </div>
   </div>;
   const waitEl = waitingClient && <div style={{ position: 'fixed', left: '50%', bottom: narrow ? 10 : 18, transform: 'translateX(-50%)', zIndex: 45, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '7px 8px 7px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 12px 26px -14px rgba(0,0,0,.45)', fontSize: 13 }}><span style={{ width: 8, height: 8, borderRadius: 4, background: BLUE }} />Waiting for the client screen…<button style={mini} onClick={chooseForThem}>Choose for them</button></div>;
+  const oc = s.onCall; const ocB = oc ? R.bookingBy(s, oc.found) : null;
+  const ringEl = s.ringing && !oc && <div style={{ position: 'fixed', right: narrow ? 8 : 24, top: narrow ? 116 : 126, zIndex: 42, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '6px 6px 6px 12px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 0 0 6px #fdf1e3, 0 12px 26px -14px rgba(0,0,0,.45)' }}>
+    <span style={{ fontSize: 18, animation: 'regBeam .25s ease-in-out infinite alternate' }}>📞</span><span style={{ fontSize: 13 }}><b>Line 1</b> · {s.ringing.call.name} calling</span><Btn small onClick={answerCall}>Answer</Btn></div>;
+  const callEl = oc && <div style={{ position: 'fixed', right: narrow ? 6 : 24, left: narrow ? 6 : 'auto', top: narrow ? 'auto' : 126, bottom: narrow ? 6 : 'auto', width: narrow ? 'auto' : 380, maxHeight: narrow ? '72vh' : 'calc(100vh - 150px)', overflow: 'auto', zIndex: 44, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 20, padding: 14, boxShadow: '0 30px 60px -30px rgba(0,0,0,.6)', display: 'flex', flexDirection: 'column', gap: 8, boxSizing: 'border-box' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 30, height: 30, borderRadius: 15, background: INK, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎧</span><div style={{ flex: 1 }}><b style={{ fontSize: 14 }}>On a call · {oc.call.name}</b><div style={{ fontSize: 11, color: MUTED }}>Line 1 · {Math.round((s.t - oc.started) / 2)} min</div></div><Btn small ghost onClick={hangUp}>End call</Btn></div>
+    <Say tone="soft">{oc.said}</Say>
+    {talkOn && <div style={{ fontSize: 11.5, color: MUTED }}>Talk mode is on: speak to the caller with the mic.</div>}
+    {!ocB ? <>
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Find the booking</div>
+      <input aria-label="Search bookings for the caller" value={callQ} onChange={(e) => setCallQ(e.target.value)} placeholder="Name or phone" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
+      {callQ && R.searchBookings(s, callQ).slice(0, 5).map((b) => <button key={b.id} onClick={() => { R.callFind(s, b.id); rerender(); }} style={{ ...rowBtn, padding: '6px 10px', fontSize: 12.5 }}><b style={{ flex: 1, textAlign: 'left' }}>{b.name}</b><span style={{ color: MUTED }}>{b.when} · {b.service}</span></button>)}
+    </> : <div style={{ background: SOFT, borderRadius: 10, padding: '7px 10px', fontSize: 12.5, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', gap: 6 }}><b style={{ flex: 1 }}>{ocB.name} · {ocB.when}</b><button style={mini} onClick={() => { oc.found = null; rerender(); }}>Change</button></div>
+      <div>{ocB.service} with {ocB.provider} · {ocB.courtesyLeft} courtesy left</div>
+      {ocB.day === 'Sun' && <div style={{ color: AMBER }}>Tomorrow morning: inside 24 hours. Late-cancel fee {money(R.CANCEL_FEE)} unless a courtesy is used.</div>}
+    </div>}
+    {ocB && !oc.outcome && <>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><button style={mini} disabled={oc.offeredAnotherDay} onClick={() => { R.offerAnotherDay(s); rerender(); }}>{oc.offeredAnotherDay ? 'Offered another day ✓' : 'Offer another day'}</button></div>
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Move it to</div>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{R.OPEN_SLOTS.map((sl) => <button key={sl} style={mini} onClick={() => { R.callReschedule(s, sl); rerender(); }}>{sl}</button>)}</div>
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Or cancel</div>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><button style={mini} onClick={() => { R.callCancel(s, false); rerender(); }}>Cancel{ocB.day === 'Sun' ? ', use a courtesy (no fee)' : ''}</button>{ocB.day === 'Sun' && <button style={mini} onClick={() => { R.callCancel(s, true); rerender(); }}>Cancel, charge {money(R.CANCEL_FEE)}</button>}</div>
+    </>}
+    {!oc.outcome && <button style={{ ...mini, alignSelf: 'flex-start' }} onClick={() => { R.takeMessage(s); rerender(); }}>Take a message</button>}
+    {oc.outcome && <div style={{ background: '#eaf6ef', color: GREEN, borderRadius: 10, padding: '7px 10px', fontSize: 12.5, fontWeight: 600 }}>{oc.outcome.kind === 'rescheduled' ? `Moved to ${oc.outcome.slot}. A confirmation text goes out.` : oc.outcome.kind === 'cancelled' ? `Cancelled${oc.outcome.fee ? ` with a ${money(R.CANCEL_FEE)} fee` : ''}.` : 'Message taken.'} Say goodbye and end the call.</div>}
+  </div>;
   const printEl = rc && <div id="cf-print" style={{ display: 'none' }}><ReceiptPaper r={rc} width="72mm" /></div>;
   const pauseEl = paused && <div style={{ position: 'fixed', inset: 0, background: 'rgba(22,23,26,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}><div style={{ background: '#fff', borderRadius: 18, padding: 24, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}><b style={{ fontSize: 18 }}>Paused</b><Btn onClick={() => setPaused(false)}>Resume</Btn></div></div>;
 
@@ -752,14 +859,14 @@ export default function RegisterPractice() {
       <Fonts />{hud}{coachEl}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{queue}</div>
       {client}{greetEl}{talkEl}{claimCard}
-      <div style={{ background: '#16171a', borderRadius: 16, padding: 7 }}>{pos || saleDone}</div>
+      <div style={{ background: '#16171a', borderRadius: 16, padding: 7 }}>{pos || arrivalPanel || saleDone}</div>
       {clientScreen}
       {receiptPanel && <div style={{ paddingTop: 250, display: 'flex', justifyContent: 'center' }}>{receiptPanel}</div>}
       <div style={{ background: 'linear-gradient(180deg,#f4f4f6,#dfdfe3)', borderTop: '4px solid #fff', borderRadius: 16, padding: 8 }}>{counter}</div>
       {zoom && <div style={{ position: 'fixed', left: 8, right: 8, bottom: 8, zIndex: 20 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'fixed', left: 6, right: 6, bottom: 6, zIndex: 20, maxHeight: '70vh', overflow: 'auto' }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
-      {toast}{roomEl}{waitEl}{printEl}
+      {toast}{roomEl}{waitEl}{ringEl}{callEl}{printEl}
       {pauseEl}
     </div>
   );
@@ -778,7 +885,7 @@ export default function RegisterPractice() {
       {/* the counter */}
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '42%', background: 'linear-gradient(180deg,#f4f4f6 0%,#e9e9ec 40%,#dfdfe3 100%)', borderTop: '8px solid #fff', zIndex: 2 }} />
       <div style={{ position: 'absolute', left: 28, bottom: 34, width: 'min(430px, 34vw)', height: 'min(430px, 58vh)', zIndex: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ background: '#16171a', borderRadius: 16, padding: 8, width: '100%', height: '100%', boxSizing: 'border-box', boxShadow: '0 26px 40px -20px rgba(0,0,0,.6)' }}>{pos || saleDone}</div>
+        <div style={{ background: '#16171a', borderRadius: 16, padding: 8, width: '100%', height: '100%', boxSizing: 'border-box', boxShadow: '0 26px 40px -20px rgba(0,0,0,.6)' }}>{pos || arrivalPanel || saleDone}</div>
       </div>
       <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 70px)', bottom: 40, zIndex: 3 }}>{counter}</div>
       <div style={{ position: 'absolute', right: 400, bottom: 40, zIndex: 4 }}>{receiptPanel || <ReceiptPrinter r={null} printing={false} />}</div>
@@ -786,7 +893,7 @@ export default function RegisterPractice() {
       {zoom && <div style={{ position: 'absolute', left: '50%', bottom: 30, transform: 'translateX(-30%)', zIndex: 10 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 50px)', right: 390, bottom: 24, zIndex: 10, display: 'flex', justifyContent: 'center' }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
-      {toast}{roomEl}{waitEl}{printEl}
+      {toast}{roomEl}{waitEl}{ringEl}{callEl}{printEl}
       {pauseEl}
     </div>
   );

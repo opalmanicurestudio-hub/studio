@@ -2,7 +2,7 @@
 // Practice a shift, two players: the client screen. Open this on a second device (an iPad is perfect),
 // enter the code from the desk, and play the client: choose a tip, tap your card, keep the change,
 // pick your next visit, say yes or no to a membership, and choose a receipt.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAuth, useFirestore } from '@/firebase';
 import * as Room from '@/lib/practice/room';
 
@@ -55,6 +55,8 @@ export default function ClientScreen() {
       {(v.lines || []).map((l, i) => <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: i ? `1px solid ${LINE}` : 'none', fontSize: 16, color: l.price < 0 ? GREEN : INK }}><span>{l.label}</span><span>{f(Math.round(l.price * 100))}</span></div>)}
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `1.5px solid ${INK}`, fontSize: 20, fontWeight: 800 }}><span>Total</span><span>{f(v.total || 0)}</span></div>
     </div></>;
+  else if (v.stage === 'details') body = <DetailsForm key={v.seq} v={v} disabled={waiting} onSend={(x) => send(JSON.stringify(x))} />;
+  else if (v.stage === 'consent') body = <ConsentForm key={v.seq} v={v} disabled={waiting} onSend={(x) => send(JSON.stringify(x))} />;
   else body = <>
     {v.title && <div style={{ fontSize: 28, fontWeight: 300, textAlign: 'center', letterSpacing: '-0.01em' }}>{v.title}</div>}
     {v.amount !== undefined && <div style={{ fontSize: 40, fontWeight: 800 }}>{f(v.amount)}</div>}
@@ -77,9 +79,52 @@ export default function ClientScreen() {
   );
 }
 
+/** The client checks or updates their own details: their info, their choice about promo texts. */
+function DetailsForm({ v, disabled, onSend }: { v: Room.DeskView; disabled: boolean; onSend: (x: { phone: string; email: string; promo: boolean }) => void }) {
+  const [phone, setPhone] = useState(v.prefill?.phone || ''); const [email, setEmail] = useState(v.prefill?.email || ''); const [promo, setPromo] = useState(false);
+  const field = { width: '100%', boxSizing: 'border-box' as const, border: `1.5px solid ${LINE}`, borderRadius: 14, padding: '13px 14px', fontSize: 17, fontFamily: 'inherit' };
+  const ok = phone.replace(/\D/g, '').length >= 10 && /.+@.+\..+/.test(email);
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 480 }}>
+    <div style={{ fontSize: 28, fontWeight: 300, textAlign: 'center' }}>{v.title || 'Your details'}</div>
+    <div style={{ color: MUTED, fontSize: 15, textAlign: 'center' }}>{v.note || 'Please check these, or update them.'}</div>
+    {v.prefill?.name && <div style={{ fontSize: 15, textAlign: 'center' }}><b>{v.prefill.name}</b></div>}
+    <label style={{ fontSize: 13, color: MUTED }}>Mobile number<input aria-label="Mobile number" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" autoComplete="tel" style={field} /></label>
+    <label style={{ fontSize: 13, color: MUTED }}>Email<input aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" autoCapitalize="none" autoComplete="email" style={field} /></label>
+    <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 15 }}><input type="checkbox" checked={promo} onChange={(e) => setPromo(e.target.checked)} style={{ width: 22, height: 22 }} />Send me offers by text (optional)</label>
+    <div style={{ fontSize: 12.5, color: MUTED }}>Appointment reminders are always sent. Offers only if you tick the box.</div>
+    <Big disabled={disabled || !ok} onClick={() => onSend({ phone, email, promo })}>{disabled ? 'Sent' : 'Save my details'}</Big>
+  </div>;
+}
+/** The consent form: read it, sign with a finger, agree. */
+function ConsentForm({ v, disabled, onSend }: { v: Room.DeskView; disabled: boolean; onSend: (x: { signed: boolean; name: string }) => void }) {
+  const ref = useRef<HTMLCanvasElement>(null); const [inked, setInked] = useState(false); const [agree, setAgree] = useState(false); const [name, setName] = useState(v.prefill?.name || '');
+  useEffect(() => {
+    const c = ref.current; if (!c) return; const g = c.getContext('2d')!; g.lineWidth = 2.4; g.lineCap = 'round'; g.strokeStyle = INK; let down = false;
+    const pt = (e: PointerEvent) => { const r = c.getBoundingClientRect(); return [((e.clientX - r.left) / r.width) * c.width, ((e.clientY - r.top) / r.height) * c.height]; };
+    const d = (e: PointerEvent) => { down = true; c.setPointerCapture(e.pointerId); const [x, y] = pt(e); g.beginPath(); g.moveTo(x, y); };
+    const m = (e: PointerEvent) => { if (!down) return; const [x, y] = pt(e); g.lineTo(x, y); g.stroke(); setInked(true); };
+    const u = () => { down = false; };
+    c.addEventListener('pointerdown', d); c.addEventListener('pointermove', m); c.addEventListener('pointerup', u);
+    return () => { c.removeEventListener('pointerdown', d); c.removeEventListener('pointermove', m); c.removeEventListener('pointerup', u); };
+  }, []);
+  const clear = () => { const c = ref.current; c?.getContext('2d')?.clearRect(0, 0, c.width, c.height); setInked(false); };
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 560 }}>
+    <div style={{ fontSize: 26, fontWeight: 300, textAlign: 'center' }}>{v.title || 'Consent form'}</div>
+    <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 16, padding: '12px 14px', fontSize: 14, lineHeight: 1.55, maxHeight: 220, overflow: 'auto', whiteSpace: 'pre-line' }}>{v.text}</div>
+    <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 15 }}><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} style={{ width: 22, height: 22 }} />I’ve read this and agree</label>
+    <label style={{ fontSize: 13, color: MUTED }}>Full name<input aria-label="Full name" value={name} onChange={(e) => setName(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1.5px solid ${LINE}`, borderRadius: 14, padding: '11px 14px', fontSize: 16, fontFamily: 'inherit' }} /></label>
+    <div style={{ position: 'relative' }}>
+      <canvas ref={ref} aria-label="Sign here" width={1000} height={260} style={{ width: '100%', height: 130, background: '#fff', border: `1.5px dashed ${LINE}`, borderRadius: 16, touchAction: 'none', display: 'block' }} />
+      {!inked && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, pointerEvents: 'none' }}>Sign here with your finger</div>}
+      {inked && <button onClick={clear} style={{ position: 'absolute', right: 8, top: 8, border: `1px solid ${LINE}`, background: '#fff', borderRadius: 999, padding: '4px 10px', fontSize: 12, fontFamily: 'inherit' }}>Clear</button>}
+    </div>
+    <Big disabled={disabled || !inked || !agree || name.trim().length < 2} onClick={() => onSend({ signed: true, name: name.trim() })}>{disabled ? 'Signed' : 'Sign'}</Big>
+  </div>;
+}
+
 function Logo() { return <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><div style={{ width: 64, height: 64, borderRadius: 32, background: 'radial-gradient(circle at 35% 30%, #ffffff, #e9e4f2 55%, #cfd9ea)', boxShadow: '0 10px 24px -14px rgba(0,0,0,.4)' }} /><div style={{ fontSize: 14, letterSpacing: '.3em', fontWeight: 700 }}>OPAL SALON</div></div>; }
-function Big({ children, disabled }: { children: ReactNode; disabled?: boolean }) {
-  return <button disabled={disabled} style={{ border: `1px solid ${INK}`, background: INK, color: '#fff', borderRadius: 999, padding: '14px 28px', fontSize: 16, fontWeight: 600, fontFamily: 'inherit', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1 }}>{children}</button>;
+function Big({ children, disabled, onClick }: { children: ReactNode; disabled?: boolean; onClick?: () => void }) {
+  return <button type={onClick ? 'button' : 'submit'} onClick={onClick} disabled={disabled} style={{ border: `1px solid ${INK}`, background: INK, color: '#fff', borderRadius: 999, padding: '14px 28px', fontSize: 16, fontWeight: 600, fontFamily: 'inherit', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1 }}>{children}</button>;
 }
 function Frame({ children }: { children: ReactNode }) {
   return <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#fbfaf8,#f1eee9)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, padding: '56px 20px 24px', boxSizing: 'border-box' }}>

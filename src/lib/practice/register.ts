@@ -76,6 +76,8 @@ export type Customer = {
   /** First visit: the details they'll read out, and whether they want promo texts. */
   details?: { phone: string; email: string; promo: boolean; sayPhone: string; sayEmail: string };
   /** A group checking out together. */
+  /** Checking in for a booking (instead of checking out). */
+  visitType?: 'arrival'; booking?: string; late?: number;
   /** Weeks until they'd like to come back, or 'no' if they'd rather book later. */
   rebook: number | 'no';
   /** A membership or package they'd say yes to, if offered. */
@@ -83,6 +85,26 @@ export type Customer = {
   party?: { members: { name: string; look: Look; service: { label: string; price: number; provider: string } }[]; split: Split; payer?: string; methods: ('card' | 'cash')[]; ask: string };
 };
 export type Split = 'own' | 'even' | 'one';
+/** Today's bookings (what the front desk searches when someone arrives or calls). */
+export type Booking = { id: string; name: string; when: string; day: 'today' | 'Thu' | 'Sun'; service: string; provider: string; phone: string; email: string; deposit: number; consentNeeded: boolean; consentOnFile: boolean; courtesyLeft: number; status: 'booked' | 'arrived' | 'rescheduled' | 'cancelled'; movedTo?: string; feeCharged?: boolean };
+export type Call = { id: string; at: number; name: string; booking: string; want: 'reschedule' | 'cancel'; prefers: string; persona: string; voiceHint: { gender: 'female' | 'male'; age: 'young' | 'middle_aged' | 'old' }; voice: { pitch: number; rate: number }; opener: string };
+export type CallState = { call: Call; started: number; found: string | null; offeredAnotherDay: boolean; outcome: null | { kind: 'rescheduled'; slot: string } | { kind: 'cancelled'; fee: boolean } | { kind: 'message' }; said: string; history: { who: 'you' | 'client'; text: string }[] };
+export const BOOKINGS: Booking[] = [
+  { id: 'b-nina-patel', name: 'Nina Patel', when: '11:30 AM', day: 'today', service: 'Balayage', provider: 'Mei', phone: '9195550178', email: 'nina.patel@mailbox.com', deposit: 40, consentNeeded: true, consentOnFile: false, courtesyLeft: 1, status: 'booked' },
+  { id: 'b-nina-park', name: 'Nina Park', when: '1:00 PM', day: 'today', service: 'Gel manicure', provider: 'Ana', phone: '9195550133', email: 'nina.park@mailbox.com', deposit: 0, consentNeeded: false, consentOnFile: true, courtesyLeft: 1, status: 'booked' },
+  { id: 'b-jamal', name: 'Jamal Wright', when: '12:00 PM', day: 'today', service: 'Facial', provider: 'Hana', phone: '9195550161', email: 'jamal.wright@mailbox.com', deposit: 20, consentNeeded: true, consentOnFile: false, courtesyLeft: 1, status: 'booked' },
+  { id: 'b-olivia', name: 'Olivia Chen', when: '12:10 PM', day: 'today', service: 'Blowout', provider: 'Mei', phone: '9195550109', email: 'olivia.chen@mailbox.com', deposit: 0, consentNeeded: false, consentOnFile: true, courtesyLeft: 1, status: 'booked' },
+  { id: 'b-dana', name: 'Dana Lee', when: 'Thu 2:00 PM', day: 'Thu', service: 'Gel manicure', provider: 'Ana', phone: '9195550191', email: 'dana.lee@mailbox.com', deposit: 0, consentNeeded: false, consentOnFile: true, courtesyLeft: 1, status: 'booked' },
+  { id: 'b-dana-li', name: 'Dana Li', when: 'Thu 4:30 PM', day: 'Thu', service: 'Pedicure', provider: 'Ana', phone: '9195550147', email: 'dana.li@mailbox.com', deposit: 0, consentNeeded: false, consentOnFile: true, courtesyLeft: 0, status: 'booked' },
+  { id: 'b-kim', name: 'Kim Alvarez', when: 'Sun 9:00 AM', day: 'Sun', service: 'Lash lift', provider: 'Hana', phone: '9195550126', email: 'kim.alvarez@mailbox.com', deposit: 0, consentNeeded: true, consentOnFile: true, courtesyLeft: 1, status: 'booked' },
+];
+const CV = (pitch: number, rate: number) => ({ pitch, rate });
+export const CALLS: Call[] = [
+  { id: 'call-dana', at: 50, name: 'Dana Lee', booking: 'b-dana', want: 'reschedule', prefers: 'Sat 10:00 AM', persona: 'Friendly, organized caller in her 30s. Needs to move her Thursday gel manicure because of a work trip; would love next Saturday morning.', voiceHint: { gender: 'female', age: 'middle_aged' }, voice: CV(1.1, 1.02), opener: 'Hi! This is Dana. I need to move my appointment on Thursday, I have a work trip.' },
+  { id: 'call-kim', at: 150, name: 'Kim Alvarez', booking: 'b-kim', want: 'cancel', prefers: 'Sat 1:00 PM', persona: 'Apologetic caller in her 20s. Something came up and she wants to cancel tomorrow’s 9 AM lash lift; if offered another day she’d gladly take next Saturday afternoon instead.', voiceHint: { gender: 'female', age: 'young' }, voice: CV(1.25, 1.08), opener: 'Hi, um, it’s Kim. I’m so sorry, I need to cancel my lash appointment tomorrow morning.' },
+];
+/** Open times the desk can offer when moving a booking. */
+export const OPEN_SLOTS = ['Sat 10:00 AM', 'Sat 1:00 PM', 'Tue 4:30 PM', 'Wed 11:00 AM'];
 export type Part = { who: string; amount: number; method: 'card' | 'cash'; paid: boolean; tip: number };   // cents
 export type Tender = { who: string; method: 'card' | 'cash'; amount: number; given?: number; change?: number; tip: number };
 export type Line = { id: number; kind: 'service' | 'retail' | 'discount' | 'membership' | 'package'; label: string; price: number; sku?: string; voided?: string; via?: 'gun' | 'typed' | 'usb' | 'camera' | 'name'; approvedBy?: string };
@@ -97,9 +119,12 @@ export type RegState = {
     greeted?: 'great' | 'ok' | 'poor'; contact?: { phone: string; email: string; promo: boolean }; asked: { phone: number; email: number };
     parts?: Part[]; partIdx: number; split?: Split; tenders: Tender[]; method?: 'card' | 'cash'; mStart: number;
     tipPick?: number; rebooked?: string | 'no'; offered: string[]; card: { tries: number; declined: boolean; other: boolean; reconnected: boolean; chipFailed: boolean }; receiptPick?: Customer['receipt'];
-    history: { who: 'you' | 'client'; text: string }[] };
+    history: { who: 'you' | 'client'; text: string }[];
+    arr?: { booking: string | null; details: null | { phone: string; email: string; promo: boolean; by: 'client' | 'desk' }; consent: null | 'client' | 'desk'; late: null | 'full' | 'short' | 'reschedule'; courtesy: boolean; notified: boolean; arrivedAt: number } };
   lastReceipt: null | Receipt; receiptNo: number; busy: boolean; sales: { rebooks: number; rebookChances: number; members: number; packages: number };
   /** Talking out loud: each thing you said, how the client answered, and the coach's view. */
+  bookings: Booking[];
+  calls: Call[]; ringing: null | { call: Call; since: number }; onCall: null | CallState;
   talk: { who: string; you: string; reply: string; scores: { awareness: number; confidence: number; warmth: number; retention: number }; tip: string; fillers: number; wpm: number | null }[];   // busy: finishing up (receipt), the next client waits
   nextLine: number; done: Checkout[]; mistakes: Mistake[]; streak: number; bestStreak: number; points: number; log: string[]; coach: number; sfx: string[];
 };
@@ -128,6 +153,14 @@ const PEOPLE: Customer[] = [
     items: [{ sku: 'beardoil', n: 2 }], slips: [], arrive: 140, hello: 'Two of the beard oils. One’s a gift. Cash is fine.', visits: 3, rebook: 'no', pays: { cash: 'one', keep: 'none' } },
   { id: 'priya', name: 'Priya', pron: 'she', persona: 'Thoughtful and health-conscious regular in her 30s. Has a fragrance allergy she takes seriously and appreciates staff who notice.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'print', voice: V(1.0, 1.0), look: { skin: '#b07a52', hair: '#1a1210', top: '#e7c3c9', style: 'braids' }, service: { label: 'Color', price: 150, provider: 'Jordan' },
     items: [{ sku: 'serum4', n: 1 }], slips: [{ kind: 'unreadable', sku: 'serum4' }, { kind: 'allergy', allergy: 'fragrance' }, { kind: 'offline' }], arrive: 165, hello: 'The big scalp serum, please.', visits: 5, rebook: 6 },
+  // Arrivals: checking in for today's bookings.
+  { id: 'nina', name: 'Nina', pron: 'she', persona: 'Cheerful regular in her 30s, a little rushed. Says only her first name at first. She’s Nina Patel, here for an 11:30 balayage with Mei. Her number is still 919-555-0178. Happy to sign the color consent form again.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'returning', receipt: 'none', voice: V(1.12, 1.05), look: { skin: '#9a6a4a', hair: '#21160f', top: '#d8c3e8', style: 'long' }, service: { label: 'Balayage', price: 145, provider: 'Mei' },
+    items: [], slips: [], arrive: 30, hello: 'Hi! It’s Nina, I have an 11:30.', visits: 3, rebook: 'no', visitType: 'arrival', booking: 'b-nina-patel' },
+  { id: 'jamal', name: 'Jamal', pron: 'he', persona: 'Calm, polite first-time client in his late 20s, here for a 12:00 facial with Hana. Booked online and paid the deposit. Happy to fill in his details and the facial consent form. Reminders yes, no promo texts.', voiceHint: { gender: 'male', age: 'young' }, kind: 'new', receipt: 'none', voice: V(0.88, 0.98), look: { skin: '#4a2e20', hair: '#0f0b09', top: '#bcd3e8', style: 'fade' }, service: { label: 'Facial', price: 85, provider: 'Hana' },
+    items: [], slips: [], arrive: 100, hello: 'Hi, I’m Jamal. First time here, I have a facial at noon.', visits: 1, rebook: 'no', visitType: 'arrival', booking: 'b-jamal',
+    details: { phone: '9195550161', email: 'jamal.wright@mailbox.com', promo: false, sayPhone: 'It’s 919, 555, 0161.', sayEmail: 'Jamal dot wright at mailbox dot com. Reminders are great, no promos please.' } },
+  { id: 'olivia', name: 'Olivia', pron: 'she', persona: 'Flustered regular in her 20s, 15 minutes late for her 12:10 blowout with Mei because of traffic. Apologetic. She’d happily take a quicker style today rather than reschedule, and hopes there’s no late fee.', voiceHint: { gender: 'female', age: 'young' }, kind: 'returning', receipt: 'none', voice: V(1.2, 1.12), look: { skin: '#f1d7c0', hair: '#1a1210', top: '#f3c6d0', style: 'bun' }, service: { label: 'Blowout', price: 55, provider: 'Mei' },
+    items: [], slips: [], arrive: 128, hello: 'Hi, I’m so sorry, traffic was awful. Olivia, for 12:10 with Mei?', visits: 4, rebook: 'no', visitType: 'arrival', booking: 'b-olivia', late: 15 },
 ];
 
 export const they = (c: Customer) => c.pron;
@@ -136,7 +169,7 @@ export const their = (c: Customer) => (c.pron === 'she' ? 'her' : c.pron === 'he
 export function newRegister(currency: CurrencyCode = 'USD'): RegState {
   const queue = PEOPLE.map((p) => ({ ...p, items: p.items.map((i) => ({ ...i })), slips: [...p.slips], party: p.party ? { ...p.party, members: p.party.members.map((m) => ({ ...m })) } : undefined }));
   const drawer = { ...$.CURRENCIES[currency].float };
-  return { t: 0, end: 240, queue, waiting: {}, currency, drawer, float: $.drawerTotal(drawer), cashSales: 0, tipJar: 0, close: null, lastReceipt: null, receiptNo: 1041, busy: false, sales: { rebooks: 0, rebookChances: 0, members: 0, packages: 0 }, talk: [], cur: null, nextLine: 1, done: [], mistakes: [], streak: 0, bestStreak: 0, points: 0, log: [], coach: 0, sfx: [] };
+  return { t: 0, end: 240, queue, waiting: {}, currency, drawer, float: $.drawerTotal(drawer), cashSales: 0, tipJar: 0, close: null, lastReceipt: null, receiptNo: 1041, busy: false, sales: { rebooks: 0, rebookChances: 0, members: 0, packages: 0 }, bookings: BOOKINGS.map((b) => ({ ...b })), calls: CALLS.map((c) => ({ ...c })), ringing: null, onCall: null, talk: [], cur: null, nextLine: 1, done: [], mistakes: [], streak: 0, bestStreak: 0, points: 0, log: [], coach: 0, sfx: [] };
 }
 
 // ── Time and the line ───────────────────────────────────────────────────
@@ -147,14 +180,21 @@ export function advance(s: RegState, dt: number) {
   for (const c of line(s)) s.waiting[c.id] = Math.max(0, (s.waiting[c.id] ?? 1) - dt * 0.006);
   if (s.cur) s.cur.mood = Math.max(0, s.cur.mood - dt * 0.002);
   if (!s.cur && !s.busy && line(s).length) callNext(s);
+  // The phone: a call rings until answered; after a while it goes to voicemail.
+  if (!s.ringing && !s.onCall) { const next = s.calls.find((c) => c.at <= s.t); if (next) { s.calls = s.calls.filter((c) => c !== next); s.ringing = { call: next, since: s.t }; s.sfx.push('ring'); } }
+  if (s.ringing && s.t - s.ringing.since > RING_LIMIT) {
+    const c = s.ringing.call; s.ringing = null;
+    s.mistakes.push({ at: s.t, who: c.name, what: `Let ${c.name}’s call ring out`, later: c.want === 'cancel' ? `${c.name} didn’t show up tomorrow and the chair sat empty.` : `${c.name} booked somewhere else.`, right: 'Answer within a few rings, even mid-checkout: “Excuse me one moment,” then help the caller or put them on a short hold.' });
+  }
 }
 export function callNext(s: RegState) {
   const c = line(s)[0]; if (!c || s.cur) return false;
   s.queue = s.queue.filter((x) => x !== c);
   const mood = s.waiting[c.id] ?? 1; delete s.waiting[c.id];
-  const lines: Line[] = c.party ? c.party.members.map((m) => ({ id: s.nextLine++, kind: 'service' as const, label: `${m.name}: ${m.service.label} · ${m.service.provider}`, price: m.service.price }))
+  const lines: Line[] = c.visitType === 'arrival' ? [] : c.party ? c.party.members.map((m) => ({ id: s.nextLine++, kind: 'service' as const, label: `${m.name}: ${m.service.label} · ${m.service.provider}`, price: m.service.price }))
     : [{ id: s.nextLine++, kind: 'service', label: `${c.service.label} · ${c.service.provider}`, price: c.service.price }];
-  s.cur = { c, lines, start: s.t, mood, claim: c.slips.some((x) => x.kind === 'shelf') ? 'open' : null, tries: {}, read: {}, said: c.hello, note: null, asked: { phone: 0, email: 0 }, partIdx: 0, tenders: [], mStart: s.mistakes.length, offered: [], card: { tries: 0, declined: false, other: false, reconnected: false, chipFailed: false }, history: [] };
+  s.cur = { c, lines, start: s.t, mood, claim: c.slips.some((x) => x.kind === 'shelf') ? 'open' : null, tries: {}, read: {}, said: c.hello, note: null, asked: { phone: 0, email: 0 }, partIdx: 0, tenders: [], mStart: s.mistakes.length, offered: [], card: { tries: 0, declined: false, other: false, reconnected: false, chipFailed: false }, history: [],
+    arr: c.visitType === 'arrival' ? { booking: null, details: null, consent: null, late: null, courtesy: false, notified: false, arrivedAt: s.t } : undefined };
   s.sfx.push('bell');
   return true;
 }
@@ -262,7 +302,9 @@ function ticketChecks(s: RegState) {
 // ── Greeting and first-visit details ───────────────────────────────────
 export type Greeting = { text: string; q: 'great' | 'ok' | 'poor' };
 export function greetOptions(c: Customer): Greeting[] {
-  const g: Greeting[] = c.kind === 'new' ? [{ text: 'Welcome! Is this your first time with us?', q: 'great' }, { text: 'Hi, all done?', q: 'ok' }, { text: 'Name?', q: 'poor' }]
+  const g: Greeting[] = c.visitType === 'arrival' ? (c.kind === 'new' ? [{ text: 'Hi, welcome! Is this your first visit with us?', q: 'great' }, { text: 'Hi, do you have an appointment?', q: 'ok' }, { text: 'Name?', q: 'poor' }]
+      : [{ text: `Hi, welcome back! Let me find your booking.`, q: 'great' }, { text: 'Hi, checking in?', q: 'ok' }, { text: 'Name?', q: 'poor' }])
+    : c.kind === 'new' ? [{ text: 'Welcome! Is this your first time with us?', q: 'great' }, { text: 'Hi, all done?', q: 'ok' }, { text: 'Name?', q: 'poor' }]
     : c.kind === 'group' ? [{ text: 'Hi everyone, congratulations! How did everything turn out?', q: 'great' }, { text: 'Hi, who’s paying?', q: 'ok' }, { text: 'One at a time, please.', q: 'poor' }]
     : [{ text: `Welcome back, ${c.name}! How was your ${c.service.label.toLowerCase()}?`, q: 'great' }, { text: 'Hi there, all set?', q: 'ok' }, { text: 'Next!', q: 'poor' }];
   const k = c.id.length % 3; return [...g.slice(k), ...g.slice(0, k)];
@@ -271,7 +313,7 @@ export function greet(s: RegState, q: Greeting['q']) {
   const cur = s.cur; if (!cur || cur.greeted) return;
   cur.greeted = q; cur.mood = Math.max(0, Math.min(1, cur.mood + (q === 'great' ? 0.12 : q === 'poor' ? -0.15 : 0)));
   const c = cur.c;
-  cur.said = q === 'poor' ? (c.kind === 'new' ? 'Oh… it’s Ava. It’s my first time.' : 'Oh. Okay.') : c.kind === 'new' ? 'Yes! It was so good. I’ll definitely be back.' : c.kind === 'group' ? `${c.party?.ask}` : c.hello;
+  cur.said = q === 'poor' ? (c.kind === 'new' ? `Oh… it’s ${c.name}. It’s my first time.` : 'Oh. Okay.') : c.visitType === 'arrival' ? (c.kind === 'new' ? 'Yes, first time! I’m excited.' : 'Thanks! It’s under Nina Patel.'.replace('Nina Patel', bookingBy(s, c.booking)?.name || c.name)) : c.kind === 'new' ? 'Yes! It was so good. I’ll definitely be back.' : c.kind === 'group' ? `${c.party?.ask}` : c.hello;
   if (q === 'great') s.points += 15;
   if (q === 'poor') s.mistakes.push({ at: s.t, who: c.name, what: `Greeted ${c.name} with “${greetOptions(c).find((x) => x.q === 'poor')!.text}”`, later: c.kind === 'regular' ? `${c.name} has been coming for months and felt like a number.` : `${c.name} felt rushed.`, right: c.kind === 'new' ? 'Welcome first-timers warmly and ask about their visit.' : 'Use their name and ask how their service went.', minor: true });
 }
@@ -514,10 +556,112 @@ export function closeOut(s: RegState, counted: Record<number, number>): CloseOut
   return s.close;
 }
 
-export const finished = (s: RegState) => !s.cur && !s.busy && s.queue.length === 0;
+export const finished = (s: RegState) => !s.cur && !s.busy && s.queue.length === 0 && !s.ringing && !s.onCall && s.calls.length === 0;
+export const RING_LIMIT = 24;
 export function review(s: RegState) {
   const n = s.done.length, clean = s.done.filter((d) => d.clean).length;
   const avg = n ? Math.round(s.done.reduce((a, d) => a + d.seconds, 0) / n) : 0;
   const fastest = [...s.done].filter((d) => d.clean).sort((a, b) => a.seconds - b.seconds)[0];
   return { sales: s.sales, drawer: s.close, tipJar: s.tipJar, checkouts: n, accuracy: n ? Math.round((clean / n) * 100) : 100, avgSeconds: avg, bestStreak: s.bestStreak, points: s.points, mistakes: s.mistakes, best: fastest ? `${fastest.who}’s checkout: clean in ${fastest.seconds} seconds.` : null, stars: n ? (clean === n ? 3 : clean / n >= 0.6 ? 2 : 1) : 0 };
+}
+
+
+// ── Checking guests in ──────────────────────────────────────────────────
+// The front desk flow: find the booking, confirm the visit, confirm contact details (this profile), only the
+// requirements this service needs (a consent form), late-arrival choices, then mark them arrived and tell the provider.
+export const isArrival = (c?: Customer | null) => c?.visitType === 'arrival';
+export const bookingBy = (s: RegState, id: string | null | undefined) => s.bookings.find((b) => b.id === id) || null;
+/** Search today's bookings by name or phone, the way a desk does. Similar names come back together. */
+export function searchBookings(s: RegState, q: string) {
+  const w = q.trim().toLowerCase(); const d = w.replace(/\D/g, '');
+  if (!w) return s.bookings.filter((b) => b.day === 'today' && b.status === 'booked');
+  return s.bookings.filter((b) => b.status !== 'cancelled' && (b.name.toLowerCase().includes(w) || (d.length >= 3 && b.phone.includes(d))));
+}
+export function pickBooking(s: RegState, id: string) { const a = s.cur?.arr; if (!a) return null; a.booking = id; return bookingBy(s, id); }
+export const consentNeeded = (s: RegState) => { const b = bookingBy(s, s.cur?.arr?.booking); return !!b && b.consentNeeded && !b.consentOnFile; };
+/** Contact details confirmed (or entered) by the client on their screen, or typed by the desk. */
+export function confirmDetails(s: RegState, v: { phone: string; email: string; promo: boolean }, by: 'client' | 'desk') {
+  const a = s.cur?.arr; if (!a) return; a.details = { phone: v.phone.replace(/\D/g, ''), email: v.email.trim().toLowerCase(), promo: v.promo, by };
+  s.cur!.said = by === 'client' ? 'Done, that’s all up to date.' : 'Yes, that’s right.';
+}
+export function signConsent(s: RegState, by: 'client' | 'desk') { const a = s.cur?.arr; if (!a) return; a.consent = by; s.cur!.said = 'Signed. Thank you!'; }
+export const minutesLate = (s: RegState) => s.cur?.c.late || 0;
+export const GRACE_MIN = 10;
+/** Late arrival is a live decision: shorten today's service, or reschedule. A courtesy waives the late fee once. */
+export function chooseLate(s: RegState, pick: 'full' | 'short' | 'reschedule', courtesy: boolean) {
+  const a = s.cur?.arr; if (!a) return; a.late = pick; a.courtesy = courtesy;
+  s.cur!.said = pick === 'short' ? 'A quicker style is totally fine, thank you so much!' : pick === 'reschedule' ? 'Okay, I understand. Let’s pick another day.' : 'Oh, thank you!';
+}
+export function notifyProvider(s: RegState) { const a = s.cur?.arr; if (!a) return; a.notified = true; s.sfx.push('chime'); }
+/** Finish checking in: anything missed goes through and shows up later. */
+export function finishArrival(s: RegState) {
+  const cur = s.cur; if (!cur?.arr) return null; const a = cur.arr; const c = cur.c, who = c.name, at = s.t, before = cur.mStart;
+  const right = bookingBy(s, c.booking)!; const got = bookingBy(s, a.booking);
+  if (!got) s.mistakes.push({ at, who, what: `Didn’t find ${who}’s booking`, later: `${right.provider} didn’t know ${who} was here, and the visit wasn’t on the ticket at checkout.`, right: 'Find the booking first: ask for the last name or phone number.' });
+  else if (got.id !== right.id) s.mistakes.push({ at, who, what: `Checked in ${got.name} instead of ${right.name}`, later: `${got.provider} waited for a client who wasn’t here, and ${right.provider} got the wrong notes.`, right: 'Confirm the full name and time before you check anyone in. Similar names come up together.' });
+  if (got) got.status = 'arrived';
+  if (!a.details) s.mistakes.push({ at, who, what: `Didn’t confirm ${who}’s contact details`, later: c.kind === 'new' ? `${who} wasn’t saved as a client: no reminders and no receipt.` : `${who}’s reminder went to an old number.`, right: c.kind === 'new' ? 'On a first visit, have the client enter their details on the client screen.' : 'Ask “Is this still the best number for you?” at check-in.', minor: c.kind !== 'new' });
+  else if (c.details && (a.details.phone !== c.details.phone || a.details.email !== c.details.email)) s.mistakes.push({ at, who, what: `Saved the wrong details for ${who}`, later: `${who}’s reminders went to the wrong place.`, right: 'Let the client type their own details on the client screen, or read them back.' });
+  else if (c.details && a.details.promo && !c.details.promo) s.mistakes.push({ at, who, what: `Signed ${who} up for promo texts`, later: `${who} had said no and unsubscribed.`, right: 'Marketing is off unless the client says yes.' });
+  const needs = right.consentNeeded && !right.consentOnFile;
+  if (needs && !a.consent) s.mistakes.push({ at, who, what: `No consent form for ${who}’s ${right.service.toLowerCase()}`, later: `${right.provider} couldn’t start until it was signed, and the visit ran late.`, right: `${right.service} needs a signed consent form. Have the client sign it on the client screen at check-in.` });
+  if (needs && a.consent) right.consentOnFile = true;
+  const late = c.late || 0;
+  if (late > GRACE_MIN) {
+    if (!a.late) s.mistakes.push({ at, who, what: `Didn’t talk with ${who} about arriving ${late} minutes late`, later: `${right.provider} ran over and the next guest waited.`, right: `Past the ${GRACE_MIN}-minute grace, offer a shorter service today or another day. The client chooses.` });
+    else if (a.late === 'full') s.mistakes.push({ at, who, what: `Gave ${who} the full ${right.service.toLowerCase()} ${late} minutes late`, later: `${right.provider} ran ${late} minutes over and the next guest waited.`, right: 'Protect the next guest: offer a shorter service or another day.' });
+    if (a.late && !a.courtesy && right.courtesyLeft > 0) s.mistakes.push({ at, who, what: `Charged ${who} a late fee`, later: `${who} still had a courtesy this year; she felt penalized and stopped booking.`, right: 'Check the client’s courtesies: one late arrival a year is forgiven.', minor: true });
+    if (a.courtesy) right.courtesyLeft = Math.max(0, right.courtesyLeft - 1);
+    if (a.late === 'reschedule') right.status = 'rescheduled';
+  }
+  if (!a.notified) s.mistakes.push({ at, who, what: `Didn’t let ${right.provider} know ${who} was here`, later: `${who} sat in the lounge for 15 minutes before anyone noticed.`, right: 'After checking someone in, tell their provider (the app sends the alert).' });
+  const seconds = Math.round(s.t - cur.start);
+  const clean = s.mistakes.slice(before).filter((m) => !m.minor).length === 0;
+  let points = clean ? 90 + Math.max(0, 60 - seconds) : 35; s.streak = clean ? s.streak + 1 : 0; s.bestStreak = Math.max(s.bestStreak, s.streak); s.points += points;
+  s.done.push({ who, seconds, clean, total: 0, points });
+  s.log.push(`${who} checked in for ${right.service.toLowerCase()} with ${right.provider}.`);
+  s.sfx.push('bell'); s.cur = null;
+  return { clean, points, seconds };
+}
+
+// ── The phone: rescheduling and cancelling ──────────────────────────────
+export const CANCEL_FEE = 25;
+export function answer(s: RegState) {
+  if (!s.ringing || s.onCall) return null; const call = s.ringing.call; s.ringing = null;
+  if (s.cur) s.cur.mood = Math.max(0, s.cur.mood - 0.04);   // the client at the desk waits a moment
+  s.onCall = { call, started: s.t, found: null, offeredAnotherDay: false, outcome: null, said: call.opener, history: [] };
+  return s.onCall;
+}
+export function callFind(s: RegState, id: string) { if (!s.onCall) return; s.onCall.found = id; s.onCall.said = id === s.onCall.call.booking ? 'Yes, that’s me.' : 'Hmm, no, that’s not mine.'; }
+/** Offer another day before cancelling (keeps the client). */
+export function offerAnotherDay(s: RegState) { const oc = s.onCall; if (!oc) return; oc.offeredAnotherDay = true; oc.said = oc.call.want === 'cancel' ? `Oh, actually, could I do ${oc.call.prefers}?` : `${oc.call.prefers} would be perfect.`; }
+export function callReschedule(s: RegState, slot: string) {
+  const oc = s.onCall; if (!oc) return; const b = bookingBy(s, oc.found);
+  oc.outcome = { kind: 'rescheduled', slot }; oc.said = slot === oc.call.prefers ? 'Perfect, thank you so much!' : 'Okay… that works, I guess.';
+  if (b) { b.status = 'rescheduled'; b.movedTo = slot; }
+}
+export function callCancel(s: RegState, chargeFee: boolean) {
+  const oc = s.onCall; if (!oc) return; const b = bookingBy(s, oc.found);
+  oc.outcome = { kind: 'cancelled', fee: chargeFee }; oc.said = chargeFee ? 'Oh. Okay.' : 'Thank you for understanding.';
+  if (b) { b.status = 'cancelled'; b.feeCharged = chargeFee; if (!chargeFee) b.courtesyLeft = Math.max(0, b.courtesyLeft - 1); }
+}
+export function takeMessage(s: RegState) { const oc = s.onCall; if (!oc) return; oc.outcome = { kind: 'message' }; oc.said = 'Okay, thanks.'; }
+/** Hang up. Anything missed goes through and shows up later. */
+export function endCall(s: RegState) {
+  const oc = s.onCall; if (!oc) return null; const c = oc.call, who = c.name, at = s.t, before = s.mistakes.length; const right = bookingBy(s, c.booking)!; const got = bookingBy(s, oc.found);
+  if (!oc.outcome) s.mistakes.push({ at, who, what: `Hung up without helping ${who}`, later: c.want === 'cancel' ? `${who} didn’t come, and the slot sat empty.` : `${who} missed the appointment and was charged a no-show fee.`, right: 'Stay on until it’s done: find the booking, then move or cancel it while they’re on the line.' });
+  else if (oc.outcome.kind === 'message') s.mistakes.push({ at, who, what: `Took a message instead of helping ${who}`, later: `Nobody called back before the appointment.`, right: 'You can move or cancel a booking right on the call. Don’t promise a callback time.' , minor: true });
+  else {
+    if (!got) s.mistakes.push({ at, who, what: `Changed a booking without finding ${who}’s`, later: 'The real appointment stayed on the books.', right: 'Find the booking first: name plus phone.' });
+    else if (got.id !== right.id) { s.mistakes.push({ at, who, what: `Changed ${got.name}’s booking instead of ${right.name}’s`, later: `${got.name} showed up to a missing appointment and ${right.name} was marked a no-show.`, right: 'Confirm the full name and the appointment time before changing anything.' }); right.status = 'booked'; }
+    if (oc.outcome.kind === 'cancelled') {
+      const within = right.day === 'Sun';   // tomorrow morning: inside 24 hours
+      if (!oc.offeredAnotherDay) s.mistakes.push({ at, who, what: `Cancelled ${who} without offering another day`, later: `${who} would have rebooked. The chair stayed empty.`, right: 'Before cancelling, offer another day. Most people would rather move than cancel.', minor: true });
+      if (within && oc.outcome.fee && right.courtesyLeft > 0) s.mistakes.push({ at, who, what: `Charged ${who} a late-cancel fee`, later: `${who} still had a courtesy this year. She left a 2-star review and stopped booking.`, right: `Inside 24 hours the fee is ${CANCEL_FEE}, unless the client has a courtesy left. Use it, and tell them it’s been used.` });
+    }
+  }
+  const clean = s.mistakes.slice(before).filter((m) => !m.minor).length === 0; const points = clean ? 80 : 30;
+  s.points += points; s.done.push({ who: `📞 ${who}`, seconds: Math.round(s.t - oc.started), clean, total: 0, points }); s.streak = clean ? s.streak + 1 : 0; s.bestStreak = Math.max(s.bestStreak, s.streak);
+  s.log.push(`Call with ${who}: ${oc.outcome ? oc.outcome.kind : 'no help'}.`); s.onCall = null;
+  return { clean, points };
 }
