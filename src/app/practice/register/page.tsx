@@ -8,7 +8,9 @@ import * as $ from '@/lib/practice/currency';
 import * as Room from '@/lib/practice/room';
 import * as T from '@/lib/practice/talk';
 import { Mic, BrowserEars } from '@/lib/practice/mic';
-import { isEcho, listenError } from '@/lib/practice/vad';
+import { isEcho, listenError, encodeWav } from '@/lib/practice/vad';
+import { autoPick, browserVoices, type Pick as VPick, type Preset, type VoiceOpt } from '@/lib/practice/voices';
+import { VoicePicker, VoiceCheck, type CheckRow } from './voice-panels';
 import { useAuth, useFirestore } from '@/firebase';
 import QRCode from 'qrcode';
 import { Barcode, Bottle, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
@@ -41,11 +43,13 @@ const CUR_KEY = 'cf_practice_currency';
 const VOICE_KEY = 'cf_practice_voice';
 const TALK_KEY = 'cf_practice_talk';
 /** Clients talk: the browser's own speech voices, a different pitch and pace for each client. */
-function speak(text: string, v: { pitch: number; rate: number }, pron: string, onEnd?: () => void) {
+function speak(text: string, v: { pitch: number; rate: number }, pron: string, onEnd?: () => void, voiceURI?: string | null, speed = 1) {
   try {
     const ss = window.speechSynthesis; if (!ss) { onEnd?.(); return; } ss.cancel();
-    const u = new SpeechSynthesisUtterance(text.replace(/[“”]/g, '')); u.pitch = v.pitch; u.rate = v.rate; u.lang = 'en-US';
-    const voices = ss.getVoices().filter((x) => x.lang.startsWith('en'));
+    const u = new SpeechSynthesisUtterance(text.replace(/[“”]/g, '')); u.pitch = v.pitch; u.rate = Math.max(0.5, Math.min(2, v.rate * speed)); u.lang = 'en-US';
+    const all = ss.getVoices(); const chosen = voiceURI ? all.find((x) => x.voiceURI === voiceURI) : null;
+    if (chosen) { u.voice = chosen; u.lang = chosen.lang; u.pitch = 1; u.onend = () => onEnd?.(); u.onerror = () => onEnd?.(); ss.speak(u); return; }
+    const voices = all.filter((x) => x.lang.startsWith('en'));
     // Prefer the most natural-sounding voices the device has.
     voices.sort((a, b) => Number(/natural|neural|enhanced|premium|google/i.test(b.name)) - Number(/natural|neural|enhanced|premium|google/i.test(a.name)));
     const fem = /female|samantha|victoria|karen|zira|susan|serena|moira|tessa|fiona|ava|allison|jenny|aria/i, mal = /male|daniel|alex|fred|david|guy|tom|aaron|arthur|oliver/i;
@@ -322,7 +326,10 @@ export default function RegisterPractice() {
       .then(() => { setFormWait(null); if (sRef.current.cur) { R.signConsent(sRef.current, 'client'); rerender(); } });
   };
   const doneArrival = () => { R.finishArrival(s); drainSfx(); setArrQ(''); setLateCourtesy(false); view({ stage: 'idle' }); rerender(); };
-  const answerCall = () => { R.answer(s); setCallQ(''); drainSfx(); rerender(); };
+  const excuseMe = () => { if (!s.ringing || !s.cur) return; excusedFor.current = s.ringing.call.id; s.cur.said = 'Of course, go ahead.'; s.cur.history?.push({ who: 'you', text: `Excuse me one moment, ${s.cur.c.name}.` }, { who: 'client', text: 'Of course, go ahead.' }); rerender(); };
+  const answerCall = () => { primePlayer(); const excused = !s.cur || excusedFor.current === s.ringing?.call.id; R.answer(s, excused); excusedFor.current = null; setCallQ(''); drainSfx(); rerender(); };
+  const holdIt = (asked: boolean) => { stopAudio.current?.(); R.holdCall(s, asked); drainSfx(); rerender(); };
+  const backToCaller = () => { R.resumeCall(s); drainSfx(); rerender(); };
   const hangUp = () => { R.endCall(s); setCallQ(''); drainSfx(); rerender(); };
 
   // ── Talking out loud: your mic, the client's real voice, and a coach ──
@@ -345,7 +352,6 @@ export default function RegisterPractice() {
   const [coachTip, setCoachTip] = useState<{ tip: string; scores: T.Scores; fillers: number; pace: string | null } | null>(null);
   const [typedLine, setTypedLine] = useState('');
   const [talkErr, setTalkErr] = useState<string | null>(null);
-  const voiceMap = useRef<Record<string, string>>({});
   const toneRef = useRef('neutral');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recRef = useRef<{ stop: () => void } | null>(null);
@@ -358,35 +364,64 @@ export default function RegisterPractice() {
   }, [auth]);
   const idToken = async () => { const u = auth?.currentUser; if (!u || u.isAnonymous) return null; try { return await u.getIdToken(); } catch { return null; } };
   const OFFER_NAMES = Object.fromEntries(R.OFFERS.map((o) => [o.key, o.name]));
-  /** Give each client a real voice that fits them (from the business's voice account). */
-  const assignVoices = async () => {
-    if (!caps.voices) return; const tk = await idToken(); if (!tk) return;
-    try {
-      const r = await fetch('/api/practice/voices', { headers: { authorization: `Bearer ${tk}` } }); const d = await r.json(); if (!d.ok) return;
-      const vs: { id: string; gender: string; age: string; accent: string }[] = d.voices; const used = new Set<string>();
-      const all: { id: string; voiceHint: R.Customer['voiceHint'] }[] = [...(sRef.current.cur ? [sRef.current.cur.c] : []), ...sRef.current.queue, ...sRef.current.calls, ...(sRef.current.ringing ? [sRef.current.ringing.call] : []), ...(sRef.current.onCall ? [sRef.current.onCall.call] : [])];
-      for (const c of all) {
-        const score = (v: typeof vs[0]) => (v.gender.toLowerCase() === c.voiceHint.gender ? 10 : 0) + (v.age.toLowerCase().startsWith(c.voiceHint.age.split('_')[0]) ? 4 : 0) + (/americ/i.test(v.accent) ? 1 : 0) - (used.has(v.id) ? 8 : 0);
-        const best = [...vs].sort((a, b) => score(b) - score(a))[0]; if (best) { voiceMap.current[c.id] = best.id; used.add(best.id); }
-      }
-    } catch { /* fall back to browser voices */ }
+  // ── Client voices: matched, mixed accents, fast talkers, or clear and slow. Chosen per person, remembered on this device. ──
+  const [voiceOpts, setVoiceOpts] = useState<VoiceOpt[]>([]); const picks = useRef<Record<string, VPick>>({});
+  const [preset, setPreset] = useState<Preset>('matched'); const [phoneFx, setPhoneFx] = useState(true);
+  const [panel, setPanel] = useState<null | 'voices' | 'check'>(null); const panelRef = useRef(panel); panelRef.current = panel;
+  const lastSpeakErr = useRef<string | null>(null);
+  const checkLevel = useRef(0);
+  const [chk, setChk] = useState<{ mic: boolean | null; heard: string | null | false; voice: boolean | null; ai: { ok: boolean; text: string } | null; busy: string | null }>({ mic: null, heard: null, voice: null, ai: null, busy: null });
+  const everyone = () => [...R.PEOPLE.map((c) => ({ id: c.id, name: c.party ? 'Maya' : c.name, voiceHint: c.voiceHint, line: c.hello, role: 'desk' as const })), ...R.CALLS.map((c) => ({ id: c.id, name: c.name, voiceHint: c.voiceHint, line: c.opener, role: 'call' as const }))];
+  const savePicks = (pr: Preset) => { try { localStorage.setItem('cf_practice_voice_picks', JSON.stringify({ preset: pr, picks: picks.current, phone: phoneFxRef.current })); } catch { /* private mode */ } };
+  const phoneFxRef = useRef(phoneFx); phoneFxRef.current = phoneFx;
+  const loadVoices = async (pr?: Preset) => {
+    let opts: VoiceOpt[] = [];
+    if (caps.voices) { const tk = await idToken(); if (tk) { try { const r = await fetch('/api/practice/voices', { headers: { authorization: `Bearer ${tk}` } }); const d = await r.json(); if (d.ok) opts = d.voices.map((v: Omit<VoiceOpt, 'src'>) => ({ ...v, src: 'eleven' as const })); else lastSpeakErr.current = d.error || null; } catch { /* device voices */ } } }
+    if (!opts.length) opts = browserVoices(typeof window !== 'undefined' && window.speechSynthesis ? window.speechSynthesis.getVoices() : []);
+    setVoiceOpts(opts);
+    let saved: { preset?: Preset; picks?: Record<string, VPick>; phone?: boolean } = {}; try { saved = JSON.parse(localStorage.getItem('cf_practice_voice_picks') || '{}'); } catch { /* none */ }
+    const usePreset = pr || saved.preset || 'matched'; setPreset(usePreset); if (typeof saved.phone === 'boolean') setPhoneFx(saved.phone);
+    const kept = pr ? {} : Object.fromEntries(Object.entries(saved.picks || {}).filter(([, v]) => opts.some((o) => o.id === v.id)));
+    picks.current = { ...autoPick(everyone(), opts, usePreset), ...kept };
   };
-  /** Clients speak: a real voice when connected (played as it arrives), otherwise the browser's own voices. */
-  const sayOut = async (text: string, c: R.Customer, tone: string) => {
+  useEffect(() => { const ss = typeof window !== 'undefined' ? window.speechSynthesis : null; if (!ss) return; const h = () => { if (!caps.voices || !signedIn) loadVoices(); }; ss.addEventListener?.('voiceschanged', h); return () => ss.removeEventListener?.('voiceschanged', h); }, [caps.voices, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+  const assignVoices = () => loadVoices();
+
+  // ── Playing voices: one player, unlocked by a tap (iPad and Safari block sound that starts later), with a phone-line sound for callers ──
+  const player = useRef<{ ctx: AudioContext; el: HTMLAudioElement; phone: GainNode; direct: GainNode } | null>(null);
+  const primePlayer = () => {
+    try {
+      if (player.current) { player.current.ctx.resume().catch(() => {}); return; }
+      const AC: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext; const ctx = new AC();
+      const el = new Audio(); el.preload = 'auto'; (el as any).playsInline = true; el.crossOrigin = 'anonymous';
+      const src = ctx.createMediaElementSource(el); const direct = ctx.createGain(); const phone = ctx.createGain(); phone.gain.value = 0;
+      // A phone line only carries roughly 300–3,400 Hz: thinner, like a real call.
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 330; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; const boost = ctx.createGain(); boost.gain.value = 1.6;
+      src.connect(direct); direct.connect(ctx.destination); src.connect(hp); hp.connect(lp); lp.connect(boost); boost.connect(phone); phone.connect(ctx.destination);
+      ctx.resume().catch(() => {}); el.src = URL.createObjectURL(new Blob([encodeWav(new Float32Array(1600)).buffer as ArrayBuffer], { type: 'audio/wav' })); el.play().catch(() => {});
+      player.current = { ctx, el, phone, direct };
+      try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis?.speak(u); } catch { /* none */ }
+    } catch { /* plain audio */ }
+  };
+  /** Clients speak: their chosen real voice when connected (played as it arrives), otherwise this device's voices. */
+  const sayOut = async (text: string, c: R.Customer, tone: string, phone = false, force = false) => {
     stopAudio.current?.(); lastClientLine.current = text;
     let done = false; const finished = () => { if (done) return; done = true; stopAudio.current = null; if (micRef.current) micRef.current.clientTalking = false; if (talkStateRef.current === 'client') { setTalkState(resting()); earsRef.current && handsFreeRef.current && talkOnRef.current && earsRef.current.listen(); } };
-    const begin = () => { if (talkOnRef.current) { setTalkState('client'); if (micRef.current) micRef.current.clientTalking = true; earsRef.current?.pause(); } };
-    const vid = voiceMap.current[c.id]; const tk = caps.voices && vid ? await idToken() : null;
-    if (tk && vid) {
+    const begin = () => { lastVoiceOk.current = true; if (talkOnRef.current) { setTalkState('client'); if (micRef.current) micRef.current.clientTalking = true; earsRef.current?.pause(); } };
+    const pick = picks.current[c.id]; const tk = caps.voices && pick?.src === 'eleven' ? await idToken() : null;
+    if (tk && pick) {
       try {
-        const r = await fetch('/api/practice/speak', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ text, voiceId: vid, tone }) });
+        const r = await fetch('/api/practice/speak', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ text, voiceId: pick.id, tone, speed: pick.speed }) });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); lastSpeakErr.current = d.error || `The voice service answered ${r.status}.`; }
         if (r.ok && r.body) {
-          try { window.speechSynthesis?.cancel(); } catch { /* none */ }
+          lastSpeakErr.current = null; try { window.speechSynthesis?.cancel(); } catch { /* none */ }
           const MS: typeof MediaSource | undefined = (window as any).MediaSource;
+          const P = player.current; if (P) { P.ctx.resume().catch(() => {}); }
+          const routed = !!P && P.ctx.state === 'running';
           let a: HTMLAudioElement; let url: string; let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
           if (MS && MS.isTypeSupported('audio/mpeg')) {
             // Play while it downloads: the first words start in a fraction of a second.
-            const ms = new MS(); url = URL.createObjectURL(ms); a = new Audio(url); reader = r.body.getReader();
+            const ms = new MS(); url = URL.createObjectURL(ms); reader = r.body.getReader();
             ms.addEventListener('sourceopen', async () => {
               try {
                 const sb = ms.addSourceBuffer('audio/mpeg');
@@ -394,19 +429,24 @@ export default function RegisterPractice() {
                 if (ms.readyState === 'open') ms.endOfStream();
               } catch { /* stopped */ }
             }, { once: true });
-          } else { url = URL.createObjectURL(await r.blob()); a = new Audio(url); }
-          audioRef.current?.pause(); audioRef.current = a;
-          stopAudio.current = () => { a.pause(); reader?.cancel().catch(() => {}); URL.revokeObjectURL(url); finished(); };
-          a.onplaying = begin; a.onended = () => { URL.revokeObjectURL(url); finished(); }; a.onerror = finished;
-          await a.play().catch(finished); return;
+          } else url = URL.createObjectURL(await r.blob());
+          if (routed) { a = P!.el; a.pause(); a.src = url; P!.phone.gain.value = phone ? 1 : 0; P!.direct.gain.value = phone ? 0 : 1; } else { audioRef.current?.pause(); a = new Audio(url); audioRef.current = a; }
+          const watchdog = window.setTimeout(() => { if (!done && a.paused) { lastSpeakErr.current = 'The voice loaded but this browser didn’t play it.'; stopAudio.current?.(); speak(text, c.voice, c.pron); } }, 7000);
+          stopAudio.current = () => { window.clearTimeout(watchdog); a.pause(); reader?.cancel().catch(() => {}); URL.revokeObjectURL(url); finished(); };
+          a.onplaying = () => { window.clearTimeout(watchdog); begin(); }; a.onended = () => { window.clearTimeout(watchdog); URL.revokeObjectURL(url); finished(); }; a.onerror = () => { window.clearTimeout(watchdog); finished(); };
+          await a.play().catch(() => { window.clearTimeout(watchdog); lastSpeakErr.current = 'This browser blocked the sound. Tap the mic or the page once, then try again.'; finished(); speak(text, c.voice, c.pron); });
+          return;
         }
-      } catch { /* fall back */ }
+      } catch { lastSpeakErr.current = 'Couldn’t reach the voice service.'; }
     }
+    if (!force && !voice) { finished(); return; }
     begin(); stopAudio.current = () => { try { window.speechSynthesis?.cancel(); } catch { /* none */ } finished(); };
+    const sp = pick?.speed || 1;
     // Some browsers never say when they've finished speaking: don't wait forever.
-    window.setTimeout(finished, 1500 + (text.split(/\s+/).length / 2.6) * 1000 / Math.max(0.6, c.voice?.rate || 1));
-    speak(text, c.voice, c.pron, finished);
+    window.setTimeout(finished, 1500 + (text.split(/\s+/).length / 2.6) * 1000 / Math.max(0.6, (c.voice?.rate || 1) * sp));
+    speak(text, c.voice, c.pron, finished, pick?.src === 'browser' ? pick.id : null, sp);
   };
+  const lastVoiceOk = useRef(false);
   const stageNow = (p: PayStep) => !p ? 'the ticket is open and not paid yet' : p === 'split' || p === 'method' ? 'staff is about to take payment' : p === 'declined' || p === 'decline-wait' ? 'your card was just declined' : p === 'chip' ? 'the reader showed a chip error' : p === 'offline' || p === 'reconnecting' ? 'the card reader is offline' : p.startsWith('cash') ? 'paying with cash' : p === 'receipt' ? 'paid; choosing a receipt' : 'paying by card';
   /** What the client knows right now, for the conversation. */
   const contextFor = (st: R.RegState) => {
@@ -436,7 +476,12 @@ export default function RegisterPractice() {
   /** You said something: the client answers, and what you offered or did counts in the game. */
   /** On a call, what you say goes to the caller. */
   const callTalk = async (text: string, seconds: number | null) => {
-    const st = sRef.current; const oc = st.onCall; if (!oc) return; setHeard(text); setTalkState('thinking'); setTalkErr(null);
+    const st = sRef.current; const oc = st.onCall; if (!oc) return; setHeard(text); setTalkErr(null);
+    if (/\bhold\b/i.test(text) && !oc.outcome) {
+      const asked = /(may|can|could|would|do you mind|is it ok|okay if)[^.?!]*hold|\?/i.test(text);
+      oc.history.push({ who: 'you', text }); R.holdCall(st, asked); oc.history.push({ who: 'client', text: oc.said }); drainSfx(); setTalkState(resting()); rerender(); return;
+    }
+    setTalkState('thinking');
     const b = R.bookingBy(st, oc.call.booking)!; const found = R.bookingBy(st, oc.found);
     const ctx = { name: oc.call.name, persona: oc.call.persona, kind: 'returning', visits: 3, service: b.service, provider: b.provider, items: [], total: '', prefersPay: 'card',
       rebook: { wants: oc.call.want === 'cancel' ? `you called to cancel ${b.when}; if offered another day you'd take ${oc.call.prefers}` : `you called to move ${b.when}; you'd like ${oc.call.prefers}`, done: oc.outcome?.kind === 'rescheduled' ? oc.outcome.slot : null },
@@ -452,7 +497,9 @@ export default function RegisterPractice() {
     setCoachTip({ tip: res.coach.tip, scores: res.coach.scores, fillers: dl.fillers, pace: dl.pace }); setTalkState(resting()); rerender();
   };
   const handleSaid = async (raw: string, seconds: number | null) => {
-    if (sRef.current.onCall) { await callTalk(raw.trim(), seconds); return; }
+    if (sRef.current.onCall && !sRef.current.onCall.hold) { await callTalk(raw.trim(), seconds); return; }
+    // A phone is ringing: “Excuse me one moment” to the guest counts as excusing yourself.
+    if (sRef.current.ringing && /excuse me|one moment|one second|just a moment|be right with you|bear with me|give me (a|one) (moment|second|sec)/i.test(raw)) excusedFor.current = sRef.current.ringing.call.id;
     const st = sRef.current; const c0 = st.cur; const text = raw.trim(); if (!c0 || !text) { setTalkState(resting()); return; }
     setHeard(text); setTalkState('thinking'); setTalkErr(null);
     const ctx = contextFor(st); let res: T.TalkReply | null = null;
@@ -485,17 +532,22 @@ export default function RegisterPractice() {
   const talkOnRef = useRef(talkOn); talkOnRef.current = talkOn;
   const [testEars, setTestEars] = useState(false);
   const cloudEars = (caps.listen && signedIn) || testEars;
-  const resting = () => (micRef.current?.open && (handsFreeRef.current || earsRef.current) && talkOnRef.current ? (handsFreeRef.current ? 'listening' : 'idle') : 'idle') as typeof talkState;
+  const earsOn = useRef(false);
+  const resting = () => ((micRef.current?.open || earsOn.current) && talkOnRef.current && handsFreeRef.current ? 'listening' : 'idle') as typeof talkState;
+  const testListen = useRef<((t: string) => void) | null>(null);
+  const excusedFor = useRef<string | null>(null);
   const someone = () => !!(sRef.current.cur || sRef.current.onCall);
   /** You finished a line: check it wasn't the client's own voice coming back, then send it. */
   const heardLine = (text: string, secs: number | null) => {
     const t = text.trim(); setInterim('');
+    if (testListen.current) { const f = testListen.current; testListen.current = null; f(t); setTalkState(resting()); return; }
     if (!t || t.replace(/[^a-z]/gi, '').length < 2 || isEcho(t, lastClientLine.current) || !someone()) { setTalkState(resting()); return; }
     if (micRef.current) micRef.current.paused = true; earsRef.current?.pause();
     handleSaid(t, secs).finally(() => { if (micRef.current) micRef.current.paused = false; if (handsFreeRef.current && talkOnRef.current && talkStateRef.current !== 'client') earsRef.current?.listen(); });
   };
   const micHandlers = () => ({
     onLevel: (lv: number) => {
+      if (panelRef.current === 'check') { checkLevel.current = lv; if (lv > 0.02) setChk((c) => (c.mic ? c : { ...c, mic: true })); }
       const b = micBtn.current; if (b) { const ring = Math.min(14, 3 + lv * 160); b.style.boxShadow = `0 0 0 ${ring}px ${talkStateRef.current === 'hearing' ? '#fdecec' : '#e9eefc'}`; }
       const now = performance.now(); const L = loud.current; L.max = Math.max(L.max, lv);
       if (now - L.since > 6000) { setQuiet(talkStateRef.current === 'listening' && L.max < 0.008); L.max = 0; L.since = now; }
@@ -509,7 +561,7 @@ export default function RegisterPractice() {
   });
   const cloudEarsRef = useRef(cloudEars); cloudEarsRef.current = cloudEars;
   const sendRecording = async (wav: Blob, secs: number) => {
-    if (!someone()) { setTalkState(resting()); return; }
+    if (!someone() && !testListen.current) { setTalkState(resting()); return; }
     setTalkState('thinking'); if (micRef.current) micRef.current.paused = true;
     try {
       const tk = await idToken(); const f = new FormData(); f.append('audio', wav, 'speech.wav');
@@ -519,14 +571,21 @@ export default function RegisterPractice() {
     } catch { setTalkErr('Couldn’t reach listening. Check the connection and try again.'); if (micRef.current) micRef.current.paused = false; setTalkState(resting()); }
   };
   /** Open the mic (needs a tap the first time) and start listening the chosen way. */
+  /** Safari and iPad allow only one listener on the mic at a time, so browser listening there runs without our level meter. */
+  const oneMicOnly = () => { const ua = navigator.userAgent; return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) || (/^((?!chrome|chromium|crios|fxios|android|edg).)*safari/i.test(ua)); };
   const openMic = async (id = micId) => {
     setTalkErr(null);
-    if (!navigator.mediaDevices?.getUserMedia) { if (!BrowserEars.available()) { setTalkErr('This browser can’t use a microphone here. Type what you’d say instead.'); return false; } }
+    // Everything that needs the tap happens first, before any waiting.
+    primePlayer(); if (!micRef.current) micRef.current = new Mic(() => micHandlers());
+    const skipMeter = !cloudEarsRef.current && oneMicOnly();
+    if (!skipMeter) micRef.current.prime();
+    if (skipMeter || !navigator.mediaDevices?.getUserMedia) { if (!BrowserEars.available()) { setTalkErr('This browser can’t use a microphone here. Type what you’d say instead.'); return false; } }
     else {
       try {
-        if (!micRef.current) micRef.current = new Mic(() => micHandlers());
-        await micRef.current.start(id); micRef.current.handsFree = handsFreeRef.current; micRef.current.levelOnly = !cloudEarsRef.current;
+        const m = micRef.current; await m.start(id); m.handsFree = handsFreeRef.current; m.levelOnly = !cloudEarsRef.current;
         Mic.mics().then(setMics); loud.current = { max: 0, since: performance.now() };
+        // The mic opened but no sound arrives: say so instead of silently waiting.
+        window.setTimeout(() => { if (micRef.current === m && m.open && m.frames === 0) { m.prime(); setTalkErr('The mic is on but no sound is coming through. Tap the mic button once more, or pick another mic.'); } }, 1800);
       } catch (e: any) { setTalkErr(listenError(String(e?.name || '')) || 'The microphone didn’t start. Try again.'); return false; }
     }
     if (!cloudEarsRef.current) {
@@ -536,11 +595,11 @@ export default function RegisterPractice() {
         onFinal: (t: string, secs: number) => heardLine(t, secs),
         onError: (code: string) => { const m = listenError(code); if (m) { setTalkErr(m); setTalkState('idle'); } },
       }));
-      if (handsFreeRef.current) earsRef.current.listen();
+      earsOn.current = true; if (handsFreeRef.current) earsRef.current.listen();
     }
     setTalkState(resting()); return true;
   };
-  const closeMic = () => { micRef.current?.stop(); earsRef.current?.pause(); setInterim(''); setTalkState('idle'); };
+  const closeMic = () => { micRef.current?.stop(); earsRef.current?.pause(); earsOn.current = false; setInterim(''); setTalkState('idle'); };
   useEffect(() => () => closeMic(), []); // eslint-disable-line react-hooks/exhaustive-deps
   // Real listening switched on or off (signing in): restart the right way.
   useEffect(() => { if (micRef.current?.open) { micRef.current.levelOnly = !cloudEars; if (cloudEars) earsRef.current?.pause(); else if (handsFree) openMic(); } }, [cloudEars]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -563,9 +622,9 @@ export default function RegisterPractice() {
   };
   useEffect(() => { try { if (localStorage.getItem('cf_practice_handsfree') === '0') setHandsFree(false); setMicId(localStorage.getItem('cf_practice_mic')); } catch { /* private mode */ } }, []);
   const callSaid = s.onCall?.said; const callId = s.onCall?.call.id;
-  useEffect(() => { const oc = sRef.current.onCall; if (!voice || screen !== 'play' || !oc || !callSaid) return; sayOut(callSaid, { id: oc.call.id, voice: oc.call.voice, pron: oc.call.voiceHint.gender === 'male' ? 'he' : 'she' } as R.Customer, toneRef.current); toneRef.current = 'neutral'; }, [callSaid, callId, voice, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const oc = sRef.current.onCall; if (!voice || screen !== 'play' || !oc || !callSaid) return; sayOut(callSaid, { id: oc.call.id, voice: oc.call.voice, pron: oc.call.voiceHint.gender === 'male' ? 'he' : 'she' } as R.Customer, toneRef.current, phoneFxRef.current); toneRef.current = 'neutral'; }, [callSaid, callId, voice, screen]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleTalk = () => { const n = !talkOn; setTalkOn(n); talkOnRef.current = n; try { localStorage.setItem(TALK_KEY, n ? '1' : '0'); } catch { /* private mode */ } if (n) { assignVoices(); openMic(); } else closeMic(); };
-  useEffect(() => { if (talkOn && screen === 'play' && caps.voices && signedIn && !Object.keys(voiceMap.current).length) assignVoices(); }, [talkOn, screen, caps.voices, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (screen === 'play') loadVoices(); }, [screen, caps.voices, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
   // Hold the space bar to talk (desktop).
   useEffect(() => {
     if (!talkOn || screen !== 'play') return;
@@ -859,15 +918,15 @@ export default function RegisterPractice() {
   );
 
   const shownC = cur?.c || (pay === 'receipt' ? lastC : null);
-  const onLine = s.onCall; const talkName = onLine ? onLine.call.name.split(' ')[0] : cur ? (cur.c.party ? 'Maya' : cur.c.name) : '';
+  const onLine = s.onCall && !s.onCall.hold ? s.onCall : null; const talkName = onLine ? onLine.call.name.split(' ')[0] : cur ? (cur.c.party ? 'Maya' : cur.c.name) : '';
   const micOpen = !!micRef.current?.open || (!cloudEars && talkState !== 'idle');
   const statusLine = !micOpen ? (handsFree ? 'Tap the mic to start talking' : 'Hold the mic (or Space) and talk') : talkState === 'hearing' ? (handsFree ? 'Hearing you… pause when you’re done' : 'Hearing you… let go to send') : talkState === 'thinking' ? `${talkName} is thinking…` : talkState === 'client' ? `${talkName} is talking. Just start talking to cut in` : handsFree ? `Listening. Just talk to ${talkName}` : 'Hold the mic (or Space) and talk';
   const talkEl = talkOn && (cur || onLine) && (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: narrow || onLine ? '100%' : 360, background: 'rgba(255,255,255,.97)', border: `1px solid ${LINE}`, borderRadius: 18, padding: 10, boxSizing: 'border-box', boxShadow: onLine ? 'none' : '0 12px 28px -18px rgba(0,0,0,.45)' }}>
-      {(interim || heard) && <div style={{ alignSelf: 'flex-end', background: interim ? SOFT : INK, color: interim ? MUTED : '#fff', borderRadius: '14px 14px 4px 14px', padding: '7px 11px', fontSize: 13, lineHeight: 1.4, maxWidth: '92%', fontStyle: interim ? 'italic' : 'normal' }}>“{interim || heard}”</div>}
+      {(interim.trim() || heard) && <div style={{ alignSelf: 'flex-end', background: interim.trim() ? SOFT : INK, color: interim.trim() ? MUTED : '#fff', borderRadius: '14px 14px 4px 14px', padding: '7px 11px', fontSize: 13, lineHeight: 1.4, maxWidth: '92%', fontStyle: interim.trim() ? 'italic' : 'normal' }}>“{interim.trim() || heard}”</div>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button ref={micBtn} aria-label={handsFree ? (micOpen ? 'Turn the mic off' : 'Start talking') : 'Hold to talk'}
-          onClick={handsFree ? () => (micOpen ? closeMic() : openMic()) : undefined}
+          onClick={handsFree ? () => (talkState === 'client' ? stopAudio.current?.() : micOpen ? closeMic() : openMic()) : undefined}
           onPointerDown={handsFree ? undefined : (e) => { e.preventDefault(); startListening(); }} onPointerUp={handsFree ? undefined : stopListening} onPointerLeave={handsFree ? undefined : stopListening}
           style={{ width: 50, height: 50, borderRadius: 25, border: 'none', flexShrink: 0, cursor: 'pointer', touchAction: 'none', background: talkState === 'hearing' ? RED : micOpen ? GREEN : INK, color: '#fff', fontSize: 20, boxShadow: '0 8px 16px -8px rgba(0,0,0,.5)', transition: 'background .2s, box-shadow .08s', opacity: talkState === 'thinking' ? 0.6 : 1 }}>{talkState === 'thinking' ? '…' : '🎙'}</button>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -878,7 +937,7 @@ export default function RegisterPractice() {
         </div>
       </div>
       {quiet && micOpen && <div style={{ fontSize: 12, color: AMBER, fontWeight: 600 }}>We can barely hear you. Move closer, or pick another mic below.</div>}
-      {talkErr && <div style={{ fontSize: 12, color: RED, fontWeight: 600 }}>{talkErr}</div>}
+      {talkErr && <div style={{ fontSize: 12, color: RED, fontWeight: 600 }}>{talkErr} <button onClick={() => setPanel('check')} style={{ ...mini, fontSize: 10.5 }}>Run a voice check</button></div>}
       {coachOn && coachTip && <div style={{ background: '#f4f7ff', border: '1px solid #dbe4ff', borderRadius: 12, padding: '7px 10px', fontSize: 12.5, display: 'flex', flexDirection: 'column', gap: 5 }}>
         <div><b>Coach:</b> {coachTip.tip}</div>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{(['awareness', 'confidence', 'warmth', 'retention'] as const).map((k) => <span key={k} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: coachTip.scores[k] >= 4 ? '#e8f3ec' : coachTip.scores[k] <= 2 ? '#fdf1e3' : '#fff', color: coachTip.scores[k] >= 4 ? GREEN : coachTip.scores[k] <= 2 ? AMBER : INK, fontWeight: 600 }}>{k[0].toUpperCase() + k.slice(1)} {coachTip.scores[k]}/5</span>)}
@@ -893,6 +952,8 @@ export default function RegisterPractice() {
           <option value="">Default mic</option>{mics.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>}
         <span style={{ flex: 1 }} />
         <span>{caps.ai && signedIn ? 'AI client' : 'Basic mode'} · {caps.voices && signedIn ? 'real voices' : 'browser voice'} · {cloudEars ? 'clear listening' : 'browser listening'}</span>
+        <button onClick={() => { primePlayer(); setPanel('voices'); }} style={{ ...mini, fontSize: 10.5 }}>Choose voices</button>
+        <button onClick={() => setPanel('check')} style={{ ...mini, fontSize: 10.5 }}>Voice check</button>
         <button onClick={() => setCoachOn((v) => !v)} style={{ ...mini, fontSize: 10.5 }}>{coachOn ? 'Hide coach' : 'Show coach'}</button>
       </div>
       {!signedIn && (caps.ai || caps.voices) && <div style={{ fontSize: 11.5, color: MUTED }}>Sign in to ClarityFlow for the AI client, real voices and clear listening.</div>}
@@ -911,9 +972,9 @@ export default function RegisterPractice() {
           : <Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} />}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: narrow ? 0 : 90 }}>
-        <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : talkOn && talkState === 'thinking' && !s.onCall ? '…' : cur?.said}</Say>
+        <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : talkOn && talkState === 'thinking' && !(s.onCall && !s.onCall.hold) ? '…' : cur?.said}</Say>
         {!narrow && greetEl}
-        {!narrow && !s.onCall && talkEl}
+        {!narrow && !(s.onCall && !s.onCall.hold) && talkEl}
         {!narrow && claimCard}
       </div>
     </div>
@@ -942,9 +1003,21 @@ export default function RegisterPractice() {
   const waitEl = waitingClient && <div style={{ position: 'fixed', left: '50%', bottom: narrow ? 10 : 18, transform: 'translateX(-50%)', zIndex: 45, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '7px 8px 7px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 12px 26px -14px rgba(0,0,0,.45)', fontSize: 13 }}><span style={{ width: 8, height: 8, borderRadius: 4, background: BLUE }} />Waiting for the client screen…<button style={mini} onClick={chooseForThem}>Choose for them</button></div>;
   const oc = s.onCall; const ocB = oc ? R.bookingBy(s, oc.found) : null;
   const ringEl = s.ringing && !oc && <div style={{ position: 'fixed', right: narrow ? 8 : 24, top: narrow ? 116 : 126, zIndex: 42, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '6px 6px 6px 12px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 0 0 6px #fdf1e3, 0 12px 26px -14px rgba(0,0,0,.45)' }}>
-    <span style={{ fontSize: 18, animation: 'regBeam .25s ease-in-out infinite alternate' }}>📞</span><span style={{ fontSize: 13 }}><b>Line 1</b> · {s.ringing.call.name} calling</span><Btn small onClick={answerCall}>Answer</Btn></div>;
-  const callEl = oc && <div style={{ position: 'fixed', right: narrow ? 6 : 24, left: narrow ? 6 : 'auto', top: narrow ? 'auto' : 126, bottom: narrow ? 6 : 'auto', width: narrow ? 'auto' : 380, maxHeight: narrow ? '72vh' : 'calc(100vh - 150px)', overflow: 'auto', zIndex: 44, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 20, padding: 14, boxShadow: '0 30px 60px -30px rgba(0,0,0,.6)', display: 'flex', flexDirection: 'column', gap: 8, boxSizing: 'border-box' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 30, height: 30, borderRadius: 15, background: INK, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎧</span><div style={{ flex: 1 }}><b style={{ fontSize: 14 }}>On a call · {oc.call.name}</b><div style={{ fontSize: 11, color: MUTED }}>Line 1 · {Math.round((s.t - oc.started) / 2)} min</div></div><Btn small ghost onClick={hangUp}>End call</Btn></div>
+    <span style={{ fontSize: 18, animation: 'regBeam .25s ease-in-out infinite alternate' }}>📞</span><span style={{ fontSize: 13 }}><b>Line 1</b> · {s.ringing.call.name} calling</span>
+    {cur && excusedFor.current !== s.ringing.call.id && <Btn small ghost onClick={excuseMe}>“Excuse me one moment”</Btn>}{cur && excusedFor.current === s.ringing.call.id && <Chip tone="green">{cur.c.name} knows ✓</Chip>}
+    <Btn small onClick={answerCall}>Answer</Btn></div>;
+  const held = oc?.hold ? Math.round(s.t - oc.hold.since) : 0;
+  const holdEl = oc?.hold && <div style={{ position: 'fixed', right: narrow ? 8 : 'auto', left: narrow ? 8 : 24, top: narrow ? 116 : 126, zIndex: 44, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, padding: '8px 8px 8px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: held > R.HOLD_WARN ? '0 0 0 6px #fdecec, 0 12px 26px -14px rgba(0,0,0,.45)' : '0 0 0 5px #fdf1e3, 0 12px 26px -14px rgba(0,0,0,.45)' }}>
+    <span style={{ fontSize: 17 }}>⏸</span>
+    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13 }}><b>{oc.call.name}</b> on hold · {Math.floor(held / 60)}:{String(held % 60).padStart(2, '0')}</div>
+      <div style={{ height: 4, background: SOFT, borderRadius: 2, marginTop: 4, width: narrow ? '100%' : 170, overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, (held / R.HOLD_LIMIT) * 100)}%`, background: held > R.HOLD_WARN ? RED : AMBER }} /></div>
+      {held > R.HOLD_WARN && <div style={{ fontSize: 11.5, color: RED, fontWeight: 600, marginTop: 3 }}>Check back now, or they’ll hang up.</div>}</div>
+    <Btn small onClick={backToCaller}>Back to {oc.call.name.split(' ')[0]}</Btn></div>;
+  const callEl = oc && !oc.hold && <div style={{ position: 'fixed', right: narrow ? 6 : 24, left: narrow ? 6 : 'auto', top: narrow ? 'auto' : 126, bottom: narrow ? 6 : 'auto', width: narrow ? 'auto' : 380, maxHeight: narrow ? '72vh' : 'calc(100vh - 150px)', overflow: 'auto', zIndex: 44, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 20, padding: 14, boxShadow: '0 30px 60px -30px rgba(0,0,0,.6)', display: 'flex', flexDirection: 'column', gap: 8, boxSizing: 'border-box' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 30, height: 30, borderRadius: 15, background: INK, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎧</span><div style={{ flex: 1 }}><b style={{ fontSize: 14 }}>On a call · {oc.call.name}</b><div style={{ fontSize: 11, color: MUTED }}>Line 1 · {Math.round((s.t - oc.started) / 2)} min{oc.holds ? ` · held ${oc.holds}×` : ''}</div></div><Btn small ghost onClick={hangUp}>End call</Btn></div>
+    {cur && !oc.outcome && <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', background: '#fdf6ec', borderRadius: 12, padding: '6px 9px' }}>
+      <span style={{ fontSize: 12, color: AMBER, fontWeight: 600, flex: 1, minWidth: 140 }}>{cur.c.name} is waiting at the desk.</span>
+      <button style={mini} onClick={() => holdIt(true)}>“May I place you on a brief hold?”</button><button style={{ ...mini, color: MUTED }} onClick={() => holdIt(false)}>Hold</button></div>}
     <Say tone="soft">{talkOn && talkState === 'thinking' ? '…' : oc.said}</Say>
     {talkEl}
     {!ocB ? <>
@@ -966,6 +1039,45 @@ export default function RegisterPractice() {
     {!oc.outcome && <button style={{ ...mini, alignSelf: 'flex-start' }} onClick={() => { R.takeMessage(s); rerender(); }}>Take a message</button>}
     {oc.outcome && <div style={{ background: '#eaf6ef', color: GREEN, borderRadius: 10, padding: '7px 10px', fontSize: 12.5, fontWeight: 600 }}>{oc.outcome.kind === 'rescheduled' ? `Moved to ${oc.outcome.slot}. A confirmation text goes out.` : oc.outcome.kind === 'cancelled' ? `Cancelled${oc.outcome.fee ? ` with a ${money(R.CANCEL_FEE)} fee` : ''}.` : 'Message taken.'} Say goodbye and end the call.</div>}
   </div>;
+  const runHear = async () => {
+    if (!micRef.current?.open && !earsOn.current && !(await openMic())) { setChk((c) => ({ ...c, heard: false })); return; }
+    const m = micRef.current; const hfWas = m?.handsFree; if (m) { m.handsFree = true; m.paused = false; } if (!cloudEarsRef.current) earsRef.current?.listen();
+    setChk((c) => ({ ...c, busy: 'hear', heard: null }));
+    const t = window.setTimeout(() => { if (testListen.current) { testListen.current = null; setChk((c) => ({ ...c, busy: null, heard: false })); if (m && hfWas !== undefined) m.handsFree = hfWas; } }, 12000);
+    testListen.current = (text) => { window.clearTimeout(t); if (m && hfWas !== undefined) m.handsFree = hfWas; if (!handsFreeRef.current && !cloudEarsRef.current) earsRef.current?.pause(); setChk((c) => ({ ...c, busy: null, heard: text || false })); };
+  };
+  const runVoice = () => {
+    primePlayer(); lastVoiceOk.current = false; lastSpeakErr.current = null; setChk((c) => ({ ...c, busy: 'voice', voice: null }));
+    const c0 = R.PEOPLE[0]; sayOut('Hi! This is how I’ll sound today.', c0, 'warm', false, true);
+    let n = 0; const iv = window.setInterval(() => { n++; if (lastVoiceOk.current || n > 26) { window.clearInterval(iv); setChk((c) => ({ ...c, busy: null, voice: lastVoiceOk.current })); } }, 300);
+  };
+  const runAi = async () => {
+    setChk((c) => ({ ...c, busy: 'ai', ai: null })); const tk = await idToken(); const t0 = performance.now();
+    if (!tk) { setChk((c) => ({ ...c, busy: null, ai: { ok: false, text: 'Not signed in, so the AI client can’t be used.' } })); return; }
+    try {
+      const r = await fetch('/api/practice/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ context: { name: 'Rosa', persona: 'Warm regular.', kind: 'returning', visits: 4, service: 'Gel manicure', provider: 'Ana', items: [], total: '$45.00', prefersPay: 'card', rebook: { wants: 'yes, in 3 weeks', done: null }, offer: { wants: null, offered: [], catalog: [] }, mood: 0.9, waitedMinutes: 1, lineLength: 0, stage: 'ticket open', history: [] }, said: 'Hi Rosa, welcome back! How was your manicure?' }) });
+      const d = await r.json(); const ms = Math.round(performance.now() - t0);
+      setChk((c) => ({ ...c, busy: null, ai: !d.ok ? { ok: false, text: d.error || `The server answered ${r.status}.` } : d.mode === 'ai' ? { ok: true, text: `Answered in ${(ms / 1000).toFixed(1)} s: “${d.reply}”` } : { ok: false, text: caps.ai ? 'The AI didn’t answer, so simple keyword replies were used. Check the AI key and its usage limit on the server.' : 'The AI isn’t connected on the server, so clients use simple keyword replies.' } }));
+    } catch { setChk((c) => ({ ...c, busy: null, ai: { ok: false, text: 'Couldn’t reach the server.' } })); }
+  };
+  const micLive = !!micRef.current?.open || earsOn.current;
+  const checkRows: CheckRow[] = [
+    { label: 'Signed in', ok: signedIn ? true : caps.ai || caps.voices ? false : null, detail: signedIn ? 'You’re signed in, so clear listening, real voices and the AI client can be used.' : 'Sign in to ClarityFlow (not as a guest). Without it you get browser listening, device voices and simple replies.' },
+    { label: 'Voices on', ok: voice, detail: voice ? 'Clients will answer out loud.' : 'Voices are off in the top bar, so clients only answer in text.', action: voice ? undefined : { label: 'Turn on', run: toggleVoice } },
+    { label: 'Microphone', ok: chk.mic === true ? true : talkErr && !micLive ? false : micLive ? null : null, detail: !micLive ? (talkErr || 'Open the mic, then say something: the bar should move.') : chk.mic ? 'Hearing sound.' : oneMicOnly() && !cloudEars ? 'On (this browser can’t show the level while it listens).' : 'Open. Say something: the bar should move.', action: micLive ? undefined : { label: 'Open mic', run: () => { openMic(); } } },
+    { label: 'Listening', ok: chk.heard ? true : chk.heard === false ? false : null, detail: (cloudEars ? 'Clear listening (your voice account). ' : `Browser listening${caps.listen && !signedIn ? ' (sign in for clear listening)' : !caps.listen ? ' (clear listening isn’t connected on the server)' : ''}. `) + (chk.busy === 'hear' ? 'Say: “Hi, welcome to Opal.”' : chk.heard ? `Heard: “${chk.heard}”` : chk.heard === false ? (talkErr || 'Nothing came through. Check the mic choice and try again, or use Chrome.') : 'Press Test, then say a sentence.'), action: { label: chk.busy === 'hear' ? 'Listening…' : 'Test', run: runHear, busy: chk.busy === 'hear' } },
+    { label: 'Client voice', ok: chk.voice, detail: (caps.voices && signedIn ? 'Real voices. ' : `Device voices${!caps.voices ? ' (real voices aren’t connected on the server)' : ' (sign in for real voices)'}. `) + (chk.voice === false ? (lastSpeakErr.current || 'No sound played. Check the volume, then tap Play again.') : chk.voice ? 'Played.' : 'Press Play: you should hear a client.'), action: { label: 'Play', run: runVoice, busy: chk.busy === 'voice' } },
+    { label: 'AI client', ok: chk.ai ? chk.ai.ok : null, detail: chk.ai ? chk.ai.text : caps.ai ? 'Press Test to send one line.' : 'Not connected on the server: clients use simple keyword replies (still playable).', action: { label: 'Test', run: runAi, busy: chk.busy === 'ai' } },
+  ];
+  const checkPanel = panel === 'check' && <VoiceCheck narrow={narrow} rows={checkRows} level={checkLevel.current} onClose={() => setPanel(null)} />;
+  const voicePanel = panel === 'voices' && <VoicePicker narrow={narrow} real={!!caps.voices && signedIn} options={voiceOpts} picks={picks.current} preset={preset} phone={phoneFx}
+    people={everyone().map((p) => ({ id: p.id, name: p.name, role: p.role, line: p.line }))}
+    onPhone={(on) => { setPhoneFx(on); phoneFxRef.current = on; savePicks(preset); }}
+    onPreset={(k) => { setPreset(k); picks.current = autoPick(everyone(), voiceOpts, k); savePicks(k); rerender(); }}
+    onPick={(id, pk) => { picks.current = { ...picks.current, [id]: pk }; savePicks(preset); rerender(); }}
+    onPreview={(id) => { primePlayer(); const p0 = everyone().find((x) => x.id === id)!; const full = R.PEOPLE.find((c) => c.id === id); const call = R.CALLS.find((c) => c.id === id);
+      sayOut(p0.line, (full || { id, voice: call!.voice, pron: call!.voiceHint.gender === 'male' ? 'he' : 'she' }) as R.Customer, 'warm', !!call && phoneFxRef.current, true); }}
+    onClose={() => setPanel(null)} />;
   const printEl = rc && <div id="cf-print" style={{ display: 'none' }}><ReceiptPaper r={rc} width="72mm" /></div>;
   const pauseEl = paused && <div style={{ position: 'fixed', inset: 0, background: 'rgba(22,23,26,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}><div style={{ background: '#fff', borderRadius: 18, padding: 24, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}><b style={{ fontSize: 18 }}>Paused</b><Btn onClick={() => setPaused(false)}>Resume</Btn></div></div>;
 
@@ -973,7 +1085,7 @@ export default function RegisterPractice() {
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f6f3ef,#efe9e2)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, display: 'flex', flexDirection: 'column', gap: 10, padding: 10, boxSizing: 'border-box' }}>
       <Fonts />{hud}{coachEl}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{queue}</div>
-      {client}{greetEl}{!s.onCall && talkEl}{claimCard}
+      {client}{greetEl}{!(s.onCall && !s.onCall.hold) && talkEl}{claimCard}
       <div style={{ background: '#16171a', borderRadius: 16, padding: 7 }}>{pos || arrivalPanel || saleDone}</div>
       {clientScreen}
       {receiptPanel && <div style={{ paddingTop: 250, display: 'flex', justifyContent: 'center' }}>{receiptPanel}</div>}
@@ -981,7 +1093,7 @@ export default function RegisterPractice() {
       {zoom && <div style={{ position: 'fixed', left: 8, right: 8, bottom: 8, zIndex: 20 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'fixed', left: 6, right: 6, bottom: 6, zIndex: 20, maxHeight: '70vh', overflow: 'auto' }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
-      {toast}{roomEl}{waitEl}{ringEl}{callEl}{printEl}
+      {toast}{roomEl}{waitEl}{ringEl}{holdEl}{callEl}{printEl}{voicePanel}{checkPanel}
       {pauseEl}
     </div>
   );
@@ -1008,7 +1120,7 @@ export default function RegisterPractice() {
       {zoom && <div style={{ position: 'absolute', left: '50%', bottom: 30, transform: 'translateX(-30%)', zIndex: 10 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 50px)', right: 390, bottom: 24, zIndex: 10, display: 'flex', justifyContent: 'center' }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
-      {toast}{roomEl}{waitEl}{ringEl}{callEl}{printEl}
+      {toast}{roomEl}{waitEl}{ringEl}{holdEl}{callEl}{printEl}{voicePanel}{checkPanel}
       {pauseEl}
     </div>
   );

@@ -32,26 +32,36 @@ export class Mic {
   constructor(private h: () => MicHandlers) {}
   get open() { return !!this.stream; }
 
+  /** Frames heard since the mic opened (0 = the mic is open but silent: a browser or device problem). */
+  frames = 0;
+  /**
+   * Call this right inside the tap, before anything that waits. Safari and iPad only allow sound processing
+   * that starts during a tap; started later, it stays switched off and nothing is ever heard.
+   */
+  prime() {
+    if (!this.ctx) { const AC: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext; this.ctx = new AC(); }
+    this.ctx.resume().catch(() => {});
+  }
   async start(deviceId?: string | null) {
     if (this.stream && (deviceId ?? null) === this.deviceId) { await this.ctx?.resume().catch(() => {}); return; }
-    this.stop();
+    this.stopStream();
     const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) };
     this.stream = await navigator.mediaDevices.getUserMedia({ audio }); this.deviceId = deviceId ?? null;
-    const AC: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
-    this.ctx = new AC(); await this.ctx.resume().catch(() => {});
-    this.src = this.ctx.createMediaStreamSource(this.stream);
-    this.proc = this.ctx.createScriptProcessor(2048, 1, 1);
-    const silent = this.ctx.createGain(); silent.gain.value = 0;
-    this.src.connect(this.proc); this.proc.connect(silent); silent.connect(this.ctx.destination);
+    this.prime(); await this.ctx!.resume().catch(() => {}); this.frames = 0;
+    const ctx = this.ctx!; this.src = ctx.createMediaStreamSource(this.stream);
+    this.proc = ctx.createScriptProcessor(2048, 1, 1);
+    const silent = ctx.createGain(); silent.gain.value = 0;
+    this.src.connect(this.proc); this.proc.connect(silent); silent.connect(ctx.destination);
     this.vad = newVad();
-    this.proc.onaudioprocess = (e) => this.chunk(downsample(e.inputBuffer.getChannelData(0), this.ctx!.sampleRate));
-    this.stream.getAudioTracks()[0]?.addEventListener('ended', () => this.stop());
+    this.proc.onaudioprocess = (e) => { this.frames++; this.chunk(downsample(e.inputBuffer.getChannelData(0), ctx.sampleRate)); };
+    this.stream.getAudioTracks()[0]?.addEventListener('ended', () => this.stopStream());
   }
-  stop() {
+  private stopStream() {
     try { this.proc?.disconnect(); this.src?.disconnect(); } catch { /* already */ }
-    this.stream?.getTracks().forEach((t) => t.stop()); this.ctx?.close().catch(() => {});
-    this.stream = null; this.ctx = null; this.proc = null; this.src = null; this.take = null; this.pushing = false; this.pre = []; this.preLen = 0;
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null; this.proc = null; this.src = null; this.take = null; this.pushing = false; this.pre = []; this.preLen = 0;
   }
+  stop() { this.stopStream(); this.ctx?.close().catch(() => {}); this.ctx = null; }
   /** Hold to talk: start keeping what you say, including the half second before you pressed. */
   pushStart() { this.pushing = true; this.pushTalked = 0; this.take = [...this.pre]; }
   pushStop() {
@@ -113,6 +123,7 @@ export class BrowserEars {
       }
       if (interim !== last) { last = interim; if (interim && !holding) { /* restart the clock at the first sound */ } this.h().onInterim?.(holding ? [...this.finals, interim].join(' ') : interim); }
     };
+    r.onspeechstart = () => this.h().onInterim?.(' ');
     r.onerror = (e: any) => { const code = String(e?.error || ''); if (code !== 'no-speech' && code !== 'aborted') { this.want = false; this.h().onError?.(code); } };
     r.onend = () => { if (this.r === r) this.r = null; if (this.want) window.setTimeout(() => { if (this.want) this.boot(); }, 120); };
     try { r.start(); } catch { this.r = null; }

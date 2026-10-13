@@ -1,5 +1,6 @@
 // Practice a shift: hearing when you talk. Run: npx tsx scripts/verify/practice-voice.verify.ts
 import * as V from '../../src/lib/practice/vad';
+import * as P from '../../src/lib/practice/voices';
 let fails = 0;
 const check = (name: string, ok: boolean, info?: unknown) => { console.log(`${ok ? '  ✓' : '  ✗'} ${name}${ok ? '' : ` (${JSON.stringify(info)})`}`); if (!ok) fails++; };
 const STEP = 128; // ms per slice, like the mic
@@ -38,6 +39,22 @@ console.log('Plain-word errors');
 check('a blocked mic says how to allow it', /allow the microphone/.test(V.listenError('not-allowed') || ''));
 check('a browser without speech-to-text says what to use', /Chrome or Safari/.test(V.listenError('network') || ''));
 check('silence isn’t an error', V.listenError('no-speech') === null);
+
+console.log('Choosing voices');
+{ const vs: P.VoiceOpt[] = [
+    { id: 'a', name: 'Ann', gender: 'female', age: 'young', accent: 'american', description: '', preview: null, src: 'eleven' },
+    { id: 'b', name: 'Bea', gender: 'female', age: 'middle aged', accent: 'british', description: '', preview: null, src: 'eleven' },
+    { id: 'c', name: 'Cat', gender: 'female', age: 'young', accent: 'australian', description: '', preview: null, src: 'eleven' },
+    { id: 'd', name: 'Dev', gender: 'male', age: 'young', accent: 'indian', description: '', preview: null, src: 'eleven' },
+    { id: 'e', name: 'Eli', gender: 'male', age: 'old', accent: 'american', description: '', preview: null, src: 'eleven' },
+    { id: 'f', name: 'Fay', gender: 'female', age: 'old', accent: 'irish', description: '', preview: null, src: 'eleven' }];
+  const people: P.Person[] = [{ id: 'rosa', name: 'Rosa', voiceHint: { gender: 'female', age: 'middle_aged' } }, { id: 'ava', name: 'Ava', voiceHint: { gender: 'female', age: 'young' } }, { id: 'tom', name: 'Tom', voiceHint: { gender: 'male', age: 'old' } }, { id: 'kim', name: 'Kim', voiceHint: { gender: 'female', age: 'young' } }];
+  const m = P.autoPick(people, vs, 'matched'); check('matched: men get men’s voices, women get women’s', m.tom.id === 'e' || m.tom.id === 'd'); check('matched: nobody shares a voice when there are enough', new Set(Object.values(m).map((x) => x.id)).size === 4, m);
+  const a = P.autoPick(people, vs, 'accents'); const acc = new Set(Object.values(a).map((x) => P.accentKey(vs.find((v) => v.id === x.id)!.accent))); check('mix of accents: four people, four accents', acc.size === 4, a);
+  const ch = P.autoPick(people, vs, 'challenge'); check('challenge: most people talk fast', Object.values(ch).filter((x) => x.speed > 1).length >= 2, ch);
+  const cl = P.autoPick(people, vs, 'clear'); check('clear and slow: a relaxed pace', Object.values(cl).every((x) => x.speed < 1)); }
+{ const b = P.browserVoices([{ name: 'Google UK English Female', lang: 'en-GB', voiceURI: 'g1' }, { name: 'Microsoft Ravi - English (India)', lang: 'en-IN', voiceURI: 'm1' }, { name: 'Thomas', lang: 'fr-FR', voiceURI: 'x' }]);
+  check('the device’s voices are labeled by accent', b.length === 2 && b[0].accent === 'British' && b[1].accent === 'Indian' && b[1].gender === 'male', b); }
 
 console.log(fails ? `\n${fails} failed` : '\nAll checks passed');
 process.exit(fails ? 1 : 0);

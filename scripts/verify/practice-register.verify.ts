@@ -264,5 +264,14 @@ console.log('Pace and the review');
   check('and coaches on every missed rebook and membership', rv.mistakes.filter((m) => /next visit/.test(m.what)).length === 6 && rv.mistakes.filter((m) => /Didn’t mention/.test(m.what)).length === 3);
   check('the review names a best moment', !!rv.best); }
 
+console.log('Hold');
+{ const s = ring('call-kim'); const desk = !!s.cur; R.answer(s, false); check('picking up without a word to the guest at the desk is a coaching note', !desk || s.mistakes.some((m) => m.minor && /without a word/.test(m.what)));
+  const before = s.mistakes.length; R.holdCall(s, true); check('asking first, then holding, is fine', !!s.onCall?.hold && s.mistakes.length === before);
+  for (let i = 0; i < 60; i++) R.advance(s, 0.5); R.resumeCall(s); check('a short hold, then back on the line', !s.onCall?.hold && (s.onCall?.holdTotal || 0) >= 29 && /here/.test(s.onCall?.said || ''));
+  R.callFind(s, 'b-kim'); R.offerAnotherDay(s); R.callReschedule(s, 'Sat 1:00 PM'); const r = R.endCall(s); check('the call still ends clean', !!r?.clean); }
+{ const s = ring('call-kim'); R.answer(s); R.holdCall(s, false); check('holding without asking is a coaching note', s.mistakes.some((m) => m.minor && /without asking/.test(m.what))); }
+{ const s = ring('call-dana'); R.answer(s); R.holdCall(s, true); for (let i = 0; i < 2 * (R.HOLD_LIMIT + 2); i++) R.advance(s, 0.5);
+  check('a caller left on hold too long hangs up', !s.onCall && s.mistakes.some((m) => /until they hung up/.test(m.what)) && s.done.some((d) => /Dana/.test(d.who) && !d.clean)); }
+
 console.log(fails ? `\n${fails} failed` : '\nAll checks passed');
 process.exit(fails ? 1 : 0);

@@ -29,14 +29,14 @@ export async function limitPlayer(uid: string, scope: string, perHour: number, p
   } catch { return null; }
 }
 
-export type Voice = { id: string; name: string; gender: string; age: string; accent: string; description: string };
+export type Voice = { id: string; name: string; gender: string; age: string; accent: string; description: string; useCase: string; preview: string | null };
 let cache: { at: number; voices: Voice[] } | null = null;
 export async function listVoices(): Promise<Voice[]> {
   if (cache && Date.now() - cache.at < 3600000) return cache.voices;
   const r = await fetch(`${XI}/voices`, { headers: { 'xi-api-key': key() } });
   if (!r.ok) throw new Error(`Voices error ${r.status}`);
   const d: any = await r.json();
-  const voices: Voice[] = (d.voices || []).map((v: any) => ({ id: String(v.voice_id), name: String(v.name || ''), gender: String(v.labels?.gender || ''), age: String(v.labels?.age || '').replace(/\s+/g, '_'), accent: String(v.labels?.accent || ''), description: String(v.labels?.description || v.description || '').slice(0, 80) }));
+  const voices: Voice[] = (d.voices || []).map((v: any) => ({ id: String(v.voice_id), name: String(v.name || ''), gender: String(v.labels?.gender || ''), age: String(v.labels?.age || '').replace(/\s+/g, '_'), accent: String(v.labels?.accent || ''), description: String(v.labels?.description || v.description || '').slice(0, 80), useCase: String(v.labels?.use_case || v.labels?.['use case'] || ''), preview: /^https:\/\//.test(String(v.preview_url || '')) ? String(v.preview_url) : null }));
   cache = { at: Date.now(), voices }; return voices;
 }
 /** How a tone sounds: steadier when calm, more expressive when happy or upset. */
@@ -44,12 +44,13 @@ const SETTINGS: Record<string, { stability: number; style: number }> = {
   happy: { stability: 0.35, style: 0.45 }, warm: { stability: 0.5, style: 0.3 }, neutral: { stability: 0.6, style: 0.15 },
   unsure: { stability: 0.45, style: 0.25 }, annoyed: { stability: 0.4, style: 0.4 }, upset: { stability: 0.3, style: 0.55 },
 };
-export async function speak(text: string, voiceId: string, tone: string) {
-  const s = SETTINGS[tone] || SETTINGS.neutral;
+/** speed: 0.7 (slow, careful) to 1.2 (fast talker). */
+export async function speak(text: string, voiceId: string, tone: string, speed = 1) {
+  const s = SETTINGS[tone] || SETTINGS.neutral; const sp = Math.max(0.7, Math.min(1.2, Number(speed) || 1));
   // The streaming endpoint sends the first audio as soon as it's made, so the client starts talking sooner.
   return fetch(`${XI}/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=mp3_44100_64`, {
     method: 'POST', headers: { 'xi-api-key': key(), 'content-type': 'application/json', accept: 'audio/mpeg' },
-    body: JSON.stringify({ text, model_id: process.env.ELEVENLABS_TTS_MODEL || 'eleven_flash_v2_5', voice_settings: { stability: s.stability, similarity_boost: 0.8, style: s.style, use_speaker_boost: true } }),
+    body: JSON.stringify({ text, model_id: process.env.ELEVENLABS_TTS_MODEL || 'eleven_flash_v2_5', voice_settings: { stability: s.stability, similarity_boost: 0.8, style: s.style, use_speaker_boost: true, ...(sp !== 1 ? { speed: sp } : {}) } }),
   });
 }
 /** Newest listening model first; if the account doesn't have it, the previous one. */

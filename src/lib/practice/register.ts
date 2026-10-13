@@ -88,7 +88,9 @@ export type Split = 'own' | 'even' | 'one';
 /** Today's bookings (what the front desk searches when someone arrives or calls). */
 export type Booking = { id: string; name: string; when: string; day: 'today' | 'Thu' | 'Sun'; service: string; provider: string; phone: string; email: string; deposit: number; consentNeeded: boolean; consentOnFile: boolean; courtesyLeft: number; status: 'booked' | 'arrived' | 'rescheduled' | 'cancelled'; movedTo?: string; feeCharged?: boolean };
 export type Call = { id: string; at: number; name: string; booking: string; want: 'reschedule' | 'cancel'; prefers: string; persona: string; voiceHint: { gender: 'female' | 'male'; age: 'young' | 'middle_aged' | 'old' }; voice: { pitch: number; rate: number }; opener: string };
-export type CallState = { call: Call; started: number; found: string | null; offeredAnotherDay: boolean; outcome: null | { kind: 'rescheduled'; slot: string } | { kind: 'cancelled'; fee: boolean } | { kind: 'message' }; said: string; history: { who: 'you' | 'client'; text: string }[] };
+export type CallState = { call: Call; started: number; found: string | null; offeredAnotherDay: boolean; outcome: null | { kind: 'rescheduled'; slot: string } | { kind: 'cancelled'; fee: boolean } | { kind: 'message' }; said: string; history: { who: 'you' | 'client'; text: string }[];
+  /** On hold right now: since when, and whether you asked first. */
+  hold: { since: number; asked: boolean; warned: boolean } | null; holdTotal: number; holds: number };
 export const BOOKINGS: Booking[] = [
   { id: 'b-nina-patel', name: 'Nina Patel', when: '11:30 AM', day: 'today', service: 'Balayage', provider: 'Mei', phone: '9195550178', email: 'nina.patel@mailbox.com', deposit: 40, consentNeeded: true, consentOnFile: false, courtesyLeft: 1, status: 'booked' },
   { id: 'b-nina-park', name: 'Nina Park', when: '1:00 PM', day: 'today', service: 'Gel manicure', provider: 'Ana', phone: '9195550133', email: 'nina.park@mailbox.com', deposit: 0, consentNeeded: false, consentOnFile: true, courtesyLeft: 1, status: 'booked' },
@@ -130,7 +132,7 @@ export type RegState = {
 };
 
 const V = (pitch: number, rate: number) => ({ pitch, rate });
-const PEOPLE: Customer[] = [
+export const PEOPLE: Customer[] = [
   { id: 'rosa', name: 'Rosa', pron: 'she', persona: 'Warm, chatty regular in her 40s. Adores Ana and her gel manicures every 3 weeks. Loves a good deal and would happily join a nail membership that saves her money.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'none', voice: V(1.15, 1), look: { skin: '#c68a62', hair: '#2b1d16', top: '#e9a7a0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
     items: [{ sku: 'cuticle', n: 1 }], slips: [], arrive: 0, hello: 'Hi! Just this cuticle oil too, please.', visits: 4, rebook: 3, wants: 'nailclub' },
   { id: 'theo', name: 'Theo', pron: 'he', persona: 'Easygoing guy in his 20s, on his lunch break and a little pressed for time. Pays cash. Friendly but brief.', voiceHint: { gender: 'male', age: 'young' }, kind: 'returning', receipt: 'print', voice: V(0.9, 1.05), look: { skin: '#e7c3a4', hair: '#6b4a2f', top: '#9fc2a8', style: 'short' }, service: { label: 'Fade', price: 40, provider: 'Diego' },
@@ -178,7 +180,17 @@ export const line = (s: RegState) => s.queue.filter((c) => c.arrive <= s.t);
 export function advance(s: RegState, dt: number) {
   s.t += dt;
   for (const c of line(s)) s.waiting[c.id] = Math.max(0, (s.waiting[c.id] ?? 1) - dt * 0.006);
-  if (s.cur) s.cur.mood = Math.max(0, s.cur.mood - dt * 0.002);
+  if (s.cur) s.cur.mood = Math.max(0, s.cur.mood - dt * (s.onCall && !s.onCall.hold ? 0.005 : 0.002)); // a guest at the desk waits harder while you're on the phone
+  // On hold: the caller waits, then checks in, then gives up.
+  const oc = s.onCall;
+  if (oc?.hold) {
+    const held = s.t - oc.hold.since;
+    if (held > HOLD_WARN && !oc.hold.warned) { oc.hold.warned = true; s.sfx.push('ring'); s.log.push(`${oc.call.name} has been on hold a while.`); }
+    if (held > HOLD_LIMIT) {
+      const c = oc.call; s.mistakes.push({ at: s.t, who: c.name, what: `Left ${c.name} on hold until they hung up`, later: `${c.name} booked with another salon.`, right: 'Check back about every 30 to 45 seconds: “Thanks for holding, I’m still working on it,” or offer to call them right back.' });
+      s.done.push({ who: `📞 ${c.name}`, seconds: Math.round(s.t - oc.started), clean: false, total: 0, points: 0 }); s.streak = 0; s.log.push(`${c.name} hung up on hold.`); s.onCall = null;
+    }
+  }
   if (!s.cur && !s.busy && line(s).length) callNext(s);
   // The phone: a call rings until answered; after a while it goes to voicemail.
   if (!s.ringing && !s.onCall) { const next = s.calls.find((c) => c.at <= s.t); if (next) { s.calls = s.calls.filter((c) => c !== next); s.ringing = { call: next, since: s.t }; s.sfx.push('ring'); } }
@@ -558,6 +570,8 @@ export function closeOut(s: RegState, counted: Record<number, number>): CloseOut
 
 export const finished = (s: RegState) => !s.cur && !s.busy && s.queue.length === 0 && !s.ringing && !s.onCall && s.calls.length === 0;
 export const RING_LIMIT = 24;
+/** On hold: after this the caller wonders if you're there; after the limit they hang up. */
+export const HOLD_WARN = 40, HOLD_LIMIT = 90;
 export function review(s: RegState) {
   const n = s.done.length, clean = s.done.filter((d) => d.clean).length;
   const avg = n ? Math.round(s.done.reduce((a, d) => a + d.seconds, 0) / n) : 0;
@@ -626,11 +640,26 @@ export function finishArrival(s: RegState) {
 
 // ── The phone: rescheduling and cancelling ──────────────────────────────
 export const CANCEL_FEE = 25;
-export function answer(s: RegState) {
+/** Pick up. With a guest at the desk, excuse yourself to them first (“Excuse me one moment”). */
+export function answer(s: RegState, excused = true) {
   if (!s.ringing || s.onCall) return null; const call = s.ringing.call; s.ringing = null;
-  if (s.cur) s.cur.mood = Math.max(0, s.cur.mood - 0.04);   // the client at the desk waits a moment
-  s.onCall = { call, started: s.t, found: null, offeredAnotherDay: false, outcome: null, said: call.opener, history: [] };
+  if (s.cur) {
+    s.cur.mood = Math.max(0, s.cur.mood - (excused ? 0.03 : 0.12));
+    if (!excused) s.mistakes.push({ at: s.t, who: s.cur.c.name, what: `Picked up the phone mid-checkout without a word to ${s.cur.c.name}`, later: `${s.cur.c.name} felt ignored.`, right: `Look at them first: “Excuse me one moment, ${s.cur.c.name},” then answer.`, minor: true });
+  }
+  s.onCall = { call, started: s.t, found: null, offeredAnotherDay: false, outcome: null, said: call.opener, history: [], hold: null, holdTotal: 0, holds: 0 };
   return s.onCall;
+}
+/** Put the caller on a short hold to finish with the guest at the desk. Ask first: “May I place you on a brief hold?” */
+export function holdCall(s: RegState, asked: boolean) {
+  const oc = s.onCall; if (!oc || oc.hold) return; oc.hold = { since: s.t, asked, warned: false }; oc.holds++;
+  oc.said = asked ? 'Sure, no problem.' : 'Oh, um… okay?';
+  if (!asked) s.mistakes.push({ at: s.t, who: oc.call.name, what: `Put ${oc.call.name} on hold without asking`, later: `${oc.call.name} wasn’t sure if the call had dropped.`, right: '“May I place you on a brief hold?” Wait for a yes, then hold.', minor: true });
+}
+/** Back to the caller. Thank them: “Thanks so much for holding.” */
+export function resumeCall(s: RegState) {
+  const oc = s.onCall; if (!oc?.hold) return; const held = s.t - oc.hold.since; oc.holdTotal += held; oc.hold = null;
+  oc.said = held > HOLD_WARN ? 'Yes, I’m still here.' : 'Hi, yes, I’m here.';
 }
 export function callFind(s: RegState, id: string) { if (!s.onCall) return; s.onCall.found = id; s.onCall.said = id === s.onCall.call.booking ? 'Yes, that’s me.' : 'Hmm, no, that’s not mine.'; }
 /** Offer another day before cancelling (keeps the client). */
@@ -648,7 +677,7 @@ export function callCancel(s: RegState, chargeFee: boolean) {
 export function takeMessage(s: RegState) { const oc = s.onCall; if (!oc) return; oc.outcome = { kind: 'message' }; oc.said = 'Okay, thanks.'; }
 /** Hang up. Anything missed goes through and shows up later. */
 export function endCall(s: RegState) {
-  const oc = s.onCall; if (!oc) return null; const c = oc.call, who = c.name, at = s.t, before = s.mistakes.length; const right = bookingBy(s, c.booking)!; const got = bookingBy(s, oc.found);
+  const oc = s.onCall; if (!oc) return null; if (oc.hold) resumeCall(s); const c = oc.call, who = c.name, at = s.t, before = s.mistakes.length; const right = bookingBy(s, c.booking)!; const got = bookingBy(s, oc.found);
   if (!oc.outcome) s.mistakes.push({ at, who, what: `Hung up without helping ${who}`, later: c.want === 'cancel' ? `${who} didn’t come, and the slot sat empty.` : `${who} missed the appointment and was charged a no-show fee.`, right: 'Stay on until it’s done: find the booking, then move or cancel it while they’re on the line.' });
   else if (oc.outcome.kind === 'message') s.mistakes.push({ at, who, what: `Took a message instead of helping ${who}`, later: `Nobody called back before the appointment.`, right: 'You can move or cancel a booking right on the call. Don’t promise a callback time.' , minor: true });
   else {
