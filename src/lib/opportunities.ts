@@ -77,6 +77,15 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     ],
     next: 'Listen first. If they’d like to come back, offer two real times.',
     branches: COMMON([B('booked', '“We are so pleased you are coming back. We look forward to seeing you.”'), B('interested', '“Thank you. I will send you a few times.”')]),
+    // Automatic (what the win-back “we miss you” reminder used to send), asking first by default.
+    ask: [
+      'Hi {first}, this is {business}. It has been a while, and we hope you are well. Would you like us to find you a time for your {service_short}? Just reply yes and we will send you a couple of options.',
+      'Hi {first}, we hope all is well. Whenever you would like to come back in, reply yes and we will send you two times that suit you. If there is anything we could have done better, we would also like to hear it.',
+    ],
+    auto: [
+      'Hi {first}, this is {business}. It has been a while, and we hope you are well. Whenever you would like to come back in, you are welcome to book a time here: {link}',
+    ],
+    afterAuto: 'Hi {first}, this is {me} from {business}. I wanted to follow up personally. If anything about your last visit was not right, I would sincerely like to know.',
     never: 'Guilt, or “it’s been forever!”' },
   cancelled: { kind: 'cancelled', label: 'Cancelled, never rebooked', who: 'desk', marketing: false, priority: 'high', expiresDays: 7, cooldownDays: 30, winBack: false,
     versions: [
@@ -201,7 +210,11 @@ export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
   const m = o.modes || {};
-  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
+  // Win-back reminders (Settings → Messages → Win-back) now run here. A business that had them on keeps them, as the
+  // automatic mode of Due and Long gone, until it chooses something else.
+  const rc = tenant?.reconnect || {}; const carried: Record<string, Mode> = {};
+  if (rc.enabled === true) { carried.due = rc.dueEnabled === false ? 'off' : 'auto_then_person'; carried.long_gone = rc.missEnabled === false ? 'person' : 'auto_then_person'; }
+  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : carried[k] || DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
   const lf = o.linkFirst || {};
   const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, typeof lf[k] === 'boolean' ? lf[k] : !PLAYBOOKS[k].ask?.length]));
   return { linkFirst, on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
@@ -413,3 +426,6 @@ export function pickedNumber(body: string, max: number): number | null {
   const m = String(body || '').trim().match(/^(?:option\s*)?#?\s*([1-9])\s*[.!)]?$/i); const n = m ? Number(m[1]) : NaN;
   return Number.isInteger(n) && n >= 1 && n <= max ? n : null;
 }
+
+/** The studio's win-back reminders run through Opportunities while it's on (renters keep their own). */
+export const winbackInOpportunities = (tenant: any) => oppSettingsOf(tenant).on;

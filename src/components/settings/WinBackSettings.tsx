@@ -3,6 +3,7 @@
 // Moved from Settings → "Recovery & money owed" to Messages: they're messages.
 // Each field saves as it changes (same as the rest of the Messages page).
 import React, { useEffect, useRef, useState } from 'react';
+import { winbackInOpportunities } from '@/lib/opportunities';
 import { doc, updateDoc, collection, getDocs, query, where, type Firestore } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
@@ -25,6 +26,7 @@ function Tally({ tenantId }: { tenantId: string }) {
 export function WinBackSettings({ tenantId, tenant, canEdit }: { tenantId: string; tenant: any; canEdit: boolean }) {
   const { firestore } = useFirebase() as any; const { toast } = useToast();
   const r = tenant?.reconnect || {}; const rc = tenant?.renterCampaigns || {};
+  const oppOn = winbackInOpportunities(tenant);   // the studio's reminders run through Opportunities; renters' stay below
   const timers = useRef<Record<string, any>>({});
   // Save one field (dot path). Typing fields wait a moment; switches save at once.
   const save = (field: string, value: any, delay = 0) => {
@@ -41,7 +43,12 @@ export function WinBackSettings({ tenantId, tenant, canEdit }: { tenantId: strin
   const num = 'h-10 w-24 rounded-xl border px-3 text-sm';
   return (
     <div className="space-y-4">
-      <section id="winback" className={box}>
+      {oppOn && <section id="winback-moved" className={box}>
+        <p className="font-semibold">Win back quiet clients</p>
+        <p className="text-sm text-muted-foreground">These reminders now run through Opportunities, as “A regular who’s due” and “Long gone”: automatic first (asking before sending a link), then a person if there’s no reply, with real open times and results counted once. Your earlier settings and history carried over.</p>
+        <a href="/opportunities" className="inline-block text-[13.5px] font-medium underline underline-offset-4">Change them in Opportunities → Finders</a>
+      </section>}
+      <section id="winback" className={box} hidden={oppOn}>
         <div className="flex items-center justify-between gap-3">
           <div><p className="font-semibold">Win back quiet clients</p><p className="text-sm text-muted-foreground">A text (or email, if there’s no phone) at your reminder hour. Never to someone with a visit booked, who opted out, or who was nudged recently.</p></div>
           <a href="/settings/automations#sw:win-back" className="shrink-0 text-[13.5px] font-medium underline underline-offset-4">{r.enabled === true ? 'On' : 'Off'} — change in Automations</a>

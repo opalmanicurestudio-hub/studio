@@ -595,7 +595,9 @@ export async function GET(req: NextRequest) {
         const stopFor = (cid: string) => stopCache.get(cid) || '';
         // Pre-sign lazily: runReconnect needs a sync function.
         const studioSettings = tdata.reconnect || null;
-        if (studioSettings?.enabled) {
+        // The studio's win-back reminders now run through Opportunities (Due and Long gone), with the same history.
+        const { winbackInOpportunities } = await import('@/lib/opportunities');
+        if (studioSettings?.enabled && !winbackInOpportunities(tdata)) {
           const clientsSnap = await db.collection(`tenants/${tid}/clients`).get();
           for (const d of clientsSnap.docs) stopCache.set(d.id, await stopUrl(d.id));
           reconnect.studio = await runReconnect(db, {

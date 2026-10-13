@@ -474,7 +474,6 @@ export async function resultsPass(db: any, t: string, tenant: any, now = Date.no
   const S = oppSettingsOf(tenant); const since = nowIso(now - 120 * DAY);
   const opps = rows(await db.collection(`${T(t)}/opportunities`).where('createdAt', '>=', since).get());
   const byClient = new Map<string, any[]>(); for (const o of opps) if (o.clientId && (o.firstContactAt || o.status === 'done')) (byClient.get(String(o.clientId)) || byClient.set(String(o.clientId), []).get(String(o.clientId))!).push(o);
-  if (!byClient.size) return { ok: true, credited: 0 };
   const safe = (p: Promise<any>) => p.catch(() => ({ docs: [] }));
   const out: Array<{ a: any; c: any }> = [];
   for (const [cid, list] of byClient) {
@@ -486,6 +485,25 @@ export async function resultsPass(db: any, t: string, tenant: any, now = Date.no
       const c = creditFor(a, list, others, S); if (c) out.push({ a, c });
     }
   }
+  // Other ways in, into the same ledger (step 4): the waitlist filling a cancelled time, campaigns, and the old win-back
+  // reminders. A visit already credited to a task stays with it; otherwise a direct route (waitlist, a campaign's own
+  // link) wins, then the most recent message.
+  const credited = new Set(out.map((x) => String(x.a.id)));
+  const [wl, cs, ns] = await Promise.all([safe(db.collection(`${T(t)}/appointments`).where('fromWaitlist.at', '>=', since).get()),
+    safe(db.collection(`${T(t)}/campaignSends`).where('converted', '==', true).get()), safe(db.collection(`${T(t)}/reconnectNudges`).where('converted', '==', true).get())]);
+  const claims = new Map<string, { source: string; type: 'generated' | 'recovered' | 'influenced'; at: number; direct: boolean }>();
+  const claim = (id: string, c: { source: string; type: any; at: number; direct: boolean }) => { if (!id || credited.has(id)) return; const p = claims.get(id);
+    if (!p || (c.direct && !p.direct) || (c.direct === p.direct && c.at > p.at)) claims.set(id, c); };
+  for (const a of rows(wl)) if (!a.isRenterBooking) claim(String(a.id), { source: 'waitlist', type: 'recovered', at: ms(a.fromWaitlist?.at), direct: true });
+  for (const x of rows(cs)) if (ms(x.at) >= ms(since) && x.convertedAppointmentId) claim(String(x.convertedAppointmentId), { source: 'campaigns', type: 'influenced', at: ms(x.at), direct: false });
+  for (const x of rows(ns)) if (ms(x.sentAt) >= ms(since) && x.convertedAppointmentId && (x.sender || 'studio') === 'studio') claim(String(x.convertedAppointmentId), { source: 'winback', type: 'influenced', at: ms(x.sentAt), direct: false });
+  for (const [id, c] of claims) {
+    const snap = await db.doc(`${T(t)}/appointments/${id}`).get().catch(() => null); if (!snap?.exists) continue; const a: any = { id, ...(snap.data() || {}) };
+    if (a.isRenterBooking || a.opportunityId) continue;
+    const type = c.source === 'campaigns' && a.campaignId ? 'generated' : c.type;
+    out.push({ a, c: { type, oppId: null, kind: null, tool: c.source, staffId: null, source: c.source } });
+  }
+  if (!out.length) return { ok: true, credited: 0 };
   // Refunds against those visits
   const refunded = new Map<string, number>(); const ids = out.map((x) => String(x.a.id));
   for (let i = 0; i < ids.length; i += 30) {
@@ -497,7 +515,8 @@ export async function resultsPass(db: any, t: string, tenant: any, now = Date.no
   for (const { a, c } of out) {
     const st = resultState(a, refunded.get(String(a.id)) || 0); const id = `appt_${a.id}`; keep.add(id);
     writes.push([db.doc(`${T(t)}/results/${id}`), { id, appointmentId: String(a.id), clientId: String(a.clientId), clientName: a.clientName || null, serviceName: a.serviceName || null, startTime: a.startTime || null,
-      oppId: c.oppId, oppKind: c.kind, tool: c.tool, type: c.type, staffId: c.staffId, staffName: nameOf(c.staffId), ...st, refundedCents: refunded.get(String(a.id)) || 0, updatedAt: nowIso(now) }]);
+      source: c.source || 'opportunity', oppId: c.oppId || null, oppKind: c.kind || null, tool: c.tool, type: c.type, staffId: c.staffId || null, staffName: nameOf(c.staffId || null), ...st, refundedCents: refunded.get(String(a.id)) || 0, updatedAt: nowIso(now) }]);
+    if (!c.oppId) continue;
     const prev = oppResult.get(c.oppId); if (!prev || (st.state === 'paid' && prev.status !== 'paid')) oppResult.set(c.oppId, { status: st.state === 'paid' ? 'paid' : st.state === 'booked' ? 'booked' : 'none', appointmentId: String(a.id), paidCents: st.paidCents, credit: c.type, checkedAt: nowIso(now) });
   }
   // A visit that's no longer credited (cancelled tag, moved credit) comes out of the ledger.

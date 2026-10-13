@@ -112,7 +112,7 @@ function AddTask({ tenantId, people, onSaved }: { tenantId: string; people: any[
     </div>);
 }
 
-const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts' };
+const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', campaigns: 'Campaigns', winback: 'Win-back reminders (before they moved here)' };
 function Results({ tenantId }: { tenantId: string }) {
   const [r, setR] = React.useState<any>(null);
   React.useEffect(() => { payPost('/api/opportunities', { tenantId, action: 'results' }).then(setR); }, [tenantId]);
@@ -123,7 +123,7 @@ function Results({ tenantId }: { tenantId: string }) {
   const monthName = (() => { try { return new Date(`${r.month}-15T12:00:00Z`).toLocaleDateString('en-US', { month: 'long' }); } catch { return 'This month'; } })();
   return (
     <div className="space-y-4">
-      <p className="text-[13.5px]" style={{ color: MUTED }}>{monthName}: only money actually collected counts. Each visit is credited once, and refunds take it back.</p>
+      <p className="text-[13.5px]" style={{ color: MUTED }}>{monthName}: follow-up tasks, the waitlist and campaigns in one place. Only money actually collected counts, each visit is credited once, and refunds take it back.</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {tile('Paid', dollars(r.paidCents), 'visits paid after someone reached out', GREEN)}
         {tile('Booked, not paid yet', r.bookedCents ? dollars(r.bookedCents) : String(r.bookedWaiting), `${r.bookedWaiting} visit${r.bookedWaiting === 1 ? '' : 's'} ahead · counts when paid`)}
