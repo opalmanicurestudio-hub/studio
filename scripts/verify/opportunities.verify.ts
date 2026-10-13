@@ -463,5 +463,42 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
   const sumS: any = await Srv.opportunityResults(dbS, 't1', NOW, (await dbS.doc(T).get()).data());
   check('Results shows the shop as its own line', sumS.byTool.some((x: any) => x.tool === 'shop' && x.recovered === 5000 && x.influenced === 3600), sumS.byTool);
 
+
+  console.log('Opportunities — step 6: events, booths, academy and hiring');
+  const B6 = O.oppSettingsOf({});
+  const biz = {
+    inquiries: [{ id: 'iq1', status: 'new', submittedAt: ago(2), fullName: 'Tara Quinn', phone: '+15550201', eventType: 'Bridal party', eventDate: ahead(40) }, { id: 'iq2', status: 'quoted', submittedAt: ago(2), fullName: 'X' }, { id: 'iq3', status: 'new', submittedAt: ago(0.2), fullName: 'Y' }],
+    boothApps: [{ id: 'ba1', kind: 'application', status: 'new', createdAt: ago(4), name: 'Rae Moss', phone: '+15550202' }, { id: 'ba2', kind: 'tour', status: 'new', createdAt: ago(4), name: 'T' },
+      { id: 'ba3', kind: 'application', status: 'approved', decidedAt: ago(8), name: 'Ida Lane', email: 'ida@x.com' }, { id: 'ba4', kind: 'application', status: 'approved', decidedAt: ago(8), name: 'Booked Already', email: 'bk@x.com' }],
+    boothBookings: [{ email: 'bk@x.com', startDate: ago(1).slice(0, 10), status: 'confirmed' },
+      ...[100, 80, 60].map((d) => ({ phone: '5550203', name: 'Lea Old', startDate: ago(d).slice(0, 10), endDate: ago(d).slice(0, 10), status: 'completed' })),
+      ...[30, 20, 10].map((d) => ({ phone: '5550204', name: 'Kim Now', startDate: ago(d).slice(0, 10), status: 'completed' }))],
+    boothPasses: [{ id: 'bp1', status: 'active', daysTotal: 10, daysUsed: 4, purchasedAt: ago(60), contactKey: '5550205', name: 'Pat Pass' }, { id: 'bp2', status: 'active', daysTotal: 10, daysUsed: 10, purchasedAt: ago(60), contactKey: '5550206' }],
+    admissions: [{ id: 'ad1', stage: 'inquiry', createdAt: ago(6), updatedAt: ago(6), name: 'Sky Fox', phone: '+15550207', programName: 'Nail Technology' }, { id: 'ad2', stage: 'applied', updatedAt: ago(6) }],
+    enrollments: [{ id: 'en1', status: 'active', lastActiveAt: ago(20), studentName: 'Joy Ray', courseTitle: 'Gel basics', paidCents: 19900 }, { id: 'en2', status: 'active', lastActiveAt: ago(2), studentName: 'Q' }],
+    applications: [{ id: 'ap1', status: 'new', createdAt: ago(5), name: 'Nia Cole', phone: '+15550208', position: 'Nail technician' }, { id: 'ap2', status: 'interview', createdAt: ago(20), name: 'Ben Hart' }, { id: 'ap3', status: 'new', createdAt: ago(1), name: 'Z' }],
+    invites: [{ status: 'accepted', applicationId: 'ap2', chosenSlot: { startIso: ago(3) } }],
+  };
+  const bc = O.bizCandidates(biz, B6, NOW, 'America/New_York'); const has = (k: string, id: string) => bc.some((x) => x.kind === k && x.refs.sourceId === id);
+  check('an event inquiry 2 days old with no quote → the owner; one already quoted, or minutes old, isn’t', has('inquiry_waiting', 'iq1') && !has('inquiry_waiting', 'iq2') && !has('inquiry_waiting', 'iq3') && O.PLAYBOOKS.inquiry_waiting.who === 'owner', bc.map((x) => x.key));
+  check('…and the message names their occasion and date', /bridal party\. I am putting a few options together for you\. Is .* still the date/.test(O.fill(O.PLAYBOOKS.inquiry_waiting.versions[0], { ...bc.find((x) => x.kind === 'inquiry_waiting')!.facts, me: 'Jessica', business: 'Opal' })));
+  check('a booth application with no answer, and an approved one who never booked; not tours, not one who booked', has('booth_lead', 'ba1') && has('booth_lead', 'ba3') && !has('booth_lead', 'ba2') && !has('booth_lead', 'ba4'));
+  check('a pass with 6 days left and nothing booked in 30 days; not a used-up one', has('booth_pass', 'bp1') && !has('booth_pass', 'bp2') && bc.find((x) => x.kind === 'booth_pass')?.facts.left === '6 days');
+  check('a renter who booked 3 times and stopped 60 days ago; not one who was here 10 days ago', bc.some((x) => x.kind === 'booth_lapsed' && x.clientName === 'Lea Old') && !bc.some((x) => x.kind === 'booth_lapsed' && x.clientName === 'Kim Now'));
+  check('a future student who asked 6 days ago and hasn’t applied; a course student 20 days without a lesson', has('academy_lead', 'ad1') && !has('academy_lead', 'ad2') && has('academy_stalled', 'en1') && !has('academy_stalled', 'en2'));
+  check('a job applicant 5 days without a reply; an interview 3 days past with no decision; not one from yesterday', has('applicant_waiting', 'ap1') && has('applicant_waiting', 'ap2') && !has('applicant_waiting', 'ap3'));
+  check('these are all for a person (no automatic texts), and none is marketing', O.BIZ_KINDS.every((k) => O.modesFor(k).join() === 'off,person' && !O.PLAYBOOKS[k].marketing && B6.modes[k] === 'person'));
+  check('switching off Booth rental hides its three finders', ['booth_lead', 'booth_pass', 'booth_lapsed'].every((k) => O.oppSettingsOf({ modules: { booth_rental: false } }).modes[k] === 'off'));
+  const offOn = O.oppSettingsOf({ opportunities: { ...O.oppSettingsOf({ opportunities: { modes: { due: 'off' } } }), modes: { ...O.oppSettingsOf({}).modes, due: 'person' } } });
+  check('a finder switched off can be switched back on', offOn.modes.due === 'person' && offOn.finders.due === true);
+  const dbB = makeDb(); await dbB.doc(T).set({ name: 'Opal', timezone: 'America/New_York' }); for (const m of team) await dbB.doc(`${T}/staff/${m.id}`).set({ ...m, isActive: true });
+  await dbB.doc(`${T}/quoteRequests/iq1`).set(biz.inquiries[0]);
+  await Srv.opportunitySweep(dbB, 't1', (await dbB.doc(T).get()).data(), NOW, { force: true });
+  const iqT = (await dbB.collection(`${T}/opportunities`).get()).docs.map((d: any) => d.data()).find((o: any) => o.kind === 'inquiry_waiting');
+  check('the daily run makes the task for the owner, with her number', iqT?.status === 'open' && iqT?.assigneeId === 'jess' && iqT?.phone === '+15550201', iqT);
+  await dbB.doc(`${T}/quoteRequests/iq1`).set({ status: 'quoted' }, { merge: true });
+  await Srv.opportunitySweep(dbB, 't1', (await dbB.doc(T).get()).data(), NOW + DAY, { force: true });
+  check('once the quote goes out, the task closes on its own', (await dbB.doc(`${T}/opportunities/${iqT?.id}`).get()).data()?.status === 'done');
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

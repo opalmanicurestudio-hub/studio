@@ -6,7 +6,7 @@
 // takes them off every list. /api/opportunities.
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
-import { PLAYBOOKS, OUTCOMES, dollars, type OutcomeId, type OppKind } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, TOOL_OF, dollars, type OutcomeId, type OppKind } from '@/lib/opportunities';
 
 export const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#3d5a99';
 export const EST = ({ cents, note }: { cents: number; note?: string | null }) => cents > 0
@@ -63,7 +63,7 @@ export function OppTask({ tenantId, item, manager = false, people = [], onChange
         {pb.never && <p className="text-[12px]" style={{ color: RED }}><b>Never:</b> {pb.never}</p>}
       </div>}
 
-      {open && item.clientId && item.kind !== 'quote' && <TimesPanel tenantId={tenantId} item={item} onChanged={onChanged} />}
+      {open && item.clientId && ['appointments', 'memberships'].includes(TOOL_OF[item.kind as OppKind]) && <TimesPanel tenantId={tenantId} item={item} onChanged={onChanged} />}
 
       {open && <div className="space-y-2">
         <p className="text-[13px] font-bold" style={{ color: MUTED }}>What happened?</p>

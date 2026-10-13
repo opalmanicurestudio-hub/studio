@@ -10,7 +10,7 @@
 
 import { moduleEnabled, type ModuleId } from '@/lib/modules';
 
-export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'shop_reorder' | 'manual' | 'follow_up';
+export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'shop_reorder' | 'inquiry_waiting' | 'booth_lead' | 'booth_pass' | 'booth_lapsed' | 'academy_lead' | 'academy_stalled' | 'applicant_waiting' | 'manual' | 'follow_up';
 export type Who = 'provider' | 'desk' | 'owner';
 export type OutcomeId = 'booked' | 'waitlist' | 'interested' | 'not_now' | 'price' | 'no_answer' | 'voicemail' | 'bad_experience' | 'stop' | 'declined' | 'quote_accepted' | 'no_longer_applies' | 'done';
 
@@ -184,6 +184,53 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     ask: ['Hi {first}, this is {business}. It has been about {weeks} weeks since your last {product}, so you may be running low. Would you like us to set one aside for you? Just reply yes.'],
     auto: ['Hi {first}, this is {business}. It has been about {weeks} weeks since your last {product}, so you may be running low. You can order more here whenever it suits you: {link}'],
     never: 'Pressure, or saying it is about to sell out.' },
+  inquiry_waiting: { kind: 'inquiry_waiting', label: 'An event inquiry without a quote', who: 'owner', marketing: false, priority: 'high', expiresDays: 7, cooldownDays: 14, winBack: false,
+    versions: [
+      'Hi {first}, this is {me} at {business}. Thank you for asking about your {occasion}. I am putting a few options together for you. Is {event_date} still the date you have in mind?',
+      'Hi {first}, this is {me} from {business}. Thank you for your inquiry. Before I send your quote, could I ask a couple of quick questions about your {occasion}?',
+    ],
+    next: 'Confirm the date and guest count, then send the quote (Quotes → from this inquiry).',
+    branches: COMMON([B('done', 'Quote sent, or they’ve gone elsewhere. Mark it done.')]),
+    never: 'Letting a new inquiry wait more than a day without a word.' },
+  booth_lead: { kind: 'booth_lead', label: 'A booth applicant waiting', who: 'owner', marketing: false, priority: 'high', expiresDays: 10, cooldownDays: 21, winBack: false,
+    versions: [
+      'Hi {first}, this is {me} at {business}. Thank you for your interest in renting with us. Would you like to come by to see the space and talk it through?',
+      'Hi {first}, this is {me} from {business}. I wanted to follow up on your booth rental application. Do you have time for a quick chat this week?',
+    ],
+    next: 'Book a tour or a call, or decide on the application.',
+    branches: COMMON([B('done', 'Toured, decided, or no longer interested. Mark it done.')]),
+    never: 'Leaving an applicant without an answer.' },
+  booth_pass: { kind: 'booth_pass', label: 'Booth days not being used', who: 'owner', marketing: false, priority: 'medium', expiresDays: 14, cooldownDays: 30, winBack: false,
+    versions: ['Hi {first}, this is {me} at {business}. You still have {left} on your booth pass. Would you like me to hold a day for you?'],
+    next: 'Offer a day or two that are open.',
+    branches: COMMON([B('done', 'Booked a day, or not needed. Mark it done.')]),
+    never: 'Making them feel they have wasted their money.' },
+  booth_lapsed: { kind: 'booth_lapsed', label: 'A renter who stopped booking', who: 'owner', marketing: false, priority: 'medium', expiresDays: 14, cooldownDays: 60, winBack: false,
+    versions: ['Hi {first}, this is {me} at {business}. We have missed having you here. Would you like to book a few days again? I am happy to find ones that suit you.'],
+    next: 'Ask how things are going, and offer days that are open.',
+    branches: COMMON([B('done', 'Booked again, or moved on. Mark it done.')]),
+    never: 'Guilt, or pressure.' },
+  academy_lead: { kind: 'academy_lead', label: 'A future student who hasn’t applied', who: 'owner', marketing: false, priority: 'high', expiresDays: 10, cooldownDays: 21, winBack: false,
+    versions: [
+      'Hi {first}, this is {me} at {business}. Thank you for your interest in {program}. Do you have any questions I can answer before you apply?',
+      'Hi {first}, this is {me} from {business}. I wanted to follow up about {program}. Would a quick call or a visit help you decide?',
+    ],
+    next: 'Answer questions; invite them to a tour or to apply.',
+    branches: COMMON([B('done', 'Applied, toured, or not going ahead. Mark it done.')]),
+    never: 'Pressure, or promises about jobs or income.' },
+  academy_stalled: { kind: 'academy_stalled', label: 'A student who has paused a course', who: 'owner', marketing: false, priority: 'medium', expiresDays: 14, cooldownDays: 30, winBack: false,
+    versions: ['Hi {first}, this is {me} at {business}. I noticed you have not been back to {course} in a little while. Is there anything I can help with to get you going again?'],
+    next: 'Ask what got in the way; offer help with the next lesson.',
+    branches: COMMON([B('done', 'Back on track, or chose to stop. Mark it done.')]),
+    never: 'Making them feel behind.' },
+  applicant_waiting: { kind: 'applicant_waiting', label: 'A job applicant waiting', who: 'owner', marketing: false, priority: 'medium', expiresDays: 10, cooldownDays: 21, winBack: false,
+    versions: [
+      'Hi {first}, this is {me} at {business}. Thank you for applying. I wanted to let you know we have your application and will be in touch soon.',
+      'Hi {first}, this is {me} from {business}. Thank you for your interest in joining us. Would you be available for a short conversation this week?',
+    ],
+    next: 'Reply to them, invite them to interview, or let them know kindly.',
+    branches: COMMON([B('done', 'Replied, invited, or decided. Mark it done.')]),
+    never: 'Silence: everyone who applies hears back.' },
   follow_up: { kind: 'follow_up', label: 'Follow-up', who: 'provider', marketing: false, priority: 'medium', expiresDays: 10, cooldownDays: 0, winBack: false,
     versions: ['Hi {first}, this is {me} again. I wanted to follow up, with no pressure at all.'],
     next: 'Pick up where you left off.',
@@ -221,7 +268,7 @@ export interface OppSettings { bonus: { on: boolean; cents: number; capCents: nu
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
 export type Tool = 'appointments' | 'quotes' | 'gift_cards' | 'memberships' | 'shop' | 'booths' | 'academy' | 'hiring' | 'calls';
-export const TOOL_OF: Record<OppKind, Tool> = { shop_reorder: 'shop', fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
+export const TOOL_OF: Record<OppKind, Tool> = { inquiry_waiting: 'quotes', booth_lead: 'booths', booth_pass: 'booths', booth_lapsed: 'booths', academy_lead: 'academy', academy_stalled: 'academy', applicant_waiting: 'hiring', shop_reorder: 'shop', fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
 const TOOL_GATE: Partial<Record<Tool, ModuleId>> = { quotes: 'classes_events', memberships: 'memberships', shop: 'retail', booths: 'booth_rental', academy: 'academy', hiring: 'team', calls: 'voice' };
 export const toolOn = (tenant: any, tool: Tool) => { const g = TOOL_GATE[tool]; return !g || moduleEnabled(tenant, g); };
 
@@ -240,7 +287,7 @@ export function heldForRoom(kind: OppKind, providerId: string | null, pace: Pace
   const share = providerId && pace.byStaff?.[providerId] ? pace.byStaff[providerId].share : pace.business;
   return typeof share === 'number' && share * 100 < S.paceMin;
 }
-export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'renewal_failed', 'unused_visits', 'shop_reorder', 'quote', 'gift_card'];
+export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'renewal_failed', 'unused_visits', 'shop_reorder', 'quote', 'inquiry_waiting', 'gift_card', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting'];
 export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
@@ -249,7 +296,7 @@ export function oppSettingsOf(tenant: any): OppSettings {
   // automatic mode of Due and Long gone, until it chooses something else.
   const rc = tenant?.reconnect || {}; const carried: Record<string, Mode> = {};
   if (rc.enabled === true) { carried.due = rc.dueEnabled === false ? 'off' : 'auto_then_person'; carried.long_gone = rc.missEnabled === false ? 'person' : 'auto_then_person'; }
-  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : carried[k] || DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
+  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : carried[k] || DEFAULT_MODES[k] || 'person'; if ((f[k] === false && !modesFor(k).includes(m[k])) || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
   const lf = o.linkFirst || {};
   const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, k === 'fill_gap' ? false : typeof lf[k] === 'boolean' ? lf[k] : k === 'shop_reorder' || !PLAYBOOKS[k].ask?.length]));
   const bo = o.bonus || {};
@@ -297,7 +344,7 @@ const whenWord = (t: number, now: number, tz?: string) => { const d = Math.round
 /** The rules. Returns everything that qualifies today; the server drops what's already open, cooling down or opted out.
  * `fresh`: called the moment something happened (a cancellation, a no-show, a checkout), so those kinds qualify the
  * same day; the server decides when the client actually hears from us. */
-export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; purchases?: Purchase[]; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean }): Candidate[] {
+export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; purchases?: Purchase[]; biz?: Biz; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean }): Candidate[] {
   const { now, settings: S } = x; const minAge = x.fresh ? 0 : 1; const iso = (t: number) => new Date(t).toISOString();
   const renter = x.renterStaffIds || new Set<string>();
   const appts = x.appointments.filter((a) => !a.isRenterBooking && !renter.has(String(a.staffId || '')) && !a.isWalkIn);
@@ -361,6 +408,7 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
       const f = out[out.length - 1].facts; f.product = r.name; f.weeks = String(r.sinceWeeks); have.add(r.clientId);
     }
   }
+  if (x.biz) out.push(...bizCandidates(x.biz, S, now, x.tz));
   if (S.finders.quote) for (const q of x.quotes) {
     if (!['sent', 'viewed'].includes(String(q.status || '')) || q.convertedToEventId) continue;
     const sent = ms(q.sentAt); if (!sent) continue; const d = (now - sent) / DAY; const exp = q.expiresInDays ? sent + Number(q.expiresInDays) * DAY : Infinity;
@@ -383,6 +431,65 @@ export const quoteTotal = (q: any) => { const sub = (q.lineItems || []).reduce((
 export const dollars = (cents: number) => { const d = (Number(cents) || 0) / 100; return `$${d % 1 ? d.toFixed(2) : d.toLocaleString('en-US')}`; };
 
 /** Keep only what should become a task: one open task per client, cooldowns, opt-outs, open cases. */
+/** The rest of the business (step 6, round 3): records about people who aren't clients yet, or aren't clients at all. */
+export interface Biz { inquiries?: any[]; boothApps?: any[]; boothPasses?: any[]; boothBookings?: any[]; admissions?: any[]; enrollments?: any[]; applications?: any[]; invites?: any[] }
+const LIVE_RES = ['confirmed', 'checked_in', 'completed', 'pending_payment'];
+export const BIZ_KINDS: OppKind[] = ['inquiry_waiting', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting'];
+export function bizCandidates(b: Biz, S: OppSettings, now: number, tz?: string): Candidate[] {
+  const out: Candidate[] = []; const iso = (t: number) => new Date(t).toISOString(); const ago = (v: any) => (ms(v) ? (now - ms(v)) / DAY : null);
+  const push = (kind: OppKind, id: string, p: { name?: any; phone?: any; email?: any; clientId?: any }, why: string, facts: Record<string, string> = {}, valueCents = 0, refs: Record<string, string> = {}) => {
+    const name = String(p.name || 'Someone').trim().slice(0, 120);
+    out.push({ kind, tool: TOOL_OF[kind], subject: { type: p.clientId ? 'client' : 'contact', id: p.clientId ? String(p.clientId) : null }, key: `${kind}:${id}`, clientId: p.clientId ? String(p.clientId) : null, clientName: name,
+      why, valueCents: Math.max(0, Math.round(valueCents)), providerId: null, dueAt: iso(now), expiresAt: iso(now + PLAYBOOKS[kind].expiresDays * DAY), refs: { sourceId: id, ...refs },
+      facts: { first: name.split(/\s+/)[0] || 'there', ...(p.phone ? { phone: String(p.phone) } : {}), ...(p.email ? { email: String(p.email) } : {}), ...facts } });
+  };
+  const dateWords = (v: any) => { const t = ms(v); return t ? new Date(t).toLocaleDateString('en-US', { month: 'long', day: 'numeric', ...(tz ? { timeZone: tz } : {}) }) : 'the date'; };
+  if (S.finders.inquiry_waiting) for (const q of b.inquiries || []) {
+    const d = ago(q.submittedAt || q.createdAt); if (!['new', 'reviewing'].includes(String(q.status || '')) || d === null || d < 1 || d > 30) continue;
+    if (ms(q.eventDate) && ms(q.eventDate) < now) continue;
+    push('inquiry_waiting', String(q.id), { name: q.fullName || q.name, phone: q.phone, email: q.email, clientId: q.clientId }, `Asked about ${q.eventType ? `a ${String(q.eventType).toLowerCase()}` : 'an event'} ${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'} ago, and no quote yet${q.eventDate ? ` (event ${dateWords(q.eventDate)})` : ''}`,
+      { occasion: String(q.eventType || 'event').toLowerCase(), event_date: dateWords(q.eventDate) }, 0, { inquiryId: String(q.id) });
+  }
+  const booked = new Map<string, number>(); const count = new Map<string, number>(); const ahead = new Set<string>();
+  for (const r of b.boothBookings || []) { if (!LIVE_RES.includes(String(r.status || ''))) continue; const keys = [String(r.phone || '').replace(/\D+/g, '').slice(-10), String(r.email || '').trim().toLowerCase(), String(r.renterId || '')].filter(Boolean);
+    const end = ms(r.endDate || r.startDate); for (const k of keys) { booked.set(k, Math.max(booked.get(k) || 0, end)); count.set(k, (count.get(k) || 0) + 1); if (ms(r.startDate) > now) ahead.add(k); } }
+  const keysOf = (p: any) => [String(p.phone || '').replace(/\D+/g, '').slice(-10), String(p.email || '').trim().toLowerCase(), String(p.renterId || p.convertedRenterId || '')].filter(Boolean);
+  if (S.finders.booth_lead) for (const a of b.boothApps || []) {
+    if (a.kind === 'tour' || a.kind === 'waitlist') continue;   // tours have their own reminders and follow-up flag
+    const st = String(a.status || ''); const d = ago(a.createdAt); const dd = ago(a.decidedAt);
+    const waiting = ['new', 'in_review'].includes(st) && d !== null && d >= 2 && d <= 45; const approvedIdle = st === 'approved' && dd !== null && dd >= 5 && dd <= 60 && !keysOf(a).some((k) => booked.has(k));
+    if (!waiting && !approvedIdle) continue;
+    push('booth_lead', String(a.id), a, waiting ? `Applied for a ${a.rentalType === 'lease' ? 'booth lease' : 'booth'} ${Math.round(d!)} days ago, no answer yet` : `Approved ${Math.round(dd!)} days ago, hasn’t booked or signed yet`, {}, 0, { applicationId: String(a.id) });
+  }
+  if (S.finders.booth_pass) for (const p of b.boothPasses || []) {
+    const left = (Number(p.daysTotal) || 0) - (Number(p.daysUsed) || 0); const d = ago(p.purchasedAt); if (p.status !== 'active' || left <= 0 || d === null || d < 30) continue;
+    const k = String(p.contactKey || ''); const last = booked.get(k) || 0; if (ahead.has(k) || (last && now - last < 30 * DAY)) continue;
+    push('booth_pass', String(p.id), { name: p.name || p.renterName, phone: p.phone || (/^\d{10}$/.test(k) ? k : ''), email: p.email || (k.includes('@') ? k : '') }, `${left} booth day${left === 1 ? '' : 's'} left on a pass, none booked in 30 days`, { left: `${left} day${left === 1 ? '' : 's'}` }, 0, { passId: String(p.id) });
+  }
+  if (S.finders.booth_lapsed) { const seen = new Set<string>();
+    for (const r of [...(b.boothBookings || [])].sort((x, y) => ms(y.startDate) - ms(x.startDate))) {
+      const keys = keysOf(r); const k = keys[0]; if (!k || keys.some((z) => seen.has(z))) continue; keys.forEach((z) => seen.add(z));
+      if ((count.get(k) || 0) < 3 || keys.some((z) => ahead.has(z))) continue; const since = (now - (booked.get(k) || 0)) / DAY; if (since < 45 || since > 365) continue;
+      push('booth_lapsed', `r_${k}`, r, `Booked ${count.get(k)} times; last day was ${Math.round(since)} days ago, nothing since`, {}, 0, {});
+    } }
+  if (S.finders.academy_lead) for (const a of b.admissions || []) {
+    if (!['inquiry', 'tour'].includes(String(a.stage || ''))) continue; const d = ago(a.updatedAt || a.createdAt); if (d === null || d < 3 || d > 60) continue;
+    push('academy_lead', String(a.id), { name: a.name || [a.firstName, a.lastName].filter(Boolean).join(' '), phone: a.textOk === false ? '' : a.phone, email: a.email }, `${a.stage === 'tour' ? 'Toured' : 'Asked about'} ${a.programName || 'a program'} ${Math.round(d)} days ago and hasn’t applied`, { program: String(a.programName || 'our program') }, 0, { admissionId: String(a.id) });
+  }
+  if (S.finders.academy_stalled) for (const e of b.enrollments || []) {
+    if (e.status !== 'active' || e.completedAt || e.certificateCode) continue; const d = ago(e.lastActiveAt || e.createdAt); if (d === null || d < 14 || d > 90) continue;
+    push('academy_stalled', String(e.id), { name: e.studentName || e.name, phone: e.phone, email: e.email }, `No lessons in ${Math.round(d)} days on ${e.courseTitle || e.courseName || 'their course'}`, { course: String(e.courseTitle || e.courseName || 'your course') }, Number(e.paidCents) || 0, { enrollmentId: String(e.id) });
+  }
+  if (S.finders.applicant_waiting) { const met = new Map<string, any>(); for (const i of b.invites || []) if (i.status === 'accepted' && i.applicationId) met.set(String(i.applicationId), i);
+    for (const a of b.applications || []) {
+      const st = String(a.status || ''); const d = ago(a.createdAt); const inv = met.get(String(a.id)); const slot = ms(inv?.chosenSlot?.startIso || inv?.chosenSlot?.start || inv?.chosenSlot);
+      const fresh = st === 'new' && d !== null && d >= 3 && d <= 45; const afterInterview = st === 'interview' && slot && now - slot >= 2 * DAY && now - slot <= 30 * DAY;
+      if (!fresh && !afterInterview) continue;
+      push('applicant_waiting', String(a.id), { name: a.name || [a.firstName, a.lastName].filter(Boolean).join(' '), phone: a.phone, email: a.email }, fresh ? `Applied${a.position ? ` for ${a.position}` : ''} ${Math.round(d!)} days ago, no reply yet` : `Interviewed ${Math.round((now - slot) / DAY)} days ago, no decision yet`, {}, 0, { applicationId: String(a.id) });
+    } }
+  return out;
+}
+
 export interface Purchase { clientId: string; productId: string; name: string; at: number; priceCents?: number }
 /** Products a client has bought at least twice, a week or more apart: the median gap is their rhythm. Due once that
  * much time has passed since the last one (and not long after: by 2.5× they've likely found another). */

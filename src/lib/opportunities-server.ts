@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, toolOn, type Purchase, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, toolOn, bizCandidates, BIZ_KINDS, type Purchase, type Biz, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -49,6 +49,23 @@ async function loadPurchases(db: any, t: string, tenant: any, clients: any[], no
     for (const p of (r.reversal?.products || r.products || [])) if (p?.id) out.push({ clientId: String(r.clientId), productId: String(p.id), name: String(p.name || ''), at, priceCents: Math.round((Number(p.price) || 0) * 100) }); }
   return out;
 }
+/** Records about people who aren't clients yet (event inquiries, booth applicants and renters, future students, job
+ * applicants), each only when that part of the app is on and its finder isn't switched off. */
+async function loadBiz(db: any, t: string, tenant: any, S: OppSettings, now: number): Promise<Biz> {
+  const safe = (p: Promise<any>) => p.then(rows).catch(() => [] as any[]); const on = (k: string) => !!S.finders[k];
+  const since = nowIso(now - 400 * DAY); const none = Promise.resolve([] as any[]);
+  const [inquiries, boothApps, boothPasses, boothBookings, admissions, enrollments, applications, invites] = await Promise.all([
+    on('inquiry_waiting') ? safe(db.collection(`${T(t)}/quoteRequests`).where('status', 'in', ['new', 'reviewing']).get()) : none,
+    on('booth_lead') ? safe(db.collection(`${T(t)}/boothApplications`).where('status', 'in', ['new', 'in_review', 'approved']).get()) : none,
+    on('booth_pass') ? safe(db.collection(`${T(t)}/boothPasses`).where('status', '==', 'active').get()) : none,
+    on('booth_lead') || on('booth_pass') || on('booth_lapsed') ? safe(db.collection(`${T(t)}/boothReservations`).where('startDate', '>=', since.slice(0, 10)).get()) : none,
+    on('academy_lead') ? safe(db.collection(`${T(t)}/admissions`).where('stage', 'in', ['inquiry', 'tour']).get()) : none,
+    on('academy_stalled') ? safe(db.collection(`${T(t)}/enrollments`).where('status', '==', 'active').get()) : none,
+    on('applicant_waiting') ? safe(db.collection(`${T(t)}/applications`).where('status', 'in', ['new', 'interview']).get()) : none,
+    on('applicant_waiting') ? safe(db.collection(`${T(t)}/interviewInvites`).where('status', '==', 'accepted').get()) : none,
+  ]);
+  return { inquiries, boothApps, boothPasses, boothBookings, admissions, enrollments, applications, invites };
+}
 async function shopLink(tenant: any, t: string, productId?: string | null) {
   const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); if (!base) return '';
   return `${base}/shop/${encodeURIComponent(t)}${productId ? `/product/${encodeURIComponent(productId)}` : ''}`;
@@ -81,7 +98,9 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   const renterIds = new Set<string>(staff.filter((m: any) => m.role === 'renter' || m.isRenter).map((m: any) => String(m.id)));
   const clients = new Map<string, any>(x.clients.map((c: any) => [String(c.id), c]));
   const purchases = S.finders.shop_reorder ? await loadPurchases(db, t, tenant, x.clients, now).catch(() => []) : [];
-  const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, purchases, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
+  const biz = BIZ_KINDS.some((k) => S.finders[k]) ? await loadBiz(db, t, tenant, S, now).catch(() => ({})) : {};
+  const bizKeys = new Set(bizCandidates(biz, S, now, zone).map((c) => c.key));   // still true today (closes the ones that aren't)
+  const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, purchases, biz, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
     existing: x.opps, clients, now,
     openCaseClients: new Set(x.cases.filter((c: any) => c.clientId && !CLOSED_CASE.includes(String(c.status || ''))).map((c: any) => String(c.clientId))),
     recentAutoNudge: new Set(x.nudges.map((n: any) => String(n.clientId || ''))),
@@ -106,6 +125,8 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   const Hx = historyOf(x.appointments, now);
   for (const e of x.opps) {
     const ref = db.doc(`${T(t)}/opportunities/${e.id}`);
+    if (BIZ_KINDS.includes(e.kind) && e.status === 'open' && S.finders[e.kind] && !bizKeys.has(e.key)) {   // they applied, got a quote, came back to class…
+      writes.push([ref, { status: 'done', outcome: 'no_longer_applies', closedAt: nowIso(now), closedWhy: 'This has moved on since.' }, 'update']); continue; }
     if (e.kind === 'shop_reorder' && ACTIVE.includes(e.status) && purchases.some((p) => p.clientId === e.clientId && p.productId === e.refs?.productId && p.at > ms(e.createdAt))) {
       writes.push([ref, { status: 'done', outcome: 'no_longer_applies', closedAt: nowIso(now), closedWhy: 'They bought it.' }, 'update']); continue; }
     if (e.status === 'waiting' || e.status === 'auto') {
@@ -433,7 +454,8 @@ export async function listOpportunities(db: any, t: string, actor: RequestActor,
   const tenant = (await db.doc(T(t)).get()).data() || {};
   const people = manager ? (await team(db, t)).filter((m: any) => m.role !== 'renter' && !m.isRenter).map((m: any) => ({ id: m.id, name: m.name || 'Team member', role: m.role || '' })) : [];
   const pace = manager ? (((await db.doc(`${T(t)}/private/opportunities`).get()).data() || {}).pace || null) : null;
-  return { ok: true as const, items: shown, people, settings: oppSettingsOf(tenant), manager, pace };
+  const toolsOff = FINDER_KINDS.filter((k) => !toolOn(tenant, TOOL_OF[k]));   // parts of the app that are switched off: their finders aren't shown
+  return { ok: true as const, items: shown, people, settings: oppSettingsOf(tenant), toolsOff, manager, pace };
 }
 const rank = (o: any) => ({ high: 0, medium: 1, low: 2 } as any)[o.priority] ?? 1;
 
@@ -466,7 +488,10 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
   const action = str(b.action, 20); const manager = actor.isManager || actor.isOwner;
   const tenant: any = (await db.doc(T(t)).get()).data() || {};
   if (action === 'settings') { if (!manager) return { ok: false, error: 'Only managers can do this.' };
-    const s = oppSettingsOf({ opportunities: b.settings || {} }); await db.doc(T(t)).set({ opportunities: s }, { merge: true }); return { ok: true, settings: s }; }
+    const s = oppSettingsOf({ opportunities: b.settings || {} });
+    // A finder for a part of the app that's switched off keeps its saved choice, ready for when it's switched back on.
+    for (const k of FINDER_KINDS) if (!toolOn(tenant, TOOL_OF[k])) { const prev = tenant?.opportunities?.modes?.[k]; if (prev) s.modes[k] = prev; else delete s.modes[k]; delete s.finders[k]; }
+    await db.doc(T(t)).set({ opportunities: s }, { merge: true }); return { ok: true, settings: oppSettingsOf({ ...tenant, opportunities: s }) }; }
   if (action === 'run') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return opportunitySweep(db, t, tenant, now, { force: true }); }
   if (action === 'results') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; await resultsPass(db, t, tenant, now).catch(() => {}); return { ok: true, ...(await opportunityResults(db, t, now, tenant)) }; }
   if (action === 'create') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return createManual(db, t, tenant, actor, b, now); }

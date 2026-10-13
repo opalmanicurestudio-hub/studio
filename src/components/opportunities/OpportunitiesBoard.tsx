@@ -8,7 +8,7 @@ import { collection, type Firestore } from 'firebase/firestore';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { payPost } from '@/components/pay/pay-client';
 import { OppTask, EST, PAID, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED } from '@/components/opportunities/OppTask';
-import { PLAYBOOKS, FINDER_KINDS, modesFor, dollars, type OppKind } from '@/lib/opportunities';
+import { PLAYBOOKS, FINDER_KINDS, TOOL_OF, modesFor, dollars, type OppKind } from '@/lib/opportunities';
 
 const PRI: Record<string, string> = { high: RED, medium: AMBER, low: MUTED };
 const pill = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` });
@@ -38,7 +38,7 @@ export function OpportunitiesBoard({ tenantId }: { tenantId: string }) {
             <button type="button" onClick={() => setPanel(panel === 'settings' ? '' : 'settings')} className="h-10 rounded-full border bg-white px-4 text-[14px] font-semibold" style={{ borderColor: LINE }}>Finders</button>
             <button type="button" onClick={() => setPanel(panel === 'add' ? '' : 'add')} className="h-10 rounded-full px-4 text-[14px] font-semibold text-white" style={{ background: INK }}>Add a task</button></div></div>
         {note && <p className="text-[13.5px] font-semibold" style={{ color: GREEN }}>{note}</p>}
-        {panel === 'settings' && d && <Finders tenantId={tenantId} settings={d.settings} onSaved={() => { setPanel(''); void load(); }} />}
+        {panel === 'settings' && d && <Finders tenantId={tenantId} settings={d.settings} toolsOff={d.toolsOff || []} onSaved={() => { setPanel(''); void load(); }} />}
         {panel === 'add' && d && <AddTask tenantId={tenantId} people={d.people} onSaved={() => { setPanel(''); void load(); }} />}
         <div className="flex flex-wrap gap-2">{(['open', 'auto', 'done', 'results'] as const).map((t) => <button key={t} type="button" onClick={() => setTab(t)} className="h-9 rounded-full px-4 text-[13.5px] font-semibold" style={pill(tab === t)}>{t === 'open' ? `With a person · ${open.length}` : t === 'auto' ? `Sent automatically · ${autos.filter((o) => o.status !== 'not_sent').length}` : t === 'done' ? 'Closed' : 'Results'}</button>)}</div>
         {tab !== 'results' && counts.length > 0 && <div className="flex flex-wrap gap-2">
@@ -65,14 +65,15 @@ export function OpportunitiesBoard({ tenantId }: { tenantId: string }) {
     </>);
 }
 
-function Finders({ tenantId, settings, onSaved }: { tenantId: string; settings: any; onSaved: () => void }) {
+function Finders({ tenantId, settings, toolsOff, onSaved }: { tenantId: string; settings: any; toolsOff: string[]; onSaved: () => void }) {
   const [s, setS] = React.useState<any>(settings); const [busy, setBusy] = React.useState(false);
   const save = async () => { setBusy(true); const r = await payPost('/api/opportunities', { tenantId, action: 'settings', settings: s }); setBusy(false); if (r.ok) onSaved(); };
   const sw = (on: boolean, flip: () => void, label: string) => <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={flip} className="relative h-7 w-12 shrink-0 rounded-full" style={{ background: on ? INK : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: on ? 23 : 3 }} /></button>;
   return (
     <div className="space-y-3 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}>
       <div className="flex items-center justify-between gap-3"><div><p className="text-[15.5px] font-semibold">Finders</p><p className="text-[13px]" style={{ color: MUTED }}>Switch off what doesn’t fit your business.</p></div>{sw(s.on, () => setS({ ...s, on: !s.on }), 'Opportunities on')}</div>
-      <div>{FINDER_KINDS.map((k) => <div key={k} className="grid items-center gap-2 py-2.5 md:grid-cols-[1fr_auto]" style={{ borderTop: `1px solid ${LINE}` }}>
+      <div>{FINDER_KINDS.filter((k) => !toolsOff.includes(k)).map((k, i, l) => <div key={k} className="grid items-center gap-2 py-2.5 md:grid-cols-[1fr_auto]" style={{ borderTop: `1px solid ${LINE}` }}>
+        {(i === 0 || TOOL_OF[l[i - 1]] !== TOOL_OF[k]) && <span className="pt-1 text-[11.5px] font-extrabold uppercase tracking-[0.06em] md:col-span-2" style={{ color: MUTED }}>{TOOL_LABEL[TOOL_OF[k]] || TOOL_OF[k]}</span>}
         <span><span className="block text-[14px] font-semibold">{PLAYBOOKS[k].label}</span><span className="block text-[12px]" style={{ color: MUTED }}>A person means {PLAYBOOKS[k].who === 'provider' ? 'their provider' : PLAYBOOKS[k].who === 'desk' ? 'the desk' : 'the owner'}{PLAYBOOKS[k].marketing ? ' · texts need their yes to marketing' : ''}</span>{KIND_HINT[k] && <span className="block text-[12px]" style={{ color: MUTED }}>{KIND_HINT[k]}</span>}</span>
         <span className="flex flex-wrap gap-1.5">{modesFor(k).map((m) => <button key={m} type="button" onClick={() => setS({ ...s, modes: { ...s.modes, [k]: m } })} className="h-8 rounded-full px-3 text-[12.5px] font-semibold" style={pill(s.modes[k] === m)}>{m === 'off' ? 'Off' : m === 'auto' ? 'Automatic' : m === 'person' ? 'A person' : 'Automatic, then a person'}</button>)}</span>
         {PLAYBOOKS[k].ask?.length && k !== 'fill_gap' && ['auto', 'auto_then_person'].includes(s.modes[k]) ? <span className="flex flex-wrap items-center gap-1.5 md:col-span-2"><span className="text-[12px]" style={{ color: MUTED }}>First text:</span>
@@ -123,6 +124,13 @@ const KIND_HINT: Record<string, string> = {
   fill_gap: 'A time the waitlist couldn’t fill, 3 to 48 hours away: up to three clients who are about due are asked if they’d like it. The first yes gets it booked.',
   renewal_failed: 'A membership payment that hasn’t gone through for 3 days and no new card yet. They already have the secure card link; this is a friendly word from the desk.',
   unused_visits: 'Members with no visit in 45 days, or package visits left and no visit in 60 days.',
+  inquiry_waiting: 'Event inquiries still new or in review a day later, with no quote sent.',
+  booth_lead: 'Booth applications with no answer after 2 days, and approved applicants who haven’t booked after 5. Tours keep their own reminders.',
+  booth_pass: 'Booth passes with days left and nothing booked in 30 days.',
+  booth_lapsed: 'Renters who booked at least 3 times and haven’t in 45 days.',
+  academy_lead: 'Academy inquiries and tours that haven’t applied after 3 days. Offers and missing documents keep their own reminders.',
+  academy_stalled: 'Course students with no lessons in 14 days.',
+  applicant_waiting: 'Job applicants with no reply after 3 days, and interviews 2 days past with no decision.',
   shop_reorder: 'Something a client buys again and again (online or at checkout), when it’s about time for more. Orders within 7 days count in Results, and so do carts finished after the “your cart has been saved” email.',
 };
 const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', visit: 'Booked before they left (checkout and visit link)', campaigns: 'Campaigns', winback: 'Win-back reminders (before they moved here)' };
