@@ -43,6 +43,10 @@ export type NotifyInput = {
   /** Merge values for owner-customized copy. Ignored when the shop has not
    *  written its own version of this message kind. */
   tokens?: Record<string, string | number | null | undefined>;
+  /** Sent at any hour: a code the person just asked for (verification). */
+  essential?: boolean;
+  /** Released from the quiet-hours queue (releaseHeldTexts) — already waited, so never held again. */
+  afterQuiet?: boolean;
   tenantId: string;
   channel: 'email' | 'sms';
   to: string;                    // email address or phone number
@@ -212,7 +216,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
    * 3am wakes someone up. Deferred rather than dropped: the log records why,
    * and nothing that must reach a person tonight is a text anyway. */
   let quietDeferred = false;
-  if (!suppressed && channel === 'sms' && tenantDoc) {
+  if (!suppressed && channel === 'sms' && tenantDoc && !input.essential && !input.afterQuiet) {
     try {
       const { resolveQuietHours, inQuietHours } = await import('./message-policy');
       const { tenantTimeZone } = await import('./tenant-time');
@@ -225,7 +229,9 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
   } else if (suppressed) {
     result = { ok: false, status: 'skipped_by_policy', error: `${kind} is switched off in message settings` };
   } else if (quietDeferred) {
-    result = { ok: false, status: 'skipped_by_policy', error: 'held back — inside your quiet hours' };
+    // Held, then sent when quiet hours end (releaseHeldTexts, every 5 minutes) — not dropped.
+    try { await db.collection(`tenants/${tenantId}/heldTexts`).add({ input: JSON.parse(JSON.stringify({ ...input, afterQuiet: true })), heldAt: new Date().toISOString() }); } catch { /* the log still shows it was held */ }
+    result = { ok: false, status: 'skipped_by_policy', error: 'held until your quiet hours end' };
   } else if (channel === 'email') {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
@@ -372,4 +378,21 @@ export function emailShell(studioName: string, bodyHtml: string): string {
     <p style="font-size:11px;color:#cbd5e1;text-align:center;margin:16px 0 0;">Sent by ${studioName} via ClarityFlow</p>
   </div>
 </body></html>`;
+}
+
+
+/** Texts held during quiet hours go out once they end (every 5 minutes — cron/no-shows). Anything held more than
+ * 16 hours is no longer timely and is dropped, with a note in the message log. */
+export async function releaseHeldTexts(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<number> {
+  const col = db.collection(`tenants/${tenantId}/heldTexts`); const snap = await col.limit(200).get().catch(() => ({ docs: [] as any[] }));
+  if (!snap.docs.length) return 0;
+  const { resolveQuietHours, inQuietHours } = await import('./message-policy'); const { tenantTimeZone } = await import('./tenant-time');
+  if (inQuietHours(resolveQuietHours(tenant), new Date(now), tenantTimeZone(tenant))) return 0;
+  let sent = 0;
+  for (const d of snap.docs) {
+    const h: any = d.data() || {}; await d.ref.delete().catch(() => {});
+    if (now - (Date.parse(h.heldAt) || 0) > 16 * 3600e3 || !h.input?.to) continue;
+    const r = await sendNotification(db, { ...h.input, afterQuiet: true }).catch(() => null); if ((r as any)?.ok) sent++;
+  }
+  return sent;
 }

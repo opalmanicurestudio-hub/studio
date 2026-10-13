@@ -300,6 +300,8 @@ export async function POST(req: NextRequest) {
         summary: `${a.clientName || 'Client'} self-cancelled ${fmtWhen(a.startTime, tzOffset, zone)}${alsoCancelled > 0 ? ` (+${alsoCancelled} linked)` : ''}`,
         actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'manage-link' },
       });
+      // The client gets the same cancellation message as from the cancel page (no fee applies here: outside the window).
+      try { const { sendCancellationNotice } = await import('@/lib/cancel-notice'); await sendCancellationNotice(db, tenantId, apptId, { who: 'client', feeDollars: 0, collected: 'none' }, internalOrigin(tDoc, req.nextUrl.origin), { ...a, ...cancelFields }); } catch (e) { console.error('[appt] cancel notice failed (the cancel stands)', e); }
       return NextResponse.json({ ok: true, ...(alsoCancelled > 0 ? { alsoCancelled } : {}) });
     }
 
@@ -623,6 +625,13 @@ export async function POST(req: NextRequest) {
         summary: `${a.clientName || 'Client'} self-rescheduled to ${fmtWhen(newStart.toISOString(), tzOffset, zone)}${usingGrace ? ' · grace used — no fee' : feeIfMovedNow > 0 ? ` · $${feeIfMovedNow.toFixed(2)} reschedule fee added to their balance` : ''}${a.studioAskedToMove ? ' (we asked them to choose a new time)' : ''}`,
         actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'manage-link' },
       });
+      // The client hears it too — a move from the visit link used to tell only the team.
+      try {
+        const money = (n: number) => `$${n % 1 ? n.toFixed(2) : n}`;
+        const feeLine = usingGrace ? 'No reschedule fee was charged this time.' : feeIfMovedNow > 0 ? (feeIntent ? `A ${money(feeIfMovedNow)} reschedule fee was charged to your card on file.` : `A ${money(feeIfMovedNow)} reschedule fee has been added to your balance.`) : null;
+        const { sendRescheduleNotice } = await import('@/lib/reschedule-notice');
+        await sendRescheduleNotice(db, tenantId, { ...a, id: apptId }, { newStartIso: newStart.toISOString(), base: internalOrigin(tDoc, req.nextUrl.origin), feeLine });
+      } catch (e) { console.error('[appt] reschedule notice failed (the move stands)', e); }
       return NextResponse.json({ ok: true, newStartIso: newStart.toISOString(), whenLabel: fmtWhen(newStart.toISOString(), tzOffset, zone), feeApplied: usingGrace ? 0 : feeIfMovedNow, feePaid: !!feeIntent, graceUsed: usingGrace });
     }
 

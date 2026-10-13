@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     try { const { sendBoothGuestTexts } = await import('@/lib/booth-texts'); await sendBoothGuestTexts(db, t.id, tenant); } catch { /* next run */ }
     // Providers hear about changes to their visits (moved, cancelled, handed over, added on) — lib/visit-watch.
     const justCancelled: Array<{ clientId: string | null; appointmentId: string }> = [];
+    try { const { releaseHeldTexts } = await import('@/lib/notify'); await releaseHeldTexts(db, t.id, tenant, now); } catch { /* next run */ }   // texts held for quiet hours go out when they end
     try { const { watchVisits } = await import('@/lib/visit-watch'); await watchVisits(db, t.id, tenant, now, (x) => justCancelled.push(x)); } catch { /* next run */ }
     try { const { caseNudges } = await import('@/lib/case-nudges'); await caseNudges(db, t.id, tenant); } catch { /* next run */ }
     try { const { redoPaySweep } = await import('@/lib/redo-pay'); await redoPaySweep(db, t.id, tenant); } catch { /* next run */ }
