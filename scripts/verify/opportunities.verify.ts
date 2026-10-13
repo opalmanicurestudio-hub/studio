@@ -500,5 +500,36 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
   await Srv.opportunitySweep(dbB, 't1', (await dbB.doc(T).get()).data(), NOW + DAY, { force: true });
   check('once the quote goes out, the task closes on its own', (await dbB.doc(`${T}/opportunities/${iqT?.id}`).get()).data()?.status === 'done');
 
+
+  console.log('Opportunities — step 7: working on your own');
+  const SO = O.oppSettingsOf({});
+  check('solo is automatic: on with one person using the app, off with a team; “always” and “never” win', O.isSolo([{ id: 'j', role: 'owner' }, { id: 'r', role: 'renter' }], SO) && !O.isSolo(team, SO) && O.isSolo(team, O.oppSettingsOf({ opportunities: { solo: { mode: 'on' } } })) && !O.isSolo([{ id: 'j', role: 'owner' }], O.oppSettingsOf({ opportunities: { solo: { mode: 'off' } } })));
+  const adj = O.soloAdjust(SO, true, 20);
+  check('solo: at most 3 a day, nobody held back while numbers are small; held back again once there are enough', adj.perPersonPerDay === 3 && adj.holdoutPct === 0 && O.soloAdjust(SO, true, 400).holdoutPct === SO.holdoutPct && O.soloAdjust(SO, false, 0) === SO);
+  const dbO = makeDb(); await dbO.doc(T).set({ name: 'Opal', timezone: 'America/New_York', opportunities: PERSON }); await dbO.doc(`${T}/staff/jess`).set({ id: 'jess', name: 'Jessica', role: 'owner', isActive: true });
+  for (const c of clients.slice(0, 5)) await dbO.doc(`${T}/clients/${c.id}`).set(c);
+  for (const a0 of appointments.filter((x) => x.staffId !== 'renter1')) await dbO.doc(`${T}/appointments/${a0.id}`).set({ ...a0, staffId: 'jess' });
+  for (let k = 0; k < 4; k++) await dbO.doc(`${T}/clients/extra${k}`).set({ id: `extra${k}`, name: `Extra ${k}`, phone: `+1555000${k}11` });
+  for (let k = 0; k < 4; k++) for (const d of [100, 70]) await dbO.doc(`${T}/appointments/x${k}_${d}`).set({ id: `x${k}_${d}`, clientId: `extra${k}`, startTime: ago(d + k), status: 'completed', staffId: 'jess', serviceName: 'Gel fill', price: 60 });
+  const morning = Date.parse('2026-10-12T10:00:00-04:00');
+  await Srv.opportunitySweep(dbO, 't1', (await dbO.doc(T).get()).data(), morning, { force: true });
+  const so = (await dbO.collection(`${T}/opportunities`).get()).docs.map((d: any) => d.data()); const soOpen = so.filter((o: any) => o.status === 'open');
+  check('solo: no more than 3 on her list, all hers, ready at 6 PM; nobody held back', soOpen.length === 3 && soOpen.every((o: any) => o.assigneeId === 'jess' && new Date(o.dueAt).toISOString() === new Date('2026-10-12T18:00:00-04:00').toISOString()) && !so.some((o: any) => o.status === 'holdout'), so.map((o: any) => [o.kind, o.status, o.dueAt]));
+  check('…and no bell yet', (await dbO.collection(`${T}/notifications`).get()).docs.length === 0);
+  const ten = (await dbO.doc(T).get()).data();
+  check('before 6 PM the list isn’t announced', (await Srv.opportunitySoloList(dbO, 't1', ten, Date.parse('2026-10-12T17:30:00-04:00')) as any).skipped === 'not yet');
+  const soloBell: any = await Srv.opportunitySoloList(dbO, 't1', ten, Date.parse('2026-10-12T18:05:00-04:00'));
+  const nt = (await dbO.collection(`${T}/notifications`).get()).docs.map((d: any) => d.data());
+  check("at 6 PM, one bell: “Your 5-minute list is ready: 3 messages”", soloBell.ready === 3 && nt.length === 1 && /Your 5-minute list is ready: 3 messages/.test(nt[0].message), nt);
+  check('…once a day', (await Srv.opportunitySoloList(dbO, 't1', ten, Date.parse('2026-10-12T19:00:00-04:00')) as any).skipped === 'done today');
+  const sk = soOpen[0]; const owner = { staffId: 'jess', name: 'Jessica', isOwner: true, isManager: true } as any;
+  await Srv.actOnOpportunity(dbO, 't1', owner, { action: 'skip', id: sk.id }, Date.parse('2026-10-12T18:10:00-04:00'));
+  const sk2 = (await dbO.doc(`${T}/opportunities/${sk.id}`).get()).data();
+  check('Skip puts it on tomorrow’s list; three skips let it go', sk2?.status === 'open' && sk2?.skips === 1 && sk2?.dueAt.slice(0, 10) === '2026-10-13', sk2);
+  for (let k = 0; k < 2; k++) await Srv.actOnOpportunity(dbO, 't1', owner, { action: 'skip', id: sk.id }, Date.parse('2026-10-13T18:10:00-04:00') + k * DAY);
+  check('…the third skip lets it go', (await dbO.doc(`${T}/opportunities/${sk.id}`).get()).data()?.status === 'expired');
+  const li: any = await Srv.listOpportunities(dbO, 't1', owner, morning);
+  check('the app knows it’s solo (the 5-minute list shows)', li.solo?.on === true && li.solo?.hour === 18);
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

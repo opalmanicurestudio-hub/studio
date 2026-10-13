@@ -13,6 +13,7 @@ import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { payPost } from '@/components/pay/pay-client';
 import { PortalCalls } from '@/components/staff-portal/PortalCalls';
 import { YourTasks } from '@/components/staff-portal/YourTasks';
+import { FiveMinuteList } from '@/components/opportunities/FiveMinuteList';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#2563eb';
 const DESK = ['front_desk', 'frontdesk', 'desk', 'receptionist', 'coordinator', 'assistant'];
@@ -71,8 +72,8 @@ export function TodoList({ tenantId, staffMember, calls, isManager, accent = INK
   const tQ = useMemoFirebase(() => (firestore && tenantId && me ? query(collection(firestore, `tenants/${tenantId}/tasks`), where('assignedStaffIds', 'array-contains', me)) : null), [firestore, tenantId, me]);
   const { data: tasks } = useCollection<any>(tQ); const teamOpen = (tasks || []).filter((t: any) => t.status !== 'done').length;
   // Follow-ups, loaded once and shared between the bands.
-  const [opps, setOpps] = React.useState<any[]>([]);
-  const reload = React.useCallback(() => payPost('/api/opportunities', { tenantId, action: 'list' }).then((r) => setOpps(r?.ok ? r.items || [] : [])), [tenantId]);
+  const [opps, setOpps] = React.useState<any[]>([]); const [solo, setSolo] = React.useState<{ on: boolean; hour: number } | null>(null);
+  const reload = React.useCallback(() => payPost('/api/opportunities', { tenantId, action: 'list' }).then((r) => { setOpps(r?.ok ? r.items || [] : []); setSolo(r?.ok ? r.solo || null : null); }), [tenantId]);
   React.useEffect(() => { void reload(); }, [reload]);
   const eod = React.useMemo(() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); }, []);
   const open = opps.filter((o) => o.status === 'open');
@@ -88,13 +89,14 @@ export function TodoList({ tenantId, staffMember, calls, isManager, accent = INK
         <PortalCalls calls={calls} tenantId={tenantId} staffId={me} isManager={isManager} accent={accent} title="Calls passed to you" />
         {replied.length > 0 && <YourTasks tenantId={tenantId} accent={accent} items={replied} reload={reload} title="They replied" sub={`${replied.length} client${replied.length === 1 ? '' : 's'} wrote back`} />}
       </div>}
-      {today.length > 0 && <div className="space-y-2.5">
+      {solo?.on && (today.length > 0 || later.length > 0) && <FiveMinuteList tenantId={tenantId} items={[...today, ...later]} hour={solo.hour} reload={() => { void reload(); }} accent={accent} />}
+      {!solo?.on && today.length > 0 && <div className="space-y-2.5">
         <Band tone={BLUE} title="Today" sub={`${today.length} follow-up${today.length === 1 ? '' : 's'}`} />
         <YourTasks tenantId={tenantId} accent={accent} items={today} reload={reload} title="Follow-ups" sub="most important first" />
       </div>}
-      {(later.length > 0 || teamOpen > 0) && <div className="space-y-2.5">
+      {((!solo?.on && later.length > 0) || teamOpen > 0) && <div className="space-y-2.5">
         <Band tone={MUTED} title="Anytime" sub="with their own dates" />
-        {later.length > 0 && <YourTasks tenantId={tenantId} accent={accent} items={later} reload={reload} title="Follow-ups coming up" sub={`${later.length} due later`} />}
+        {!solo?.on && later.length > 0 && <YourTasks tenantId={tenantId} accent={accent} items={later} reload={reload} title="Follow-ups coming up" sub={`${later.length} due later`} />}
         {teamOpen > 0 && teamTasks}
       </div>}
     </section>);

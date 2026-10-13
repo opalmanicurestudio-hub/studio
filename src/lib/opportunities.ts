@@ -263,7 +263,7 @@ export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it aut
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
 export const DEFAULT_MODES: Record<string, Mode> = { shop_reorder: 'auto', fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
 export const modesFor = (k: OppKind): Mode[] => (k === 'fill_gap' ? ['off', 'auto'] : PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
-export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number> }
+export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number>; solo: { mode: 'auto' | 'on' | 'off'; hour: number; max: number } }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
@@ -302,7 +302,23 @@ export function oppSettingsOf(tenant: any): OppSettings {
   const bo = o.bonus || {};
   const bonus = { on: bo.on === true, cents: n(bo.cents, 0, 10000, 500), capCents: n(bo.capCents, 0, 500000, 0) };   // off by default; cap 0 = no cap
   return { bonus, linkFirst, on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
-    windows: Object.fromEntries((Object.keys(WINDOW_DAYS) as Tool[]).map((k) => [k, n(o.windows?.[k], 7, 30, WINDOW_DAYS[k])])) as Record<Tool, number> };
+    windows: Object.fromEntries((Object.keys(WINDOW_DAYS) as Tool[]).map((k) => [k, n(o.windows?.[k], 7, 30, WINDOW_DAYS[k])])) as Record<Tool, number>,
+    solo: { mode: ['on', 'off'].includes(o.solo?.mode) ? o.solo.mode : 'auto', hour: n(o.solo?.hour, 7, 21, 18), max: n(o.solo?.max, 1, 10, 3) } };
+}
+
+// ── Solo (decided Oct 13; design canvas OE4) ───────────────────────────────────────────────────
+// One person, no desk: what would go to a person becomes a short list of ready-to-send messages at a time they choose
+// (6 PM by default), at most 3 a day, nobody held back for comparison until there's enough to compare, and one bell
+// when the list is ready instead of one per task. "Auto" means: on whenever only one person on the team uses the app.
+export const SOLO_COMPARE_AFTER = 150;   // contacted in the last 120 days before a left-alone group is worth having
+export function isSolo(staff: any[], S: OppSettings): boolean {
+  if (S.solo.mode !== 'auto') return S.solo.mode === 'on';
+  return staff.filter((m: any) => !m.archived && m.isActive !== false && m.role !== 'renter' && !m.isRenter && m.appAccess !== 'off').length <= 1;
+}
+/** The settings as they apply today: solo caps the day and skips the left-alone group while numbers are small. */
+export function soloAdjust(S: OppSettings, solo: boolean, contacted: number): OppSettings {
+  if (!solo) return S;
+  return { ...S, perPersonPerDay: Math.min(S.perPersonPerDay, S.solo.max), holdoutPct: contacted < SOLO_COMPARE_AFTER ? 0 : S.holdoutPct };
 }
 
 // ── Reading a client's history ──────────────────────────────────────────────────────────────

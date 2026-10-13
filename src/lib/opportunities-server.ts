@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, toolOn, bizCandidates, BIZ_KINDS, type Purchase, type Biz, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, isSolo, soloAdjust, toolOn, bizCandidates, BIZ_KINDS, type Purchase, type Biz, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -85,7 +85,7 @@ async function bookLink(tenant: any, t: string, c: { providerId?: string | null;
  * or hand it to a person, or both in turn (the business's choice per kind); move unanswered automatic texts to a person;
  * close what got booked; expire the rest; check who came back; one bell per person. */
 export async function opportunitySweep(db: any, t: string, tenant: any, now = Date.now(), o: { force?: boolean; send?: Sender } = {}) {
-  const S = oppSettingsOf(tenant); if (!S.on && !o.force) return { ok: true, skipped: 'off' };
+  let S = oppSettingsOf(tenant); if (!S.on && !o.force) return { ok: true, skipped: 'off' };
   const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const today = dayKey(new Date(now), zone);
   const mark = db.doc(`${T(t)}/private/opportunities`);
   if (!o.force) {
@@ -95,6 +95,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   await mark.set({ lastDay: today, lastRunAt: nowIso(now) }, { merge: true });
   const send: Sender = o.send || (async (...a: any[]) => { const { sendTenantSms } = await import('@/lib/sms'); return (sendTenantSms as any)(...a); });
   const x = await loadAll(db, t, now); const staff = await team(db, t);
+  const so = await soloFor(db, t, S, staff, now, x.opps); S = so.S; const soloAt = so.solo ? await listAt(now, zone, S.solo.hour) : null;
   const renterIds = new Set<string>(staff.filter((m: any) => m.role === 'renter' || m.isRenter).map((m: any) => String(m.id)));
   const clients = new Map<string, any>(x.clients.map((c: any) => [String(c.id), c]));
   const purchases = S.finders.shop_reorder ? await loadPurchases(db, t, tenant, x.clients, now).catch(() => []) : [];
@@ -115,6 +116,8 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
     const ref = db.collection(`${T(t)}/opportunities`).doc(); const base = baseOf(c, ref.id, mode, tenant, staff, clients, now);
     if (pb.winBack && isHoldout(c.key, month, S.holdoutPct)) { writes.push([ref, { ...base, status: 'holdout', assigneeId: null, assigneeName: null, version: 0, message: '' }, 'set']); fresh.push({ status: 'holdout' }); continue; }
     const r = await launch(ctx, base, now);
+    if (soloAt && r.doc.status === 'open' && !r.doc.assigneeId) continue;   // solo: the list is full today; it's found again tomorrow
+    if (soloAt && r.doc.status === 'open') r.doc.dueAt = soloAt;   // solo: on this evening's list
     writes.push([ref, r.doc, 'set']); for (const w of r.extra) writes.push([w[0], w[1], 'set']);
     if (r.sent) { sent++; fresh.push({ status: 'auto' }); } else if (r.doc.status === 'open') fresh.push(r.doc);
   }
@@ -154,11 +157,21 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
     writes.push([ref, { result: { ...r, checkedAt: nowIso(now) } }, 'update']); checked++;
   }
   // One bell per person: "3 new tasks for you today".
-  const by = new Map<string, any[]>(); for (const f of fresh) if (f.assigneeId) by.set(f.assigneeId, [...(by.get(f.assigneeId) || []), f]);
+  const by = new Map<string, any[]>(); if (!so.solo) for (const f of fresh) if (f.assigneeId) by.set(f.assigneeId, [...(by.get(f.assigneeId) || []), f]);
   for (const [sid, list] of by) { const r = db.collection(`${T(t)}/notifications`).doc();
     writes.push([r, { id: r.id, userId: sid, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `You have ${list.length} new task${list.length === 1 ? '' : 's'}: ${list[0].clientName}${list.length > 1 ? ' and others' : ''}.` }, 'set']); }
   for (let i = 0; i < writes.length; i += 400) { const b = db.batch(); for (const [r, v, op] of writes.slice(i, i + 400)) { if (op === 'set') b.set(r, v); else b.update(r, v); } await b.commit(); }
   return { ok: true, created: fresh.filter((f) => f.status === 'open' && !f.escalatedAt).length, sent, toPerson, holdout: fresh.filter((f) => f.status === 'holdout').length, expired, checked };
+}
+/** Solo (lib/opportunities isSolo): the day's settings, and when the list is ready (today at their hour, or now if later). */
+async function soloFor(db: any, t: string, S: OppSettings, staff: any[], now: number, opps?: any[]): Promise<{ solo: boolean; S: OppSettings }> {
+  const solo = isSolo(staff, S); if (!solo) return { solo, S };
+  const list = opps || rows(await db.collection(`${T(t)}/opportunities`).where('firstContactAt', '>=', nowIso(now - 120 * DAY)).get().catch(() => ({ docs: [] })));
+  return { solo, S: soloAdjust(S, true, list.filter((o: any) => o.firstContactAt && now - ms(o.firstContactAt) < 120 * DAY).length) };
+}
+async function listAt(now: number, zone: string, hour: number): Promise<string> {
+  const { dayKey, wallToUtc } = await import('@/lib/tenant-time'); const at = new Date(wallToUtc(dayKey(new Date(now), zone), hour, 0, zone)).getTime();
+  return nowIso(Math.max(now, at));
 }
 const pickFrom = (n: number, used: number[]) => { for (let i = 0; i < n; i++) if (!used.includes(i)) return i; return used.length ? (Math.max(...used) + 1) % n : 0; };
 
@@ -266,6 +279,7 @@ export async function opportunityEvents(db: any, t: string, tenant: any, now = D
   if (!ev.size) return { ok: true, created: 0 };
   const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const month = dayKey(new Date(now), zone).slice(0, 7);
   const staff = await team(db, t); const renterIds = new Set<string>(staff.filter((x: any) => x.role === 'renter' || x.isRenter).map((x: any) => String(x.id)));
+  const S1 = (await soloFor(db, t, S, staff, now)).S;   // solo: no left-alone group while numbers are small
   const pace: Pace | null = m.pace || null; let created = 0;
   for (const [cid, kinds] of ev) {
     const cs = await db.doc(`${T(t)}/clients/${cid}`).get(); if (!cs.exists) continue; const client = { id: cid, ...(cs.data() || {}) };
@@ -278,7 +292,7 @@ export async function opportunityEvents(db: any, t: string, tenant: any, now = D
     for (const c of keep) {
       const mode = S.modes[c.kind] || 'person'; if (mode === 'off' || heldForRoom(c.kind, c.providerId, pace, S)) continue;
       const ref = db.collection(`${T(t)}/opportunities`).doc(); const base = baseOf(c, ref.id, mode, tenant, staff, new Map([[cid, client]]), now);
-      if (PLAYBOOKS[c.kind].winBack && isHoldout(c.key, month, S.holdoutPct)) { await ref.set({ ...base, status: 'holdout', assigneeId: null, assigneeName: null, version: 0, message: '', via: 'event' }); continue; }
+      if (PLAYBOOKS[c.kind].winBack && isHoldout(c.key, month, S1.holdoutPct)) { await ref.set({ ...base, status: 'holdout', assigneeId: null, assigneeName: null, version: 0, message: '', via: 'event' }); continue; }
       const at = await sendAtFor(c.kind, now, zone);
       await ref.set({ ...base, status: 'scheduled', sendAt: nowIso(at), dueAt: nowIso(at), via: 'event', assigneeId: null, assigneeName: null, version: 0, message: '' }); created++;
     }
@@ -294,6 +308,7 @@ export async function opportunityDue(db: any, t: string, tenant: any, now = Date
   const send: Sender = o.send || (async (...a: any[]) => { const { sendTenantSms } = await import('@/lib/sms'); return (sendTenantSms as any)(...a); });
   const zone = await tz(tenant); const { inTextWindow } = await import('@/lib/campaigns'); const textOk = inTextWindow(zone, new Date(now));
   const staff = await team(db, t); const load = openLoad(rows(await db.collection(`${T(t)}/opportunities`).where('status', '==', 'open').get()));
+  const so = await soloFor(db, t, S, staff, now); const soloAt = so.solo ? await listAt(now, zone, S.solo.hour) : null;
   const bells = new Map<string, any[]>(); let launched = 0, dropped = 0;
   for (const e of list) {
     const ref = db.doc(`${T(t)}/opportunities/${e.id}`); const mode: Mode = S.modes[e.kind] || 'person';
@@ -304,8 +319,9 @@ export async function opportunityDue(db: any, t: string, tenant: any, now = Date
     const cs = e.clientId ? await db.doc(`${T(t)}/clients/${e.clientId}`).get() : null; const clients = new Map<string, any>(cs?.exists ? [[String(e.clientId), { id: e.clientId, ...(cs.data() || {}) }]] : []);
     const opps = e.clientId ? rows(await db.collection(`${T(t)}/opportunities`).where('clientId', '==', e.clientId).get()) : [];
     const r = await launch({ db, t, tenant, S, staff, clients, opps, load, send }, { ...e, mode, sendAt: null, launchedAt: nowIso(now) }, now);
+    if (soloAt && r.doc.status === 'open') r.doc.dueAt = soloAt;
     await ref.set(r.doc); for (const w of r.extra) await w[0].set(w[1]); launched++;
-    if (r.doc.status === 'open' && r.doc.assigneeId) bells.set(r.doc.assigneeId, [...(bells.get(r.doc.assigneeId) || []), r.doc]);
+    if (!soloAt && r.doc.status === 'open' && r.doc.assigneeId) bells.set(r.doc.assigneeId, [...(bells.get(r.doc.assigneeId) || []), r.doc]);
   }
   for (const [sid, l] of bells) { const r = db.collection(`${T(t)}/notifications`).doc();
     await r.set({ id: r.id, userId: sid, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `You have ${l.length} new task${l.length === 1 ? '' : 's'}: ${l[0].clientName}${l.length > 1 ? ' and others' : ''}.` }); }
@@ -353,6 +369,22 @@ const gapWhen = (t: number, now: number, zone: string) => {
   const time = new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone }).replace(':00', '');
   return `${day === today ? 'today' : day === tmrw ? 'tomorrow' : day} at ${time}`;
 };
+/** Solo: one bell when the list is ready ("Your 5-minute list: 3 messages"), at their hour, once a day. */
+export async function opportunitySoloList(db: any, t: string, tenant: any, now = Date.now()) {
+  const S = oppSettingsOf(tenant); if (!S.on) return { ok: true, skipped: 'off' };
+  const staff = await team(db, t); if (!isSolo(staff, S)) return { ok: true, skipped: 'team' };
+  const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const { localHour } = await import('@/lib/campaigns'); const today = dayKey(new Date(now), zone);
+  if (localHour(zone, new Date(now)) < S.solo.hour) return { ok: true, skipped: 'not yet' };
+  const mark = db.doc(`${T(t)}/private/opportunities`); if (((await mark.get()).data() || {}).soloBellDay === today) return { ok: true, skipped: 'done today' };
+  await mark.set({ soloBellDay: today }, { merge: true });
+  const me = staff.find((m: any) => !m.archived && m.isActive !== false && m.role !== 'renter' && !m.isRenter) || null;
+  const list = rows(await db.collection(`${T(t)}/opportunities`).where('status', '==', 'open').get()).filter((o: any) => ms(o.dueAt) <= now && (!o.assigneeId || o.assigneeId === me?.id));
+  if (!list.length || !me) return { ok: true, ready: 0 };
+  const r = db.collection(`${T(t)}/notifications`).doc();
+  await r.set({ id: r.id, userId: me.id, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `Your 5-minute list is ready: ${list.length} message${list.length === 1 ? '' : 's'}, about ${Math.max(2, list.length + 1)} minutes.` });
+  return { ok: true, ready: list.length };
+}
+
 /** The first yes on a "fill a gap" text got the time: the others asked about it are told nothing more (their tasks close),
  * and the opening is marked filled. */
 async function closeGapSiblings(db: any, t: string, e: any, appointmentId: string, now: number) {
@@ -455,7 +487,8 @@ export async function listOpportunities(db: any, t: string, actor: RequestActor,
   const people = manager ? (await team(db, t)).filter((m: any) => m.role !== 'renter' && !m.isRenter).map((m: any) => ({ id: m.id, name: m.name || 'Team member', role: m.role || '' })) : [];
   const pace = manager ? (((await db.doc(`${T(t)}/private/opportunities`).get()).data() || {}).pace || null) : null;
   const toolsOff = FINDER_KINDS.filter((k) => !toolOn(tenant, TOOL_OF[k]));   // parts of the app that are switched off: their finders aren't shown
-  return { ok: true as const, items: shown, people, settings: oppSettingsOf(tenant), toolsOff, manager, pace };
+  const S = oppSettingsOf(tenant); const solo = isSolo(await team(db, t), S);
+  return { ok: true as const, items: shown, people, settings: S, toolsOff, manager, pace, solo: { on: solo, hour: S.solo.hour, max: S.solo.max, mode: S.solo.mode } };
 }
 const rank = (o: any) => ({ high: 0, medium: 1, low: 2 } as any)[o.priority] ?? 1;
 
@@ -518,6 +551,10 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
   if (action === 'dismiss') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; await ref.update({ status: 'dismissed', closedAt: nowIso(now), dismissedBy: actor.name }); return { ok: true }; }
   if (o.status !== 'open') return { ok: false, error: 'This task is already closed.' };
   if (['times', 'book', 'send_times', 'send_link', 'waitlist'].includes(action)) return actInTask(db, t, tenant, actor, o, ref, action, b, now, io);
+  if (action === 'skip') {   // not today (the 5-minute list): back tomorrow; skipped three times, it's let go
+    const n = (Number(o.skips) || 0) + 1; const S = oppSettingsOf(tenant); const zone = await tz(tenant);
+    if (n >= 3) { await ref.update({ status: 'expired', closedAt: nowIso(now), skips: n, closedWhy: 'Skipped three times.' }); return { ok: true, closed: true }; }
+    await ref.update({ skips: n, dueAt: await listAt(now + DAY, zone, S.solo.hour), attempts: [...(o.attempts || []), { ...by, channel: 'note', note: 'Skipped for today' }].slice(-20) }); return { ok: true }; }
   if (action === 'reword') { const pb = PLAYBOOKS[o.kind as OppKind]; if (!pb || pb.versions.length < 2) return { ok: false, error: 'There is only one wording available for this message.' };
     const v = ((Number(o.version) || 0) + 1) % pb.versions.length; const m = staff.find((x: any) => x.id === o.assigneeId);
     const message = fill(pb.versions[v], { ...(o.facts || {}), business: businessName(tenant), me: first(m?.name || actor.name) }); await ref.update({ version: v, message }); return { ok: true, message, version: v }; }
