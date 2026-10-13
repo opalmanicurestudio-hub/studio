@@ -11,6 +11,7 @@ import { Mic, BrowserEars } from '@/lib/practice/mic';
 import { isEcho, listenError, encodeWav } from '@/lib/practice/vad';
 import { autoPick, browserVoices, type Pick as VPick, type Preset, type VoiceOpt } from '@/lib/practice/voices';
 import { VoicePicker, VoiceCheck, type CheckRow } from './voice-panels';
+import { PhoneDock, CallCard, CallReviewCard } from './phone-panel';
 import { useAuth, useFirestore } from '@/firebase';
 import QRCode from 'qrcode';
 import { Barcode, Bottle, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
@@ -126,7 +127,7 @@ export default function RegisterPractice() {
       if (st.cur && st.cur.c.id !== had) { setSel(null); setMsg(null); setFlag(null); setNote(null); setVoidFor(null); setMode('scan'); setDetails({ phone: '', email: '', promo: false }); }
       if (st.ringing && (st.t - st.ringing.since) % 3 < 0.25 * speed.current && !muted()) SFX.ring();
       drainSfx();
-      if (R.finished(st) && !pay) window.setTimeout(() => setScreen('closeout'), 500);
+      if (R.finished(st) && !pay) { R.phoneWrapUp(st); window.setTimeout(() => setScreen('closeout'), 500); }
       rerender();
     }, 250);
     return () => window.clearInterval(id);
@@ -163,7 +164,8 @@ export default function RegisterPractice() {
     if (!sRef.current.cur) return; const sku = R.skuByCode(code);
     afterScan(R.scan(sRef.current, sku ? sku.code : code, 'camera'), 'camera');
   }, [afterScan]);
-  const start = () => { sRef.current = R.newRegister(code); setScreen('play'); setSel(null); setMsg(null); setPay(null); setFlag(null); setPaused(false); setHand([]); setTendered(null); setCounts({}); rerender(); };
+  const [shift, setShift] = useState<R.PhoneMode>('full');
+  const start = () => { sRef.current = R.newRegister(code, shift); setSeenRv(0); setScreen('play'); setSel(null); setMsg(null); setPay(null); setFlag(null); setPaused(false); setHand([]); setTendered(null); setCounts({}); rerender(); };
   const pickCurrency = (c: $.CurrencyCode) => { setCode(c); try { localStorage.setItem(CUR_KEY, c); } catch { /* private mode */ } };
   const cur = s.cur;
   const sku = sel ? R.skuBy(sel) : null;
@@ -189,7 +191,7 @@ export default function RegisterPractice() {
   const [prefPick, setPrefPick] = useState<'card' | 'cash' | null>(null);
   const [cardWhich, setCardWhich] = useState<'same' | 'another'>('same');
   const [asking, setAsking] = useState<string | null>(null);
-  const twoP = !!roomUi?.on;
+  const twoP = !!roomUi?.on; const twoPRef = useRef(twoP); twoPRef.current = twoP;
   const view = (v: Omit<Room.DeskView, 'seq' | 'currency'>) => { const r = roomRef.current; if (!r.id || !r.on || !r.tp) return 0; seqRef.current++; r.tp.push(r.id, { ...v, seq: seqRef.current, currency: sRef.current.currency }).catch(() => {}); return seqRef.current; };
   /** Ask the client. With a client screen connected, the second player answers; otherwise the game answers for them. */
   const ask = (v: Omit<Room.DeskView, 'seq' | 'currency'>, ai: () => string | number, delay = 1000): Promise<string | number> => {
@@ -327,10 +329,8 @@ export default function RegisterPractice() {
   };
   const doneArrival = () => { R.finishArrival(s); drainSfx(); setArrQ(''); setLateCourtesy(false); view({ stage: 'idle' }); rerender(); };
   const excuseMe = () => { if (!s.ringing || !s.cur) return; excusedFor.current = s.ringing.call.id; s.cur.said = 'Of course, go ahead.'; s.cur.history?.push({ who: 'you', text: `Excuse me one moment, ${s.cur.c.name}.` }, { who: 'client', text: 'Of course, go ahead.' }); rerender(); };
-  const answerCall = () => { primePlayer(); const excused = !s.cur || excusedFor.current === s.ringing?.call.id; R.answer(s, excused); excusedFor.current = null; setCallQ(''); drainSfx(); rerender(); };
-  const holdIt = (asked: boolean) => { stopAudio.current?.(); R.holdCall(s, asked); drainSfx(); rerender(); };
-  const backToCaller = () => { R.resumeCall(s); drainSfx(); rerender(); };
-  const hangUp = () => { R.endCall(s); setCallQ(''); drainSfx(); rerender(); };
+  const answerCall = () => { primePlayer(); const excused = !s.cur || excusedFor.current === s.ringing?.call.id; R.answer(s, excused); excusedFor.current = null; drainSfx(); rerender(); };
+  const phoneDone = () => { stopAudio.current?.(); drainSfx(); rerender(); };
 
   // ── Talking out loud: your mic, the client's real voice, and a coach ──
   const [talkOn, setTalkOn] = useState(false);
@@ -369,9 +369,9 @@ export default function RegisterPractice() {
   const [preset, setPreset] = useState<Preset>('matched'); const [phoneFx, setPhoneFx] = useState(true);
   const [panel, setPanel] = useState<null | 'voices' | 'check'>(null); const panelRef = useRef(panel); panelRef.current = panel;
   const lastSpeakErr = useRef<string | null>(null);
-  const checkLevel = useRef(0);
+  const checkLevel = useRef(0); const [seenRv, setSeenRv] = useState(0);
   const [chk, setChk] = useState<{ mic: boolean | null; heard: string | null | false; voice: boolean | null; ai: { ok: boolean; text: string } | null; busy: string | null }>({ mic: null, heard: null, voice: null, ai: null, busy: null });
-  const everyone = () => [...R.PEOPLE.map((c) => ({ id: c.id, name: c.party ? 'Maya' : c.name, voiceHint: c.voiceHint, line: c.hello, role: 'desk' as const })), ...R.CALLS.map((c) => ({ id: c.id, name: c.name, voiceHint: c.voiceHint, line: c.opener, role: 'call' as const }))];
+  const everyone = () => [...R.PEOPLE.map((c) => ({ id: c.id, name: c.party ? 'Maya' : c.name, voiceHint: c.voiceHint, line: c.hello, role: 'desk' as const })), ...[...R.CALLS, ...R.OVERNIGHT].map((c) => ({ id: c.id, name: c.name, voiceHint: c.voiceHint, line: c.opener, role: 'call' as const }))];
   const savePicks = (pr: Preset) => { try { localStorage.setItem('cf_practice_voice_picks', JSON.stringify({ preset: pr, picks: picks.current, phone: phoneFxRef.current })); } catch { /* private mode */ } };
   const phoneFxRef = useRef(phoneFx); phoneFxRef.current = phoneFx;
   const loadVoices = async (pr?: Preset) => {
@@ -474,30 +474,35 @@ export default function RegisterPractice() {
     };
   };
   /** You said something: the client answers, and what you offered or did counts in the game. */
-  /** On a call, what you say goes to the caller. */
+  /** On a call, what you say goes to the caller: it counts as the steps you'd tap, and the caller answers in character. */
   const callTalk = async (text: string, seconds: number | null) => {
     const st = sRef.current; const oc = st.onCall; if (!oc) return; setHeard(text); setTalkErr(null);
     if (/\bhold\b/i.test(text) && !oc.outcome) {
       const asked = /(may|can|could|would|do you mind|is it ok|okay if)[^.?!]*hold|\?/i.test(text);
-      oc.history.push({ who: 'you', text }); R.holdCall(st, asked); oc.history.push({ who: 'client', text: oc.said }); drainSfx(); setTalkState(resting()); rerender(); return;
+      oc.history.push({ who: 'you', text }); R.holdCall(st, asked); drainSfx(); setTalkState(resting()); rerender(); return;
     }
+    // Two players: the second player is the caller and answers out loud; we only count what you did.
+    if (twoPRef.current) { R.detectActs(st, text).forEach((id) => R.act(st, id)); oc.history.push({ who: 'you', text }); drainSfx(); setTalkState(resting()); rerender(); return; }
     setTalkState('thinking');
-    const b = R.bookingBy(st, oc.call.booking)!; const found = R.bookingBy(st, oc.found);
-    const ctx = { name: oc.call.name, persona: oc.call.persona, kind: 'returning', visits: 3, service: b.service, provider: b.provider, items: [], total: '', prefersPay: 'card',
-      rebook: { wants: oc.call.want === 'cancel' ? `you called to cancel ${b.when}; if offered another day you'd take ${oc.call.prefers}` : `you called to move ${b.when}; you'd like ${oc.call.prefers}`, done: oc.outcome?.kind === 'rescheduled' ? oc.outcome.slot : null },
-      offer: { wants: null, offered: [], catalog: [] }, details: { phone: b.phone, email: b.email, promo: false, saved: true },
-      mood: 0.8, waitedMinutes: 0, lineLength: 0, stage: `on a phone call with the salon front desk${found ? `; they found the booking for ${found.name}, ${found.when}` : '; they haven’t found your booking yet'}${oc.outcome ? `; result: ${oc.outcome.kind}` : ''}`, history: oc.history };
+    const basic = R.talkCall(st, text); // the steps you just did, and the scripted reply
+    const brief = R.callerBrief(st, oc); const found = R.bookingBy(st, oc.found);
+    const ctx = { name: oc.call.name, persona: `${oc.call.persona} ${brief.facts.join(' ')}`, kind: oc.call.known ? 'returning' : 'new', visits: 3, service: R.KIND_LABEL[oc.call.kind], provider: 'the salon', items: [], total: '', prefersPay: 'card',
+      rebook: { wants: oc.call.prefers ? `you'd take ${oc.call.prefers}` : 'only what your goal says', done: oc.outcome && 'slot' in oc.outcome ? oc.outcome.slot : null },
+      offer: { wants: null, offered: [], catalog: [] }, details: oc.call.facts.phone ? { phone: oc.call.facts.phone, email: oc.call.facts.email || '', promo: false, saved: false } : null,
+      mood: oc.mood, waitedMinutes: 0, lineLength: 0,
+      stage: `${oc.call.outbound ? 'the salon called you back' : 'you phoned the salon'}; on the phone with the front desk${found ? `; they found the booking for ${found.name}, ${found.when}` : ''}${oc.outcome ? `; done so far: ${oc.outcome.kind}` : ''}${basic.acts.length ? `; what they just did: ${basic.acts.join(', ')}` : ''}`, history: oc.history };
     let res: T.TalkReply | null = null; const tk = caps.ai ? await idToken() : null;
-    if (tk) { try { const r = await fetch('/api/practice/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ context: ctx, said: text }) }); const d = await r.json(); if (d.ok) res = d; } catch { /* basic */ } }
-    if (!res) res = T.basicCall({ name: oc.call.name.split(' ')[0], full: b.name, want: oc.call.want, when: b.when, service: b.service, prefers: oc.call.prefers, phone: b.phone, found: !!found, offered: oc.offeredAnotherDay, outcome: oc.outcome?.kind || null }, text, oc.history);
+    if (tk) { try { const r = await fetch('/api/practice/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ context: ctx, said: text }) }); const d = await r.json(); if (d.ok && d.mode === 'ai') res = d; } catch { /* basic */ } }
     const oc2 = sRef.current.onCall; if (!oc2) { setTalkState(resting()); return; }
-    if (res.detected.offeredRebook && !oc2.offeredAnotherDay) R.offerAnotherDay(st);
-    oc2.history.push({ who: 'you', text }); oc2.history.push({ who: 'client', text: res.reply }); toneRef.current = res.tone; oc2.said = res.reply;
-    const dl = T.delivery(text, seconds); st.talk.push({ who: `📞 ${oc2.call.name}`, you: text, reply: res.reply, scores: res.coach.scores, tip: res.coach.tip, fillers: dl.fillers, wpm: dl.wpm });
-    setCoachTip({ tip: res.coach.tip, scores: res.coach.scores, fillers: dl.fillers, pace: dl.pace }); setTalkState(resting()); rerender();
+    if (res?.detected.offeredRebook && !oc2.offeredAnotherDay && (oc2.call.kind === 'cancel' || oc2.call.kind === 'reschedule')) R.offerAnotherDay(st);
+    const reply = res?.reply || basic.reply;
+    oc2.history.push({ who: 'you', text }); oc2.history.push({ who: 'client', text: reply }); toneRef.current = res?.tone || 'neutral'; oc2.said = reply;
+    const scores = res?.coach.scores || { awareness: 3, confidence: 4, warmth: oc2.did.greeted === 'great' ? 5 : 3, retention: 3 }; const tip = res?.coach.tip || (oc2.did.greeted !== 'great' ? 'Answer with the salon’s name, yours, and “How can I help?”' : 'Good. Read the details back before you hang up.');
+    const dl = T.delivery(text, seconds); st.talk.push({ who: `📞 ${oc2.call.name}`, you: text, reply, scores, tip, fillers: dl.fillers, wpm: dl.wpm });
+    setCoachTip({ tip, scores, fillers: dl.fillers, pace: dl.pace }); drainSfx(); setTalkState(resting()); rerender();
   };
   const handleSaid = async (raw: string, seconds: number | null) => {
-    if (sRef.current.onCall && !sRef.current.onCall.hold) { await callTalk(raw.trim(), seconds); return; }
+    if (sRef.current.onCall) { await callTalk(raw.trim(), seconds); return; }
     // A phone is ringing: “Excuse me one moment” to the guest counts as excusing yourself.
     if (sRef.current.ringing && /excuse me|one moment|one second|just a moment|be right with you|bear with me|give me (a|one) (moment|second|sec)/i.test(raw)) excusedFor.current = sRef.current.ringing.call.id;
     const st = sRef.current; const c0 = st.cur; const text = raw.trim(); if (!c0 || !text) { setTalkState(resting()); return; }
@@ -622,7 +627,11 @@ export default function RegisterPractice() {
   };
   useEffect(() => { try { if (localStorage.getItem('cf_practice_handsfree') === '0') setHandsFree(false); setMicId(localStorage.getItem('cf_practice_mic')); } catch { /* private mode */ } }, []);
   const callSaid = s.onCall?.said; const callId = s.onCall?.call.id;
-  useEffect(() => { const oc = sRef.current.onCall; if (!voice || screen !== 'play' || !oc || !callSaid) return; sayOut(callSaid, { id: oc.call.id, voice: oc.call.voice, pron: oc.call.voiceHint.gender === 'male' ? 'he' : 'she' } as R.Customer, toneRef.current, phoneFxRef.current); toneRef.current = 'neutral'; }, [callSaid, callId, voice, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Two players: the second player becomes the caller and gets a role card.
+  useEffect(() => { if (!twoP || screen !== 'play') return; const oc = sRef.current.onCall;
+    if (oc) { const b = R.callerBrief(sRef.current, oc); view({ stage: 'caller', who: b.who, title: R.KIND_LABEL[oc.call.kind], note: b.persona, text: b.facts.join('\n') }); }
+    else if (!pending.current) view({ stage: 'idle' }); }, [callId, twoP, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const oc = sRef.current.onCall; if (!voice || screen !== 'play' || !oc || !callSaid || twoPRef.current) return; sayOut(callSaid, { id: oc.call.id, voice: oc.call.voice, pron: oc.call.voiceHint.gender === 'male' ? 'he' : 'she' } as R.Customer, toneRef.current, phoneFxRef.current); toneRef.current = 'neutral'; }, [callSaid, callId, voice, screen]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleTalk = () => { const n = !talkOn; setTalkOn(n); talkOnRef.current = n; try { localStorage.setItem(TALK_KEY, n ? '1' : '0'); } catch { /* private mode */ } if (n) { assignVoices(); openMic(); } else closeMic(); };
   useEffect(() => { if (screen === 'play') loadVoices(); }, [screen, caps.voices, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
   // Hold the space bar to talk (desktop).
@@ -636,7 +645,7 @@ export default function RegisterPractice() {
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Screens ──
-  if (screen === 'menu') return <Shell><MenuCard onStart={start} code={code} onCode={pickCurrency} /></Shell>;
+  if (screen === 'menu') return <Shell><MenuCard onStart={start} code={code} onCode={pickCurrency} mode={shift} onMode={setShift} /></Shell>;
   if (screen === 'review') return <Shell><ReviewCard s={s} onAgain={start} /></Shell>;
   if (screen === 'closeout') return <Shell><CloseOutCard s={s} narrow={narrow} counts={counts} setCounts={setCounts} onDone={() => setScreen('review')} rerender={rerender} /></Shell>;
 
@@ -918,7 +927,7 @@ export default function RegisterPractice() {
   );
 
   const shownC = cur?.c || (pay === 'receipt' ? lastC : null);
-  const onLine = s.onCall && !s.onCall.hold ? s.onCall : null; const talkName = onLine ? onLine.call.name.split(' ')[0] : cur ? (cur.c.party ? 'Maya' : cur.c.name) : '';
+  const onLine = s.onCall; const talkName = onLine ? onLine.call.name.split(' ')[0] : cur ? (cur.c.party ? 'Maya' : cur.c.name) : '';
   const micOpen = !!micRef.current?.open || (!cloudEars && talkState !== 'idle');
   const statusLine = !micOpen ? (handsFree ? 'Tap the mic to start talking' : 'Hold the mic (or Space) and talk') : talkState === 'hearing' ? (handsFree ? 'Hearing you… pause when you’re done' : 'Hearing you… let go to send') : talkState === 'thinking' ? `${talkName} is thinking…` : talkState === 'client' ? `${talkName} is talking. Just start talking to cut in` : handsFree ? `Listening. Just talk to ${talkName}` : 'Hold the mic (or Space) and talk';
   const talkEl = talkOn && (cur || onLine) && (
@@ -972,9 +981,9 @@ export default function RegisterPractice() {
           : <Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} />}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: narrow ? 0 : 90 }}>
-        <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : talkOn && talkState === 'thinking' && !(s.onCall && !s.onCall.hold) ? '…' : cur?.said}</Say>
+        <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : talkOn && talkState === 'thinking' && !s.onCall ? '…' : cur?.said}</Say>
         {!narrow && greetEl}
-        {!narrow && !(s.onCall && !s.onCall.hold) && talkEl}
+        {!narrow && !s.onCall && talkEl}
         {!narrow && claimCard}
       </div>
     </div>
@@ -1001,44 +1010,13 @@ export default function RegisterPractice() {
     </div>
   </div>;
   const waitEl = waitingClient && <div style={{ position: 'fixed', left: '50%', bottom: narrow ? 10 : 18, transform: 'translateX(-50%)', zIndex: 45, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '7px 8px 7px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 12px 26px -14px rgba(0,0,0,.45)', fontSize: 13 }}><span style={{ width: 8, height: 8, borderRadius: 4, background: BLUE }} />Waiting for the client screen…<button style={mini} onClick={chooseForThem}>Choose for them</button></div>;
-  const oc = s.onCall; const ocB = oc ? R.bookingBy(s, oc.found) : null;
-  const ringEl = s.ringing && !oc && <div style={{ position: 'fixed', right: narrow ? 8 : 24, top: narrow ? 116 : 126, zIndex: 42, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '6px 6px 6px 12px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 0 0 6px #fdf1e3, 0 12px 26px -14px rgba(0,0,0,.45)' }}>
-    <span style={{ fontSize: 18, animation: 'regBeam .25s ease-in-out infinite alternate' }}>📞</span><span style={{ fontSize: 13 }}><b>Line 1</b> · {s.ringing.call.name} calling</span>
-    {cur && excusedFor.current !== s.ringing.call.id && <Btn small ghost onClick={excuseMe}>“Excuse me one moment”</Btn>}{cur && excusedFor.current === s.ringing.call.id && <Chip tone="green">{cur.c.name} knows ✓</Chip>}
-    <Btn small onClick={answerCall}>Answer</Btn></div>;
-  const held = oc?.hold ? Math.round(s.t - oc.hold.since) : 0;
-  const holdEl = oc?.hold && <div style={{ position: 'fixed', right: narrow ? 8 : 'auto', left: narrow ? 8 : 24, top: narrow ? 116 : 126, zIndex: 44, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, padding: '8px 8px 8px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: held > R.HOLD_WARN ? '0 0 0 6px #fdecec, 0 12px 26px -14px rgba(0,0,0,.45)' : '0 0 0 5px #fdf1e3, 0 12px 26px -14px rgba(0,0,0,.45)' }}>
-    <span style={{ fontSize: 17 }}>⏸</span>
-    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13 }}><b>{oc.call.name}</b> on hold · {Math.floor(held / 60)}:{String(held % 60).padStart(2, '0')}</div>
-      <div style={{ height: 4, background: SOFT, borderRadius: 2, marginTop: 4, width: narrow ? '100%' : 170, overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, (held / R.HOLD_LIMIT) * 100)}%`, background: held > R.HOLD_WARN ? RED : AMBER }} /></div>
-      {held > R.HOLD_WARN && <div style={{ fontSize: 11.5, color: RED, fontWeight: 600, marginTop: 3 }}>Check back now, or they’ll hang up.</div>}</div>
-    <Btn small onClick={backToCaller}>Back to {oc.call.name.split(' ')[0]}</Btn></div>;
-  const callEl = oc && !oc.hold && <div style={{ position: 'fixed', right: narrow ? 6 : 24, left: narrow ? 6 : 'auto', top: narrow ? 'auto' : 126, bottom: narrow ? 6 : 'auto', width: narrow ? 'auto' : 380, maxHeight: narrow ? '72vh' : 'calc(100vh - 150px)', overflow: 'auto', zIndex: 44, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 20, padding: 14, boxShadow: '0 30px 60px -30px rgba(0,0,0,.6)', display: 'flex', flexDirection: 'column', gap: 8, boxSizing: 'border-box' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 30, height: 30, borderRadius: 15, background: INK, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎧</span><div style={{ flex: 1 }}><b style={{ fontSize: 14 }}>On a call · {oc.call.name}</b><div style={{ fontSize: 11, color: MUTED }}>Line 1 · {Math.round((s.t - oc.started) / 2)} min{oc.holds ? ` · held ${oc.holds}×` : ''}</div></div><Btn small ghost onClick={hangUp}>End call</Btn></div>
-    {cur && !oc.outcome && <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', background: '#fdf6ec', borderRadius: 12, padding: '6px 9px' }}>
-      <span style={{ fontSize: 12, color: AMBER, fontWeight: 600, flex: 1, minWidth: 140 }}>{cur.c.name} is waiting at the desk.</span>
-      <button style={mini} onClick={() => holdIt(true)}>“May I place you on a brief hold?”</button><button style={{ ...mini, color: MUTED }} onClick={() => holdIt(false)}>Hold</button></div>}
-    <Say tone="soft">{talkOn && talkState === 'thinking' ? '…' : oc.said}</Say>
-    {talkEl}
-    {!ocB ? <>
-      <div style={{ fontSize: 12, fontWeight: 700 }}>Find the booking</div>
-      <input aria-label="Search bookings for the caller" value={callQ} onChange={(e) => setCallQ(e.target.value)} placeholder="Name or phone" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
-      {callQ && R.searchBookings(s, callQ).slice(0, 5).map((b) => <button key={b.id} onClick={() => { R.callFind(s, b.id); rerender(); }} style={{ ...rowBtn, padding: '6px 10px', fontSize: 12.5 }}><b style={{ flex: 1, textAlign: 'left' }}>{b.name}</b><span style={{ color: MUTED }}>{b.when} · {b.service}</span></button>)}
-    </> : <div style={{ background: SOFT, borderRadius: 10, padding: '7px 10px', fontSize: 12.5, display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', gap: 6 }}><b style={{ flex: 1 }}>{ocB.name} · {ocB.when}</b><button style={mini} onClick={() => { oc.found = null; rerender(); }}>Change</button></div>
-      <div>{ocB.service} with {ocB.provider} · {ocB.courtesyLeft} courtesy left</div>
-      {ocB.day === 'Sun' && <div style={{ color: AMBER }}>Tomorrow morning: inside 24 hours. Late-cancel fee {money(R.CANCEL_FEE)} unless a courtesy is used.</div>}
-    </div>}
-    {ocB && !oc.outcome && <>
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><button style={mini} disabled={oc.offeredAnotherDay} onClick={() => { R.offerAnotherDay(s); rerender(); }}>{oc.offeredAnotherDay ? 'Offered another day ✓' : 'Offer another day'}</button></div>
-      <div style={{ fontSize: 12, fontWeight: 700 }}>Move it to</div>
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{R.OPEN_SLOTS.map((sl) => <button key={sl} style={mini} onClick={() => { R.callReschedule(s, sl); rerender(); }}>{sl}</button>)}</div>
-      <div style={{ fontSize: 12, fontWeight: 700 }}>Or cancel</div>
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><button style={mini} onClick={() => { R.callCancel(s, false); rerender(); }}>Cancel{ocB.day === 'Sun' ? ', use a courtesy (no fee)' : ''}</button>{ocB.day === 'Sun' && <button style={mini} onClick={() => { R.callCancel(s, true); rerender(); }}>Cancel, charge {money(R.CANCEL_FEE)}</button>}</div>
-    </>}
-    {!oc.outcome && <button style={{ ...mini, alignSelf: 'flex-start' }} onClick={() => { R.takeMessage(s); rerender(); }}>Take a message</button>}
-    {oc.outcome && <div style={{ background: '#eaf6ef', color: GREEN, borderRadius: 10, padding: '7px 10px', fontSize: 12.5, fontWeight: 600 }}>{oc.outcome.kind === 'rescheduled' ? `Moved to ${oc.outcome.slot}. A confirmation text goes out.` : oc.outcome.kind === 'cancelled' ? `Cancelled${oc.outcome.fee ? ` with a ${money(R.CANCEL_FEE)} fee` : ''}.` : 'Message taken.'} Say goodbye and end the call.</div>}
-  </div>;
+  const lastRv = s.reviews.length ? s.reviews[s.reviews.length - 1] : null;
+  const phoneEl = <>
+    <PhoneDock s={s} narrow={narrow} talkEl={null} twoPlayer={twoP} excused={!!s.ringing && excusedFor.current === s.ringing.call.id} done={phoneDone} onExcuse={excuseMe} onAnswer={answerCall}
+      onListen={(vm) => sayOut(vm.call.voicemail, { id: vm.call.id, voice: vm.call.voice, pron: vm.call.voiceHint.gender === 'male' ? 'he' : 'she' } as R.Customer, 'neutral', phoneFxRef.current, true)} />
+    {s.onCall && <CallCard key={s.onCall.call.id} s={s} narrow={narrow} talkEl={talkEl} twoPlayer={twoP} excused done={phoneDone} onExcuse={excuseMe} onAnswer={answerCall} onListen={() => {}} beforeAct={() => stopAudio.current?.()} />}
+    {lastRv && seenRv !== s.reviews.length && !s.onCall && !s.ringing && <CallReviewCard key={s.reviews.length} rv={lastRv} narrow={narrow} onClose={() => setSeenRv(s.reviews.length)} />}
+  </>;
   const runHear = async () => {
     if (!micRef.current?.open && !earsOn.current && !(await openMic())) { setChk((c) => ({ ...c, heard: false })); return; }
     const m = micRef.current; const hfWas = m?.handsFree; if (m) { m.handsFree = true; m.paused = false; } if (!cloudEarsRef.current) earsRef.current?.listen();
@@ -1075,7 +1053,7 @@ export default function RegisterPractice() {
     onPhone={(on) => { setPhoneFx(on); phoneFxRef.current = on; savePicks(preset); }}
     onPreset={(k) => { setPreset(k); picks.current = autoPick(everyone(), voiceOpts, k); savePicks(k); rerender(); }}
     onPick={(id, pk) => { picks.current = { ...picks.current, [id]: pk }; savePicks(preset); rerender(); }}
-    onPreview={(id) => { primePlayer(); const p0 = everyone().find((x) => x.id === id)!; const full = R.PEOPLE.find((c) => c.id === id); const call = R.CALLS.find((c) => c.id === id);
+    onPreview={(id) => { primePlayer(); const p0 = everyone().find((x) => x.id === id)!; const full = R.PEOPLE.find((c) => c.id === id); const call = [...R.CALLS, ...R.OVERNIGHT].find((c) => c.id === id);
       sayOut(p0.line, (full || { id, voice: call!.voice, pron: call!.voiceHint.gender === 'male' ? 'he' : 'she' }) as R.Customer, 'warm', !!call && phoneFxRef.current, true); }}
     onClose={() => setPanel(null)} />;
   const printEl = rc && <div id="cf-print" style={{ display: 'none' }}><ReceiptPaper r={rc} width="72mm" /></div>;
@@ -1085,7 +1063,7 @@ export default function RegisterPractice() {
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f6f3ef,#efe9e2)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, display: 'flex', flexDirection: 'column', gap: 10, padding: 10, boxSizing: 'border-box' }}>
       <Fonts />{hud}{coachEl}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{queue}</div>
-      {client}{greetEl}{!(s.onCall && !s.onCall.hold) && talkEl}{claimCard}
+      {client}{greetEl}{!s.onCall && talkEl}{claimCard}
       <div style={{ background: '#16171a', borderRadius: 16, padding: 7 }}>{pos || arrivalPanel || saleDone}</div>
       {clientScreen}
       {receiptPanel && <div style={{ paddingTop: 250, display: 'flex', justifyContent: 'center' }}>{receiptPanel}</div>}
@@ -1093,7 +1071,7 @@ export default function RegisterPractice() {
       {zoom && <div style={{ position: 'fixed', left: 8, right: 8, bottom: 8, zIndex: 20 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'fixed', left: 6, right: 6, bottom: 6, zIndex: 20, maxHeight: '70vh', overflow: 'auto' }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
-      {toast}{roomEl}{waitEl}{ringEl}{holdEl}{callEl}{printEl}{voicePanel}{checkPanel}
+      {toast}{roomEl}{waitEl}{phoneEl}{printEl}{voicePanel}{checkPanel}
       {pauseEl}
     </div>
   );
@@ -1120,7 +1098,7 @@ export default function RegisterPractice() {
       {zoom && <div style={{ position: 'absolute', left: '50%', bottom: 30, transform: 'translateX(-30%)', zIndex: 10 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 50px)', right: 390, bottom: 24, zIndex: 10, display: 'flex', justifyContent: 'center' }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
-      {toast}{roomEl}{waitEl}{ringEl}{holdEl}{callEl}{printEl}{voicePanel}{checkPanel}
+      {toast}{roomEl}{waitEl}{phoneEl}{printEl}{voicePanel}{checkPanel}
       {pauseEl}
     </div>
   );
@@ -1133,7 +1111,7 @@ function Shell({ children }: { children: ReactNode }) {
 function Fonts() { return <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'); @keyframes regBeam { from { opacity: .55 } to { opacity: 1 } } #cf-print { display: none } @media print { body * { visibility: hidden !important } #cf-print, #cf-print * { visibility: visible !important } #cf-print { display: block !important; position: fixed; left: 0; top: 0 } @page { size: 80mm auto; margin: 3mm } }`}</style>; }
 const cardS = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, padding: '22px 24px', display: 'flex', flexDirection: 'column' as const, gap: 12, width: '100%', boxShadow: '0 30px 60px -36px rgba(22,23,26,.5)' };
 
-function MenuCard({ onStart, code, onCode }: { onStart: () => void; code: $.CurrencyCode; onCode: (c: $.CurrencyCode) => void }) {
+function MenuCard({ onStart, code, onCode, mode, onMode }: { onStart: () => void; code: $.CurrencyCode; onCode: (c: $.CurrencyCode) => void; mode: R.PhoneMode; onMode: (m: R.PhoneMode) => void }) {
   return (
     <div style={{ ...cardS, maxWidth: 580 }}>
       <div style={{ fontSize: 12, letterSpacing: '.1em', color: MUTED }}>PRACTICE A SHIFT · BEHIND THE DESK</div>
@@ -1141,6 +1119,13 @@ function MenuCard({ onStart, code, onCode }: { onStart: () => void; code: $.Curr
       <div style={{ fontSize: 14, color: MUTED, lineHeight: 1.5 }}>Six clients, a growing line, and the slips that happen on a busy Saturday. Scan their products, fix what goes wrong, and take payment. Nothing real is charged.</div>
       <div style={{ background: SOFT, borderRadius: 14, padding: '12px 14px', fontSize: 13, lineHeight: 1.6 }}>
         <b>You’ll practice</b><br />Scanning · labels that won’t read · double scans · voids with a reason · a shelf price that doesn’t match · a health flag · cash and change · closing the drawer
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>SHIFT</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
+          {([['full', 'Full shift', 'The counter, check-ins and five phone calls, plus a voicemail to return.'], ['phones', 'Phone practice', 'Ten callers on two lines: bookings, prices, gift cards, an upset client, a wrong number, a sales call. Two voicemails waiting.']] as const).map(([k, t, d]) => { const on = mode === k;
+            return <button key={k} onClick={() => onMode(k)} style={{ border: `1.5px solid ${on ? INK : LINE}`, background: on ? INK : '#fff', color: on ? '#fff' : INK, borderRadius: 14, padding: '10px 12px', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}><b style={{ fontSize: 14 }}>{t}</b><div style={{ fontSize: 12, opacity: 0.8, marginTop: 3, lineHeight: 1.4 }}>{d}</div></button>; })}
+        </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>CURRENCY</div>
@@ -1156,6 +1141,11 @@ function MenuCard({ onStart, code, onCode }: { onStart: () => void; code: $.Curr
         <span style={{ fontSize: 26 }}>🔦</span>
         <div style={{ flex: 1, fontSize: 13, lineHeight: 1.45 }}><b>Have a real barcode scanner?</b><br /><span style={{ color: MUTED }}>Plug it in (USB or Bluetooth), print the practice sheet, and scan the products for real.</span></div>
         <a href="/practice/register/sheet" target="_blank" rel="noreferrer" style={{ ...pill, textDecoration: 'none', color: INK }}>Practice sheet</a>
+      </div>
+      <div style={{ border: `1px solid ${LINE}`, borderRadius: 14, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center' }}>
+        <span style={{ fontSize: 26 }}>☎️</span>
+        <div style={{ flex: 1, fontSize: 13, lineHeight: 1.45 }}><b>Phone scripts</b><br /><span style={{ color: MUTED }}>What to say for every kind of call: answering, hold, bookings, gift cards, upset clients. Print it for the desk or the classroom.</span></div>
+        <a href="/practice/register/scripts" target="_blank" rel="noreferrer" style={{ ...pill, textDecoration: 'none', color: INK }}>Open</a>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Btn onClick={onStart}>Start the register</Btn><a href="/practice" style={{ fontSize: 13, color: MUTED, marginLeft: 8 }}>← Back to the salon floor</a></div>
     </div>
@@ -1205,6 +1195,14 @@ function ReviewCard({ s, onAgain }: { s: R.RegState; onAgain: () => void }) {
           {best && <div style={{ fontSize: 13 }}><b style={{ color: GREEN }}>Best line:</b> “{best.you}” <span style={{ color: MUTED }}>to {best.who}</span></div>}
           {tips.map((t) => <div key={t} style={{ fontSize: 12.5, display: 'flex', gap: 6 }}><span style={{ color: BLUE }}>→</span>{t}</div>)}
         </div>; })()}
+      {s.reviews.length > 0 && <div style={{ border: `1px solid ${LINE}`, borderRadius: 16, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <b style={{ fontSize: 15 }}>The phone · {s.reviews.length} {s.reviews.length === 1 ? 'call' : 'calls'} · phone manner {Math.round(s.reviews.reduce((a, r) => a + r.score, 0) / s.reviews.length)}%</b>
+        {s.reviews.map((r, i) => <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, borderTop: i ? `1px solid ${LINE}` : 'none', paddingTop: i ? 6 : 0 }}>
+          <span style={{ flex: 1 }}><b>{r.who}</b> <span style={{ color: MUTED }}>· {r.outbound ? 'callback · ' : ''}{r.result}</span></span>
+          <span style={{ fontSize: 11.5, color: MUTED }}>{r.checklist.filter((x) => !x.ok).map((x) => x.label.split(' (')[0]).join(' · ')}</span>
+          <b style={{ color: r.score >= 80 ? GREEN : r.score >= 50 ? AMBER : RED }}>{r.score}%</b></div>)}
+        {s.voicemails.some((v) => !v.returned) && <div style={{ fontSize: 12.5, color: RED }}>Voicemails not returned: {s.voicemails.filter((v) => !v.returned).map((v) => v.call.name).join(', ')}</div>}
+      </div>}
       <b style={{ fontSize: 15, marginTop: 4 }}>{rv.mistakes.length ? 'What happened after you rang them up' : 'Nothing came back to bite you. Nice work.'}</b>
       {rv.mistakes.map((m, i) => (
         <div key={i} style={{ border: `1px solid ${LINE}`, borderRadius: 14, padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 5, background: m.minor ? '#fff' : '#fffaf5' }}>

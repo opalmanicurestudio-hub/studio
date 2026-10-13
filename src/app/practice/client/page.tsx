@@ -56,6 +56,13 @@ export default function ClientScreen() {
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `1.5px solid ${INK}`, fontSize: 20, fontWeight: 800 }}><span>Total</span><span>{f(v.total || 0)}</span></div>
     </div></>;
   else if (v.stage === 'details') body = <DetailsForm key={v.seq} v={v} disabled={waiting} onSend={(x) => send(JSON.stringify(x))} />;
+  else if (v.stage === 'caller') body = <div style={{ width: '100%', maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'left' }}>
+    <div style={{ fontSize: 13, letterSpacing: '.1em', color: MUTED }}>📞 YOU’RE THE CALLER · {(v.title || '').toUpperCase()}</div>
+    <div style={{ fontSize: 30, fontWeight: 300 }}>{v.who}</div>
+    <div style={{ fontSize: 15, lineHeight: 1.5 }}>{v.note}</div>
+    <div style={{ background: '#f3f3f5', borderRadius: 16, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>{(v.text || '').split('\n').filter(Boolean).map((l) => <div key={l} style={{ fontSize: 14.5, lineHeight: 1.45 }}>• {l}</div>)}</div>
+    <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5 }}>Talk to the desk out loud, like a phone call (turn away so you can’t see their screen). Only give your details when they ask. Be the person on this card: if they’re kind and clear, warm up; if they’re rushed or blame you, push back.</div>
+  </div>;
   else if (v.stage === 'consent') body = <ConsentForm key={v.seq} v={v} disabled={waiting} onSend={(x) => send(JSON.stringify(x))} />;
   else body = <>
     {v.title && <div style={{ fontSize: 28, fontWeight: 300, textAlign: 'center', letterSpacing: '-0.01em' }}>{v.title}</div>}

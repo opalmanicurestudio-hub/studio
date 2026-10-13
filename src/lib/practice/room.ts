@@ -6,10 +6,10 @@ import { signInAnonymously, type Auth } from 'firebase/auth';
 
 export type Choice = { value: string | number; label: string; sub?: string };
 export type DeskView = {
-  stage: 'idle' | 'cart' | 'method' | 'tip' | 'card' | 'declined' | 'keep' | 'receipt' | 'rebook' | 'offer' | 'thanks' | 'details' | 'consent';
+  stage: 'idle' | 'cart' | 'method' | 'tip' | 'card' | 'declined' | 'keep' | 'receipt' | 'rebook' | 'offer' | 'thanks' | 'details' | 'consent' | 'caller';
   seq: number; currency: string; who?: string; title?: string; note?: string;
   lines?: { label: string; price: number }[]; total?: number; amount?: number; choices?: Choice[];
-  /** details: what's on file now (the client checks or updates it). consent: the form to read and sign. */
+  /** details: what's on file now (the client checks or updates it). consent: the form to read and sign. caller: the second player's role card for a phone call (text = facts, one per line). */
   prefill?: { name: string; phone: string; email: string }; text?: string;
 };
 export type ClientMsg = { seq: number; choice: string | number; at: number };

@@ -4,9 +4,27 @@ import * as $ from '../../src/lib/practice/currency';
 let fails = 0;
 const check = (name: string, ok: boolean, info?: unknown) => { console.log(`${ok ? '  ✓' : '  ✗'} ${name}${ok ? '' : ` (${JSON.stringify(info)})`}`); if (!ok) fails++; };
 const code = (k: string) => R.skuBy(k).code;
+/** Handle the call you're on the right way, start to finish, whatever kind it is. */
+const solve = (s: R.RegState) => {
+  const c = s.onCall!.call; const f = c.facts; R.act(s, c.outbound ? 'greetOut' : 'greet'); if (c.kind !== 'wrong' && c.kind !== 'sales') R.act(s, 'identify');
+  const form = (keys: string[]) => { for (const k of keys) { R.act(s, `ask:${k === 'slot' ? 'when' : k}`); R.setField(s, k, f[k]); } };
+  switch (c.kind) {
+    case 'reschedule': case 'cancel': R.callFind(s, c.booking!); R.offerAnotherDay(s); R.callReschedule(s, c.prefers!); break;
+    case 'price': R.act(s, `quote:${f.service}`); R.act(s, 'offerBook'); form(['service', 'slot', 'name', 'phone', 'email']); R.act(s, 'policy'); R.act(s, 'depositLink'); R.bookNew(s); break;
+    case 'book': form(['service', 'slot', 'name', 'phone', 'email']); R.act(s, 'policy'); R.act(s, 'depositLink'); R.bookNew(s); break;
+    case 'giftcard': form(['amount', 'recipient', 'recipientEmail']); R.act(s, 'payLink'); R.sendGiftCard(s); break;
+    case 'directions': R.act(s, 'giveInfo'); R.act(s, 'textInfo'); R.act(s, 'confirmAppt'); break;
+    case 'upset': R.act(s, 'ask:details'); R.act(s, 'apologize'); R.offerRepair(s, R.REPAIR_SLOTS[1]); break;
+    case 'provider': R.act(s, 'withClient'); R.act(s, 'ask:details'); R.takeMessage(s, c.say.details, 'Ana'); break;
+    case 'wrong': R.act(s, 'thisIsSalon'); break;
+    case 'sales': R.act(s, 'takeInfo'); break;
+  }
+  if (R.actsFor(s).some((a) => a.id === 'readBack')) R.act(s, 'readBack'); R.act(s, 'anythingElse'); return R.endCall(s)!;
+};
 /** Do arrivals and phone calls the right way (so other tests can focus on checkouts). */
 const deskRight = (s: R.RegState) => {
-  if (s.ringing) { R.answer(s); const oc = s.onCall!; R.callFind(s, oc.call.booking); R.offerAnotherDay(s); R.callReschedule(s, oc.call.prefers); R.endCall(s); }
+  if (s.ringing && !s.onCall) { R.answer(s); solve(s); }
+  const vm = !s.onCall && s.voicemails.find((v) => !v.returned); if (vm) { R.callBack(s, vm.id); solve(s); }
   const c = s.cur?.c; if (c && R.isArrival(c)) { const b = R.bookingBy(s, c.booking)!; R.pickBooking(s, b.id); R.confirmDetails(s, { phone: b.phone, email: b.email, promo: false }, 'client');
     if (R.consentNeeded(s)) R.signConsent(s, 'client'); if ((c.late || 0) > R.GRACE_MIN) R.chooseLate(s, 'short', true); R.notifyProvider(s); R.finishArrival(s); return true; }
   return false;
@@ -233,7 +251,7 @@ const arrive = (id: string) => { const s = R.newRegister(); until(s, id); return
   check('a late fee despite her courtesy: coached', s.mistakes.some((m) => m.minor && /late fee/.test(m.what))); }
 
 console.log('The phone');
-const ring = (id: string) => { const s = R.newRegister(); for (let i = 0; i < 4000 && s.ringing?.call.id !== id; i++) { if (s.ringing) { R.answer(s); R.callFind(s, s.onCall!.call.booking); R.offerAnotherDay(s); R.callReschedule(s, s.onCall!.call.prefers); R.endCall(s); } if (!deskRight(s) && s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } R.advance(s, 0.5); } return s; };
+const ring = (id: string, mode: R.PhoneMode = 'full') => { const s = R.newRegister('USD', mode); for (let i = 0; i < 4000 && s.ringing?.call.id !== id; i++) { if (s.ringing) { R.answer(s); solve(s); } if (!deskRight(s) && s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } R.advance(s, 0.5); } return s; };
 { const s = ring('call-dana'); check('the phone rings', !!s.ringing);
   R.answer(s); check('answering starts the call', !!s.onCall && !s.ringing);
   check('two Danas on Thursday', R.searchBookings(s, 'dana').length === 2);
@@ -242,7 +260,9 @@ const ring = (id: string) => { const s = R.newRegister(); for (let i = 0; i < 40
 { const s = ring('call-dana'); R.answer(s); R.callFind(s, 'b-dana-li'); R.callReschedule(s, 'Tue 4:30 PM'); R.endCall(s);
   check('moving the wrong Dana is a real mistake', s.mistakes.some((m) => /Dana Li’s booking instead/.test(m.what))); }
 { const s = ring('call-dana'); for (let i = 0; i < 80; i++) R.advance(s, 0.5);
-  check('a call that rings out goes to voicemail, and she books elsewhere', !s.ringing && s.mistakes.some((m) => /ring out/.test(m.what))); }
+  check('a call that rings out goes to voicemail', s.ringing?.call.id !== 'call-dana' && s.mistakes.some((m) => m.minor && /voicemail/.test(m.what)) && s.voicemails.some((v) => v.call.name === 'Dana Lee'));
+  const vm = s.voicemails.find((v) => v.call.name === 'Dana Lee')!; R.callBack(s, vm.id); check('calling back starts an outbound call', !!s.onCall?.call.outbound && s.onCall.said === 'Hello?');
+  const r = solve(s); check('and the callback can still be handled clean', r.clean, s.mistakes.slice(-3)); }
 { const s = ring('call-kim'); R.answer(s); R.callFind(s, 'b-kim'); R.offerAnotherDay(s);
   check('offered another day, Kim would rather move than cancel', /Saturday|Sat/.test(s.onCall!.said)); R.callReschedule(s, 'Sat 1:00 PM'); check('kept: clean', R.endCall(s)!.clean); }
 { const s = ring('call-kim'); R.answer(s); R.callFind(s, 'b-kim'); R.callCancel(s, true); R.endCall(s);
@@ -259,19 +279,54 @@ console.log('Pace and the review');
 { const s = R.newRegister(); let guard = 0;
   while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (deskRight(s)) continue; if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } }
   const rv = R.review(s);
-  check('a whole shift runs to the end (8 checkouts, 3 check-ins, 2 calls)', rv.checkouts === 13, rv.checkouts);
+  check('a whole shift runs to the end (8 checkouts, 3 check-ins, 5 calls, 1 voicemail callback)', rv.checkouts === 17, rv.checkouts);
+  check('every call got a review with a perfect etiquette checklist', s.reviews.length === 6 && s.reviews.every((x) => x.score === 100), s.reviews.map((x) => [x.who, x.score, x.checklist.filter((i) => !i.ok).map((i) => i.label)]));
   check('scanning straight through trips on new-client details, the split, the shelf price and the allergy', rv.mistakes.filter((m) => !m.minor).length === 4 && rv.stars === 2, rv.mistakes.map((m) => m.what));
   check('and coaches on every missed rebook and membership', rv.mistakes.filter((m) => /next visit/.test(m.what)).length === 6 && rv.mistakes.filter((m) => /Didn’t mention/.test(m.what)).length === 3);
   check('the review names a best moment', !!rv.best); }
 
 console.log('Hold');
 { const s = ring('call-kim'); const desk = !!s.cur; R.answer(s, false); check('picking up without a word to the guest at the desk is a coaching note', !desk || s.mistakes.some((m) => m.minor && /without a word/.test(m.what)));
-  const before = s.mistakes.length; R.holdCall(s, true); check('asking first, then holding, is fine', !!s.onCall?.hold && s.mistakes.length === before);
-  for (let i = 0; i < 60; i++) R.advance(s, 0.5); R.resumeCall(s); check('a short hold, then back on the line', !s.onCall?.hold && (s.onCall?.holdTotal || 0) >= 29 && /here/.test(s.onCall?.said || ''));
-  R.callFind(s, 'b-kim'); R.offerAnotherDay(s); R.callReschedule(s, 'Sat 1:00 PM'); const r = R.endCall(s); check('the call still ends clean', !!r?.clean); }
+  R.act(s, 'greet'); const before = s.mistakes.length; R.holdCall(s, true); check('asking first, then holding, is fine', !s.onCall && s.held.length === 1 && s.mistakes.length === before);
+  for (let i = 0; i < 60; i++) R.advance(s, 0.5); R.resumeCall(s); check('a short hold, then back on the line', !!s.onCall && !s.onCall.hold && s.onCall.holdTotal >= 29 && /here/.test(s.onCall.said));
+  R.act(s, 'identify'); R.callFind(s, 'b-kim'); R.offerAnotherDay(s); R.callReschedule(s, 'Sat 1:00 PM'); const r = R.endCall(s); check('the call still ends clean', !!r?.clean); }
 { const s = ring('call-kim'); R.answer(s); R.holdCall(s, false); check('holding without asking is a coaching note', s.mistakes.some((m) => m.minor && /without asking/.test(m.what))); }
 { const s = ring('call-dana'); R.answer(s); R.holdCall(s, true); for (let i = 0; i < 2 * (R.HOLD_LIMIT + 2); i++) R.advance(s, 0.5);
-  check('a caller left on hold too long hangs up', !s.onCall && s.mistakes.some((m) => /until they hung up/.test(m.what)) && s.done.some((d) => /Dana/.test(d.who) && !d.clean)); }
+  check('a caller left on hold too long hangs up', !s.onCall && !s.held.length && s.mistakes.some((m) => /until they hung up/.test(m.what)) && s.done.some((d) => /Dana/.test(d.who) && !d.clean)); }
+
+console.log('Two lines');
+{ const s = ring('call-aisha', 'phones'); check('phone practice: two guests at the desk, ten calls, two voicemails', s.voicemails.filter((v) => v.overnight).length === 2);
+  // Dana is on line 1 when Aisha rings on line 2.
+  const s2 = R.newRegister('USD', 'phones'); let i = 0; while (!(s2.ringing?.call.id === 'call-dana') && i++ < 400) { R.advance(s2, 0.5); if (s2.ringing && s2.ringing.call.id !== 'call-dana' && !s2.onCall) { R.answer(s2); solve(s2); } }
+  R.answer(s2); R.act(s2, 'greet'); for (let j = 0; j < 40 && !s2.ringing; j++) R.advance(s2, 0.5);
+  check('line 2 rings while you’re on line 1', s2.ringing?.call.id === 'call-aisha' && !!s2.onCall);
+  check('you can’t answer line 2 without holding line 1', R.answer(s2) === null);
+  R.holdCall(s2, true); const a = R.answer(s2); check('hold Dana, answer Aisha on line 2', !!a && a.line === 2 && s2.held[0]?.call.id === 'call-dana');
+  solve(s2); check('back to Dana', R.resumeCall(s2, 'call-dana') && s2.onCall?.call.id === 'call-dana' && s2.onCall.line === 1); }
+{ const s = ring('call-dana'); R.answer(s); R.holdCall(s, true); for (let j = 0; j < 2 * 45; j++) R.advance(s, 0.5); R.checkBack(s, 'call-dana');
+  for (let j = 0; j < 2 * 45; j++) R.advance(s, 0.5); check('checking back keeps a caller on hold', s.held.length === 1); }
+
+console.log('Every kind of call');
+for (const id of ['call-ben', 'call-aisha', 'call-carmen', 'call-tasha', 'call-sofia', 'call-nina', 'call-wrong', 'call-casey']) {
+  const s = ring(id, 'phones'); s.mistakes = []; R.answer(s); const r = solve(s); check(`${id.slice(5)}: handled right = clean, perfect etiquette`, r.clean && r.review.score === 100 && !s.mistakes.length, [s.mistakes.map((m) => m.what), r.review.checklist]); }
+{ const s = ring('call-aisha', 'phones'); R.answer(s); R.act(s, 'greet'); R.act(s, 'cardAloud'); check('taking a card number out loud is a real mistake', s.mistakes.some((m) => !m.minor && /card number/.test(m.what))); }
+{ const s = ring('call-aisha', 'phones'); R.answer(s); R.act(s, 'greet'); for (const [k, v] of Object.entries({ service: 'gel', slot: 'Wed 11:00 AM', name: 'Aisha Grant', phone: '9195550109', email: 'aisha.grant@mailbox.com' })) R.setField(s, k, v);
+  R.act(s, 'depositLink'); R.bookNew(s); check('a mistyped phone number is caught', s.mistakes.some((m) => /wrong phone number/.test(m.what)));
+  check('and the booking exists for check-in later', R.bookingBy(s, 'b-new-call-aisha')?.deposit === R.DEPOSIT); }
+{ const s = ring('call-aisha', 'phones'); R.answer(s); R.act(s, 'greet'); for (const [k, v] of Object.entries({ service: 'gel', slot: 'Wed 11:00 AM', name: 'Aisha Grant', phone: '9195550190', email: 'aisha.grant@mailbox.com' })) R.setField(s, k, v);
+  R.bookNew(s); check('no deposit = mistake; no policy = coaching', s.mistakes.some((m) => !m.minor && /deposit/.test(m.what)) && s.mistakes.some((m) => m.minor && /24-hour/.test(m.what))); }
+{ const s = ring('call-tasha', 'phones'); R.answer(s); R.act(s, 'greet'); R.act(s, 'blame'); R.offerRepair(s, R.REPAIR_SLOTS[1]);
+  check('blaming her = real mistake, and she wants a manager', s.mistakes.some((m) => !m.minor && /picked at/.test(m.what)) && !s.onCall!.outcome && !!s.onCall!.did.wantsManager);
+  R.transfer(s, R.MANAGER, true); const r = R.endCall(s)!; check('a warm transfer to the manager resolves it', s.reviews.at(-1)!.result.includes('warm') && !s.mistakes.some((m) => /unsolved/.test(m.what)), r); }
+{ const s = ring('call-tasha', 'phones'); R.answer(s); R.act(s, 'greet'); R.offerRepair(s, R.REPAIR_SLOTS[0]); check('offering a fix before apologizing: she asks for a manager', !s.onCall!.outcome && /manager/.test(s.onCall!.said)); }
+{ const s = ring('call-sofia', 'phones'); R.answer(s); R.act(s, 'greet'); R.act(s, 'promiseTime'); check('promising a callback time is coached (house rule)', s.mistakes.some((m) => m.minor && /callback at a set time/.test(m.what))); }
+{ const s = ring('call-sofia', 'phones'); R.answer(s); R.act(s, 'greet'); R.transfer(s, 'Ana', false); check('putting a caller through to a provider mid-service is coached', s.mistakes.some((m) => m.minor && /middle of a service/.test(m.what))); }
+{ const s = ring('call-casey', 'phones'); R.answer(s); R.act(s, 'greet'); R.act(s, 'giveCell'); check('giving out the owner’s cell = real mistake', s.mistakes.some((m) => !m.minor && /personal cell/.test(m.what))); }
+{ const s = ring('call-ben', 'phones'); R.answer(s); R.act(s, 'greet'); R.act(s, 'quote:silk'); R.endCall(s);
+  check('wrong price, no offer to book: coached and caught', s.mistakes.some((m) => /price of a Silk press/.test(m.what)) && s.mistakes.some((m) => /Didn’t give Ben the price/.test(m.what)) && s.mistakes.some((m) => /offer to book/.test(m.what))); }
+{ const s = ring('call-ben', 'phones'); R.answer(s); const t = R.talkCall(s, 'Thank you for calling Opal Salon, this is Jess, how can I help?'); check('talking: the greeting is understood and he says why he called', s.onCall!.did.greeted === 'great' && /gel manicure/.test(t.reply), t);
+  const t2 = R.talkCall(s, 'A gel manicure is $45. Would you like me to book that for you?'); check('talking: saying the price and offering to book both count', s.onCall!.did.quoted === 'gel' && !!s.onCall!.did.offeredBook, t2); }
+{ const s = R.newRegister('USD', 'phones'); R.phoneWrapUp(s); check('voicemails nobody returned are caught at the end of the shift', s.mistakes.filter((m) => /call .* back/.test(m.what)).length === 2); }
 
 console.log(fails ? `\n${fails} failed` : '\nAll checks passed');
 process.exit(fails ? 1 : 0);
