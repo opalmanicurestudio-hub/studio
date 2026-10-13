@@ -1,6 +1,7 @@
 'use client';
 import { logHealthOpen } from '@/lib/health-view-client';
 import { PrepSummary } from '@/components/staff-portal/PrepSummary';
+import { VisitMoments } from '@/components/opportunities/VisitMoments';
 import { DayChange } from '@/components/staff-portal/DayChange';
 import { isSoloTeam } from '@/lib/solo';
 import { shrink } from '@/components/making-it-right/VoiceNote';
@@ -2470,6 +2471,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           <PrepSummary apt={appointment} tenantId={tenantId} solo={isSoloTeam(staff || [])} />
           <DayChange apt={appointment} tenantId={tenantId} solo={isSoloTeam(staff || [])} staffName={(staff || []).find((m: any) => m.id === appointment?.staffId)?.name || appointment?.staffName} />
         </div>}
+        {tenantId && appointment?.clientId && <VisitMoments tenantId={tenantId} appointment={appointment} />}
         {tenantId && <AssistPicker tenantId={tenantId} appointment={appointment} staff={staff || []} defaultPct={Number((selectedTenant as any)?.payRules?.assistPct) || 20} />}
         {!['cancelled', 'declined'].includes(String(appointment?.status)) && <div className="space-y-3">
           <StepTimeline service={service} appointment={appointment} extraMinutes={Number((appointment as any)?.clientExtraMinutes) || 0} tenantId={tenantId}

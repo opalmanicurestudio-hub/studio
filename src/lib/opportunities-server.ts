@@ -82,6 +82,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   try { await resultsPass(db, t, tenant, now); } catch (e) { console.error('[opportunities] results pass', e); }
   // Automatic texts: booked → closed as booked; no reply by the day the business chose → to a person; plain automatic → closes at its end date.
   let toPerson = 0, expired = 0, checked = 0;
+  const Hx = historyOf(x.appointments, now);
   for (const e of x.opps) {
     const ref = db.doc(`${T(t)}/opportunities/${e.id}`);
     if (e.status === 'waiting' || e.status === 'auto') {
@@ -96,6 +97,9 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
         writes.push([ref, doc, 'update']); fresh.push({ ...e, ...doc }); toPerson++; continue;
       }
     }
+    // Booked since the task was made (in person at checkout, online, at the desk): nothing left to ask. Results still credit it.
+    if (e.status === 'open' && e.clientId && ['due', 'no_rebook', 'first_visit', 'long_gone', 'cancelled', 'no_show', 'follow_up'].includes(e.kind)) {
+      const up = Hx.get(String(e.clientId))?.upcoming; if (up && (ms(up.createdAt) || ms(up.startTime)) >= ms(e.createdAt)) { writes.push([ref, { status: 'done', outcome: 'no_longer_applies', closedAt: nowIso(now), closedWhy: 'They booked their next visit.' }, 'update']); continue; } }
     if (e.status === 'open' && ms(e.expiresAt) && ms(e.expiresAt) < now) { writes.push([ref, { status: 'expired', closedAt: nowIso(now) }, 'update']); expired++; continue; }
     // Who came back — checked for 45 days after we reached out (and for the left-alone group, the same way).
     if (!e.clientId || e.result?.status === 'paid' || now - ms(e.createdAt) > 45 * DAY) continue;
@@ -378,6 +382,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
   if (action === 'run') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return opportunitySweep(db, t, tenant, now, { force: true }); }
   if (action === 'results') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; await resultsPass(db, t, tenant, now).catch(() => {}); return { ok: true, ...(await opportunityResults(db, t, now, tenant)) }; }
   if (action === 'create') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return createManual(db, t, tenant, actor, b, now); }
+  if (action === 'visit') return visitMoments(db, t, tenant, String(b.appointmentId || ''), now);
 
   const o = await getOpp(db, t, b.id); if (!o) return { ok: false, error: 'This task is no longer available.' };
   const ref = db.doc(`${T(t)}/opportunities/${o.id}`);
@@ -495,6 +500,8 @@ export async function resultsPass(db: any, t: string, tenant: any, now = Date.no
   const claim = (id: string, c: { source: string; type: any; at: number; direct: boolean }) => { if (!id || credited.has(id)) return; const p = claims.get(id);
     if (!p || (c.direct && !p.direct) || (c.direct === p.direct && c.at > p.at)) claims.set(id, c); };
   for (const a of rows(wl)) if (!a.isRenterBooking) claim(String(a.id), { source: 'waitlist', type: 'recovered', at: ms(a.fromWaitlist?.at), direct: true });
+  { const rb = await safe(db.collection(`${T(t)}/appointments`).where('rebookVia', 'in', ['client_screen', 'visit_link']).get());
+    for (const a of rows(rb)) if (!a.isRenterBooking && (ms(a.createdAt) || ms(a.startTime)) >= ms(since)) claim(String(a.id), { source: 'visit', type: 'generated', at: ms(a.createdAt) || ms(a.startTime), direct: true }); }
   for (const x of rows(cs)) if (ms(x.at) >= ms(since) && x.convertedAppointmentId) claim(String(x.convertedAppointmentId), { source: 'campaigns', type: 'influenced', at: ms(x.at), direct: false });
   for (const x of rows(ns)) if (ms(x.sentAt) >= ms(since) && x.convertedAppointmentId && (x.sender || 'studio') === 'studio') claim(String(x.convertedAppointmentId), { source: 'winback', type: 'influenced', at: ms(x.sentAt), direct: false });
   for (const [id, c] of claims) {
@@ -690,4 +697,33 @@ export async function myFollowUps(db: any, t: string, staffId: string, now = Dat
   return { paidCents: paid.reduce((s: number, r: any) => s + (Number(r.paidCents) || 0), 0), visits: paid.length, booked: mine.filter((r: any) => r.state === 'booked').length,
     generated: paid.filter((r: any) => r.type === 'generated').length, recovered: paid.filter((r: any) => r.type === 'recovered').length, influenced: paid.filter((r: any) => r.type === 'influenced').length,
     open, bonusOn: S.bonus.on, bonusCents };
+}
+
+
+// ── Before they leave (step 5) ──────────────────────────────────────────────────────────────────
+/** The quiet lines for a visit that's happening (lib/visit-moments): their next visit with a real open time, balances,
+ * products they're likely out of, and — only if the business has checkout suggestions on — a membership or package
+ * that really would cost them less. For anyone on the team; nothing here is sent to the client. */
+export async function visitMoments(db: any, t: string, tenant: any, appointmentId: string, now = Date.now()) {
+  if (!appointmentId) return { ok: false, error: 'Missing visit.' };
+  const vs = await db.doc(`${T(t)}/appointments/${appointmentId}`).get(); if (!vs.exists) return { ok: false, error: 'That visit wasn’t found.' };
+  const visit: any = { id: vs.id, ...(vs.data() || {}) }; const cid = String(visit.clientId || ''); if (!cid || visit.isRenterBooking) return { ok: true, moments: [] };
+  const safe = (p: Promise<any>) => p.catch(() => ({ docs: [] }));
+  const [cs, as, rs, gs] = await Promise.all([db.doc(`${T(t)}/clients/${cid}`).get(), safe(db.collection(`${T(t)}/appointments`).where('clientId', '==', cid).get()),
+    safe(db.collection(`${T(t)}/receipts`).where('clientId', '==', cid).get()), safe(db.collection(`${T(t)}/giftCards`).where('recipient.id', '==', cid).get())]);
+  const client: any = cs.exists ? cs.data() : {}; const appointments = rows(as);
+  let nextSlot: any = null;
+  if (visit.serviceId) { try { const { rebookStart } = await import('@/lib/rebook-actions');
+    const r: any = await rebookStart(db, { tenantId: t, clientId: cid, serviceId: String(visit.serviceId), staffId: visit.staffId || null, addOnIds: [], appointmentId }, 'task');
+    if (r?.ok && r.rebook?.stage === 'choose' && r.rebook.suggestions?.length) nextSlot = r.rebook.suggestions[0]; } catch { /* no time shown */ } }
+  let nudges: any[] = [];
+  try { const { nudgesFor, nudgeSettingsOf } = await import('@/lib/checkout-nudges'); const ns = nudgeSettingsOf(tenant);
+    if (ns.membership || ns.package) {
+      const [sv, ms_, ps] = await Promise.all([safe(db.collection(`${T(t)}/services`).get()), safe(db.collection(`${T(t)}/memberships`).get()), safe(db.collection(`${T(t)}/packages`).get())]);
+      const services = rows(sv);
+      const visits = appointments.filter((a: any) => ['completed', 'checked_out', 'paid'].includes(String(a.status)) && a.serviceId).map((a: any) => ({ serviceId: String(a.serviceId), startTime: String(a.startTime), price: Number(a.price) || Number(services.find((x: any) => x.id === a.serviceId)?.price) || 0 }));
+      nudges = nudgesFor({ client, visits, upcoming: 1, services, settings: { ...ns, rebook: false }, now, memberships: rows(ms_), packages: rows(ps) });
+    } } catch { /* none */ }
+  const { visitMomentsFor } = await import('@/lib/visit-moments');
+  return { ok: true, moments: visitMomentsFor({ visit, appointments, receipts: rows(rs), giftCards: rows(gs), client, nextSlot, nudges, now }) };
 }

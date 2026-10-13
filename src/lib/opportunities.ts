@@ -286,8 +286,10 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
       if (d >= minAge && d <= 7) { add('no_show', c, h, `Missed ${la.serviceName || 'their visit'} ${day(d)} ago — nothing booked since`, money(la) * 100, { refs: { appointmentId: String(la.id) }, providerId: la.staffId ? String(la.staffId) : null }); out[out.length - 1].facts.when = whenWord(laT, now, x.tz); continue; } }
     if (since === null) continue;
     if (n === 1 && since >= 3 && since <= 10 && S.finders.first_visit) { add('first_visit', c, h, `First visit ${day(since)} ago (${h.last.serviceName || 'a service'}) — nothing booked yet`, h.avg * 100); continue; }
-    if (n >= 2 && since >= minAge && since <= 3 && S.finders.no_rebook) { add('no_rebook', c, h, `Came in ${day(since)} ago and left without a next visit${g ? ` (usually every ${weeksOf(g)} weeks)` : ''}`, h.avg * 100); continue; }
-    if (n >= 2 && g && since >= Math.max(g * 1.5, g + 7) && since < Math.max(g * 3, 90) && S.finders.due) { add('due', c, h, `${day(since)} since their ${h.last.serviceName || 'last visit'} — usually every ${weeksOf(g)} weeks`, h.avg * 100); continue; }
+    // They said “not now” to booking their next visit in person (client screen or checkout): no rebooking texts that week.
+    const saidNo = ms(c.nudgeDeclines?.rebook) > 0 && now - ms(c.nudgeDeclines?.rebook) < 7 * DAY;
+    if (!saidNo && n >= 2 && since >= minAge && since <= 3 && S.finders.no_rebook) { add('no_rebook', c, h, `Came in ${day(since)} ago and left without a next visit${g ? ` (usually every ${weeksOf(g)} weeks)` : ''}`, h.avg * 100); continue; }
+    if (!saidNo && n >= 2 && g && since >= Math.max(g * 1.5, g + 7) && since < Math.max(g * 3, 90) && S.finders.due) { add('due', c, h, `${day(since)} since their ${h.last.serviceName || 'last visit'} — usually every ${weeksOf(g)} weeks`, h.avg * 100); continue; }
     const longAfter = Math.max(g ? g * 3 : 90, 90);
     if (since >= longAfter && since <= 365 && S.finders.long_gone) { add('long_gone', c, h, `Last visit ${Math.round(since / 30)} months ago${n > 1 ? ` — came ${n} times before` : ''}`, h.avg * 100); continue; }
   }

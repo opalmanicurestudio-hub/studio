@@ -119,7 +119,7 @@ function AddTask({ tenantId, people, onSaved }: { tenantId: string; people: any[
     </div>);
 }
 
-const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', campaigns: 'Campaigns', winback: 'Win-back reminders (before they moved here)' };
+const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', visit: 'Booked before they left (checkout and visit link)', campaigns: 'Campaigns', winback: 'Win-back reminders (before they moved here)' };
 function Results({ tenantId }: { tenantId: string }) {
   const [r, setR] = React.useState<any>(null);
   React.useEffect(() => { payPost('/api/opportunities', { tenantId, action: 'results' }).then(setR); }, [tenantId]);

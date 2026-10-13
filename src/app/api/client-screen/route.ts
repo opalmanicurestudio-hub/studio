@@ -68,7 +68,10 @@ export async function POST(req: NextRequest) {
       return fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': secret }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'We could not reach the booking service. Please try again.' })); };
     const post = (path: string, body: any) => fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false }));
     const rb = q.rebook || {};
-    if (action === 'rebook_decline') { await ref.update({ 'request.rebook': { stage: 'declined' } }); return NextResponse.json({ ok: true }); }
+    if (action === 'rebook_decline') { await ref.update({ 'request.rebook': { stage: 'declined' } });
+      // “Not now” in person: quiet for checkout suggestions, and no rebooking texts that week (lib/opportunities).
+      if (rc.clientId) await db.doc(`tenants/${s.tenantId}/clients/${rc.clientId}`).set({ nudgeDeclines: { rebook: new Date().toISOString() } }, { merge: true }).catch(() => {});
+      return NextResponse.json({ ok: true }); }
     if (action === 'rebook_start') { const r: any = await rebookStart(db, ctx, 'client_screen'); if (!r.ok) return NextResponse.json(r, { status: 400 }); await ref.update({ 'request.rebook': r.rebook }); return NextResponse.json(r); }
     if (action === 'rebook_day') { const r: any = await rebookDay(db, s.tenantId, rb, String(b.date || ''), b.anyone === true); return NextResponse.json(r, { status: r.ok ? 200 : 400 }); }
     if (action === 'rebook_book') {
