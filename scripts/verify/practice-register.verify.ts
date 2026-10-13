@@ -23,7 +23,7 @@ console.log('A clean checkout');
   check('the first client comes up to the register', s.cur?.c.id === 'rosa' && s.cur.lines[0].kind === 'service');
   const r = R.scan(s, code('cuticle'), 'gun'); check('scanning adds the line', r.ok && R.live(s.cur!).length === 2);
   const p = R.pay(s)!; check('clean checkout, with a tip', p.clean && p.tip.amount > 0 && s.streak === 1, p);
-  check('no mistakes', s.mistakes.length === 0); }
+  check('no mistakes (only coaching notes)', s.mistakes.every((m) => m.minor)); }
 
 console.log('Label won’t read');
 { const s = R.newRegister(); until(s, 'theo');
@@ -164,6 +164,41 @@ console.log('Card or cash for anyone');
   check('but can pay cash, clean', r.ok && r.partial === false && (r as any).clean);
   check('receipt: she didn’t want one', s.lastReceipt?.choice === 'none' && s.lastReceipt.tenders[0].method === 'cash'); }
 
+
+console.log('Rebooking');
+{ const s = R.newRegister(); R.advance(s, 0.5); const o = R.rebookOptions(s).map((x) => x.weeks);
+  check('presets 2, 4, 6, 8 plus her usual 3 weeks', JSON.stringify(o) === JSON.stringify([2, 3, 4, 6, 8]), o);
+  check('Rosa picks her usual 3 weeks', R.rebookAnswer(s) === 3);
+  const slot = R.rebook(s, 3); check('booked with Ana on Sat, Nov 7', !!slot && /Nov 7/.test(slot) && /Ana/.test(slot), slot);
+  check('counts as a rebook', s.sales.rebooks === 1); }
+{ const s = R.newRegister(); until(s, 'party'); check('the bridal party would rather book later', R.rebookAnswer(s) === 'no'); }
+
+console.log('Memberships and packages');
+{ const s = R.newRegister(); R.advance(s, 0.5);
+  check('Nail Club fits Rosa’s manicure and is listed first', R.offersFor(s)[0].key === 'nailclub');
+  check('she says yes to Nail Club', R.offerAnswer(s, 'nailclub') === 'yes');
+  R.offer(s, 'nailclub', 'yes'); check('it goes on the ticket', s.cur!.lines.some((l) => l.kind === 'membership' && l.price === 39) && s.sales.members === 1);
+  const m = s.cur!.mood; R.offer(s, 'facial5', R.offerAnswer(s, 'facial5')); check('a second offer that doesn’t fit costs goodwill', s.cur!.mood < m - 0.1); }
+{ const s = R.newRegister(); until(s, 'lena'); R.offer(s, 'facial5', R.offerAnswer(s, 'facial5')); check('Lena buys the facial package', s.sales.packages === 1 && s.cur!.lines.some((l) => l.kind === 'package')); }
+
+console.log('Card slips');
+{ const s = R.newRegister(); until(s, 'lena'); R.scan(s, code('vitc'), 'usb');
+  check('Lena’s first card is declined', R.cardAttempt(s, 'tap') === 'declined');
+  R.declineReply(s, 'great'); check('the kind reply scores', s.points >= 20);
+  check('her other card goes through', R.cardAttempt(s, 'tap', 'another') === 'approved'); }
+{ const s = R.newRegister(); until(s, 'lena'); R.cardAttempt(s, 'tap'); R.declineReply(s, 'loud');
+  check('saying “declined” out loud is a real mistake', s.mistakes.some((m) => !m.minor && /out loud/.test(m.what)));
+  R.cardAttempt(s, 'tap'); check('running the same card again is a training moment', s.mistakes.some((m) => m.minor && /same declined card/.test(m.what))); }
+{ const s = R.newRegister(); until(s, 'grace');
+  check('Grace’s chip fails once', R.cardAttempt(s, 'insert') === 'chip-error' && R.cardAttempt(s, 'insert') === 'approved'); }
+{ const s = R.newRegister(); until(s, 'priya');
+  check('Priya: the reader is offline', R.cardAttempt(s, 'tap') === 'offline');
+  check('card on file works with her OK', R.cardAttempt(s, 'onfile') === 'approved');
+  R.reconnect(s); check('reconnecting works too', R.cardAttempt(s, 'tap') === 'approved');
+  R.writeDownCard(s); check('writing the number down is a security mistake', s.mistakes.some((m) => /on paper/.test(m.what) && !m.minor)); }
+{ const s = R.newRegister(); R.advance(s, 0.5); R.setTip(s, 25); const r = R.pay(s)!;
+  check('a tip chosen on the client screen is used', Math.abs(r.tip.amount - 11) < 0.01, r.tip); }
+
 console.log('Pace and the review');
 { const s = R.newRegister(); R.advance(s, 0.5); R.advance(s, 60);
   check('the line builds while you’re slow', R.line(s).length >= 2);
@@ -172,7 +207,8 @@ console.log('Pace and the review');
   while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } }
   const rv = R.review(s);
   check('a whole shift runs to the end (8 checkouts, 10 people)', rv.checkouts === 8, rv);
-  check('scanning straight through trips on new-client details, the split, the shelf price and the allergy', rv.mistakes.length === 4 && rv.stars === 1, rv.mistakes.map((m) => m.what));
+  check('scanning straight through trips on new-client details, the split, the shelf price and the allergy', rv.mistakes.filter((m) => !m.minor).length === 4 && rv.stars === 1, rv.mistakes.map((m) => m.what));
+  check('and coaches on every missed rebook and membership', rv.mistakes.filter((m) => /next visit/.test(m.what)).length === 6 && rv.mistakes.filter((m) => /Didn’t mention/.test(m.what)).length === 3);
   check('the review names a best moment', !!rv.best); }
 
 console.log(fails ? `\n${fails} failed` : '\nAll checks passed');

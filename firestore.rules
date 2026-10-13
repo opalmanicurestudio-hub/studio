@@ -795,6 +795,30 @@ service cloud.firestore {
       allow update: if teamOf(resource.data.get('tenantId', ''));
       allow delete: if false;
     }
+    // Practice a shift, two players: a desk device and a client-screen device share one short-lived room.
+    // Practice data only (made-up clients, no real customer details). The 6-character code is the key.
+    match /practiceRooms/{roomId} {
+      function roomShape(d) {
+        return d.keys().hasOnly(['host', 'v', 'desk', 'client', 'createdAt', 'expiresAt'])
+          && d.host is string && d.desk is map && d.desk.size() <= 16
+          && (!('lines' in d.desk) || (d.desk.lines is list && d.desk.lines.size() <= 40))
+          && (!('choices' in d.desk) || (d.desk.choices is list && d.desk.choices.size() <= 12))
+          && (d.client == null || (d.client is map && d.client.size() <= 4));
+      }
+      allow get: if isSignedIn() && resource.data.expiresAt > request.time;
+      allow list: if false;
+      allow create: if isSignedIn() && roomId.matches('^[A-HJ-NP-Z2-9]{6}$')
+        && roomShape(request.resource.data)
+        && request.resource.data.host == request.auth.uid
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt < request.time + duration.value(13, 'h');
+      allow update: if isSignedIn() && resource.data.expiresAt > request.time
+        && roomShape(request.resource.data)
+        && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['client'])
+            || (request.auth.uid == resource.data.host
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['desk', 'client'])));
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.host;
+    }
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }

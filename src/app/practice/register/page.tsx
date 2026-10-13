@@ -5,9 +5,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import * as R from '@/lib/practice/register';
 import * as $ from '@/lib/practice/currency';
+import * as Room from '@/lib/practice/room';
+import { useAuth, useFirestore } from '@/firebase';
+import QRCode from 'qrcode';
 import { Barcode, Bottle, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
 
-type PayStep = null | 'split' | 'method' | 'tip' | 'reader' | 'processing' | 'approved' | 'cash-total' | 'cash-keep' | 'cash-count' | 'cash-done' | 'receipt';
+type PayStep = null | 'split' | 'method' | 'tip' | 'reader' | 'processing' | 'approved' | 'declined' | 'decline-wait' | 'chip' | 'offline' | 'reconnecting' | 'cash-total' | 'cash-keep' | 'cash-count' | 'cash-done' | 'receipt';
 type Mode = 'scan' | 'type' | 'name';
 
 // ── Sounds (tiny synth, shares the practice mute setting) ───────────────
@@ -49,6 +52,7 @@ const clockOf = (t: number) => { const m = 11 * 60 + Math.floor(t / 2); const h 
 export default function RegisterPractice() {
   const sRef = useRef<R.RegState>(R.newRegister());
   const s = sRef.current;
+  const auth = useAuth(); const db = useFirestore();
   const money = (n: number) => R.fm(s, n);
   const cash = (c: number) => $.fmt(s.currency, c);
   const [, setTick] = useState(0); const rerender = useCallback(() => setTick((x) => x + 1), []);
@@ -163,22 +167,70 @@ export default function RegisterPractice() {
     setMsg({ text: `Added ${R.skuLabel(k)}.`, tone: 'ok' }); if (l && al && k.fragrance) setFlag({ id: l.id, text: `${cur!.c.name} has a ${al} allergy on file. This product has ${al}.` }); setQ(''); drainSfx(); rerender(); };
   const manager = () => { setCalling(true); window.setTimeout(() => { R.askDiscount(s); setCalling(false); drainSfx(); rerender(); }, 1500); };
   const resetCash = () => { setHand([]); setTendered(null); setOther(''); setCashErr(null); setKeepShown(false); };
+  // ── Two players: the client screen on a second device ────────────────
+  const roomRef = useRef<{ id: string | null; on: boolean; tp: Room.Transport | null }>({ id: null, on: false, tp: null });
+  const seqRef = useRef(0);
+  const pending = useRef<{ seq: number; resolve: (v: string | number) => void; ai: () => string | number } | null>(null);
+  const [roomUi, setRoomUi] = useState<{ id: string; on: boolean; local: boolean; qr: string | null } | null>(null);
+  const [showRoom, setShowRoom] = useState(false);
+  const [waitingClient, setWaitingClient] = useState(false);
+  const [prefPick, setPrefPick] = useState<'card' | 'cash' | null>(null);
+  const [cardWhich, setCardWhich] = useState<'same' | 'another'>('same');
+  const [asking, setAsking] = useState<string | null>(null);
+  const twoP = !!roomUi?.on;
+  const view = (v: Omit<Room.DeskView, 'seq' | 'currency'>) => { const r = roomRef.current; if (!r.id || !r.on || !r.tp) return 0; seqRef.current++; r.tp.push(r.id, { ...v, seq: seqRef.current, currency: sRef.current.currency }).catch(() => {}); return seqRef.current; };
+  /** Ask the client. With a client screen connected, the second player answers; otherwise the game answers for them. */
+  const ask = (v: Omit<Room.DeskView, 'seq' | 'currency'>, ai: () => string | number, delay = 1000): Promise<string | number> => {
+    const r = roomRef.current;
+    if (r.id && r.on) { const my = view(v); setWaitingClient(true); return new Promise((res) => { pending.current = { seq: my, resolve: (x) => { setWaitingClient(false); res(x); }, ai }; }); }
+    return new Promise((res) => window.setTimeout(() => res(ai()), delay));
+  };
+  const chooseForThem = () => { const p = pending.current; if (p) { pending.current = null; p.resolve(p.ai()); } };
+  const openRoom = async (local: boolean) => {
+    try {
+      const tp = local ? Room.localTransport() : Room.cloudTransport(db, auth);
+      const id = await tp.create(sRef.current.currency); roomRef.current = { id, on: false, tp };
+      const url = `${window.location.origin}/practice/client?room=${id}${local ? '&local=1' : ''}`;
+      let qr: string | null = null; try { qr = await QRCode.toDataURL(url, { margin: 1, width: 220, color: { dark: '#16171a', light: '#ffffff' } }); } catch { /* no QR */ }
+      setRoomUi({ id, on: false, local, qr });
+      tp.watch(id, (r) => {
+        const m = r?.client; if (!m) return;
+        if (m.choice === 'joined' && m.seq === -1 && !roomRef.current.on) { roomRef.current.on = true; setRoomUi((u) => (u ? { ...u, on: true } : u)); }
+        const p = pending.current; if (p && m.seq === p.seq) { pending.current = null; p.resolve(m.choice); }
+      });
+    } catch { setRoomUi(null); setMsg({ text: 'Couldn’t start a client screen. Check your connection and try again.', tone: 'bad' }); }
+  };
+  // Keep the client screen showing the ticket while you scan.
+  const liveKey = s.cur ? `${s.cur.c.id}:${s.cur.lines.filter((l) => !l.voided).length}:${R.totalOf(s.cur)}` : 'none';
+  useEffect(() => {
+    if (!roomUi?.on || pay || pending.current) return; const st = sRef.current;
+    if (st.cur) view({ stage: 'cart', who: st.cur.c.name, lines: R.live(st.cur).map((l) => ({ label: l.label, price: l.price })), total: $.cents(R.totalOf(st.cur)) });
+    else view({ stage: 'idle' });
+  }, [liveKey, roomUi?.on, pay]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const chooseTender = (v: number) => {
     if (v < R.cashDue(s)) { setCashErr('That’s less than the total.'); return; }
     setCashErr(null); setTendered(v); setPay('cash-keep'); SFX.tap();
-    window.setTimeout(() => { if (sRef.current.cur) { R.keepChoice(sRef.current); setKeepShown(true); rerender(); } }, 1000);
-    window.setTimeout(() => { setPay('cash-count'); if (!muted()) SFX.tap(); }, 2300);
+    const extra = $.sum(R.handOver(s)) - R.cashDue(s);
+    ask({ stage: 'keep', who: R.payerName(s), title: 'Your change', amount: extra, note: 'Would you like to keep the change as a tip?', choices: [{ value: 'all', label: 'Keep the change as a tip' }, { value: 'none', label: 'My change, please' }] }, () => R.keepChoice(sRef.current), 1000)
+      .then((v2) => { const st = sRef.current; if (!st.cur) return; R.setKeep(st, v2 === 'all' ? extra : v2 === 'none' ? 0 : Number(v2)); setKeepShown(true); rerender(); window.setTimeout(() => { setPay('cash-count'); if (!muted()) SFX.tap(); }, 1100); });
   };
   const takePiece = (v: number) => { const left = (s.drawer[v] || 0) - hand.filter((x) => x === v).length; if (left > 0) { setHand((h) => [...h, v]); if (!muted()) SFX.tap(); } };
-  const finishReceipt = () => { sRef.current.busy = false; setPrinting(false); setReceiptShown(false); setPay(null); resetCash(); setSel(null); setMsg(null); setFlag(null); setNote(null); rerender(); };
+  const finishReceipt = () => {
+    const rc0 = sRef.current.lastReceipt; view({ stage: 'thanks', who: rc0?.who });
+    sRef.current.busy = false; setPrinting(false); setReceiptShown(false); setPay(null); resetCash(); setSel(null); setMsg(null); setFlag(null); setNote(null); setCardWhich('same'); setPrefPick(null); rerender();
+  };
   /** After a payment: the next person in a group, or the receipt. */
   const afterPaid = (r: { partial?: boolean } | null) => {
-    drainSfx();
-    if (r?.partial) { const st = sRef.current; if (st.cur) st.cur.said = `${R.payerName(st)}: ${R.prefers(st) === 'cash' ? 'I’ll pay my part in cash.' : 'Card for me, please.'}`; resetCash(); setPay('method'); rerender(); return; }
-    const rc = sRef.current.lastReceipt; sRef.current.busy = true; setPay('receipt'); setReceiptShown(false); rerender();
-    window.setTimeout(() => setReceiptShown(true), 900);
-    if (rc?.choice === 'print') window.setTimeout(() => { setPrinting(true); if (!muted()) { tone(180, 0.6, 'sawtooth', 0, 0.012); } }, 1300);
-    else window.setTimeout(finishReceipt, 2800);
+    drainSfx(); setCardWhich('same');
+    if (r?.partial) { resetCash(); startMethod(); return; }
+    const rc0 = sRef.current.lastReceipt; sRef.current.busy = true; setPay('receipt'); setReceiptShown(false); rerender();
+    ask({ stage: 'receipt', who: rc0?.who, title: 'Would you like a receipt?', choices: [{ value: 'print', label: 'Print' }, { value: 'text', label: 'Text it' }, { value: 'email', label: 'Email it' }, { value: 'none', label: 'No receipt' }] }, () => rc0?.choice || 'none', 900)
+      .then((ch) => {
+        R.setReceipt(sRef.current, ch as R.Customer['receipt']); setReceiptShown(true); rerender();
+        if (ch === 'print') window.setTimeout(() => { setPrinting(true); if (!muted()) tone(180, 0.6, 'sawtooth', 0, 0.012); }, 400);
+        else window.setTimeout(finishReceipt, 1900);
+      });
   };
   const handOverChange = () => {
     const r = R.payCash(s, tendered ?? 0, hand);
@@ -187,26 +239,59 @@ export default function RegisterPractice() {
     window.setTimeout(() => afterPaid(r), 900);
   };
   const startMethod = () => {
-    const st = sRef.current; if (!st.cur) return;
-    st.cur.said = st.cur.parts ? `${R.payerName(st)}: ${R.prefers(st) === 'cash' ? 'I’ll pay my part in cash.' : 'Card for me, please.'}` : R.prefers(st) === 'cash' ? 'I’ll pay cash.' : 'Card, please.';
+    const st = sRef.current; if (!st.cur) return; setPrefPick(null);
+    const line = (m: string) => (m === 'cash' ? (st.cur!.parts ? 'I’ll pay my part in cash.' : 'I’ll pay cash.') : st.cur!.parts ? 'Card for me, please.' : 'Card, please.');
+    st.cur.said = `${st.cur.parts ? `${R.payerName(st)}: ` : ''}${line(R.prefers(st))}`;
     setPay('method'); rerender();
+    if (roomRef.current.on) ask({ stage: 'method', who: R.payerName(st), title: 'How would you like to pay?', amount: R.dueNow(st), choices: [{ value: 'card', label: '💳 Card' }, { value: 'cash', label: '💵 Cash' }] }, () => R.prefers(sRef.current))
+      .then((m) => { const c2 = sRef.current; if (!c2.cur) return; c2.cur.said = `${c2.cur.parts ? `${R.payerName(c2)}: ` : ''}${line(String(m))}`; setPrefPick(m as 'card' | 'cash'); rerender(); });
   };
   const takePayment = () => {
     if (!cur) return; setSel(null); resetCash(); setLastC(cur.c);
     if (cur.c.party && !cur.split) { cur.said = cur.c.party.ask; setPay('split'); rerender(); return; }
     startMethod();
   };
-  const chooseMethod = (m: 'card' | 'cash') => {
-    if (!cur) return; resetCash();
-    if (m === 'cash') { R.handOver(s); setPay('cash-total'); rerender(); return; }
-    setPay('tip'); setTipShown(null);
-    window.setTimeout(() => { if (sRef.current.cur) setTipShown(R.tipNow(sRef.current).pct); }, 1000);
-    window.setTimeout(() => setPay('reader'), 2000);
+  /** The client taps, inserts or swipes (on their own screen in two-player). */
+  const askCard = (title = 'Tap, insert or swipe') => {
+    if (!roomRef.current.on) return; const st = sRef.current; if (!st.cur) return;
+    ask({ stage: 'card', who: R.payerName(st), title, amount: R.dueNow(st) + R.tipNow(st).amount, choices: [{ value: 'tap', label: 'Tap' }, { value: 'insert', label: 'Insert chip' }, { value: 'swipe', label: 'Swipe' }] }, () => 'tap').then((w) => cardGo(w as R.CardWay));
   };
-  const cardGo = () => {
+  const chooseMethod = (m: 'card' | 'cash') => {
+    if (!cur) return; resetCash(); if (pending.current) { pending.current = null; setWaitingClient(false); }
+    if (m === 'cash') { R.handOver(s); setPay('cash-total'); view({ stage: 'cart', who: R.payerName(s), title: 'Paying with cash', lines: R.live(cur).map((l) => ({ label: l.label, price: l.price })), total: R.cashDue(s) }); rerender(); return; }
+    setPay('tip'); setTipShown(null);
+    const base = cur.parts ? R.dueNow(s) * 0.85 : $.cents(cur.c.service.price);
+    ask({ stage: 'tip', who: R.payerName(s), title: 'Add a tip?', amount: R.dueNow(s), choices: [...[15, 18, 20, 25].map((p2): Room.Choice => ({ value: p2, label: `${p2}%`, sub: cash(Math.round((base * p2) / 10000) * 100) })), { value: 0, label: 'No tip' }] }, () => R.tipNow(sRef.current).pct, 1000)
+      .then((pct) => { R.setTip(sRef.current, Number(pct)); setTipShown(Number(pct)); window.setTimeout(() => { setPay('reader'); askCard(); }, 700); });
+  };
+  const cardGo = (way: R.CardWay | 'onfile') => {
     setPay('processing'); SFX.tap();
-    window.setTimeout(() => { setPay('approved'); if (!muted()) SFX.chime(); }, 1000);
-    window.setTimeout(() => afterPaid(R.pay(sRef.current)), 1800);
+    window.setTimeout(() => {
+      const st = sRef.current; if (!st.cur) return; const res = R.cardAttempt(st, way, cardWhich); drainSfx(); rerender();
+      if (res === 'approved') { setPay('approved'); if (!muted()) SFX.chime(); window.setTimeout(() => afterPaid(R.pay(sRef.current)), 800); return; }
+      if (!muted()) SFX.err();
+      if (res === 'declined') { setPay('declined'); view({ stage: 'card', who: R.payerName(st), title: 'Declined', note: 'The desk will help you.', choices: [] }); }
+      else if (res === 'chip-error') { setPay('chip'); askCard('Chip error. Remove the card and try again.'); }
+      else { setPay('offline'); view({ stage: 'card', who: R.payerName(st), title: 'Reader offline', note: 'One moment, please.', choices: [] }); }
+    }, 1000);
+  };
+  /** After a decline: what you say, then the client chooses another card or cash. */
+  const sayAfterDecline = (q: R.DeclineLine['q']) => {
+    R.declineReply(s, q); drainSfx(); setPay('decline-wait'); rerender();
+    ask({ stage: 'declined', who: R.payerName(s), title: 'That card didn’t go through', note: 'How would you like to pay?', choices: [{ value: 'another', label: 'Use another card' }, { value: 'cash', label: 'Pay with cash' }] }, () => 'another', 1100)
+      .then((c2) => { if (c2 === 'cash') { chooseMethod('cash'); return; } setCardWhich('another'); setPay('reader'); askCard('Tap, insert or swipe your other card'); });
+  };
+  const reconnectReader = () => { setPay('reconnecting'); window.setTimeout(() => { R.reconnect(sRef.current); setPay('reader'); askCard(); rerender(); }, 2500); };
+  const offerNextVisit = () => {
+    const st = sRef.current; if (!st.cur) return; const c = st.cur.c; setAsking('rebook');
+    const opts = R.rebookOptions(st);
+    ask({ stage: 'rebook', who: c.name, title: 'Book your next visit?', note: c.rebook !== 'no' ? `${c.service.provider.split(',')[0]} usually sees you every ${c.rebook} weeks.` : undefined, choices: [...opts.map((o): Room.Choice => ({ value: o.weeks, label: `In ${o.weeks} weeks`, sub: o.label })), { value: 'no', label: 'Not now', sub: 'I’ll book online' }] }, () => R.rebookAnswer(sRef.current), 1100)
+      .then((pk) => { R.rebook(sRef.current, pk === 'no' ? 'no' : Number(pk)); setAsking(null); drainSfx(); rerender(); });
+  };
+  const offerIt = (key: string) => {
+    const st = sRef.current; if (!st.cur) return; const o = R.offerBy(key); setAsking(key);
+    ask({ stage: 'offer', who: st.cur.c.name, title: o.name, amount: $.cents(o.price), note: `${o.desc}${o.per ? ` Billed every ${o.per}.` : ''}`, choices: [{ value: 'yes', label: o.kind === 'membership' ? 'Yes, sign me up' : 'Yes, I’ll take it' }, { value: 'no', label: 'No, thank you' }] }, () => R.offerAnswer(sRef.current, key), 1100)
+      .then((a2) => { R.offer(sRef.current, key, a2 === 'yes' ? 'yes' : 'no'); setAsking(null); drainSfx(); rerender(); });
   };
 
   // ── Screens ──
@@ -218,7 +303,7 @@ export default function RegisterPractice() {
   const avg = done.length ? Math.round(done.reduce((a, d) => a + d.seconds, 0) / done.length) : 0;
   const waiting = R.line(s); const longest = Math.min(1, ...waiting.map((c) => s.waiting[c.id] ?? 1));
   const retail = cur ? cur.lines.filter((l) => l.kind === 'retail' && !l.voided).length : 0;
-  const coach = cur && cur.c.id === 'rosa' && done.length === 0 && !pay ? (!cur.greeted ? 'Rosa is at the desk. Greet her: pick what to say.' : retail === 0 ? (sel ? (narrow ? 'Press and hold the barcode to scan it.' : 'Press and hold on the barcode to scan it.') : 'Tap the cuticle oil on the counter.') : 'One bottle, one line on the ticket. Take payment.') : null;
+  const coach = cur && cur.c.id === 'rosa' && done.length === 0 && !pay ? (!cur.greeted ? 'Rosa is at the desk. Greet her: pick what to say.' : retail === 0 ? (sel ? (narrow ? 'Press and hold the barcode to scan it.' : 'Press and hold on the barcode to scan it.') : 'Tap the cuticle oil on the counter.') : !cur.rebooked ? 'One bottle, one line. Now offer Rosa her next visit.' : !cur.offered.length ? 'Rosa comes every 3 weeks: mention the Nail Club once.' : 'Take payment.') : null;
   const items = cur ? cur.c.items.flatMap((it) => Array.from({ length: it.n }, (_, k) => ({ key: it.sku, k }))) : [];
   const total = cur ? R.totalOf(cur) : 0;
 
@@ -231,6 +316,7 @@ export default function RegisterPractice() {
       <Chip tone="blue">{s.points} pts</Chip>
       {usb && <Chip tone="green">Scanner connected</Chip>}
       <span style={{ flex: 1 }} />
+      <button onClick={() => setShowRoom(true)} style={{ ...pill, ...(twoP ? { background: '#eaf6ef', borderColor: '#cfe6d8', color: GREEN } : {}) }} aria-label="Two players">📱 {narrow ? '' : twoP ? 'Client screen on' : 'Two players'}</button>
       <button onClick={() => setCamera(true)} style={pill} aria-label="Scan with camera">📷 {narrow ? '' : 'Camera'}</button>
       <button onClick={toggleVoice} style={pill} aria-label={voice ? 'Turn voices off' : 'Turn voices on'}>{voice ? '🔊' : '🔇'} {narrow ? '' : 'Voices'}</button>
       <button onClick={() => setPaused((p) => !p)} style={pill}>{paused ? 'Resume' : 'Pause'}</button>
@@ -288,7 +374,19 @@ export default function RegisterPractice() {
         <div><Btn small onClick={() => { R.saveContact(s, details); rerender(); }}>{cur.contact ? 'Update details' : 'Save details'}</Btn></div>
       </div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1.5px solid ${INK}`, paddingTop: 7, fontSize: 16, fontWeight: 800 }}><span>Total</span><span>{money(total)}</span></div>
-      {!pay && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><Btn small onClick={takePayment}>Take payment · {money(total)}</Btn></div>}
+      {!pay && <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, flex: 1 }}>📅 Next visit</span>
+          {cur.rebooked ? <Chip tone={cur.rebooked === 'no' ? undefined : 'green'}>{cur.rebooked === 'no' ? 'Will book online' : cur.rebooked}</Chip>
+            : asking === 'rebook' ? <span style={{ fontSize: 12, color: BLUE }}>{twoP ? 'Choosing on the client screen…' : 'Asking…'}</span>
+            : <button style={mini} onClick={offerNextVisit}>Offer next visit{cur.c.rebook !== 'no' && !cur.c.party ? ` · usually ${cur.c.rebook} wks` : ''}</button>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>⭐ Memberships & packages</span>
+          {R.offersFor(s).slice(0, 3).map((o) => { const done2 = cur.offered.includes(o.key); const ok = R.fits(cur.c, o); return <button key={o.key} disabled={done2 || !!asking} onClick={() => offerIt(o.key)} title={o.desc} style={{ ...mini, opacity: done2 ? 0.5 : 1, borderColor: ok ? '#cfe6d8' : LINE, background: ok ? '#f2f8f4' : '#fff' }}>{asking === o.key ? 'Asking…' : `${o.name} · ${money(o.price)}${o.per ? '/mo' : ''}`}{done2 ? ' ✓' : ''}</button>; })}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><Btn small onClick={takePayment} disabled={!!asking}>Take payment · {money(total)}</Btn></div>
+      </div>}
       {pay === 'split' && cur.c.party && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ fontSize: 12, color: MUTED }}>How is the group paying?</div>
         {(['own', 'even', 'one'] as const).map((m) => m === 'one' ? <div key={m} style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}><span style={{ fontSize: 12.5 }}>One person pays:</span>{cur.c.party!.members.map((mm) => <button key={mm.name} style={mini} onClick={() => { R.setSplit(s, 'one', mm.name); startMethod(); }}>{mm.name}</button>)}</div>
@@ -298,7 +396,20 @@ export default function RegisterPractice() {
         {cur.parts && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{cur.parts.map((p, i) => <Chip key={i} tone={p.paid ? 'green' : i === cur.partIdx ? 'ink' : undefined}>{p.paid ? '✓ ' : ''}{p.who} · {cash(p.amount)}</Chip>)}</div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5 }}><span>{cur.parts ? `${R.payerName(s)} pays` : 'Amount due'}</span><b>{cash(R.dueNow(s))}</b></div>
         <div style={{ fontSize: 12, color: MUTED }}>{R.payerName(s)} would like to pay by {R.prefers(s)}. You can take either.</div>
-        <div style={{ display: 'flex', gap: 6 }}><Btn small ghost={R.prefers(s) !== 'card'} onClick={() => chooseMethod('card')}>💳 Card</Btn><Btn small ghost={R.prefers(s) !== 'cash'} onClick={() => chooseMethod('cash')}>💵 Cash</Btn></div>
+        <div style={{ display: 'flex', gap: 6 }}><Btn small ghost={(prefPick || R.prefers(s)) !== 'card'} onClick={() => chooseMethod('card')}>💳 Card</Btn><Btn small ghost={(prefPick || R.prefers(s)) !== 'cash'} onClick={() => chooseMethod('cash')}>💵 Cash</Btn></div>
+        {twoP && !prefPick && <div style={{ fontSize: 11.5, color: BLUE }}>{R.payerName(s)} is choosing on the client screen…</div>}
+      </div>}
+      {pay === 'declined' && <div style={{ background: '#fdecec', border: '1px solid #f3c5c0', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <b style={{ fontSize: 12.5, color: RED }}>The reader says: Declined. What do you say?</b>
+        {R.DECLINE_LINES.map((d) => <button key={d.q} onClick={() => sayAfterDecline(d.q)} style={{ ...rowBtn, padding: '7px 10px', fontSize: 12.5, textAlign: 'left', background: INK, color: '#fff', borderColor: INK, borderRadius: '14px 14px 4px 14px' }}>“{d.text}”</button>)}
+        <button onClick={() => cardGo('tap')} style={{ ...mini, alignSelf: 'flex-start' }}>Run the same card again</button>
+      </div>}
+      {(pay === 'offline' || pay === 'reconnecting') && <div style={{ background: '#fdf6ec', border: '1px solid #f3dfc4', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <b style={{ fontSize: 12.5, color: AMBER }}>The card reader is offline.</b>
+        {pay === 'reconnecting' ? <div style={{ fontSize: 12.5 }}>Reconnecting the reader…</div> : <>
+          <button style={{ ...rowBtn, padding: '7px 10px', fontSize: 12.5 }} onClick={reconnectReader}>Reconnect the reader</button>
+          <button style={{ ...rowBtn, padding: '7px 10px', fontSize: 12.5 }} onClick={() => { if (sRef.current.cur) sRef.current.cur.said = 'Sure, use the card you have on file.'; cardGo('onfile'); }}>Ask to use {R.their(cur.c)} card on file</button>
+          <button style={{ ...rowBtn, padding: '7px 10px', fontSize: 12.5 }} onClick={() => { R.writeDownCard(s); setNote('Card numbers should never be written down.'); rerender(); }}>Write the card number down for later</button></>}
       </div>}
       {pay === 'cash-total' && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ fontSize: 12, color: MUTED }}>{R.payerName(s)} handed you this. Leave it on the drawer ledge, then enter the amount received.</div>
@@ -339,8 +450,11 @@ export default function RegisterPractice() {
         </> : pay === 'reader' ? <>
           <div style={{ fontSize: 17 }}>{cash(R.dueNow(s) + R.tipNow(s).amount)}</div>
           <div style={{ fontSize: 12.5, color: MUTED }}>{R.payerName(s)} is ready to pay by card.</div>
-          <div style={{ display: 'flex', gap: 6 }}><Btn small onClick={cardGo}>Tap</Btn><Btn small onClick={cardGo}>Insert chip</Btn><Btn small onClick={cardGo}>Swipe</Btn></div>
+          {twoP ? <div style={{ fontSize: 12.5, color: BLUE, fontWeight: 600 }}>Waiting for {R.payerName(s)} to tap on the client screen…</div> : <div style={{ display: 'flex', gap: 6 }}><Btn small onClick={() => cardGo('tap')}>Tap</Btn><Btn small onClick={() => cardGo('insert')}>Insert chip</Btn><Btn small onClick={() => cardGo('swipe')}>Swipe</Btn></div>}
         </> : pay === 'processing' ? <div style={{ fontSize: 15, fontWeight: 600 }}>Processing…</div>
+          : pay === 'declined' || pay === 'decline-wait' ? <><div style={{ fontSize: 22, fontWeight: 800, color: RED }}>Declined</div><div style={{ fontSize: 12.5, color: MUTED }}>{pay === 'decline-wait' ? `${R.payerName(s)} is deciding…` : 'Talk to the client.'}</div></>
+          : pay === 'chip' ? <><div style={{ fontSize: 17, fontWeight: 700, color: AMBER }}>Chip error</div><div style={{ fontSize: 12.5, color: MUTED }}>Remove the card and try again.</div>{!twoP && <div style={{ display: 'flex', gap: 6 }}><Btn small onClick={() => cardGo('insert')}>Insert again</Btn><Btn small onClick={() => cardGo('tap')}>Tap</Btn><Btn small onClick={() => cardGo('swipe')}>Swipe</Btn></div>}</>
+          : pay === 'offline' || pay === 'reconnecting' ? <><div style={{ fontSize: 17, fontWeight: 700, color: AMBER }}>{pay === 'reconnecting' ? 'Reconnecting…' : 'Reader offline'}</div><div style={{ fontSize: 12.5, color: MUTED }}>{pay === 'reconnecting' ? 'Finding the Wi-Fi.' : 'The reader lost its connection.'}</div></>
           : pay === 'cash-total' ? <>
           <div style={{ fontSize: 12.5, color: MUTED }}>Total · paying with cash</div>
           <div style={{ fontSize: 26, fontWeight: 800 }}>{cash(R.cashDue(s))}</div>
@@ -448,6 +562,25 @@ export default function RegisterPractice() {
 
   const coachEl = coach && <div style={{ background: BLUE, color: '#fff', borderRadius: 14, padding: '10px 16px', fontSize: 14, fontWeight: 600, boxShadow: '0 14px 30px -14px rgba(37,99,235,.6)' }}>{coach}</div>;
   const toast = msg && !zoom && <div role="status" style={{ position: 'fixed', left: '50%', top: narrow ? 118 : 120, transform: 'translateX(-50%)', zIndex: 40, background: msg.tone === 'ok' ? '#eaf6ef' : msg.tone === 'warn' ? '#fdf6ec' : '#fdecec', color: msg.tone === 'ok' ? GREEN : msg.tone === 'warn' ? AMBER : RED, border: `1px solid ${LINE}`, borderRadius: 999, padding: '8px 16px', fontSize: 13.5, fontWeight: 700, boxShadow: '0 10px 24px -14px rgba(0,0,0,.4)', whiteSpace: 'nowrap' }}>{msg.text}</div>;
+  const roomEl = showRoom && <div style={{ position: 'fixed', inset: 0, background: 'rgba(22,23,26,.45)', zIndex: 55, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+    <div style={{ background: '#fff', borderRadius: 22, padding: 20, width: 'min(460px, 100%)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><b style={{ fontSize: 17, flex: 1 }}>Two players</b><Btn small ghost onClick={() => setShowRoom(false)}>Done</Btn></div>
+      <div style={{ fontSize: 13.5, color: MUTED, lineHeight: 1.5 }}>One person works the desk. The other plays the client on a second device facing them (an iPad is perfect): choosing the tip, tapping the card, keeping the change, picking a next visit and answering offers.</div>
+      {!roomUi ? <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Btn onClick={() => openRoom(false)}>Connect a client screen</Btn><Btn ghost onClick={() => openRoom(true)}>Use a second tab on this computer</Btn></div>
+        : <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          {roomUi.qr && <img src={roomUi.qr} alt="Scan to open the client screen" width={150} height={150} style={{ borderRadius: 12, border: `1px solid ${LINE}` }} />}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 12, color: MUTED }}>On the other device, open</div>
+            <b style={{ fontSize: 13 }}>{typeof window !== 'undefined' ? window.location.host : ''}/practice/client</b>
+            <div style={{ fontSize: 12, color: MUTED }}>and enter the code</div>
+            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '.2em' }}>{roomUi.id}</div>
+            {roomUi.local && <a href={`/practice/client?room=${roomUi.id}&local=1`} target="_blank" rel="noreferrer" style={{ fontSize: 12.5 }}>Open the client screen in a new tab</a>}
+            <Chip tone={roomUi.on ? 'green' : 'amber'}>{roomUi.on ? 'Client screen connected' : 'Waiting for the client screen…'}</Chip>
+          </div>
+        </div>}
+    </div>
+  </div>;
+  const waitEl = waitingClient && <div style={{ position: 'fixed', left: '50%', bottom: narrow ? 10 : 18, transform: 'translateX(-50%)', zIndex: 45, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '7px 8px 7px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 12px 26px -14px rgba(0,0,0,.45)', fontSize: 13 }}><span style={{ width: 8, height: 8, borderRadius: 4, background: BLUE }} />Waiting for the client screen…<button style={mini} onClick={chooseForThem}>Choose for them</button></div>;
   const printEl = rc && <div id="cf-print" style={{ display: 'none' }}><ReceiptPaper r={rc} width="72mm" /></div>;
   const pauseEl = paused && <div style={{ position: 'fixed', inset: 0, background: 'rgba(22,23,26,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}><div style={{ background: '#fff', borderRadius: 18, padding: 24, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}><b style={{ fontSize: 18 }}>Paused</b><Btn onClick={() => setPaused(false)}>Resume</Btn></div></div>;
 
@@ -463,7 +596,7 @@ export default function RegisterPractice() {
       {zoom && <div style={{ position: 'fixed', left: 8, right: 8, bottom: 8, zIndex: 20 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'fixed', left: 6, right: 6, bottom: 6, zIndex: 20, maxHeight: '70vh', overflow: 'auto' }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
-      {toast}{printEl}
+      {toast}{roomEl}{waitEl}{printEl}
       {pauseEl}
     </div>
   );
@@ -490,7 +623,7 @@ export default function RegisterPractice() {
       {zoom && <div style={{ position: 'absolute', left: '50%', bottom: 30, transform: 'translateX(-30%)', zIndex: 10 }}>{zoom}</div>}
       {drawerPanel && <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 50px)', right: 390, bottom: 24, zIndex: 10, display: 'flex', justifyContent: 'center' }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
-      {toast}{printEl}
+      {toast}{roomEl}{waitEl}{printEl}
       {pauseEl}
     </div>
   );
@@ -559,6 +692,9 @@ function ReviewCard({ s, onAgain }: { s: R.RegState; onAgain: () => void }) {
       {rv.best && <div style={{ background: '#eaf6ef', color: GREEN, borderRadius: 12, padding: '9px 12px', fontSize: 13.5, fontWeight: 600 }}>Best moment: {rv.best}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
         {[['Checkouts', String(rv.checkouts)], ['Accuracy', `${rv.accuracy}%`], ['Avg checkout', `${rv.avgSeconds}s`], ['Best streak', String(rv.bestStreak)], ['Points', String(rv.points)]].map(([k, v]) => <div key={k} style={{ background: SOFT, borderRadius: 12, padding: '10px 12px' }}><div style={{ fontSize: 11.5, color: MUTED }}>{k}</div><div style={{ fontSize: 20, fontWeight: 700 }}>{v}</div></div>)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+        {[['Rebooked', `${rv.sales.rebooks} of ${rv.sales.rebookChances}`], ['Memberships sold', String(rv.sales.members)], ['Packages sold', String(rv.sales.packages)]].map(([k, v]) => <div key={k} style={{ background: '#f2f8f4', borderRadius: 12, padding: '10px 12px' }}><div style={{ fontSize: 11.5, color: MUTED }}>{k}</div><div style={{ fontSize: 20, fontWeight: 700, color: GREEN }}>{v}</div></div>)}
       </div>
       {rv.drawer && <div style={{ background: rv.drawer.overShort === 0 ? '#eaf6ef' : '#fdf6ec', color: rv.drawer.overShort === 0 ? GREEN : '#9a4a07', borderRadius: 12, padding: '9px 12px', fontSize: 13.5, fontWeight: 600 }}>
         {rv.drawer.overShort === 0 ? 'Drawer balanced at close.' : `Drawer ${$.fmt(s.currency, Math.abs(rv.drawer.overShort))} ${rv.drawer.overShort < 0 ? 'short' : 'over'} at close.`}{rv.tipJar ? ` Cash tips in the tip jar: ${$.fmt(s.currency, rv.tipJar)}.` : ''}</div>}
