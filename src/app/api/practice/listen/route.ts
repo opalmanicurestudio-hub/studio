@@ -10,6 +10,6 @@ export async function POST(req: NextRequest) {
   const form = await req.formData().catch(() => null); const audio = form?.get('audio');
   if (!audio || typeof audio === 'string') return NextResponse.json({ ok: false, error: 'No recording.' }, { status: 400 });
   if (audio.size > MAX) return NextResponse.json({ ok: false, error: 'That recording is too long. Keep it to a sentence or two.' }, { status: 413 });
-  try { const text = await transcribe(audio, (audio as File).name || 'speech.webm'); return NextResponse.json({ ok: true, text }); }
+  try { const name = String((audio as File).name || '').replace(/[^\w.]/g, '') || (audio.type.includes('wav') ? 'speech.wav' : 'speech.webm'); const text = await transcribe(audio, name); return NextResponse.json({ ok: true, text }); }
   catch { return NextResponse.json({ ok: false, error: 'Couldn’t hear that. Try again, a little closer to the mic.' }, { status: 502 }); }
 }

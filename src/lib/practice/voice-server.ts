@@ -46,15 +46,23 @@ const SETTINGS: Record<string, { stability: number; style: number }> = {
 };
 export async function speak(text: string, voiceId: string, tone: string) {
   const s = SETTINGS[tone] || SETTINGS.neutral;
-  return fetch(`${XI}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+  // The streaming endpoint sends the first audio as soon as it's made, so the client starts talking sooner.
+  return fetch(`${XI}/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=mp3_44100_64`, {
     method: 'POST', headers: { 'xi-api-key': key(), 'content-type': 'application/json', accept: 'audio/mpeg' },
     body: JSON.stringify({ text, model_id: process.env.ELEVENLABS_TTS_MODEL || 'eleven_flash_v2_5', voice_settings: { stability: s.stability, similarity_boost: 0.8, style: s.style, use_speaker_boost: true } }),
   });
 }
+/** Newest listening model first; if the account doesn't have it, the previous one. */
+const STT_MODELS = () => [...new Set([process.env.ELEVENLABS_STT_MODEL || 'scribe_v2', 'scribe_v1'])];
 export async function transcribe(audio: Blob, filename: string) {
-  const f = new FormData(); f.append('file', audio, filename); f.append('model_id', process.env.ELEVENLABS_STT_MODEL || 'scribe_v1'); f.append('language_code', 'en'); f.append('tag_audio_events', 'false');
-  const r = await fetch(`${XI}/speech-to-text`, { method: 'POST', headers: { 'xi-api-key': key() }, body: f });
-  const d: any = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(String(d?.detail?.message || d?.detail || `Listening error ${r.status}`));
-  return String(d.text || '').trim();
+  let last = 'Listening error';
+  for (const model of STT_MODELS()) {
+    const f = new FormData(); f.append('file', audio, filename); f.append('model_id', model); f.append('language_code', 'en'); f.append('tag_audio_events', 'false');
+    const r = await fetch(`${XI}/speech-to-text`, { method: 'POST', headers: { 'xi-api-key': key() }, body: f });
+    const d: any = await r.json().catch(() => ({}));
+    if (r.ok) return String(d.text || '').trim();
+    last = String(d?.detail?.message || d?.detail || `Listening error ${r.status}`);
+    if (r.status !== 400 && r.status !== 404 && r.status !== 422) break; // only an unknown model is worth a second try
+  }
+  throw new Error(last);
 }

@@ -7,6 +7,8 @@ import * as R from '@/lib/practice/register';
 import * as $ from '@/lib/practice/currency';
 import * as Room from '@/lib/practice/room';
 import * as T from '@/lib/practice/talk';
+import { Mic, BrowserEars } from '@/lib/practice/mic';
+import { isEcho, listenError } from '@/lib/practice/vad';
 import { useAuth, useFirestore } from '@/firebase';
 import QRCode from 'qrcode';
 import { Barcode, Bottle, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
@@ -39,15 +41,17 @@ const CUR_KEY = 'cf_practice_currency';
 const VOICE_KEY = 'cf_practice_voice';
 const TALK_KEY = 'cf_practice_talk';
 /** Clients talk: the browser's own speech voices, a different pitch and pace for each client. */
-function speak(text: string, v: { pitch: number; rate: number }, pron: string) {
+function speak(text: string, v: { pitch: number; rate: number }, pron: string, onEnd?: () => void) {
   try {
-    const ss = window.speechSynthesis; if (!ss) return; ss.cancel();
+    const ss = window.speechSynthesis; if (!ss) { onEnd?.(); return; } ss.cancel();
     const u = new SpeechSynthesisUtterance(text.replace(/[“”]/g, '')); u.pitch = v.pitch; u.rate = v.rate; u.lang = 'en-US';
     const voices = ss.getVoices().filter((x) => x.lang.startsWith('en'));
+    // Prefer the most natural-sounding voices the device has.
+    voices.sort((a, b) => Number(/natural|neural|enhanced|premium|google/i.test(b.name)) - Number(/natural|neural|enhanced|premium|google/i.test(a.name)));
     const fem = /female|samantha|victoria|karen|zira|susan|serena|moira|tessa|fiona|ava|allison|jenny|aria/i, mal = /male|daniel|alex|fred|david|guy|tom|aaron|arthur|oliver/i;
     const pick = voices.find((x) => (pron === 'he' ? mal.test(x.name) && !/female/i.test(x.name) : fem.test(x.name))) || voices[0];
-    if (pick) u.voice = pick; ss.speak(u);
-  } catch { /* no speech */ }
+    if (pick) u.voice = pick; u.onend = () => onEnd?.(); u.onerror = () => onEnd?.(); ss.speak(u);
+  } catch { onEnd?.(); }
 }
 const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 const clockOf = (t: number) => { const m = 11 * 60 + Math.floor(t / 2); const h = Math.floor(m / 60), mm = m % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
@@ -93,7 +97,7 @@ export default function RegisterPractice() {
   const holdT = useRef<number | null>(null);
 
   useEffect(() => {
-    const p = new URLSearchParams(window.location.search); const f = Number(p.get('fast')); if (f > 0) { speed.current = f; (window as any).__register = { s: () => sRef.current, rerender, codes: Object.fromEntries(R.SKUS.map((k) => [k.key, k.code])) }; }
+    const p = new URLSearchParams(window.location.search); const f = Number(p.get('fast')); if (f > 0) { speed.current = f; if (p.get('ears') === 'cloud') setTestEars(true); (window as any).__register = { s: () => sRef.current, rerender, codes: Object.fromEntries(R.SKUS.map((k) => [k.key, k.code])) }; }
     try { const c = localStorage.getItem(CUR_KEY) as $.CurrencyCode | null; if (c && $.CODES.includes(c)) setCode(c); if (localStorage.getItem(VOICE_KEY) === '0') setVoice(false); } catch { /* private mode */ }
     const onR = () => { setNarrow(window.innerWidth < 860); setCompact(window.innerWidth < 1500); }; onR(); window.addEventListener('resize', onR); return () => window.removeEventListener('resize', onR);
   }, [rerender]);
@@ -326,7 +330,17 @@ export default function RegisterPractice() {
   const [coachOn, setCoachOn] = useState(true);
   const [caps, setCaps] = useState({ ai: false, voices: false, listen: false });
   const [signedIn, setSignedIn] = useState(false);
-  const [talkState, setTalkState] = useState<'idle' | 'listening' | 'hearing' | 'thinking'>('idle');
+  /** idle = mic off · listening = open, waiting for you · hearing = you're talking · thinking = the client is working out a reply · client = the client is talking */
+  const [talkState, setTalkStateRaw] = useState<'idle' | 'listening' | 'hearing' | 'thinking' | 'client'>('idle');
+  const talkStateRef = useRef(talkState); const setTalkState = (v: typeof talkState) => { talkStateRef.current = v; setTalkStateRaw(v); };
+  const [handsFree, setHandsFree] = useState(true);
+  const [interim, setInterim] = useState('');
+  const [mics, setMics] = useState<{ id: string; label: string }[]>([]); const [micId, setMicId] = useState<string | null>(null);
+  const [quiet, setQuiet] = useState(false);
+  const micBtn = useRef<HTMLButtonElement | null>(null);
+  const loud = useRef({ max: 0, since: 0 });
+  const lastClientLine = useRef<string | null>(null);
+  const stopAudio = useRef<(() => void) | null>(null);
   const [heard, setHeard] = useState<string | null>(null);
   const [coachTip, setCoachTip] = useState<{ tip: string; scores: T.Scores; fillers: number; pace: string | null } | null>(null);
   const [typedLine, setTypedLine] = useState('');
@@ -357,21 +371,55 @@ export default function RegisterPractice() {
       }
     } catch { /* fall back to browser voices */ }
   };
-  /** Clients speak: a real voice when connected, otherwise the browser's own voices. */
+  /** Clients speak: a real voice when connected (played as it arrives), otherwise the browser's own voices. */
   const sayOut = async (text: string, c: R.Customer, tone: string) => {
+    stopAudio.current?.(); lastClientLine.current = text;
+    let done = false; const finished = () => { if (done) return; done = true; stopAudio.current = null; if (micRef.current) micRef.current.clientTalking = false; if (talkStateRef.current === 'client') { setTalkState(resting()); earsRef.current && handsFreeRef.current && talkOnRef.current && earsRef.current.listen(); } };
+    const begin = () => { if (talkOnRef.current) { setTalkState('client'); if (micRef.current) micRef.current.clientTalking = true; earsRef.current?.pause(); } };
     const vid = voiceMap.current[c.id]; const tk = caps.voices && vid ? await idToken() : null;
     if (tk && vid) {
       try {
         const r = await fetch('/api/practice/speak', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ text, voiceId: vid, tone }) });
-        if (r.ok) { const url = URL.createObjectURL(await r.blob()); audioRef.current?.pause(); try { window.speechSynthesis?.cancel(); } catch { /* none */ } const a = new Audio(url); audioRef.current = a; a.onended = () => URL.revokeObjectURL(url); await a.play().catch(() => {}); return; }
+        if (r.ok && r.body) {
+          try { window.speechSynthesis?.cancel(); } catch { /* none */ }
+          const MS: typeof MediaSource | undefined = (window as any).MediaSource;
+          let a: HTMLAudioElement; let url: string; let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+          if (MS && MS.isTypeSupported('audio/mpeg')) {
+            // Play while it downloads: the first words start in a fraction of a second.
+            const ms = new MS(); url = URL.createObjectURL(ms); a = new Audio(url); reader = r.body.getReader();
+            ms.addEventListener('sourceopen', async () => {
+              try {
+                const sb = ms.addSourceBuffer('audio/mpeg');
+                for (;;) { const { done: end, value } = await reader!.read(); if (end) break; if (value?.length) { sb.appendBuffer(value); await new Promise((ok) => sb.addEventListener('updateend', ok, { once: true })); } }
+                if (ms.readyState === 'open') ms.endOfStream();
+              } catch { /* stopped */ }
+            }, { once: true });
+          } else { url = URL.createObjectURL(await r.blob()); a = new Audio(url); }
+          audioRef.current?.pause(); audioRef.current = a;
+          stopAudio.current = () => { a.pause(); reader?.cancel().catch(() => {}); URL.revokeObjectURL(url); finished(); };
+          a.onplaying = begin; a.onended = () => { URL.revokeObjectURL(url); finished(); }; a.onerror = finished;
+          await a.play().catch(finished); return;
+        }
       } catch { /* fall back */ }
     }
-    speak(text, c.voice, c.pron);
+    begin(); stopAudio.current = () => { try { window.speechSynthesis?.cancel(); } catch { /* none */ } finished(); };
+    // Some browsers never say when they've finished speaking: don't wait forever.
+    window.setTimeout(finished, 1500 + (text.split(/\s+/).length / 2.6) * 1000 / Math.max(0.6, c.voice?.rate || 1));
+    speak(text, c.voice, c.pron, finished);
   };
   const stageNow = (p: PayStep) => !p ? 'the ticket is open and not paid yet' : p === 'split' || p === 'method' ? 'staff is about to take payment' : p === 'declined' || p === 'decline-wait' ? 'your card was just declined' : p === 'chip' ? 'the reader showed a chip error' : p === 'offline' || p === 'reconnecting' ? 'the card reader is offline' : p.startsWith('cash') ? 'paying with cash' : p === 'receipt' ? 'paid; choosing a receipt' : 'paying by card';
   /** What the client knows right now, for the conversation. */
   const contextFor = (st: R.RegState) => {
-    const cur2 = st.cur!; const c = cur2.c; const sh = R.slip(c, 'shelf'); const al = R.allergy(c); const fl = flagRef.current;
+    const cur2 = st.cur!; const c = cur2.c; const sh = R.slip(c, 'shelf');
+    if (R.isArrival(c) && cur2.arr) {
+      const b = R.bookingBy(st, c.booking || null)!; const a = cur2.arr; const late = R.minutesLate(st);
+      return { name: c.name, persona: c.persona, kind: c.kind, visits: c.visits, service: b.service, provider: b.provider, items: [], total: '', prefersPay: 'card',
+        rebook: { wants: 'not today; you just arrived', done: null }, offer: { wants: null, offered: [], catalog: [] },
+        details: { phone: b.phone, email: b.email, promo: false, saved: !!a.details },
+        mood: cur2.mood, waitedMinutes: Math.max(0, (cur2.start - c.arrive) / 2), lineLength: R.line(st).length,
+        stage: `you just arrived for your ${b.when} ${b.service} with ${b.provider} and are checking in${late > R.GRACE_MIN ? `; you're ${late} minutes late` : ''}. ${a.booking ? 'They found your booking.' : 'They haven’t found your booking yet; your full name is ' + b.name + '.'} ${b.consentNeeded && !b.consentOnFile && !a.consent ? 'A consent form is needed; you are happy to sign it.' : ''}`,
+        history: cur2.history };
+    } const al = R.allergy(c); const fl = flagRef.current;
     return {
       name: c.party ? 'Maya' : c.name, persona: c.persona, kind: c.kind, visits: c.visits, service: c.party ? c.party.members.map((m) => `${m.name}: ${m.service.label}`).join(', ') : c.service.label, provider: c.service.provider,
       items: R.live(cur2).filter((l) => l.kind !== 'service').map((l) => l.label), total: money(R.totalOf(cur2)), prefersPay: R.prefers(st),
@@ -396,22 +444,22 @@ export default function RegisterPractice() {
       mood: 0.8, waitedMinutes: 0, lineLength: 0, stage: `on a phone call with the salon front desk${found ? `; they found the booking for ${found.name}, ${found.when}` : '; they haven’t found your booking yet'}${oc.outcome ? `; result: ${oc.outcome.kind}` : ''}`, history: oc.history };
     let res: T.TalkReply | null = null; const tk = caps.ai ? await idToken() : null;
     if (tk) { try { const r = await fetch('/api/practice/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ context: ctx, said: text }) }); const d = await r.json(); if (d.ok) res = d; } catch { /* basic */ } }
-    if (!res) res = T.basicTalk(T.sanitizeContext(ctx), text, OFFER_NAMES);
-    const oc2 = sRef.current.onCall; if (!oc2) { setTalkState('idle'); return; }
+    if (!res) res = T.basicCall({ name: oc.call.name.split(' ')[0], full: b.name, want: oc.call.want, when: b.when, service: b.service, prefers: oc.call.prefers, phone: b.phone, found: !!found, offered: oc.offeredAnotherDay, outcome: oc.outcome?.kind || null }, text, oc.history);
+    const oc2 = sRef.current.onCall; if (!oc2) { setTalkState(resting()); return; }
     if (res.detected.offeredRebook && !oc2.offeredAnotherDay) R.offerAnotherDay(st);
     oc2.history.push({ who: 'you', text }); oc2.history.push({ who: 'client', text: res.reply }); toneRef.current = res.tone; oc2.said = res.reply;
     const dl = T.delivery(text, seconds); st.talk.push({ who: `📞 ${oc2.call.name}`, you: text, reply: res.reply, scores: res.coach.scores, tip: res.coach.tip, fillers: dl.fillers, wpm: dl.wpm });
-    setCoachTip({ tip: res.coach.tip, scores: res.coach.scores, fillers: dl.fillers, pace: dl.pace }); setTalkState('idle'); rerender();
+    setCoachTip({ tip: res.coach.tip, scores: res.coach.scores, fillers: dl.fillers, pace: dl.pace }); setTalkState(resting()); rerender();
   };
   const handleSaid = async (raw: string, seconds: number | null) => {
     if (sRef.current.onCall) { await callTalk(raw.trim(), seconds); return; }
-    const st = sRef.current; const c0 = st.cur; const text = raw.trim(); if (!c0 || !text) { setTalkState('idle'); return; }
+    const st = sRef.current; const c0 = st.cur; const text = raw.trim(); if (!c0 || !text) { setTalkState(resting()); return; }
     setHeard(text); setTalkState('thinking'); setTalkErr(null);
     const ctx = contextFor(st); let res: T.TalkReply | null = null;
     const tk = caps.ai ? await idToken() : null;
     if (tk) { try { const r = await fetch('/api/practice/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ context: ctx, said: text }) }); const d = await r.json(); if (d.ok) res = d; else setTalkErr(d.error || null); } catch { /* basic mode */ } }
     if (!res) res = T.basicTalk(T.sanitizeContext(ctx), text, OFFER_NAMES);
-    const cur2 = sRef.current.cur; if (!cur2 || cur2.c.id !== c0.c.id) { setTalkState('idle'); return; }
+    const cur2 = sRef.current.cur; if (!cur2 || cur2.c.id !== c0.c.id) { setTalkState(resting()); return; }
     const d = res.detected; const p = payRef.current;
     if (d.greeting && !cur2.greeted) R.greet(st, d.greeting);
     if (d.askedPhone && cur2.c.details) R.askDetail(st, 'phone');
@@ -428,49 +476,101 @@ export default function RegisterPractice() {
     const dl = T.delivery(text, seconds);
     st.talk.push({ who: cur2.c.name, you: text, reply: res.reply, scores: res.coach.scores, tip: res.coach.tip, fillers: dl.fillers, wpm: dl.wpm });
     setCoachTip({ tip: res.coach.tip, scores: res.coach.scores, fillers: dl.fillers, pace: dl.pace });
-    drainSfx(); setTalkState('idle'); rerender();
+    drainSfx(); setTalkState(resting()); rerender();
   };
-  /** Listen: real listening when connected (recorded, sent once, not kept), otherwise the browser's own. */
-  const startListening = async () => {
-    if (talkState !== 'idle' || (!sRef.current.cur && !sRef.current.onCall)) return; setTalkErr(null);
-    if (caps.listen && signedIn && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
+  // Listening. The mic stays open while talking practice is on. Hands-free: just talk, and a short pause sends it,
+  // like a real conversation. Hold to talk: hold the button or the space bar. Cut in any time the client is talking.
+  const micRef = useRef<Mic | null>(null); const earsRef = useRef<BrowserEars | null>(null);
+  const handsFreeRef = useRef(handsFree); handsFreeRef.current = handsFree;
+  const talkOnRef = useRef(talkOn); talkOnRef.current = talkOn;
+  const [testEars, setTestEars] = useState(false);
+  const cloudEars = (caps.listen && signedIn) || testEars;
+  const resting = () => (micRef.current?.open && (handsFreeRef.current || earsRef.current) && talkOnRef.current ? (handsFreeRef.current ? 'listening' : 'idle') : 'idle') as typeof talkState;
+  const someone = () => !!(sRef.current.cur || sRef.current.onCall);
+  /** You finished a line: check it wasn't the client's own voice coming back, then send it. */
+  const heardLine = (text: string, secs: number | null) => {
+    const t = text.trim(); setInterim('');
+    if (!t || t.replace(/[^a-z]/gi, '').length < 2 || isEcho(t, lastClientLine.current) || !someone()) { setTalkState(resting()); return; }
+    if (micRef.current) micRef.current.paused = true; earsRef.current?.pause();
+    handleSaid(t, secs).finally(() => { if (micRef.current) micRef.current.paused = false; if (handsFreeRef.current && talkOnRef.current && talkStateRef.current !== 'client') earsRef.current?.listen(); });
+  };
+  const micHandlers = () => ({
+    onLevel: (lv: number) => {
+      const b = micBtn.current; if (b) { const ring = Math.min(14, 3 + lv * 160); b.style.boxShadow = `0 0 0 ${ring}px ${talkStateRef.current === 'hearing' ? '#fdecec' : '#e9eefc'}`; }
+      const now = performance.now(); const L = loud.current; L.max = Math.max(L.max, lv);
+      if (now - L.since > 6000) { setQuiet(talkStateRef.current === 'listening' && L.max < 0.008); L.max = 0; L.since = now; }
+    },
+    onStart: (barge: boolean) => {
+      if (barge) { stopAudio.current?.(); if (!cloudEarsRef.current) earsRef.current?.listen(); }
+      if (cloudEarsRef.current && handsFreeRef.current && (talkStateRef.current === 'listening' || barge)) setTalkState('hearing');
+    },
+    onUtterance: (wav: Blob, secs: number) => { if (cloudEarsRef.current) sendRecording(wav, secs); },
+    onDrop: () => { if (talkStateRef.current === 'hearing') setTalkState(resting()); },
+  });
+  const cloudEarsRef = useRef(cloudEars); cloudEarsRef.current = cloudEars;
+  const sendRecording = async (wav: Blob, secs: number) => {
+    if (!someone()) { setTalkState(resting()); return; }
+    setTalkState('thinking'); if (micRef.current) micRef.current.paused = true;
+    try {
+      const tk = await idToken(); const f = new FormData(); f.append('audio', wav, 'speech.wav');
+      const r = await fetch('/api/practice/listen', { method: 'POST', headers: { authorization: `Bearer ${tk}` }, body: f }); const d = await r.json();
+      if (!d.ok) { setTalkErr(d.error || 'Didn’t catch that. Try again.'); if (micRef.current) micRef.current.paused = false; setTalkState(resting()); return; }
+      if (micRef.current) micRef.current.paused = false; heardLine(String(d.text || ''), secs);
+    } catch { setTalkErr('Couldn’t reach listening. Check the connection and try again.'); if (micRef.current) micRef.current.paused = false; setTalkState(resting()); }
+  };
+  /** Open the mic (needs a tap the first time) and start listening the chosen way. */
+  const openMic = async (id = micId) => {
+    setTalkErr(null);
+    if (!navigator.mediaDevices?.getUserMedia) { if (!BrowserEars.available()) { setTalkErr('This browser can’t use a microphone here. Type what you’d say instead.'); return false; } }
+    else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((m) => MediaRecorder.isTypeSupported?.(m)) || '';
-        const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); const chunks: Blob[] = []; const t0 = performance.now();
-        rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-        rec.onstop = async () => {
-          stream.getTracks().forEach((t) => t.stop()); const secs = (performance.now() - t0) / 1000; setTalkState('hearing');
-          const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' }); const tk = await idToken();
-          try {
-            const f = new FormData(); f.append('audio', blob, blob.type.includes('mp4') ? 'speech.mp4' : 'speech.webm');
-            const r = await fetch('/api/practice/listen', { method: 'POST', headers: { authorization: `Bearer ${tk}` }, body: f }); const d = await r.json();
-            if (!d.ok || !d.text) { setTalkErr(d.error || 'Didn’t catch that. Try again.'); setTalkState('idle'); return; }
-            handleSaid(d.text, secs);
-          } catch { setTalkErr('Couldn’t hear that. Try again.'); setTalkState('idle'); }
-        };
-        rec.start(); recRef.current = { stop: () => { if (rec.state !== 'inactive') rec.stop(); } }; setTalkState('listening');
-        window.setTimeout(() => recRef.current?.stop(), 20000); return;
-      } catch { setTalkErr('The microphone is blocked. Allow the mic for this site, or type instead.'); setTalkState('idle'); return; }
+        if (!micRef.current) micRef.current = new Mic(() => micHandlers());
+        await micRef.current.start(id); micRef.current.handsFree = handsFreeRef.current; micRef.current.levelOnly = !cloudEarsRef.current;
+        Mic.mics().then(setMics); loud.current = { max: 0, since: performance.now() };
+      } catch (e: any) { setTalkErr(listenError(String(e?.name || '')) || 'The microphone didn’t start. Try again.'); return false; }
     }
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { setTalkErr('This browser can’t listen. Type what you’d say instead.'); return; }
-    const r = new SR(); r.lang = 'en-US'; r.interimResults = false; r.maxAlternatives = 1; const t0 = performance.now(); let got = false;
-    r.onresult = (e: any) => { got = true; handleSaid(String(e.results?.[0]?.[0]?.transcript || ''), (performance.now() - t0) / 1000); };
-    r.onerror = () => { setTalkErr('Didn’t catch that. Try again, or type it.'); setTalkState('idle'); };
-    r.onend = () => { if (!got) setTalkState((x) => (x === 'listening' ? 'idle' : x)); };
-    recRef.current = { stop: () => r.stop() }; r.start(); setTalkState('listening');
+    if (!cloudEarsRef.current) {
+      if (!BrowserEars.available()) { setTalkErr(listenError('network')); return false; }
+      if (!earsRef.current) earsRef.current = new BrowserEars(() => ({
+        onInterim: (t: string) => { setInterim(t); if (t && talkStateRef.current === 'listening') setTalkState('hearing'); },
+        onFinal: (t: string, secs: number) => heardLine(t, secs),
+        onError: (code: string) => { const m = listenError(code); if (m) { setTalkErr(m); setTalkState('idle'); } },
+      }));
+      if (handsFreeRef.current) earsRef.current.listen();
+    }
+    setTalkState(resting()); return true;
   };
-  const stopListening = () => recRef.current?.stop();
+  const closeMic = () => { micRef.current?.stop(); earsRef.current?.pause(); setInterim(''); setTalkState('idle'); };
+  useEffect(() => () => closeMic(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Real listening switched on or off (signing in): restart the right way.
+  useEffect(() => { if (micRef.current?.open) { micRef.current.levelOnly = !cloudEars; if (cloudEars) earsRef.current?.pause(); else if (handsFree) openMic(); } }, [cloudEars]); // eslint-disable-line react-hooks/exhaustive-deps
+  const startListening = async () => {
+    if (talkStateRef.current === 'thinking' || !someone()) return;
+    if (!micRef.current?.open && !(await openMic())) return;
+    stopAudio.current?.(); setTalkErr(null);
+    if (cloudEarsRef.current) micRef.current?.pushStart(); else earsRef.current?.hold();
+    setTalkState('hearing');
+  };
+  const stopListening = () => {
+    if (handsFreeRef.current || talkStateRef.current !== 'hearing') return;
+    if (cloudEarsRef.current) { micRef.current?.pushStop(); if (talkStateRef.current === 'hearing') setTalkState('idle'); } else earsRef.current?.release();
+  };
+  const switchMode = (hf: boolean) => {
+    setHandsFree(hf); handsFreeRef.current = hf; try { localStorage.setItem('cf_practice_handsfree', hf ? '1' : '0'); } catch { /* private mode */ }
+    if (micRef.current) micRef.current.handsFree = hf;
+    if (!cloudEarsRef.current) { if (hf) earsRef.current?.listen(); else earsRef.current?.pause(); }
+    setTalkState(resting());
+  };
+  useEffect(() => { try { if (localStorage.getItem('cf_practice_handsfree') === '0') setHandsFree(false); setMicId(localStorage.getItem('cf_practice_mic')); } catch { /* private mode */ } }, []);
   const callSaid = s.onCall?.said; const callId = s.onCall?.call.id;
-  useEffect(() => { const oc = sRef.current.onCall; if (!voice || screen !== 'play' || !oc || !callSaid) return; sayOut(callSaid, { id: oc.call.id, voice: oc.call.voice, pron: 'she' } as R.Customer, toneRef.current); toneRef.current = 'neutral'; }, [callSaid, callId, voice, screen]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toggleTalk = () => setTalkOn((v) => { const n = !v; try { localStorage.setItem(TALK_KEY, n ? '1' : '0'); } catch { /* private mode */ } if (n) assignVoices(); return n; });
+  useEffect(() => { const oc = sRef.current.onCall; if (!voice || screen !== 'play' || !oc || !callSaid) return; sayOut(callSaid, { id: oc.call.id, voice: oc.call.voice, pron: oc.call.voiceHint.gender === 'male' ? 'he' : 'she' } as R.Customer, toneRef.current); toneRef.current = 'neutral'; }, [callSaid, callId, voice, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleTalk = () => { const n = !talkOn; setTalkOn(n); talkOnRef.current = n; try { localStorage.setItem(TALK_KEY, n ? '1' : '0'); } catch { /* private mode */ } if (n) { assignVoices(); openMic(); } else closeMic(); };
   useEffect(() => { if (talkOn && screen === 'play' && caps.voices && signedIn && !Object.keys(voiceMap.current).length) assignVoices(); }, [talkOn, screen, caps.voices, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
   // Hold the space bar to talk (desktop).
   useEffect(() => {
     if (!talkOn || screen !== 'play') return;
     const isField = (e: KeyboardEvent) => { const t = e.target as HTMLElement; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'); };
-    const down = (e: KeyboardEvent) => { if (e.code === 'Space' && !e.repeat && !isField(e)) { e.preventDefault(); startListening(); } };
+    const down = (e: KeyboardEvent) => { if (e.code === 'Space' && !e.repeat && !isField(e)) { e.preventDefault(); if (handsFreeRef.current) { if (micRef.current?.open) stopAudio.current?.(); else openMic(); } else startListening(); } };
     const up = (e: KeyboardEvent) => { if (e.code === 'Space' && !isField(e)) { e.preventDefault(); stopListening(); } };
     window.addEventListener('keydown', down); window.addEventListener('keyup', up);
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
@@ -759,16 +859,25 @@ export default function RegisterPractice() {
   );
 
   const shownC = cur?.c || (pay === 'receipt' ? lastC : null);
-  const listening = talkState === 'listening';
-  const talkEl = talkOn && cur && (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: narrow ? '100%' : 360, background: 'rgba(255,255,255,.97)', border: `1px solid ${LINE}`, borderRadius: 18, padding: 10, boxSizing: 'border-box', boxShadow: '0 12px 28px -18px rgba(0,0,0,.45)' }}>
-      {heard && <div style={{ alignSelf: 'flex-end', background: INK, color: '#fff', borderRadius: '14px 14px 4px 14px', padding: '7px 11px', fontSize: 13, lineHeight: 1.4, maxWidth: '92%' }}>“{heard}”</div>}
+  const onLine = s.onCall; const talkName = onLine ? onLine.call.name.split(' ')[0] : cur ? (cur.c.party ? 'Maya' : cur.c.name) : '';
+  const micOpen = !!micRef.current?.open || (!cloudEars && talkState !== 'idle');
+  const statusLine = !micOpen ? (handsFree ? 'Tap the mic to start talking' : 'Hold the mic (or Space) and talk') : talkState === 'hearing' ? (handsFree ? 'Hearing you… pause when you’re done' : 'Hearing you… let go to send') : talkState === 'thinking' ? `${talkName} is thinking…` : talkState === 'client' ? `${talkName} is talking. Just start talking to cut in` : handsFree ? `Listening. Just talk to ${talkName}` : 'Hold the mic (or Space) and talk';
+  const talkEl = talkOn && (cur || onLine) && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: narrow || onLine ? '100%' : 360, background: 'rgba(255,255,255,.97)', border: `1px solid ${LINE}`, borderRadius: 18, padding: 10, boxSizing: 'border-box', boxShadow: onLine ? 'none' : '0 12px 28px -18px rgba(0,0,0,.45)' }}>
+      {(interim || heard) && <div style={{ alignSelf: 'flex-end', background: interim ? SOFT : INK, color: interim ? MUTED : '#fff', borderRadius: '14px 14px 4px 14px', padding: '7px 11px', fontSize: 13, lineHeight: 1.4, maxWidth: '92%', fontStyle: interim ? 'italic' : 'normal' }}>“{interim || heard}”</div>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button aria-label={listening ? 'Stop and send' : 'Talk'} onClick={listening ? stopListening : startListening} disabled={talkState === 'hearing' || talkState === 'thinking'} style={{ width: 50, height: 50, borderRadius: 25, border: 'none', flexShrink: 0, cursor: 'pointer', background: listening ? RED : INK, color: '#fff', fontSize: 20, boxShadow: listening ? '0 0 0 7px #fdecec' : '0 8px 16px -8px rgba(0,0,0,.5)', transition: 'all .2s', opacity: talkState === 'hearing' || talkState === 'thinking' ? 0.5 : 1 }}>{listening ? '■' : '🎙'}</button>
-        <form onSubmit={(e) => { e.preventDefault(); if (typedLine.trim() && talkState === 'idle') { handleSaid(typedLine, null); setTypedLine(''); } }} style={{ flex: 1, display: 'flex', gap: 6 }}>
-          <input aria-label="Say something" value={typedLine} onChange={(e) => setTypedLine(e.target.value)} placeholder={listening ? 'Listening… tap ■ to send' : talkState === 'hearing' ? 'Hearing you…' : talkState === 'thinking' ? `${cur.c.party ? 'Maya' : cur.c.name} is answering…` : 'Tap the mic and talk, or type'} style={{ ...input, padding: '9px 11px', fontSize: 13 }} />
-        </form>
+        <button ref={micBtn} aria-label={handsFree ? (micOpen ? 'Turn the mic off' : 'Start talking') : 'Hold to talk'}
+          onClick={handsFree ? () => (micOpen ? closeMic() : openMic()) : undefined}
+          onPointerDown={handsFree ? undefined : (e) => { e.preventDefault(); startListening(); }} onPointerUp={handsFree ? undefined : stopListening} onPointerLeave={handsFree ? undefined : stopListening}
+          style={{ width: 50, height: 50, borderRadius: 25, border: 'none', flexShrink: 0, cursor: 'pointer', touchAction: 'none', background: talkState === 'hearing' ? RED : micOpen ? GREEN : INK, color: '#fff', fontSize: 20, boxShadow: '0 8px 16px -8px rgba(0,0,0,.5)', transition: 'background .2s, box-shadow .08s', opacity: talkState === 'thinking' ? 0.6 : 1 }}>{talkState === 'thinking' ? '…' : '🎙'}</button>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: talkState === 'hearing' ? RED : talkState === 'client' ? BLUE : INK }}>{statusLine}</div>
+          <form onSubmit={(e) => { e.preventDefault(); if (typedLine.trim() && talkState !== 'thinking') { stopAudio.current?.(); handleSaid(typedLine, null); setTypedLine(''); } }} style={{ display: 'flex', gap: 6 }}>
+            <input aria-label="Say something" value={typedLine} onChange={(e) => setTypedLine(e.target.value)} placeholder="…or type what you’d say" style={{ ...input, padding: '7px 10px', fontSize: 12.5 }} />
+          </form>
+        </div>
       </div>
+      {quiet && micOpen && <div style={{ fontSize: 12, color: AMBER, fontWeight: 600 }}>We can barely hear you. Move closer, or pick another mic below.</div>}
       {talkErr && <div style={{ fontSize: 12, color: RED, fontWeight: 600 }}>{talkErr}</div>}
       {coachOn && coachTip && <div style={{ background: '#f4f7ff', border: '1px solid #dbe4ff', borderRadius: 12, padding: '7px 10px', fontSize: 12.5, display: 'flex', flexDirection: 'column', gap: 5 }}>
         <div><b>Coach:</b> {coachTip.tip}</div>
@@ -777,10 +886,16 @@ export default function RegisterPractice() {
           {coachTip.pace && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: coachTip.pace === 'good' ? '#e8f3ec' : '#fdf1e3', color: coachTip.pace === 'good' ? GREEN : AMBER, fontWeight: 600 }}>Pace: {coachTip.pace}</span>}</div>
       </div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: MUTED, flexWrap: 'wrap' }}>
-        <span>{caps.ai && signedIn ? 'AI client' : 'Basic mode'} · {caps.voices && signedIn ? 'real voices' : 'browser voice'}{narrow ? '' : ' · hold Space to talk'}</span><span style={{ flex: 1 }} />
+        <div role="group" aria-label="How you talk" style={{ display: 'inline-flex', background: SOFT, borderRadius: 999, padding: 2 }}>
+          {([[true, 'Hands-free'], [false, 'Hold to talk']] as const).map(([v, l]) => <button key={l} onClick={() => switchMode(v)} style={{ border: 'none', borderRadius: 999, padding: '3px 9px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', background: handsFree === v ? '#fff' : 'transparent', color: handsFree === v ? INK : MUTED, boxShadow: handsFree === v ? '0 1px 3px rgba(0,0,0,.12)' : 'none' }}>{l}</button>)}
+        </div>
+        {mics.length > 1 && <select aria-label="Microphone" value={micId || ''} onChange={(e) => { const id = e.target.value || null; setMicId(id); try { if (id) localStorage.setItem('cf_practice_mic', id); else localStorage.removeItem('cf_practice_mic'); } catch { /* private mode */ } openMic(id); }} style={{ fontSize: 10.5, border: `1px solid ${LINE}`, borderRadius: 999, padding: '3px 6px', maxWidth: 150, background: '#fff', color: INK }}>
+          <option value="">Default mic</option>{mics.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>}
+        <span style={{ flex: 1 }} />
+        <span>{caps.ai && signedIn ? 'AI client' : 'Basic mode'} · {caps.voices && signedIn ? 'real voices' : 'browser voice'} · {cloudEars ? 'clear listening' : 'browser listening'}</span>
         <button onClick={() => setCoachOn((v) => !v)} style={{ ...mini, fontSize: 10.5 }}>{coachOn ? 'Hide coach' : 'Show coach'}</button>
       </div>
-      {!signedIn && (caps.ai || caps.voices) && <div style={{ fontSize: 11.5, color: MUTED }}>Sign in to ClarityFlow for the AI client and real voices.</div>}
+      {!signedIn && (caps.ai || caps.voices) && <div style={{ fontSize: 11.5, color: MUTED }}>Sign in to ClarityFlow for the AI client, real voices and clear listening.</div>}
     </div>
   );
   const greetEl = cur && !cur.greeted && !pay && !talkOn && (
@@ -796,9 +911,9 @@ export default function RegisterPractice() {
           : <Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} />}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: narrow ? 0 : 90 }}>
-        <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : cur?.said}</Say>
+        <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : talkOn && talkState === 'thinking' && !s.onCall ? '…' : cur?.said}</Say>
         {!narrow && greetEl}
-        {!narrow && talkEl}
+        {!narrow && !s.onCall && talkEl}
         {!narrow && claimCard}
       </div>
     </div>
@@ -830,8 +945,8 @@ export default function RegisterPractice() {
     <span style={{ fontSize: 18, animation: 'regBeam .25s ease-in-out infinite alternate' }}>📞</span><span style={{ fontSize: 13 }}><b>Line 1</b> · {s.ringing.call.name} calling</span><Btn small onClick={answerCall}>Answer</Btn></div>;
   const callEl = oc && <div style={{ position: 'fixed', right: narrow ? 6 : 24, left: narrow ? 6 : 'auto', top: narrow ? 'auto' : 126, bottom: narrow ? 6 : 'auto', width: narrow ? 'auto' : 380, maxHeight: narrow ? '72vh' : 'calc(100vh - 150px)', overflow: 'auto', zIndex: 44, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 20, padding: 14, boxShadow: '0 30px 60px -30px rgba(0,0,0,.6)', display: 'flex', flexDirection: 'column', gap: 8, boxSizing: 'border-box' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 30, height: 30, borderRadius: 15, background: INK, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎧</span><div style={{ flex: 1 }}><b style={{ fontSize: 14 }}>On a call · {oc.call.name}</b><div style={{ fontSize: 11, color: MUTED }}>Line 1 · {Math.round((s.t - oc.started) / 2)} min</div></div><Btn small ghost onClick={hangUp}>End call</Btn></div>
-    <Say tone="soft">{oc.said}</Say>
-    {talkOn && <div style={{ fontSize: 11.5, color: MUTED }}>Talk mode is on: speak to the caller with the mic.</div>}
+    <Say tone="soft">{talkOn && talkState === 'thinking' ? '…' : oc.said}</Say>
+    {talkEl}
     {!ocB ? <>
       <div style={{ fontSize: 12, fontWeight: 700 }}>Find the booking</div>
       <input aria-label="Search bookings for the caller" value={callQ} onChange={(e) => setCallQ(e.target.value)} placeholder="Name or phone" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
@@ -858,7 +973,7 @@ export default function RegisterPractice() {
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f6f3ef,#efe9e2)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, display: 'flex', flexDirection: 'column', gap: 10, padding: 10, boxSizing: 'border-box' }}>
       <Fonts />{hud}{coachEl}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{queue}</div>
-      {client}{greetEl}{talkEl}{claimCard}
+      {client}{greetEl}{!s.onCall && talkEl}{claimCard}
       <div style={{ background: '#16171a', borderRadius: 16, padding: 7 }}>{pos || arrivalPanel || saleDone}</div>
       {clientScreen}
       {receiptPanel && <div style={{ paddingTop: 250, display: 'flex', justifyContent: 'center' }}>{receiptPanel}</div>}

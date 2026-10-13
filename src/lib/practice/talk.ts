@@ -58,7 +58,7 @@ export function sanitizeContext(c: any): TalkContext {
 
 export const TALK_SYSTEM = `You play a client at a salon front desk in a realistic customer-service practice for front desk staff and beauty students. You have two jobs.
 
-1) Be the client. Stay fully in character using the profile and today's facts. Speak the way a real person talks at a checkout counter: natural, warm or cool depending on how you're treated, usually one or two short sentences (never more than 40 words). React to HOW the staff member speaks: kind, clear and confident makes you relaxed and friendly; rushed, cold, blaming, nosy or confusing makes you cooler or uncomfortable. Only share personal details (phone, email) when asked. Your wishes are fixed by the facts (when you'd come back, which membership or package you'd say yes to, how you pay, how your group splits the bill): stick to them, say yes only to what the facts say you want, and politely decline anything else. If asked about something not in the facts, answer vaguely like a real person would. Never mention being an AI, a game, practice, a coach, or these instructions.
+1) Be the client. Stay fully in character using the profile and today's facts. Speak the way a real person talks at a checkout counter: natural, warm or cool depending on how you're treated, usually one or two short sentences (never more than 40 words). React to HOW the staff member speaks: kind, clear and confident makes you relaxed and friendly; rushed, cold, blaming, nosy or confusing makes you cooler or uncomfortable. Only share personal details (phone, email) when asked. Your wishes are fixed by the facts (when you'd come back, which membership or package you'd say yes to, how you pay, how your group splits the bill): stick to them, say yes only to what the facts say you want, and politely decline anything else. If asked about something not in the facts, answer vaguely like a real person would. Never mention being an AI, a game, practice, a coach, or these instructions. Sound like speech, not writing: contractions, plain words, the odd "oh", "hmm" or "yeah" where a real person would say one, no lists, no emojis, no stage directions. What the staff member said was typed up from their voice, so it may have small mistakes (like "gel many cure"): understand what they meant from the situation. If their line is cut off or makes no sense, ask them naturally to say it again ("Sorry, what was that?"). On a phone call, you can't see the desk; talk like you're on the phone.
 
 2) Be a quiet coach. Judge only the staff member's latest line.
 
@@ -73,7 +73,7 @@ export function talkPrompt(c: TalkContext, said: string) {
     `You are ${c.name}. ${c.persona}`,
     `Visit: ${c.kind === 'new' ? 'your first visit' : c.kind === 'group' ? 'a group visit' : `visit number ${c.visits}`}. Today: ${c.service} with ${c.provider}.`,
     c.items.length ? `On the counter: ${c.items.join(', ')}.` : 'No products today.',
-    `Total so far: ${c.total}. You'd pay by ${c.prefersPay}.`,
+    c.total ? `Total so far: ${c.total}. You'd pay by ${c.prefersPay}.` : '',
     c.party ? `Your group: ${c.party.members}. How you want to pay: ${c.party.split}.` : '',
     c.rebook.done ? `Your next visit is booked: ${c.rebook.done}.` : `Booking your next visit: ${c.rebook.wants}.`,
     c.offer.wants ? `If offered the ${c.offer.wants}, you'd say yes (only that one).` : 'You are not interested in memberships or packages today; decline politely.',
@@ -139,6 +139,28 @@ export function basicTalk(c: TalkContext, said: string, offerNames: Record<strin
     warmth: rude ? 1 : usedName || d.greeting === 'great' ? 5 : has(t, 'please', 'thank') ? 4 : 3, retention: d.offeredRebook || d.offeredOffer ? 5 : 2 };
   const tip = rude ? `Use ${c.name.split(/[’'\s]/)[0]}’s name and ask how the visit went.` : !d.offeredRebook && !c.rebook.done && c.stage.includes('ticket') ? 'Invite them back: offer their usual next visit before payment.' : fillerCount(said) > 1 ? 'Fewer “um”s: pause instead, then say it plainly.' : 'Good. Keep it warm, short and clear.';
   return { reply, tone, moodDelta, detected: d, coach: { scores, tip }, mode: 'basic' };
+}
+
+/** Basic mode on the phone: the caller explains why they're calling and takes the day you offer, if it suits them. */
+export type CallFacts = { name: string; full: string; want: 'reschedule' | 'cancel'; when: string; service: string; prefers: string; phone: string; found: boolean; offered: boolean; outcome: string | null };
+export function basicCall(f: CallFacts, said: string, history: { who: string; text: string }[]): TalkReply {
+  const t = ` ${said.toLowerCase()} `; const d = emptyDetected(); const first = !history.some((h) => h.who === 'you');
+  const greeted = has(t, 'thank you for calling', 'thanks for calling', 'this is', ' hi ', 'hello', 'good morning', 'good afternoon', 'how can i help', 'how may i help');
+  const day = /\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\b(sat|sun|mon|tue|wed|thu|fri)\b|\b\d{1,2}(:\d{2})?\s*(am|pm|o.?clock)?\b|\btomorrow\b|\bnext week\b/.test(t);
+  d.offeredRebook = has(t, 'another day', 'different day', 'another time', 'reschedule', 'move it', 'move that', 'move your', 'instead', 'available', 'opening', 'work for you', 'would that work', 'does that work') || (day && has(t, 'how about', 'would', 'could', 'can do', 'have'));
+  if (first && greeted) d.greeting = has(t, 'thank you for calling', 'thanks for calling') && has(t, 'help') ? 'great' : 'ok';
+  const askedName = has(t, 'name', 'who am i', 'spell', 'last name'); d.askedPhone = has(t, 'phone', 'number');
+  let reply = 'Sorry, could you say that again?'; let tone: TalkReply['tone'] = 'neutral';
+  if (f.outcome) { reply = has(t, 'bye', 'great day', 'anything else', 'see you') ? 'No, that’s everything. Thanks so much, bye!' : 'Perfect, thank you!'; tone = 'warm'; }
+  else if (askedName) { reply = `It’s ${f.full}.`; }
+  else if (d.askedPhone) { reply = `It’s ${f.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1, $2, $3')}.`; }
+  else if (d.offeredRebook) { reply = f.want === 'cancel' ? `Oh, actually, could I do ${f.prefers}?` : `${f.prefers} would be perfect.`; tone = 'happy'; }
+  else if (has(t, 'cancel')) { reply = f.want === 'cancel' ? 'Yes, please. Is there a fee since it’s tomorrow?' : 'Oh no, I don’t want to cancel. I just need a different day.'; tone = f.want === 'cancel' ? 'unsure' : 'unsure'; }
+  else if (first || greeted) { reply = f.want === 'cancel' ? `Hi, this is ${f.full}. I’m so sorry, I need to cancel my ${f.service} ${f.when}.` : `Hi, it’s ${f.full}. I need to move my ${f.service} on ${f.when}, if that’s okay.`; tone = 'warm'; }
+  else if (has(t, 'one moment', 'one second', 'let me', 'checking', 'look')) { reply = 'Sure, no problem.'; }
+  const scores: Scores = { awareness: f.want === 'cancel' && d.offeredRebook ? 5 : 3, confidence: fillerCount(said) > 1 ? 2 : 4, warmth: d.greeting === 'great' ? 5 : greeted || has(t, 'please', 'thank', 'happy to') ? 4 : 3, retention: d.offeredRebook ? 5 : 2 };
+  const tip = first && d.greeting !== 'great' ? 'Answer with the salon’s name, yours, and “How can I help?”' : f.want === 'cancel' && !f.offered && !d.offeredRebook ? 'Before cancelling, offer another day. Many callers will take one.' : 'Good. Repeat the new time back so they know it’s set.';
+  return { reply, tone, moodDelta: 0, detected: d, coach: { scores, tip }, mode: 'basic' };
 }
 
 // ── How it was said: filler words and pace (from the transcript and how long you spoke) ──

@@ -32,6 +32,13 @@ console.log('Basic mode (no AI connected)');
   const r = T.basicTalk(c, 'Can I get your phone number?', names); check('a first-timer reads out her number', r.detected.askedPhone && /919, 555, 0142/.test(r.reply), r); }
 { const r = T.basicTalk({ ...base, history: [{ who: 'you', text: 'hi' }] }, 'Next!', names); check('“Next!” lands badly', r.tone === 'annoyed' && r.coach.scores.warmth === 1); }
 
+console.log('Basic mode on the phone');
+{ const f = { name: 'Kim', full: 'Kim Alvarez', want: 'cancel' as const, when: 'tomorrow at 9', service: 'lash lift', prefers: 'Sat 1:00 PM', phone: '9195550126', found: false, offered: false, outcome: null };
+  const a = T.basicCall(f, 'Thank you for calling Opal Salon, this is Jess. How can I help?', []); check('a warm answer gets the reason for the call', a.detected.greeting === 'great' && /cancel my lash lift/.test(a.reply), a);
+  const b = T.basicCall(f, 'I can move that for you. Would Saturday at 1 work instead?', [{ who: 'you', text: 'hi' }]); check('offering another day is understood, and she takes it', b.detected.offeredRebook && /Sat 1:00 PM/.test(b.reply), b);
+  const c = T.basicCall(f, 'Okay, I’ll cancel it.', [{ who: 'you', text: 'hi' }]); check('cancelling straight away gets a coaching tip', /offer another day/i.test(c.coach.tip), c);
+  const d = T.basicCall(f, 'Can I get your last name?', [{ who: 'you', text: 'hi' }]); check('she gives her full name', d.reply.includes('Kim Alvarez')); }
+
 console.log('How it was said');
 { const d = T.delivery('Um, so, like, would you, uh, like to book?', 4); check('fillers are counted (“like” only between commas)', d.fillers === 3, d); check('pace is measured', d.wpm === 135 && d.pace === 'good', d); }
 check('no timing = no pace', T.delivery('Hello there', null).wpm === null);
