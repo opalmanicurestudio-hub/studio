@@ -663,6 +663,9 @@ async function sendCartRecovery(
       recipientType: 'client', recipientId: order?.id || null, recipientName: order?.customerName || null,
     });
     console.log(`[connect-webhook] Cart recovery email ${r.ok ? 'sent' : r.status} for expired order to ${to}`);
+    // Remembered on the order, so an order finished within a few days counts in Opportunities → Results (recovered).
+    const oid = String(session?.metadata?.retailOrderId || order?.id || '');
+    if (r.ok && oid) await db.collection(`tenants/${tenantId}/retailOrders`).doc(oid).set({ cartRecovery: { sentAt: new Date().toISOString() } }, { merge: true }).catch(() => {});
   } catch (e: any) {
     console.warn('[connect-webhook] Cart recovery email failed (non-fatal):', e?.message || e);
   }

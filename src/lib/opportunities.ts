@@ -10,7 +10,7 @@
 
 import { moduleEnabled, type ModuleId } from '@/lib/modules';
 
-export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'manual' | 'follow_up';
+export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'shop_reorder' | 'manual' | 'follow_up';
 export type Who = 'provider' | 'desk' | 'owner';
 export type OutcomeId = 'booked' | 'waitlist' | 'interested' | 'not_now' | 'price' | 'no_answer' | 'voicemail' | 'bad_experience' | 'stop' | 'declined' | 'quote_accepted' | 'no_longer_applies' | 'done';
 
@@ -176,6 +176,14 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     auto: ['Hi {first}, this is {business}. You still have {left} included in your {plan}. Whenever you would like to use it, you can book a time here: {link}'],
     afterAuto: 'Hi {first}, this is {me}. I wanted to make sure you get the most from your {plan}. Would you like me to find you a time?',
     never: 'Making them feel guilty for not coming in.' },
+  shop_reorder: { kind: 'shop_reorder', label: 'Time for more', who: 'desk', marketing: true, priority: 'low', expiresDays: 7, cooldownDays: 30, winBack: false,
+    versions: ['Hi {first}, this is {me} at {business}. It has been about {weeks} weeks since your last {product}, so you may be running low. Would you like us to set one aside for you?'],
+    next: 'Set one aside at the desk, or send them the link to order it.',
+    branches: COMMON([B('done', 'Set aside, or they ordered it. Mark it done.')]),
+    // From their own buying rhythm (shop orders and products bought at checkout). A yes goes to the desk to set one aside.
+    ask: ['Hi {first}, this is {business}. It has been about {weeks} weeks since your last {product}, so you may be running low. Would you like us to set one aside for you? Just reply yes.'],
+    auto: ['Hi {first}, this is {business}. It has been about {weeks} weeks since your last {product}, so you may be running low. You can order more here whenever it suits you: {link}'],
+    never: 'Pressure, or saying it is about to sell out.' },
   follow_up: { kind: 'follow_up', label: 'Follow-up', who: 'provider', marketing: false, priority: 'medium', expiresDays: 10, cooldownDays: 0, winBack: false,
     versions: ['Hi {first}, this is {me} again. I wanted to follow up, with no pressure at all.'],
     next: 'Pick up where you left off.',
@@ -206,14 +214,14 @@ export type Mode = 'off' | 'auto' | 'person' | 'auto_then_person';
 export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it automatically', person: 'Give it to a person', auto_then_person: 'Automatic, then a person' };
 /** The starting choice for each kind (canvas, section 31 follow-up): automatic where a friendly text is enough, a person
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
-export const DEFAULT_MODES: Record<string, Mode> = { fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
+export const DEFAULT_MODES: Record<string, Mode> = { shop_reorder: 'auto', fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
 export const modesFor = (k: OppKind): Mode[] => (k === 'fill_gap' ? ['off', 'auto'] : PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
 export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number> }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
 export type Tool = 'appointments' | 'quotes' | 'gift_cards' | 'memberships' | 'shop' | 'booths' | 'academy' | 'hiring' | 'calls';
-export const TOOL_OF: Record<OppKind, Tool> = { fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
+export const TOOL_OF: Record<OppKind, Tool> = { shop_reorder: 'shop', fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
 const TOOL_GATE: Partial<Record<Tool, ModuleId>> = { quotes: 'classes_events', memberships: 'memberships', shop: 'retail', booths: 'booth_rental', academy: 'academy', hiring: 'team', calls: 'voice' };
 export const toolOn = (tenant: any, tool: Tool) => { const g = TOOL_GATE[tool]; return !g || moduleEnabled(tenant, g); };
 
@@ -232,7 +240,7 @@ export function heldForRoom(kind: OppKind, providerId: string | null, pace: Pace
   const share = providerId && pace.byStaff?.[providerId] ? pace.byStaff[providerId].share : pace.business;
   return typeof share === 'number' && share * 100 < S.paceMin;
 }
-export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'renewal_failed', 'unused_visits', 'quote', 'gift_card'];
+export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'renewal_failed', 'unused_visits', 'shop_reorder', 'quote', 'gift_card'];
 export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
@@ -243,7 +251,7 @@ export function oppSettingsOf(tenant: any): OppSettings {
   if (rc.enabled === true) { carried.due = rc.dueEnabled === false ? 'off' : 'auto_then_person'; carried.long_gone = rc.missEnabled === false ? 'person' : 'auto_then_person'; }
   const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : carried[k] || DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
   const lf = o.linkFirst || {};
-  const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, k === 'fill_gap' ? false : typeof lf[k] === 'boolean' ? lf[k] : !PLAYBOOKS[k].ask?.length]));
+  const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, k === 'fill_gap' ? false : typeof lf[k] === 'boolean' ? lf[k] : k === 'shop_reorder' || !PLAYBOOKS[k].ask?.length]));
   const bo = o.bonus || {};
   const bonus = { on: bo.on === true, cents: n(bo.cents, 0, 10000, 500), capCents: n(bo.capCents, 0, 500000, 0) };   // off by default; cap 0 = no cap
   return { bonus, linkFirst, on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
@@ -289,7 +297,7 @@ const whenWord = (t: number, now: number, tz?: string) => { const d = Math.round
 /** The rules. Returns everything that qualifies today; the server drops what's already open, cooling down or opted out.
  * `fresh`: called the moment something happened (a cancellation, a no-show, a checkout), so those kinds qualify the
  * same day; the server decides when the client actually hears from us. */
-export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean }): Candidate[] {
+export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; purchases?: Purchase[]; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean }): Candidate[] {
   const { now, settings: S } = x; const minAge = x.fresh ? 0 : 1; const iso = (t: number) => new Date(t).toISOString();
   const renter = x.renterStaffIds || new Set<string>();
   const appts = x.appointments.filter((a) => !a.isRenterBooking && !renter.has(String(a.staffId || '')) && !a.isWalkIn);
@@ -343,6 +351,16 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
     const longAfter = Math.max(g ? g * 3 : 90, 90);
     if (since >= longAfter && since <= 365 && S.finders.long_gone) { add('long_gone', c, h, `Last visit ${Math.round(since / 30)} months ago${n > 1 ? ` — came ${n} times before` : ''}`, h.avg * 100); continue; }
   }
+  // The shop (tool: shop): something a client buys again and again, and it's about the time they usually run out.
+  if (S.finders.shop_reorder && x.purchases?.length) {
+    const have = new Set(out.map((o) => o.clientId));
+    for (const r of reorderDue(x.purchases, now)) {
+      if (have.has(r.clientId)) continue; const c = clients.get(r.clientId); if (!c || c.archived || c.deleted) continue;
+      const up = H.get(r.clientId)?.upcoming; if (up && ms(up.startTime) - now < 14 * DAY) continue;   // they'll be in soon: the visit itself shows it
+      add('shop_reorder', c, H.get(r.clientId) || null, `Buys ${r.name} about every ${r.weeks} weeks; last one ${r.sinceWeeks} weeks ago`, r.priceCents, { key: `shop_reorder:${r.clientId}:${r.productId}`, refs: { productId: r.productId }, providerId: null });
+      const f = out[out.length - 1].facts; f.product = r.name; f.weeks = String(r.sinceWeeks); have.add(r.clientId);
+    }
+  }
   if (S.finders.quote) for (const q of x.quotes) {
     if (!['sent', 'viewed'].includes(String(q.status || '')) || q.convertedToEventId) continue;
     const sent = ms(q.sentAt); if (!sent) continue; const d = (now - sent) / DAY; const exp = q.expiresInDays ? sent + Number(q.expiresInDays) * DAY : Infinity;
@@ -365,6 +383,22 @@ export const quoteTotal = (q: any) => { const sub = (q.lineItems || []).reduce((
 export const dollars = (cents: number) => { const d = (Number(cents) || 0) / 100; return `$${d % 1 ? d.toFixed(2) : d.toLocaleString('en-US')}`; };
 
 /** Keep only what should become a task: one open task per client, cooldowns, opt-outs, open cases. */
+export interface Purchase { clientId: string; productId: string; name: string; at: number; priceCents?: number }
+/** Products a client has bought at least twice, a week or more apart: the median gap is their rhythm. Due once that
+ * much time has passed since the last one (and not long after: by 2.5× they've likely found another). */
+export function reorderDue(list: Purchase[], now: number): Array<{ clientId: string; productId: string; name: string; weeks: number; sinceWeeks: number; priceCents: number }> {
+  const by = new Map<string, Purchase[]>(); for (const p of list) { if (!p.clientId || !p.productId || !p.at) continue; const k = `${p.clientId}|${p.productId}`; (by.get(k) || by.set(k, []).get(k)!).push(p); }
+  const out: Array<{ clientId: string; productId: string; name: string; weeks: number; sinceWeeks: number; priceCents: number }> = [];
+  for (const [, l] of by) {
+    const days = [...new Set(l.map((p) => Math.floor(p.at / DAY)))].sort((a, b) => a - b); if (days.length < 2) continue;
+    const gaps = days.slice(1).map((d, i) => d - days[i]).filter((g) => g >= 7); if (!gaps.length) continue;
+    const g = [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)]; const since = now / DAY - days[days.length - 1];
+    if (since < g || since > g * 2.5) continue; const last = l.reduce((a, b) => (b.at > a.at ? b : a));
+    out.push({ clientId: last.clientId, productId: last.productId, name: String(last.name || 'favorite product'), weeks: Math.max(1, Math.round(g / 7)), sinceWeeks: Math.max(1, Math.round(since / 7)), priceCents: Number(last.priceCents) || 0 });
+  }
+  return out.sort((a, b) => b.priceCents - a.priceCents);
+}
+
 /** Fill a gap: who to ask about one spare time. Clients with past visits and nothing booked, who aren't opted out, whose
  * usual service fits in the time, and who are at least most of the way to their usual next visit. Those who see this
  * provider, and usually come on this weekday, first. At most three. */

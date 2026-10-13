@@ -123,6 +123,7 @@ const KIND_HINT: Record<string, string> = {
   fill_gap: 'A time the waitlist couldn’t fill, 3 to 48 hours away: up to three clients who are about due are asked if they’d like it. The first yes gets it booked.',
   renewal_failed: 'A membership payment that hasn’t gone through for 3 days and no new card yet. They already have the secure card link; this is a friendly word from the desk.',
   unused_visits: 'Members with no visit in 45 days, or package visits left and no visit in 60 days.',
+  shop_reorder: 'Something a client buys again and again (online or at checkout), when it’s about time for more. Orders within 7 days count in Results, and so do carts finished after the “your cart has been saved” email.',
 };
 const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', visit: 'Booked before they left (checkout and visit link)', campaigns: 'Campaigns', winback: 'Win-back reminders (before they moved here)' };
 function Results({ tenantId }: { tenantId: string }) {

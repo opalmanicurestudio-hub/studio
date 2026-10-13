@@ -435,5 +435,33 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
   const gC = gOpps[2]; await Srv.opportunityReply(dbG, 't1', dgt(gC.phone), 'no thanks', realG, ioG as any);
   check('“no thanks” closes it without bothering anyone', (await dbG.doc(`${T}/opportunities/${gC.id}`).get()).data()?.outcome !== 'booked' && (await dbG.doc(`${T}/opportunities/${gC.id}`).get()).data()?.status === 'done');
 
+
+  console.log('Opportunities — step 6: the shop');
+  const buys = [
+    { clientId: 'maria', productId: 'oil', name: 'Cuticle oil', at: ms(ago(130)), priceCents: 1800 }, { clientId: 'maria', productId: 'oil', name: 'Cuticle oil', at: ms(ago(88)), priceCents: 1800 }, { clientId: 'maria', productId: 'oil', name: 'Cuticle oil', at: ms(ago(45)), priceCents: 1800 },
+    { clientId: 'sam', productId: 'oil', name: 'Cuticle oil', at: ms(ago(30)) }, { clientId: 'sam', productId: 'oil', name: 'Cuticle oil', at: ms(ago(10)) },
+    { clientId: 'dana', productId: 'cream', name: 'Hand cream', at: ms(ago(300)) }, { clientId: 'dana', productId: 'cream', name: 'Hand cream', at: ms(ago(270)) },
+  ];
+  const rd = O.reorderDue(buys, NOW);
+  check('her rhythm is every ~6 weeks and it has been 6 → time for more; too soon or long past → nothing', rd.length === 1 && rd[0].clientId === 'maria' && rd[0].weeks === 6, rd);
+  const SH = O.oppSettingsOf({});
+  const shc = O.findCandidates({ clients: [{ ...clients[0] }, { id: 'zed', name: 'Zed Ray', phone: '+15550777' }], appointments: [], quotes: [], giftCards: [], purchases: [...buys, { clientId: 'zed', productId: 'oil', name: 'Cuticle oil', at: ms(ago(90)) }, { clientId: 'zed', productId: 'oil', name: 'Cuticle oil', at: ms(ago(45)) }], settings: SH, now: NOW });
+  const z = shc.find((x) => x.clientId === 'zed');
+  check('a “time for more” task for that product, sent with a link to it by default', z?.kind === 'shop_reorder' && z?.refs.productId === 'oil' && SH.linkFirst.shop_reorder === true && SH.modes.shop_reorder === 'auto', shc);
+  const zt = O.fill(O.PLAYBOOKS.shop_reorder.auto![0], { ...z!.facts, business: 'Opal', link: 'https://x/shop/t1/product/oil' }); check('the text reads naturally', zt === 'Hi Zed, this is Opal. It has been about 7 weeks since your last Cuticle oil, so you may be running low. You can order more here whenever it suits you: https://x/shop/t1/product/oil', zt);
+  check('with the shop switched off, nothing', O.oppSettingsOf({ modules: { retail: false } }).modes.shop_reorder === 'off');
+  const dbS = makeDb(); await dbS.doc(T).set({ name: 'Opal', timezone: 'America/New_York' });
+  await dbS.doc(`${T}/opportunities/so`).set({ id: 'so', kind: 'shop_reorder', tool: 'shop', status: 'auto', clientId: 'zed', refs: { productId: 'oil' }, createdAt: ago(3), firstContactAt: ago(3), attempts: [] });
+  await dbS.doc(`${T}/retailOrders/o1`).set({ id: 'o1', stage: 'completed', clientId: 'zed', customerEmail: 'zed@x.com', customerName: 'Zed Ray', orderNumber: 1042, paidAt: ago(1), placedAt: ago(1), totalCents: 3600, refundedCents: 0, lines: [{ productId: 'oil', name: 'Cuticle oil' }] });
+  await dbS.doc(`${T}/retailOrders/c0`).set({ id: 'c0', stage: 'cancelled', customerEmail: 'ann@x.com', placedAt: ago(4), cartRecovery: { sentAt: ago(4) } });
+  await dbS.doc(`${T}/retailOrders/o2`).set({ id: 'o2', stage: 'completed', customerEmail: 'Ann@x.com', customerName: 'Ann Lee', paidAt: ago(2), placedAt: ago(2), totalCents: 5000, refundedCents: 0, lines: [{ productId: 'kit', name: 'Kit' }] });
+  await dbS.doc(`${T}/retailOrders/o3`).set({ id: 'o3', stage: 'completed', customerEmail: 'bob@x.com', paidAt: ago(2), placedAt: ago(2), totalCents: 2000, lines: [{ productId: 'kit' }] });
+  await Srv.resultsPass(dbS, 't1', (await dbS.doc(T).get()).data(), NOW);
+  const rs = (await dbS.collection(`${T}/results`).get()).docs.map((d: any) => d.data());
+  check('an order after the “time for more” text counts for that task (influenced, shop)', rs.some((r: any) => r.id === 'order_o1' && r.tool === 'shop' && r.type === 'influenced' && r.oppId === 'so' && r.paidCents === 3600), rs);
+  check('a cart finished within a week of the “your cart has been saved” email counts as recovered; an unrelated order doesn’t', rs.some((r: any) => r.id === 'order_o2' && r.type === 'recovered' && r.source === 'shop' && r.paidCents === 5000) && !rs.some((r: any) => r.id === 'order_o3'));
+  const sumS: any = await Srv.opportunityResults(dbS, 't1', NOW, (await dbS.doc(T).get()).data());
+  check('Results shows the shop as its own line', sumS.byTool.some((x: any) => x.tool === 'shop' && x.recovered === 5000 && x.influenced === 3600), sumS.byTool);
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, toolOn, type Purchase, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -33,6 +33,26 @@ async function loadAll(db: any, t: string, now: number) {
   ]);
   return { appointments: rows(ap), clients: rows(cl), quotes: rows(qu), giftCards: rows(gc), cases: rows(cs), nudges: rows(rn), opps: rows(op) };
 }
+/** What clients have bought, from the online shop and at checkout, for "time for more". Only when the shop is on. */
+async function loadPurchases(db: any, t: string, tenant: any, clients: any[], now: number): Promise<Purchase[]> {
+  if (!toolOn(tenant, 'shop')) return [];
+  const since = nowIso(now - 400 * DAY); const safe = (p: Promise<any>) => p.catch(() => ({ docs: [] }));
+  const [or, rc] = await Promise.all([safe(db.collection(`${T(t)}/retailOrders`).where('placedAt', '>=', since).get()), safe(db.collection(`${T(t)}/receipts`).where('date', '>=', since).get())]);
+  const byEmail = new Map<string, string>(); for (const c of clients) if (c.email) byEmail.set(String(c.email).trim().toLowerCase(), String(c.id));
+  const out: Purchase[] = [];
+  for (const o of rows(or)) {
+    if (['placed', 'cancelled'].includes(String(o.stage || '')) || o.priceTier === 'wholesale' || o.isReplacement) continue;
+    const cid = String(o.clientId || byEmail.get(String(o.customerEmail || '').trim().toLowerCase()) || ''); if (!cid) continue; const at = ms(o.paidAt || o.placedAt);
+    for (const l of (o.lines || [])) if (l?.productId && !(Number(l.qtyReturned) >= Number(l.qtyOrdered))) out.push({ clientId: cid, productId: String(l.productId), name: String(l.name || ''), at, priceCents: Number(l.unitPriceCents) || 0 });
+  }
+  for (const r of rows(rc)) { if (!r.clientId) continue; const at = ms(r.date || r.createdAt);
+    for (const p of (r.reversal?.products || r.products || [])) if (p?.id) out.push({ clientId: String(r.clientId), productId: String(p.id), name: String(p.name || ''), at, priceCents: Math.round((Number(p.price) || 0) * 100) }); }
+  return out;
+}
+async function shopLink(tenant: any, t: string, productId?: string | null) {
+  const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); if (!base) return '';
+  return `${base}/shop/${encodeURIComponent(t)}${productId ? `/product/${encodeURIComponent(productId)}` : ''}`;
+}
 
 const openLoad = (opps: any[]) => { const m = new Map<string, number>(); for (const o of opps) if (o.status === 'open' && o.assigneeId) m.set(o.assigneeId, (m.get(o.assigneeId) || 0) + 1); return m; };
 
@@ -60,7 +80,8 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   const x = await loadAll(db, t, now); const staff = await team(db, t);
   const renterIds = new Set<string>(staff.filter((m: any) => m.role === 'renter' || m.isRenter).map((m: any) => String(m.id)));
   const clients = new Map<string, any>(x.clients.map((c: any) => [String(c.id), c]));
-  const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
+  const purchases = S.finders.shop_reorder ? await loadPurchases(db, t, tenant, x.clients, now).catch(() => []) : [];
+  const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, purchases, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
     existing: x.opps, clients, now,
     openCaseClients: new Set(x.cases.filter((c: any) => c.clientId && !CLOSED_CASE.includes(String(c.status || ''))).map((c: any) => String(c.clientId))),
     recentAutoNudge: new Set(x.nudges.map((n: any) => String(n.clientId || ''))),
@@ -85,6 +106,8 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   const Hx = historyOf(x.appointments, now);
   for (const e of x.opps) {
     const ref = db.doc(`${T(t)}/opportunities/${e.id}`);
+    if (e.kind === 'shop_reorder' && ACTIVE.includes(e.status) && purchases.some((p) => p.clientId === e.clientId && p.productId === e.refs?.productId && p.at > ms(e.createdAt))) {
+      writes.push([ref, { status: 'done', outcome: 'no_longer_applies', closedAt: nowIso(now), closedWhy: 'They bought it.' }, 'update']); continue; }
     if (e.status === 'waiting' || e.status === 'auto') {
       const r = cameBack(e, x.appointments, now);
       if (r.status !== 'none') { writes.push([ref, { status: 'done', outcome: 'booked', closedAt: nowIso(now), result: { ...r, checkedAt: nowIso(now) } }, 'update']); continue; }
@@ -137,7 +160,7 @@ async function launch(ctx: Ctx, base: any, now: number): Promise<{ doc: any; ext
     // Ask first (no link) unless the business chose "include the link" for this kind; a yes gets times (opportunityReply).
     const askFirst = !!pb.ask?.length && !S.linkFirst?.[base.kind]; const set = askFirst ? pb.ask! : pb.auto;
     const usedA = ctx.opps.filter((e: any) => e.clientId && e.clientId === base.clientId && e.kind === base.kind && Number.isInteger(e.autoVersion) && !!e.askFirst === askFirst).map((e: any) => e.autoVersion);
-    const av = pickFrom(set.length, usedA); const link = askFirst ? '' : await bookLink(tenant, t, { providerId: base.providerId, opp: base.id });
+    const av = pickFrom(set.length, usedA); const link = askFirst ? '' : base.tool === 'shop' ? await shopLink(tenant, t, base.refs?.productId) : await bookLink(tenant, t, { providerId: base.providerId, opp: base.id });
     const body = fill(set[av], { ...facts, link, me: first(prov?.name) || businessName(tenant) });
     const chk0 = await textCheck(db, t, tenant, base, cl || { phone: base.phone }, now);
     const chk: any = !link && set[av].includes('{link}') ? { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' } : chk0;
@@ -347,6 +370,7 @@ export async function opportunityReply(db: any, t: string, fromDigits: string, b
  * (deposit: their card on file if the business allows, otherwise a deposit link); the booking sends its usual
  * confirmation. Returns false when a person should take it instead. */
 async function answerAskFirst(db: any, t: string, tenant: any, S: OppSettings, e: any, ref: any, att: any[], body: string, now: number, io: TaskIO): Promise<boolean> {
+  if (!['appointments', 'memberships'].includes(TOOL_OF[e.kind as OppKind])) return false;   // a yes to "set one aside?" goes to the desk
   const offered: any[] = Array.isArray(e.offeredTimes) ? e.offeredTimes : []; const gap = e.kind === 'fill_gap';
   const n = offered.length ? pickedNumber(body, offered.length) || (gap && isYes(body) ? 1 : null) : null;
   if (gap && !n) {   // "no thanks" to one spare time isn't worth a person's time; a question is
@@ -574,7 +598,8 @@ export async function resultsPass(db: any, t: string, tenant: any, now = Date.no
     const type = c.source === 'campaigns' && a.campaignId ? 'generated' : c.type;
     out.push({ a, c: { type, oppId: null, kind: null, tool: c.source, staffId: null, source: c.source } });
   }
-  if (!out.length) return { ok: true, credited: 0 };
+  const shop = await shopResults(db, t, S, opps, since, now).catch((e) => { console.error('[opportunities] shop results', e); return [] as ShopCredit[]; });
+  if (!out.length && !shop.length) return { ok: true, credited: 0 };
   // Refunds against those visits
   const refunded = new Map<string, number>(); const ids = out.map((x) => String(x.a.id));
   for (let i = 0; i < ids.length; i += 30) {
@@ -590,13 +615,39 @@ export async function resultsPass(db: any, t: string, tenant: any, now = Date.no
     if (!c.oppId) continue;
     const prev = oppResult.get(c.oppId); if (!prev || (st.state === 'paid' && prev.status !== 'paid')) oppResult.set(c.oppId, { status: st.state === 'paid' ? 'paid' : st.state === 'booked' ? 'booked' : 'none', appointmentId: String(a.id), paidCents: st.paidCents, credit: c.type, checkedAt: nowIso(now) });
   }
+  for (const x of shop) { keep.add(x.id); writes.push([db.doc(`${T(t)}/results/${x.id}`), { ...x.doc, updatedAt: nowIso(now) }]);
+    if (x.doc.oppId && !oppResult.has(x.doc.oppId)) oppResult.set(x.doc.oppId, { status: x.doc.state === 'paid' ? 'paid' : 'none', orderId: x.doc.orderId, paidCents: x.doc.paidCents, credit: x.doc.type, checkedAt: nowIso(now) }); }
   // A visit that's no longer credited (cancelled tag, moved credit) comes out of the ledger.
   const existing = rows(await safe(db.collection(`${T(t)}/results`).where('updatedAt', '>=', nowIso(now - 400 * DAY)).get()));
   for (const r of existing) if (!keep.has(r.id) && ms(r.startTime) >= now - 120 * DAY) writes.push([db.doc(`${T(t)}/results/${r.id}`), null]);
   for (const [oid, r] of oppResult) writes.push([db.doc(`${T(t)}/opportunities/${oid}`), { __merge: true, result: r }]);
   for (let i = 0; i < writes.length; i += 400) { const b = db.batch(); for (const [r, v] of writes.slice(i, i + 400)) { if (v === null) b.delete(r); else if (v.__merge) { const { __merge, ...rest } = v; b.set(r, rest, { merge: true }); } else b.set(r, v); } await b.commit(); }
   if (S.bonus.on) { try { await payBonuses(db, t, tenant, S, out.map(({ a, c }) => ({ a, c, st: resultState(a, refunded.get(String(a.id)) || 0) })), now); } catch (e) { console.error('[opportunities] bonus', e); } }
-  return { ok: true, credited: out.length };
+  return { ok: true, credited: out.length + shop.length };
+}
+
+type ShopCredit = { id: string; doc: any };
+/** Shop orders into the same ledger (results/order_{id}): an order finished within the shop's window after the
+ * "your cart has been saved" email (recovered), or after a "time for more" text for that product (influenced). */
+async function shopResults(db: any, t: string, S: OppSettings, opps: any[], since: string, now: number): Promise<ShopCredit[]> {
+  const safe = (p: Promise<any>) => p.catch(() => ({ docs: [] })); const win = (S.windows?.shop || 7) * DAY;
+  const [paid, carts] = await Promise.all([safe(db.collection(`${T(t)}/retailOrders`).where('paidAt', '>=', since).get()), safe(db.collection(`${T(t)}/retailOrders`).where('cartRecovery.sentAt', '>=', since).get())]);
+  const sentTo = new Map<string, number[]>(); for (const c of rows(carts)) { const e = String(c.customerEmail || '').trim().toLowerCase(); if (e) (sentTo.get(e) || sentTo.set(e, []).get(e)!).push(ms(c.cartRecovery?.sentAt)); }
+  const reorders = opps.filter((o: any) => o.kind === 'shop_reorder' && o.firstContactAt);
+  const out: ShopCredit[] = [];
+  for (const o of rows(paid)) {
+    if (['placed', 'cancelled'].includes(String(o.stage || '')) || o.priceTier === 'wholesale' || o.isReplacement) continue;
+    const at = ms(o.paidAt); const email = String(o.customerEmail || '').trim().toLowerCase(); const ids = new Set((o.lines || []).map((l: any) => String(l?.productId || '')));
+    const task = reorders.filter((x: any) => (x.clientId && x.clientId === o.clientId) && ids.has(String(x.refs?.productId || '')) && at >= ms(x.firstContactAt) && at - ms(x.firstContactAt) <= win)
+      .sort((a: any, b: any) => ms(b.firstContactAt) - ms(a.firstContactAt))[0];
+    const cart = (sentTo.get(email) || []).some((x) => x && at >= x && at - x <= win);
+    if (!task && !cart) continue;
+    const total = Number(o.totalCents) || 0; const back = Number(o.refundedCents) || 0; const net = Math.max(0, total - back);
+    out.push({ id: `order_${o.id}`, doc: { id: `order_${o.id}`, orderId: String(o.id), appointmentId: null, clientId: o.clientId || null, clientName: o.customerName || null, serviceName: `Online order${o.orderNumber ? ` #${o.orderNumber}` : ''}`, startTime: o.paidAt,
+      source: task ? 'opportunity' : 'shop', oppId: task?.id || null, oppKind: task ? 'shop_reorder' : null, tool: 'shop', type: task ? 'influenced' : 'recovered', staffId: null, staffName: null,
+      state: net > 0 || total === 0 ? 'paid' : 'refunded', paidCents: net, bookedCents: 0, refundedCents: back } });
+  }
+  return out;
 }
 
 /** Results for a month (default this one): paid money by kind of credit and by tool, booked-not-paid, open estimates,
