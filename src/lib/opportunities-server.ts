@@ -524,6 +524,7 @@ export async function resultsPass(db: any, t: string, tenant: any, now = Date.no
   for (const r of existing) if (!keep.has(r.id) && ms(r.startTime) >= now - 120 * DAY) writes.push([db.doc(`${T(t)}/results/${r.id}`), null]);
   for (const [oid, r] of oppResult) writes.push([db.doc(`${T(t)}/opportunities/${oid}`), { __merge: true, result: r }]);
   for (let i = 0; i < writes.length; i += 400) { const b = db.batch(); for (const [r, v] of writes.slice(i, i + 400)) { if (v === null) b.delete(r); else if (v.__merge) { const { __merge, ...rest } = v; b.set(r, rest, { merge: true }); } else b.set(r, v); } await b.commit(); }
+  if (S.bonus.on) { try { await payBonuses(db, t, tenant, S, out.map(({ a, c }) => ({ a, c, st: resultState(a, refunded.get(String(a.id)) || 0) })), now); } catch (e) { console.error('[opportunities] bonus', e); } }
   return { ok: true, credited: out.length };
 }
 
@@ -645,4 +646,48 @@ async function actInTask(db: any, t: string, tenant: any, actor: RequestActor, o
     return { ok: true, closed: true, appointmentId, label, depositNote: bk.rebook?.depositNote || null };
   }
   return { ok: false, error: 'Unknown action.' };
+}
+
+
+// ── The optional bonus per paid result (decided Oct 13; off by default) ──────────────────────────────
+// Only results that came straight from a person's task (generated or recovered) — never influenced ones — once the
+// visit is paid. Written as its own pay line (payAdjustments, by 'opportunities'), once per visit; a refund or a
+// cancelled visit takes it back with a matching line. An optional monthly cap per person. Contact limits never change.
+async function payBonuses(db: any, t: string, tenant: any, S: OppSettings, list: Array<{ a: any; c: any; st: any }>, now: number) {
+  const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const month = dayKey(new Date(now), zone).slice(0, 7);
+  const monthTotals = new Map<string, number>();
+  const adj = db.collection(`${T(t)}/payAdjustments`);
+  for (const { a, c, st } of list) {
+    if (!c.staffId || !['generated', 'recovered'].includes(c.type) || c.source && c.source !== 'opportunity') continue;
+    const ref = adj.doc(`oppbonus_${a.id}`); const back = adj.doc(`oppbonus_${a.id}_back`);
+    const [paid, undone] = await Promise.all([ref.get(), back.get()]);
+    if (st.state === 'paid' && !paid.exists) {
+      if (S.bonus.capCents > 0) {
+        if (!monthTotals.has(c.staffId)) { const mine = (await adj.where('staffId', '==', c.staffId).get()).docs.map((d: any) => d.data()).filter((x: any) => x.by === 'opportunities' && String(x.date || '').slice(0, 7) === month);
+          monthTotals.set(c.staffId, mine.reduce((s: number, x: any) => s + (Number(x.amountCents) || 0), 0)); }
+        const left = S.bonus.capCents - (monthTotals.get(c.staffId) || 0); if (left <= 0) continue;
+        const amt = Math.min(S.bonus.cents, left); monthTotals.set(c.staffId, (monthTotals.get(c.staffId) || 0) + amt);
+        await ref.set({ id: ref.id, staffId: c.staffId, amountCents: amt, date: nowIso(now), appointmentId: String(a.id), reason: `Follow-up bonus: ${a.clientName || 'a client'}’s visit, booked from your task`, by: 'opportunities', byName: 'Follow-up bonus', createdAt: nowIso(now) });
+      } else await ref.set({ id: ref.id, staffId: c.staffId, amountCents: S.bonus.cents, date: nowIso(now), appointmentId: String(a.id), reason: `Follow-up bonus: ${a.clientName || 'a client'}’s visit, booked from your task`, by: 'opportunities', byName: 'Follow-up bonus', createdAt: nowIso(now) });
+    }
+    if ((st.state === 'refunded' || st.state === 'cancelled') && paid.exists && !undone.exists) {
+      const was = Number(paid.data()?.amountCents) || 0;
+      if (was) await back.set({ id: back.id, staffId: c.staffId, amountCents: -was, date: nowIso(now), appointmentId: String(a.id), reason: `Follow-up bonus taken back: ${a.clientName || 'the client'}’s visit was ${st.state}`, by: 'opportunities', byName: 'Follow-up bonus', createdAt: nowIso(now) });
+    }
+  }
+}
+
+/** For My numbers: this person's results from their follow-up tasks over the last 30 days, and any bonus this month. */
+export async function myFollowUps(db: any, t: string, staffId: string, now = Date.now()) {
+  const since = now - 30 * DAY;
+  const mine = rows(await db.collection(`${T(t)}/results`).where('staffId', '==', staffId).get().catch(() => ({ docs: [] }))).filter((r: any) => ms(r.startTime) >= since && ms(r.startTime) <= now + 60 * DAY);
+  const paid = mine.filter((r: any) => r.state === 'paid');
+  const tenant = (await db.doc(T(t)).get()).data() || {}; const S = oppSettingsOf(tenant);
+  let bonusCents = 0;
+  if (S.bonus.on) { const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const month = dayKey(new Date(now), zone).slice(0, 7);
+    bonusCents = rows(await db.collection(`${T(t)}/payAdjustments`).where('staffId', '==', staffId).get().catch(() => ({ docs: [] }))).filter((x: any) => x.by === 'opportunities' && String(x.date || '').slice(0, 7) === month).reduce((s: number, x: any) => s + (Number(x.amountCents) || 0), 0); }
+  const open = rows(await db.collection(`${T(t)}/opportunities`).where('assigneeId', '==', staffId).get().catch(() => ({ docs: [] }))).filter((o: any) => o.status === 'open').length;
+  return { paidCents: paid.reduce((s: number, r: any) => s + (Number(r.paidCents) || 0), 0), visits: paid.length, booked: mine.filter((r: any) => r.state === 'booked').length,
+    generated: paid.filter((r: any) => r.type === 'generated').length, recovered: paid.filter((r: any) => r.type === 'recovered').length, influenced: paid.filter((r: any) => r.type === 'influenced').length,
+    open, bonusOn: S.bonus.on, bonusCents };
 }

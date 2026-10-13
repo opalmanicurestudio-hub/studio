@@ -17,7 +17,7 @@ export function MyNumbers({ tenantId, accent = '#2e6b66', tz, onBack }: { tenant
   const back = <button type="button" onClick={onBack} className="text-[14px]" style={{ color: MUTED }}>‹ Me</button>;
   if (!d) return <div className="space-y-3">{back}<p className="text-[14px]" style={{ color: MUTED }}>Loading your numbers…</p></div>;
   if (!d.ok) return <div className="space-y-3">{back}<p className="text-[14px]" style={{ color: '#b42318' }}>{d.error}</p></div>;
-  const { cur, prev, goals: g, next } = d;
+  const { cur, prev, goals: g, next } = d; const fu = d.followUps;
   const delta = (a: number | null, b: number | null, unit: 'pts' | '$' | '', better = 1) => { if (a === null || b === null) return null; const v = Math.round((a - b) * (unit === '$' ? 100 : 10)) / (unit === '$' ? 100 : 10); if (!v) return { t: 'same as before', up: true };
     const up = v * better > 0; return { t: `${v > 0 ? '▲' : '▼'} ${unit === '$' ? money(Math.abs(v)) : Math.abs(v)}${unit === 'pts' ? (Math.abs(v) === 1 ? ' pt' : ' pts') : ''}`, up }; };
   const tiles = [
@@ -42,6 +42,12 @@ export function MyNumbers({ tenantId, accent = '#2e6b66', tz, onBack }: { tenant
           <div className="h-1.5 rounded-full" style={{ background: '#f0f0f2' }}><div className="h-1.5 rounded-full" style={{ width: `${t.bar}%`, background: accent }} /></div>
           {t.d && <div className="text-[12px] font-bold" style={{ color: t.d.up ? accent : DOWN }}>{t.d.t}</div>}
         </div>))}</div>
+      {fu && (fu.visits > 0 || fu.booked > 0 || fu.open > 0) && <div className="space-y-1.5 rounded-[18px] border p-3.5" style={{ borderColor: LINE }}>
+        <div className="flex items-baseline justify-between"><p className="text-[14px] font-extrabold">From your follow-ups</p><span className="text-[12px]" style={{ color: MUTED }}>{fu.open} open</span></div>
+        <p className="text-[22px] font-extrabold tracking-[-0.02em]" style={{ color: '#1f7a4d' }}>{money(fu.paidCents / 100)}</p>
+        <p className="text-[12.5px]" style={{ color: MUTED }}>{fu.visits} visit{fu.visits === 1 ? '' : 's'} paid{fu.recovered ? ` · ${fu.recovered} won back after a cancellation` : ''}{fu.booked ? ` · ${fu.booked} booked, counted once paid` : ''}</p>
+        {fu.bonusOn && <p className="text-[12.5px]"><b>Bonus this month:</b> {money(fu.bonusCents / 100)} <span style={{ color: MUTED }}>(on your pay as its own line)</span></p>}
+      </div>}
       {next ? <div className="space-y-2 rounded-[20px] border p-3.5" style={{ background: `${accent}0f`, borderColor: `${accent}1f` }}>
         <p className="text-[13px] font-extrabold" style={{ color: accent }}>Your next one-on-one</p>
         <p className="text-[16px] font-extrabold">{when} with {String(next.managerName || 'your manager').split(' ')[0]}</p>

@@ -30,7 +30,8 @@ export async function myNumbers(db: any, tenantId: string, staffId: string, now 
   const tenant = (await db.doc(T(tenantId)).get()).data() || {}; const x = await loadInputs(db, tenantId, now);
   const cur = numbersFor(x, staffId, now - 30 * DAY, now), prev = numbersFor(x, staffId, now - 60 * DAY, now - 30 * DAY);
   const next = await nextOneOnOne(db, tenantId, staffId, now);
-  return { ok: true as const, goals: goalsOf(tenant), cur, prev, next };
+  let followUps: any = null; try { const { myFollowUps } = await import('@/lib/opportunities-server'); followUps = await myFollowUps(db, tenantId, staffId, now); } catch { /* shown without it */ }
+  return { ok: true as const, goals: goalsOf(tenant), cur, prev, next, followUps };
 }
 
 export async function teamNumbers(db: any, tenantId: string, now = Date.now()) {

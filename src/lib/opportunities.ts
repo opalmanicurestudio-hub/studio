@@ -181,7 +181,7 @@ export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it aut
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
 export const DEFAULT_MODES: Record<string, Mode> = { due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
 export const modesFor = (k: OppKind): Mode[] => (PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
-export interface OppSettings { linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number> }
+export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number> }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
@@ -217,7 +217,9 @@ export function oppSettingsOf(tenant: any): OppSettings {
   const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : carried[k] || DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
   const lf = o.linkFirst || {};
   const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, typeof lf[k] === 'boolean' ? lf[k] : !PLAYBOOKS[k].ask?.length]));
-  return { linkFirst, on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
+  const bo = o.bonus || {};
+  const bonus = { on: bo.on === true, cents: n(bo.cents, 0, 10000, 500), capCents: n(bo.capCents, 0, 500000, 0) };   // off by default; cap 0 = no cap
+  return { bonus, linkFirst, on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
     windows: Object.fromEntries((Object.keys(WINDOW_DAYS) as Tool[]).map((k) => [k, n(o.windows?.[k], 7, 30, WINDOW_DAYS[k])])) as Record<Tool, number> };
 }
 
