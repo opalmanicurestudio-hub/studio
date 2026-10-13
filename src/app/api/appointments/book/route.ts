@@ -811,6 +811,9 @@ export async function POST(req: NextRequest) {
           ? svc.requiredResourceIds : null,
         status: plan.status,
         source, ...(channel ? { channel } : {}),
+        // Where it came from, so results credit it once: a follow-up task's link (opp) or a campaign's Book button.
+        ...(typeof body.opportunityId === 'string' && /^[A-Za-z0-9_-]{6,60}$/.test(body.opportunityId) ? { opportunityId: body.opportunityId } : {}),
+        ...(typeof body.campaignId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(body.campaignId) ? { campaignId: body.campaignId } : {}),
         checkInToken: token, shortCode,
         checkInStatus: body.checkInStatus === 'arrived' ? 'arrived' : 'pending',
         depositAmountCents: plan.depositCents,

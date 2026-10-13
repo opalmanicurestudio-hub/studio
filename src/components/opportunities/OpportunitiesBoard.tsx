@@ -110,28 +110,45 @@ function AddTask({ tenantId, people, onSaved }: { tenantId: string; people: any[
     </div>);
 }
 
+const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts' };
 function Results({ tenantId }: { tenantId: string }) {
   const [r, setR] = React.useState<any>(null);
   React.useEffect(() => { payPost('/api/opportunities', { tenantId, action: 'results' }).then(setR); }, [tenantId]);
   if (!r) return <p style={{ color: MUTED }}>Adding it up…</p>; if (!r.ok) return <p style={{ color: RED }}>{r.error}</p>;
-  const tile = (label: string, value: string, sub: string, color = INK, dashed = false) => <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: LINE, borderStyle: dashed ? 'dashed' : 'solid' }}><p className="text-[12.5px]" style={{ color: MUTED }}>{label}</p><p className="text-[26px] font-bold" style={{ color }}>{value}</p><p className="text-[12.5px]" style={{ color: MUTED }}>{sub}</p></div>;
-  const c = r.compare;
+  const tile = (label: string, value: string, sub: string, color = INK, dashed = false) => <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: LINE, borderStyle: dashed ? 'dashed' : 'solid' }}><p className="text-[12.5px]" style={{ color: MUTED }}>{label}</p><p className="text-[26px] font-light tracking-[-0.02em]" style={{ color }}>{value}</p><p className="text-[12.5px]" style={{ color: MUTED }}>{sub}</p></div>;
+  const c = r.compare; const bt = r.byType || { generated: 0, recovered: 0, influenced: 0 }; const added = c.heldOut >= 10 && c.contacted >= 10 ? Math.max(0, (c.contactedRate || 0) - (c.heldOutRate || 0)) : null;
+  const money = (n: number) => (n ? dollars(n) : '—');
+  const monthName = (() => { try { return new Date(`${r.month}-15T12:00:00Z`).toLocaleDateString('en-US', { month: 'long' }); } catch { return 'This month'; } })();
   return (
     <div className="space-y-4">
+      <p className="text-[13.5px]" style={{ color: MUTED }}>{monthName}: only money actually collected counts. Each visit is credited once, and refunds take it back.</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {tile('Came back and paid', dollars(r.paidCents), 'visits paid after someone reached out', GREEN)}
-        {tile('Booked, not paid yet', String(r.bookedWaiting), 'counted once the visit is paid')}
-        {tile('Still possible', `est. ${dollars(r.stillPossibleCents)}`, `${r.open} open — not counted as money`, MUTED, true)}
-        {tile('Kept in check', `${r.optOuts} · ${r.complaints}`, 'asked to stop · bad experiences heard')}</div>
-      <p className="rounded-[16px] border bg-white px-4 py-3 text-[14px]" style={{ borderColor: LINE }}><b>{r.autoSent}</b> sent automatically · <b style={{ color: GREEN }}>{r.autoBooked}</b> booked with nobody lifting a finger · <b>{r.toPerson}</b> went on to a person{r.notSent ? <span style={{ color: MUTED }}> · {r.notSent} couldn’t be sent (no consent, no number or the 30-day limit)</span> : null}</p>
+        {tile('Paid', dollars(r.paidCents), 'visits paid after someone reached out', GREEN)}
+        {tile('Booked, not paid yet', r.bookedCents ? dollars(r.bookedCents) : String(r.bookedWaiting), `${r.bookedWaiting} visit${r.bookedWaiting === 1 ? '' : 's'} ahead · counts when paid`)}
+        {tile('Still possible', `est. ${dollars(r.stillPossibleCents)}`, `${r.open} open tasks · an estimate, never added`, MUTED, true)}
+        {tile('What reaching out added', added === null ? 'Too few yet' : `+${added} in 100`, added === null ? `needs 10+ reached and 10+ left alone (${c.contacted} · ${c.heldOut})` : `${c.contactedRate}% came back when reached vs ${c.heldOutRate}% left alone`)}</div>
       <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>
-        <div className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-2.5 text-[12px] font-bold" style={{ color: MUTED, background: '#fafafa' }}><span>Finder</span><span>Tasks</span><span>Reached</span><span>Booked</span><span>Paid</span></div>
-        {r.byKind.length === 0 && <p className="px-4 py-4 text-[14px]" style={{ color: MUTED }}>Nothing in the last 30 days yet.</p>}
-        {r.byKind.map((k: any) => <div key={k.kind} className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-3 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}><b>{k.label}</b><span>{k.total}</span><span>{k.reached}</span><span>{k.booked}</span><span style={{ color: GREEN, fontWeight: 600 }}>{dollars(k.paidCents)}</span></div>)}</div>
-      <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}>
-        <p className="text-[15px] font-semibold">Did reaching out make the difference?</p>
-        {c.heldOut >= 10 && c.contacted >= 10 ? <p className="mt-1 text-[14px] leading-[1.5]">Of {c.contacted} win-back clients someone reached out to, <b>{c.contactedRate}%</b> came back. Of {c.heldOut} left alone at random, <b>{c.heldOutRate}%</b> came back anyway. So reaching out brought back about <b>{Math.max(0, (c.contactedRate || 0) - (c.heldOutRate || 0))} more in every 100</b>.</p>
-          : <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Not enough yet to compare — it needs at least 10 clients in each group ({c.contacted} reached, {c.heldOut} left alone so far). Until then, results show as “came back after contact”, not “caused by”.</p>}
+        <div className="px-4 pt-3.5"><p className="text-[15px] font-semibold">Paid, by tool and kind of credit</p><p className="pb-2 text-[12.5px]" style={{ color: MUTED }}>Generated: booked through the task or its link. Recovered: replaced a cancellation or missed visit. Influenced: we reached out and they booked on their own soon after.</p></div>
+        <div className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-2.5 text-[12px] font-bold" style={{ color: MUTED, background: '#fafafa' }}><span>Tool</span><span>Generated</span><span>Recovered</span><span>Influenced</span><span>Still possible</span></div>
+        {(r.byTool || []).length === 0 && <p className="px-4 py-4 text-[14px]" style={{ color: MUTED }}>Nothing yet this month.</p>}
+        {(r.byTool || []).map((x: any) => <div key={x.tool} className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-3 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}><b className="font-semibold">{TOOL_LABEL[x.tool] || x.tool}</b><span>{money(x.generated)}</span><span>{money(x.recovered)}</span><span>{money(x.influenced)}</span><span style={{ color: MUTED }}>{x.possible ? `est. ${dollars(x.possible)}` : '—'}</span></div>)}
+        <div className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-3 text-[14px] font-semibold" style={{ borderTop: `1px solid ${LINE}` }}><span>Total</span><span>{money(bt.generated)}</span><span>{money(bt.recovered)}</span><span>{money(bt.influenced)}</span><span style={{ color: MUTED }}>{r.stillPossibleCents ? `est. ${dollars(r.stillPossibleCents)}` : '—'}</span></div>
       </div>
+      <div className="grid gap-3 lg:grid-cols-3">
+        <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><p className="text-[15px] font-semibold">By person</p>
+          {(r.byPerson || []).length === 0 ? <p className="mt-1 text-[13.5px]" style={{ color: MUTED }}>Nobody’s results paid yet this month. Automatic texts count for the business, not a person.</p>
+            : (r.byPerson || []).map((p: any) => <div key={p.staffId} className="mt-2 flex items-baseline justify-between text-[14px]"><span>{p.name}</span><span><b style={{ color: GREEN }}>{dollars(p.paidCents)}</b> <span style={{ color: MUTED }}>· {p.visits} visit{p.visits === 1 ? '' : 's'}</span></span></div>)}</div>
+        <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><p className="text-[15px] font-semibold">How it went out</p>
+          <p className="mt-1 text-[13.5px] leading-[1.55]"><b>{r.autoSent}</b> sent automatically · <b style={{ color: GREEN }}>{r.autoBooked}</b> booked with nobody lifting a finger · <b>{r.toPerson}</b> went on to a person{r.notSent ? <span style={{ color: MUTED }}> · {r.notSent} couldn’t be sent</span> : null}</p>
+          <p className="mt-1 text-[13.5px]" style={{ color: MUTED }}>{r.optOuts} asked to stop · {r.complaints} bad experiences heard{r.refundedCents ? ` · ${dollars(r.refundedCents)} refunded and taken back` : ''}</p></div>
+        <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><p className="text-[15px] font-semibold">What’s holding it back</p>
+          {r.holdingBack?.cantText ? <p className="mt-2 rounded-[14px] p-3 text-[13.5px] leading-[1.5]" style={{ background: '#fdf6ec' }}><b>{r.holdingBack.cantText} clients can’t get win-back texts</b> (no yes to marketing texts), so their tasks become calls. Ask at check-in, on the kiosk and on the client screen.</p> : null}
+          {r.holdingBack?.expired ? <p className="mt-2 text-[13.5px] leading-[1.5]"><b>{r.holdingBack.expired} tasks expired</b> before anyone got to them in the last 30 days. Fewer a day per person, or more automatic?</p> : null}
+          {!r.holdingBack?.cantText && !r.holdingBack?.expired && <p className="mt-1 text-[13.5px]" style={{ color: MUTED }}>Nothing stands out right now.</p>}</div>
+      </div>
+      <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>
+        <div className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-2.5 text-[12px] font-bold" style={{ color: MUTED, background: '#fafafa' }}><span>Kind of task (last 30 days)</span><span>Tasks</span><span>Reached</span><span>Booked</span><span>Paid</span></div>
+        {r.byKind.length === 0 && <p className="px-4 py-4 text-[14px]" style={{ color: MUTED }}>Nothing in the last 30 days yet.</p>}
+        {r.byKind.map((k: any) => <div key={k.kind} className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-3 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}><b className="font-semibold">{k.label}</b><span>{k.total}</span><span>{k.reached}</span><span>{k.booked}</span><span style={{ color: GREEN, fontWeight: 600 }}>{money(k.paidCents)}</span></div>)}</div>
     </div>);
 }

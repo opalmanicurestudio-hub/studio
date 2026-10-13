@@ -615,7 +615,7 @@ service cloud.firestore {
           'rentInvoices',
           'payrollDrafts',
           'payrollRuns',
-          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks', 'certifications', 'renterDocs', 'oneOnOnes', 'opportunities', 'opportunityTexts', 'tasks', 'notifications', 'openings', 'tidyAsks',
+          'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks', 'certifications', 'renterDocs', 'oneOnOnes', 'opportunities', 'opportunityTexts', 'results', 'heldTexts', 'tasks', 'notifications', 'openings', 'tidyAsks',
           'lifestyleProfiles',
           'businessProfiles',
           'billDefinitions',

@@ -161,7 +161,7 @@ export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it aut
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
 export const DEFAULT_MODES: Record<string, Mode> = { due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
 export const modesFor = (k: OppKind): Mode[] => (PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
-export interface OppSettings { on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number }
+export interface OppSettings { on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number> }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
@@ -169,6 +169,10 @@ export type Tool = 'appointments' | 'quotes' | 'gift_cards' | 'memberships' | 's
 export const TOOL_OF: Record<OppKind, Tool> = { due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
 const TOOL_GATE: Partial<Record<Tool, ModuleId>> = { quotes: 'classes_events', memberships: 'memberships', shop: 'retail', booths: 'booth_rental', academy: 'academy', hiring: 'team', calls: 'voice' };
 export const toolOn = (tenant: any, tool: Tool) => { const g = TOOL_GATE[tool]; return !g || moduleEnabled(tenant, g); };
+
+// How long after we reach out a booking they make on their own still counts as influenced (decided Oct 13): 14 days,
+// longer for bigger decisions, shorter for the shop. Each business can set 7–30 days per tool.
+export const WINDOW_DAYS: Record<Tool, number> = { appointments: 14, gift_cards: 14, quotes: 30, memberships: 30, shop: 7, booths: 30, academy: 30, hiring: 14, calls: 14 };
 
 // ── Room on the schedule ────────────────────────────────────────────────────────────────────
 // Win-back only makes sense when there is time to see the client. When a provider's next few weeks are nearly full,
@@ -187,7 +191,8 @@ export function oppSettingsOf(tenant: any): OppSettings {
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
   const m = o.modes || {};
   const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
-  return { on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21) };
+  return { on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
+    windows: Object.fromEntries((Object.keys(WINDOW_DAYS) as Tool[]).map((k) => [k, n(o.windows?.[k], 7, 30, WINDOW_DAYS[k])])) as Record<Tool, number> };
 }
 
 // ── Reading a client's history ──────────────────────────────────────────────────────────────
@@ -349,4 +354,36 @@ export function cameBack(opp: any, appts: any[], now: number): { status: 'none' 
   if (paid) return { status: 'paid', appointmentId: String(paid.id), paidCents: Math.round(money(paid) * 100) };
   const booked = mine.find((a) => ms(a.startTime) > now); if (booked) return { status: 'booked', appointmentId: String(booked.id) };
   return { status: 'none' };
+}
+
+
+// ── Results: every booking credited once (step 3) ──────────────────────────────────────────────
+// A completed call isn't a sale. Money counts only when a real visit is paid, and each visit is credited to at most one
+// thing: a direct tag (booked from the task, or through its link) first; otherwise the most recent contact within the
+// window, unless a campaign or an automatic reminder reached them later (then that gets it, not us). Refunds take it back.
+export const RECOVERY_KINDS: OppKind[] = ['cancelled', 'no_show'];
+export type CreditType = 'generated' | 'recovered' | 'influenced';
+export interface Credit { type: CreditType; oppId: string; kind: OppKind; tool: Tool; staffId: string | null }
+const contactAt = (o: any) => ms(o.lastContactAt) || ms(o.firstContactAt);
+export function creditFor(a: any, opps: any[], laterOthers: number[], S: OppSettings): Credit | null {
+  const made = ms(a.createdAt) || ms(a.startTime); if (!made || !a.clientId) return null;
+  const toolOf = (o: any): Tool => o.tool || TOOL_OF[o.kind as OppKind] || 'appointments';
+  if (a.opportunityId) {
+    const o = opps.find((x) => x.id === a.opportunityId && (!x.clientId || String(x.clientId) === String(a.clientId)));
+    if (o) return { type: RECOVERY_KINDS.includes(o.kind) ? 'recovered' : 'generated', oppId: o.id, kind: o.kind, tool: toolOf(o), staffId: o.assigneeId || null };
+  }
+  if (a.campaignId) return null;   // booked through a campaign's own link: the campaign counts it
+  const reached = opps.filter((o) => String(o.clientId || '') === String(a.clientId) && o.status !== 'holdout' && ms(o.firstContactAt) && ms(o.firstContactAt) <= made
+    && made - contactAt(o) <= (S.windows?.[toolOf(o)] || 14) * DAY).sort((x, y) => contactAt(y) - contactAt(x));
+  const o = reached[0]; if (!o) return null;
+  if (laterOthers.some((t) => t > contactAt(o) && t <= made)) return null;   // a campaign or reminder was the last word
+  return { type: 'influenced', oppId: o.id, kind: o.kind, tool: toolOf(o), staffId: o.assigneeId || null };
+}
+/** Where a credited visit stands: booked (not money yet), paid (what it really paid, less refunds), refunded, cancelled. */
+export function resultState(a: any, refundedCents = 0): { state: 'booked' | 'paid' | 'refunded' | 'cancelled'; paidCents: number; bookedCents: number } {
+  const st = String(a.status || '');
+  if (DEAD.includes(st)) return { state: 'cancelled', paidCents: 0, bookedCents: 0 };
+  const value = Math.round(money(a) * 100);
+  if (DONE.includes(st)) { const net = Math.max(0, value - Math.max(0, refundedCents)); return net > 0 || value === 0 ? { state: 'paid', paidCents: net, bookedCents: 0 } : { state: 'refunded', paidCents: 0, bookedCents: 0 }; }
+  return { state: 'booked', paidCents: 0, bookedCents: value };
 }

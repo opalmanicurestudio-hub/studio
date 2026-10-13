@@ -91,6 +91,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [rescheduleNote, setRescheduleNote] = useState('');
   const [rescheduleOpened, setRescheduleOpened] = useState(false);
   const [campaignRef, setCampaignRef] = useState<{ campaignId: string | null; code: string | null } | null>(null);
+  const [oppRef] = useState<string | null>(() => { try { const v = new URLSearchParams(window.location.search).get('opp') || ''; return /^[A-Za-z0-9_-]{6,60}$/.test(v) ? v : null; } catch { return null; } });
   // The offer the client is booking with — shown to them, checked on the server.
   const [offerShown, setOfferShown] = useState<{ code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean } | null>(null);
   const [offerInput, setOfferInput] = useState('');
@@ -544,6 +545,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             source: 'booking-page',
             channel: channelFrom(new URLSearchParams(window.location.search).get('src')),   // where the link lived (website, instagram, google, qr…)
             ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
+            ...(oppRef ? { opportunityId: oppRef } : {}),
             serviceId: restDetails.serviceId,
             ...(Number((restDetails as any).acceptExtraCents) > 0 ? { acceptExtraCents: Number((restDetails as any).acceptExtraCents) } : {}),
             ...((restDetails as any).place ? { place: (restDetails as any).place } : {}),

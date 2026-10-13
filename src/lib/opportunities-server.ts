@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -38,9 +38,10 @@ const openLoad = (opps: any[]) => { const m = new Map<string, number>(); for (co
 
 export type Sender = (db: any, t: string, to: string, body: string, fallback?: any, meta?: any) => Promise<{ ok: boolean; via?: string; error?: string }>;
 const ACTIVE = ['open', 'holdout', 'waiting', 'auto', 'scheduled'];
-async function bookLink(tenant: any, t: string, c: { providerId?: string | null }) {
+async function bookLink(tenant: any, t: string, c: { providerId?: string | null; opp?: string | null }) {
   const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); if (!base) return '';
-  return `${base}/book/${encodeURIComponent(t)}${c.providerId ? `?provider=${encodeURIComponent(c.providerId)}` : ''}`;
+  const q = new URLSearchParams({ ...(c.providerId ? { provider: c.providerId } : {}), ...(c.opp ? { opp: c.opp } : {}) }).toString();   // the task rides the link, so the visit is credited to it
+  return `${base}/book/${encodeURIComponent(t)}${q ? `?${q}` : ''}`;
 }
 
 /** The daily sweep (after 9 am local, so automatic texts land in texting hours): find; for each, send it automatically,
@@ -78,6 +79,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
     if (r.sent) { sent++; fresh.push({ status: 'auto' }); } else if (r.doc.status === 'open') fresh.push(r.doc);
   }
   if (pace) await db.doc(`${T(t)}/private/opportunities`).set({ pace: { ...pace, held } }, { merge: true });
+  try { await resultsPass(db, t, tenant, now); } catch (e) { console.error('[opportunities] results pass', e); }
   // Automatic texts: booked → closed as booked; no reply by the day the business chose → to a person; plain automatic → closes at its end date.
   let toPerson = 0, expired = 0, checked = 0;
   for (const e of x.opps) {
@@ -127,7 +129,7 @@ async function launch(ctx: Ctx, base: any, now: number): Promise<{ doc: any; ext
   let why = base.why;
   if ((mode === 'auto' || mode === 'auto_then_person') && pb.auto?.length) {
     const usedA = ctx.opps.filter((e: any) => e.clientId && e.clientId === base.clientId && e.kind === base.kind && Number.isInteger(e.autoVersion)).map((e: any) => e.autoVersion);
-    const av = pickFrom(pb.auto.length, usedA); const link = await bookLink(tenant, t, { providerId: base.providerId });
+    const av = pickFrom(pb.auto.length, usedA); const link = await bookLink(tenant, t, { providerId: base.providerId, opp: base.id });
     const body = fill(pb.auto[av], { ...facts, link, me: first(prov?.name) || businessName(tenant) });
     const chk0 = await textCheck(db, t, tenant, base, cl || { phone: base.phone }, now);
     const chk: any = !link && pb.auto[av].includes('{link}') ? { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' } : chk0;
@@ -323,7 +325,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
   if (action === 'settings') { if (!manager) return { ok: false, error: 'Only managers can do this.' };
     const s = oppSettingsOf({ opportunities: b.settings || {} }); await db.doc(T(t)).set({ opportunities: s }, { merge: true }); return { ok: true, settings: s }; }
   if (action === 'run') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return opportunitySweep(db, t, tenant, now, { force: true }); }
-  if (action === 'results') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return { ok: true, ...(await opportunityResults(db, t, now)) }; }
+  if (action === 'results') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; await resultsPass(db, t, tenant, now).catch(() => {}); return { ok: true, ...(await opportunityResults(db, t, now, tenant)) }; }
   if (action === 'create') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return createManual(db, t, tenant, actor, b, now); }
 
   const o = await getOpp(db, t, b.id); if (!o) return { ok: false, error: 'This task is no longer available.' };
@@ -413,27 +415,87 @@ async function createManual(db: any, t: string, tenant: any, actor: RequestActor
   return { ok: true, id: ref.id };
 }
 
-/** Results, last 30 days: what came back (paid, kept apart from estimates), by finder, and the left-alone comparison. */
-export async function opportunityResults(db: any, t: string, now = Date.now()) {
+// ── Results: the ledger (step 3) ─────────────────────────────────────────────────────────────
+// tenants/{t}/results/appt_{appointmentId} — one record per visit, so a visit can only ever be credited once. Rebuilt
+// from the records each day (and when a manager opens Results): who reached out, the visit, what it really paid, and
+// refunds. Server-only, like the tasks.
+export async function resultsPass(db: any, t: string, tenant: any, now = Date.now()) {
+  const S = oppSettingsOf(tenant); const since = nowIso(now - 120 * DAY);
+  const opps = rows(await db.collection(`${T(t)}/opportunities`).where('createdAt', '>=', since).get());
+  const byClient = new Map<string, any[]>(); for (const o of opps) if (o.clientId && (o.firstContactAt || o.status === 'done')) (byClient.get(String(o.clientId)) || byClient.set(String(o.clientId), []).get(String(o.clientId))!).push(o);
+  if (!byClient.size) return { ok: true, credited: 0 };
+  const safe = (p: Promise<any>) => p.catch(() => ({ docs: [] }));
+  const out: Array<{ a: any; c: any }> = [];
+  for (const [cid, list] of byClient) {
+    const earliest = Math.min(...list.map((o: any) => ms(o.firstContactAt) || ms(o.createdAt)));
+    const [as, cs, ns] = await Promise.all([safe(db.collection(`${T(t)}/appointments`).where('clientId', '==', cid).get()), safe(db.collection(`${T(t)}/campaignSends`).where('clientId', '==', cid).get()), safe(db.collection(`${T(t)}/reconnectNudges`).where('clientId', '==', cid).get())]);
+    const others = [...rows(cs).map((x: any) => ms(x.at)), ...rows(ns).map((x: any) => ms(x.sentAt))].filter(Boolean);
+    for (const a of rows(as)) {
+      if (a.isRenterBooking || (ms(a.createdAt) || ms(a.startTime)) < earliest - 3600e3) continue;
+      const c = creditFor(a, list, others, S); if (c) out.push({ a, c });
+    }
+  }
+  // Refunds against those visits
+  const refunded = new Map<string, number>(); const ids = out.map((x) => String(x.a.id));
+  for (let i = 0; i < ids.length; i += 30) {
+    const snap = await safe(db.collection(`${T(t)}/transactions`).where('appointmentId', 'in', ids.slice(i, i + 30)).get());
+    for (const x of rows(snap)) if (x.taxBucket === 'refund' || x.type === 'refund' || /refund/i.test(String(x.category || ''))) refunded.set(String(x.appointmentId), (refunded.get(String(x.appointmentId)) || 0) + Math.round(Math.abs(Number(x.amountCents) || Number(x.amount) * 100 || 0)));
+  }
+  const staff = await team(db, t); const nameOf = (id: string | null) => (id ? staff.find((m: any) => m.id === id)?.name || null : null);
+  const keep = new Set<string>(); const writes: Array<[any, any]> = []; const oppResult = new Map<string, any>();
+  for (const { a, c } of out) {
+    const st = resultState(a, refunded.get(String(a.id)) || 0); const id = `appt_${a.id}`; keep.add(id);
+    writes.push([db.doc(`${T(t)}/results/${id}`), { id, appointmentId: String(a.id), clientId: String(a.clientId), clientName: a.clientName || null, serviceName: a.serviceName || null, startTime: a.startTime || null,
+      oppId: c.oppId, oppKind: c.kind, tool: c.tool, type: c.type, staffId: c.staffId, staffName: nameOf(c.staffId), ...st, refundedCents: refunded.get(String(a.id)) || 0, updatedAt: nowIso(now) }]);
+    const prev = oppResult.get(c.oppId); if (!prev || (st.state === 'paid' && prev.status !== 'paid')) oppResult.set(c.oppId, { status: st.state === 'paid' ? 'paid' : st.state === 'booked' ? 'booked' : 'none', appointmentId: String(a.id), paidCents: st.paidCents, credit: c.type, checkedAt: nowIso(now) });
+  }
+  // A visit that's no longer credited (cancelled tag, moved credit) comes out of the ledger.
+  const existing = rows(await safe(db.collection(`${T(t)}/results`).where('updatedAt', '>=', nowIso(now - 400 * DAY)).get()));
+  for (const r of existing) if (!keep.has(r.id) && ms(r.startTime) >= now - 120 * DAY) writes.push([db.doc(`${T(t)}/results/${r.id}`), null]);
+  for (const [oid, r] of oppResult) writes.push([db.doc(`${T(t)}/opportunities/${oid}`), { __merge: true, result: r }]);
+  for (let i = 0; i < writes.length; i += 400) { const b = db.batch(); for (const [r, v] of writes.slice(i, i + 400)) { if (v === null) b.delete(r); else if (v.__merge) { const { __merge, ...rest } = v; b.set(r, rest, { merge: true }); } else b.set(r, v); } await b.commit(); }
+  return { ok: true, credited: out.length };
+}
+
+/** Results for a month (default this one): paid money by kind of credit and by tool, booked-not-paid, open estimates,
+ * by person, the left-alone comparison, and what's holding results back. */
+export async function opportunityResults(db: any, t: string, now = Date.now(), tenant?: any) {
+  const zone = await tz(tenant || {}); const { dayKey } = await import('@/lib/tenant-time'); const month = dayKey(new Date(now), zone).slice(0, 7);
+  const ledger = rows(await db.collection(`${T(t)}/results`).where('updatedAt', '>=', nowIso(now - 120 * DAY)).get().catch(() => ({ docs: [] })))
+    .filter((r: any) => String(r.startTime || '').slice(0, 7) === month || (r.state === 'booked'));
+  const paid = ledger.filter((r: any) => r.state === 'paid' && String(r.startTime || '').slice(0, 7) === month);
+  const sum = (l: any[], f = 'paidCents') => l.reduce((s: number, r: any) => s + (Number(r[f]) || 0), 0);
+  const byType = { generated: sum(paid.filter((r: any) => r.type === 'generated')), recovered: sum(paid.filter((r: any) => r.type === 'recovered')), influenced: sum(paid.filter((r: any) => r.type === 'influenced')) };
+  const booked = ledger.filter((r: any) => r.state === 'booked');
   const list = rows(await db.collection(`${T(t)}/opportunities`).where('createdAt', '>=', nowIso(now - 30 * DAY)).get());
+  const real = list.filter((o: any) => !['holdout', 'not_sent'].includes(o.status)); const openL = real.filter((o: any) => o.status === 'open');
+  const tools = [...new Set([...paid.map((r: any) => r.tool), ...openL.map((o: any) => o.tool || TOOL_OF[o.kind as OppKind])])].filter(Boolean);
+  const byTool = tools.map((tool: string) => { const p = paid.filter((r: any) => r.tool === tool);
+    return { tool, generated: sum(p.filter((r: any) => r.type === 'generated')), recovered: sum(p.filter((r: any) => r.type === 'recovered')), influenced: sum(p.filter((r: any) => r.type === 'influenced')),
+      possible: openL.filter((o: any) => (o.tool || TOOL_OF[o.kind as OppKind]) === tool).reduce((s: number, o: any) => s + (Number(o.valueCents) || 0), 0) }; });
+  const people = new Map<string, { staffId: string; name: string; paidCents: number; visits: number }>();
+  for (const r of paid) { if (!r.staffId) continue; const p = people.get(r.staffId) || { staffId: r.staffId, name: r.staffName || 'Team member', paidCents: 0, visits: 0 }; p.paidCents += Number(r.paidCents) || 0; p.visits++; people.set(r.staffId, p); }
   const kinds = [...FINDER_KINDS, 'follow_up', 'manual'] as OppKind[];
-  const real = list.filter((o: any) => !['holdout', 'not_sent'].includes(o.status));
   const byKind = kinds.map((k) => { const l = real.filter((o: any) => o.kind === k);
     return { kind: k, label: PLAYBOOKS[k].label, total: l.length, reached: l.filter((o: any) => o.firstContactAt).length, booked: l.filter((o: any) => ['booked', 'quote_accepted'].includes(o.outcome) || ['booked', 'paid'].includes(o.result?.status)).length,
-      paidCents: l.reduce((s: number, o: any) => s + (o.result?.status === 'paid' ? Number(o.result.paidCents) || 0 : 0), 0), optOuts: l.filter((o: any) => o.outcome === 'stop').length }; }).filter((r) => r.total);
+      paidCents: sum(paid.filter((r: any) => r.oppKind === k)), optOuts: l.filter((o: any) => o.outcome === 'stop').length }; }).filter((r) => r.total || r.paidCents);
   const contacted = real.filter((o: any) => PLAYBOOKS[o.kind as OppKind]?.winBack && o.firstContactAt);
   const held = list.filter((o: any) => o.status === 'holdout');
   const rate = (l: any[]) => (l.length ? Math.round((l.filter((o: any) => ['booked', 'paid'].includes(o.result?.status)).length / l.length) * 100) : null);
+  // What's holding it back: clients who can't be sent win-back texts, and tasks that ran out of time.
+  let cantText = 0; try { const cl = rows(await db.collection(`${T(t)}/clients`).get()); cantText = cl.filter((c: any) => !c.archived && (c.phone || c.phoneNumber) && c.smsMarketingOptIn !== true && !c.marketingOptOut && !c.smsOptOut).length; } catch { /* unknown */ }
+  const expired = list.filter((o: any) => o.status === 'expired');
+  const paidCents = byType.generated + byType.recovered + byType.influenced;
   return {
-    paidCents: real.reduce((s: number, o: any) => s + (o.result?.status === 'paid' ? Number(o.result.paidCents) || 0 : 0), 0),
-    bookedWaiting: real.filter((o: any) => o.result?.status === 'booked').length,
-    stillPossibleCents: real.filter((o: any) => o.status === 'open').reduce((s: number, o: any) => s + (Number(o.valueCents) || 0), 0),
-    open: real.filter((o: any) => o.status === 'open').length, done: real.filter((o: any) => o.status === 'done').length,
+    month, paidCents, paidLabel: dollars(paidCents), byType, bookedWaiting: booked.length, bookedCents: sum(booked, 'bookedCents'),
+    stillPossibleCents: openL.reduce((s: number, o: any) => s + (Number(o.valueCents) || 0), 0), open: openL.length, done: real.filter((o: any) => o.status === 'done').length,
+    refundedCents: sum(ledger.filter((r: any) => String(r.startTime || '').slice(0, 7) === month), 'refundedCents'),
     complaints: real.filter((o: any) => o.outcome === 'bad_experience').length, optOuts: real.filter((o: any) => o.outcome === 'stop').length,
-    byKind, compare: { contacted: contacted.length, contactedRate: rate(contacted), heldOut: held.length, heldOutRate: rate(held) },
+    byKind, byTool, byPerson: [...people.values()].sort((a, b) => b.paidCents - a.paidCents),
+    compare: { contacted: contacted.length, contactedRate: rate(contacted), heldOut: held.length, heldOutRate: rate(held) },
     autoSent: real.filter((o: any) => o.autoSentAt).length, autoBooked: real.filter((o: any) => o.autoSentAt && !o.escalatedAt && !o.repliedAt && (o.outcome === 'booked' || ['booked', 'paid'].includes(o.result?.status))).length,
     toPerson: real.filter((o: any) => o.escalatedAt || o.repliedAt).length, notSent: list.filter((o: any) => o.status === 'not_sent').length,
-    paidLabel: dollars(real.reduce((s: number, o: any) => s + (o.result?.status === 'paid' ? Number(o.result.paidCents) || 0 : 0), 0)),
+    holdingBack: { cantText, expired: expired.length },
   };
 }
 
