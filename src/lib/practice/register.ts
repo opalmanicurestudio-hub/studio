@@ -69,6 +69,8 @@ export type Customer = {
   /** Cash payers: how they hand it over, and whether they keep the change as a tip. */
   pays?: { cash: 'one' | 'round'; keep: 'none' | 'all' | number };
   kind: 'new' | 'returning' | 'regular' | 'group';
+  /** Who they are, for talking out loud: personality and background, and the kind of voice that fits. */
+  persona: string; voiceHint: { gender: 'female' | 'male'; age: 'young' | 'middle_aged' | 'old' };
   receipt: 'print' | 'text' | 'email' | 'none';
   voice: { pitch: number; rate: number };
   /** First visit: the details they'll read out, and whether they want promo texts. */
@@ -94,34 +96,37 @@ export type RegState = {
   cur: null | { c: Customer; lines: Line[]; start: number; mood: number; claim: null | 'open' | 'discount' | 'refused'; tries: Record<string, number>; read: Record<string, number>; said: string; note: string | null; given?: number[]; kept?: number;
     greeted?: 'great' | 'ok' | 'poor'; contact?: { phone: string; email: string; promo: boolean }; asked: { phone: number; email: number };
     parts?: Part[]; partIdx: number; split?: Split; tenders: Tender[]; method?: 'card' | 'cash'; mStart: number;
-    tipPick?: number; rebooked?: string | 'no'; offered: string[]; card: { tries: number; declined: boolean; other: boolean; reconnected: boolean; chipFailed: boolean }; receiptPick?: Customer['receipt'] };
-  lastReceipt: null | Receipt; receiptNo: number; busy: boolean; sales: { rebooks: number; rebookChances: number; members: number; packages: number };   // busy: finishing up (receipt), the next client waits
+    tipPick?: number; rebooked?: string | 'no'; offered: string[]; card: { tries: number; declined: boolean; other: boolean; reconnected: boolean; chipFailed: boolean }; receiptPick?: Customer['receipt'];
+    history: { who: 'you' | 'client'; text: string }[] };
+  lastReceipt: null | Receipt; receiptNo: number; busy: boolean; sales: { rebooks: number; rebookChances: number; members: number; packages: number };
+  /** Talking out loud: each thing you said, how the client answered, and the coach's view. */
+  talk: { who: string; you: string; reply: string; scores: { awareness: number; confidence: number; warmth: number; retention: number }; tip: string; fillers: number; wpm: number | null }[];   // busy: finishing up (receipt), the next client waits
   nextLine: number; done: Checkout[]; mistakes: Mistake[]; streak: number; bestStreak: number; points: number; log: string[]; coach: number; sfx: string[];
 };
 
 const V = (pitch: number, rate: number) => ({ pitch, rate });
 const PEOPLE: Customer[] = [
-  { id: 'rosa', name: 'Rosa', pron: 'she', kind: 'regular', receipt: 'none', voice: V(1.15, 1), look: { skin: '#c68a62', hair: '#2b1d16', top: '#e9a7a0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
+  { id: 'rosa', name: 'Rosa', pron: 'she', persona: 'Warm, chatty regular in her 40s. Adores Ana and her gel manicures every 3 weeks. Loves a good deal and would happily join a nail membership that saves her money.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'none', voice: V(1.15, 1), look: { skin: '#c68a62', hair: '#2b1d16', top: '#e9a7a0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
     items: [{ sku: 'cuticle', n: 1 }], slips: [], arrive: 0, hello: 'Hi! Just this cuticle oil too, please.', visits: 4, rebook: 3, wants: 'nailclub' },
-  { id: 'theo', name: 'Theo', pron: 'he', kind: 'returning', receipt: 'print', voice: V(0.9, 1.05), look: { skin: '#e7c3a4', hair: '#6b4a2f', top: '#9fc2a8', style: 'short' }, service: { label: 'Fade', price: 40, provider: 'Diego' },
+  { id: 'theo', name: 'Theo', pron: 'he', persona: 'Easygoing guy in his 20s, on his lunch break and a little pressed for time. Pays cash. Friendly but brief.', voiceHint: { gender: 'male', age: 'young' }, kind: 'returning', receipt: 'print', voice: V(0.9, 1.05), look: { skin: '#e7c3a4', hair: '#6b4a2f', top: '#9fc2a8', style: 'short' }, service: { label: 'Fade', price: 40, provider: 'Diego' },
     items: [{ sku: 'beardoil', n: 1 }], slips: [{ kind: 'unreadable', sku: 'beardoil' }], arrive: 20, hello: 'And the beard oil. The label got a little wet, sorry. I’ll pay cash.', visits: 2, rebook: 4, pays: { cash: 'round', keep: 3 } },
-  { id: 'ava', name: 'Ava', pron: 'she', kind: 'new', receipt: 'email', voice: V(1.25, 1.08), look: { skin: '#f3d6c2', hair: '#3b2a20', top: '#bfe0d2', style: 'long' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
+  { id: 'ava', name: 'Ava', pron: 'she', persona: 'Excited first-time client in her early 20s, a bit shy. Found the salon on Instagram and loved her gel manicure. Wants reminders but no promo texts.', voiceHint: { gender: 'female', age: 'young' }, kind: 'new', receipt: 'email', voice: V(1.25, 1.08), look: { skin: '#f3d6c2', hair: '#3b2a20', top: '#bfe0d2', style: 'long' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
     items: [], slips: [], arrive: 40, hello: 'Hi! It’s my first time here. That was amazing.', visits: 1, rebook: 3,
     details: { phone: '9195550142', email: 'ava.reyes@mailbox.com', promo: false, sayPhone: 'It’s 919, 555, 0142.', sayEmail: 'It’s ava dot reyes at mailbox dot com. Reminders are fine, but no promo texts, please.' } },
-  { id: 'grace', name: 'Grace', pron: 'she', kind: 'regular', receipt: 'text', voice: V(1.05, 0.98), look: { skin: '#8d5a3b', hair: '#1d1612', top: '#c9b6e4', style: 'curls' }, service: { label: 'Silk press', price: 95, provider: 'Mei' },
+  { id: 'grace', name: 'Grace', pron: 'she', persona: 'Busy professional in her 30s, friendly but efficient. Gets a silk press with Mei every 2 weeks and would value a membership that keeps her on schedule.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'text', voice: V(1.05, 0.98), look: { skin: '#8d5a3b', hair: '#1d1612', top: '#c9b6e4', style: 'curls' }, service: { label: 'Silk press', price: 95, provider: 'Mei' },
     items: [{ sku: 'serum2', n: 1 }, { sku: 'shampoo', n: 1 }], slips: [{ kind: 'double', sku: 'shampoo' }, { kind: 'chip' }], arrive: 60, hello: 'The serum and the shampoo, please.', visits: 6, rebook: 2, wants: 'hairclub' },
-  { id: 'party', name: 'Maya’s bridal party', pron: 'they', kind: 'group', receipt: 'print', voice: V(1.2, 1.12), look: { skin: '#a8714f', hair: '#2a1a12', top: '#f3c6d0', style: 'bun' }, service: { label: 'Bridal party', price: 175, provider: 'Ana, Mei, Hana' },
+  { id: 'party', name: 'Maya’s bridal party', pron: 'they', persona: 'Maya, speaking for her bridal party of three (Maya, Jo, Sam). Giddy and celebratory after getting ready together. They want to split the bill evenly three ways, and Jo pays her share in cash. They’re not booking again today.', voiceHint: { gender: 'female', age: 'young' }, kind: 'group', receipt: 'print', voice: V(1.2, 1.12), look: { skin: '#a8714f', hair: '#2a1a12', top: '#f3c6d0', style: 'bun' }, service: { label: 'Bridal party', price: 175, provider: 'Ana, Mei, Hana' },
     items: [{ sku: 'handcream', n: 1 }], slips: [], arrive: 85, hello: 'Hi! We’re the bridal party. We had the best time!', visits: 2, rebook: 'no',
     party: { members: [
       { name: 'Maya', look: { skin: '#a8714f', hair: '#2a1a12', top: '#f3c6d0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' } },
       { name: 'Jo', look: { skin: '#e9c9a8', hair: '#8a5a2b', top: '#c9dcef', style: 'short' }, service: { label: 'Blowout', price: 55, provider: 'Mei' } },
       { name: 'Sam', look: { skin: '#6b4430', hair: '#120c09', top: '#f2e2b0', style: 'braids' }, service: { label: 'Lash lift', price: 75, provider: 'Hana' } } ],
       split: 'even', methods: ['card', 'cash', 'card'], ask: 'Can we split it three ways, evenly? Jo’s paying her part in cash.' } },
-  { id: 'lena', name: 'Lena', pron: 'she', kind: 'returning', receipt: 'email', voice: V(1.1, 0.95), look: { skin: '#f0d2b8', hair: '#c9a24f', top: '#a7c7e7', style: 'long' }, service: { label: 'Facial', price: 85, provider: 'Hana' },
+  { id: 'lena', name: 'Lena', pron: 'she', persona: 'Polite but particular, in her 50s. Noticed the shelf sign said the vitamin C serum was $39, but it rings up higher. Values her skin routine and would buy a facial package.', voiceHint: { gender: 'female', age: 'old' }, kind: 'returning', receipt: 'email', voice: V(1.1, 0.95), look: { skin: '#f0d2b8', hair: '#c9a24f', top: '#a7c7e7', style: 'long' }, service: { label: 'Facial', price: 85, provider: 'Hana' },
     items: [{ sku: 'vitc', n: 1 }], slips: [{ kind: 'shelf', sku: 'vitc', claim: 39 }, { kind: 'decline' }], arrive: 115, hello: 'Oh, and the shelf sign said this serum was $39.', visits: 2, rebook: 6, wants: 'facial5' },
-  { id: 'marcus', name: 'Marcus', pron: 'he', kind: 'returning', receipt: 'none', voice: V(0.8, 0.95), look: { skin: '#5c3b2a', hair: '#0f0b09', top: '#f2c38b', style: 'fade' }, service: { label: 'Beard trim', price: 25, provider: 'Diego' },
+  { id: 'marcus', name: 'Marcus', pron: 'he', persona: 'Quiet regular with a dry sense of humor, in his 30s. Buying two beard oils, one as a gift. Pays cash. Rather book online later.', voiceHint: { gender: 'male', age: 'middle_aged' }, kind: 'returning', receipt: 'none', voice: V(0.8, 0.95), look: { skin: '#5c3b2a', hair: '#0f0b09', top: '#f2c38b', style: 'fade' }, service: { label: 'Beard trim', price: 25, provider: 'Diego' },
     items: [{ sku: 'beardoil', n: 2 }], slips: [], arrive: 140, hello: 'Two of the beard oils. One’s a gift. Cash is fine.', visits: 3, rebook: 'no', pays: { cash: 'one', keep: 'none' } },
-  { id: 'priya', name: 'Priya', pron: 'she', kind: 'regular', receipt: 'print', voice: V(1.0, 1.0), look: { skin: '#b07a52', hair: '#1a1210', top: '#e7c3c9', style: 'braids' }, service: { label: 'Color', price: 150, provider: 'Jordan' },
+  { id: 'priya', name: 'Priya', pron: 'she', persona: 'Thoughtful and health-conscious regular in her 30s. Has a fragrance allergy she takes seriously and appreciates staff who notice.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'print', voice: V(1.0, 1.0), look: { skin: '#b07a52', hair: '#1a1210', top: '#e7c3c9', style: 'braids' }, service: { label: 'Color', price: 150, provider: 'Jordan' },
     items: [{ sku: 'serum4', n: 1 }], slips: [{ kind: 'unreadable', sku: 'serum4' }, { kind: 'allergy', allergy: 'fragrance' }, { kind: 'offline' }], arrive: 165, hello: 'The big scalp serum, please.', visits: 5, rebook: 6 },
 ];
 
@@ -131,7 +136,7 @@ export const their = (c: Customer) => (c.pron === 'she' ? 'her' : c.pron === 'he
 export function newRegister(currency: CurrencyCode = 'USD'): RegState {
   const queue = PEOPLE.map((p) => ({ ...p, items: p.items.map((i) => ({ ...i })), slips: [...p.slips], party: p.party ? { ...p.party, members: p.party.members.map((m) => ({ ...m })) } : undefined }));
   const drawer = { ...$.CURRENCIES[currency].float };
-  return { t: 0, end: 240, queue, waiting: {}, currency, drawer, float: $.drawerTotal(drawer), cashSales: 0, tipJar: 0, close: null, lastReceipt: null, receiptNo: 1041, busy: false, sales: { rebooks: 0, rebookChances: 0, members: 0, packages: 0 }, cur: null, nextLine: 1, done: [], mistakes: [], streak: 0, bestStreak: 0, points: 0, log: [], coach: 0, sfx: [] };
+  return { t: 0, end: 240, queue, waiting: {}, currency, drawer, float: $.drawerTotal(drawer), cashSales: 0, tipJar: 0, close: null, lastReceipt: null, receiptNo: 1041, busy: false, sales: { rebooks: 0, rebookChances: 0, members: 0, packages: 0 }, talk: [], cur: null, nextLine: 1, done: [], mistakes: [], streak: 0, bestStreak: 0, points: 0, log: [], coach: 0, sfx: [] };
 }
 
 // ── Time and the line ───────────────────────────────────────────────────
@@ -149,7 +154,7 @@ export function callNext(s: RegState) {
   const mood = s.waiting[c.id] ?? 1; delete s.waiting[c.id];
   const lines: Line[] = c.party ? c.party.members.map((m) => ({ id: s.nextLine++, kind: 'service' as const, label: `${m.name}: ${m.service.label} · ${m.service.provider}`, price: m.service.price }))
     : [{ id: s.nextLine++, kind: 'service', label: `${c.service.label} · ${c.service.provider}`, price: c.service.price }];
-  s.cur = { c, lines, start: s.t, mood, claim: c.slips.some((x) => x.kind === 'shelf') ? 'open' : null, tries: {}, read: {}, said: c.hello, note: null, asked: { phone: 0, email: 0 }, partIdx: 0, tenders: [], mStart: s.mistakes.length, offered: [], card: { tries: 0, declined: false, other: false, reconnected: false, chipFailed: false } };
+  s.cur = { c, lines, start: s.t, mood, claim: c.slips.some((x) => x.kind === 'shelf') ? 'open' : null, tries: {}, read: {}, said: c.hello, note: null, asked: { phone: 0, email: 0 }, partIdx: 0, tenders: [], mStart: s.mistakes.length, offered: [], card: { tries: 0, declined: false, other: false, reconnected: false, chipFailed: false }, history: [] };
   s.sfx.push('bell');
   return true;
 }

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import * as R from '@/lib/practice/register';
 import * as $ from '@/lib/practice/currency';
 import * as Room from '@/lib/practice/room';
+import * as T from '@/lib/practice/talk';
 import { useAuth, useFirestore } from '@/firebase';
 import QRCode from 'qrcode';
 import { Barcode, Bottle, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
@@ -35,6 +36,7 @@ const muted = () => { try { return localStorage.getItem('cf_practice_mute') === 
 
 const CUR_KEY = 'cf_practice_currency';
 const VOICE_KEY = 'cf_practice_voice';
+const TALK_KEY = 'cf_practice_talk';
 /** Clients talk: the browser's own speech voices, a different pitch and pace for each client. */
 function speak(text: string, v: { pitch: number; rate: number }, pron: string) {
   try {
@@ -102,7 +104,7 @@ export default function RegisterPractice() {
 
   // Clients talk out loud when they say something new.
   const said = s.cur?.said; const saidBy = s.cur?.c.id;
-  useEffect(() => { const c = sRef.current.cur?.c; if (!voice || screen !== 'play' || !said || !c) return; speak(said, c.voice, c.pron); }, [said, saidBy, voice, screen]);
+  useEffect(() => { const c = sRef.current.cur?.c; if (!voice || screen !== 'play' || !said || !c) return; sayOut(said, c, toneRef.current); toneRef.current = 'neutral'; }, [said, saidBy, voice, screen]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleVoice = () => { setVoice((v) => { try { localStorage.setItem(VOICE_KEY, v ? '0' : '1'); } catch { /* private mode */ } if (v) try { window.speechSynthesis?.cancel(); } catch { /* none */ } return !v; }); };
 
   // The clock keeps running: the line grows while you work.
@@ -294,6 +296,141 @@ export default function RegisterPractice() {
       .then((a2) => { R.offer(sRef.current, key, a2 === 'yes' ? 'yes' : 'no'); setAsking(null); drainSfx(); rerender(); });
   };
 
+  // ── Talking out loud: your mic, the client's real voice, and a coach ──
+  const [talkOn, setTalkOn] = useState(false);
+  const [coachOn, setCoachOn] = useState(true);
+  const [caps, setCaps] = useState({ ai: false, voices: false, listen: false });
+  const [signedIn, setSignedIn] = useState(false);
+  const [talkState, setTalkState] = useState<'idle' | 'listening' | 'hearing' | 'thinking'>('idle');
+  const [heard, setHeard] = useState<string | null>(null);
+  const [coachTip, setCoachTip] = useState<{ tip: string; scores: T.Scores; fillers: number; pace: string | null } | null>(null);
+  const [typedLine, setTypedLine] = useState('');
+  const [talkErr, setTalkErr] = useState<string | null>(null);
+  const voiceMap = useRef<Record<string, string>>({});
+  const toneRef = useRef('neutral');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recRef = useRef<{ stop: () => void } | null>(null);
+  const payRef = useRef(pay); payRef.current = pay;
+  const flagRef = useRef(flag); flagRef.current = flag;
+  useEffect(() => {
+    try { if (localStorage.getItem(TALK_KEY) === '1') setTalkOn(true); } catch { /* private mode */ }
+    fetch('/api/practice/status').then((r) => r.json()).then((d) => setCaps({ ai: !!d.ai, voices: !!d.voices, listen: !!d.listen })).catch(() => {});
+    const off = auth?.onAuthStateChanged?.((u) => setSignedIn(!!u && !u.isAnonymous)); return () => off?.();
+  }, [auth]);
+  const idToken = async () => { const u = auth?.currentUser; if (!u || u.isAnonymous) return null; try { return await u.getIdToken(); } catch { return null; } };
+  const OFFER_NAMES = Object.fromEntries(R.OFFERS.map((o) => [o.key, o.name]));
+  /** Give each client a real voice that fits them (from the business's voice account). */
+  const assignVoices = async () => {
+    if (!caps.voices) return; const tk = await idToken(); if (!tk) return;
+    try {
+      const r = await fetch('/api/practice/voices', { headers: { authorization: `Bearer ${tk}` } }); const d = await r.json(); if (!d.ok) return;
+      const vs: { id: string; gender: string; age: string; accent: string }[] = d.voices; const used = new Set<string>();
+      const all = [...(sRef.current.cur ? [sRef.current.cur.c] : []), ...sRef.current.queue];
+      for (const c of all) {
+        const score = (v: typeof vs[0]) => (v.gender.toLowerCase() === c.voiceHint.gender ? 10 : 0) + (v.age.toLowerCase().startsWith(c.voiceHint.age.split('_')[0]) ? 4 : 0) + (/americ/i.test(v.accent) ? 1 : 0) - (used.has(v.id) ? 8 : 0);
+        const best = [...vs].sort((a, b) => score(b) - score(a))[0]; if (best) { voiceMap.current[c.id] = best.id; used.add(best.id); }
+      }
+    } catch { /* fall back to browser voices */ }
+  };
+  /** Clients speak: a real voice when connected, otherwise the browser's own voices. */
+  const sayOut = async (text: string, c: R.Customer, tone: string) => {
+    const vid = voiceMap.current[c.id]; const tk = caps.voices && vid ? await idToken() : null;
+    if (tk && vid) {
+      try {
+        const r = await fetch('/api/practice/speak', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ text, voiceId: vid, tone }) });
+        if (r.ok) { const url = URL.createObjectURL(await r.blob()); audioRef.current?.pause(); try { window.speechSynthesis?.cancel(); } catch { /* none */ } const a = new Audio(url); audioRef.current = a; a.onended = () => URL.revokeObjectURL(url); await a.play().catch(() => {}); return; }
+      } catch { /* fall back */ }
+    }
+    speak(text, c.voice, c.pron);
+  };
+  const stageNow = (p: PayStep) => !p ? 'the ticket is open and not paid yet' : p === 'split' || p === 'method' ? 'staff is about to take payment' : p === 'declined' || p === 'decline-wait' ? 'your card was just declined' : p === 'chip' ? 'the reader showed a chip error' : p === 'offline' || p === 'reconnecting' ? 'the card reader is offline' : p.startsWith('cash') ? 'paying with cash' : p === 'receipt' ? 'paid; choosing a receipt' : 'paying by card';
+  /** What the client knows right now, for the conversation. */
+  const contextFor = (st: R.RegState) => {
+    const cur2 = st.cur!; const c = cur2.c; const sh = R.slip(c, 'shelf'); const al = R.allergy(c); const fl = flagRef.current;
+    return {
+      name: c.party ? 'Maya' : c.name, persona: c.persona, kind: c.kind, visits: c.visits, service: c.party ? c.party.members.map((m) => `${m.name}: ${m.service.label}`).join(', ') : c.service.label, provider: c.service.provider,
+      items: R.live(cur2).filter((l) => l.kind !== 'service').map((l) => l.label), total: money(R.totalOf(cur2)), prefersPay: R.prefers(st),
+      rebook: { wants: c.rebook === 'no' ? 'no, you would rather book online later' : `yes, in ${c.rebook} weeks (your usual)`, done: cur2.rebooked ? (cur2.rebooked === 'no' ? 'you said you’d book online later' : cur2.rebooked) : null },
+      offer: { wants: c.wants ? R.offerBy(c.wants).name : null, offered: cur2.offered.map((k) => R.offerBy(k).name), catalog: R.offersFor(st).slice(0, 3).map((o) => `${o.name}: ${money(o.price)}${o.per ? ' a month' : ''}. ${o.desc}`) },
+      shelf: sh ? { item: R.skuBy(sh.sku).name, system: money(R.skuBy(sh.sku).price), claim: money(sh.claim), status: cur2.claim || 'open' } : null,
+      allergy: al ? { allergy: al, flaggedItem: fl ? R.live(cur2).find((l) => l.id === fl.id)?.label || null : null } : null,
+      declined: payRef.current === 'declined' || payRef.current === 'decline-wait', chipError: payRef.current === 'chip', readerOffline: payRef.current === 'offline',
+      details: c.details ? { phone: c.details.phone, email: c.details.email, promo: c.details.promo, saved: !!cur2.contact } : null,
+      party: c.party ? { members: c.party.members.map((m) => m.name).join(', '), split: 'split it evenly three ways; Jo pays her part in cash' } : null,
+      mood: cur2.mood, waitedMinutes: Math.max(0, (cur2.start - c.arrive) / 2), lineLength: R.line(st).length, stage: stageNow(payRef.current), history: cur2.history,
+    };
+  };
+  /** You said something: the client answers, and what you offered or did counts in the game. */
+  const handleSaid = async (raw: string, seconds: number | null) => {
+    const st = sRef.current; const c0 = st.cur; const text = raw.trim(); if (!c0 || !text) { setTalkState('idle'); return; }
+    setHeard(text); setTalkState('thinking'); setTalkErr(null);
+    const ctx = contextFor(st); let res: T.TalkReply | null = null;
+    const tk = caps.ai ? await idToken() : null;
+    if (tk) { try { const r = await fetch('/api/practice/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tk}` }, body: JSON.stringify({ context: ctx, said: text }) }); const d = await r.json(); if (d.ok) res = d; else setTalkErr(d.error || null); } catch { /* basic mode */ } }
+    if (!res) res = T.basicTalk(T.sanitizeContext(ctx), text, OFFER_NAMES);
+    const cur2 = sRef.current.cur; if (!cur2 || cur2.c.id !== c0.c.id) { setTalkState('idle'); return; }
+    const d = res.detected; const p = payRef.current;
+    if (d.greeting && !cur2.greeted) R.greet(st, d.greeting);
+    if (d.askedPhone && cur2.c.details) R.askDetail(st, 'phone');
+    if (d.askedEmail && cur2.c.details) R.askDetail(st, 'email');
+    if (d.suggestedSafe && flagRef.current) { R.suggestSafe(st, flagRef.current.id); setFlag(null); }
+    if (d.shelf === 'explain' && cur2.claim === 'open') R.refuseClaim(st);
+    if (!p && d.offeredRebook && !cur2.rebooked) R.rebook(st, R.rebookAnswer(st));
+    if (!p && d.offeredOffer && !cur2.offered.includes(d.offeredOffer)) R.offer(st, d.offeredOffer, R.offerAnswer(st, d.offeredOffer));
+    if (d.declineHandling && p === 'declined') sayAfterDecline(d.declineHandling);
+    if (d.shelf === 'manager' && cur2.claim === 'open') manager();
+    cur2.history.push({ who: 'you', text }); cur2.history.push({ who: 'client', text: res.reply });
+    cur2.mood = Math.max(0, Math.min(1, cur2.mood + res.moodDelta));
+    toneRef.current = res.tone; cur2.said = res.reply;
+    const dl = T.delivery(text, seconds);
+    st.talk.push({ who: cur2.c.name, you: text, reply: res.reply, scores: res.coach.scores, tip: res.coach.tip, fillers: dl.fillers, wpm: dl.wpm });
+    setCoachTip({ tip: res.coach.tip, scores: res.coach.scores, fillers: dl.fillers, pace: dl.pace });
+    drainSfx(); setTalkState('idle'); rerender();
+  };
+  /** Listen: real listening when connected (recorded, sent once, not kept), otherwise the browser's own. */
+  const startListening = async () => {
+    if (talkState !== 'idle' || !sRef.current.cur) return; setTalkErr(null);
+    if (caps.listen && signedIn && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((m) => MediaRecorder.isTypeSupported?.(m)) || '';
+        const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); const chunks: Blob[] = []; const t0 = performance.now();
+        rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+        rec.onstop = async () => {
+          stream.getTracks().forEach((t) => t.stop()); const secs = (performance.now() - t0) / 1000; setTalkState('hearing');
+          const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' }); const tk = await idToken();
+          try {
+            const f = new FormData(); f.append('audio', blob, blob.type.includes('mp4') ? 'speech.mp4' : 'speech.webm');
+            const r = await fetch('/api/practice/listen', { method: 'POST', headers: { authorization: `Bearer ${tk}` }, body: f }); const d = await r.json();
+            if (!d.ok || !d.text) { setTalkErr(d.error || 'Didn’t catch that. Try again.'); setTalkState('idle'); return; }
+            handleSaid(d.text, secs);
+          } catch { setTalkErr('Couldn’t hear that. Try again.'); setTalkState('idle'); }
+        };
+        rec.start(); recRef.current = { stop: () => { if (rec.state !== 'inactive') rec.stop(); } }; setTalkState('listening');
+        window.setTimeout(() => recRef.current?.stop(), 20000); return;
+      } catch { setTalkErr('The microphone is blocked. Allow the mic for this site, or type instead.'); setTalkState('idle'); return; }
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { setTalkErr('This browser can’t listen. Type what you’d say instead.'); return; }
+    const r = new SR(); r.lang = 'en-US'; r.interimResults = false; r.maxAlternatives = 1; const t0 = performance.now(); let got = false;
+    r.onresult = (e: any) => { got = true; handleSaid(String(e.results?.[0]?.[0]?.transcript || ''), (performance.now() - t0) / 1000); };
+    r.onerror = () => { setTalkErr('Didn’t catch that. Try again, or type it.'); setTalkState('idle'); };
+    r.onend = () => { if (!got) setTalkState((x) => (x === 'listening' ? 'idle' : x)); };
+    recRef.current = { stop: () => r.stop() }; r.start(); setTalkState('listening');
+  };
+  const stopListening = () => recRef.current?.stop();
+  const toggleTalk = () => setTalkOn((v) => { const n = !v; try { localStorage.setItem(TALK_KEY, n ? '1' : '0'); } catch { /* private mode */ } if (n) assignVoices(); return n; });
+  useEffect(() => { if (talkOn && screen === 'play' && caps.voices && signedIn && !Object.keys(voiceMap.current).length) assignVoices(); }, [talkOn, screen, caps.voices, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Hold the space bar to talk (desktop).
+  useEffect(() => {
+    if (!talkOn || screen !== 'play') return;
+    const isField = (e: KeyboardEvent) => { const t = e.target as HTMLElement; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'); };
+    const down = (e: KeyboardEvent) => { if (e.code === 'Space' && !e.repeat && !isField(e)) { e.preventDefault(); startListening(); } };
+    const up = (e: KeyboardEvent) => { if (e.code === 'Space' && !isField(e)) { e.preventDefault(); stopListening(); } };
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Screens ──
   if (screen === 'menu') return <Shell><MenuCard onStart={start} code={code} onCode={pickCurrency} /></Shell>;
   if (screen === 'review') return <Shell><ReviewCard s={s} onAgain={start} /></Shell>;
@@ -316,6 +453,7 @@ export default function RegisterPractice() {
       <Chip tone="blue">{s.points} pts</Chip>
       {usb && <Chip tone="green">Scanner connected</Chip>}
       <span style={{ flex: 1 }} />
+      <button onClick={toggleTalk} style={{ ...pill, ...(talkOn ? { background: '#eaf6ef', borderColor: '#cfe6d8', color: GREEN } : {}) }} aria-label={talkOn ? 'Turn talk mode off' : 'Turn talk mode on'}>🎙 {narrow ? '' : talkOn ? 'Talk mode on' : 'Talk'}</button>
       <button onClick={() => setShowRoom(true)} style={{ ...pill, ...(twoP ? { background: '#eaf6ef', borderColor: '#cfe6d8', color: GREEN } : {}) }} aria-label="Two players">📱 {narrow ? '' : twoP ? 'Client screen on' : 'Two players'}</button>
       <button onClick={() => setCamera(true)} style={pill} aria-label="Scan with camera">📷 {narrow ? '' : 'Camera'}</button>
       <button onClick={toggleVoice} style={pill} aria-label={voice ? 'Turn voices off' : 'Turn voices on'}>{voice ? '🔊' : '🔇'} {narrow ? '' : 'Voices'}</button>
@@ -540,7 +678,31 @@ export default function RegisterPractice() {
   );
 
   const shownC = cur?.c || (pay === 'receipt' ? lastC : null);
-  const greetEl = cur && !cur.greeted && !pay && (
+  const listening = talkState === 'listening';
+  const talkEl = talkOn && cur && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: narrow ? '100%' : 360, background: 'rgba(255,255,255,.97)', border: `1px solid ${LINE}`, borderRadius: 18, padding: 10, boxSizing: 'border-box', boxShadow: '0 12px 28px -18px rgba(0,0,0,.45)' }}>
+      {heard && <div style={{ alignSelf: 'flex-end', background: INK, color: '#fff', borderRadius: '14px 14px 4px 14px', padding: '7px 11px', fontSize: 13, lineHeight: 1.4, maxWidth: '92%' }}>“{heard}”</div>}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button aria-label={listening ? 'Stop and send' : 'Talk'} onClick={listening ? stopListening : startListening} disabled={talkState === 'hearing' || talkState === 'thinking'} style={{ width: 50, height: 50, borderRadius: 25, border: 'none', flexShrink: 0, cursor: 'pointer', background: listening ? RED : INK, color: '#fff', fontSize: 20, boxShadow: listening ? '0 0 0 7px #fdecec' : '0 8px 16px -8px rgba(0,0,0,.5)', transition: 'all .2s', opacity: talkState === 'hearing' || talkState === 'thinking' ? 0.5 : 1 }}>{listening ? '■' : '🎙'}</button>
+        <form onSubmit={(e) => { e.preventDefault(); if (typedLine.trim() && talkState === 'idle') { handleSaid(typedLine, null); setTypedLine(''); } }} style={{ flex: 1, display: 'flex', gap: 6 }}>
+          <input aria-label="Say something" value={typedLine} onChange={(e) => setTypedLine(e.target.value)} placeholder={listening ? 'Listening… tap ■ to send' : talkState === 'hearing' ? 'Hearing you…' : talkState === 'thinking' ? `${cur.c.party ? 'Maya' : cur.c.name} is answering…` : 'Tap the mic and talk, or type'} style={{ ...input, padding: '9px 11px', fontSize: 13 }} />
+        </form>
+      </div>
+      {talkErr && <div style={{ fontSize: 12, color: RED, fontWeight: 600 }}>{talkErr}</div>}
+      {coachOn && coachTip && <div style={{ background: '#f4f7ff', border: '1px solid #dbe4ff', borderRadius: 12, padding: '7px 10px', fontSize: 12.5, display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div><b>Coach:</b> {coachTip.tip}</div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{(['awareness', 'confidence', 'warmth', 'retention'] as const).map((k) => <span key={k} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: coachTip.scores[k] >= 4 ? '#e8f3ec' : coachTip.scores[k] <= 2 ? '#fdf1e3' : '#fff', color: coachTip.scores[k] >= 4 ? GREEN : coachTip.scores[k] <= 2 ? AMBER : INK, fontWeight: 600 }}>{k[0].toUpperCase() + k.slice(1)} {coachTip.scores[k]}/5</span>)}
+          {coachTip.fillers > 0 && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#fdf1e3', color: AMBER, fontWeight: 600 }}>{coachTip.fillers} filler {coachTip.fillers === 1 ? 'word' : 'words'}</span>}
+          {coachTip.pace && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: coachTip.pace === 'good' ? '#e8f3ec' : '#fdf1e3', color: coachTip.pace === 'good' ? GREEN : AMBER, fontWeight: 600 }}>Pace: {coachTip.pace}</span>}</div>
+      </div>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: MUTED, flexWrap: 'wrap' }}>
+        <span>{caps.ai && signedIn ? 'AI client' : 'Basic mode'} · {caps.voices && signedIn ? 'real voices' : 'browser voice'}{narrow ? '' : ' · hold Space to talk'}</span><span style={{ flex: 1 }} />
+        <button onClick={() => setCoachOn((v) => !v)} style={{ ...mini, fontSize: 10.5 }}>{coachOn ? 'Hide coach' : 'Show coach'}</button>
+      </div>
+      {!signedIn && (caps.ai || caps.voices) && <div style={{ fontSize: 11.5, color: MUTED }}>Sign in to ClarityFlow for the AI client and real voices.</div>}
+    </div>
+  );
+  const greetEl = cur && !cur.greeted && !pay && !talkOn && (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxWidth: 340 }}>
       <span style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, letterSpacing: '.06em' }}>SAY</span>
       {R.greetOptions(cur.c).map((g) => <button key={g.text} onClick={() => { R.greet(s, g.q); drainSfx(); rerender(); }} style={{ ...rowBtn, padding: '7px 11px', fontSize: 13, textAlign: 'left', background: INK, color: '#fff', borderColor: INK, borderRadius: '14px 14px 4px 14px' }}>“{g.text}”</button>)}
@@ -555,6 +717,7 @@ export default function RegisterPractice() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: narrow ? 0 : 90 }}>
         <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : cur?.said}</Say>
         {!narrow && greetEl}
+        {!narrow && talkEl}
         {!narrow && claimCard}
       </div>
     </div>
@@ -588,7 +751,7 @@ export default function RegisterPractice() {
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f6f3ef,#efe9e2)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, display: 'flex', flexDirection: 'column', gap: 10, padding: 10, boxSizing: 'border-box' }}>
       <Fonts />{hud}{coachEl}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{queue}</div>
-      {client}{greetEl}{claimCard}
+      {client}{greetEl}{talkEl}{claimCard}
       <div style={{ background: '#16171a', borderRadius: 16, padding: 7 }}>{pos || saleDone}</div>
       {clientScreen}
       {receiptPanel && <div style={{ paddingTop: 250, display: 'flex', justifyContent: 'center' }}>{receiptPanel}</div>}
@@ -698,6 +861,16 @@ function ReviewCard({ s, onAgain }: { s: R.RegState; onAgain: () => void }) {
       </div>
       {rv.drawer && <div style={{ background: rv.drawer.overShort === 0 ? '#eaf6ef' : '#fdf6ec', color: rv.drawer.overShort === 0 ? GREEN : '#9a4a07', borderRadius: 12, padding: '9px 12px', fontSize: 13.5, fontWeight: 600 }}>
         {rv.drawer.overShort === 0 ? 'Drawer balanced at close.' : `Drawer ${$.fmt(s.currency, Math.abs(rv.drawer.overShort))} ${rv.drawer.overShort < 0 ? 'short' : 'over'} at close.`}{rv.tipJar ? ` Cash tips in the tip jar: ${$.fmt(s.currency, rv.tipJar)}.` : ''}</div>}
+      {s.talk.length > 0 && (() => { const avg = T.averageScores(s.talk.map((x) => x.scores))!; const fill = s.talk.reduce((a, x) => a + x.fillers, 0); const paces = s.talk.map((x) => x.wpm).filter((x): x is number => !!x);
+        const best = [...s.talk].sort((a, b) => (b.scores.awareness + b.scores.confidence + b.scores.warmth + b.scores.retention) - (a.scores.awareness + a.scores.confidence + a.scores.warmth + a.scores.retention))[0];
+        const tips = [...new Set(s.talk.filter((x) => x.scores.awareness + x.scores.confidence + x.scores.warmth + x.scores.retention < 15).map((x) => x.tip).filter(Boolean))].slice(0, 3);
+        return <div style={{ border: `1px solid ${LINE}`, borderRadius: 16, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <b style={{ fontSize: 15 }}>How you spoke · {s.talk.length} {s.talk.length === 1 ? 'line' : 'lines'}</b>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 6 }}>{(['awareness', 'confidence', 'warmth', 'retention'] as const).map((k) => <div key={k} style={{ background: SOFT, borderRadius: 10, padding: '7px 10px' }}><div style={{ fontSize: 11, color: MUTED }}>{k === 'awareness' ? 'Situational awareness' : k[0].toUpperCase() + k.slice(1)}</div><div style={{ fontSize: 18, fontWeight: 700 }}>{avg[k]}/5</div></div>)}</div>
+          <div style={{ fontSize: 12.5, color: MUTED }}>{fill} filler {fill === 1 ? 'word' : 'words'}{paces.length ? ` · average pace ${Math.round(paces.reduce((a, b) => a + b, 0) / paces.length)} words a minute` : ''}</div>
+          {best && <div style={{ fontSize: 13 }}><b style={{ color: GREEN }}>Best line:</b> “{best.you}” <span style={{ color: MUTED }}>to {best.who}</span></div>}
+          {tips.map((t) => <div key={t} style={{ fontSize: 12.5, display: 'flex', gap: 6 }}><span style={{ color: BLUE }}>→</span>{t}</div>)}
+        </div>; })()}
       <b style={{ fontSize: 15, marginTop: 4 }}>{rv.mistakes.length ? 'What happened after you rang them up' : 'Nothing came back to bite you. Nice work.'}</b>
       {rv.mistakes.map((m, i) => (
         <div key={i} style={{ border: `1px solid ${LINE}`, borderRadius: 14, padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 5, background: m.minor ? '#fff' : '#fffaf5' }}>

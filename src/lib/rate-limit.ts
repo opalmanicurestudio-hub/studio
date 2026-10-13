@@ -12,7 +12,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 export function visitorIp(req: NextRequest): string {
   return String(req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown').split(',')[0].trim().slice(0, 64);
 }
-async function bump(id: string, max: number, ttlMs: number): Promise<boolean> {
+export async function bump(id: string, max: number, ttlMs: number): Promise<boolean> {
   const db = getAdminDb(); const ref = db.collection('rateLimits').doc(id);
   return db.runTransaction(async (tx: any) => { const snap = await tx.get(ref); const n = Number(snap.exists ? (snap.data() || {}).count : 0) || 0;
     if (n >= max) return false; tx.set(ref, { count: n + 1, expiresAt: new Date(Date.now() + ttlMs) }, { merge: true }); return true; });
