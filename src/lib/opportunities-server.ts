@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, ms, dollars, type OppKind, type OutcomeId } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -37,7 +37,7 @@ async function loadAll(db: any, t: string, now: number) {
 const openLoad = (opps: any[]) => { const m = new Map<string, number>(); for (const o of opps) if (o.status === 'open' && o.assigneeId) m.set(o.assigneeId, (m.get(o.assigneeId) || 0) + 1); return m; };
 
 export type Sender = (db: any, t: string, to: string, body: string, fallback?: any, meta?: any) => Promise<{ ok: boolean; via?: string; error?: string }>;
-const ACTIVE = ['open', 'holdout', 'waiting', 'auto'];
+const ACTIVE = ['open', 'holdout', 'waiting', 'auto', 'scheduled'];
 async function bookLink(tenant: any, t: string, c: { providerId?: string | null }) {
   const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); if (!base) return '';
   return `${base}/book/${encodeURIComponent(t)}${c.providerId ? `?provider=${encodeURIComponent(c.providerId)}` : ''}`;
@@ -66,44 +66,18 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   }).slice(0, MAX_NEW);
   const load = openLoad(x.opps); const month = today.slice(0, 7); const fresh: any[] = []; let sent = 0;
   const writes: Array<[any, any, 'set' | 'update']> = [];
+  const pace = await paceFor(db, t, now, S, today); const held: Record<string, number> = {};
+  const ctx: Ctx = { db, t, tenant, S, staff, clients, opps: x.opps, load, send };
   for (const c of cand) {
     const pb = PLAYBOOKS[c.kind]; const mode = S.modes[c.kind] || 'person'; if (mode === 'off') continue;
-    const hold = pb.winBack && isHoldout(c.key, month, S.holdoutPct);
-    const cl = c.clientId ? clients.get(c.clientId) : null; const prov = staff.find((m: any) => m.id === c.providerId);
-    const facts: any = { ...c.facts, business: businessName(tenant) };
-    const ref = db.collection(`${T(t)}/opportunities`).doc();
-    const base: any = { id: ref.id, kind: c.kind, key: c.key, clientId: c.clientId, clientName: c.clientName, phone: cl?.phone || cl?.phoneNumber || c.facts.phone || null,
-      why: c.why, valueCents: c.valueCents, valueNote: c.valueNote || null, priority: pb.priority, dueAt: c.dueAt, expiresAt: c.expiresAt, refs: c.refs, facts,
-      providerId: c.providerId, providerName: prov?.name || null, mode, tries: 0, attempts: [], createdAt: nowIso(now), createdBy: 'rules', result: { status: 'none' } };
-    if (hold) { writes.push([ref, { ...base, status: 'holdout', assigneeId: null, assigneeName: null, version: 0, message: '' }, 'set']); fresh.push({ status: 'holdout' }); continue; }
-    let why = c.why;
-    // 1) Automatic first, where the business chose it.
-    if ((mode === 'auto' || mode === 'auto_then_person') && pb.auto?.length) {
-      const usedA = x.opps.filter((e: any) => e.clientId && e.clientId === c.clientId && e.kind === c.kind && Number.isInteger(e.autoVersion)).map((e: any) => e.autoVersion);
-      const av = pickFrom(pb.auto.length, usedA); const link = await bookLink(tenant, t, { providerId: c.providerId });
-      const body = fill(pb.auto[av], { ...facts, link, me: first(prov?.name) || businessName(tenant) });
-      const chk0 = await textCheck(db, t, tenant, { ...base, kind: c.kind }, cl || { phone: base.phone }, now);
-      const chk: any = !link && pb.auto[av].includes('{link}') ? { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' } : chk0;
-      let r: any = chk.ok ? await send(db, t, chk.phone, body, cl?.email ? { email: cl.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: c.clientId || undefined, recipientName: c.clientName }).catch(() => ({ ok: false })) : { ok: false, error: (chk as any).error };
-      if (r.ok) {
-        sent++; { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
-        if (pb.marketing && c.clientId) writes.push([db.collection(`${T(t)}/opportunityTexts`).doc(), { clientId: c.clientId, at: nowIso(now), channel: 'sms', marketing: true, oppId: ref.id }, 'set']);
-        const auto = { at: nowIso(now), by: 'auto', byName: 'Sent automatically', channel: r.via === 'email' ? 'email' : 'text', note: body };
-        writes.push([ref, { ...base, status: mode === 'auto' ? 'auto' : 'waiting', autoVersion: av, autoMessage: body, autoSentAt: nowIso(now), firstContactAt: nowIso(now), lastContactAt: nowIso(now),
-          escalateAt: mode === 'auto_then_person' ? nowIso(now + S.afterDays * DAY) : null, attempts: [auto], assigneeId: null, assigneeName: null, version: 0, message: '' }, 'set']);
-        fresh.push({ status: 'auto' }); continue;
-      }
-      if (mode === 'auto') { writes.push([ref, { ...base, status: 'not_sent', notSentWhy: String(r.error || 'The text could not be sent.'), closedAt: nowIso(now), assigneeId: null, assigneeName: null, version: 0, message: '' }, 'set']); continue; }
-      why = `${c.why} · could not be texted automatically: ${String(r.error || 'the text could not be sent').replace(/\.$/, '').replace(/^./, (z: string) => z.toLowerCase())}`;
-    }
-    // 2) A person.
-    const who = assignee(pb.who, c.providerId, staff, load, S.perPersonPerDay); if (who) load.set(who.id, (load.get(who.id) || 0) + 1);
-    const used = x.opps.filter((e: any) => e.clientId && e.clientId === c.clientId && e.kind === c.kind && Number.isInteger(e.version)).map((e: any) => e.version);
-    const version = pickVersion(c.kind, used);
-    const doc = { ...base, why, status: 'open', assigneeId: who?.id || null, assigneeName: who?.name || null, version,
-      message: pb.versions[version] ? fill(pb.versions[version], { ...facts, me: first(who?.name) || first(businessName(tenant)) }) : '' };
-    writes.push([ref, doc, 'set']); fresh.push(doc);
+    if (heldForRoom(c.kind, c.providerId, pace, S)) { const k = c.providerId || 'business'; held[k] = (held[k] || 0) + 1; continue; }   // no room to see them yet
+    const ref = db.collection(`${T(t)}/opportunities`).doc(); const base = baseOf(c, ref.id, mode, tenant, staff, clients, now);
+    if (pb.winBack && isHoldout(c.key, month, S.holdoutPct)) { writes.push([ref, { ...base, status: 'holdout', assigneeId: null, assigneeName: null, version: 0, message: '' }, 'set']); fresh.push({ status: 'holdout' }); continue; }
+    const r = await launch(ctx, base, now);
+    writes.push([ref, r.doc, 'set']); for (const w of r.extra) writes.push([w[0], w[1], 'set']);
+    if (r.sent) { sent++; fresh.push({ status: 'auto' }); } else if (r.doc.status === 'open') fresh.push(r.doc);
   }
+  if (pace) await db.doc(`${T(t)}/private/opportunities`).set({ pace: { ...pace, held } }, { merge: true });
   // Automatic texts: booked → closed as booked; no reply by the day the business chose → to a person; plain automatic → closes at its end date.
   let toPerson = 0, expired = 0, checked = 0;
   for (const e of x.opps) {
@@ -136,6 +110,154 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
 }
 const pickFrom = (n: number, used: number[]) => { for (let i = 0; i < n; i++) if (!used.includes(i)) return i; return used.length ? (Math.max(...used) + 1) % n : 0; };
 
+// ── Starting one: automatic first, or a person ────────────────────────────────────────────────
+type Ctx = { db: any; t: string; tenant: any; S: OppSettings; staff: any[]; clients: Map<string, any>; opps: any[]; load: Map<string, number>; send: Sender };
+/** The record every task starts from, whatever found it: what it's about (the tool and the person), why, and roughly what it's worth. */
+function baseOf(c: Candidate, id: string, mode: Mode, tenant: any, staff: any[], clients: Map<string, any>, now: number): any {
+  const cl = c.clientId ? clients.get(c.clientId) : null; const prov = staff.find((m: any) => m.id === c.providerId);
+  return { id, kind: c.kind, tool: c.tool, subject: c.subject, key: c.key, clientId: c.clientId, clientName: c.clientName, phone: cl?.phone || cl?.phoneNumber || c.facts.phone || null,
+    why: c.why, valueCents: c.valueCents, valueNote: c.valueNote || null, priority: PLAYBOOKS[c.kind].priority, dueAt: c.dueAt, expiresAt: c.expiresAt, refs: c.refs, facts: { ...c.facts, business: businessName(tenant) },
+    providerId: c.providerId, providerName: prov?.name || null, mode, tries: 0, attempts: [], createdAt: nowIso(now), createdBy: 'rules', result: { status: 'none' } };
+}
+/** Automatic first where the business chose it (and the client can be texted); otherwise, or if that can't go, a person. */
+async function launch(ctx: Ctx, base: any, now: number): Promise<{ doc: any; extra: Array<[any, any]>; sent: boolean }> {
+  const { db, t, tenant, S, staff } = ctx; const pb = PLAYBOOKS[base.kind as OppKind]; const mode: Mode = base.mode || S.modes[base.kind] || 'person';
+  const cl = base.clientId ? ctx.clients.get(base.clientId) : null; const prov = staff.find((m: any) => m.id === base.providerId);
+  const facts: any = { ...(base.facts || {}), business: businessName(tenant) }; const extra: Array<[any, any]> = [];
+  let why = base.why;
+  if ((mode === 'auto' || mode === 'auto_then_person') && pb.auto?.length) {
+    const usedA = ctx.opps.filter((e: any) => e.clientId && e.clientId === base.clientId && e.kind === base.kind && Number.isInteger(e.autoVersion)).map((e: any) => e.autoVersion);
+    const av = pickFrom(pb.auto.length, usedA); const link = await bookLink(tenant, t, { providerId: base.providerId });
+    const body = fill(pb.auto[av], { ...facts, link, me: first(prov?.name) || businessName(tenant) });
+    const chk0 = await textCheck(db, t, tenant, base, cl || { phone: base.phone }, now);
+    const chk: any = !link && pb.auto[av].includes('{link}') ? { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' } : chk0;
+    const r: any = chk.ok ? await ctx.send(db, t, chk.phone, body, cl?.email ? { email: cl.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: base.clientId || undefined, recipientName: base.clientName }).catch(() => ({ ok: false })) : { ok: false, error: chk.error };
+    if (r.ok) {
+      { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
+      if (pb.marketing && base.clientId) extra.push([db.collection(`${T(t)}/opportunityTexts`).doc(), { clientId: base.clientId, at: nowIso(now), channel: 'sms', marketing: true, oppId: base.id }]);
+      const auto = { at: nowIso(now), by: 'auto', byName: 'Sent automatically', channel: r.via === 'email' ? 'email' : 'text', note: body };
+      return { doc: { ...base, facts, status: mode === 'auto' ? 'auto' : 'waiting', autoVersion: av, autoMessage: body, autoSentAt: nowIso(now), firstContactAt: nowIso(now), lastContactAt: nowIso(now),
+        escalateAt: mode === 'auto_then_person' ? nowIso(now + S.afterDays * DAY) : null, attempts: [...(base.attempts || []), auto], assigneeId: null, assigneeName: null, version: 0, message: '' }, extra, sent: true };
+    }
+    if (mode === 'auto') return { doc: { ...base, facts, status: 'not_sent', notSentWhy: String(r.error || 'The text could not be sent.'), closedAt: nowIso(now), assigneeId: null, assigneeName: null, version: 0, message: '' }, extra, sent: false };
+    why = `${base.why} · could not be texted automatically: ${String(r.error || 'the text could not be sent').replace(/\.$/, '').replace(/^./, (z: string) => z.toLowerCase())}`;
+  }
+  const who = assignee(pb.who, base.providerId, staff, ctx.load, S.perPersonPerDay); if (who) ctx.load.set(who.id, (ctx.load.get(who.id) || 0) + 1);
+  const used = ctx.opps.filter((e: any) => e.clientId && e.clientId === base.clientId && e.kind === base.kind && Number.isInteger(e.version)).map((e: any) => e.version);
+  const version = pickVersion(base.kind, used);
+  return { doc: { ...base, facts, why, status: 'open', assigneeId: who?.id || null, assigneeName: who?.name || null, version, dueAt: nowIso(now),
+    message: pb.versions[version] ? fill(pb.versions[version], { ...facts, me: first(who?.name) || first(businessName(tenant)) }) : '' }, extra, sent: false };
+}
+
+// ── Room on the schedule (once a day) ────────────────────────────────────────────────────────
+/** Each provider's share of bookable start times still open over the next few weeks, from the real booking engine
+ * (shifts, breaks, time off, buffers): open times with today's bookings ÷ open times with none. Worked out once a day
+ * and kept in private/opportunities, so events during the day can use it too. Never blocks anything if it can't be read. */
+export async function paceFor(db: any, t: string, now: number, S: OppSettings, today: string): Promise<Pace | null> {
+  if (!S.paceMin) return null;
+  const mark = db.doc(`${T(t)}/private/opportunities`); const cur = ((await mark.get()).data() || {}).pace;
+  if (cur?.day === today && cur?.days === S.paceDays) return cur;
+  let pace: Pace | null = null; try { pace = await computePace(db, t, S.paceDays, today); } catch { pace = null; }
+  if (pace) await mark.set({ pace }, { merge: true });
+  return pace;
+}
+const BUDGET_MS = 8000;   // a big team's first run of the day shouldn't hold up the 5-minute job for everyone else
+async function computePace(db: any, t: string, days: number, today: string): Promise<Pace | null> {
+  const { engineFor, openTimesOn, addDays } = await import('@/lib/rebook'); const e: any = await engineFor(db, t); if (!e) return null;
+  const blocks = (e.data?.sb?.docs || []).filter((d: any) => ((d.data?.() || {}) as any).reason !== 'waitlist_hold');
+  const empty = { ...e, data: { ...e.data, ap: { docs: [] }, sb: { ...(e.data?.sb || {}), docs: blocks } } };
+  const appts = e.raw(e.data?.ap); const t0 = Date.now(); const byStaff: Pace['byStaff'] = {}; let open = 0, all = 0;
+  for (const m of e.staff) {
+    if (m.role === 'renter' || m.isRenter || m.archived) continue;
+    const svc = repService(m.id, appts, e.services); if (!svc) continue;
+    let o = 0, a = 0;
+    for (let i = 1; i <= days && Date.now() - t0 < BUDGET_MS; i++) { const date = addDays(today, i);
+      a += openTimesOn(empty, { date, serviceId: svc, staffId: m.id }).length; o += openTimesOn(e, { date, serviceId: svc, staffId: m.id }).length; }
+    if (!a) continue;   // not working in that stretch: no reading, so nothing is held for them
+    byStaff[m.id] = { share: Math.round((o / a) * 100) / 100, name: m.name || '' }; open += o; all += a;
+  }
+  return { day: today, days, byStaff, business: all ? Math.round((open / all) * 100) / 100 : null };
+}
+/** The service a provider does most (last 90 days), or the first one they offer — used to measure their open time. */
+function repService(staffId: string, appts: any[], services: any[]): string | null {
+  const since = Date.now() - 90 * DAY; const n = new Map<string, number>();
+  for (const a of appts) if (a.staffId === staffId && a.serviceId && ms(a.startTime) >= since) n.set(a.serviceId, (n.get(a.serviceId) || 0) + 1);
+  const top = [...n.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
+  if (top && services.some((s: any) => s.id === top)) return top;
+  const s = services.find((x: any) => !x.archived && x.isActive !== false && x.online !== false && (!Array.isArray(x.staffIds) || !x.staffIds.length || x.staffIds.includes(staffId)));
+  return s?.id || null;
+}
+
+// ── The moment something happens (every 5 minutes) ─────────────────────────────────────────────
+/** When a client should first hear from us after an event: never in the moment. A cancellation gets two hours (the
+ * waitlist has the time first); a no-show or a checkout without a next visit, the next morning at 10. */
+async function sendAtFor(kind: OppKind, now: number, zone: string): Promise<number> {
+  if (kind === 'cancelled') return now + 2 * 3600e3;
+  const { dayKey, addDays, wallToUtc } = await import('@/lib/tenant-time');
+  return new Date(wallToUtc(addDays(dayKey(new Date(now), zone), 1), 10, 0, zone)).getTime();
+}
+/** A cancellation (from the visit watcher), a confirmed no-show or a checkout with nothing booked next becomes a task
+ * right away, for that one client — not at tomorrow's daily run. It waits as 'scheduled' until its time (opportunityDue). */
+export async function opportunityEvents(db: any, t: string, tenant: any, now = Date.now(), cancelled: Array<{ clientId?: string | null; appointmentId?: string }> = []) {
+  const S = oppSettingsOf(tenant); if (!S.on) return { ok: true, skipped: 'off' };
+  const mark = db.doc(`${T(t)}/private/opportunities`); const m: any = (await mark.get()).data() || {};
+  const since = m.eventsAt && now - ms(m.eventsAt) < 2 * DAY ? String(m.eventsAt) : nowIso(now - 15 * 60e3);
+  await mark.set({ eventsAt: nowIso(now) }, { merge: true });
+  const safe = (p: Promise<any>) => p.catch(() => ({ docs: [] }));
+  const [co, ce] = await Promise.all([safe(db.collection(`${T(t)}/appointments`).where('checkedOutAt', '>=', since).get()), safe(db.collection(`${T(t)}/cancellationEvents`).where('createdAt', '>=', since).get())]);
+  const ev = new Map<string, Set<OppKind>>(); const add = (c: any, k: OppKind) => { const id = String(c || ''); if (!id) return; (ev.get(id) || ev.set(id, new Set()).get(id)!).add(k); };
+  for (const a of rows(co)) if (!a.isRenterBooking && !a.isWalkIn) add(a.clientId, 'no_rebook');
+  for (const e of rows(ce)) if (e.actorType === 'no_show') add(e.clientId, 'no_show');
+  for (const c of cancelled) add(c.clientId, 'cancelled');
+  if (!ev.size) return { ok: true, created: 0 };
+  const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const month = dayKey(new Date(now), zone).slice(0, 7);
+  const staff = await team(db, t); const renterIds = new Set<string>(staff.filter((x: any) => x.role === 'renter' || x.isRenter).map((x: any) => String(x.id)));
+  const pace: Pace | null = m.pace || null; let created = 0;
+  for (const [cid, kinds] of ev) {
+    const cs = await db.doc(`${T(t)}/clients/${cid}`).get(); if (!cs.exists) continue; const client = { id: cid, ...(cs.data() || {}) };
+    const [as, os, ks, ns] = await Promise.all([safe(db.collection(`${T(t)}/appointments`).where('clientId', '==', cid).get()), safe(db.collection(`${T(t)}/opportunities`).where('clientId', '==', cid).get()),
+      safe(db.collection(`${T(t)}/cases`).where('clientId', '==', cid).get()), safe(db.collection(`${T(t)}/reconnectNudges`).where('clientId', '==', cid).get())]);
+    const cand = findCandidates({ clients: [client], appointments: rows(as), quotes: [], giftCards: [], settings: S, now, tz: zone, renterStaffIds: renterIds, fresh: true }).filter((c) => kinds.has(c.kind));
+    const keep = filterCandidates(cand, { existing: rows(os), clients: new Map([[cid, client]]), now,
+      openCaseClients: new Set(rows(ks).some((c: any) => !CLOSED_CASE.includes(String(c.status || ''))) ? [cid] : []),
+      recentAutoNudge: new Set(rows(ns).some((n: any) => now - ms(n.sentAt) < 14 * DAY) ? [cid] : []) });
+    for (const c of keep) {
+      const mode = S.modes[c.kind] || 'person'; if (mode === 'off' || heldForRoom(c.kind, c.providerId, pace, S)) continue;
+      const ref = db.collection(`${T(t)}/opportunities`).doc(); const base = baseOf(c, ref.id, mode, tenant, staff, new Map([[cid, client]]), now);
+      if (PLAYBOOKS[c.kind].winBack && isHoldout(c.key, month, S.holdoutPct)) { await ref.set({ ...base, status: 'holdout', assigneeId: null, assigneeName: null, version: 0, message: '', via: 'event' }); continue; }
+      const at = await sendAtFor(c.kind, now, zone);
+      await ref.set({ ...base, status: 'scheduled', sendAt: nowIso(at), dueAt: nowIso(at), via: 'event', assigneeId: null, assigneeName: null, version: 0, message: '' }); created++;
+    }
+  }
+  return { ok: true, created };
+}
+/** Scheduled tasks whose time has come: still relevant (nothing booked since)? Then automatic first, or a person —
+ * the same way as the daily run. Automatic texts wait for texting hours. */
+export async function opportunityDue(db: any, t: string, tenant: any, now = Date.now(), o: { send?: Sender } = {}) {
+  const S = oppSettingsOf(tenant); if (!S.on) return { ok: true, skipped: 'off' };
+  const list = rows(await db.collection(`${T(t)}/opportunities`).where('status', '==', 'scheduled').get().catch(() => ({ docs: [] }))).filter((e: any) => ms(e.sendAt) <= now);
+  if (!list.length) return { ok: true, launched: 0 };
+  const send: Sender = o.send || (async (...a: any[]) => { const { sendTenantSms } = await import('@/lib/sms'); return (sendTenantSms as any)(...a); });
+  const zone = await tz(tenant); const { inTextWindow } = await import('@/lib/campaigns'); const textOk = inTextWindow(zone, new Date(now));
+  const staff = await team(db, t); const load = openLoad(rows(await db.collection(`${T(t)}/opportunities`).where('status', '==', 'open').get()));
+  const bells = new Map<string, any[]>(); let launched = 0, dropped = 0;
+  for (const e of list) {
+    const ref = db.doc(`${T(t)}/opportunities/${e.id}`); const mode: Mode = S.modes[e.kind] || 'person';
+    const appts = e.clientId ? rows(await db.collection(`${T(t)}/appointments`).where('clientId', '==', e.clientId).get()) : [];
+    const h = e.clientId ? historyOf(appts, now).get(String(e.clientId)) : null;
+    if (mode === 'off' || h?.upcoming) { await ref.update({ status: 'done', outcome: 'no_longer_applies', closedAt: nowIso(now), ...(h?.upcoming ? { closedWhy: 'They booked on their own before we reached out.' } : {}) }); dropped++; continue; }
+    if ((mode === 'auto' || mode === 'auto_then_person') && PLAYBOOKS[e.kind as OppKind]?.auto?.length && !textOk) continue;   // texting hours: try again next pass
+    const cs = e.clientId ? await db.doc(`${T(t)}/clients/${e.clientId}`).get() : null; const clients = new Map<string, any>(cs?.exists ? [[String(e.clientId), { id: e.clientId, ...(cs.data() || {}) }]] : []);
+    const opps = e.clientId ? rows(await db.collection(`${T(t)}/opportunities`).where('clientId', '==', e.clientId).get()) : [];
+    const r = await launch({ db, t, tenant, S, staff, clients, opps, load, send }, { ...e, mode, sendAt: null, launchedAt: nowIso(now) }, now);
+    await ref.set(r.doc); for (const w of r.extra) await w[0].set(w[1]); launched++;
+    if (r.doc.status === 'open' && r.doc.assigneeId) bells.set(r.doc.assigneeId, [...(bells.get(r.doc.assigneeId) || []), r.doc]);
+  }
+  for (const [sid, l] of bells) { const r = db.collection(`${T(t)}/notifications`).doc();
+    await r.set({ id: r.id, userId: sid, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `You have ${l.length} new task${l.length === 1 ? '' : 's'}: ${l[0].clientName}${l.length > 1 ? ' and others' : ''}.` }); }
+  return { ok: true, launched, dropped };
+}
+
 /** A client texted back (lib: /api/sms/inbound). If they're waiting on an automatic text, a person takes it now — with
  * what they said — instead of after the waiting days. */
 export async function opportunityReply(db: any, t: string, fromDigits: string, body: string, now = Date.now()) {
@@ -165,7 +287,8 @@ export async function listOpportunities(db: any, t: string, actor: RequestActor,
     .sort((a: any, b: any) => (a.status === 'open' ? 0 : 1) - (b.status === 'open' ? 0 : 1) || rank(a) - rank(b) || ms(a.dueAt) - ms(b.dueAt));
   const tenant = (await db.doc(T(t)).get()).data() || {};
   const people = manager ? (await team(db, t)).filter((m: any) => m.role !== 'renter' && !m.isRenter).map((m: any) => ({ id: m.id, name: m.name || 'Team member', role: m.role || '' })) : [];
-  return { ok: true as const, items: shown, people, settings: oppSettingsOf(tenant), manager };
+  const pace = manager ? (((await db.doc(`${T(t)}/private/opportunities`).get()).data() || {}).pace || null) : null;
+  return { ok: true as const, items: shown, people, settings: oppSettingsOf(tenant), manager, pace };
 }
 const rank = (o: any) => ({ high: 0, medium: 1, low: 2 } as any)[o.priority] ?? 1;
 

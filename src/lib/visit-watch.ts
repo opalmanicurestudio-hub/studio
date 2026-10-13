@@ -29,7 +29,8 @@ export function alertsFor(prev: Watch, cur: Watch, a: any, fmt: (iso: string) =>
   return out;
 }
 
-export async function watchVisits(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<number> {
+/** `onCancelled` hears each visit that has just been cancelled (Opportunities picks it up right away — lib/opportunities-server). */
+export async function watchVisits(db: any, tenantId: string, tenant: any, now = Date.now(), onCancelled?: (x: { clientId: string | null; appointmentId: string }) => void): Promise<number> {
   const T = `tenants/${tenantId}`; const tz = tenant?.timezone || 'America/New_York';
   const fmt = (iso: string) => { const d = new Date(iso); if (!Number.isFinite(d.getTime())) return 'visit';
     const sameDay = d.toLocaleDateString('en-CA', { timeZone: tz }) === new Date(now).toLocaleDateString('en-CA', { timeZone: tz });
@@ -41,6 +42,7 @@ export async function watchVisits(db: any, tenantId: string, tenant: any, now = 
     const a: any = d.data() || {}; if (a.isTable) continue;
     const cur = watchOf(a); const prev: Watch | null = a.staffWatch || null;
     if (prev && prev.off === cur.off && prev.at === cur.at && JSON.stringify(prev.by) === JSON.stringify(cur.by)) continue;
+    if (prev && !prev.off && cur.off && onCancelled) { try { onCancelled({ clientId: a.clientId ? String(a.clientId) : null, appointmentId: d.id }); } catch { /* never stops the watch */ } }
     if (prev) for (const x of alertsFor(prev, cur, a, fmt)) {
       const r = db.collection(`${T}/notifications`).doc();
       b.set(r, { id: r.id, userId: x.to, type: x.kind, appointmentId: d.id, message: x.text, link: 'today', createdAt: iso, read: false }); n++; sent++;

@@ -19,7 +19,7 @@ export function OpportunitiesBoard({ tenantId }: { tenantId: string }) {
   const [openId, setOpenId] = React.useState<string | null>(null); const [panel, setPanel] = React.useState<'' | 'settings' | 'add'>(''); const [busy, setBusy] = React.useState(false); const [note, setNote] = React.useState('');
   const load = React.useCallback(() => (tenantId ? payPost('/api/opportunities', { tenantId, action: 'list' }).then(setD) : null), [tenantId]);
   React.useEffect(() => { void load(); }, [load]);
-  const items: any[] = d?.items || []; const open = items.filter((o) => o.status === 'open'); const AUTO_ST = ['waiting', 'auto', 'not_sent']; const autos = items.filter((o) => AUTO_ST.includes(o.status)); const closed = items.filter((o) => o.status !== 'open' && !AUTO_ST.includes(o.status));
+  const items: any[] = d?.items || []; const open = items.filter((o) => o.status === 'open'); const AUTO_ST = ['scheduled', 'waiting', 'auto', 'not_sent']; const autos = items.filter((o) => AUTO_ST.includes(o.status)); const closed = items.filter((o) => o.status !== 'open' && !AUTO_ST.includes(o.status));
   const pool = tab === 'auto' ? autos.filter((o) => o.status !== 'not_sent') : open;
   const counts = (FINDER_KINDS as string[]).concat(['follow_up', 'manual']).map((k) => ({ k, n: pool.filter((o) => o.kind === k).length, v: pool.filter((o) => o.kind === k).reduce((s, o) => s + (o.valueCents || 0), 0) })).filter((x) => x.n);
   const list = (tab === 'open' ? open : tab === 'auto' ? autos : closed).filter((o) => kind === 'all' || o.kind === kind);
@@ -53,7 +53,7 @@ export function OpportunitiesBoard({ tenantId }: { tenantId: string }) {
               <span>{o.result?.status === 'paid' ? <PAID cents={o.result.paidCents || 0} /> : <EST cents={o.valueCents || 0} note={o.valueNote} />}</span>
               <span className="text-[13.5px]"><span style={{ color: PRI[o.priority] || MUTED }}>●</span> {String(o.priority || 'medium').replace(/^./, (x: string) => x.toUpperCase())}</span>
               <span className="text-[13.5px]" style={{ color: MUTED }}>{tab === 'open' ? short(o.expiresAt) : tab === 'auto' ? (o.status === 'waiting' ? short(o.escalateAt) : '—') : short(o.closedAt)}</span>
-              {tab === 'auto' ? <span className="text-[13.5px]" style={{ color: o.status === 'not_sent' ? AMBER : MUTED }}>{o.status === 'not_sent' ? 'Not sent' : `Sent ${short(o.autoSentAt)} · ${o.status === 'auto' ? 'no task' : 'waiting'}`}</span>
+              {tab === 'auto' ? <span className="text-[13.5px]" style={{ color: o.status === 'not_sent' ? AMBER : MUTED }}>{o.status === 'not_sent' ? 'Not sent' : o.status === 'scheduled' ? `Goes out ${short(o.sendAt)}` : `Sent ${short(o.autoSentAt)} · ${o.status === 'auto' ? 'no task' : 'waiting'}`}</span>
                 : <span className="text-[13.5px]" style={{ color: o.assigneeName ? INK : AMBER }}>{o.assigneeName || 'Nobody yet'}</span>}</button>)}
           </div>}
         <p className="text-[12.5px]" style={{ color: MUTED }}>Never more than your message rules allow: texting hours, the 30-day limit shared with campaigns and reminders, and anyone who said stop is left out. Nobody with an open Making it right case gets a task.</p>

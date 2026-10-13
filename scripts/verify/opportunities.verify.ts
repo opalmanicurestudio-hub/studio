@@ -7,6 +7,7 @@ const DAY = 864e5;
 const NOW = Date.parse('2026-10-12T15:00:00-04:00');
 const ago = (d: number) => new Date(NOW - d * DAY).toISOString();
 const ahead = (d: number) => new Date(NOW + d * DAY).toISOString();
+const ms = (v: any) => Date.parse(String(v || '')) || 0;
 
 (async () => {
   const O = await import('../../src/lib/opportunities');
@@ -187,5 +188,47 @@ const ahead = (d: number) => new Date(NOW + d * DAY).toISOString();
   await db3.doc(`${T}/opportunities/w2`).set({ id: 'w2', kind: 'cancelled', status: 'auto', clientId: 'ana', clientName: 'Ana', phone: '5550004', facts: {}, attempts: [], createdAt: ago(1) });
   await Srv.opportunityReply(db3, 't1', '5550004', 'STOP', NOW);
   check('a STOP reply closes it as stop', (await db3.doc(`${T}/opportunities/w2`).get()).data()?.outcome === 'stop');
+
+  console.log('Opportunities — one engine across the app (tools, room on the schedule, right away)');
+  check('a kind whose tool the business doesn’t have is off (quotes belong to classes & events)', O.oppSettingsOf({ modules: { classes_events: false } }).modes.quote === 'off' && O.oppSettingsOf({}).modes.quote !== 'off');
+  check('every task knows its tool and who it’s about', c.every((x) => x.tool && x.subject) && c.find((x) => x.kind === 'quote')?.tool === 'quotes' && c.find((x) => x.kind === 'due')?.subject.id === 'maria');
+  const P = { day: '2026-10-12', days: 21, byStaff: { maya: { share: 0.04 }, jo: { share: 0.4 } }, business: 0.2 };
+  check('booked solid (4% open) → win-back waits for that provider', O.heldForRoom('due', 'maya', P, S) && O.heldForRoom('no_rebook', 'maya', P, S));
+  check('…but a cancelled visit is still followed up, and a provider with room goes ahead', !O.heldForRoom('cancelled', 'maya', P, S) && !O.heldForRoom('due', 'jo', P, S));
+  check('turned off (0%) → nothing is ever held', !O.heldForRoom('due', 'maya', P, { ...S, paceMin: 0 }));
+  const justNow = [ap('k1', 'kim', ago(40)), ap('k2', 'kim', new Date(NOW - 3600e3).toISOString(), 'cancelled', { cancelledAt: new Date(NOW - 600e3).toISOString() })];
+  const kim = [{ id: 'kim', name: 'Kim Ng', phone: '+15550200' }];
+  check('a cancellation ten minutes ago waits for tomorrow’s run…', !O.findCandidates({ clients: kim, appointments: justNow, quotes: [], giftCards: [], settings: S, now: NOW }).length);
+  check('…unless it comes in as it happens', O.findCandidates({ clients: kim, appointments: justNow, quotes: [], giftCards: [], settings: S, now: NOW, fresh: true })[0]?.kind === 'cancelled');
+
+  const db4 = makeDb(); const sent4: any[] = []; const send4: any = async (_d: any, _t: string, to: string, body: string) => { sent4.push({ to, body }); return { ok: true, via: 'sms' }; };
+  await db4.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); for (const m of team) await db4.doc(`${T}/staff/${m.id}`).set(m);
+  const tn4 = { ...(await db4.doc(T).get()).data(), opportunities: { holdoutPct: 0 } };
+  await db4.doc(`${T}/clients/lee`).set({ id: 'lee', name: 'Lee Park', firstName: 'Lee', phone: '+15550300' });
+  for (const a of [ap('e1', 'lee', ago(50)), ap('e2', 'lee', ago(25)), ap('e3', 'lee', new Date(NOW - 2 * 3600e3).toISOString(), 'completed', { checkedOutAt: new Date(NOW - 60e3).toISOString() })]) await db4.doc(`${T}/appointments/${a.id}`).set(a);
+  await db4.doc(`${T}/clients/kim`).set(kim[0]); for (const a of justNow) await db4.doc(`${T}/appointments/${a.id}`).set(a);
+  const ev: any = await Srv.opportunityEvents(db4, 't1', tn4, NOW, [{ clientId: 'kim', appointmentId: 'k2' }]);
+  const all4 = (await db4.collection(`${T}/opportunities`).get()).docs.map((d: any) => d.data());
+  const lee = all4.find((o: any) => o.clientId === 'lee'); const kimO = all4.find((o: any) => o.clientId === 'kim');
+  check('checked out with nothing booked next → a task right away, sent tomorrow at 10 AM their time', ev.created === 2 && lee?.kind === 'no_rebook' && lee?.status === 'scheduled' && lee?.sendAt === '2026-10-13T14:00:00.000Z', { ev, lee });
+  check('a cancellation → a task right away, sent two hours later (the waitlist has the time first)', kimO?.kind === 'cancelled' && kimO?.status === 'scheduled' && ms(kimO?.sendAt) === NOW + 2 * 3600e3, kimO);
+  check('nothing goes out in the moment', sent4.length === 0);
+  const ev2: any = await Srv.opportunityEvents(db4, 't1', tn4, NOW + 300e3, [{ clientId: 'kim', appointmentId: 'k2' }]);
+  check('the same event seen twice never makes a second task', ev2.created === 0, ev2);
+  await db4.doc(`${T}/appointments/k3`).set(ap('k3', 'kim', ahead(6), 'confirmed', { createdAt: new Date(NOW + 3600e3).toISOString() }));
+  const du: any = await Srv.opportunityDue(db4, 't1', tn4, NOW + 3 * 3600e3, { send: send4 });
+  check('Kim rebooked on her own before her text was due → it closes quietly, nothing sent', du.dropped === 1 && (await db4.doc(`${T}/opportunities/${kimO.id}`).get()).data()?.outcome === 'no_longer_applies' && !sent4.length, du);
+  const night4 = Date.parse('2026-10-13T06:00:00-04:00');
+  check('not before its time', (await Srv.opportunityDue(db4, 't1', tn4, night4, { send: send4 }) as any).launched === 0);
+  const du2: any = await Srv.opportunityDue(db4, 't1', tn4, Date.parse('2026-10-13T10:01:00-04:00'), { send: send4 });
+  const lee2 = (await db4.doc(`${T}/opportunities/${lee.id}`).get()).data();
+  check('at 10 AM the next day Lee gets the automatic text, then a person if there’s no reply', du2.launched === 1 && lee2?.status === 'waiting' && sent4.some((x) => x.to === '+15550300' && /book/.test(x.body)), { du2, lee2 });
+
+  const db5 = makeDb(); await db5.doc(T).set({ name: 'Opal', timezone: 'America/New_York' }); for (const m of team) await db5.doc(`${T}/staff/${m.id}`).set(m);
+  for (const x of clients) await db5.doc(`${T}/clients/${x.id}`).set(x); for (const a of appointments) await db5.doc(`${T}/appointments/${a.id}`).set(a);
+  await db5.doc(`${T}/private/opportunities`).set({ pace: { day: '2026-10-12', days: 21, byStaff: { maya: { share: 0.03 } }, business: 0.3 } });
+  await Srv.opportunitySweep(db5, 't1', { ...(await db5.doc(T).get()).data(), opportunities: PERSON }, NOW, { force: true });
+  const all5 = (await db5.collection(`${T}/opportunities`).get()).docs.map((d: any) => d.data()); const pace5 = (await db5.doc(`${T}/private/opportunities`).get()).data()?.pace;
+  check('Maya is booked solid → Maria’s “you’re due” waits, and the board can say how many are waiting', !all5.some((o: any) => o.clientId === 'maria') && pace5?.held?.maya >= 1 && all5.some((o: any) => o.clientId === 'ana'), { held: pace5?.held, kinds: all5.map((o: any) => [o.clientId, o.kind]) });
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

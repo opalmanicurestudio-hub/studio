@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
     // Booth guests' texts (booked, welcome, credit, overage) — their own switch; only with booth rental.
     try { const { sendBoothGuestTexts } = await import('@/lib/booth-texts'); await sendBoothGuestTexts(db, t.id, tenant); } catch { /* next run */ }
     // Providers hear about changes to their visits (moved, cancelled, handed over, added on) — lib/visit-watch.
-    try { const { watchVisits } = await import('@/lib/visit-watch'); await watchVisits(db, t.id, tenant, now); } catch { /* next run */ }
+    const justCancelled: Array<{ clientId: string | null; appointmentId: string }> = [];
+    try { const { watchVisits } = await import('@/lib/visit-watch'); await watchVisits(db, t.id, tenant, now, (x) => justCancelled.push(x)); } catch { /* next run */ }
     try { const { caseNudges } = await import('@/lib/case-nudges'); await caseNudges(db, t.id, tenant); } catch { /* next run */ }
     try { const { redoPaySweep } = await import('@/lib/redo-pay'); await redoPaySweep(db, t.id, tenant); } catch { /* next run */ }
     try { const { missedPickupSweep } = await import('@/lib/refund-payouts'); await missedPickupSweep(db, t.id, tenant); } catch { /* next run */ }
@@ -46,8 +47,12 @@ export async function GET(req: NextRequest) {
     try { const { calloutSweep } = await import('@/lib/callout-choices'); await calloutSweep(db, t.id, now); } catch { /* next run */ }   // callouts: call list, then kept times to the waitlist
     try { const { appReplyFallback } = await import('@/lib/client-messages'); await appReplyFallback(db, t.id, now); } catch { /* next run */ }   // app replies unseen for 10 minutes → a text
     try { const { waitlistSweep } = await import('@/lib/waitlist-server'); await waitlistSweep(db, t.id, tenant, now); } catch { /* next run */ }
-    // Opportunities: once a day after 7 am local — find, hand out, expire, check who came back (lib/opportunities-server).
+    // Opportunities: once a day after 9 am local — find, hand out, expire, check who came back (lib/opportunities-server).
     try { const { opportunitySweep } = await import('@/lib/opportunities-server'); await opportunitySweep(db, t.id, tenant, now); } catch { /* next run */ }
+    // …and the moment something happens (a cancellation, a confirmed no-show, a checkout with nothing booked next): a task for
+    // that client now, sent at its time — then anything scheduled whose time has come.
+    try { const { opportunityEvents } = await import('@/lib/opportunities-server'); await opportunityEvents(db, t.id, tenant, now, justCancelled); } catch { /* next run */ }
+    try { const { opportunityDue } = await import('@/lib/opportunities-server'); await opportunityDue(db, t.id, tenant, now); } catch { /* next run */ }
     if (!automationOn(tenant, 'no-show-check')) continue;   // switched off in Automations
     const windowMin = Number(tenant.noShowWindowMinutes ?? 15); const confirmMin = Number(tenant.noShowConfirmWindowMinutes ?? 10);
     try {

@@ -8,6 +8,8 @@
 // when they answer; no link in the first text (except a waitlist spot they asked for); urgency only when it's real; an easy way
 // out; never the same words twice to one client. Every playbook has several approved versions for that reason.
 
+import { moduleEnabled, type ModuleId } from '@/lib/modules';
+
 export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'manual' | 'follow_up';
 export type Who = 'provider' | 'desk' | 'owner';
 export type OutcomeId = 'booked' | 'interested' | 'not_now' | 'price' | 'no_answer' | 'voicemail' | 'bad_experience' | 'stop' | 'declined' | 'quote_accepted' | 'no_longer_applies' | 'done';
@@ -158,14 +160,33 @@ export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it aut
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
 export const DEFAULT_MODES: Record<string, Mode> = { due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
 export const modesFor = (k: OppKind): Mode[] => (PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
-export interface OppSettings { on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number }
+export interface OppSettings { on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number }
+
+// ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
+// One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
+export type Tool = 'appointments' | 'quotes' | 'gift_cards' | 'memberships' | 'shop' | 'booths' | 'academy' | 'hiring' | 'calls';
+export const TOOL_OF: Record<OppKind, Tool> = { due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
+const TOOL_GATE: Partial<Record<Tool, ModuleId>> = { quotes: 'classes_events', memberships: 'memberships', shop: 'retail', booths: 'booth_rental', academy: 'academy', hiring: 'team', calls: 'voice' };
+export const toolOn = (tenant: any, tool: Tool) => { const g = TOOL_GATE[tool]; return !g || moduleEnabled(tenant, g); };
+
+// ── Room on the schedule ────────────────────────────────────────────────────────────────────
+// Win-back only makes sense when there is time to see the client. When a provider's next few weeks are nearly full,
+// these kinds wait (they're found again the next day); recovering a lost visit, quotes and first-visit check-ins always go.
+export const PACED: OppKind[] = ['due', 'long_gone', 'no_rebook', 'gift_card'];
+/** Share of each provider's bookable start times still open over the next `days` days (0–1), worked out once a day. */
+export interface Pace { day: string; days: number; byStaff: Record<string, { share: number; name?: string }>; business: number | null; held?: Record<string, number> }
+export function heldForRoom(kind: OppKind, providerId: string | null, pace: Pace | null | undefined, S: OppSettings): boolean {
+  if (!S.paceMin || !pace || !PACED.includes(kind)) return false;
+  const share = providerId && pace.byStaff?.[providerId] ? pace.byStaff[providerId].share : pace.business;
+  return typeof share === 'number' && share * 100 < S.paceMin;
+}
 export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'quote', 'gift_card'];
 export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
   const m = o.modes || {};
-  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : DEFAULT_MODES[k] || 'person'; if (f[k] === false) v = 'off'; return [k, v]; }));
-  return { on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10) };
+  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
+  return { on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21) };
 }
 
 // ── Reading a client's history ──────────────────────────────────────────────────────────────
@@ -195,7 +216,7 @@ export function historyOf(appts: any[], now: number): Map<string, History> {
   return out;
 }
 
-export interface Candidate { kind: OppKind; key: string; clientId: string | null; clientName: string; why: string; valueCents: number; valueNote?: string; providerId: string | null; dueAt: string; expiresAt: string; refs: Record<string, string>; facts: Record<string, string> }
+export interface Candidate { kind: OppKind; tool: Tool; subject: { type: 'client' | 'contact'; id: string | null }; key: string; clientId: string | null; clientName: string; why: string; valueCents: number; valueNote?: string; providerId: string | null; dueAt: string; expiresAt: string; refs: Record<string, string>; facts: Record<string, string> }
 
 const firstName = (c: any) => String(c?.firstName || String(c?.name || c?.clientName || '').split(' ')[0] || '').trim() || 'there';
 const shortService = (n: any) => { const s = String(n || '').trim(); if (!s) return 'nails'; const l = s.toLowerCase();
@@ -204,16 +225,18 @@ const day = (n: number) => `${Math.round(n)} day${Math.round(n) === 1 ? '' : 's'
 const weeksOf = (g: number | null) => (g ? Math.max(1, Math.round(g / 7)) : 4);
 const whenWord = (t: number, now: number, tz?: string) => { const d = Math.round((now - t) / DAY); if (d <= 1) return 'yesterday'; return new Date(t).toLocaleDateString('en-US', { weekday: 'long', ...(tz ? { timeZone: tz } : {}) }) + (d < 7 ? '' : ''); };
 
-/** The rules. Returns everything that qualifies today; the server drops what's already open, cooling down or opted out. */
-export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string> }): Candidate[] {
-  const { now, settings: S } = x; const iso = (t: number) => new Date(t).toISOString();
+/** The rules. Returns everything that qualifies today; the server drops what's already open, cooling down or opted out.
+ * `fresh`: called the moment something happened (a cancellation, a no-show, a checkout), so those kinds qualify the
+ * same day; the server decides when the client actually hears from us. */
+export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean }): Candidate[] {
+  const { now, settings: S } = x; const minAge = x.fresh ? 0 : 1; const iso = (t: number) => new Date(t).toISOString();
   const renter = x.renterStaffIds || new Set<string>();
   const appts = x.appointments.filter((a) => !a.isRenterBooking && !renter.has(String(a.staffId || '')) && !a.isWalkIn);
   const H = historyOf(appts, now); const clients = new Map(x.clients.map((c) => [String(c.id), c]));
   const out: Candidate[] = [];
   const add = (kind: OppKind, c: any, h: History | null, why: string, valueCents: number, extra: Partial<Candidate> = {}) => {
     const pb = PLAYBOOKS[kind];
-    out.push({ kind, key: `${kind}:${extra.refs?.quoteId || extra.refs?.giftCardId || extra.refs?.appointmentId || c?.id}`, clientId: c?.id ? String(c.id) : null, clientName: String(c?.name || [c?.firstName, c?.lastName].filter(Boolean).join(' ') || 'Client').slice(0, 120),
+    out.push({ kind, tool: TOOL_OF[kind], subject: { type: c?.id ? 'client' : 'contact', id: c?.id ? String(c.id) : null }, key: `${kind}:${extra.refs?.quoteId || extra.refs?.giftCardId || extra.refs?.appointmentId || c?.id}`, clientId: c?.id ? String(c.id) : null, clientName: String(c?.name || [c?.firstName, c?.lastName].filter(Boolean).join(' ') || 'Client').slice(0, 120),
       why, valueCents: Math.max(0, Math.round(valueCents)), providerId: h?.last?.staffId ? String(h.last.staffId) : null, dueAt: iso(now), expiresAt: iso(now + pb.expiresDays * DAY), refs: {},
       facts: { first: firstName(c), service_short: shortService(h?.last?.serviceName), weeks: String(weeksOf(h?.gapDays ?? null)), ...(c?.phone ? { phone: String(c.phone) } : {}) }, ...extra } as Candidate);
   };
@@ -224,12 +247,12 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
     const la = h.lastAny; const laT = la ? ms(la.startTime) : 0;
     // A cancel or no-show that's the most recent thing, and never rebooked.
     if (la && isCancel(la.status) && S.finders.cancelled) { const at = ms(la.cancelledAt) || ms(la.updatedAt) || laT; const d = (now - at) / DAY;
-      if (d >= 1 && d <= 7) { add('cancelled', c, h, `Cancelled ${la.serviceName || 'their visit'} ${day(d)} ago and hasn’t rebooked`, money(la) * 100, { refs: { appointmentId: String(la.id) }, providerId: la.staffId ? String(la.staffId) : null }); out[out.length - 1].facts.when = whenWord(laT, now, x.tz); continue; } }
+      if (d >= minAge && d <= 7) { add('cancelled', c, h, `Cancelled ${la.serviceName || 'their visit'} ${day(d)} ago and hasn’t rebooked`, money(la) * 100, { refs: { appointmentId: String(la.id) }, providerId: la.staffId ? String(la.staffId) : null }); out[out.length - 1].facts.when = whenWord(laT, now, x.tz); continue; } }
     if (la && isNoShow(la.status) && S.finders.no_show) { const d = (now - laT) / DAY;
-      if (d >= 1 && d <= 7) { add('no_show', c, h, `Missed ${la.serviceName || 'their visit'} ${day(d)} ago — nothing booked since`, money(la) * 100, { refs: { appointmentId: String(la.id) }, providerId: la.staffId ? String(la.staffId) : null }); out[out.length - 1].facts.when = whenWord(laT, now, x.tz); continue; } }
+      if (d >= minAge && d <= 7) { add('no_show', c, h, `Missed ${la.serviceName || 'their visit'} ${day(d)} ago — nothing booked since`, money(la) * 100, { refs: { appointmentId: String(la.id) }, providerId: la.staffId ? String(la.staffId) : null }); out[out.length - 1].facts.when = whenWord(laT, now, x.tz); continue; } }
     if (since === null) continue;
     if (n === 1 && since >= 3 && since <= 10 && S.finders.first_visit) { add('first_visit', c, h, `First visit ${day(since)} ago (${h.last.serviceName || 'a service'}) — nothing booked yet`, h.avg * 100); continue; }
-    if (n >= 2 && since >= 1 && since <= 3 && S.finders.no_rebook) { add('no_rebook', c, h, `Came in ${day(since)} ago and left without a next visit${g ? ` (usually every ${weeksOf(g)} weeks)` : ''}`, h.avg * 100); continue; }
+    if (n >= 2 && since >= minAge && since <= 3 && S.finders.no_rebook) { add('no_rebook', c, h, `Came in ${day(since)} ago and left without a next visit${g ? ` (usually every ${weeksOf(g)} weeks)` : ''}`, h.avg * 100); continue; }
     if (n >= 2 && g && since >= Math.max(g * 1.5, g + 7) && since < Math.max(g * 3, 90) && S.finders.due) { add('due', c, h, `${day(since)} since their ${h.last.serviceName || 'last visit'} — usually every ${weeksOf(g)} weeks`, h.avg * 100); continue; }
     const longAfter = Math.max(g ? g * 3 : 90, 90);
     if (since >= longAfter && since <= 365 && S.finders.long_gone) { add('long_gone', c, h, `Last visit ${Math.round(since / 30)} months ago${n > 1 ? ` — came ${n} times before` : ''}`, h.avg * 100); continue; }
@@ -257,7 +280,7 @@ export const dollars = (cents: number) => { const d = (Number(cents) || 0) / 100
 
 /** Keep only what should become a task: one open task per client, cooldowns, opt-outs, open cases. */
 export function filterCandidates(c: Candidate[], o: { existing: any[]; clients: Map<string, any>; openCaseClients: Set<string>; recentAutoNudge: Set<string>; now: number }): Candidate[] {
-  const ACT = ['open', 'holdout', 'waiting', 'auto'];
+  const ACT = ['open', 'holdout', 'waiting', 'auto', 'scheduled'];
   const openByClient = new Set(o.existing.filter((e) => ACT.includes(e.status) && e.clientId).map((e) => String(e.clientId)));
   const keys = new Set(o.existing.filter((e) => ACT.includes(e.status)).map((e) => e.key));
   const seen = new Set<string>();
