@@ -26,6 +26,9 @@ export interface Playbook {
   never: string;
   /** Sent automatically (no person waiting to answer, so a one-tap booking link goes in). Empty = person only. */
   auto?: string[];
+  /** Automatic, asking first (no link): a yes gets two real times back, and a 1 or 2 books it. Used unless the business
+   * switches this kind to "include the link". */
+  ask?: string[];
   /** What the person says when an automatic text got no reply and it comes to them. */
   afterAuto?: string;
 }
@@ -52,6 +55,10 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     auto: [
       'Hi {first}, this is {business}. You are due for your {service_short}. Whenever you are ready, you are welcome to book a time that suits you here: {link}',
       'Hi {first}, we hope you are well. If you would like to book your next {service_short}, you can choose a time here: {link}. There is no rush at all.',
+    ],
+    ask: [
+      'Hi {first}, this is {business}. You are due for your {service_short} soon. Would you like us to find you a time? Just reply yes and we will send you a couple of options.',
+      'Hi {first}, we hope you are well. Would you like us to reserve your next {service_short}? Reply yes and we will send you two times that suit your usual schedule.',
     ],
     afterAuto: 'Hi {first}, this is {me}. I am following up on our text from the other day. Would you like me to find you a time?',
     never: '“We miss you!” It is about us, not them.' },
@@ -102,6 +109,10 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     auto: [
       'Hi {first}, thank you for coming in. When you would like your next {service_short}, about {weeks} weeks from now is usually ideal. You can book a time here: {link}',
       'Hi {first}, it was lovely seeing you. Whenever you would like to book your next appointment, you can do so here: {link}',
+    ],
+    ask: [
+      'Hi {first}, thank you for coming in. Would you like us to reserve your next {service_short} in about {weeks} weeks? Just reply yes and we will send you a couple of times.',
+      'Hi {first}, it was lovely seeing you. Would you like us to hold your usual time in about {weeks} weeks? Reply yes and we will send you two options.',
     ],
     afterAuto: 'Hi {first}, this is {me}. Would you like me to reserve your usual time in about {weeks} weeks, so you do not need to think about it?',
     never: 'A hold that doesn’t really release.' },
@@ -161,7 +172,7 @@ export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it aut
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
 export const DEFAULT_MODES: Record<string, Mode> = { due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
 export const modesFor = (k: OppKind): Mode[] => (PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
-export interface OppSettings { on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number> }
+export interface OppSettings { linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number> }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
@@ -191,7 +202,9 @@ export function oppSettingsOf(tenant: any): OppSettings {
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
   const m = o.modes || {};
   const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : DEFAULT_MODES[k] || 'person'; if (f[k] === false || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
-  return { on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
+  const lf = o.linkFirst || {};
+  const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, typeof lf[k] === 'boolean' ? lf[k] : !PLAYBOOKS[k].ask?.length]));
+  return { linkFirst, on: o.on !== false, finders: Object.fromEntries(FINDER_KINDS.map((k) => [k, modes[k] !== 'off'])), modes, afterDays: n(o.afterDays, 1, 14, 3), perPersonPerDay: n(o.perPersonPerDay, 1, 30, 5), holdoutPct: n(o.holdoutPct, 0, 30, 10), paceMin: n(o.paceMin, 0, 50, 10), paceDays: n(o.paceDays, 7, 42, 21),
     windows: Object.fromEntries((Object.keys(WINDOW_DAYS) as Tool[]).map((k) => [k, n(o.windows?.[k], 7, 30, WINDOW_DAYS[k])])) as Record<Tool, number> };
 }
 
@@ -386,4 +399,17 @@ export function resultState(a: any, refundedCents = 0): { state: 'booked' | 'pai
   const value = Math.round(money(a) * 100);
   if (DONE.includes(st)) { const net = Math.max(0, value - Math.max(0, refundedCents)); return net > 0 || value === 0 ? { state: 'paid', paidCents: net, bookedCents: 0 } : { state: 'refunded', paidCents: 0, bookedCents: 0 }; }
   return { state: 'booked', paidCents: 0, bookedCents: value };
+}
+
+
+// ── Answering a reply without a person (ask first) ──────────────────────────────────────────────
+// Rules, not guesses: a short, plain yes gets times; a 1 or 2 books that time; anything else goes to a person.
+export function isYes(body: string): boolean {
+  const t = String(body || '').trim().toLowerCase().replace(/[!.\s]+$/g, '');
+  if (!t || t.length > 40 || t.includes('?')) return false;
+  return /^(y|ya|yes|yes please|yes pls|yeah|yea|yep|yup|sure|ok|okay|k|please|sounds good|that would be great|definitely|absolutely|of course|i would|i'd like that|id like that)(\s+(please|thanks|thank you|thx))?$/.test(t);
+}
+export function pickedNumber(body: string, max: number): number | null {
+  const m = String(body || '').trim().match(/^(?:option\s*)?#?\s*([1-9])\s*[.!)]?$/i); const n = m ? Number(m[1]) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= max ? n : null;
 }

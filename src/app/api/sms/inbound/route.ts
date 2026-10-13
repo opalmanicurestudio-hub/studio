@@ -129,8 +129,12 @@ export async function POST(req: NextRequest) {
       body: body || null, mediaCount,
       threadedTicketTitle: threaded,
     });
-    // A client answering an automatic Opportunities text: a person takes it now, with what they said (lib/opportunities-server).
-    if ((senderType === 'unknown' || senderType === 'client') && body) { try { const { opportunityReply } = await import('@/lib/opportunities-server'); await opportunityReply(db, tenantId, fromDigits, body); } catch { /* the inbox record still has it */ } }
+    // A client answering an automatic Opportunities text: a yes gets times and a 1 or 2 books it; anything else goes to a person now (lib/opportunities-server).
+    if ((senderType === 'unknown' || senderType === 'client') && body) { try { const { opportunityReply } = await import('@/lib/opportunities-server'); const secret = process.env.CRON_SECRET; const origin = req.nextUrl.origin;
+      // Booking from a reply ("1" or "2") goes through the booking service, the same signed call the client screen uses.
+      const io = secret ? { origin, internal: (path: string, b: any) => fetch(`${origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': secret }, body: JSON.stringify(b) }).then((r) => r.json()).catch(() => ({ ok: false })),
+        post: (path: string, b: any) => fetch(`${origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json()).catch(() => ({ ok: false })) } : undefined;
+      await opportunityReply(db, tenantId, fromDigits, body, Date.now(), io); } catch { /* the inbox record still has it */ } }
     // A client's text that sounds like a complaint: the desk gets "Start a case" (nothing opens by itself).
     let flagged: any = null;
     if ((senderType === 'unknown' || senderType === 'client') && body) { try { const { flagClientText } = await import('@/lib/complaint-texts'); const tDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; flagged = await flagClientText(db, tenantId, tDoc, { from, body, inboxId: iRef.id }); } catch (e) { console.error('[sms/inbound] complaint check', e); } }

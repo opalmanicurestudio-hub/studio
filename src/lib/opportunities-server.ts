@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
+import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -128,17 +128,19 @@ async function launch(ctx: Ctx, base: any, now: number): Promise<{ doc: any; ext
   const facts: any = { ...(base.facts || {}), business: businessName(tenant) }; const extra: Array<[any, any]> = [];
   let why = base.why;
   if ((mode === 'auto' || mode === 'auto_then_person') && pb.auto?.length) {
-    const usedA = ctx.opps.filter((e: any) => e.clientId && e.clientId === base.clientId && e.kind === base.kind && Number.isInteger(e.autoVersion)).map((e: any) => e.autoVersion);
-    const av = pickFrom(pb.auto.length, usedA); const link = await bookLink(tenant, t, { providerId: base.providerId, opp: base.id });
-    const body = fill(pb.auto[av], { ...facts, link, me: first(prov?.name) || businessName(tenant) });
+    // Ask first (no link) unless the business chose "include the link" for this kind; a yes gets times (opportunityReply).
+    const askFirst = !!pb.ask?.length && !S.linkFirst?.[base.kind]; const set = askFirst ? pb.ask! : pb.auto;
+    const usedA = ctx.opps.filter((e: any) => e.clientId && e.clientId === base.clientId && e.kind === base.kind && Number.isInteger(e.autoVersion) && !!e.askFirst === askFirst).map((e: any) => e.autoVersion);
+    const av = pickFrom(set.length, usedA); const link = askFirst ? '' : await bookLink(tenant, t, { providerId: base.providerId, opp: base.id });
+    const body = fill(set[av], { ...facts, link, me: first(prov?.name) || businessName(tenant) });
     const chk0 = await textCheck(db, t, tenant, base, cl || { phone: base.phone }, now);
-    const chk: any = !link && pb.auto[av].includes('{link}') ? { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' } : chk0;
+    const chk: any = !link && set[av].includes('{link}') ? { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' } : chk0;
     const r: any = chk.ok ? await ctx.send(db, t, chk.phone, body, cl?.email ? { email: cl.email, subject: businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: base.clientId || undefined, recipientName: base.clientName }).catch(() => ({ ok: false })) : { ok: false, error: chk.error };
     if (r.ok) {
       { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
       if (pb.marketing && base.clientId) extra.push([db.collection(`${T(t)}/opportunityTexts`).doc(), { clientId: base.clientId, at: nowIso(now), channel: 'sms', marketing: true, oppId: base.id }]);
       const auto = { at: nowIso(now), by: 'auto', byName: 'Sent automatically', channel: r.via === 'email' ? 'email' : 'text', note: body };
-      return { doc: { ...base, facts, status: mode === 'auto' ? 'auto' : 'waiting', autoVersion: av, autoMessage: body, autoSentAt: nowIso(now), firstContactAt: nowIso(now), lastContactAt: nowIso(now),
+      return { doc: { ...base, facts, status: mode === 'auto' ? 'auto' : 'waiting', askFirst, autoVersion: av, autoMessage: body, autoSentAt: nowIso(now), firstContactAt: nowIso(now), lastContactAt: nowIso(now),
         escalateAt: mode === 'auto_then_person' ? nowIso(now + S.afterDays * DAY) : null, attempts: [...(base.attempts || []), auto], assigneeId: null, assigneeName: null, version: 0, message: '' }, extra, sent: true };
     }
     if (mode === 'auto') return { doc: { ...base, facts, status: 'not_sent', notSentWhy: String(r.error || 'The text could not be sent.'), closedAt: nowIso(now), assigneeId: null, assigneeName: null, version: 0, message: '' }, extra, sent: false };
@@ -260,24 +262,73 @@ export async function opportunityDue(db: any, t: string, tenant: any, now = Date
   return { ok: true, launched, dropped };
 }
 
-/** A client texted back (lib: /api/sms/inbound). If they're waiting on an automatic text, a person takes it now — with
- * what they said — instead of after the waiting days. */
-export async function opportunityReply(db: any, t: string, fromDigits: string, body: string, now = Date.now()) {
+/** A client texted back (lib: /api/sms/inbound). STOP closes it. On an ask-first text, a plain yes gets two real times
+ * back and a 1 or 2 books that time — no person needed. Anything else (a question, "not now", a price) goes to a person
+ * now, with what they said, instead of after the waiting days. */
+export async function opportunityReply(db: any, t: string, fromDigits: string, body: string, now = Date.now(), io?: TaskIO) {
   if (!fromDigits) return null; const dg = (v: any) => String(v || '').replace(/\D+/g, '').replace(/^1(\d{10})$/, '$1');
   const list = rows(await db.collection(`${T(t)}/opportunities`).where('status', 'in', ['waiting', 'auto']).get()).filter((e: any) => dg(e.phone) === fromDigits);
   if (!list.length) return null;
   const stop = /^\s*(stop|stopall|unsubscribe|cancel|end|quit)\b/i.test(body);
   const tenant: any = (await db.doc(T(t)).get()).data() || {}; const S = oppSettingsOf(tenant); const staff = await team(db, t);
   const load = openLoad(rows(await db.collection(`${T(t)}/opportunities`).where('status', '==', 'open').get()));
+  const said = { at: nowIso(now), by: 'client', byName: '', channel: 'text', note: `Replied: “${body.slice(0, 300)}”` };
   for (const e of list) {
-    const ref = db.doc(`${T(t)}/opportunities/${e.id}`); const att = [...(e.attempts || []), { at: nowIso(now), by: 'client', byName: e.clientName || 'Client', channel: 'text', note: `Replied: “${body.slice(0, 300)}”` }].slice(-20);
+    const ref = db.doc(`${T(t)}/opportunities/${e.id}`); const att = [...(e.attempts || []), { ...said, byName: e.clientName || 'Client' }].slice(-20);
     if (stop) { await ref.update({ status: 'done', outcome: 'stop', closedAt: nowIso(now), attempts: att }); continue; }
+    if (e.askFirst && io && e.clientId) {
+      const handled = await answerAskFirst(db, t, tenant, S, e, ref, att, body, now, io).catch((err) => { console.error('[opportunities] ask-first reply', err); return false; });
+      if (handled) continue;
+    }
     const pb = PLAYBOOKS[e.kind as OppKind]; const who = assignee(pb.who, e.providerId, staff, load, 99); if (who) load.set(who.id, (load.get(who.id) || 0) + 1);
     await ref.update({ status: 'open', assigneeId: who?.id || null, assigneeName: who?.name || null, dueAt: nowIso(now), expiresAt: nowIso(now + 7 * DAY), attempts: att, priority: 'high',
       why: `Replied to the automatic text: “${body.slice(0, 160)}”`, message: '', repliedAt: nowIso(now) });
     if (who) { const r = db.collection(`${T(t)}/notifications`).doc(); await r.set({ id: r.id, userId: who.id, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `${e.clientName || 'A client'} has replied: “${body.slice(0, 120)}”. This has been added to your tasks.` }); }
   }
   return list.length;
+}
+/** Yes → two real times (their usual service, provider and day), numbered. 1 or 2 → booked through the booking service
+ * (deposit: their card on file if the business allows, otherwise a deposit link); the booking sends its usual
+ * confirmation. Returns false when a person should take it instead. */
+async function answerAskFirst(db: any, t: string, tenant: any, S: OppSettings, e: any, ref: any, att: any[], body: string, now: number, io: TaskIO): Promise<boolean> {
+  const offered: any[] = Array.isArray(e.offeredTimes) ? e.offeredTimes : [];
+  const n = offered.length ? pickedNumber(body, offered.length) : null;
+  if (!(n || (!offered.length && isYes(body)))) return false;
+  const ctx = await rebookCtxFor(db, t, e); if (!ctx) return false;
+  const { rebookStart, rebookBook } = await import('@/lib/rebook-actions');
+  const r: any = await rebookStart(db, ctx, 'task'); if (!r?.ok || r.rebook?.stage !== 'choose') return false;
+  const plan = r.rebook; const client = (await db.doc(`${T(t)}/clients/${e.clientId}`).get()).data() || {};
+  const firstName = String(e.facts?.first || client.firstName || String(client.name || e.clientName || '').split(' ')[0] || 'there');
+  const link = await bookLink(tenant, t, { providerId: plan.staffId, opp: e.id }); const linkWithService = link ? `${link}${link.includes('?') ? '&' : '?'}service=${encodeURIComponent(plan.serviceId)}` : '';
+  const say = async (text: string) => {
+    const chk = await textCheck(db, t, tenant, e, client, now, { answering: true }); if (!chk.ok) return false;
+    const send: Sender = io.send || (async (...x: any[]) => { const { sendTenantSms } = await import('@/lib/sms'); return (sendTenantSms as any)(...x); });
+    const s2 = await send(db, t, chk.phone, text, undefined, { kind: 'opportunity', recipientType: 'client', recipientId: e.clientId, recipientName: e.clientName });
+    return !!s2?.ok;
+  };
+  const auto = (note: string) => ({ at: nowIso(now), by: 'auto', byName: 'Sent automatically', channel: 'text', note });
+  if (!n) {
+    const picks = (plan.suggestions || []).slice(0, 2); if (!picks.length) return false;   // nothing open in their window: a person helps
+    const who = plan.staffName ? ` with ${plan.staffName}` : '';
+    const lines = picks.map((x: any, i: number) => `${i + 1}) ${timeWords(x)}`).join(' or ');
+    const text = `Wonderful, ${firstName}. I have ${lines}${who}. Reply ${picks.length === 2 ? '1 or 2' : '1'} to book${linkWithService ? `, or choose another time here: ${linkWithService}` : ''}.`;
+    if (!(await say(text))) return false;
+    await ref.update({ attempts: [...att, auto(`Sent ${picks.length === 2 ? 'two times' : 'a time'}: ${picks.map(timeWords).join(' or ')}`)].slice(-20), repliedAt: nowIso(now), lastContactAt: nowIso(now),
+      offeredTimes: picks.map((x: any) => ({ startIso: x.startIso, staffId: x.staffId, label: timeWords(x) })), escalateAt: nowIso(now + DAY), status: 'waiting' });
+    return true;
+  }
+  const pick = offered[n - 1]; const dep = Number(plan.depositCents) || 0;
+  const deposit = dep === 0 ? 'none' : plan.choices?.cardHold ? 'card_hold' : plan.choices?.cardCharge ? 'card_charge' : 'later';
+  const bk: any = await rebookBook(db, ctx, { ...plan, choices: { ...plan.choices, later: true } }, { startIso: pick.startIso, staffId: pick.staffId, deposit }, io.internal, io.origin);
+  if (!bk?.ok) {
+    await say(`I am sorry, ${firstName}, that time has just been taken.${linkWithService ? ` You can choose another time here: ${linkWithService}` : ' Someone from our team will be in touch shortly.'}`);
+    return false;   // a person follows up too
+  }
+  const appointmentId = String(bk.rebook?.appointmentId || bk.appointmentId || '');
+  if (appointmentId) await db.doc(`${T(t)}/appointments/${appointmentId}`).set({ opportunityId: e.id, opportunityKind: e.kind }, { merge: true }).catch(() => {});
+  await ref.update({ status: 'done', outcome: 'booked', closedAt: nowIso(now), refs: { ...(e.refs || {}), appointmentId }, result: { status: 'booked', appointmentId, checkedAt: nowIso(now) },
+    attempts: [...att, auto(`Booked ${pick.label} from their reply`)].slice(-20), repliedAt: nowIso(now), lastContactAt: nowIso(now) });
+  return true;
 }
 
 // ── Reading ──────────────────────────────────────────────────────────────────────────
@@ -318,7 +369,7 @@ export async function textCheck(db: any, t: string, tenant: any, o: any, client:
 }
 
 /** What acting inside a task needs from the request: the booking service (signed internal call), public routes, the app's address. */
-export type TaskIO = { internal: (path: string, body: any) => Promise<any>; post: (path: string, body: any) => Promise<any>; origin: string };
+export type TaskIO = { internal: (path: string, body: any) => Promise<any>; post: (path: string, body: any) => Promise<any>; origin: string; send?: Sender };
 export async function actOnOpportunity(db: any, t: string, actor: RequestActor, b: any, now = Date.now(), io?: TaskIO) {
   const action = str(b.action, 20); const manager = actor.isManager || actor.isOwner;
   const tenant: any = (await db.doc(T(t)).get()).data() || {};
