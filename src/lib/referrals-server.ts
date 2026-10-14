@@ -62,21 +62,87 @@ export async function publicInfo(db: any, t: string, slug: string, now = Date.no
   const c = await clientOfSlug(db, t, slug); if (!c || c.archived || c.status === 'archived') return { ok: false as const, error: 'This link isn’t valid.' };
   return { ok: true as const, firstName: firstOf(c.name || c.firstName) || 'A friend', business: biz(tenant), logo: tenant.logoUrl || null, offerCents: S.friendCents, code: WELCOME_CODE, favorite: await favoriteOf(db, t, c.id, now) };
 }
+/** The welcome page in full (design canvas RF6, RF8): the gift, their friend's favorite with the next open times, who
+ * they'll see, the visit in steps, where to go, and real proof. Built only from what the business already has: their
+ * own photos when they've added them, never stock photos, never made-up numbers. First names only. */
+export async function welcomeFor(db: any, t: string, slug: string, now = Date.now()) {
+  const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); if (!S.on) return { ok: false as const, error: 'This offer isn’t available right now.' };
+  const c = await clientOfSlug(db, t, slug); if (!c || c.archived || c.status === 'archived') return { ok: false as const, error: 'This link isn’t valid.' };
+  const first = firstOf(c.name || c.firstName) || 'A friend';
+  const ap = rows(await db.collection(`${T(t)}/appointments`).where('clientId', '==', c.id).get()).filter((a: any) => DONE.includes(String(a.status || '')) && a.serviceId && !a.isRenterBooking && now - ms(a.startTime) < 365 * DAY);
+  const n = new Map<string, number>(); for (const a of ap) n.set(String(a.serviceId), (n.get(String(a.serviceId)) || 0) + 1);
+  const top = [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  const svc: any = top ? (((await db.doc(`${T(t)}/services/${top}`).get()).data() as any) || null) : null;
+  const favorite = svc && svc.isActive !== false && svc.onlineBooking !== false ? { id: top, name: String(svc.name || 'Service'), minutes: Number(svc.duration) || null, price: Number(svc.price) || null, image: typeof svc.imageUrl === 'string' && /^https:/.test(svc.imageUrl) ? svc.imageUrl : null } : null;
+  // Who they'll see: the provider the friend saw for that service most recently (public card: first name, photo, title).
+  const lastWith = ap.filter((a: any) => String(a.serviceId) === top && a.staffId).sort((a: any, b: any) => ms(b.startTime) - ms(a.startTime))[0];
+  let provider: any = null;
+  if (lastWith?.staffId) { const st: any = (await db.doc(`${T(t)}/staff/${lastWith.staffId}`).get()).data() || null;
+    if (st && st.isActive !== false && !st.archived && st.role !== 'renter' && !st.isRenter) provider = { id: String(lastWith.staffId), first: firstOf(st.name) || 'Your provider', photo: [st.avatarUrl, st.photoURL].find((u: any) => typeof u === 'string' && /^https:/.test(u)) || null,
+      title: String(st.title || st.jobTitle || '').slice(0, 60) || null, specialties: (Array.isArray(st.specialties) ? st.specialties : []).map((x: any) => String(x)).slice(0, 3) }; }
+  // The next two open times for that service, on different days (with their provider, else anyone who does it).
+  let times: { label: string; dayLabel: string; startIso: string; staffId: string }[] = [];
+  if (favorite) { try {
+    const { engineFor, openTimesOn } = await import('@/lib/rebook'); const { todayIn, addDays } = await import('@/lib/tenant-time');
+    const e = await engineFor(db, t);
+    if (e) { const today = todayIn(e.tz); const days = new Set<string>();
+      for (let i = 0; i < 21 && times.length < 2; i++) { const date = addDays(today, i);
+        let slots = provider ? openTimesOn(e, { date, serviceId: favorite.id as string, staffId: provider.id }) : [];
+        if (!slots.length) slots = openTimesOn(e, { date, serviceId: favorite.id as string, staffId: null });
+        const s1 = slots[0]; if (s1 && !days.has(date)) { days.add(date); times.push({ label: s1.label, dayLabel: s1.dayLabel, startIso: s1.startIso, staffId: s1.staffId }); } } }
+  } catch (err) { console.error('[referrals] welcome times', err); } }
+  // The visit, in steps: only what's true for this business.
+  const mir = tenant.makingItRight || {}; const care = !!String((top && mir.aftercare?.byService?.[top]) || mir.aftercare?.text || '').trim();
+  const steps = [
+    { icon: 'arrive', title: 'Arrive', sub: S.arrival || 'A few minutes early is perfect. We’ll take it from there.' },
+    { icon: 'chat', title: 'A quick chat', sub: 'What you’d like, talked through together before we start.' },
+    ...(favorite ? [{ icon: 'service', title: `Your ${favorite.name.toLowerCase()}`, sub: favorite.minutes ? `About ${favorite.minutes} relaxed minutes.` : 'Relax, we’ve got you.' }] : []),
+    ...(care ? [{ icon: 'care', title: 'Caring for it at home', sub: 'A short guide is sent to your phone afterwards.' }] : []),
+  ];
+  // Where, and the one policy line a first-timer wants to know.
+  const parts = tenant.studioAddressParts || {}; const address = String(tenant.studioAddress || [parts.street, [parts.city, parts.state].filter(Boolean).join(', '), parts.zip].filter(Boolean).join(' ') || '').trim() || null;
+  let policy: string | null = null; try { const { resolvePolicy } = await import('@/lib/booking-policies'); const p: any = resolvePolicy(tenant, svc || {}); const h = Number(p?.cancel?.windowHours?.value) || 0; if (h > 0) policy = `Move or cancel up to ${h} hours before.`; } catch { /* no line */ }
+  // Real proof only: "loved it" answers this year, and one review the business has chosen to show.
+  let loved = 0; try { loved = rows(await db.collection(`${T(t)}/appointments`).where('feedback.rating', '==', 'loved').get()).filter((a: any) => now - ms(a.feedback?.at || a.startTime) < 365 * DAY).length; } catch { /* none */ }
+  let review: any = null; try { const rv = rows(await db.collection(`${T(t)}/reviews`).where('isPublic', '==', true).get()).filter((r: any) => Number(r.rating) >= 5 && String(r.text || '').trim().length >= 12)
+    .sort((a: any, b: any) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0) || ms(b.createdAt) - ms(a.createdAt))[0]; if (rv) review = { text: String(rv.text).trim().slice(0, 220), first: firstOf(rv.clientName) || null }; } catch { /* none */ }
+  const photos = [...S.photos, ...(favorite?.image && !S.photos.includes(favorite.image) ? [favorite.image] : [])].slice(0, 3);
+  return { ok: true as const, firstName: first, business: biz(tenant), logo: tenant.logoUrl || null, offerCents: S.friendCents, code: WELCOME_CODE, favorite, provider, times, steps, address, policy, loved: loved >= 10 ? loved : 0, review, photos };
+}
+
 export async function termsFor(db: any, t: string) { const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); return { ok: true, on: S.on, business: biz(tenant), lines: termsLines(S, biz(tenant)) }; }
 
 /** The visit-link card: their link, their credit and their friends (first names only). */
 export async function mine(db: any, t: string, clientId: string, now = Date.now()) {
-  const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); if (!S.on) return { ok: true, on: false };
+  const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant);
+  if (!S.on) { const c0: any = (await db.doc(`${T(t)}/clients/${clientId}`).get()).data() || {};
+    const credits0 = (Array.isArray(c0.storeCredits) ? c0.storeCredits : []).filter((x: any) => (x.status || 'available') === 'available' && !x.usedAt && !(x.expiresAt && ms(x.expiresAt) < now));
+    return { ok: true, on: false, business: biz(tenant), creditCents: Math.round(credits0.reduce((n: number, x: any) => n + (Number(x.amount) || 0), 0) * 100),
+      lines: credits0.map((x: any) => ({ cents: Math.round((Number(x.amount) || 0) * 100), why: String(x.reason || 'Store credit'), referral: false, endsAt: x.expiresAt || null })), wallet: await walletExtras(db, t, clientId, c0, now), friends: [] }; }
   const slug = await linkFor(db, t, clientId); const base = await origin(tenant);
   const c: any = (await db.doc(`${T(t)}/clients/${clientId}`).get()).data() || {};
   const credits = (Array.isArray(c.storeCredits) ? c.storeCredits : []).filter((x: any) => (x.status || 'available') === 'available' && !x.usedAt && !(x.expiresAt && ms(x.expiresAt) < now));
   const refs = rows(await db.collection(`${T(t)}/referrals`).where('referrerId', '==', clientId).get()).sort((a: any, b: any) => ms(b.createdAt) - ms(a.createdAt));
   const friends = refs.filter((r: any) => r.status !== 'unmatched').slice(0, 12).map((r: any) => ({ first: r.friendFirst || 'A friend', status: r.status,
+    step: r.status === 'rewarded' ? 4 : r.status === 'booked' || r.status === 'held' ? (r.visitId ? 3 : 2) : r.status === 'invited' ? 1 : 0,
     line: r.status === 'rewarded' ? `${dollars(r.rewardCents)} yours` : r.status === 'booked' ? (S.unlock === 'paid' ? 'After their visit' : 'Booked') : r.status === 'invited' ? 'Not booked yet' : r.status === 'held' ? 'Being checked' : r.status === 'lapsed' ? 'Didn’t come in' : 'No reward',
     when: r.rewardedAt || r.bookedAt || r.createdAt }));
   const soonest = credits.map((x: any) => x.expiresAt).filter(Boolean).sort()[0] || null;
-  return { ok: true, on: true, link: base ? `${base}/ref/${encodeURIComponent(t)}/${slug}` : null, slug, business: biz(tenant), rewardCents: S.rewardCents, friendCents: S.friendCents, unlock: S.unlock, months: S.months,
+  const lines = credits.slice().sort((a: any, b: any) => ms(a.expiresAt || '9999') - ms(b.expiresAt || '9999')).slice(0, 8).map((x: any) => ({ cents: Math.round((Number(x.amount) || 0) * 100), why: String(x.reason || 'Store credit').replace(/^Referral reward: /, ''), referral: x.source === 'referral_reward', endsAt: x.expiresAt || null }));
+  return { ok: true, on: true, lines, wallet: await walletExtras(db, t, clientId, c, now), link: base ? `${base}/ref/${encodeURIComponent(t)}/${slug}` : null, slug, business: biz(tenant), rewardCents: S.rewardCents, friendCents: S.friendCents, unlock: S.unlock, months: S.months,
     creditCents: Math.round(credits.reduce((n: number, x: any) => n + (Number(x.amount) || 0), 0) * 100), creditEndsAt: soonest, friends };
+}
+
+/** The rest of the client's wallet (design canvas RF7): gift card balances, package visits, membership visits. */
+async function walletExtras(db: any, t: string, clientId: string, c: any, now: number) {
+  const gift = rows(await db.collection(`${T(t)}/giftCards`).where('recipient.id', '==', clientId).get().catch(() => ({ docs: [] })))
+    .filter((g: any) => g.status === 'active' && Number(g.balanceCents) > 0 && !(g.expiresAt && ms(g.expiresAt) < now))
+    .map((g: any) => ({ cents: Number(g.balanceCents) || 0, from: firstOf(g.purchaserName || g.buyer?.name || g.fromName) || null, endsAt: g.expiresAt || null })).slice(0, 4);
+  const packages = (Array.isArray(c.activePackages) ? c.activePackages : []).filter((p: any) => Number(p.sessionsRemaining) > 0).map((p: any) => ({ name: String(p.name || 'Package'), left: Number(p.sessionsRemaining) || 0 })).slice(0, 3);
+  const sub = c.subscription || {}; let membership: any = null;
+  if (sub.status === 'active' && c.activeMembershipId) { const m: any = (await db.doc(`${T(t)}/memberships/${c.activeMembershipId}`).get().catch(() => null))?.data?.() || {};
+    membership = { name: String(m.name || 'Membership'), renews: sub.nextBillingDate || null }; }
+  return { gift, packages, membership };
 }
 
 /** Gift a friend: we never text the friend. The client sends it from their own phone; when that number books, it's matched. */
@@ -194,6 +260,14 @@ export async function referralSweep(db: any, t: string, tenant: any, now = Date.
   let rewarded = 0, held = 0, clawed = 0, lapsed = 0;
   for (const r of all) {
     const ref = db.doc(`${T(t)}/referrals/${r.id}`);
+    if (r.status === 'rewarded' && r.creditId && !r.endReminderAt) {   // one gentle reminder a month before the credit ends
+      const rc: any = (await db.doc(`${T(t)}/clients/${r.referrerId}`).get()).data() || {}; const cr = (rc.storeCredits || []).find((x: any) => x.id === r.creditId);
+      if (cr && (cr.status || 'available') === 'available' && !cr.usedAt && ms(cr.expiresAt) > now && ms(cr.expiresAt) - now < 30 * DAY) {
+        await ref.set({ endReminderAt: iso(now) }, { merge: true });
+        const when = new Date(ms(cr.expiresAt)).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+        await textTo(db, t, { id: r.referrerId, ...rc }, `Hi ${firstOf(rc.name) || 'there'}, a friendly reminder that your ${dollars(Math.round((Number(cr.amount) || 0) * 100))} credit ends on ${when}. We would love to see you before then!`, 'referral_update');
+      }
+    }
     if (r.status === 'rewarded') {   // a refund within 60 days takes unused credit back; spent credit is for a manager to see
       if (r.clawCheckedDone || now - ms(r.rewardedAt) > 60 * DAY || !r.visitId) continue;
       if (await refundedVisit(db, t, r.visitId)) {

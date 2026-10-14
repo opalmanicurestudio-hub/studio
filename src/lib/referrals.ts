@@ -9,15 +9,17 @@
 // the person who referred is refused; the same saved card waits for a manager; households (same address) are fine.
 // Reviews are never rewarded.
 export type RefStatus = 'invited' | 'booked' | 'held' | 'rewarded' | 'declined' | 'unmatched' | 'lapsed';
-export interface ReferralSettings { on: boolean; rewardCents: number; friendCents: number; unlock: 'paid' | 'booked'; months: number; cap: number }
-export const REF_DEFAULTS: ReferralSettings = { on: false, rewardCents: 1500, friendCents: 1500, unlock: 'paid', months: 6, cap: 5 };
+export interface ReferralSettings { on: boolean; rewardCents: number; friendCents: number; unlock: 'paid' | 'booked'; months: number; cap: number; photos: string[]; arrival: string }
+export const REF_DEFAULTS: ReferralSettings = { on: false, rewardCents: 1500, friendCents: 1500, unlock: 'paid', months: 6, cap: 5, photos: [], arrival: '' };
 export const WELCOME_ID = 'referral_welcome';
 export const WELCOME_CODE = 'FRIEND-WELCOME';
 
 export function referralSettingsOf(tenant: any): ReferralSettings {
   const r = tenant?.referrals || {}; const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
   return { on: r.on === true, rewardCents: n(r.rewardCents, 0, 50000, REF_DEFAULTS.rewardCents), friendCents: n(r.friendCents, 0, 50000, REF_DEFAULTS.friendCents),
-    unlock: r.unlock === 'booked' ? 'booked' : 'paid', months: n(r.months, 1, 24, REF_DEFAULTS.months), cap: n(r.cap, 1, 50, REF_DEFAULTS.cap) };
+    unlock: r.unlock === 'booked' ? 'booked' : 'paid', months: n(r.months, 1, 24, REF_DEFAULTS.months), cap: n(r.cap, 1, 50, REF_DEFAULTS.cap),
+    // The welcome page: up to 3 of the business's own photos, and a line about arriving (parking, which door…).
+    photos: (Array.isArray(r.photos) ? r.photos : []).filter((u: any) => typeof u === 'string' && /^https:\/\//.test(u)).slice(0, 3), arrival: String(r.arrival || '').trim().slice(0, 200) };
 }
 
 export const last10 = (v: any) => String(v || '').replace(/\D+/g, '').slice(-10);

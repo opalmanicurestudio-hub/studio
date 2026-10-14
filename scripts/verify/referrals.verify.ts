@@ -102,5 +102,30 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-13T15:00:00-04:00'); const ag
   await RS.referralSweep(db, 't1', t2, Date.parse('2026-11-02T15:00:00-05:00'));
   check('…November: given', (await db.doc(`${T}/referrals/${leeR.id}`).get()).data()?.status === 'rewarded');
   check('the terms read plainly', R.termsLines(R.referralSettingsOf({ referrals: { on: true } }), 'Opal')[0] === 'Share Opal with a friend. Your friend gets $15 off their first visit, and you get $15 in credit once their first visit is paid.');
+
+  console.log('Referrals — the welcome page and the wallet');
+  const dbW = makeDb(); const TW = 'tenants/t2';
+  await dbW.doc(TW).set({ name: 'Opal', timezone: 'America/New_York', studioAddress: '24 Main Street, Suite 3', cancellationWindowHours: 24, makingItRight: { aftercare: { text: 'Keep it dry for an hour.' } }, referrals: { on: true, arrival: 'Free parking behind the building.' } });
+  await dbW.doc(`${TW}/clients/hk`).set({ id: 'hk', name: 'Hannah Kim', phone: '+15555550301', storeCredits: [{ id: 'c1', amount: 15, amountCents: 1500, status: 'available', source: 'referral_reward', reason: 'Referral reward: Maria', expiresAt: new Date(NOW + 20 * DAY).toISOString() }], activePackages: [{ name: '5 pedicures', sessionsRemaining: 2 }] });
+  await dbW.doc(`${TW}/services/gel`).set({ name: 'Gel manicure', duration: 60, price: 55 });
+  await dbW.doc(`${TW}/staff/jess`).set({ name: 'Jess Marshall', title: 'Nail artist', specialties: ['gel', 'structured manicures'], role: 'stylist' });
+  await dbW.doc(`${TW}/appointments/w1`).set({ clientId: 'hk', serviceId: 'gel', staffId: 'jess', status: 'completed', startTime: ago(20) });
+  await dbW.doc(`${TW}/giftCards/gc1`).set({ status: 'active', balanceCents: 4000, recipient: { id: 'hk' }, purchaserName: 'Priya Shah' });
+  const wslug = await RS.linkFor(dbW, 't2', 'hk');
+  const wd2: any = await RS.welcomeFor(dbW, 't2', wslug, NOW);
+  check('the welcome page: her favorite, who they’ll see (first name only), the visit in steps, where, the policy', wd2.ok && wd2.favorite?.name === 'Gel manicure' && wd2.provider?.first === 'Jess' && wd2.provider?.title === 'Nail artist'
+    && wd2.steps.map((x: any) => x.icon).join() === 'arrive,chat,service,care' && wd2.steps[0].sub === 'Free parking behind the building.' && wd2.address === '24 Main Street, Suite 3' && /24 hours/.test(wd2.policy || ''), wd2);
+  check('no photos, no reviews, too few “loved it” answers → none shown, nothing made up', wd2.photos.length === 0 && wd2.review === null && wd2.loved === 0 && !JSON.stringify(wd2).includes('Kim'));
+  const wm: any = await RS.mine(dbW, 't2', 'hk', NOW);
+  check('the wallet: her credit (ending soon), her gift card from Priya, her package visits', wm.creditCents === 1500 && wm.lines[0].endsAt && wm.wallet.gift[0]?.cents === 4000 && wm.wallet.gift[0]?.from === 'Priya' && wm.wallet.packages[0]?.left === 2, wm);
+  const off: any = await RS.mine(dbW, 't2', 'hk', NOW);
+  await dbW.doc(TW).set({ referrals: { on: false } }, { merge: true });
+  const offM: any = await RS.mine(dbW, 't2', 'hk', NOW);
+  check('with referrals off the wallet still shows what she has', offM.on === false && offM.creditCents === 1500 && offM.wallet.packages.length === 1 && off.on === true);
+  await dbW.doc(TW).set({ referrals: { on: true } }, { merge: true });
+  await dbW.doc(`${TW}/referrals/rr`).set({ id: 'rr', status: 'rewarded', referrerId: 'hk', creditId: 'c1', rewardedAt: ago(150), visitId: 'w1', friendFirst: 'Maria' });
+  await RS.referralSweep(dbW, 't2', (await dbW.doc(TW).get()).data(), NOW);
+  check('a month before her credit ends: one reminder, once', !!(await dbW.doc(`${TW}/referrals/rr`).get()).data()?.endReminderAt);
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();
