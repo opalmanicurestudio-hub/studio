@@ -7,7 +7,7 @@
 //   referralSweep       → every pass: give credit once a friend's first visit is paid (and a day has passed); hold the few
 //                         that need a manager; take back unused credit if the visit is refunded
 //   referralOverview / decideReferral → the business view
-import { referralSettingsOf, slugFor, last10, firstOf, sameFirst, sameCard, refusal, termsLines, dollars, WELCOME_ID, WELCOME_CODE, type ReferralSettings } from '@/lib/referrals';
+import { referralSettingsOf, slugFor, last10, firstOf, sameFirst, sameCard, refusal, termsLines, dollars, WELCOME_ID, WELCOME_CODE, layoutOf, type ReferralSettings } from '@/lib/referrals';
 
 const T = (t: string) => `tenants/${t}`;
 const DAY = 864e5;
@@ -65,6 +65,7 @@ export async function publicInfo(db: any, t: string, slug: string, now = Date.no
 /** The welcome page in full (design canvas RF6, RF8): the gift, their friend's favorite with the next open times, who
  * they'll see, the visit in steps, where to go, and real proof. Built only from what the business already has: their
  * own photos when they've added them, never stock photos, never made-up numbers. First names only. */
+type Slot2 = { label: string; dayLabel: string; startIso: string; staffId: string };
 export async function welcomeFor(db: any, t: string, slug: string, now = Date.now()) {
   const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); if (!S.on) return { ok: false as const, error: 'This offer isn’t available right now.' };
   const c = await clientOfSlug(db, t, slug); if (!c || c.archived || c.status === 'archived') return { ok: false as const, error: 'This link isn’t valid.' };
@@ -74,23 +75,34 @@ export async function welcomeFor(db: any, t: string, slug: string, now = Date.no
   const top = [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
   const svc: any = top ? (((await db.doc(`${T(t)}/services/${top}`).get()).data() as any) || null) : null;
   const favorite = svc && svc.isActive !== false && svc.onlineBooking !== false ? { id: top, name: String(svc.name || 'Service'), minutes: Number(svc.duration) || null, price: Number(svc.price) || null, image: typeof svc.imageUrl === 'string' && /^https:/.test(svc.imageUrl) ? svc.imageUrl : null } : null;
-  // Who they'll see: the provider the friend saw for that service most recently (public card: first name, photo, title).
+  // Who they'll see. Their friend's provider for that service comes first (unless the business shows whoever is free
+  // first), and anyone else who does it, each with their next open times, so a friend can always choose.
   const lastWith = ap.filter((a: any) => String(a.serviceId) === top && a.staffId).sort((a: any, b: any) => ms(b.startTime) - ms(a.startTime))[0];
-  let provider: any = null;
-  if (lastWith?.staffId) { const st: any = (await db.doc(`${T(t)}/staff/${lastWith.staffId}`).get()).data() || null;
-    if (st && st.isActive !== false && !st.archived && st.role !== 'renter' && !st.isRenter) provider = { id: String(lastWith.staffId), first: firstOf(st.name) || 'Your provider', photo: [st.avatarUrl, st.photoURL].find((u: any) => typeof u === 'string' && /^https:/.test(u)) || null,
-      title: String(st.title || st.jobTitle || '').slice(0, 60) || null, specialties: (Array.isArray(st.specialties) ? st.specialties : []).map((x: any) => String(x)).slice(0, 3) }; }
-  // The next two open times for that service, on different days (with their provider, else anyone who does it).
-  let times: { label: string; dayLabel: string; startIso: string; staffId: string }[] = [];
+  const card = (id: string, st: any) => ({ id, first: firstOf(st.name) || 'Your provider', photo: [st.avatarUrl, st.photoURL].find((u: any) => typeof u === 'string' && /^https:/.test(u)) || null,
+    title: String(st.title || st.jobTitle || '').slice(0, 60) || null, specialties: (Array.isArray(st.specialties) ? st.specialties : []).map((x: any) => String(x)).slice(0, 3) });
+  const isTeam = (st: any) => st && st.isActive !== false && !st.archived && st.role !== 'renter' && !st.isRenter;
+  let providers: { id: string; first: string; photo: string | null; title: string | null; specialties: string[]; theirs: boolean; times: Slot2[] }[] = [];
+  let times: Slot2[] = [];
   if (favorite) { try {
-    const { engineFor, openTimesOn } = await import('@/lib/rebook'); const { todayIn, addDays } = await import('@/lib/tenant-time');
+    const { engineFor, openTimesOn } = await import('@/lib/rebook'); const { todayIn, addDays } = await import('@/lib/tenant-time'); const { qualifiedFor } = await import('@/lib/availability');
     const e = await engineFor(db, t);
-    if (e) { const today = todayIn(e.tz); const days = new Set<string>();
-      for (let i = 0; i < 21 && times.length < 2; i++) { const date = addDays(today, i);
-        let slots = provider ? openTimesOn(e, { date, serviceId: favorite.id as string, staffId: provider.id }) : [];
-        if (!slots.length) slots = openTimesOn(e, { date, serviceId: favorite.id as string, staffId: null });
-        const s1 = slots[0]; if (s1 && !days.has(date)) { days.add(date); times.push({ label: s1.label, dayLabel: s1.dayLabel, startIso: s1.startIso, staffId: s1.staffId }); } } }
+    if (e) { const today = todayIn(e.tz);
+      // The next two open times, on different days, for one provider (or anyone who does it).
+      const next = (staffId: string | null, horizon: number) => { const out: Slot2[] = [];
+        for (let i = 0; i < horizon && out.length < 2; i++) { const s1 = openTimesOn(e, { date: addDays(today, i), serviceId: favorite.id as string, staffId })[0];
+          if (s1) out.push({ label: s1.label, dayLabel: s1.dayLabel, startIso: s1.startIso, staffId: s1.staffId }); } return out; };
+      const team = qualifiedFor(svc, e.staff).filter(isTeam);
+      const theirsId = lastWith?.staffId && team.some((x: any) => String(x.id) === String(lastWith.staffId)) ? String(lastWith.staffId) : null;
+      const order = [...team].sort((x: any, y: any) => (String(y.id) === theirsId ? 1 : 0) - (String(x.id) === theirsId ? 1 : 0));
+      for (const st of order.slice(0, 6)) { const tt = next(String(st.id), 14); if (tt.length || String(st.id) === theirsId) providers.push({ ...card(String(st.id), st), theirs: String(st.id) === theirsId, times: tt }); }
+      times = next(null, 21);
+    }
   } catch (err) { console.error('[referrals] welcome times', err); } }
+  if (!favorite && lastWith?.staffId) { const st: any = (await db.doc(`${T(t)}/staff/${lastWith.staffId}`).get()).data() || null; if (isTeam(st)) providers = [{ ...card(String(lastWith.staffId), st), theirs: true, times: [] }]; }
+  const theirs = providers.find((x) => x.theirs) || null;
+  // Who's picked to begin with: their friend's provider when they have open times, else whoever is free first.
+  const provider = S.who === 'theirs' && theirs && (theirs.times.length || !favorite) ? theirs : null;
+  const anyTimes = times; if (provider && provider.times.length) times = provider.times;
   // The visit, in steps: only what's true for this business.
   const mir = tenant.makingItRight || {}; const care = !!String((top && mir.aftercare?.byService?.[top]) || mir.aftercare?.text || '').trim();
   const steps = [
@@ -107,7 +119,7 @@ export async function welcomeFor(db: any, t: string, slug: string, now = Date.no
   let review: any = null; try { const rv = rows(await db.collection(`${T(t)}/reviews`).where('isPublic', '==', true).get()).filter((r: any) => Number(r.rating) >= 5 && String(r.text || '').trim().length >= 12)
     .sort((a: any, b: any) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0) || ms(b.createdAt) - ms(a.createdAt))[0]; if (rv) review = { text: String(rv.text).trim().slice(0, 220), first: firstOf(rv.clientName) || null }; } catch { /* none */ }
   const photos = [...S.photos, ...(favorite?.image && !S.photos.includes(favorite.image) ? [favorite.image] : [])].slice(0, 3);
-  return { ok: true as const, firstName: first, business: biz(tenant), logo: tenant.logoUrl || null, offerCents: S.friendCents, code: WELCOME_CODE, favorite, provider, times, steps, address, policy, loved: loved >= 10 ? loved : 0, review, photos };
+  return { ok: true as const, firstName: first, business: biz(tenant), logo: tenant.logoUrl || null, offerCents: S.friendCents, code: WELCOME_CODE, layout: layoutOf(S, favorite?.image ? 1 : 0), sections: S.sections, motion: S.motion, who: S.who, favorite, provider, providers, times, anyTimes, steps, address, policy, loved: loved >= 10 ? loved : 0, review, photos };
 }
 
 export async function termsFor(db: any, t: string) { const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); return { ok: true, on: S.on, business: biz(tenant), lines: termsLines(S, biz(tenant)) }; }
@@ -347,6 +359,14 @@ export async function previewFor(db: any, t: string, clientId: string, actor: { 
   await db.doc(`${T(t)}/private/referralPreviews`).set({ [token]: { clientId, exp: now + 2 * 3600e3, by: actor.name } }, { merge: true });
   const slug = await linkFor(db, t, clientId);
   return { ok: true, walletUrl: `${base}/wallet/${encodeURIComponent(t)}?p=${token}`, welcomeUrl: `${base}/ref/${encodeURIComponent(t)}/${slug}`, name: (c.data() || {}).name || 'Client' };
+}
+/** For the live preview in Settings: the welcome link of a recent real client (their favorite and provider fill it in). */
+export async function sampleWelcome(db: any, t: string, now = Date.now()) {
+  const ap = rows(await db.collection(`${T(t)}/appointments`).where('status', '==', 'completed').get())
+    .filter((a: any) => a.clientId && a.serviceId && !a.isRenterBooking && now - ms(a.startTime) < 365 * DAY).sort((a: any, b: any) => ms(b.startTime) - ms(a.startTime));
+  for (const a of ap.slice(0, 20)) { const c: any = (await db.doc(`${T(t)}/clients/${a.clientId}`).get()).data(); if (!c || c.archived || c.status === 'archived') continue;
+    return { ok: true, path: `/ref/${encodeURIComponent(t)}/${await linkFor(db, t, String(a.clientId))}`, name: firstOf(c.name || c.firstName) || 'A client' }; }
+  return { ok: false, error: 'Once a client has had a visit, the preview shows their welcome page here.' };
 }
 export async function clientOfPreview(db: any, t: string, token: string, now = Date.now()): Promise<string | null> {
   if (!/^[a-z0-9]{12,30}$/.test(String(token || ''))) return null;

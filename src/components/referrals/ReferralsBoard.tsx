@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 import { uploadImage } from '@/lib/upload-image';
+import { WelcomeSettings } from '@/components/referrals/WelcomeSettings';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
 const money = (c: number) => { const d = (Number(c) || 0) / 100; return `$${d % 1 ? d.toFixed(2) : d.toLocaleString('en-US')}`; };
@@ -72,7 +73,7 @@ export function ReferralsBoard({ tenantId }: { tenantId: string }) {
         {row('c', 'Most rewards a month, per client', <input type="number" min={1} max={50} value={s.cap} onChange={(e) => setS({ ...s, cap: Number(e.target.value) })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} />)}
         <div className="space-y-2 pt-3" style={{ borderTop: `1px solid ${LINE}` }}>
           <p className="text-[14px] font-semibold">Your welcome page</p>
-          <p className="text-[12.5px] leading-[1.5]" style={{ color: MUTED }}>{(s.photos || []).length ? 'The first photo fills the opening screen; the others show further down.' : 'Add up to 3 photos to make your welcome page shine: your space, your work, a happy moment. Without photos it still looks finished, with soft light and your visit told in steps.'}</p>
+          <p className="text-[12.5px] leading-[1.5]" style={{ color: MUTED }}>{(s.photos || []).length ? 'Your photos fill the top of the page (or each Stories screen); the others show further down.' : 'Add up to 3 photos to make your welcome page shine: your space, your work, a happy moment. Without photos it still looks finished: choose Simple, or let the app choose for you.'}</p>
           <div className="flex flex-wrap gap-2">{(s.photos || []).map((u: string, i: number) => <div key={u} className="relative h-24 w-24 overflow-hidden rounded-[14px] bg-cover bg-center" style={{ backgroundImage: `url(${u})` }}>
               <span className="absolute left-1.5 top-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[10.5px] font-semibold">{i === 0 ? 'Opening' : `Photo ${i + 1}`}</span>
               <button type="button" aria-label="Remove photo" onClick={() => setS({ ...s, photos: s.photos.filter((x: string) => x !== u) })} className="absolute bottom-1.5 right-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-semibold">Remove</button></div>)}
@@ -81,6 +82,7 @@ export function ReferralsBoard({ tenantId }: { tenantId: string }) {
                 try { const url = await uploadImage(`tenants/${tenantId}/referrals/${Date.now().toString(36)}.jpg`, f, 1600); setS((x: any) => ({ ...x, photos: [...(x.photos || []), url].slice(0, 3) })); setNote({ ok: true, t: 'Photo added. Save to put it on your welcome page.' }); }
                 catch { setNote({ ok: false, t: 'That photo didn’t upload. Please try again.' }); } setBusy(''); }} /></label>}</div>
           <label className="block text-[14px]">Arriving (optional)<input value={s.arrival || ''} maxLength={200} onChange={(e) => setS({ ...s, arrival: e.target.value })} placeholder="e.g. Free parking behind the building; we’re on the second floor." className="mt-1 h-10 w-full rounded-[12px] border px-3 text-[14px]" style={{ borderColor: LINE }} /></label>
+          <WelcomeSettings tenantId={tenantId} s={s} setS={setS} />
         </div>
         <div className="rounded-[14px] p-3 text-[12.5px] leading-[1.5]" style={{ background: SOFT, color: MUTED }}>Always: the friend must be new to you · the same phone or email as the person who referred isn’t eligible · the same saved card waits for you here · households (same address) are fine · reviews are never rewarded · a refunded visit takes back unused credit.</div>
         <div className="flex flex-wrap items-center gap-3 pt-2"><button type="button" onClick={save} disabled={busy === 'settings'} className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: INK }}>{busy === 'settings' ? 'Saving…' : 'Save'}</button>

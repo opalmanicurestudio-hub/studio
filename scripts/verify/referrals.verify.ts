@@ -116,6 +116,18 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-13T15:00:00-04:00'); const ag
   check('the welcome page: her favorite, who they’ll see (first name only), the visit in steps, where, the policy', wd2.ok && wd2.favorite?.name === 'Gel manicure' && wd2.provider?.first === 'Jess' && wd2.provider?.title === 'Nail artist'
     && wd2.steps.map((x: any) => x.icon).join() === 'arrive,chat,service,care' && wd2.steps[0].sub === 'Free parking behind the building.' && wd2.address === '24 Main Street, Suite 3' && /24 hours/.test(wd2.policy || ''), wd2);
   check('no photos, no reviews, too few “loved it” answers → none shown, nothing made up', wd2.photos.length === 0 && wd2.review === null && wd2.loved === 0 && !JSON.stringify(wd2).includes('Kim'));
+  console.log('Referrals — welcome layouts and choosing who you see');
+  check('no photos and “choose for me” → Simple; photos → Invitation; a chosen layout stays', wd2.layout === 'simple' && R.layoutOf(R.referralSettingsOf({ referrals: { photos: ['https://x/a.jpg'] } })) === 'invitation' && R.layoutOf(R.referralSettingsOf({ referrals: { layout: 'stories' } })) === 'stories', wd2.layout);
+  check('settings: an unknown layout → choose for me; sections keep their order, drop unknown and repeated ones', R.referralSettingsOf({ referrals: { layout: 'zigzag', sections: ['good', 'visit', 'nope', 'good'] } }).layout === 'auto' && R.referralSettingsOf({ referrals: { sections: ['good', 'visit', 'nope', 'good'] } }).sections.join() === 'good,visit' && R.referralSettingsOf({}).sections.length === 6);
+  await dbW.doc(`${TW}/staff/mia`).set({ name: 'Mia Cole', title: 'Nail tech', role: 'stylist' });
+  await dbW.doc(`${TW}/staff/rene`).set({ name: 'Rene Booth', role: 'renter', isRenter: true });
+  const wd3: any = await RS.welcomeFor(dbW, 't2', wslug, NOW);
+  check('everyone who does her favorite, each with their own open times; her friend’s provider first; renters never', wd3.providers.map((p: any) => p.first).join() === 'Jess,Mia' && wd3.providers[0].theirs && !wd3.providers[1].theirs && wd3.providers.every((p: any) => p.times.length > 0) && wd3.provider?.id === 'jess', wd3.providers);
+  check('…the times shown start as Jess’s; “whoever is free first” times come too', wd3.times.every((t: any) => t.staffId === 'jess') && wd3.anyTimes.length > 0);
+  await dbW.doc(TW).set({ referrals: { who: 'first', layout: 'postcard', sections: ['favorite', 'good'] } }, { merge: true });
+  const wd4: any = await RS.welcomeFor(dbW, 't2', wslug, NOW);
+  check('“whoever is free first”: nobody picked to begin with, but both can still be chosen; her layout and sections', wd4.provider === null && wd4.providers.length === 2 && wd4.layout === 'postcard' && wd4.sections.join() === 'favorite,good', { p: wd4.provider, l: wd4.layout, s: wd4.sections });
+  await dbW.doc(TW).set({ referrals: { who: 'theirs', layout: 'auto', sections: R.SECTIONS } }, { merge: true });
   const wm: any = await RS.mine(dbW, 't2', 'hk', NOW);
   check('the wallet: her credit (ending soon), her gift card from Priya, her package visits', wm.creditCents === 1500 && wm.lines[0].endsAt && wm.wallet.gift[0]?.cents === 4000 && wm.wallet.gift[0]?.from === 'Priya' && wm.wallet.packages[0]?.left === 2, wm);
   const off: any = await RS.mine(dbW, 't2', 'hk', NOW);
