@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 /**
  * W9Form — v1
@@ -211,7 +212,7 @@ export function W9Form({ tenantId, renterId, existingW9, onComplete }: Props) {
     try {
       const res = await fetch('/api/booths/w9', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({
           tenantId, renterId, tinType,
           tin: tin.replace(/\D/g,''), // digits only to server

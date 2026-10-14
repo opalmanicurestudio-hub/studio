@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
-      return NextResponse.json({ error: 'No connected Stripe account' }, { status: 400 });
+      return NextResponse.json({ error: 'Connect your Stripe account in Settings first — the card reader takes payments through it.' }, { status: 400 });
     }
 
     const stripe = getStripe();
@@ -47,18 +47,15 @@ export async function POST(req: NextRequest) {
     // Ensure a Terminal location exists for this tenant
     let locationId = tenantSnap.data()?.stripeTerminalLocationId;
     if (!locationId) {
-      const tenantData = tenantSnap.data();
+      // A reader's location is the real business address — never a made-up one.
+      const tenantData = tenantSnap.data() || {};
+      const p = tenantData.studioAddressParts || {};
+      const line1 = String(p.street || p.line1 || '').trim(), city = String(p.city || '').trim(), state = String(p.state || '').trim(), zip = String(p.zip || p.postalCode || '').trim();
+      if (!line1 || !city || !state || !zip) {
+        return NextResponse.json({ error: 'Add your business address (street, city, state and ZIP) in Settings before connecting a card reader.' }, { status: 400 });
+      }
       const location = await stripe.terminal.locations.create(
-        {
-          display_name: tenantData?.name || 'Studio',
-          address: {
-            line1:   tenantData?.studioAddressParts?.street || '123 Main St',
-            city:    tenantData?.studioAddressParts?.city   || 'Charlotte',
-            state:   tenantData?.studioAddressParts?.state  || 'NC',
-            country: 'US',
-            postal_code: tenantData?.studioAddressParts?.zip || '28201',
-          },
-        },
+        { display_name: tenantData.name || 'Front desk', address: { line1, city, state, country: String(p.country || 'US'), postal_code: zip } },
         { stripeAccount: stripeAccountId }
       );
       locationId = location.id;

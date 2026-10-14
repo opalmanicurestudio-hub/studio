@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 // src/components/pos/desk/Kits.tsx — KITS at the desk (O5): how many of each kit are clean, in use, waiting to be cleaned
 // or pulled out; type or scan a label to move one along; pull one out with a reason (a manager decides what happens next).
 import * as React from 'react';
@@ -32,7 +33,7 @@ export function Kits({ firestore, tenantId, kits, services, manager, appts = [],
   const { selectedTenant } = useTenant() as any; const [fmt, setFmt] = React.useState<LabelFormat>('sticker');   // sticker, tie-on tag or wrap band
   const [invId, setInvId] = React.useState('');   // the inventory item the new kits are units of
   const equipment = React.useMemo(() => (inventory || []).filter((i: any) => i?.type === 'equipment' && i.archived !== true).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [inventory]);
-  const syncNow = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, only: 'kits' }) }).catch(() => undefined); };
+  const syncNow = () => { staffAuthHeader().then((h) => fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ tenantId, only: 'kits' }) })).catch(() => undefined); };
   const actor = () => ({ type: 'user' as const, id: getAuth().currentUser?.uid, name: who().name, role: manager ? 'manager' : 'staff' });
   const typesQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'kitTypes') : null), [firestore, tenantId]);
   const { data: typesRaw } = useCollection<any>(typesQ); const types: KitType[] = typesRaw || [];

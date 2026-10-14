@@ -1,4 +1,5 @@
 'use client';
+import { Icon } from '@/components/pos/desk/kit';
 // src/components/pos/SplitBill.tsx — SPLIT THE BILL at the desk. Evenly, by person (each guest pays for their own visit),
 // by item, or custom amounts. Each share is paid its own way — cash (with change), a saved card (anyone in the party),
 // on the client screen (that person sees "Your share", adds their own tip, pays by card or on their phone), or other.
@@ -102,7 +103,7 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, onF
       <div className="space-y-2">{shares.filter((s) => s.amount > 0).map((s) => { const t = shareTaken(s.key);
         return <div key={s.key} className="space-y-2 rounded-2xl p-3" style={box}>
           <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">{s.label}</p><p className="text-[15px] tabular-nums">{money(s.amount)}</p></div>
-          {t ? <div className="flex items-center justify-between text-[13px]"><span>✓ Paid · {t.method === 'cash' ? `cash${t.cashGiven > t.amount ? ` (change ${money(t.cashGiven - t.amount)})` : ''}` : t.method === 'card' ? (t.via === 'client_screen' ? `on ${screen?.name || 'the client screen'}` : 'card') : 'other'}{Number(t.tip) > 0 ? ` · +${money(t.tip)} tip` : ''}</span>
+          {t ? <div className="flex items-center justify-between text-[13px]"><span className="inline-flex items-center gap-1" style={{ color: 'var(--ok)' }}><Icon name="check" size={14} />Paid</span><span> · {t.method === 'cash' ? `cash${t.cashGiven > t.amount ? ` (change ${money(t.cashGiven - t.amount)})` : ''}` : t.method === 'card' ? (t.via === 'client_screen' ? `on ${screen?.name || 'the client screen'}` : 'card') : 'other'}{Number(t.tip) > 0 ? ` · +${money(t.tip)} tip` : ''}</span>
             <button type="button" disabled={!!busy} onClick={() => remove(t)} className="underline underline-offset-4" style={{ color: 'var(--muted)' }}>{busy === t.id ? '…' : 'Remove'}</button></div>
           : waiting?.key === s.key ? <div className="flex items-center justify-between text-[13px]"><span>Paying on {screen?.name}…</span><button type="button" onClick={() => { setWaiting(null); screen?.ask('idle'); }} className="underline underline-offset-4">Cancel</button></div>
           : payFor === s.key ? <div className="space-y-2">

@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 import { CancellationReview } from '@/components/settings/CancellationReview';
 import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
@@ -553,8 +554,8 @@ function SettingsPageImpl() {
                     onDisconnect={async () => {
                       const res = await fetch('/api/stripe/disconnect', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: tenantId }),
+                        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+                        body: JSON.stringify({ tenantId }),
                       });
                       if (!res.ok) throw new Error('Failed to disconnect');
                     }}

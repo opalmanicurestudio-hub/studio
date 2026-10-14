@@ -120,6 +120,11 @@ const ICONS: Record<string, string> = {
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   pause: 'M8 5v14M16 5v14',
   arrow: 'M5 12h14M13 6l6 6-6 6',
+  cake: 'M5 12h14v8H5zM5 16c2.3 1.4 4.7 1.4 7 0s4.7-1.4 7 0M9 12V9M15 12V9M9 6.5v.01M15 6.5v.01',
+  gift: 'M4 9h16v4H4zM5 13h14v7H5zM12 9v11M12 9c-1.5-3-5-3-5-1s3 1 5 1zM12 9c1.5-3 5-3 5-1s-3 1-5 1z',
+  printer: 'M7 9V4h10v5M6 17H4v-6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6h-2M7 14h10v6H7z',
+  mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
+  undo: 'M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2',
 };
 export type IconName = keyof typeof ICONS;
 /** Line icons — one stroke weight, currentColor. */

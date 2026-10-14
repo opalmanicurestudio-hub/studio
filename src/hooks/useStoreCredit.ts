@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 /**
  * useStoreCredit
@@ -98,7 +99,7 @@ export function useStoreCredit(client: Client | null | undefined): UseCreditResu
       try {
         const res = await fetch('/api/stripe/apply-store-credit', {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
           body: JSON.stringify({
             tenantId:      opts.tenantId,
             clientId:      client?.id,

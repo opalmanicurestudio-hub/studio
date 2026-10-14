@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 // src/components/pos/desk/DeskPOS.tsx — THE NEW FRONT DESK.
 //
 // Runs entirely on usePosEngine (the same state and actions as the classic
@@ -162,7 +163,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const isMgr = ['owner', 'admin', 'manager'].includes(String(e.role || ''));
   // Housekeeping for stations, kits and linens (reminders, closing out finished visits) — asked for by this open desk
   // every few minutes, so it happens even where the scheduled job runs rarely. The server ignores repeats.
-  useEffect(() => { if (!e.tenantId) return; const run = () => { fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: e.tenantId }) }).catch(() => undefined); };
+  useEffect(() => { if (!e.tenantId) return; const run = () => { staffAuthHeader().then((h) => fetch('/api/desk/tick', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ tenantId: e.tenantId }) })).catch(() => undefined); };
     const first = setTimeout(run, 8000); const every = setInterval(run, 5 * 60000); return () => { clearTimeout(first); clearInterval(every); }; }, [e.tenantId]);
   const hk = useHousekeeping(e.tenantId || null, todaysAppts, e.services || [], e.staff || [], e.selectedTenant, e.appointmentsFromInventory || []);   // the housekeeping queue (badge)
   const kitsToClean = (kits || []).filter((k: any) => k.status === 'dirty' || k.status === 'out' || (k.status === 'cleaning' && Number(e.selectedTenant?.kitCapacity?.[kitKey(k.name)]?.cleanMinutes) > 0 && secondsLeft(k.at, Number(e.selectedTenant.kitCapacity[kitKey(k.name)].cleanMinutes), now.getTime()) <= 0)).length;   // to clean, pulled out, or cleaning time is up

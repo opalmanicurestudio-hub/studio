@@ -1267,7 +1267,7 @@ export function usePosEngine() {
   const handleConfirmRefund = useCallback(async () => {
     if (!pendingRefund || !tenantId) return;
     try {
-      const res = await fetch('/api/stripe/deposit-refund', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, creditId: pendingRefund.creditId }) });
+      const res = await fetch('/api/stripe/deposit-refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, creditId: pendingRefund.creditId }) });
       const out = await res.json().catch(() => null);
       if (!res.ok || !out?.ok) toast({ variant: 'destructive', title: 'Refund failed', description: out?.error || 'Could not refund the deposit.' });
       else toast({ title: 'Deposit refunded', description: `$${safeNumber(pendingRefund.amount).toFixed(2)} returned to ${pendingRefund.clientName}.` });

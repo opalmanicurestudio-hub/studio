@@ -62,6 +62,7 @@ import { useWaitlist } from '@/hooks/useWaitlist';
 import { QRScanner } from '@/components/pos/QRScanner';
 import { DeskCheckIn } from '@/components/pos/desk/DeskCheckIn';
 import { DeskPOS } from '@/components/pos/desk/DeskPOS';
+import { StripeTerminalProvider } from '@/components/pos/StripeTerminalProvider';
 import { usePosEngine, printTicketInNewWindow, sanitizeForFirestore, safeDate, computeServiceCost, KpiCard, RecoveryOverrideDialog, IdentityMatchDialog, VoidAuthForm } from '@/components/pos/usePosEngine';
 
 function POSPage() {
@@ -96,12 +97,12 @@ function POSPage() {
     window.addEventListener('cf:resume-callback', on as any);
     return () => window.removeEventListener('cf:resume-callback', on as any);
   }, [setIsQuickBookOpen]);
-  if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
+  if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm text-muted-foreground animate-pulse">Opening the front desk…</p></div>;
 
   return (
     <div className="h-[100dvh] w-full flex flex-col bg-background text-left">
       <AppHeader title="Studio POS" />
-      <DeskPOS e={__engine} tools={{
+      {(() => { const desk = <DeskPOS e={__engine} tools={{
         // The classic POS's remaining panels, wired exactly as before, now in Desk's "More" drawer.
         team: (
           <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
@@ -140,7 +141,9 @@ function POSPage() {
                 />
                 <GuestsTodayPanel tenantId={tenantId} />
         </>) : null,
-      }} />
+      }} />;
+        // The card reader connects while the desk is open (only for a business with a payments account).
+        return tenantId && (selectedTenant as any)?.stripeAccountId ? <StripeTerminalProvider tenantId={tenantId}>{desk}</StripeTerminalProvider> : desk; })()}
 
       <AnimatePresence>
         {newWalkInAlert && (
@@ -169,12 +172,10 @@ function POSPage() {
       </AlertDialog>
       <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={liveSelectedAppointment} client={clients?.find(c => c.id === liveSelectedAppointment?.clientId) || null} service={services?.find(s => s.id === liveSelectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onEdit={() => {}} onDelete={(id: string) => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
 
-      {/* Cancel / no-show — the desk's own screen (DeskCancel, inside DeskPOS). */}
 
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', checkInStatusTimestamp: new Date().toISOString(), overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
       {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
       <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
-      {/* Check-in — the six-step front-desk check-in (replaces the old confirmation dialog). */}
       <DeskCheckIn e={__engine} accent={(selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || null} />
 
       <IdentityMatchDialog open={!!pendingIdentityMatch} onOpenChange={() => setPendingIdentityMatch(null)} walkIn={pendingIdentityMatch} matchedClient={pendingIdentityMatch?.matchedClient}
@@ -201,8 +202,6 @@ function POSPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── QUICK BOOK SHEET — now uses upgraded QuickBookForm ───────────────── */}
-      {/* Booking at the desk — the shared booking engine (C1). */}
       <StaffBookSheet open={isQuickBookOpen} onClose={() => { setIsQuickBookOpen(false); setResumeDraft(null); }}
         tenantId={tenantId || ''} tenant={selectedTenant} clients={clients || []} services={services || []} staff={staff || []}
         appointments={appointmentsFromInventory || []} role={role} uid={currentUser?.uid || null} resume={resumeDraft} />
@@ -222,7 +221,6 @@ function POSPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── CAMERA QR SCANNER ─────────────────────────────────────────────── */}
       {isCameraScanOpen && (
         <QRScanner
           onClose={() => setIsCameraScanOpen(false)}
@@ -243,10 +241,6 @@ function POSPage() {
         />
       )}
 
-      {/* ── SCAN / CHECK-IN LOOKUP ───────────────────────────────────────────
-          Shows after camera scan resolves (checkin/checkout modes only), or
-          can be opened directly for USB barcode scanners (keyboard emulation)
-          or manual code entry. */}
       <Dialog open={isScanLookupOpen} onOpenChange={(o) => { if (!o) { setScanQuery(''); setScanResult(null); setScanNotFound(false); } setIsScanLookupOpen(o); }}>
         <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 shadow-2xl p-0 overflow-hidden">
           <DialogHeader className="p-6 pb-0">
@@ -258,14 +252,6 @@ function POSPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="p-6 space-y-4">
-            {/*
-              This box used to uppercase every keystroke and carried an `uppercase`
-              class on top. A check-in token is a mixed-case 16-character string, so
-              that silently corrupted the very thing being looked up and every
-              walk-in ticket came back "not found". The value is now passed through
-              exactly as scanned or typed; the lookup handles case itself.
-              maxLength is generous because a scanned QR hands over a full URL.
-            */}
             <Input
               aria-label="Scan or type a code"
               ref={scanInputRef}
@@ -369,7 +355,7 @@ function POSPage() {
 
 export default function POSPageWrapper() {
   return (
-    <Suspense fallback={<div className="flex h-[100dvh] w-full flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>}>
+    <Suspense fallback={<div className="flex h-[100dvh] w-full flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm text-muted-foreground animate-pulse">Opening the front desk…</p></div>}>
       <POSPage />
     </Suspense>
   );

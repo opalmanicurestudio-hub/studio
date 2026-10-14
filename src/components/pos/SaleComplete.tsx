@@ -1,4 +1,5 @@
 'use client';
+import { Icon } from '@/components/pos/desk/kit';
 // src/components/pos/SaleComplete.tsx — WHAT HAPPENS WHEN A SALE IS DONE: the amount, change due (cash), the receipt
 // (print · text · email), book their next visit, then a new sale or done. Nothing disappears on the desk.
 import * as React from 'react';
@@ -59,9 +60,9 @@ export function SaleComplete({ sale, tenantId, onNewSale, onDone, screenName, on
   return (
     <div className="mx-auto max-w-md space-y-3" role="status" aria-live="polite">
       <section className="space-y-1 rounded-3xl p-6 text-center" style={box}>
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full text-[28px]" style={{ background: 'color-mix(in srgb, var(--ok) 14%, transparent)', color: 'var(--ok)' }} aria-hidden>✓</div>
+        <div className="d-rise mx-auto flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'color-mix(in srgb, var(--ok) 14%, transparent)', color: 'var(--ok)' }} aria-hidden><Icon name="check" size={30} stroke={2} /></div>
         <p className="pt-2 text-[15px]" style={{ color: 'var(--muted)' }}>{first ? `${first} · ` : ''}paid {cash ? 'in cash' : sale.method === 'other' ? '' : 'by card'}</p>
-        <p className="text-[40px] font-semibold tabular-nums leading-tight">{money(sale.collected ?? sale.total)}</p>
+        <p className="text-[44px] font-light tracking-tight tabular-nums leading-tight">{money(sale.collected ?? sale.total)}</p>
         {Number(sale.depositUsed) > 0 && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Total {money(sale.total)} · {money(sale.depositUsed)} deposit already paid</p>}
       </section>
       {(sale.giftCards || []).map((g: any) => (

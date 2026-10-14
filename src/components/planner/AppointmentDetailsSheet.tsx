@@ -2303,7 +2303,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     if (!latestDepositDecision || !tenantId || !firestore) return;
     setIsProcessingRefund(true);
     try {
-      const res = await fetch('/api/stripe/deposit-refund', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, creditId: latestDepositDecision.creditId }) });
+      const res = await fetch('/api/stripe/deposit-refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, creditId: latestDepositDecision.creditId }) });
       const out = await res.json().catch(() => null);
       if (!res.ok || !out?.ok) { toast({ variant: 'destructive', title: 'Refund failed', description: out?.error || 'Could not refund the deposit.' }); return; }
       const batch = writeBatch(firestore);

@@ -11,7 +11,9 @@ import { saleProfileOf } from '@/lib/sale-profile';
 import { PosCatalog } from '@/components/pos/PosCatalog';
 import { useClientScreen } from '@/components/pos/ClientScreen';
 import { SaleComplete } from '@/components/pos/SaleComplete';
-import { DESK_CSS } from '@/components/pos/desk/kit';
+import { DESK_CSS, Icon as DIcon, Ring } from '@/components/pos/desk/kit';
+import { useTerminalOptional } from '@/components/pos/StripeTerminalProvider';
+import { ReaderPanel } from '@/components/pos/ReaderPanel';
 import { approveWithPin } from '@/lib/approve-client';
 import { CheckoutNudge } from '@/components/pos/CheckoutNudge';
 import { hasRealCard } from '@/lib/card-on-file';
@@ -115,14 +117,8 @@ import { brandAccent } from '@/lib/brand-accent';
 import { deskScript, shopSettings } from '@/lib/gift-designs';
 import { liveOffer, todayIn } from '@/lib/gift-offers';
 
-// ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
-let useTerminalSafe: () => any = () => null;
-try {
-  const mod = require('./StripeTerminalProvider');
-  useTerminalSafe = () => {
-    try { return mod.useTerminal(); } catch { return null; }
-  };
-} catch {}
+// The card reader, where the desk has started one (null otherwise).
+const useTerminalSafe = (): any => useTerminalOptional();
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -173,7 +169,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = 'Admin O
   const { toast } = useToast();
 
   const handleConfirm = async () => {
-    if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
+    if (!reason.trim()) { toast({ variant: 'destructive', title: 'Add a reason' }); return; }
     // The PIN is checked on the server (PINs are never on this device); the approval is single-use.
     const r = await approveWithPin(tenantIdForApproval || '', pin, { kind: approvalKind || 'waive', ref: approvalRef || null, reason });
     if (!r.ok || !r.approver) { toast({ variant: 'destructive', title: 'Not approved', description: r.error || 'Manager authorization required.' }); return; }
@@ -184,26 +180,20 @@ const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = 'Admin O
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
-        <DialogHeader className="p-6 pb-0 text-left">
-          <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-slate-900 text-left">
-            <ShieldCheck className="w-6 h-6 text-primary" />{title}
-          </DialogTitle>
-          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 text-left">{description}</DialogDescription>
+      <DialogContent className="sm:max-w-md rounded-[28px] border bg-background">
+        <DialogHeader className="text-left">
+          <DialogTitle className="flex items-center gap-2.5 text-[20px] font-light tracking-tight text-left"><ShieldCheck className="h-5 w-5" />{title}</DialogTitle>
+          <DialogDescription className="text-[14px] text-left">{description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-8 py-8 flex flex-col items-center text-left">
-          <div className="space-y-2 w-48 text-center">
-            <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground text-center block">Manager PIN</Label>
-            <Input type="password" placeholder="****" aria-label="Staff PIN" maxLength={4} className="text-center text-4xl font-black h-20 tracking-[0.5em] bg-muted/30 border-4 rounded-3xl" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} autoFocus />
-          </div>
-          <div className="space-y-2 w-full px-6 text-left">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reason</Label>
-            <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g., Client verified emergency..." aria-label="Reason" className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20 font-medium" />
-          </div>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5"><Label className="text-[13px] font-semibold">Manager PIN</Label>
+            <Input type="password" inputMode="numeric" placeholder="••••" aria-label="Manager PIN" maxLength={8} className="h-14 rounded-2xl text-center text-[28px] tracking-[0.4em]" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} autoFocus /></div>
+          <div className="space-y-1.5"><Label className="text-[13px] font-semibold">Reason</Label>
+            <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. client had a verified emergency" aria-label="Reason" className="rounded-2xl" /></div>
         </div>
-        <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-          <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20">Confirm</Button>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+          <Button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} className="h-12 w-full rounded-full text-[15px] font-semibold">Approve</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full rounded-full">Cancel</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -222,115 +212,64 @@ const CardOnFileConfirm = ({ client, amount, surcharge, onConfirm, onCancel, isP
   const card = (client as any).cardOnFile;
   const hasSurcharge = safeNumber(surcharge) > 0;
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-4 border-t border-dashed">
-      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Confirm Card Charge</p>
-      <div className="p-4 rounded-2xl border-2 border-primary/10 bg-primary/[0.02] flex items-center gap-3">
-        <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10">
-          <CreditCard className="w-5 h-5 text-primary" />
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+      <div className="flex items-center gap-3 rounded-2xl p-4" style={{ border: '1px solid var(--line)', background: 'var(--card)' }}>
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full" style={{ background: 'var(--soft)' }}><DIcon name="card" size={20} /></span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold">{String(card?.brand || 'Card').replace(/^./, (c: string) => c.toUpperCase())} ending {String(card?.last4 || '••••')}</p>
+          <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Expires {safeNumber(card?.expMonth ?? card?.expiryMonth)}/{safeNumber(card?.expYear ?? card?.expiryYear)}{hasSurcharge ? ` · includes $${safeNumber(surcharge).toFixed(2)} card fee` : ''}</p>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-black uppercase tracking-tight text-slate-900">
-            {String(card?.brand || 'Card')} •••• {String(card?.last4 || '****')}
-          </p>
-          <p className="text-[8px] font-bold text-muted-foreground uppercase">
-            Exp {safeNumber(card?.expMonth ?? card?.expiryMonth)}/{safeNumber(card?.expYear ?? card?.expiryYear)}
-          </p>
-        </div>
-        <p className="font-black text-lg font-mono text-primary tracking-tighter shrink-0">
-          ${safeNumber(amount).toFixed(2)}
-        </p>
+        <p className="shrink-0 text-[22px] font-light tabular-nums tracking-tight">${safeNumber(amount).toFixed(2)}</p>
       </div>
-      {hasSurcharge && (
-        <div className="flex items-center justify-between px-2 text-[10px] font-bold text-amber-700 uppercase">
-          <span className="flex items-center gap-1.5"><Receipt className="w-3 h-3" /> Includes card processing fee</span>
-          <span className="font-mono">${safeNumber(surcharge).toFixed(2)}</span>
-        </div>
-      )}
-      <div className="flex gap-3">
-        <Button variant="outline" onClick={onCancel} disabled={isProcessing}
-          className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-          Cancel
-        </Button>
-        <Button onClick={onConfirm} disabled={isProcessing}
-          className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
-          {isProcessing
-            ? <><Loader className="w-4 h-4 animate-spin mr-2" /> Charging...</>
-            : <><Zap className="w-4 h-4 mr-2" /> Charge ${safeNumber(amount).toFixed(2)}</>}
-        </Button>
+      <div className="flex gap-2">
+        <button type="button" onClick={onCancel} disabled={isProcessing} className="h-12 rounded-full px-5 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--soft)' }}>Back</button>
+        <button type="button" onClick={onConfirm} disabled={isProcessing} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-full text-[15px] font-semibold disabled:opacity-60" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>
+          {isProcessing ? <><Loader className="h-4 w-4 animate-spin" />Charging…</> : <>Charge ${safeNumber(amount).toFixed(2)}</>}</button>
       </div>
     </motion.div>
   );
 };
 
 // ─── TerminalPaymentUI ────────────────────────────────────────────────────────
-const TerminalPaymentUI = ({ amount, onCancel, onSuccess }: {
+const TerminalPaymentUI = ({ amount, onCancel, onSuccess, onRetry }: {
   amount: number;
   onCancel: () => void;
   onSuccess: () => void;
+  onRetry?: () => void;
 }) => {
   const terminal = useTerminalSafe();
-
-  const statusLabel: Record<string, string> = {
-    idle:             'Ready',
-    creating:         'Preparing...',
-    waiting_for_card: 'Present card to reader',
-    processing:       'Processing...',
-    capturing:        'Finalizing...',
-    succeeded:        'Payment Accepted',
-    failed:           'Payment Failed',
-    cancelled:        'Cancelled',
-  };
-
-  const status = terminal?.paymentStatus || 'idle';
+  const status: string = terminal?.paymentStatus || 'idle';
   const error  = terminal?.paymentError;
-
-  useEffect(() => {
-    if (status === 'succeeded') { setTimeout(onSuccess, 800); }
-  }, [status, onSuccess]);
-
+  const words: Record<string, [string, string]> = {
+    idle:             ['Getting the reader ready', 'One moment'],
+    creating:         ['Getting the reader ready', 'One moment'],
+    waiting_for_card: ['Tap, insert or swipe', 'The total is on the reader'],
+    processing:       ['Processing', 'Keep the card in until the reader says so'],
+    capturing:        ['Almost done', 'Confirming the payment'],
+    succeeded:        ['Paid', 'Thank you'],
+    failed:           ['That didn’t go through', error || 'Try again, or choose another way to pay'],
+    cancelled:        ['Cancelled', 'Nothing was charged'],
+  };
+  const [title, sub] = words[status] || [status, ''];
+  const step = ({ idle: 0.1, creating: 0.2, waiting_for_card: 0.45, processing: 0.7, capturing: 0.9, succeeded: 1 } as Record<string, number>)[status] ?? 0;
+  useEffect(() => { if (status === 'succeeded') { const t = setTimeout(onSuccess, 900); return () => clearTimeout(t); } }, [status, onSuccess]);
+  const waiting = status === 'waiting_for_card';
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-4 border-t border-dashed">
-      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Terminal Payment</p>
-      <div className={cn('p-6 rounded-2xl border-2 text-center space-y-4 transition-all',
-        status === 'succeeded' ? 'border-green-200 bg-green-50' :
-        status === 'failed'    ? 'border-destructive/20 bg-destructive/5' :
-        status === 'waiting_for_card' ? 'border-primary/20 bg-primary/5 animate-pulse' :
-        'border-border bg-muted/5')}>
-        <div className="flex justify-center">
-          {status === 'succeeded'          ? <CheckCircle2 className="w-10 h-10 text-green-500" /> :
-           status === 'failed'             ? <XCircle className="w-10 h-10 text-destructive" /> :
-           status === 'waiting_for_card'   ? <CreditCard className="w-10 h-10 text-primary animate-bounce" /> :
-           <Loader className="w-10 h-10 text-primary animate-spin" />}
-        </div>
-        <div>
-          <p className="font-black uppercase tracking-widest text-sm text-slate-900">
-            {statusLabel[status] || status}
-          </p>
-          {status === 'waiting_for_card' && (
-            <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">
-              Tap, insert, or swipe on the reader
-            </p>
-          )}
-          {error && (
-            <p className="text-[10px] font-bold text-destructive uppercase mt-1">{error}</p>
-          )}
-        </div>
-        <p className="font-black text-2xl font-mono text-primary tracking-tighter">
-          ${safeNumber(amount).toFixed(2)}
-        </p>
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+      <div className="flex flex-col items-center gap-4 rounded-3xl px-5 py-8 text-center" style={{ background: status === 'succeeded' ? 'color-mix(in srgb, var(--ok) 10%, var(--card))' : status === 'failed' ? 'color-mix(in srgb, var(--warn) 9%, var(--card))' : 'var(--soft)' }}>
+        <span className="relative flex items-center justify-center" style={{ color: status === 'failed' ? 'var(--warn)' : 'var(--ok)' }}>
+          {waiting && <span aria-hidden className="d-ping absolute inset-0 rounded-full" />}
+          <Ring progress={step} size={88} stroke={4}>
+            <span style={{ color: status === 'failed' ? 'var(--warn)' : 'var(--ink)' }}><DIcon name={status === 'succeeded' ? 'check' : status === 'failed' ? 'alert' : 'card'} size={32} stroke={1.6} /></span>
+          </Ring>
+        </span>
+        <div aria-live="polite"><p className="text-[20px] font-light tracking-tight">{title}</p><p className="mt-0.5 text-[13.5px]" style={{ color: 'var(--muted)' }}>{sub}</p></div>
+        <p className="text-[34px] font-light tabular-nums leading-none tracking-tight">${safeNumber(amount).toFixed(2)}</p>
       </div>
-      {(status === 'waiting_for_card' || status === 'idle') && (
-        <Button variant="outline" onClick={() => { terminal?.cancelPayment(); onCancel(); }}
-          className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-destructive border-destructive/20 hover:bg-destructive/5">
-          <XCircle className="w-3.5 h-3.5 mr-1.5" /> Cancel Payment
-        </Button>
-      )}
-      {status === 'failed' && (
-        <Button variant="outline" onClick={onCancel}
-          className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
-          Try Again
-        </Button>
-      )}
+      {(waiting || status === 'idle' || status === 'creating') && <button type="button" onClick={() => { terminal?.cancelPayment(); onCancel(); }} className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Cancel</button>}
+      {(status === 'failed' || status === 'cancelled') && <div className="flex gap-2">
+        {onRetry && <button type="button" onClick={onRetry} className="h-11 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Try again</button>}
+        <button type="button" onClick={onCancel} className="h-11 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Another way to pay</button></div>}
     </motion.div>
   );
 };
@@ -389,9 +328,9 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
         style: {
           base: {
             fontSize:        '16px',
-            color:           '#0f172a',
+            color:           (mountRef.current && getComputedStyle(mountRef.current).color) || '#16171a',
             fontFamily:      'inherit',
-            '::placeholder': { color: '#94a3b8' },
+            '::placeholder': { color: '#8a8d93' },
           },
           invalid: { color: '#ef4444' },
         },
@@ -423,8 +362,8 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
       // 1. Create PaymentIntent on server
       const piRes = await fetch('/api/stripe/pos-payment-intent', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tenantId, clientId, amountCents: Math.round(amount * 100), saveCard, description: 'Studio Services' }),
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+        body:    JSON.stringify({ tenantId, clientId, amountCents: Math.round(amount * 100), saveCard, description: 'Front desk' }),
       });
       const piData = await piRes.json();
       if (!piData.clientSecret) throw new Error(piData.error || 'Could not create payment');
@@ -448,7 +387,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
       if (saveCard && clientId && confirmResult.paymentIntent?.payment_method) {
         await fetch('/api/stripe/vault-card', {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
           body:    JSON.stringify({
             tenantId,
             clientId,
@@ -468,34 +407,19 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-4 border-t border-dashed">
-      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">New Card</p>
-      <div className="p-4 rounded-2xl border-2 border-border bg-white shadow-inner min-h-[52px] flex items-center">
-        {isLoading && <Loader className="w-4 h-4 animate-spin text-muted-foreground mx-auto" />}
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+      <p className="text-[14px] font-semibold">Type in a card</p>
+      <div className="flex min-h-[52px] items-center rounded-2xl px-4 py-3.5" style={{ background: 'var(--paper)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
+        {isLoading && <div className="d-shimmer h-2 w-full rounded-full" aria-hidden />}
         <div ref={mountRef} className={cn('w-full', isLoading && 'hidden')} />
       </div>
-      {cardError && (
-        <p className="text-[10px] font-bold text-destructive uppercase flex items-center gap-1.5">
-          <AlertTriangle className="w-3 h-3" /> {cardError}
-        </p>
-      )}
-      <div className="flex gap-3">
-        <Button variant="outline" onClick={onCancel} disabled={isCharging}
-          className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-          Cancel
-        </Button>
-        <Button onClick={handleCharge} disabled={!isReady || isCharging}
-          className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
-          {isCharging
-            ? <><Loader className="w-4 h-4 animate-spin mr-2" /> Processing...</>
-            : <><CreditCard className="w-4 h-4 mr-2" /> Charge ${safeNumber(amount).toFixed(2)}</>}
-        </Button>
+      {cardError && <p className="flex items-center gap-1.5 text-[13px]" style={{ color: 'var(--warn)' }}><DIcon name="alert" size={15} />{cardError}</p>}
+      <div className="flex gap-2">
+        <button type="button" onClick={onCancel} disabled={isCharging} className="h-12 rounded-full px-5 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--soft)' }}>Back</button>
+        <button type="button" onClick={handleCharge} disabled={!isReady || isCharging} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-full text-[15px] font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>
+          {isCharging ? 'Charging…' : <><DIcon name="card" size={18} />Charge ${safeNumber(amount).toFixed(2)}</>}</button>
       </div>
-      {saveCard && (
-        <p className="text-[9px] font-bold text-muted-foreground uppercase flex items-center gap-1.5 opacity-60">
-          <Lock className="w-3 h-3" /> Card will be saved to client profile for future charges
-        </p>
-      )}
+      {saveCard && <p className="flex items-center gap-1.5 text-[12.5px]" style={{ color: 'var(--muted)' }}><Lock className="h-3.5 w-3.5" />The card is saved to their profile for future visits.</p>}
     </motion.div>
   );
 };
@@ -612,7 +536,7 @@ export const CheckoutHub = ({
   // 'cof_charging' = actively charging card on file
   // 'terminal'     = terminal reader flow
   // 'new_card'     = embedded browser card form
-  type CardMode = 'select' | 'cof_tip' | 'cof_confirm' | 'cof_charging' | 'terminal' | 'new_card';
+  type CardMode = 'select' | 'cof_tip' | 'cof_confirm' | 'cof_charging' | 'terminal' | 'new_card' | 'reader';
   const [cardMode,        setCardMode]        = useState<CardMode>('select');
   const [isCofCharging,   setIsCofCharging]   = useState(false);
   const [saveNewCard,     setSaveNewCard]      = useState(true);
@@ -901,7 +825,7 @@ export const CheckoutHub = ({
   // ── Terminal payment ───────────────────────────────────────────────────────
   const handleTerminalPayment = async () => {
     if (!terminal || !readerConnected) {
-      toast({ variant: 'destructive', title: 'No Reader', description: 'Connect a Terminal reader in Settings first.' });
+      setCardMode('reader');
       return;
     }
     setCardMode('terminal');
@@ -909,7 +833,7 @@ export const CheckoutHub = ({
       tenantId,
       clientId:    selectedClient?.id,
       amountCents: Math.round(amountToCharge * 100),
-      description: 'Studio Services',
+      description: (selectedTenant as any)?.name ? `${(selectedTenant as any).name} — front desk` : 'Front desk',
       saveCard:    saveNewCard && !!selectedClient,
     });
     if (result.ok) {
@@ -968,7 +892,7 @@ export const CheckoutHub = ({
   const [cofSkip, setCofSkip] = useState(false);
   useEffect(() => {
     const r = cs.response; if (!r) return;
-    if (tipReq && r.requestId === tipReq && r.kind === 'tip') { handleTotalTipChange(safeNumber(r.tip), 'even'); if (r.tipAllocations && Object.keys(r.tipAllocations).length) { setTipMode('custom'); setTipAllocations(r.tipAllocations); } setTipReq(null); toast({ title: safeNumber(r.tip) > 0 ? `Tip added — ${'$'}${safeNumber(r.tip).toFixed(2)}` : 'No tip' }); }
+    if (tipReq && r.requestId === tipReq && r.kind === 'tip') { handleTotalTipChange(safeNumber(r.tip), 'even'); if (r.tipAllocations && Object.keys(r.tipAllocations).length) { setTipMode('custom'); setTipAllocations(r.tipAllocations); } setTipReq(null); toast({ title: safeNumber(r.tip) > 0 ? `Tip added — $${safeNumber(r.tip).toFixed(2)}` : 'No tip' }); }
     if (r.kind === 'rebook' && r.booked) toast({ title: `${String(lastSale?.clientName || '').split(' ')[0] || 'They'} booked their next visit`, description: r.label });
     if (cofReq?.id && r.requestId === cofReq.id && r.kind === 'approve') setCofReq({ ...cofReq, status: r.approved ? 'approved' : 'declined', consentId: r.consentId || null });
   }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1005,8 +929,8 @@ export const CheckoutHub = ({
     const kept = Math.min(changeReq.change, safeNumber(r.keepAmount ?? (r.keep ? changeReq.change : 0)));
     changeDoneFor.current = Math.round(safeNumber(amountTendered) * 100) / 100;   // the total grows by the tip — don't ask again for the same cash
     if (kept > 0) { handleTotalTipChange(Math.round((safeNumber(tipAmount) + kept) * 100) / 100); const back = Math.round((changeReq.change - kept) * 100) / 100;
-      toast({ title: `They kept ${'$'}${kept.toFixed(2)} as a tip`, description: back > 0 ? `Give them ${'$'}${back.toFixed(2)} change.` : 'No change to give.' }); }
-    else toast({ title: `Give them ${'$'}${changeReq.change.toFixed(2)} change` });
+      toast({ title: `They kept $${kept.toFixed(2)} as a tip`, description: back > 0 ? `Give them $${back.toFixed(2)} change.` : 'No change to give.' }); }
+    else toast({ title: `Give them $${changeReq.change.toFixed(2)} change` });
     setChangeReq(null); }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
   // The client pays on the iPad (card form) or their phone (QR). Tip first when automatic; then the sale completes by itself.
   const [payReq, setPayReq] = useState<{ id: string; amount: number } | null>(null);
@@ -1110,7 +1034,7 @@ export const CheckoutHub = ({
           </section>
           {profile.sign && cs.connected && selectedClient && <section className={card} style={cardStyle} aria-label="Membership terms">
             <p className={h}>Membership terms</p>
-            <p className="text-[14px]" style={muted}>{signReq?.status === 'signed' ? `Signed on ${cs.name} ✓` : signReq?.status === 'paper' ? 'Signed on paper.' : signReq ? `Waiting for ${firstOf(selectedClient.name)} to sign on ${cs.name}…` : `Ask ${firstOf(selectedClient.name)} to sign the ${profile.sign.title.replace(/ — terms$/, '')} terms on ${cs.name}.`}</p>
+            <p className="text-[14px]" style={muted}>{signReq?.status === 'signed' ? `Signed on ${cs.name}` : signReq?.status === 'paper' ? 'Signed on paper.' : signReq ? `Waiting for ${firstOf(selectedClient.name)} to sign on ${cs.name}…` : `Ask ${firstOf(selectedClient.name)} to sign the ${profile.sign.title.replace(/ — terms$/, '')} terms on ${cs.name}.`}</p>
             {signReq?.status !== 'signed' && <div className="flex flex-wrap gap-2">
               <button type="button" onClick={async () => { const sg = profile.sign!; const id = await cs.ask('sign', { title: sg.title, text: sg.text, what: sg.what, ref: sg.ref, clientId: selectedClient.id, clientName: selectedClient.name }); setSignReq({ id: id || null, ref: sg.ref, status: 'waiting' }); }}
                 className="h-10 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{signReq ? 'Ask again' : 'Send to sign'}</button>
@@ -1119,7 +1043,7 @@ export const CheckoutHub = ({
           </section>}
           {selectedClient && tenantId && <CheckoutNudge tenantId={tenantId} client={selectedClient} cart={cart || []} onCartChange={onCartChange} />}
           {(moments || []).map((m: any) => <section key={m.key} className={card} style={{ ...cardStyle, background: 'color-mix(in srgb, var(--accent) 7%, var(--card))' }} aria-label={m.title}>
-            <p className={h}>{m.kind === 'birthday' ? '🎂 ' : m.kind === 'first' ? '👋 ' : '✨ '}{m.title}</p>
+            <p className={`${h} flex items-center gap-2`}><DIcon name={m.kind === 'birthday' ? 'cake' : m.kind === 'first' ? 'user' : 'sparkle'} size={17} style={{ color: 'var(--accent)' }} />{m.title}</p>
             <p className="text-[14px]" style={muted}>{m.deskLine}{m.rewardPct > 0 && momentReward?.key === m.key ? (safeNumber(momentDiscountValue) > 0 ? ` −${coMoney(momentDiscountValue)} on this ticket.` : ' (A bigger discount is already applied, so this one isn’t.)') : ''}</p>
           </section>)}
           {selectedClient && availableEntitlements.length > 0 && (
@@ -1147,7 +1071,7 @@ export const CheckoutHub = ({
             </div>}
             {groupRest && <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--accent) 10%, transparent)' }}>
               <span><b>{groupRest.label}</b> · {groupRest.names.join(', ')} {groupRest.names.length === 1 ? 'is' : 'are'} ready to pay too</span>
-              <button type="button" onClick={groupRest.add} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Add them · one bill</button>
+              <button type="button" onClick={groupRest.add} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Add them · one bill</button>
             </div>}
             {isCartEmpty ? <p className="text-[14px]" style={muted}>Nothing yet — pick a visit, scan a ticket, or add items from the counter.</p> : <div className="space-y-2">
               {appointmentsData.map((data: any) => {
@@ -1167,33 +1091,32 @@ export const CheckoutHub = ({
                     <div className="min-w-0"><p className="text-[15px] font-semibold">{data.service.name}{isRedeemed ? ' · benefit' : ''}</p>
                       <p className="text-[13px]" style={muted}>{firstOf(mainStaffMember?.name) || 'Provider'} · {data.service.duration}m{forWho ? ` · for ${firstOf(forWho)}` : ''}</p></div>
                     <div className="flex shrink-0 items-center gap-1"><p className="text-[15px] font-semibold tabular-nums">{isRedeemed ? <s style={muted}>{coMoney(getServicePrice(data.service, data.staff))}</s> : coMoney(getServicePrice(data.service, data.staff))}</p>
-                      <button type="button" onClick={() => onSelectAppointment(data.appointment.id)} aria-label={`Take ${data.service.name} off this ticket`} className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: 'var(--card)' }}>✕</button></div>
+                      <button type="button" onClick={() => onSelectAppointment(data.appointment.id)} aria-label={`Take ${data.service.name} off this ticket`} className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: 'var(--card)' }}><DIcon name="close" size={15} /></button></div>
                   </div>
                   {addOns.map((addon: any) => { const as = staff.find((s: any) => s.id === (overrides[addon.id] || data.appointment.staffId)); const red = redeemedOffer?.itemId === addon.id;
                     return <div key={addon.id} className="flex justify-between gap-2 text-[14px]"><span>+ {addon.name}{as ? <span style={muted}> · {firstOf(as.name)}</span> : null}</span><span className="tabular-nums">{red ? <s style={muted}>{coMoney(getServicePrice(addon, data.staff))}</s> : coMoney(getServicePrice(addon, data.staff))}</span></div>; })}
                   {refreshmentsInSession.map((r: any, idx: number) => { const q = safeNumber(r.quantity || 1); return <div key={`ref-${idx}`} className="flex justify-between gap-2 text-[14px]"><span>{r.name}{q > 1 ? ` ×${q}` : ''}</span><span className="tabular-nums">{safeNumber(r.price) > 0 ? coMoney(safeNumber(r.price) * q) : 'Free'}</span></div>; })}
-                  {!isWaived && lateFeesForApt.map((fee: any) => <div key={fee.feeId} className="flex items-center justify-between gap-2 text-[14px]" style={{ color: 'var(--warn)' }}><span>{fee.reason}</span><span className="flex items-center gap-1 tabular-nums">{coMoney(fee.feeAmount)}<button type="button" onClick={() => onApplyAdjustmentToggle(fee.feeId, false)} aria-label={`Remove ${fee.reason}`} className="h-8 w-8 rounded-full" style={{ background: 'var(--card)' }}>✕</button></span></div>)}
+                  {!isWaived && lateFeesForApt.map((fee: any) => <div key={fee.feeId} className="flex items-center justify-between gap-2 text-[14px]" style={{ color: 'var(--warn)' }}><span>{fee.reason}</span><span className="flex items-center gap-1 tabular-nums">{coMoney(fee.feeAmount)}<button type="button" onClick={() => onApplyAdjustmentToggle(fee.feeId, false)} aria-label={`Remove ${fee.reason}`} className="h-8 w-8 rounded-full" style={{ background: 'var(--card)' }}><DIcon name="close" size={15} /></button></span></div>)}
                   {feeRows.map(([l, v]) => <div key={l} className="flex justify-between gap-2 text-[14px]" style={{ color: 'var(--warn)' }}><span>{l}</span><span className="tabular-nums">{coMoney(v)}</span></div>)}
                   {!isWaived && (feeRows.length > 0) && <button type="button" onClick={() => handleWaiveClick(data.appointment.id)} className="text-[13px] font-semibold underline underline-offset-4">Waive these fees{isOwnerOrAdmin ? '' : ' (a manager approves)'}</button>}
                   {isWaived && <div className="flex items-center justify-between text-[13px]" style={{ color: 'var(--ok)' }}><span>Fees waived</span><button type="button" onClick={() => onWaiveFeeToggle(data.appointment.id, false)} className="font-semibold underline underline-offset-4">Undo</button></div>}
                 </div>;
               })}
-              {cart.map((item: any) => <div key={item.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
-                <div className="min-w-0"><p className="truncate text-[15px] font-semibold">{item.name}</p><p className="text-[13px] capitalize" style={muted}>{item.type || 'item'} · {coMoney(item.price)} each</p></div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {!['rent', 'tuition'].includes(item.type) && <>   {/* an account payment is one amount — no quantity */}
-                  <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)} aria-label={`One fewer ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>−</button>
+              {cart.map((item: any) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
+                <div className="min-w-[9rem] flex-1"><p className="text-[15px] font-semibold">{item.name}</p><p className="text-[13px]" style={muted}>{String(item.type || 'item').replace(/^./, (c: string) => c.toUpperCase())} · {coMoney(item.price)} each</p></div>
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  {!['rent', 'tuition'].includes(item.type) && <>                  <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)} aria-label={`One fewer ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>−</button>
                   <span className="w-6 text-center text-[15px] font-semibold tabular-nums">{item.quantity}</span>
                   <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)} aria-label={`One more ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>+</button></>}
                   <span className="w-16 text-right text-[15px] font-semibold tabular-nums">{coMoney(safeNumber(item.price) * item.quantity)}</span>
-                  <button type="button" onClick={() => handleUpdateQuantity(item.id, 0)} aria-label={`Remove ${item.name}`} className="h-9 w-9 rounded-full" style={{ background: 'var(--card)' }}>✕</button>
+                  <button type="button" onClick={() => handleUpdateQuantity(item.id, 0)} aria-label={`Remove ${item.name}`} className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: 'var(--card)' }}><DIcon name="close" size={15} /></button>
                 </div>
               </div>)}
               {Array.from(appliedAdjustments).filter((id: any) => { const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id); return !fee || !appointmentsData.some((d: any) => d.appointment.id === fee.appointmentId); }).map((id: any) => {
                 const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
                 return <div key={id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>
                   <div><p className="text-[15px] font-semibold">{fee?.reason || 'Owed balance'}</p><p className="text-[13px]" style={muted}>Owed from before</p></div>
-                  <div className="flex items-center gap-1"><span className="text-[15px] font-semibold tabular-nums">{coMoney(fee?.feeAmount)}</span><button type="button" onClick={() => onApplyAdjustmentToggle(id, false)} aria-label="Leave this balance for later" className="h-9 w-9 rounded-full" style={{ background: 'var(--card)' }}>✕</button></div>
+                  <div className="flex items-center gap-1"><span className="text-[15px] font-semibold tabular-nums">{coMoney(fee?.feeAmount)}</span><button type="button" onClick={() => onApplyAdjustmentToggle(id, false)} aria-label="Leave this balance for later" className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: 'var(--card)' }}><DIcon name="close" size={15} /></button></div>
                 </div>;
               })}
             </div>}
@@ -1210,7 +1133,7 @@ export const CheckoutHub = ({
               <button type="button" onClick={() => handleApplyDiscount(promoCodeInput)} className="shrink-0 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Apply</button>
               <button type="button" onClick={() => setIsDiscountBrowserOpen(true)} className="shrink-0 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Browse</button>
             </div>
-            {appliedDiscountCodes.length > 0 && <div className="flex flex-wrap gap-1.5">{appliedDiscountCodes.map((code: string) => <span key={code} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{code}<button type="button" aria-label={`Remove code ${code}`} onClick={() => setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code))}>✕</button></span>)}</div>}
+            {appliedDiscountCodes.length > 0 && <div className="flex flex-wrap gap-1.5">{appliedDiscountCodes.map((code: string) => <span key={code} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{code}<button type="button" aria-label={`Remove code ${code}`} onClick={() => setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code))}><DIcon name="close" size={13} /></button></span>)}</div>}
             {groupInfo && (skipGroupDiscount || safeNumber(groupDiscountRaw) > 0 || groupInfo.remaining === 0) && <div className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: skipGroupDiscount ? 'var(--soft)' : 'color-mix(in srgb, var(--ok) 9%, transparent)' }}>
                 <p className="text-[14px]"><b>{groupInfo.label}</b> · {groupInfo.servicesPct}% off services{groupInfo.productsPct ? ` · ${groupInfo.productsPct}% off products` : ''}
                   {skipGroupDiscount ? <span style={muted}> — not applied this time</span> : groupInfo.remaining === 0 ? <span style={muted}> — this month’s limit is used up</span> : safeNumber(groupDiscountValue) > 0 ? <> — <b>−{coMoney(groupDiscountValue)}</b>{Number.isFinite(groupInfo.remaining) ? <span style={muted}> ({coMoney(groupInfo.remaining)} left this month)</span> : null}</> : <span style={muted}> — a bigger discount code applies instead</span>}</p>
@@ -1269,11 +1192,8 @@ export const CheckoutHub = ({
        {setGiftApplied && addGiftCardToCart && <GiftCardPanel tenantId={tenantId} clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} owedBeforeGift={Math.max(0, beforeGiftTotal - giftInCart)} applied={giftApplied} setApplied={setGiftApplied} holdId={giftHoldId} addGiftCardToCart={addGiftCardToCart} brandName={(selectedTenant as any)?.name || null} brandLogo={(selectedTenant as any)?.logoUrl || null} brandAccent={brandAccent(selectedTenant)} screen={{ connected: cs.connected, ask: cs.ask, response: cs.response }} script={deskScript(shopSettings(selectedTenant))} offer={liveOffer((selectedTenant as any)?.giftCardSettings, 'desk', todayIn((selectedTenant as any)?.timezone))} services={shopSettings(selectedTenant).serviceCards ? (services || []).filter((x: any) => x?.id && x.isActive !== false && !x.isPrivate && Number(x.price) > 0).map((x: any) => ({ id: x.id, name: x.name, price: Number(x.price) })) : []} />}
         </div>
         <div className="co-right min-w-0 space-y-3">
-          {/* WHAT THEY AGREED — the "up to" price from Before the visit (or a change agreed in person today). */}
           {(appointmentsData || []).map((d: any) => <AgreedPrice key={`ag-${d.appointment?.id}`} tenantId={tenantId} d={d} staff={staff || []} firestore={firestore} />)}
-          {/* EXTRA PRODUCT — suggested, never automatic: the provider recorded more than the recipe on "Products used". */}
           {automationOn(selectedTenant, 'extra-product-suggest') && (appointmentsData || []).map((d: any) => <ExtraProductSuggestion key={`xp-${d.appointment?.id}`} tenantId={tenantId} appt={d.appointment} serviceName={d.service?.name} firestore={firestore} />)}
-          {/* EXTRA TIME — suggested, never automatic: the visit ran past booked + grace, and the provider said the client asked for it. */}
           {automationOn(selectedTenant, 'overtime-suggest') && (appointmentsData || []).map((d: any) => {
             const a = d.appointment || {}; const tm = visitTiming(a, services || [], selectedTenant); const adj = a.checkoutState?.adjustments || {};
             if (tm.timedBy !== 'provider' || tm.quality !== 'ok' || tm.overPastGrace <= 0 || !tm.overReason?.clientCaused || Number(adj.timeOverage) > 0 || a.checkoutState?.overtimeWaived) return null;
@@ -1318,8 +1238,11 @@ export const CheckoutHub = ({
               prepare={async () => prepareNow()} onCancel={() => setSplitActive?.(false)} onFinish={(paid) => onCheckout({ paymentMethod: 'split', amountTendered: paid, recoveryAmount, recoveryReason, recoveryApprovalToken })}
               screen={cs.connected ? { connected: true, name: cs.name, ask: cs.ask, response: cs.response } : null} askTip={autoTipOn} tipBaseFor={(amt: number) => (safeNumber(finalTotal) > 0 ? Math.round(tipBase * (amt / safeNumber(finalTotal)) * 100) / 100 : 0)} />
             : <>
-            <div role="tablist" aria-label="Payment method" className="grid grid-cols-3 gap-1 rounded-full p-1" style={{ background: 'var(--soft)' }}>
-              {([['card', 'Card'], ['cash', 'Cash'], ['other', 'Other']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={paymentTab === k} onClick={() => { setPaymentTab(k); setCardMode('select'); }} className="h-11 rounded-full text-[15px] font-semibold" style={paymentTab === k ? { background: 'var(--card)', boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: 'var(--muted)' }}>{l}</button>)}
+            <div role="tablist" aria-label="Payment method" className="grid grid-cols-3 gap-2">
+              {([['card', 'Card', 'card'], ['cash', 'Cash', 'cash'], ['other', 'Other', 'receipt']] as const).map(([k, l, ic]) => { const on = paymentTab === k;
+                return <button key={k} type="button" role="tab" aria-selected={on} onClick={() => { setPaymentTab(k); setCardMode('select'); }}
+                  className="flex h-[72px] flex-col items-center justify-center gap-1.5 rounded-2xl text-[14px] font-semibold transition active:scale-[.98]"
+                  style={on ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)', color: 'var(--ink)' }}><DIcon name={ic} size={22} />{l}</button>; })}
             </div>
             {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && <p className="text-[13px]" style={muted}>Card fee {(cardSurchargeRate * 100).toFixed(1)}% · +{coMoney(cardSurcharge)}</p>}
             <AnimatePresence mode="wait">
@@ -1330,13 +1253,13 @@ export const CheckoutHub = ({
               </div>}
               {paymentTab === 'card' && cardMode === 'select' && !payReq && !payAfterTip && <div className="grid gap-2">
                 {payOnIpadOn && <button type="button" onClick={startPayOnIpad} disabled={isCartEmpty || amountToCharge <= 0} className={rowBtn} style={{ background: 'color-mix(in srgb, var(--accent) 10%, var(--soft))' }}>
-                  <span><span className="block text-[15px] font-semibold">Client pays on {cs.name}</span><span className="block text-[13px]" style={muted}>Card on the iPad, or Apple Pay / Google Pay on their phone{csSet.offerSaveCard !== false && selectedClient ? ' · they can save their card' : ''}</span></span><span aria-hidden>→</span></button>}
+                  <span><span className="block text-[15px] font-semibold">Client pays on {cs.name}</span><span className="block text-[13px]" style={muted}>Card on the iPad, or Apple Pay / Google Pay on their phone{csSet.offerSaveCard !== false && selectedClient ? ' · they can save their card' : ''}</span></span><DIcon name="chevron" size={17} /></button>}
                 {hasCardOnFile && <button type="button" onClick={() => setCardMode('cof_tip')} className={rowBtn} style={{ background: 'var(--soft)' }}>
-                  <span><span className="block text-[15px] font-semibold">{String(selectedClient?.cardOnFile?.brand || 'Card')} ending {String(selectedClient?.cardOnFile?.last4 || '••••')}</span><span className="block text-[13px]" style={muted}>Card on file — they choose a tip, then you charge</span></span><span aria-hidden>→</span></button>}
-                <button type="button" onClick={handleTerminalPayment} disabled={!readerConnected} className={rowBtn} style={{ background: 'var(--soft)', opacity: readerConnected ? 1 : 0.55 }}>
-                  <span><span className="block text-[15px] font-semibold">{readerConnected ? terminal?.connectedReader?.label || 'Card reader' : 'Card reader'}</span><span className="block text-[13px]" style={muted}>{readerConnected ? 'Tap, insert or swipe' : 'No reader paired — set one up in Settings'}</span></span><span aria-hidden>{readerConnected ? '→' : ''}</span></button>
+                  <span><span className="block text-[15px] font-semibold">{String(selectedClient?.cardOnFile?.brand || 'Card').replace(/^./, (c: string) => c.toUpperCase())} ending {String(selectedClient?.cardOnFile?.last4 || '••••')}</span><span className="block text-[13px]" style={muted}>Card on file — they choose a tip, then you charge</span></span><DIcon name="chevron" size={17} /></button>}
+                <button type="button" onClick={readerConnected ? handleTerminalPayment : () => setCardMode('reader')} disabled={!terminal} className={rowBtn} style={{ background: 'var(--soft)', opacity: terminal ? 1 : 0.55 }}>
+                  <span><span className="block text-[15px] font-semibold">{readerConnected ? terminal?.connectedReader?.label || 'Card reader' : 'Card reader'}</span><span className="block text-[13px]" style={muted}>{readerConnected ? 'Tap, insert or swipe' : terminal ? 'Connect a reader' : 'Connect your payments account in Settings to use a reader'}</span></span><DIcon name="chevron" size={17} /></button>
                 <button type="button" onClick={() => setCardMode('new_card')} className={rowBtn} style={{ background: 'var(--soft)' }}>
-                  <span><span className="block text-[15px] font-semibold">Type in a card</span><span className="block text-[13px]" style={muted}>Enter the card details</span></span><span aria-hidden>→</span></button>
+                  <span><span className="block text-[15px] font-semibold">Type in a card</span><span className="block text-[13px]" style={muted}>Enter the card details</span></span><DIcon name="chevron" size={17} /></button>
                 {selectedClient && <label className="flex items-center gap-2 px-1 text-[14px]"><input type="checkbox" checked={saveNewCard} onChange={() => setSaveNewCard((v: boolean) => !v)} /> Save a typed card to their profile</label>}
               </div>}
             {paymentTab === 'card' && cardMode === 'cof_tip' && selectedClient && autoTipOn && tipReq && <div className="space-y-2 rounded-2xl p-4" style={{ background: 'var(--soft)' }}>
@@ -1348,95 +1271,40 @@ export const CheckoutHub = ({
               const presets = [0, 10, 18, 20, 25];
               const baseForTip = subtotal; // tip on pre-tax subtotal
               return (
-                <motion.div key="cof-tip" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-4 space-y-6">
-                  <div className="text-center space-y-1 py-4">
-                    <p className="text-[9px] font-black uppercase tracking-[0.25em] text-muted-foreground">Turn screen toward client</p>
-                    <p className="text-2xl font-black uppercase tracking-tighter text-slate-900">Add a Gratuity?</p>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Your technician appreciates your support</p>
+                <motion.div key="cof-tip" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-4">
+                  <div className="space-y-1 py-2 text-center">
+                    <p className="text-[12px]" style={muted}>Turn the screen toward {firstOf(selectedClient?.name) || 'the client'}</p>
+                    <p className="text-[24px] font-light tracking-tight">Add a tip?</p>
                   </div>
-
-                  {studentsNoTips && <p className="col-span-2 rounded-2xl bg-muted/40 p-3 text-center text-sm font-bold text-muted-foreground">Student-salon service — this school doesn’t accept tips for students.</p>}
-                  <div className="grid grid-cols-2 gap-3">
-                    {presets.filter(p => p > 0).map(pct => {
+                  {studentsNoTips && <p className="rounded-2xl p-3 text-center text-[13px]" style={{ background: 'var(--soft)', color: 'var(--muted)' }}>Student-salon service. This school doesn’t accept tips for students.</p>}
+                  <div className="grid grid-cols-2 gap-2">
+                    {presets.filter((p) => p > 0).map((pct) => {
                       const tipAmt = Number((baseForTip * (pct / 100)).toFixed(2));
                       const isSelected = Math.abs(tipAmount - tipAmt) < 0.01;
                       return (
-                        <button key={pct}
-                          onClick={() => handleTotalTipChange(tipAmt)}
-                          className={cn(
-                            'h-20 rounded-2xl border-2 font-black transition-all active:scale-95 flex flex-col items-center justify-center gap-1',
-                            isSelected
-                              ? 'border-primary bg-primary text-white shadow-xl shadow-primary/30'
-                              : 'border-border bg-white text-slate-900 hover:border-primary/30 hover:bg-primary/5'
-                          )}>
-                          <span className="text-2xl">{pct}%</span>
-                          <span className={cn('text-[11px] font-black', isSelected ? 'text-white/80' : 'text-muted-foreground')}>
-                            ${tipAmt.toFixed(2)}
-                          </span>
+                        <button key={pct} type="button" aria-pressed={isSelected} onClick={() => handleTotalTipChange(tipAmt)}
+                          className="flex h-20 flex-col items-center justify-center gap-0.5 rounded-2xl transition active:scale-[.98]"
+                          style={isSelected ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)' }}>
+                          <span className="text-[24px] font-light">{pct}%</span>
+                          <span className="text-[12.5px] tabular-nums" style={{ opacity: 0.75 }}>${tipAmt.toFixed(2)}</span>
                         </button>
                       );
                     })}
-                    <button
-                      onClick={() => handleTotalTipChange(0)}
-                      className={cn(
-                        'h-20 rounded-2xl border-2 font-black transition-all active:scale-95 flex flex-col items-center justify-center gap-1 col-span-2',
-                        tipAmount === 0
-                          ? 'border-slate-300 bg-slate-100 text-slate-500'
-                          : 'border-dashed border-border bg-white text-muted-foreground hover:bg-muted/20'
-                      )}>
-                      <span className="text-base uppercase tracking-widest">No Tip</span>
-                    </button>
+                    <button type="button" aria-pressed={tipAmount === 0} onClick={() => handleTotalTipChange(0)} className="col-span-2 h-14 rounded-2xl text-[15px] font-semibold"
+                      style={tipAmount === 0 ? { background: 'var(--ink)', color: 'var(--paper)' } : { border: '1px dashed var(--line)', color: 'var(--muted)' }}>No tip</button>
                   </div>
-
-                  <div className="space-y-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center">Or enter custom amount</p>
-                    <div className="relative">
-                      <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        aria-label="Custom tip amount in dollars"
-                        value={tipAmount > 0 && ![10,18,20,25].map(p => Number((baseForTip * p / 100).toFixed(2))).includes(tipAmount) ? tipAmount : ''}
-                        onChange={e => handleTotalTipChange(parseFloat(e.target.value) || 0)}
-                        onFocus={e => e.currentTarget.select()}
-                        placeholder="0.00"
-                        className="h-14 pl-10 text-2xl font-black font-mono border-2 rounded-2xl bg-white"
-                      />
-                    </div>
+                  <input type="number" inputMode="decimal" aria-label="Custom tip amount in dollars"
+                    value={tipAmount > 0 && ![10, 18, 20, 25].map((p) => Number((baseForTip * p / 100).toFixed(2))).includes(tipAmount) ? tipAmount : ''}
+                    onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} onFocus={(e) => e.currentTarget.select()}
+                    placeholder="Or another amount ($)" className={inputCls} style={inputStyle} />
+                  <div className="space-y-1.5 rounded-2xl p-4 text-[14px]" style={{ background: 'var(--soft)' }}>
+                    <div className="flex justify-between" style={muted}><span>Subtotal</span><span className="tabular-nums">${subtotal.toFixed(2)}</span></div>
+                    <div className="flex justify-between" style={muted}><span>{taxLabel || 'Sales tax'}</span><span className="tabular-nums">${(Number(tax) || 0).toFixed(2)}</span></div>
+                    {tipAmount > 0 && <div className="flex justify-between"><span>Tip</span><span className="tabular-nums">${tipAmount.toFixed(2)}</span></div>}
+                    {cardSurcharge > 0 && <div className="flex justify-between" style={{ color: 'var(--warn)' }}><span>Card fee</span><span className="tabular-nums">${cardSurcharge.toFixed(2)}</span></div>}
+                    <div className="flex justify-between pt-1.5 text-[17px] font-semibold" style={{ borderTop: '1px solid var(--line)' }}><span>Total</span><span className="tabular-nums">${amountToCharge.toFixed(2)}</span></div>
                   </div>
-
-                  <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-2">
-                    <div className="flex justify-between text-[11px] text-muted-foreground">
-                      <span className="font-bold uppercase">Subtotal</span>
-                      <span className="font-mono">${subtotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-[11px] text-muted-foreground">
-                      <span className="font-bold uppercase">Tax</span>
-                      <span className="font-mono">${(Number(tax) || 0).toFixed(2)}</span>
-                    </div>
-                    {tipAmount > 0 && (
-                      <div className="flex justify-between text-[11px] text-primary">
-                        <span className="font-black uppercase">Gratuity</span>
-                        <span className="font-mono font-black">${tipAmount.toFixed(2)}</span>
-                      </div>
-                    )}
-                    {cardSurcharge > 0 && (
-                      <div className="flex justify-between text-[11px] text-amber-700">
-                        <span className="font-black uppercase">Card Processing Fee</span>
-                        <span className="font-mono font-black">${cardSurcharge.toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-base font-black border-t border-primary/10 pt-2">
-                      <span className="uppercase text-primary">Total</span>
-                      <span className="font-mono text-primary">${amountToCharge.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  <Button
-                    onClick={() => setCardMode('cof_confirm')}
-                    className="w-full h-14 rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl shadow-primary/20">
-                    Continue to Charge →
-                  </Button>
+                  <button type="button" onClick={() => setCardMode('cof_confirm')} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-[15px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Continue<DIcon name="arrow" size={17} /></button>
                 </motion.div>
               );
             })()}
@@ -1463,12 +1331,17 @@ export const CheckoutHub = ({
                 />
               </motion.div>
             )}
+            {paymentTab === 'card' && cardMode === 'reader' && <div className="space-y-3">
+              <ReaderPanel compact tenantId={tenantId} manager={['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase())} onReady={() => setCardMode('select')} />
+              <button type="button" onClick={() => setCardMode('select')} className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>{readerConnected ? 'Done' : 'Back'}</button>
+            </div>}
             {paymentTab === 'card' && cardMode === 'terminal' && (
               <motion.div key="terminal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <TerminalPaymentUI
                   amount={amountToCharge}
                   onCancel={() => setCardMode('select')}
                   onSuccess={() => setCardMode('select')}
+                  onRetry={handleTerminalPayment}
                 />
               </motion.div>
             )}
@@ -1495,6 +1368,7 @@ export const CheckoutHub = ({
                   finalTotal={finalTotal}
                   subtotal={subtotal}
                   tax={(Number(tax) || 0)}
+                  taxLabel={taxLabel || 'Sales tax'}
                   amountTendered={amountTendered}
                   setAmountTendered={setAmountTendered}
                   tipAmount={tipAmount}
@@ -1590,14 +1464,14 @@ export const CheckoutHub = ({
       </div>
       <div className="sticky bottom-0 z-10 -mx-5 mt-3 px-5 pb-1 pt-3" style={{ background: 'var(--paper)', borderTop: '1px solid var(--line)' }}>
         <div className="flex items-center justify-between gap-3">
-          <div><p className="text-[12px]" style={muted}>{isCardTab ? 'To charge' : 'Due'}</p><p className="text-[26px] font-semibold tabular-nums leading-tight">{coMoney(dueNow)}</p></div>
+          <div><p className="text-[12px]" style={muted}>{isCardTab ? 'To charge' : 'Due'}</p><p className="text-[30px] font-light tracking-tight tabular-nums leading-tight">{coMoney(dueNow)}</p></div>
           {splitActive ? <p className="max-w-[55%] text-right text-[13px]" style={muted}>Splitting the bill — finish it above.</p> : paymentTab === 'other' ? <button type="button" onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked })} disabled={isSubmitting || payBlocked}
               className="h-12 rounded-full px-6 text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{isSubmitting ? 'Saving…' : finalTotal <= 0 ? 'Complete (nothing to pay)' : `Record ${coMoney(finalTotal)}`}</button>
             : <p className="max-w-[55%] text-right text-[13px]" style={muted}>{payBlocked ? (isOverAutonomy && !isOverrideUnlocked ? 'A manager needs to approve the recovery first' : isGroupCheckout && !selectedClientId ? 'Choose who’s paying' : 'Add something to the ticket') : paymentTab === 'cash' ? 'Enter the cash given above to finish' : cardMode === 'select' ? 'Choose how they pay by card above' : 'Finish the card payment above'}</p>}
         </div>
       </div>
       <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-      <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} tenantIdForApproval={tenantId} approvalKind="waive" approvalRef={pendingWaiveAptId} title="Admin Override" description="Authorize fee waiver with manager PIN." />
+      <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} tenantIdForApproval={tenantId} approvalKind="waive" approvalRef={pendingWaiveAptId} title="Waive these fees" description="A manager approves with their PIN. The reason is recorded." />
     </div>
   );
 

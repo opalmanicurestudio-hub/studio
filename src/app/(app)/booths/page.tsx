@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 /**
  * BoothsPage — the single unified surface for booths, renters, and
@@ -2278,7 +2279,7 @@ export default function BoothsPage() {
     if (!list.length || !tenantId) return;
     list.forEach((r: Renter) => {
       if (w9Map[r.id] !== undefined) return;
-      fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(r.id)}`)
+      staffAuthHeader().then((h) => fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(r.id)}`, { headers: h }))
         .then(res => res.json())
         .then(d => setW9Map(prev => ({ ...prev, [r.id]: d.w9 || null })))
         .catch(() => setW9Map(prev => ({ ...prev, [r.id]: null })));

@@ -59,26 +59,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: `Capture failed: ${intent.status}` }, { status: 400 });
     }
 
-    // If saveCard requested, vault the card onto the client profile
+    // Saving the card: an in-person card can't be charged again later, but Stripe makes a reusable copy of it
+    // (the "generated card") when the payment was set up for future use. That copy is what goes on the profile.
     if (saveCard && clientId && customerId) {
       try {
-        const pm = intent.payment_method;
-        if (pm && typeof pm === 'string') {
-          const pmObj = await stripe.paymentMethods.retrieve(pm, { stripeAccount: stripeAccountId } as any);
+        const full: any = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] }, { stripeAccount: stripeAccountId });
+        const cp = full?.latest_charge?.payment_method_details?.card_present || {};
+        const reusable = cp.generated_card || null;
+        if (reusable) {
           const nowISO = new Date().toISOString();
           await db.doc(`tenants/${tenantId}/clients/${clientId}`).update({
-            cardOnFile: {
-              token:           pm,
-              customerId,
-              paymentMethodId: pm,
-              brand:           pmObj.card_present?.brand || pmObj.card?.brand || null,
-              last4:           pmObj.card_present?.last4 || pmObj.card?.last4 || null,
-              expMonth:        pmObj.card_present?.exp_month || pmObj.card?.exp_month || null,
-              expYear:         pmObj.card_present?.exp_year  || pmObj.card?.exp_year  || null,
-              savedAt:         nowISO,
-              source:          'terminal',
-            },
-            cardOnFileSavedAt: new Date().toISOString(),
+            cardOnFile: { token: reusable, customerId, paymentMethodId: reusable, brand: cp.brand || null, last4: cp.last4 || null, expMonth: cp.exp_month || null, expYear: cp.exp_year || null, savedAt: nowISO, source: 'terminal' },
+            cardOnFileSavedAt: nowISO,
           });
         }
       } catch (e) {

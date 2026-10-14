@@ -3,13 +3,17 @@
 import { hasRealCard } from '@/lib/card-on-file';
 import React, { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { cn, safeNumber } from '@/lib/utils';
-import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import {
-  Search, UserPlus, X, CreditCard, AlertTriangle,
-  Star, ChevronRight, Users, User,
-} from 'lucide-react';
+import { safeNumber } from '@/lib/utils';
+import { Icon } from '@/components/pos/desk/kit';
+
+// Colours come from the desk theme (white or black); the fallbacks keep it right anywhere else it's used.
+const C = { ink: 'var(--ink, #16171a)', muted: 'var(--muted, #6d7075)', line: 'var(--line, #ececee)', soft: 'var(--soft, #f5f5f7)', card: 'var(--card, #fff)', paper: 'var(--paper, #fff)', ok: 'var(--ok, #1f7a4d)', warn: 'var(--warn, #a15c07)', accent: 'var(--accent, #16171a)', accentInk: 'var(--accent-ink, #fff)' };
+const initialsOf = (n: string) => (n || '?').split(' ').filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase();
+function Face({ client, size = 40, on }: { client: Client; size?: number; on?: boolean }) {
+  const url = (client as any).avatarUrl;
+  return url ? <img src={url} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />
+    : <span className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold" style={{ width: size, height: size, fontSize: size > 40 ? 15 : 12.5, background: on ? C.accent : C.soft, color: on ? C.accentInk : C.ink }}>{initialsOf(client.name || '')}</span>;
+}
 import { type Client } from '@/lib/data';
 
 function ClientBadges({ client }: { client: Client }) {
@@ -17,51 +21,27 @@ function ClientBadges({ client }: { client: Client }) {
   const hasDebt  = safeNumber(client.outstandingBalance) > 0;
   const isMember = !!client.activeMembershipId || client.subscription?.status === 'active';
   if (!hasCard && !hasDebt && !isMember) return null;
+  const chip = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold';
   return (
-    <div className="flex items-center gap-1 flex-wrap mt-0.5">
-      {hasCard && (
-        <span className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider text-primary bg-primary/10 rounded-full px-1.5 py-0.5">
-          <CreditCard className="w-2.5 h-2.5" /> Card
-        </span>
-      )}
-      {isMember && (
-        <span className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700 bg-amber-100 rounded-full px-1.5 py-0.5">
-          <Star className="w-2.5 h-2.5" /> Member
-        </span>
-      )}
-      {hasDebt && (
-        <span className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider text-destructive bg-destructive/10 rounded-full px-1.5 py-0.5">
-          <AlertTriangle className="w-2.5 h-2.5" /> ${safeNumber(client.outstandingBalance).toFixed(0)} owed
-        </span>
-      )}
-    </div>
+    <span className="mt-1 flex flex-wrap items-center gap-1">
+      {hasCard && <span className={chip} style={{ background: C.soft, color: C.muted }}><Icon name="card" size={12} />Card on file</span>}
+      {isMember && <span className={chip} style={{ background: `color-mix(in srgb, ${C.ok} 12%, transparent)`, color: C.ok }}><Icon name="sparkle" size={12} />Member</span>}
+      {hasDebt && <span className={chip} style={{ background: `color-mix(in srgb, ${C.warn} 12%, transparent)`, color: C.warn }}><Icon name="alert" size={12} />${safeNumber(client.outstandingBalance).toFixed(0)} owed</span>}
+    </span>
   );
 }
 
-function ClientCard({ client, compact, selected, onClick }: {
-  client: Client; compact?: boolean; selected?: boolean; onClick: () => void;
-}) {
-  const initials = (client.name || '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
-  const ltv = safeNumber(client.lifetimeValue);
+function ClientCard({ client, compact, selected, onClick }: { client: Client; compact?: boolean; selected?: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={cn(
-      'w-full text-left rounded-2xl border-2 transition-all active:scale-[0.98] flex items-center gap-3',
-      compact ? 'p-3' : 'p-4',
-      selected ? 'border-primary bg-primary/5 shadow-md shadow-primary/10' : 'border-border bg-white hover:border-primary/30 hover:bg-primary/[0.02]'
-    )}>
-      <Avatar className={cn('border-2 rounded-xl shrink-0', compact ? 'h-9 w-9' : 'h-11 w-11', selected ? 'border-primary/30' : 'border-border')}>
-        <AvatarImage src={(client as any).avatarUrl} className="object-cover" />
-        <AvatarFallback className={cn('font-black text-xs', selected ? 'bg-primary text-white' : 'bg-primary/10 text-primary')}>{initials}</AvatarFallback>
-      </Avatar>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-2">
-          <p className={cn('font-black uppercase tracking-tight truncate', compact ? 'text-xs' : 'text-sm', selected ? 'text-primary' : 'text-slate-900')}>{client.name}</p>
-          {ltv > 0 && !compact && <span className="text-[9px] font-black text-muted-foreground/50 uppercase shrink-0">${ltv.toFixed(0)} LTV</span>}
-        </div>
-        {!compact && <p className="text-[10px] text-muted-foreground font-bold uppercase truncate mt-0.5">{client.phone || client.email || 'No contact'}</p>}
+    <button type="button" onClick={onClick} aria-pressed={selected} className={`flex w-full items-center gap-3 rounded-2xl text-left transition active:scale-[.99] ${compact ? 'p-2.5' : 'p-3'}`}
+      style={{ border: `1px solid ${selected ? C.ink : C.line}`, background: selected ? C.soft : C.card }}>
+      <Face client={client} size={compact ? 34 : 40} on={selected} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14.5px] font-semibold">{client.name}</span>
+        {!compact && <span className="block truncate text-[12.5px]" style={{ color: C.muted }}>{client.phone || client.email || 'No contact details'}</span>}
         <ClientBadges client={client} />
-      </div>
-      {selected && <ChevronRight className="w-4 h-4 text-primary shrink-0" />}
+      </span>
+      <Icon name="chevron" size={16} style={{ color: C.muted }} />
     </button>
   );
 }
@@ -84,7 +64,7 @@ export function GuestSearch({ clients, selectedClientId, onSelect, onAddNew, pay
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return [...searchPool].sort((a, b) => safeNumber(b.lifetimeValue) - safeNumber(a.lifetimeValue)).slice(0, 8);
+    if (!q) return [...searchPool].sort((a, b) => safeNumber(b.lifetimeValue) - safeNumber(a.lifetimeValue)).slice(0, 6);
     const digits = q.replace(/\D/g, '');
     return searchPool.filter(c =>
       c.name?.toLowerCase().includes(q) ||
@@ -94,102 +74,61 @@ export function GuestSearch({ clients, selectedClientId, onSelect, onAddNew, pay
   }, [searchPool, query]);
 
   const compact = filtered.length > 4;
+  const fmtPhone = (p?: string) => { const d = String(p || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p || ''; };
 
   if (selectedClient) {
     return (
-      <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl border-2 border-primary bg-primary/5 p-4">
-        <div className="flex items-center gap-3">
-          <Avatar className="h-12 w-12 border-2 border-primary/20 rounded-xl shrink-0">
-            <AvatarImage src={(selectedClient as any).avatarUrl} className="object-cover" />
-            <AvatarFallback className="font-black text-sm bg-primary text-white">
-              {(selectedClient.name || '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <p className="font-black text-sm uppercase tracking-tight text-primary truncate">{selectedClient.name}</p>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase truncate">{selectedClient.phone || selectedClient.email || 'Guest'}</p>
-            <ClientBadges client={selectedClient} />
-          </div>
-          <button type="button" onClick={() => { onSelect(null); setQuery(''); }} aria-label={`Change who’s paying (now ${selectedClient.name})`}
-            className="h-11 shrink-0 rounded-full border-2 border-primary/30 bg-white px-4 text-[13px] font-bold transition-colors hover:border-primary">
-            Change
-          </button>
+      <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 rounded-2xl p-3" style={{ border: `1px solid ${C.line}`, background: C.soft }}>
+        <Face client={selectedClient} size={46} on />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[16px] font-semibold">{selectedClient.name}</p>
+          <p className="truncate text-[13px]" style={{ color: C.muted }}>{fmtPhone(selectedClient.phone) || selectedClient.email || 'Guest'}</p>
+          <ClientBadges client={selectedClient} />
         </div>
+        <button type="button" onClick={() => { onSelect(null); setQuery(''); }} aria-label={`Change who’s paying (now ${selectedClient.name})`}
+          className="h-10 shrink-0 rounded-full px-4 text-[13px] font-semibold" style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }}>Change</button>
       </motion.div>
     );
   }
 
   return (
     <div className="space-y-2">
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary/40" />
-        <Input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
-          placeholder="Name, phone, or email..."
-          className="h-12 pl-10 pr-10 rounded-2xl border-2 bg-white font-bold text-sm shadow-sm" />
-        {query && (
-          <button onClick={() => { setQuery(''); inputRef.current?.focus(); }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors">
-            <X className="w-3.5 h-3.5 text-muted-foreground" />
-          </button>
-        )}
-      </div>
+      <label className="flex h-12 items-center gap-2.5 rounded-2xl px-4" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+        <Icon name="search" size={17} style={{ color: C.muted }} />
+        <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Name, phone or email" aria-label="Find a client"
+          className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" style={{ color: C.ink }} />
+        {query && <button type="button" aria-label="Clear the search" onClick={() => { setQuery(''); inputRef.current?.focus(); }} style={{ color: C.muted }}><Icon name="close" size={15} /></button>}
+      </label>
 
-      {isGroupCheckout && payerOptions && payerOptions.length > 0 && (
-        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1 flex items-center gap-1.5">
-          <Users className="w-3 h-3" /> Clients on this booking
-        </p>
-      )}
+      {isGroupCheckout && payerOptions && payerOptions.length > 0 && <p className="flex items-center gap-1.5 px-1 text-[12.5px]" style={{ color: C.muted }}><Icon name="users" size={14} />Clients on this booking</p>}
 
       <div className="space-y-1.5">
         <AnimatePresence mode="popLayout">
           {filtered.map((client, i) => (
-            <motion.div key={client.id}
-              initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97 }} transition={{ delay: i * 0.02 }}>
+            <motion.div key={client.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ delay: i * 0.02 }}>
               <ClientCard client={client} compact={compact} selected={client.id === selectedClientId} onClick={() => onSelect(client.id)} />
             </motion.div>
           ))}
         </AnimatePresence>
 
-        {query && filtered.length === 0 && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-4 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">No client found for &ldquo;{query}&rdquo;</p>
-          </motion.div>
-        )}
+        {query && filtered.length === 0 && <p className="py-3 text-center text-[13px]" style={{ color: C.muted }}>No client matches “{query}”.</p>}
 
         {walkInMode && !isGroupCheckout && (
-          <button onClick={() => onSelect('walk-in')}
-            className={cn('w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all active:scale-[0.98]',
-              selectedClientId === 'walk-in' ? 'border-primary bg-primary/5' : 'border-dashed border-border hover:border-primary/30')}>
-            <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center shrink-0">
-              <User className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className="text-left">
-              <p className="text-[11px] font-black uppercase tracking-tight text-slate-700">Anonymous Walk-in</p>
-              <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">No profile required</p>
-            </div>
+          <button type="button" onClick={() => onSelect('walk-in')} className="flex w-full items-center gap-3 rounded-2xl p-3 text-left"
+            style={{ border: `1px ${selectedClientId === 'walk-in' ? 'solid' : 'dashed'} ${selectedClientId === 'walk-in' ? C.ink : C.line}` }}>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: C.soft }}><Icon name="walk" size={17} /></span>
+            <span><span className="block text-[14px] font-semibold">Walk-in, no profile</span><span className="block text-[12.5px]" style={{ color: C.muted }}>Their name isn’t needed for this sale</span></span>
           </button>
         )}
 
-        <button onClick={onAddNew}
-          className="w-full flex items-center gap-3 p-3 rounded-2xl border-2 border-dashed border-primary/20 bg-primary/[0.02] hover:bg-primary/5 hover:border-primary/40 transition-all active:scale-[0.98] group">
-          <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
-            <UserPlus className="w-4 h-4 text-primary" />
-          </div>
-          <div className="text-left flex-1">
-            <p className="text-[11px] font-black uppercase tracking-tight text-primary">Add New Client</p>
-            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Create profile and continue</p>
-          </div>
-          <ChevronRight className="w-4 h-4 text-primary/30 group-hover:text-primary/60 transition-colors shrink-0" />
+        <button type="button" onClick={onAddNew} className="flex w-full items-center gap-3 rounded-2xl p-3 text-left" style={{ border: `1px dashed ${C.line}` }}>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: C.soft }}><Icon name="plus" size={17} /></span>
+          <span className="flex-1"><span className="block text-[14px] font-semibold">Add a new client</span><span className="block text-[12.5px]" style={{ color: C.muted }}>Make their profile, then carry on</span></span>
+          <Icon name="chevron" size={16} style={{ color: C.muted }} />
         </button>
       </div>
 
-      {!query && (
-        <p className="text-[8px] font-bold text-muted-foreground/40 uppercase tracking-widest text-center pt-1">
-          Top {filtered.length} clients by lifetime value
-        </p>
-      )}
+      {!query && filtered.length > 0 && <p className="pt-1 text-center text-[12px]" style={{ color: C.muted }}>Your {filtered.length} most loyal clients · search to find anyone</p>}
     </div>
   );
 }

@@ -361,7 +361,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
       // 1. Create PaymentIntent on server
       const piRes = await fetch('/api/stripe/pos-payment-intent', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body:    JSON.stringify({ tenantId, clientId, amountCents: Math.round(amount * 100), saveCard, description: 'Studio Services' }),
       });
       const piData = await piRes.json();
@@ -388,7 +388,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
       if (saveCard && clientId && confirmResult.paymentIntent?.payment_method) {
         await fetch('/api/stripe/vault-card', {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
           body:    JSON.stringify({
             tenantId,
             clientId,

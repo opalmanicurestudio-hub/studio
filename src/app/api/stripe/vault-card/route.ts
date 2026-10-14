@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { requireRole } from '@/lib/route-guard';
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -29,6 +30,7 @@ function getStripe() {
 export async function POST(req: NextRequest) {
   try {
     const { tenantId, clientId, paymentIntentId, customerId } = await req.json();
+    { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }   // only the desk saves a card to a profile
     if (!tenantId || !clientId || !paymentIntentId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }

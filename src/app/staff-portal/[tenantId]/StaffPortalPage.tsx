@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 import { biz, bizNow, bizKey, bizDayStart, setBizZone } from '@/lib/biz-clock';
 import { tenantTimeZone, hasTimeZone } from '@/lib/tenant-time';
@@ -4705,7 +4706,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [showW9Form, setShowW9Form] = useState(false);
   useEffect(() => {
     if (!isRenter && !isHybrid) return;
-    fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(myRenter?.id || staffMember.id)}`)
+    staffAuthHeader().then((h) => fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(myRenter?.id || staffMember.id)}`, { headers: h }))
       .then(r=>r.json())
       .then(d => setW9Status(d.w9 ? { tinMasked: d.w9.tinMasked, legalName: d.w9.legalName, collectedAt: d.w9.collectedAt } : null))
       .catch(() => setW9Status(null));
