@@ -6,7 +6,7 @@
 //   gift { token, firstName, phone }   → Gift a friend: the text to send from their own phone (we never text the friend)
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { publicInfo, welcomeFor, termsFor, mine, giftFriend } from '@/lib/referrals-server';
+import { publicInfo, welcomeFor, termsFor, mine, giftFriend, clientOfPreview } from '@/lib/referrals-server';
 
 export const dynamic = 'force-dynamic';
 const j = (b: any, status = 200) => NextResponse.json(b, { status });
@@ -28,7 +28,9 @@ export async function POST(req: NextRequest) {
     if (action === 'info') return j(await publicInfo(db, String(b.tenantId || '').slice(0, 120), String(b.code || '').slice(0, 40)));
     if (action === 'welcome') return j(await welcomeFor(db, String(b.tenantId || '').slice(0, 120), String(b.code || '').slice(0, 40)));
     if (action === 'terms') return j(await termsFor(db, String(b.tenantId || '').slice(0, 120)));
-    const v = await fromVisit(db, String(b.token || '')); if (!v) return j({ ok: false, error: 'This link isn’t valid.' }, 404);
+    // A manager previewing a client's wallet (Referrals → Try it yourself): a private token that lasts 2 hours.
+    const pv = b.preview && b.tenantId ? await clientOfPreview(db, String(b.tenantId).slice(0, 120), String(b.preview)) : null;
+    const v = pv ? { tenantId: String(b.tenantId).slice(0, 120), clientId: pv } : await fromVisit(db, String(b.token || '')); if (!v) return j({ ok: false, error: 'This link isn’t valid.' }, 404);
     if (action === 'mine') return j(await mine(db, v.tenantId, v.clientId));
     if (action === 'gift') return j(await giftFriend(db, v.tenantId, v.clientId, { firstName: String(b.firstName || ''), phone: String(b.phone || '') }));
     return j({ ok: false, error: 'Unknown action.' }, 400);

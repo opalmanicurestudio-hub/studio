@@ -49,7 +49,9 @@ export function ReferralsBoard({ tenantId }: { tenantId: string }) {
             <span><span className="block text-[14px] font-semibold">{p.name}</span><span className="block text-[12.5px]" style={{ color: MUTED }}>{p.friends} friend{p.friends === 1 ? '' : 's'} · {p.visited} visited{p.broughtCents ? ` · ${money(p.broughtCents)} brought in` : ''}</span></span>
             {p.earnedCents > 0 && <span className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={{ background: '#e8f3ec', color: GREEN }}>{money(p.earnedCents)} earned</span>}</div>) : <p className="text-[13px]" style={{ color: MUTED }}>Nobody yet.</p>}</section>
         <section className="space-y-2 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><p className="text-[16px] font-semibold">Waiting for a visit</p><p className="text-[12.5px]" style={{ color: MUTED }}>{s?.unlock === 'paid' ? 'Credit is given a day after their first paid visit.' : 'Credit is given once they’ve booked.'}</p>
-          {(d.waiting || []).length ? d.waiting.map((w: any) => <div key={w.id} className="rounded-[14px] border p-3" style={{ borderColor: LINE }}><p className="text-[14px] font-semibold">{w.friend} ← {w.referrer}</p><p className="text-[12.5px]" style={{ color: MUTED }}>Booked {day(w.bookedAt)} · by {VIA[w.via] || w.via}</p></div>) : <p className="text-[13px]" style={{ color: MUTED }}>Nobody waiting.</p>}</section>
+          {(d.waiting || []).length ? d.waiting.map((w: any) => <div key={w.id} className="rounded-[14px] border p-3" style={{ borderColor: LINE }}><p className="text-[14px] font-semibold">{w.friend} ← {w.referrer}</p><p className="text-[12.5px]" style={{ color: MUTED }}>Booked {day(w.bookedAt)} · by {VIA[w.via] || w.via}</p>
+            <button type="button" disabled={busy === w.id} onClick={async () => { setBusy(w.id); setNote(null); const r = await payPost('/api/referrals', { tenantId, action: 'give_now', id: w.id }); setBusy(''); setNote(r?.ok ? { ok: true, t: 'Credit given.' } : { ok: false, t: r?.error || 'That didn’t work.' }); void load(); }}
+              className="mt-2 h-8 rounded-full border px-3 text-[12.5px] font-semibold" style={{ borderColor: LINE }}>Give credit now</button></div>) : <p className="text-[13px]" style={{ color: MUTED }}>Nobody waiting.</p>}</section>
         <section className="space-y-2 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><p className="text-[16px] font-semibold">Needs a look</p>
           {(d.review || []).length ? d.review.map((r: any) => <div key={r.id} className="space-y-2 rounded-[14px] border p-3" style={{ borderColor: '#f3dfc4' }}>
             <p className="text-[14px] font-semibold">{r.status === 'unmatched' ? `${r.friend}: said “${r.named}”` : `${r.friend} ← ${r.referrer}`}</p>
@@ -59,6 +61,7 @@ export function ReferralsBoard({ tenantId }: { tenantId: string }) {
               <button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'decline')} className="h-9 rounded-full border px-3.5 text-[13px]" style={{ borderColor: LINE }}>Leave it</button></div>
               : r.holdReason !== 'cap' && <div className="flex gap-1.5"><button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'approve')} className="h-9 rounded-full px-3.5 text-[13px] font-semibold text-white" style={{ background: INK }}>Approve</button>
                 <button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'decline')} className="h-9 rounded-full border px-3.5 text-[13px]" style={{ borderColor: LINE }}>No reward</button></div>}</div>) : <p className="text-[13px]" style={{ color: MUTED }}>Nothing needs you.</p>}</section></div>
+      <TryIt tenantId={tenantId} />
       {s && <section className="space-y-1 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}>
         <div className="flex items-center justify-between gap-3 pb-2"><div><p className="text-[16px] font-semibold">Settings</p><p className="text-[12.5px]" style={{ color: MUTED }}>Clients read the terms page made from these. The friend’s offer is a discount you approve by saving; prices on a service never change.</p></div>
           <button type="button" role="switch" aria-checked={!!s.on} aria-label="Referrals on" onClick={() => setS({ ...s, on: !s.on })} className="relative h-7 w-12 shrink-0 rounded-full" style={{ background: s.on ? INK : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: s.on ? 23 : 3 }} /></button></div>
@@ -84,4 +87,33 @@ export function ReferralsBoard({ tenantId }: { tenantId: string }) {
           <a href={`/ref/${encodeURIComponent(tenantId)}/terms`} target="_blank" rel="noreferrer" className="text-[13.5px] underline underline-offset-2">Preview terms</a></div>
       </section>}
     </div>);
+}
+
+/** Try it yourself: open any client's wallet as they see it (a private link for 2 hours) and their welcome link. */
+function TryIt({ tenantId }: { tenantId: string }) {
+  const [q, setQ] = React.useState(''); const [list, setList] = React.useState<any[]>([]); const [sel, setSel] = React.useState<any>(null); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  React.useEffect(() => { const t = setTimeout(() => { if (q.trim().length < 2) { setList([]); return; } void payPost('/api/referrals', { tenantId, action: 'find', q }).then((r) => setList(r?.ok ? r.clients || [] : [])); }, 250); return () => clearTimeout(t); }, [q, tenantId]);
+  const pick = async (c: any) => { setBusy(true); setErr(''); const r = await payPost('/api/referrals', { tenantId, action: 'preview', clientId: c.id }); setBusy(false); if (r?.ok) { setSel(r); setList([]); setQ(''); } else setErr(r?.error || 'That didn’t work.'); };
+  return (
+    <section className="space-y-3 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }} aria-label="Try it yourself">
+      <div><p className="text-[16px] font-semibold">Try it yourself</p><p className="text-[12.5px] leading-[1.5]" style={{ color: MUTED }}>See any client’s wallet exactly as they do, and open their welcome link like a friend would. Wallet links are private and last 2 hours.</p></div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="A client’s name, or the last 4 digits of their phone" aria-label="Find a client" className="h-11 w-full rounded-[12px] border px-3 text-[14px]" style={{ borderColor: LINE }} />
+      {list.length > 0 && <div className="divide-y rounded-[12px] border" style={{ borderColor: LINE }}>{list.map((c) => <button key={c.id} type="button" disabled={busy} onClick={() => pick(c)} className="flex w-full justify-between px-3 py-2.5 text-left text-[14px]"><span>{c.name}</span><span style={{ color: MUTED }}>{c.phoneLast4 ? `···${c.phoneLast4}` : ''}</span></button>)}</div>}
+      {err && <p className="text-[13px] font-semibold" style={{ color: RED }}>{err}</p>}
+      {sel && <div className="space-y-2 rounded-[14px] p-3" style={{ background: SOFT }}>
+        <p className="text-[14px] font-semibold">{sel.name}</p>
+        <div className="flex flex-wrap gap-2"><a href={sel.walletUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full px-4 text-[13.5px] font-semibold text-white" style={{ background: INK }}>Open their wallet</a>
+          <a href={sel.welcomeUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full border bg-white px-4 text-[13.5px] font-semibold" style={{ borderColor: LINE }}>Open their welcome link</a>
+          <button type="button" onClick={() => { void navigator.clipboard?.writeText(sel.welcomeUrl); }} className="inline-flex h-10 items-center rounded-full border bg-white px-4 text-[13.5px]" style={{ borderColor: LINE }}>Copy welcome link</button></div></div>}
+      <details className="text-[13px] leading-[1.6]" style={{ color: MUTED }}><summary className="cursor-pointer font-semibold" style={{ color: INK }}>A full test, start to finish</summary>
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          <li>Switch Referrals on and save.</li>
+          <li>Find a test client above (it can be you) and open their welcome link on another phone.</li>
+          <li>Open your gift and book as a new client, with a different phone number and email.</li>
+          <li>Here, they show under “Waiting for a visit”. The visit has the $15 welcome offer on it.</li>
+          <li>Check the friend out at the POS: the welcome offer comes off the bill.</li>
+          <li>Press “Give credit now” (or wait a day): the credit lands in the first client’s wallet.</li>
+          <li>Open their wallet again, then check them out: the credit comes off by itself.</li>
+        </ol></details>
+    </section>);
 }

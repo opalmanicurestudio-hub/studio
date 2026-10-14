@@ -194,7 +194,13 @@ async function launch(ctx: Ctx, base: any, now: number): Promise<{ doc: any; ext
     // Ask first (no link) unless the business chose "include the link" for this kind; a yes gets times (opportunityReply).
     const askFirst = !!pb.ask?.length && !S.linkFirst?.[base.kind]; const set = askFirst ? pb.ask! : pb.auto;
     const usedA = ctx.opps.filter((e: any) => e.clientId && e.clientId === base.clientId && e.kind === base.kind && Number.isInteger(e.autoVersion) && !!e.askFirst === askFirst).map((e: any) => e.autoVersion);
-    const av = pickFrom(set.length, usedA); const link = askFirst ? '' : base.tool === 'shop' ? await shopLink(tenant, t, base.refs?.productId) : await bookLink(tenant, t, { providerId: base.providerId, opp: base.id });
+    const av = pickFrom(set.length, usedA);
+    let link = askFirst ? '' : base.tool === 'shop' ? await shopLink(tenant, t, base.refs?.productId) : await bookLink(tenant, t, { providerId: base.providerId, opp: base.id });
+    if (base.kind === 'share_ask' && base.clientId) {   // their own referral link and the friend's gift (lib/referrals)
+      const { linkFor } = await import('@/lib/referrals-server'); const { referralSettingsOf } = await import('@/lib/referrals'); const { linkOrigin } = await import('@/lib/app-origin');
+      const o0 = linkOrigin(tenant, ''); link = o0 ? `${o0}/ref/${encodeURIComponent(t)}/${await linkFor(db, t, String(base.clientId))}` : '';
+      facts.gift = `$${Math.round(referralSettingsOf(tenant).friendCents / 100)}`;
+    }
     const body = fill(set[av], { ...facts, link, me: first(prov?.name) || businessName(tenant) });
     const chk0 = await textCheck(db, t, tenant, base, cl || { phone: base.phone }, now);
     const chk: any = !link && set[av].includes('{link}') ? { ok: false, error: 'There is no booking link to send yet. Please set the app’s web address first.' } : chk0;

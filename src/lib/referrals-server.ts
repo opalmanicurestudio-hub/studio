@@ -330,6 +330,40 @@ export async function referralOverview(db: any, t: string, now = Date.now()) {
   };
 }
 
+// ── Trying it yourself (managers) ──────────────────────────────────────────────────────
+/** Find a client to look at, by name or the last digits of their phone (managers only; the server checks). */
+export async function findClients(db: any, t: string, q: string) {
+  const qq = String(q || '').trim().toLowerCase(); if (qq.length < 2) return { ok: true, clients: [] };
+  const digits = qq.replace(/\D+/g, '');
+  const all = rows(await db.collection(`${T(t)}/clients`).get()).filter((c: any) => !c.archived && c.status !== 'archived' && !c.ownerRenterId);
+  const hit = all.filter((c: any) => (digits.length >= 4 ? last10(c.phone).endsWith(digits) : String(c.name || '').toLowerCase().includes(qq))).slice(0, 8);
+  return { ok: true, clients: hit.map((c: any) => ({ id: c.id, name: c.name || 'Client', phoneLast4: last10(c.phone).slice(-4) || null })) };
+}
+/** See it as the client does: a private link to their wallet (2 hours), and their welcome link. */
+export async function previewFor(db: any, t: string, clientId: string, actor: { name: string }, now = Date.now()) {
+  const c = await db.doc(`${T(t)}/clients/${clientId}`).get(); if (!c.exists) return { ok: false, error: 'That client isn’t here any more.' };
+  const tenant = await tenantOf(db, t); const base = await origin(tenant); if (!base) return { ok: false, error: 'Please set the app’s web address first (Settings).' };
+  const token = `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 24);
+  await db.doc(`${T(t)}/private/referralPreviews`).set({ [token]: { clientId, exp: now + 2 * 3600e3, by: actor.name } }, { merge: true });
+  const slug = await linkFor(db, t, clientId);
+  return { ok: true, walletUrl: `${base}/wallet/${encodeURIComponent(t)}?p=${token}`, welcomeUrl: `${base}/ref/${encodeURIComponent(t)}/${slug}`, name: (c.data() || {}).name || 'Client' };
+}
+export async function clientOfPreview(db: any, t: string, token: string, now = Date.now()): Promise<string | null> {
+  if (!/^[a-z0-9]{12,30}$/.test(String(token || ''))) return null;
+  const e = (((await db.doc(`${T(t)}/private/referralPreviews`).get()).data() || {}) as any)[token]; return e && e.exp > now ? String(e.clientId) : null;
+}
+/** Give the credit now (a manager skipping the day's wait, e.g. when testing): only once the friend's visit is paid. */
+export async function giveNow(db: any, t: string, id: string, actor: { name: string }, now = Date.now()) {
+  const ref = db.doc(`${T(t)}/referrals/${String(id || '').slice(0, 80)}`); const r: any = (await ref.get()).data(); if (!r) return { ok: false, error: 'This referral is no longer available.' };
+  if (r.status !== 'booked') return { ok: false, error: 'Only a friend who has booked can be given credit.' };
+  const ap = rows(await db.collection(`${T(t)}/appointments`).where('clientId', '==', r.friendClientId).get());
+  const visit = ap.filter((a: any) => DONE.includes(String(a.status || ''))).sort((a: any, b: any) => ms(a.checkedOutAt || a.startTime) - ms(b.checkedOutAt || b.startTime))[0];
+  if (!visit) return { ok: false, error: `${r.friendFirst || 'Their friend'} hasn’t been checked out yet.` };
+  const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant);
+  await ref.set({ visitId: visit.id, visitedAt: visit.checkedOutAt || visit.startTime, givenEarlyBy: actor.name }, { merge: true });
+  await reward(db, t, tenant, S, { ...r, id: ref.id, visitId: visit.id }, now); return { ok: true };
+}
+
 /** A manager's decision: approve a held one (credit now), give no reward, or confirm an unmatched name to a client. */
 export async function decideReferral(db: any, t: string, b: { id: string; action: 'approve' | 'decline' | 'confirm'; referrerPhone?: string }, actor: { id: string; name: string }, now = Date.now()) {
   const ref = db.doc(`${T(t)}/referrals/${String(b.id || '').slice(0, 80)}`); const r: any = (await ref.get()).data(); if (!r) return { ok: false, error: 'This referral is no longer available.' };

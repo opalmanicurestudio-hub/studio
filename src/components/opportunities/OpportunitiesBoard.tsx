@@ -143,6 +143,7 @@ const KIND_HINT: Record<string, string> = {
   academy_lead: 'Academy inquiries and tours that haven’t applied after 3 days. Offers and missing documents keep their own reminders.',
   academy_stalled: 'Course students with no lessons in 14 days.',
   applicant_waiting: 'Job applicants with no reply after 3 days, and interviews 2 days past with no decision.',
+  share_ask: 'Clients who said they loved their visit get one text with their own referral link, 1 to 7 days later (only with Referrals on, only to clients who agreed to marketing texts, at most every 3 months).',
   shop_reorder: 'Something a client buys again and again (online or at checkout), when it’s about time for more. Orders within 7 days count in Results, and so do carts finished after the “your cart has been saved” email.',
 };
 const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', visit: 'Booked before they left (checkout and visit link)', campaigns: 'Campaigns', referral: 'Referrals (a friend’s first visit)', winback: 'Win-back reminders (before they moved here)' };

@@ -29,12 +29,13 @@ function Count({ to, still }: { to: number; still: boolean }) {
   return <>{money(v)}</>;
 }
 
-export function ReferralCard({ token }: { token: string }) {
+export function ReferralCard({ token, preview, tenantId }: { token: string; preview?: string; tenantId?: string }) {
+  const who = preview && tenantId ? { preview, tenantId } : { token };
   const still = !!useReducedMotion();
   const [d, setD] = React.useState<any>(null); const [openCard, setOpenCard] = React.useState<string | null>(null);
   const [gift, setGift] = React.useState(false); const [first, setFirst] = React.useState(''); const [phone, setPhone] = React.useState('');
   const [msg, setMsg] = React.useState<{ ok: boolean; t: string } | null>(null); const [busy, setBusy] = React.useState(false);
-  const load = React.useCallback(() => call({ action: 'mine', token }).then(setD), [token]);
+  const load = React.useCallback(() => call({ action: 'mine', ...who }).then(setD), [token]);
   React.useEffect(() => { void load(); }, [load]);
   if (!d?.ok) return null;
   const w = d.wallet || {}; const lines: any[] = d.lines || [];
@@ -54,7 +55,7 @@ export function ReferralCard({ token }: { token: string }) {
   const share = async () => { const text = `I love ${d.business} and thought you would too. Here is ${money(d.friendCents)} off your first visit:`;
     try { if ((navigator as any).share) { await (navigator as any).share({ title: d.business, text, url: d.link }); return; } } catch { return; }
     try { await navigator.clipboard.writeText(`${text} ${d.link}`); setMsg({ ok: true, t: 'Copied. Paste it in a message to your friend.' }); } catch { setMsg({ ok: false, t: d.link }); } };
-  const sendGift = async () => { setBusy(true); setMsg(null); const r = await call({ action: 'gift', token, firstName: first, phone }); setBusy(false);
+  const sendGift = async () => { setBusy(true); setMsg(null); const r = await call({ action: 'gift', ...who, firstName: first, phone }); setBusy(false);
     if (!r?.ok) { setMsg({ ok: false, t: r?.error || 'That didn’t work.' }); return; }
     const ios = /iPad|iPhone|iPod/.test(navigator.userAgent); window.location.href = `sms:${r.to}${ios ? '&' : '?'}body=${encodeURIComponent(r.text)}`;
     setGift(false); setFirst(''); setPhone(''); setMsg({ ok: true, t: `Your message to ${first} is ready to send.` }); void load(); };

@@ -553,5 +553,20 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
   check('a renter who hasn’t switched it on gets nothing', ((await Srv.renterOpportunitySweep(dbR, 't1', (await dbR.doc(T).get()).data(), NOW + DAY, { force: true })) as any).created === 0);
   check('with the business switch off, nothing runs', ((await Srv.renterOpportunitySweep(dbR, 't1', { name: 'Opal' }, NOW, { force: true })) as any).skipped === 'off');
 
+
+  console.log('Opportunities — referrals round 2: ask to share after “loved it”');
+  check('off unless Referrals is on; then automatic only', O.oppSettingsOf({}).modes.share_ask === 'off' && O.oppSettingsOf({ referrals: { on: true } }).modes.share_ask === 'auto' && O.modesFor('share_ask').join() === 'off,auto');
+  const SA = O.oppSettingsOf({ referrals: { on: true } });
+  const lovedAp = [ap('l1', 'lia', ago(40)), { ...ap('l2', 'lia', ago(3)), feedback: { rating: 'loved', at: ago(3) } }, { ...ap('n2', 'noc', ago(3)), feedback: { rating: 'loved', at: ago(3) } }, { ...ap('o2', 'oka', ago(3)), feedback: { rating: 'okay', at: ago(3) } }];
+  const sc = O.findCandidates({ clients: [{ id: 'lia', name: 'Lia Moss', phone: '+15550801', smsMarketingOptIn: true }, { id: 'noc', name: 'No Consent', phone: '+15550802' }, { id: 'oka', name: 'Oka Fine', phone: '+15550803', smsMarketingOptIn: true }], appointments: lovedAp, quotes: [], giftCards: [], settings: SA, now: NOW });
+  check('loved it 3 days ago and agreed to marketing texts → asked to share; no consent or “okay” → not', sc.some((x) => x.kind === 'share_ask' && x.clientId === 'lia') && !sc.some((x) => x.kind === 'share_ask' && x.clientId !== 'lia'), sc.map((x) => [x.kind, x.clientId]));
+  const dbS2 = makeDb(); await dbS2.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example', referrals: { on: true, friendCents: 2000 }, opportunities: { holdoutPct: 0 } });
+  await dbS2.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya', role: 'stylist', isActive: true });
+  await dbS2.doc(`${T}/clients/lia`).set({ id: 'lia', name: 'Lia Moss', phone: '+15555550801', smsMarketingOptIn: true, smsConsent: true });
+  for (const x of lovedAp.filter((y) => y.clientId === 'lia')) await dbS2.doc(`${T}/appointments/${x.id}`).set(x);
+  const sent2: any[] = [];
+  await Srv.opportunitySweep(dbS2, 't1', (await dbS2.doc(T).get()).data(), Date.parse('2026-10-12T14:00:00-04:00'), { force: true, send: async (_d: any, _t: string, to: string, body: string) => { sent2.push({ to, body }); return { ok: true, via: 'sms' }; } });
+  check('one text with her own referral link and the friend’s $20 gift', sent2.length === 1 && /\$20 off their first visit, from you: https:\/\/opal\.example\/ref\/t1\/lia-/.test(sent2[0]?.body || ''), sent2);
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

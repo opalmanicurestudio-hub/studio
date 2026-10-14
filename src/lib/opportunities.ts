@@ -10,7 +10,7 @@
 
 import { moduleEnabled, type ModuleId } from '@/lib/modules';
 
-export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'shop_reorder' | 'inquiry_waiting' | 'booth_lead' | 'booth_pass' | 'booth_lapsed' | 'academy_lead' | 'academy_stalled' | 'applicant_waiting' | 'manual' | 'follow_up';
+export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'shop_reorder' | 'share_ask' | 'inquiry_waiting' | 'booth_lead' | 'booth_pass' | 'booth_lapsed' | 'academy_lead' | 'academy_stalled' | 'applicant_waiting' | 'manual' | 'follow_up';
 export type Who = 'provider' | 'desk' | 'owner';
 export type OutcomeId = 'booked' | 'waitlist' | 'interested' | 'not_now' | 'price' | 'no_answer' | 'voicemail' | 'bad_experience' | 'stop' | 'declined' | 'quote_accepted' | 'no_longer_applies' | 'done';
 
@@ -231,6 +231,14 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     next: 'Reply to them, invite them to interview, or let them know kindly.',
     branches: COMMON([B('done', 'Replied, invited, or decided. Mark it done.')]),
     never: 'Silence: everyone who applies hears back.' },
+  share_ask: { kind: 'share_ask', label: 'Ask to share (they loved it)', who: 'provider', marketing: true, priority: 'low', expiresDays: 5, cooldownDays: 90, winBack: false,
+    versions: ['Hi {first}, it was lovely to see you. If you know someone who would love it too, here is {gift} off their first visit, from you: {link}'],
+    next: 'Nothing to do: the link does the rest.',
+    branches: COMMON([B('done', 'Mark it done.')]),
+    // Right after a visit they said they loved, only for clients who agreed to marketing texts, and only when the business
+    // has referrals on. Their own referral link; the friend's gift and their reward come from Referrals settings.
+    auto: ['Hi {first}! We are so glad you loved your visit. If you know someone who would love it too, here is {gift} off their first visit, from you: {link}'],
+    never: 'Asking someone who wasn’t happy, or asking more than once in a few months.' },
   follow_up: { kind: 'follow_up', label: 'Follow-up', who: 'provider', marketing: false, priority: 'medium', expiresDays: 10, cooldownDays: 0, winBack: false,
     versions: ['Hi {first}, this is {me} again. I wanted to follow up, with no pressure at all.'],
     next: 'Pick up where you left off.',
@@ -261,14 +269,14 @@ export type Mode = 'off' | 'auto' | 'person' | 'auto_then_person';
 export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it automatically', person: 'Give it to a person', auto_then_person: 'Automatic, then a person' };
 /** The starting choice for each kind (canvas, section 31 follow-up): automatic where a friendly text is enough, a person
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
-export const DEFAULT_MODES: Record<string, Mode> = { shop_reorder: 'auto', fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
-export const modesFor = (k: OppKind): Mode[] => (k === 'fill_gap' ? ['off', 'auto'] : PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
+export const DEFAULT_MODES: Record<string, Mode> = { share_ask: 'auto', shop_reorder: 'auto', fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
+export const modesFor = (k: OppKind): Mode[] => (k === 'fill_gap' || k === 'share_ask' ? ['off', 'auto'] : PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
 export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number>; solo: { mode: 'auto' | 'on' | 'off'; hour: number; max: number }; renters: boolean }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
 export type Tool = 'appointments' | 'quotes' | 'gift_cards' | 'memberships' | 'shop' | 'booths' | 'academy' | 'hiring' | 'calls';
-export const TOOL_OF: Record<OppKind, Tool> = { inquiry_waiting: 'quotes', booth_lead: 'booths', booth_pass: 'booths', booth_lapsed: 'booths', academy_lead: 'academy', academy_stalled: 'academy', applicant_waiting: 'hiring', shop_reorder: 'shop', fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
+export const TOOL_OF: Record<OppKind, Tool> = { share_ask: 'appointments', inquiry_waiting: 'quotes', booth_lead: 'booths', booth_pass: 'booths', booth_lapsed: 'booths', academy_lead: 'academy', academy_stalled: 'academy', applicant_waiting: 'hiring', shop_reorder: 'shop', fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
 const TOOL_GATE: Partial<Record<Tool, ModuleId>> = { quotes: 'classes_events', memberships: 'memberships', shop: 'retail', booths: 'booth_rental', academy: 'academy', hiring: 'team', calls: 'voice' };
 export const toolOn = (tenant: any, tool: Tool) => { const g = TOOL_GATE[tool]; return !g || moduleEnabled(tenant, g); };
 
@@ -287,7 +295,7 @@ export function heldForRoom(kind: OppKind, providerId: string | null, pace: Pace
   const share = providerId && pace.byStaff?.[providerId] ? pace.byStaff[providerId].share : pace.business;
   return typeof share === 'number' && share * 100 < S.paceMin;
 }
-export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'renewal_failed', 'unused_visits', 'shop_reorder', 'quote', 'inquiry_waiting', 'gift_card', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting'];
+export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'share_ask', 'renewal_failed', 'unused_visits', 'shop_reorder', 'quote', 'inquiry_waiting', 'gift_card', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting'];
 export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
@@ -296,7 +304,7 @@ export function oppSettingsOf(tenant: any): OppSettings {
   // automatic mode of Due and Long gone, until it chooses something else.
   const rc = tenant?.reconnect || {}; const carried: Record<string, Mode> = {};
   if (rc.enabled === true) { carried.due = rc.dueEnabled === false ? 'off' : 'auto_then_person'; carried.long_gone = rc.missEnabled === false ? 'person' : 'auto_then_person'; }
-  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : carried[k] || DEFAULT_MODES[k] || 'person'; if ((f[k] === false && !modesFor(k).includes(m[k])) || !toolOn(tenant, TOOL_OF[k])) v = 'off'; return [k, v]; }));
+  const modes: Record<string, Mode> = Object.fromEntries(FINDER_KINDS.map((k) => { let v: Mode = modesFor(k).includes(m[k]) ? m[k] : carried[k] || DEFAULT_MODES[k] || 'person'; if ((f[k] === false && !modesFor(k).includes(m[k])) || !toolOn(tenant, TOOL_OF[k]) || (k === 'share_ask' && tenant?.referrals?.on !== true)) v = 'off'; return [k, v]; }));
   const lf = o.linkFirst || {};
   const linkFirst = Object.fromEntries(FINDER_KINDS.map((k) => [k, k === 'fill_gap' ? false : typeof lf[k] === 'boolean' ? lf[k] : k === 'shop_reorder' || !PLAYBOOKS[k].ask?.length]));
   const bo = o.bonus || {};
@@ -410,6 +418,11 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
   for (const [cid, h] of H) {
     const c = clients.get(cid); if (!c || c.archived || c.deleted) continue;
     const since = h.last ? (now - ms(h.last.startTime)) / DAY : null; const g = h.gapDays; const n = h.visits.length;
+    // They said they loved their last visit (1 to 7 days ago): the moment to ask them to share (lib/referrals).
+    if (S.finders.share_ask && h.last?.feedback?.rating === 'loved' && c.smsMarketingOptIn === true && !c.marketingOptOut && !taken.has(cid)) {
+      const d = (now - ms(h.last.feedback.at || h.last.startTime)) / DAY;
+      if (d >= 1 && d <= 7) { add('share_ask', c, h, `Said they loved their ${h.last.serviceName || 'visit'} ${day(d)} ago`, 0, { key: `share_ask:${cid}` }); continue; }
+    }
     if (h.upcoming) continue;
     if (taken.has(cid)) continue;
     const la = h.lastAny; const laT = la ? ms(la.startTime) : 0;

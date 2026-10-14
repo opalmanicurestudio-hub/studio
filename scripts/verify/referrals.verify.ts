@@ -127,5 +127,19 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-13T15:00:00-04:00'); const ag
   await RS.referralSweep(dbW, 't2', (await dbW.doc(TW).get()).data(), NOW);
   check('a month before her credit ends: one reminder, once', !!(await dbW.doc(`${TW}/referrals/rr`).get()).data()?.endReminderAt);
 
+
+  console.log('Referrals — trying it yourself');
+  const pv: any = await RS.previewFor(dbW, 't2', 'hk', { name: 'Jessica' }, NOW);
+  check('a private wallet link for 2 hours, and her welcome link', pv.ok === false || (/\/wallet\/t2\?p=[a-z0-9]{12,}/.test(pv.walletUrl) && /\/ref\/t2\//.test(pv.welcomeUrl)), pv);
+  await dbW.doc(TW).set({ publicOrigin: 'https://opal.example' }, { merge: true });
+  const pv2: any = await RS.previewFor(dbW, 't2', 'hk', { name: 'Jessica' }, NOW); const tok = String(pv2.walletUrl || '').split('p=')[1];
+  check('…which opens her wallet, and stops working after 2 hours', (await RS.clientOfPreview(dbW, 't2', tok, NOW + 3600e3)) === 'hk' && (await RS.clientOfPreview(dbW, 't2', tok, NOW + 3 * 3600e3)) === null, pv2);
+  check('find a client by name or the last 4 digits', ((await RS.findClients(dbW, 't2', 'hann')) as any).clients[0]?.id === 'hk' && ((await RS.findClients(dbW, 't2', '0301')) as any).clients[0]?.id === 'hk');
+  await dbW.doc(`${TW}/clients/fr`).set({ id: 'fr', name: 'Fran New', phone: '+15555550302' });
+  await dbW.doc(`${TW}/referrals/gn`).set({ id: 'gn', status: 'booked', referrerId: 'hk', friendClientId: 'fr', friendFirst: 'Fran', createdAt: ago(2) });
+  check('give credit now: not before the friend is checked out', !((await RS.giveNow(dbW, 't2', 'gn', { name: 'Jessica' }, NOW)) as any).ok);
+  await dbW.doc(`${TW}/appointments/fr1`).set({ clientId: 'fr', status: 'completed', startTime: ago(0.1), checkedOutAt: ago(0.1) });
+  const before = ((await dbW.doc(`${TW}/clients/hk`).get()).data() as any).storeCredits.length;
+  check('…then straight away, without the day’s wait', ((await RS.giveNow(dbW, 't2', 'gn', { name: 'Jessica' }, NOW)) as any).ok && ((await dbW.doc(`${TW}/clients/hk`).get()).data() as any).storeCredits.length === before + 1 && (await dbW.doc(`${TW}/referrals/gn`).get()).data()?.status === 'rewarded');
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();
