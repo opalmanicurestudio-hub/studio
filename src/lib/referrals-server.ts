@@ -315,14 +315,39 @@ export async function referralSweep(db: any, t: string, tenant: any, now = Date.
 }
 
 // ── The business view ─────────────────────────────────────────────────────────────────
-export async function referralOverview(db: any, t: string, now = Date.now()) {
+// ── Links opened (no cookies, nothing about the person: a count per month, and per client whose link it was) ──
+const openDoc = (t: string, month: string) => `${T(t)}/private/referralOpens-${month}`;
+export async function countOpen(db: any, t: string, slug: string, now = Date.now()) {
+  const S = referralSettingsOf(await tenantOf(db, t)); if (!S.on) return { ok: true };
+  const c = await clientOfSlug(db, t, slug); if (!c) return { ok: true };
+  const ref = db.doc(openDoc(t, iso(now).slice(0, 7))); const cur: any = (await ref.get()).data() || {};
+  await ref.set({ total: (Number(cur.total) || 0) + 1, by: { ...(cur.by || {}), [c.id]: (Number(cur.by?.[c.id]) || 0) + 1 } }, { merge: true });
+  return { ok: true };
+}
+
+export type RefPeriod = 'month' | '3m' | 'year';
+const monthsBack = (now: number, n: number) => { const d = new Date(now); const out: string[] = []; for (let i = n - 1; i >= 0; i--) { const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1)); out.push(x.toISOString().slice(0, 7)); } return out; };
+/** The Referrals page (design canvas RF14 + RF15): the period's story — from a link opened to credit given, what it
+ * brought in, month by month — then what needs a person, who's waiting, and the champions. Paid money only. */
+export async function referralOverview(db: any, t: string, now = Date.now(), period: RefPeriod = 'month') {
   const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant);
   const refs = rows(await db.collection(`${T(t)}/referrals`).get());
-  const month = iso(now).slice(0, 7);
-  const ledger = rows(await db.collection(`${T(t)}/results`).where('source', '==', 'referral').get().catch(() => ({ docs: [] })));
-  const paidMonth = ledger.filter((r: any) => r.state === 'paid' && String(r.startTime || '').slice(0, 7) === month).reduce((n: number, r: any) => n + (Number(r.paidCents) || 0), 0);
-  const rewardedMonth = refs.filter((r: any) => r.status === 'rewarded' && String(r.rewardedAt || '').slice(0, 7) === month);
-  const rewardCents = rewardedMonth.reduce((n: number, r: any) => n + (Number(r.rewardCents) || 0), 0);
+  const months = period === 'year' ? monthsBack(now, 12) : period === '3m' ? monthsBack(now, 3) : monthsBack(now, 1);
+  const chart = period === 'year' ? months : monthsBack(now, 6);
+  const inRange = (v: any) => months.includes(String(v || '').slice(0, 7));
+  const ledger = rows(await db.collection(`${T(t)}/results`).where('source', '==', 'referral').get().catch(() => ({ docs: [] }))).filter((r: any) => r.state === 'paid');
+  const paidIn = (m: string[]) => ledger.filter((r: any) => m.includes(String(r.startTime || '').slice(0, 7))).reduce((n: number, r: any) => n + (Number(r.paidCents) || 0), 0);
+  const rewarded = refs.filter((r: any) => r.status === 'rewarded' && inRange(r.rewardedAt));
+  const rewardCents = rewarded.reduce((n: number, r: any) => n + (Number(r.rewardCents) || 0), 0); const paidCents = paidIn(months);
+  // Links opened, per month and per client.
+  const openMonths = [...new Set([...months, ...chart])];
+  const opens = new Map<string, any>(); for (const m of openMonths) opens.set(m, ((await db.doc(openDoc(t, m)).get()).data()) || {});
+  const opened = months.reduce((n, m) => n + (Number(opens.get(m)?.total) || 0), 0);
+  const opensBy = new Map<string, number>(); for (const m of months) for (const [k, v] of Object.entries(opens.get(m)?.by || {})) opensBy.set(k, (opensBy.get(k) || 0) + (Number(v) || 0));
+  // The path, for friends who booked in the period: booked → had their first visit → credit given.
+  const cohort = refs.filter((r: any) => r.referrerId && ['booked', 'held', 'rewarded', 'lapsed'].includes(r.status) && inRange(r.bookedAt || r.createdAt));
+  const funnel = { opened, booked: cohort.length, visited: cohort.filter((r: any) => r.status === 'held' || r.status === 'rewarded' || !!r.visitId).length, credited: cohort.filter((r: any) => r.status === 'rewarded').length };
+  const series = chart.map((m) => ({ month: m, paidCents: paidIn([m]), friends: refs.filter((r: any) => r.referrerId && ['booked', 'held', 'rewarded', 'lapsed'].includes(r.status) && String(r.bookedAt || r.createdAt || '').slice(0, 7) === m).length, opened: Number(opens.get(m)?.total) || 0 }));
   // What referred clients are worth over their first 12 months, beside everyone else's (finished visits).
   const since = iso(now - 365 * DAY);
   const ap = rows(await db.collection(`${T(t)}/appointments`).where('startTime', '>=', since).get()).filter((a: any) => DONE.includes(String(a.status || '')) && !a.isRenterBooking);
@@ -331,16 +356,22 @@ export async function referralOverview(db: any, t: string, now = Date.now()) {
   const referred = new Set<string>(refs.filter((r: any) => ['rewarded', 'booked', 'held'].includes(r.status) && r.friendClientId).map((r: any) => String(r.friendClientId)));
   const avg = (ids: string[]) => (ids.length ? Math.round((ids.reduce((n, id) => n + (byClient.get(id) || 0), 0) / ids.length) * 100) : 0);
   const refIds = [...referred].filter((id) => byClient.has(id)); const others = [...byClient.keys()].filter((id) => !referred.has(id));
+  // Champions: who sent friends in the period.
   const people = new Map<string, any>();
-  for (const r of refs) { if (!r.referrerId || r.status === 'unmatched') continue; const p = people.get(r.referrerId) || { clientId: r.referrerId, name: r.referrerName || 'Client', friends: 0, visited: 0, broughtCents: 0, earnedCents: 0 };
+  for (const r of refs) { if (!r.referrerId || r.status === 'unmatched' || !inRange(r.bookedAt || r.createdAt)) continue; const p = people.get(r.referrerId) || { clientId: r.referrerId, name: r.referrerName || 'Client', friends: 0, visited: 0, broughtCents: 0, earnedCents: 0, opens: 0 };
     if (['invited', 'booked', 'held', 'rewarded', 'lapsed'].includes(r.status)) p.friends++; if (r.status === 'rewarded') { p.visited++; p.earnedCents += Number(r.rewardCents) || 0; p.broughtCents += Math.round((byClient.get(String(r.friendClientId)) || 0) * 100); }
     people.set(r.referrerId, p); }
+  for (const [id, n] of opensBy) { const p = people.get(id); if (p) p.opens = n; }
   const short = (n: any) => { const p = String(n || '').trim().split(/\s+/); return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : p[0] || 'Client'; };
+  const card = (r: any) => ({ id: r.id, status: r.status, friend: r.friendFirst, referrer: r.referrerName ? short(r.referrerName) : null, bookedAt: r.bookedAt || null, rewardedAt: r.rewardedAt || null, createdAt: r.createdAt || null, via: r.via || null, rewardCents: Number(r.rewardCents) || 0, reason: r.reason || null });
   return {
-    ok: true, settings: S, month,
-    tiles: { paidCents: paidMonth, rewardCents, rewards: rewardedMonth.length, returnX: rewardCents ? Math.round((paidMonth / rewardCents) * 10) / 10 : null, referredWorthCents: avg(refIds), othersWorthCents: avg(others), referredCount: refIds.length },
+    ok: true, settings: S, month: months[months.length - 1], period, months,
+    tiles: { paidCents, rewardCents, rewards: rewarded.length, returnX: rewardCents ? Math.round((paidCents / rewardCents) * 10) / 10 : null, referredWorthCents: avg(refIds), othersWorthCents: avg(others), referredCount: refIds.length },
+    funnel, series,
     top: [...people.values()].sort((a, b) => b.broughtCents - a.broughtCents || b.friends - a.friends).slice(0, 8).map((p) => ({ ...p, name: short(p.name) })),
-    waiting: refs.filter((r: any) => r.status === 'booked').sort((a: any, b: any) => ms(b.bookedAt) - ms(a.bookedAt)).slice(0, 20).map((r: any) => ({ id: r.id, friend: r.friendFirst, referrer: short(r.referrerName), bookedAt: r.bookedAt, via: r.via })),
+    waiting: refs.filter((r: any) => r.status === 'booked').sort((a: any, b: any) => ms(b.bookedAt) - ms(a.bookedAt)).slice(0, 20).map((r: any) => ({ ...card(r), referrer: short(r.referrerName) })),
+    rewarded: refs.filter((r: any) => r.status === 'rewarded').sort((a: any, b: any) => ms(b.rewardedAt) - ms(a.rewardedAt)).slice(0, 20).map(card),
+    everyone: refs.filter((r: any) => r.status !== 'invited').sort((a: any, b: any) => ms(b.createdAt) - ms(a.createdAt)).slice(0, 40).map(card),
     review: refs.filter((r: any) => r.status === 'held' || r.status === 'unmatched').sort((a: any, b: any) => ms(b.createdAt) - ms(a.createdAt)).slice(0, 30)
       .map((r: any) => ({ id: r.id, status: r.status, holdReason: r.holdReason || null, friend: r.friendFirst, referrer: r.referrerName ? short(r.referrerName) : null, named: r.namedFirst ? `${r.namedFirst}, phone ending ${r.namedPhoneLast4}` : null, createdAt: r.createdAt })),
   };

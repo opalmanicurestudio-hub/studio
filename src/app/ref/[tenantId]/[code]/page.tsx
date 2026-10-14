@@ -2,7 +2,8 @@
 // /ref/[tenantId]/[code] — A FRIEND'S WELCOME, in the layout the business chose (Referrals → Settings → Welcome page):
 // Invitation, Editorial, Postcard, Stories or Simple (components/referrals/WelcomeLayouts). Every layout is built
 // only from real details, in the business's own section order, with the gift already applied. The settings preview
-// can try a layout before saving with ?layout=…&sections=…&motion=0; that changes only how this page looks.
+// can try a layout before saving with ?layout=…&sections=…&motion=0; that changes only how this page looks (and isn't
+// counted). Each open is counted once per visit as a number for the business; nothing about the person is kept.
 // /api/referrals/public (welcome).
 import * as React from 'react';
 import { useParams } from 'next/navigation';
@@ -29,6 +30,9 @@ export default function ReferralWelcome() {
           const lay = q.get('layout'); if (lay && LAYOUTS.includes(lay)) r.layout = lay;
           const sec = q.get('sections'); if (sec != null) r.sections = sec.split(',').filter((x) => SECTION_KEYS.includes(x));
           if (q.get('motion') === '0') r.motion = false; if (q.get('motion') === '1') r.motion = true;
+          const preview = ['layout', 'sections', 'motion'].some((k) => q.has(k));
+          let seen = false; try { seen = sessionStorage.getItem(`ref-open-${code}`) === '1'; sessionStorage.setItem(`ref-open-${code}`, '1'); } catch { /* private window: count it */ }
+          if (!preview && !seen) void fetch('/api/referrals/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'opened', tenantId, code }) }).catch(() => {});
           r.providers = r.providers || []; r.anyTimes = r.anyTimes || r.times || []; r.photos = r.photos || []; r.steps = r.steps || []; r.sections = r.sections || SECTION_KEYS;
         }
         setD(r);

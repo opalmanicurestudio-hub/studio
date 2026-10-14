@@ -1,12 +1,14 @@
 // src/app/api/referrals/public/route.ts — REFERRALS, the public side (lib/referrals-server). No sign-in:
 //   info { tenantId, code }            → the welcome page: their first name, the offer, their favorite service
 //   welcome { tenantId, code }         → the whole welcome page (photos, favorite and times, provider, steps, where, proof)
+//   opened { tenantId, code }          → counts a link being opened (a number per month; nothing about the person)
 //   terms { tenantId }                 → the program terms, in plain words
 //   mine { token }                     → the visit-link card: their link, credit and friends (the visit link is the key)
 //   gift { token, firstName, phone }   → Gift a friend: the text to send from their own phone (we never text the friend)
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { publicInfo, welcomeFor, termsFor, mine, giftFriend, clientOfPreview } from '@/lib/referrals-server';
+import { publicInfo, welcomeFor, termsFor, mine, giftFriend, clientOfPreview, countOpen } from '@/lib/referrals-server';
+import { limitPublic } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 const j = (b: any, status = 200) => NextResponse.json(b, { status });
@@ -26,6 +28,8 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const action = String(b.action || ''); const db = getAdminDb();
   try {
     if (action === 'info') return j(await publicInfo(db, String(b.tenantId || '').slice(0, 120), String(b.code || '').slice(0, 40)));
+    if (action === 'opened') { const tid = String(b.tenantId || '').slice(0, 120); const limited = await limitPublic(req, 'ref_open', tid, { perHour: 30, perDay: 2000 }); if (limited) return j({ ok: true });
+      return j(await countOpen(db, tid, String(b.code || '').slice(0, 40))); }
     if (action === 'welcome') return j(await welcomeFor(db, String(b.tenantId || '').slice(0, 120), String(b.code || '').slice(0, 40)));
     if (action === 'terms') return j(await termsFor(db, String(b.tenantId || '').slice(0, 120)));
     // A manager previewing a client's wallet (Referrals → Try it yourself): a private token that lasts 2 hours.

@@ -171,5 +171,15 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-13T15:00:00-04:00'); const ag
   await dbG.doc(TG).set({ referrals: { group: false } }, { merge: true });
   await dbG.doc(`${TG}/clients/g2`).set({ id: 'g2', name: 'Gus Two', phone: '+15555550404' });
   check('…switched off in Settings → not counted', ((await RS.matchOnBooking(dbG, 't3', { clientId: 'g2', appointmentId: 'gc', broughtBy: 'org' }, NOW)) as any).skipped === 'group off');
+
+  console.log('Referrals — the page: links opened and the story');
+  await dbW.doc(TW).set({ referrals: { on: true } }, { merge: true });
+  await RS.countOpen(dbW, 't2', wslug, NOW); await RS.countOpen(dbW, 't2', wslug, NOW); await RS.countOpen(dbW, 't2', 'not-a-link', NOW);
+  const ov: any = await RS.referralOverview(dbW, 't2', NOW, 'month');
+  check('two opens of Hannah’s link counted (a number only; an unknown link isn’t)', ov.funnel.opened === 2, ov.funnel);
+  const opDoc: any = (await dbW.doc(`${TW}/private/referralOpens-${new Date(NOW).toISOString().slice(0, 7)}`).get()).data();
+  check('…stored as a count per month and per client, nothing about who opened it', opDoc.total === 2 && opDoc.by.hk === 2 && Object.keys(opDoc).sort().join() === 'by,total', opDoc);
+  check('the period: this month → 1 month counted, 6 months charted; this year → 12', ov.months.length === 1 && ov.series.length === 6 && ((await RS.referralOverview(dbW, 't2', NOW, 'year')) as any).series.length === 12);
+  check('the path counts friends who booked: booked ≥ first visit ≥ credit given', ov.funnel.booked >= ov.funnel.visited && ov.funnel.visited >= ov.funnel.credited && Array.isArray(ov.rewarded) && Array.isArray(ov.everyone), ov.funnel);
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

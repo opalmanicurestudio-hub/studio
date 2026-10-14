@@ -1,122 +1,152 @@
 'use client';
-// src/components/referrals/ReferralsBoard.tsx — REFERRALS for the business (design canvas RF1, RF4). What referrals
-// bring in (paid money only), what the rewards cost, what referred clients are worth over a year beside everyone
-// else, who brings them, who is waiting for a first visit, and the few that need a manager. Settings below.
-// /api/referrals (lib/referrals-server).
+// src/components/referrals/ReferralsBoard.tsx — REFERRALS for the business (design canvas RF14 + RF15). The period's
+// story first: from a shared link opened to credit given, what it brought in for what it cost, month by month, and what
+// referred clients are worth. Then an inbox — what needs a person, who's waiting for a first visit, credit given,
+// everyone — beside the champions and quick actions. Settings and the welcome page live on their own page
+// (/referrals/settings). Paid money only. /api/referrals (lib/referrals-server).
 import * as React from 'react';
+import Link from 'next/link';
+import { motion, useReducedMotion, animate } from 'framer-motion';
 import { payPost } from '@/components/pay/pay-client';
-import { uploadImage } from '@/lib/upload-image';
-import { WelcomeSettings } from '@/components/referrals/WelcomeSettings';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', MINT = '#7fd1a5', AMBER = '#b45309', RED = '#b42318';
+const ease = [0.22, 1, 0.36, 1] as const;
 const money = (c: number) => { const d = (Number(c) || 0) / 100; return `$${d % 1 ? d.toFixed(2) : d.toLocaleString('en-US')}`; };
-const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
-const HOLD: Record<string, string> = { same_card: 'Same saved card as the person who referred', cap: 'Monthly limit reached (given next month on its own)' };
+const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
+const monthName = (m: string, len: 'short' | 'long' = 'short') => new Date(`${m}-15T12:00:00Z`).toLocaleDateString('en-US', { month: len, timeZone: 'UTC' });
+const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : '—');
+const HOLD: Record<string, string> = { same_card: 'Same saved card as the person who referred. Could be one household.', cap: 'Monthly limit reached. It’s given next month on its own.' };
 const VIA: Record<string, string> = { link: 'their link', gift: 'a gift', named: 'named at booking', brought: 'booked together' };
+const STATUS: Record<string, [string, string]> = { booked: ['Waiting', MUTED], held: ['Needs you', AMBER], unmatched: ['Needs you', AMBER], rewarded: ['Credit given', GREEN], declined: ['No reward', MUTED], lapsed: ['Didn’t visit', MUTED] };
+const PERIODS: { id: string; label: string }[] = [{ id: 'month', label: 'This month' }, { id: '3m', label: '3 months' }, { id: 'year', label: 'This year' }];
 
-function Tile({ label, value, sub, ok }: { label: string; value: string; sub?: string; ok?: boolean }) {
-  return <div className="min-w-0 flex-1 rounded-[18px] border bg-white px-4 py-3.5" style={{ borderColor: LINE }}><p className="text-[12px] font-semibold" style={{ color: MUTED }}>{label}</p>
-    <p className="text-[28px] font-light tracking-[-0.02em]" style={{ color: ok ? GREEN : INK }}>{value}</p>{sub && <p className="text-[12px]" style={{ color: MUTED }}>{sub}</p>}</div>;
+function Count({ to, fmt = (n: number) => String(n), still }: { to: number; fmt?: (n: number) => string; still: boolean }) {
+  const [v, setV] = React.useState(still ? to : 0);
+  React.useEffect(() => { if (still) { setV(to); return; } const c = animate(0, to, { duration: 0.8, ease, onUpdate: (x) => setV(Math.round(x)) }); return () => c.stop(); }, [to, still]);
+  return <>{fmt(v)}</>;
+}
+const Face = ({ name, size = 34 }: { name: string; size?: number }) => <span className="flex shrink-0 items-center justify-center rounded-full font-semibold" style={{ width: size, height: size, background: SOFT, fontSize: size * 0.38 }} aria-hidden="true">{String(name || '?')[0]}</span>;
+
+/** The dark story card: the path from a link to credit, what it brought in, and month by month. */
+function Story({ d, still }: { d: any; still: boolean }) {
+  const f = d.funnel || { opened: 0, booked: 0, visited: 0, credited: 0 }; const tl = d.tiles || {};
+  const steps = [{ k: 'Links opened', n: f.opened, c: 'rgba(255,255,255,.88)', sub: '' }, { k: 'Booked', n: f.booked, c: 'rgba(255,255,255,.5)', sub: f.opened && f.booked ? `${pct(f.booked, f.opened)} of opens` : f.booked ? 'from any route' : '' },
+    { k: 'First visit', n: f.visited, c: 'rgba(255,255,255,.3)', sub: f.booked ? `${pct(f.visited, f.booked)} of bookings` : '' }, { k: 'Credit given', n: f.credited, c: MINT, sub: f.visited ? `${pct(f.credited, f.visited)} of visits` : '' }];
+  const top = Math.max(1, ...steps.map((s) => s.n));
+  const series: any[] = d.series || []; const peak = Math.max(1, ...series.map((x) => x.paidCents));
+  const worthTop = Math.max(1, tl.referredWorthCents || 0, tl.othersWorthCents || 0);
+  return <section className="relative overflow-hidden rounded-[26px] p-5 text-white md:p-7" style={{ background: 'linear-gradient(135deg,#2c2f35 0%,#16171a 60%)', boxShadow: '0 30px 60px -34px rgba(22,23,26,.75)' }} aria-label="How referrals turned into paid visits">
+    <div aria-hidden="true" className="absolute -right-24 -top-24 h-72 w-72 rounded-full" style={{ background: 'radial-gradient(circle, rgba(127,209,165,.16), transparent 70%)' }} />
+    <div className="relative grid gap-7 lg:grid-cols-[1.35fr_1fr]">
+      <div className="min-w-0">
+        <p className="text-[11px] tracking-[0.16em] opacity-70">FROM A SHARED LINK TO A PAID VISIT</p>
+        <div className="mt-4 space-y-3">
+          {steps.map((s, i) => <div key={s.k} className="grid grid-cols-[96px_1fr] items-center gap-3 md:grid-cols-[116px_1fr]">
+            <div className="min-w-0"><p className="text-[12.5px] opacity-75">{s.k}</p>{s.sub && <p className="text-[11px] opacity-55">{s.sub}</p>}</div>
+            <div className="relative h-11 overflow-hidden rounded-[12px]" style={{ background: 'rgba(255,255,255,.06)' }}>
+              <motion.div className="absolute inset-y-0 left-0 rounded-[12px]" style={{ background: s.c }} initial={still ? false : { width: 0 }} animate={{ width: `${Math.max(s.n ? 3 : 0, (s.n / top) * 100)}%` }} transition={{ duration: 0.8, ease, delay: 0.1 + i * 0.12 }} />
+              <p className="absolute inset-y-0 left-3 flex items-center text-[22px] font-light tracking-[-0.02em]" style={{ color: i === 0 && s.n / top > 0.25 ? INK : '#fff', mixBlendMode: 'normal' }}><Count to={s.n} still={still} /></p></div>
+          </div>)}
+        </div>
+      </div>
+      <div className="min-w-0 lg:border-l lg:pl-7" style={{ borderColor: 'rgba(255,255,255,.12)' }}>
+        <p className="text-[11px] tracking-[0.16em] opacity-70">BROUGHT IN</p>
+        <p className="mt-1 text-[46px] font-light leading-none tracking-[-0.03em] md:text-[54px]" style={{ color: MINT }}><Count to={tl.paidCents || 0} fmt={money} still={still} /></p>
+        <p className="mt-2 text-[13.5px] opacity-80">{tl.rewardCents ? <>for {money(tl.rewardCents)} in credit · <b className="font-semibold text-white">{tl.returnX}× back</b></> : 'paid visits from referred friends'}</p>
+        <div className="mt-5 space-y-2.5">
+          <p className="text-[12px] opacity-70">What a client spends in a year</p>
+          {[['Referred', tl.referredWorthCents || 0, MINT], ['Everyone else', tl.othersWorthCents || 0, 'rgba(255,255,255,.4)']].map(([k, v, c]: any, i) => <div key={k}>
+            <div className="flex justify-between text-[12.5px]"><span className="opacity-85">{k}</span><span className="font-semibold">{v ? money(v) : '—'}</span></div>
+            <div className="mt-1 h-2 rounded-full" style={{ background: 'rgba(255,255,255,.1)' }}><motion.div className="h-2 rounded-full" style={{ background: c }} initial={still ? false : { width: 0 }} animate={{ width: `${(v / worthTop) * 100}%` }} transition={{ duration: 0.8, ease, delay: 0.3 + i * 0.1 }} /></div></div>)}
+        </div>
+      </div>
+    </div>
+    {series.length > 1 && <div className="relative mt-7 border-t pt-5" style={{ borderColor: 'rgba(255,255,255,.12)' }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3"><p className="text-[11px] tracking-[0.16em] opacity-70">MONTH BY MONTH</p><p className="text-[11.5px] opacity-60">paid visits · ✦ friends who booked</p></div>
+      <div className="mt-3 flex h-[150px] items-stretch gap-2 md:gap-3" role="list">
+        {series.map((x, i) => { const last = i === series.length - 1; return <div key={x.month} role="listitem" className="flex h-full min-w-0 flex-1 flex-col justify-end" aria-label={`${monthName(x.month, 'long')}: ${money(x.paidCents)}, ${x.friends} friends booked`} title={`${monthName(x.month, 'long')} · ${money(x.paidCents)} · ${x.friends} friend${x.friends === 1 ? '' : 's'}`}>
+          <div className="flex min-h-0 flex-1 flex-col justify-end"><p className="mb-1 truncate text-center text-[10.5px] opacity-70">{x.paidCents ? money(x.paidCents) : ''}</p>
+          <motion.div className="w-full rounded-t-[8px] rounded-b-[3px]" style={{ background: last ? MINT : 'rgba(255,255,255,.28)' }} initial={still ? false : { height: 0 }} animate={{ height: `${Math.max(3, (x.paidCents / peak) * 80)}%` }} transition={{ duration: 0.7, ease, delay: 0.2 + i * 0.05 }} /></div>
+          <p className="mt-1.5 text-center text-[11px] opacity-70">{monthName(x.month)}<span className="block text-[10px] opacity-75">{x.friends ? `${x.friends} ✦` : ''}</span></p></div>; })}
+      </div></div>}
+  </section>;
 }
 
 export function ReferralsBoard({ tenantId }: { tenantId: string }) {
-  const [d, setD] = React.useState<any>(null); const [s, setS] = React.useState<any>(null); const [busy, setBusy] = React.useState(''); const [note, setNote] = React.useState<{ ok: boolean; t: string } | null>(null);
-  const [phones, setPhones] = React.useState<Record<string, string>>({});
-  const load = React.useCallback(() => payPost('/api/referrals', { tenantId, action: 'overview' }).then((r) => { setD(r); if (r?.ok) setS(r.settings); }), [tenantId]);
+  const still = !!useReducedMotion();
+  const [period, setPeriod] = React.useState('month'); const [d, setD] = React.useState<any>(null); const [tab, setTab] = React.useState('needs');
+  const [busy, setBusy] = React.useState(''); const [note, setNote] = React.useState<{ ok: boolean; t: string } | null>(null); const [phones, setPhones] = React.useState<Record<string, string>>({});
+  const [sample, setSample] = React.useState<string | null>(null);
+  const load = React.useCallback(() => payPost('/api/referrals', { tenantId, action: 'overview', period }).then(setD), [tenantId, period]);
   React.useEffect(() => { if (tenantId) void load(); }, [tenantId, load]);
+  React.useEffect(() => { if (tenantId) void payPost('/api/referrals', { tenantId, action: 'sample' }).then((r) => setSample(r?.ok ? r.path : null)); }, [tenantId]);
+  React.useEffect(() => { if (d?.ok && tab === 'needs' && !(d.review || []).length && (d.waiting || []).length) setTab('waiting'); }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!d) return <p className="mt-6" style={{ color: MUTED }}>Loading…</p>;
   if (!d.ok) return <p className="mt-6" style={{ color: RED }}>{d.error || 'Referrals couldn’t load.'}</p>;
-  const tl = d.tiles || {};
+  const on = !!d.settings?.on; const last = d.months?.[d.months.length - 1] || '';
+  const title = period === 'month' ? `${monthName(last, 'long')} so far` : period === '3m' ? 'The last 3 months' : 'The last 12 months';
   const decide = async (id: string, decision: string) => { setBusy(id); setNote(null); const r = await payPost('/api/referrals', { tenantId, action: 'decide', id, decision, referrerPhone: phones[id] || '' }); setBusy('');
     setNote(r?.ok ? { ok: true, t: decision === 'approve' ? 'Credit given.' : decision === 'confirm' ? (r.declined ? 'Matched, but it isn’t eligible.' : 'Matched. Their credit follows the friend’s first paid visit.') : 'Marked: no reward.' } : { ok: false, t: r?.error || 'That didn’t work.' }); void load(); };
-  const save = async () => { setBusy('settings'); setNote(null); const r = await payPost('/api/referrals', { tenantId, action: 'settings', referrals: s }); setBusy('');
-    setNote(r?.ok ? { ok: true, t: s.on ? 'Saved. Clients now see “Share with a friend” on their visit link.' : 'Saved. Referrals are off.' } : { ok: false, t: r?.error || 'That didn’t save.' }); void load(); };
-  const row = (k: string, label: string, el: React.ReactNode) => <label key={k} className="flex items-center justify-between gap-3 py-2.5 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}><span>{label}</span>{el}</label>;
-  const cents = (k: string) => <span className="flex items-center gap-1">$<input type="number" min={0} max={500} value={Math.round((s?.[k] || 0) / 100)} onChange={(e) => setS({ ...s, [k]: Math.max(0, Number(e.target.value) || 0) * 100 })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} /></span>;
-  return (
-    <div className="mx-auto mt-4 max-w-[1180px] space-y-5" style={{ color: INK }}>
-      <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>referrals</p>
-        <h1 className="text-[30px] font-light tracking-[-0.02em]">{s?.on ? 'What referrals bring in' : 'Referrals are off'}</h1>
-        <p className="text-[13.5px]" style={{ color: MUTED }}>Paid visits only. A friend’s credit is given after their first paid visit, so nothing is counted twice.</p></div>
-      {note && <p className="text-[13.5px] font-semibold" style={{ color: note.ok ? GREEN : RED }}>{note.t}</p>}
-      <div className="flex flex-wrap gap-3">
-        <Tile label="Referral revenue" value={money(tl.paidCents)} sub="paid · this month" ok />
-        <Tile label="Rewards given" value={money(tl.rewardCents)} sub={`${tl.rewards || 0} credit${tl.rewards === 1 ? '' : 's'} · this month`} />
-        <Tile label="Return" value={tl.returnX ? `${tl.returnX}×` : '—'} sub="revenue per reward dollar" ok={!!tl.returnX} />
-        <Tile label="Worth over 12 months" value={tl.referredCount ? money(tl.referredWorthCents) : '—'} sub={tl.referredCount ? `referred clients · others ${money(tl.othersWorthCents)}` : 'once referred clients have visited'} /></div>
-      <div className="grid gap-4 md:grid-cols-3">
-        <section className="space-y-2 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><p className="text-[16px] font-semibold">Top people who refer</p>
-          {(d.top || []).length ? d.top.map((p: any) => <div key={p.clientId} className="flex items-center justify-between gap-2 rounded-[14px] border p-3" style={{ borderColor: LINE }}>
-            <span><span className="block text-[14px] font-semibold">{p.name}</span><span className="block text-[12.5px]" style={{ color: MUTED }}>{p.friends} friend{p.friends === 1 ? '' : 's'} · {p.visited} visited{p.broughtCents ? ` · ${money(p.broughtCents)} brought in` : ''}</span></span>
-            {p.earnedCents > 0 && <span className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={{ background: '#e8f3ec', color: GREEN }}>{money(p.earnedCents)} earned</span>}</div>) : <p className="text-[13px]" style={{ color: MUTED }}>Nobody yet.</p>}</section>
-        <section className="space-y-2 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><p className="text-[16px] font-semibold">Waiting for a visit</p><p className="text-[12.5px]" style={{ color: MUTED }}>{s?.unlock === 'paid' ? 'Credit is given a day after their first paid visit.' : 'Credit is given once they’ve booked.'}</p>
-          {(d.waiting || []).length ? d.waiting.map((w: any) => <div key={w.id} className="rounded-[14px] border p-3" style={{ borderColor: LINE }}><p className="text-[14px] font-semibold">{w.friend} ← {w.referrer}</p><p className="text-[12.5px]" style={{ color: MUTED }}>Booked {day(w.bookedAt)} · by {VIA[w.via] || w.via}</p>
-            <button type="button" disabled={busy === w.id} onClick={async () => { setBusy(w.id); setNote(null); const r = await payPost('/api/referrals', { tenantId, action: 'give_now', id: w.id }); setBusy(''); setNote(r?.ok ? { ok: true, t: 'Credit given.' } : { ok: false, t: r?.error || 'That didn’t work.' }); void load(); }}
-              className="mt-2 h-8 rounded-full border px-3 text-[12.5px] font-semibold" style={{ borderColor: LINE }}>Give credit now</button></div>) : <p className="text-[13px]" style={{ color: MUTED }}>Nobody waiting.</p>}</section>
-        <section className="space-y-2 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><p className="text-[16px] font-semibold">Needs a look</p>
-          {(d.review || []).length ? d.review.map((r: any) => <div key={r.id} className="space-y-2 rounded-[14px] border p-3" style={{ borderColor: '#f3dfc4' }}>
-            <p className="text-[14px] font-semibold">{r.status === 'unmatched' ? `${r.friend}: said “${r.named}”` : `${r.friend} ← ${r.referrer}`}</p>
-            <p className="text-[12.5px]" style={{ color: AMBER }}>{r.status === 'unmatched' ? 'No single client matched. Ask at check-in and enter their number, or leave it.' : HOLD[r.holdReason] || 'Held'}</p>
-            {r.status === 'unmatched' ? <div className="flex flex-wrap gap-1.5"><input value={phones[r.id] || ''} onChange={(e) => setPhones({ ...phones, [r.id]: e.target.value })} placeholder="Their mobile" aria-label="Mobile of the person who referred" className="h-9 min-w-0 flex-1 rounded-full border px-3 text-[13px]" style={{ borderColor: LINE }} />
-              <button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'confirm')} className="h-9 rounded-full px-3.5 text-[13px] font-semibold text-white" style={{ background: INK }}>Match</button>
-              <button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'decline')} className="h-9 rounded-full border px-3.5 text-[13px]" style={{ borderColor: LINE }}>Leave it</button></div>
-              : r.holdReason !== 'cap' && <div className="flex gap-1.5"><button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'approve')} className="h-9 rounded-full px-3.5 text-[13px] font-semibold text-white" style={{ background: INK }}>Approve</button>
-                <button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'decline')} className="h-9 rounded-full border px-3.5 text-[13px]" style={{ borderColor: LINE }}>No reward</button></div>}</div>) : <p className="text-[13px]" style={{ color: MUTED }}>Nothing needs you.</p>}</section></div>
-      <TryIt tenantId={tenantId} />
-      {s && <section className="space-y-1 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}>
-        <div className="flex items-center justify-between gap-3 pb-2"><div><p className="text-[16px] font-semibold">Settings</p><p className="text-[12.5px]" style={{ color: MUTED }}>Clients read the terms page made from these. The friend’s offer is a discount you approve by saving; prices on a service never change.</p></div>
-          <button type="button" role="switch" aria-checked={!!s.on} aria-label="Referrals on" onClick={() => setS({ ...s, on: !s.on })} className="relative h-7 w-12 shrink-0 rounded-full" style={{ background: s.on ? INK : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: s.on ? 23 : 3 }} /></button></div>
-        {row('r', 'Credit for the person who referred', cents('rewardCents'))}
-        {row('f', 'Off the friend’s first visit', cents('friendCents'))}
-        {row('u', 'Credit is given', <select value={s.unlock} onChange={(e) => setS({ ...s, unlock: e.target.value })} className="h-10 rounded-[12px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}><option value="paid">After the friend’s first paid visit</option><option value="booked">When the friend books (easier to abuse)</option></select>)}
-        {row('m', 'Credit lasts', <select value={s.months} onChange={(e) => setS({ ...s, months: Number(e.target.value) })} className="h-10 rounded-[12px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}>{[3, 6, 9, 12].map((m) => <option key={m} value={m}>{m} months</option>)}</select>)}
-        {row('g', 'Bring a friend: new guests booked together count', <button type="button" role="switch" aria-checked={s.group !== false} aria-label="New guests booked together count as referrals" onClick={() => setS({ ...s, group: s.group === false })} className="relative h-7 w-12 shrink-0 rounded-full" style={{ background: s.group !== false ? INK : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: s.group !== false ? 23 : 3 }} /></button>)}
-        {row('c', 'Most rewards a month, per client', <input type="number" min={1} max={50} value={s.cap} onChange={(e) => setS({ ...s, cap: Number(e.target.value) })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} />)}
-        <div className="space-y-2 pt-3" style={{ borderTop: `1px solid ${LINE}` }}>
-          <p className="text-[14px] font-semibold">Your welcome page</p>
-          <p className="text-[12.5px] leading-[1.5]" style={{ color: MUTED }}>{(s.photos || []).length ? 'Your photos fill the top of the page (or each Stories screen); the others show further down.' : 'Add up to 3 photos to make your welcome page shine: your space, your work, a happy moment. Without photos it still looks finished: choose Simple, or let the app choose for you.'}</p>
-          <div className="flex flex-wrap gap-2">{(s.photos || []).map((u: string, i: number) => <div key={u} className="relative h-24 w-24 overflow-hidden rounded-[14px] bg-cover bg-center" style={{ backgroundImage: `url(${u})` }}>
-              <span className="absolute left-1.5 top-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[10.5px] font-semibold">{i === 0 ? 'Opening' : `Photo ${i + 1}`}</span>
-              <button type="button" aria-label="Remove photo" onClick={() => setS({ ...s, photos: s.photos.filter((x: string) => x !== u) })} className="absolute bottom-1.5 right-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-semibold">Remove</button></div>)}
-            {(s.photos || []).length < 3 && <label className="flex h-24 w-24 cursor-pointer items-center justify-center rounded-[14px] border border-dashed text-center text-[12px] font-semibold" style={{ borderColor: '#c9cace', color: MUTED }}>
-              {busy === 'photo' ? 'Adding…' : '+ Add a photo'}<input type="file" accept="image/*" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; setBusy('photo');
-                try { const url = await uploadImage(`tenants/${tenantId}/referrals/${Date.now().toString(36)}.jpg`, f, 1600); setS((x: any) => ({ ...x, photos: [...(x.photos || []), url].slice(0, 3) })); setNote({ ok: true, t: 'Photo added. Save to put it on your welcome page.' }); }
-                catch { setNote({ ok: false, t: 'That photo didn’t upload. Please try again.' }); } setBusy(''); }} /></label>}</div>
-          <label className="block text-[14px]">Arriving (optional)<input value={s.arrival || ''} maxLength={200} onChange={(e) => setS({ ...s, arrival: e.target.value })} placeholder="e.g. Free parking behind the building; we’re on the second floor." className="mt-1 h-10 w-full rounded-[12px] border px-3 text-[14px]" style={{ borderColor: LINE }} /></label>
-          <WelcomeSettings tenantId={tenantId} s={s} setS={setS} />
-        </div>
-        <div className="rounded-[14px] p-3 text-[12.5px] leading-[1.5]" style={{ background: SOFT, color: MUTED }}>Always: the friend must be new to you · the same phone or email as the person who referred isn’t eligible · the same saved card waits for you here · households (same address) are fine · reviews are never rewarded · a refunded visit takes back unused credit.</div>
-        <div className="flex flex-wrap items-center gap-3 pt-2"><button type="button" onClick={save} disabled={busy === 'settings'} className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: INK }}>{busy === 'settings' ? 'Saving…' : 'Save'}</button>
-          <a href={`/ref/${encodeURIComponent(tenantId)}/terms`} target="_blank" rel="noreferrer" className="text-[13.5px] underline underline-offset-2">Preview terms</a></div>
-      </section>}
-    </div>);
-}
+  const giveNow = async (id: string) => { setBusy(id); setNote(null); const r = await payPost('/api/referrals', { tenantId, action: 'give_now', id }); setBusy(''); setNote(r?.ok ? { ok: true, t: 'Credit given.' } : { ok: false, t: r?.error || 'That didn’t work.' }); void load(); };
+  const tabs = [{ id: 'needs', label: 'Needs you', n: (d.review || []).length }, { id: 'waiting', label: 'Waiting', n: (d.waiting || []).length }, { id: 'rewarded', label: 'Credit given', n: null }, { id: 'all', label: 'Everyone', n: null }];
+  const btn = (dark: boolean) => `h-9 rounded-full px-4 text-[13px] font-semibold ${dark ? 'text-white' : 'border bg-white'}`;
+  const champs: any[] = d.top || []; const champTop = Math.max(1, ...champs.map((p) => p.friends));
+  const Empty = ({ t }: { t: string }) => <div className="flex items-center gap-3 rounded-[18px] border border-dashed p-6" style={{ borderColor: '#d8d9dc' }}><span className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: '#e8f3ec', color: GREEN }} aria-hidden="true">✓</span><p className="text-[14px]" style={{ color: MUTED }}>{t}</p></div>;
+  const Row = ({ r, right }: { r: any; right?: React.ReactNode }) => <div className="flex items-center gap-3 rounded-[16px] border bg-white p-3.5" style={{ borderColor: LINE }}><Face name={r.friend} />
+    <div className="min-w-0 flex-1"><p className="truncate text-[14.5px] font-semibold">{r.friend}{r.referrer ? <span style={{ color: MUTED }}> ← {r.referrer}</span> : null}</p>
+      <p className="truncate text-[12.5px]" style={{ color: MUTED }}>{r.status === 'rewarded' ? `${money(r.rewardCents)} credit given ${day(r.rewardedAt)}` : r.bookedAt ? `Booked ${day(r.bookedAt)}` : day(r.createdAt)}{r.via ? ` · by ${VIA[r.via] || r.via}` : ''}</p></div>{right}</div>;
 
-/** Try it yourself: open any client's wallet as they see it (a private link for 2 hours) and their welcome link. */
-function TryIt({ tenantId }: { tenantId: string }) {
-  const [q, setQ] = React.useState(''); const [list, setList] = React.useState<any[]>([]); const [sel, setSel] = React.useState<any>(null); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
-  React.useEffect(() => { const t = setTimeout(() => { if (q.trim().length < 2) { setList([]); return; } void payPost('/api/referrals', { tenantId, action: 'find', q }).then((r) => setList(r?.ok ? r.clients || [] : [])); }, 250); return () => clearTimeout(t); }, [q, tenantId]);
-  const pick = async (c: any) => { setBusy(true); setErr(''); const r = await payPost('/api/referrals', { tenantId, action: 'preview', clientId: c.id }); setBusy(false); if (r?.ok) { setSel(r); setList([]); setQ(''); } else setErr(r?.error || 'That didn’t work.'); };
   return (
-    <section className="space-y-3 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }} aria-label="Try it yourself">
-      <div><p className="text-[16px] font-semibold">Try it yourself</p><p className="text-[12.5px] leading-[1.5]" style={{ color: MUTED }}>See any client’s wallet exactly as they do, and open their welcome link like a friend would. Wallet links are private and last 2 hours.</p></div>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="A client’s name, or the last 4 digits of their phone" aria-label="Find a client" className="h-11 w-full rounded-[12px] border px-3 text-[14px]" style={{ borderColor: LINE }} />
-      {list.length > 0 && <div className="divide-y rounded-[12px] border" style={{ borderColor: LINE }}>{list.map((c) => <button key={c.id} type="button" disabled={busy} onClick={() => pick(c)} className="flex w-full justify-between px-3 py-2.5 text-left text-[14px]"><span>{c.name}</span><span style={{ color: MUTED }}>{c.phoneLast4 ? `···${c.phoneLast4}` : ''}</span></button>)}</div>}
-      {err && <p className="text-[13px] font-semibold" style={{ color: RED }}>{err}</p>}
-      {sel && <div className="space-y-2 rounded-[14px] p-3" style={{ background: SOFT }}>
-        <p className="text-[14px] font-semibold">{sel.name}</p>
-        <div className="flex flex-wrap gap-2"><a href={sel.walletUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full px-4 text-[13.5px] font-semibold text-white" style={{ background: INK }}>Open their wallet</a>
-          <a href={sel.welcomeUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full border bg-white px-4 text-[13.5px] font-semibold" style={{ borderColor: LINE }}>Open their welcome link</a>
-          <button type="button" onClick={() => { void navigator.clipboard?.writeText(sel.welcomeUrl); }} className="inline-flex h-10 items-center rounded-full border bg-white px-4 text-[13.5px]" style={{ borderColor: LINE }}>Copy welcome link</button></div></div>}
-      <details className="text-[13px] leading-[1.6]" style={{ color: MUTED }}><summary className="cursor-pointer font-semibold" style={{ color: INK }}>A full test, start to finish</summary>
-        <ol className="mt-2 list-decimal space-y-1 pl-5">
-          <li>Switch Referrals on and save.</li>
-          <li>Find a test client above (it can be you) and open their welcome link on another phone.</li>
-          <li>Open your gift and book as a new client, with a different phone number and email.</li>
-          <li>Here, they show under “Waiting for a visit”. The visit has the $15 welcome offer on it.</li>
-          <li>Check the friend out at the POS: the welcome offer comes off the bill.</li>
-          <li>Press “Give credit now” (or wait a day): the credit lands in the first client’s wallet.</li>
-          <li>Open their wallet again, then check them out: the credit comes off by itself.</li>
-        </ol></details>
-    </section>);
+    <div className="mx-auto mt-4 max-w-[1180px] space-y-5 pb-10" style={{ color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }}>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>referrals</p><h1 className="text-[30px] font-light tracking-[-0.02em]">{title}</h1>
+          <p className="text-[13.5px]" style={{ color: MUTED }}>How referrals are growing the business. Paid visits only.</p></div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 rounded-full p-1" style={{ background: SOFT }} role="radiogroup" aria-label="Period">{PERIODS.map((p) => <button key={p.id} type="button" role="radio" aria-checked={period === p.id} onClick={() => setPeriod(p.id)} className="rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold" style={period === p.id ? { background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.12)' } : { color: MUTED }}>{p.label}</button>)}</div>
+          <Link href="/referrals/settings" className="inline-flex h-9 items-center rounded-full border bg-white px-4 text-[13px] font-semibold" style={{ borderColor: LINE }}>Settings</Link></div>
+      </div>
+      {!on && <div className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] p-4" style={{ background: '#fdf1e3' }}><p className="text-[14px]"><b>Referrals are off.</b> Clients can’t share a link until you switch them on.</p>
+        <Link href="/referrals/settings" className={btn(true)} style={{ background: INK, display: 'inline-flex', alignItems: 'center' }}>Set up referrals</Link></div>}
+      {note && <p className="text-[13.5px] font-semibold" style={{ color: note.ok ? GREEN : RED }}>{note.t}</p>}
+      <Story d={d} still={still} />
+
+      <div className="grid items-start gap-5 lg:grid-cols-[1fr_340px]">
+        <section className="min-w-0 space-y-3" aria-label="Referrals to look at">
+          <div className="flex gap-1 overflow-x-auto rounded-full p-1" style={{ background: SOFT, width: 'fit-content', maxWidth: '100%' }} role="tablist">
+            {tabs.map((t) => <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} className="whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-semibold" style={tab === t.id ? { background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.12)' } : { color: MUTED }}>
+              {t.label}{t.n ? <span className="ml-1.5 rounded-full px-1.5 text-[11px]" style={{ background: t.id === 'needs' ? '#fdf1e3' : '#e5e6ea', color: t.id === 'needs' ? AMBER : INK }}>{t.n}</span> : null}</button>)}</div>
+          {tab === 'needs' && ((d.review || []).length ? d.review.map((r: any) => <motion.div key={r.id} layout={!still} className="space-y-3 rounded-[18px] border bg-white p-4" style={{ borderColor: '#f3dfc4' }}>
+              <div className="flex items-start gap-3"><Face name={r.friend} size={38} /><div className="min-w-0 flex-1"><p className="text-[15px] font-semibold">{r.status === 'unmatched' ? `${r.friend} said “${r.named}” sent them` : `${r.friend} ← ${r.referrer}`}</p>
+                <p className="text-[13px]" style={{ color: AMBER }}>{r.status === 'unmatched' ? 'No single client matched. Ask at check-in and enter their number, or leave it.' : HOLD[r.holdReason] || 'Held for a look.'}</p></div></div>
+              {r.status === 'unmatched' ? <div className="flex flex-wrap gap-2"><input value={phones[r.id] || ''} onChange={(e) => setPhones({ ...phones, [r.id]: e.target.value })} placeholder="Their mobile" aria-label="Mobile of the person who referred" inputMode="tel" className="h-9 min-w-0 flex-1 rounded-full border px-3.5 text-[13px]" style={{ borderColor: LINE }} />
+                  <button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'confirm')} className={btn(true)} style={{ background: INK }}>Match</button>
+                  <button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'decline')} className={btn(false)} style={{ borderColor: LINE }}>Leave it</button></div>
+                : r.holdReason !== 'cap' && <div className="flex gap-2"><button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'approve')} className={btn(true)} style={{ background: INK }}>Approve</button>
+                  <button type="button" disabled={busy === r.id} onClick={() => decide(r.id, 'decline')} className={btn(false)} style={{ borderColor: LINE }}>No reward</button></div>}
+            </motion.div>) : <Empty t="Nothing needs you. Matches and rewards are running on their own." />)}
+          {tab === 'waiting' && ((d.waiting || []).length ? <><p className="text-[12.5px]" style={{ color: MUTED }}>{d.settings?.unlock === 'paid' ? 'Credit is given a day after the friend’s first paid visit. Once they’re checked out, you can give it now.' : 'Credit is given once they’ve booked.'}</p>
+            {d.waiting.map((r: any) => <Row key={r.id} r={r} right={<button type="button" disabled={busy === r.id} onClick={() => giveNow(r.id)} className={btn(false)} style={{ borderColor: LINE }}>Give credit now</button>} />)}</> : <Empty t="No friends waiting for a first visit." />)}
+          {tab === 'rewarded' && ((d.rewarded || []).length ? d.rewarded.map((r: any) => <Row key={r.id} r={r} right={<span className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={{ background: '#e8f3ec', color: GREEN }}>{money(r.rewardCents)}</span>} />) : <Empty t="No credit given yet." />)}
+          {tab === 'all' && ((d.everyone || []).length ? d.everyone.map((r: any) => { const [lab, c] = STATUS[r.status] || [r.status, MUTED]; return <Row key={r.id} r={r} right={<span className="text-[12px] font-semibold" style={{ color: c }}>{lab}</span>} />; }) : <Empty t="Nobody yet. Once clients share their link, friends show here." />)}
+        </section>
+
+        <aside className="space-y-4">
+          <section className="rounded-[20px] border bg-white p-4" style={{ borderColor: LINE }} aria-label="Your champions">
+            <div className="flex items-baseline justify-between"><p className="text-[16px] font-semibold">Your champions</p><p className="text-[12px]" style={{ color: MUTED }}>{PERIODS.find((p) => p.id === period)?.label.toLowerCase()}</p></div>
+            {champs.length ? <ol className="mt-2 space-y-3">{champs.slice(0, 6).map((p, i) => <li key={p.clientId} className="space-y-1.5">
+              <div className="flex items-center gap-2.5"><span className="w-4 text-[12px] font-bold" style={{ color: MUTED }}>{i + 1}</span><Face name={p.name} size={32} />
+                <div className="min-w-0 flex-1"><p className="truncate text-[14px] font-semibold">{p.name}</p><p className="truncate text-[12px]" style={{ color: MUTED }}>{p.friends} friend{p.friends === 1 ? '' : 's'} · {p.visited} visited{p.opens ? ` · ${p.opens} opens` : ''}</p></div>
+                {p.earnedCents > 0 && <span className="text-[12.5px] font-semibold" style={{ color: GREEN }}>{money(p.earnedCents)}</span>}</div>
+              <div className="ml-[26px] h-1.5 rounded-full" style={{ background: SOFT }}><motion.div className="h-1.5 rounded-full" style={{ background: i === 0 ? GREEN : '#9a9ca3' }} initial={still ? false : { width: 0 }} animate={{ width: `${(p.friends / champTop) * 100}%` }} transition={{ duration: 0.7, ease, delay: 0.1 * i }} /></div></li>)}</ol>
+              : <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Nobody yet this {period === 'month' ? 'month' : 'period'}. The people who send friends show here so you can thank them.</p>}
+          </section>
+          <section className="rounded-[20px] border bg-white p-2" style={{ borderColor: LINE }} aria-label="Quick actions">
+            <p className="px-2.5 pb-1 pt-2 text-[11px] tracking-[0.14em]" style={{ color: MUTED }}>QUICK ACTIONS</p>
+            {[['Try it as a client', '/referrals/settings#try'], ['See your welcome page', sample], ['Welcome page and layout', '/referrals/settings#welcome'], ['Amounts and rules', '/referrals/settings#program']].filter(([, h]) => h).map(([t, h]) =>
+              String(h).startsWith('/ref/') ? <a key={t} href={String(h)} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-[12px] px-2.5 py-2.5 text-[14px] hover:bg-[#f3f3f5]">{t}<span style={{ color: MUTED }}>↗</span></a>
+                : <Link key={t} href={String(h)} className="flex items-center justify-between rounded-[12px] px-2.5 py-2.5 text-[14px] hover:bg-[#f3f3f5]">{t}<span style={{ color: MUTED }}>›</span></Link>)}
+          </section>
+        </aside>
+      </div>
+    </div>);
 }
