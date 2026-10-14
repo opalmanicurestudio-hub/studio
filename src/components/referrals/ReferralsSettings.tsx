@@ -43,6 +43,7 @@ export function ReferralsSettings({ tenantId }: { tenantId: string }) {
             {row('u', 'Credit is given', <select value={s.unlock} onChange={(e) => set({ ...s, unlock: e.target.value })} className="h-10 rounded-[12px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}><option value="paid">After the friend’s first paid visit</option><option value="booked">When the friend books (easier to abuse)</option></select>)}
             {row('m', 'Credit lasts', <select value={s.months} onChange={(e) => set({ ...s, months: Number(e.target.value) })} className="h-10 rounded-[12px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}>{[3, 6, 9, 12].map((m) => <option key={m} value={m}>{m} months</option>)}</select>)}
             {row('g', 'Bring a friend', <Switch on={s.group !== false} label="New guests booked together count as referrals" onClick={() => set({ ...s, group: s.group === false })} />, 'New guests booked together count as a referral')}
+            {row('h', 'Same saved card, same address', <select value={s.household || 'review'} onChange={(e) => set({ ...s, household: e.target.value })} className="h-10 rounded-[12px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}><option value="review">Ask me first</option><option value="give">Give credit (one household)</option></select>, 'A parent paying for a teen, partners sharing a card')}
             {row('c', 'Most rewards a month, per client', <input type="number" min={1} max={50} value={s.cap} onChange={(e) => set({ ...s, cap: Number(e.target.value) })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} />)}
             <div className="pt-2"><a href={`/ref/${encodeURIComponent(tenantId)}/terms`} target="_blank" rel="noreferrer" className="text-[13.5px] underline underline-offset-2">Preview terms</a></div>
           </Card>
@@ -62,7 +63,7 @@ export function ReferralsSettings({ tenantId }: { tenantId: string }) {
             <WelcomeSettings tenantId={tenantId} s={s} setS={set} />
           </Card>
           <Card id="rules" title="Rules" sub="These are always on, so the program can’t be gamed.">
-            <ul className="space-y-2 text-[13.5px] leading-[1.5]">{['The friend must be new to you.', 'The same phone or email as the person who referred isn’t eligible.', 'The same saved card waits for you to look at it (households are fine).', 'Reviews are never rewarded.', 'A refunded visit takes back credit that hasn’t been used.', 'Each friend gets one welcome offer.'].map((t) =>
+            <ul className="space-y-2 text-[13.5px] leading-[1.5]">{['The friend must be new to you.', 'The same phone or email as the person who referred isn’t eligible.', 'The same saved card waits for you to look at it, with the evidence (households at the same address can be given automatically).', 'Reviews are never rewarded.', 'A refunded visit takes back credit that hasn’t been used.', 'Each friend gets one welcome offer.'].map((t) =>
               <li key={t} className="flex gap-2.5"><span className="mt-[3px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px]" style={{ background: '#e8f3ec', color: GREEN }} aria-hidden="true">✓</span>{t}</li>)}</ul>
           </Card>
           <TryIt tenantId={tenantId} />

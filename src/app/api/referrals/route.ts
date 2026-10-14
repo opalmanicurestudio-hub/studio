@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     if (action === 'overview') return j(await referralOverview(db, tenantId, Date.now(), (['month', '3m', 'year'].includes(b.period) ? b.period : 'month') as any));
     if (action === 'get_settings') return j({ ok: true, settings: referralSettingsOf((await db.doc(`tenants/${tenantId}`).get()).data() || {}) });
     if (action === 'settings') return j(await setReferralSettings(db, tenantId, b.referrals || {}, { id: a.staffId, name: a.name }));
-    if (action === 'decide') return j(await decideReferral(db, tenantId, { id: String(b.id || ''), action: b.decision, referrerPhone: b.referrerPhone }, { id: a.staffId, name: a.name }));
+    if (action === 'decide') return j(await decideReferral(db, tenantId, { id: String(b.id || ''), action: b.decision, referrerPhone: b.referrerPhone, referrerId: b.referrerId ? String(b.referrerId) : undefined }, { id: a.staffId, name: a.name }));
     if (action === 'find') return j(await findClients(db, tenantId, String(b.q || '').slice(0, 60)));
     if (action === 'preview') return j(await previewFor(db, tenantId, String(b.clientId || '').slice(0, 120), { name: a.name }));
     if (action === 'sample') return j(await sampleWelcome(db, tenantId));

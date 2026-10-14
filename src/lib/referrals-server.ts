@@ -7,7 +7,7 @@
 //   referralSweep       → every pass: give credit once a friend's first visit is paid (and a day has passed); hold the few
 //                         that need a manager; take back unused credit if the visit is refunded
 //   referralOverview / decideReferral → the business view
-import { referralSettingsOf, slugFor, last10, firstOf, sameFirst, sameCard, refusal, termsLines, dollars, WELCOME_ID, WELCOME_CODE, layoutOf, type ReferralSettings } from '@/lib/referrals';
+import { referralSettingsOf, slugFor, last10, firstOf, sameFirst, sameCard, household, cardLabel, refusal, termsLines, dollars, WELCOME_ID, WELCOME_CODE, layoutOf, type ReferralSettings } from '@/lib/referrals';
 
 const T = (t: string) => `tenants/${t}`;
 const DAY = 864e5;
@@ -204,6 +204,10 @@ export async function matchOnBooking(db: any, t: string, o: { clientId: string; 
     else {   // no single match: the desk confirms it (nothing is shown to the client either way)
       const ref = col.doc(); await ref.set({ id: ref.id, referrerId: null, friendClientId: friend.id, friendFirst: firstOf(friend.name), friendPhone: last10(friend.phone), via: 'named', status: 'unmatched',
         namedFirst: String(o.named.firstName).trim().slice(0, 40), namedPhoneLast4: last10(o.named.phone).slice(-4), namedPhone: last10(o.named.phone), appointmentId: o.appointmentId, createdAt: iso(now) });
+      // A note on their visit, so whoever checks them in can ask who it was.
+      const aRef = db.doc(`${T(t)}/appointments/${o.appointmentId}`); const a: any = (await aRef.get()).data() || {};
+      const line = `Referral: they said ${String(o.named.firstName).trim().slice(0, 40)} recommended them, but it didn’t match one client. Ask who at check-in, then match it in Referrals.`;
+      if (!String(a.internalNotes || '').includes('Referral: they said')) await aRef.set({ internalNotes: [String(a.internalNotes || '').trim(), line].filter(Boolean).join('\n') }, { merge: true });
       return { ok: true, unmatched: true };
     }
   }
@@ -306,7 +310,7 @@ export async function referralSweep(db: any, t: string, tenant: any, now = Date.
     } else if (!visit && !live) continue;
     const [rc, fc] = await Promise.all([db.doc(`${T(t)}/clients/${r.referrerId}`).get(), db.doc(`${T(t)}/clients/${r.friendClientId}`).get()]);
     if (!rc.exists) { await ref.set({ status: 'declined', reason: 'no_match', decidedAt: iso(now) }, { merge: true }); continue; }
-    if (!r.holdApproved && sameCard(rc.data(), fc.data())) { if (r.status !== 'held') { await ref.set({ status: 'held', holdReason: 'same_card', visitId: visit?.id || null }, { merge: true }); held++; } continue; }
+    if (!r.holdApproved && sameCard(rc.data(), fc.data()) && !(S.household === 'give' && household(rc.data(), fc.data()).sameAddress)) { if (r.status !== 'held') { await ref.set({ status: 'held', holdReason: 'same_card', visitId: visit?.id || null }, { merge: true }); held++; } continue; }
     if ((thisMonth.get(r.referrerId) || 0) >= S.cap) { if (r.status !== 'held') { await ref.set({ status: 'held', holdReason: 'cap', visitId: visit?.id || null }, { merge: true }); held++; } continue; }
     await ref.set({ visitId: visit?.id || null, visitedAt: visit ? (visit.checkedOutAt || visit.startTime) : null }, { merge: true });
     await reward(db, t, tenant, S, { ...r, visitId: visit?.id || null }, now); thisMonth.set(r.referrerId, (thisMonth.get(r.referrerId) || 0) + 1); rewarded++;
@@ -372,9 +376,31 @@ export async function referralOverview(db: any, t: string, now = Date.now(), per
     waiting: refs.filter((r: any) => r.status === 'booked').sort((a: any, b: any) => ms(b.bookedAt) - ms(a.bookedAt)).slice(0, 20).map((r: any) => ({ ...card(r), referrer: short(r.referrerName) })),
     rewarded: refs.filter((r: any) => r.status === 'rewarded').sort((a: any, b: any) => ms(b.rewardedAt) - ms(a.rewardedAt)).slice(0, 20).map(card),
     everyone: refs.filter((r: any) => r.status !== 'invited').sort((a: any, b: any) => ms(b.createdAt) - ms(a.createdAt)).slice(0, 40).map(card),
-    review: refs.filter((r: any) => r.status === 'held' || r.status === 'unmatched').sort((a: any, b: any) => ms(b.createdAt) - ms(a.createdAt)).slice(0, 30)
-      .map((r: any) => ({ id: r.id, status: r.status, holdReason: r.holdReason || null, friend: r.friendFirst, referrer: r.referrerName ? short(r.referrerName) : null, named: r.namedFirst ? `${r.namedFirst}, phone ending ${r.namedPhoneLast4}` : null, createdAt: r.createdAt })),
+    review: await reviewCards(db, t, refs.filter((r: any) => r.status === 'held' || r.status === 'unmatched').sort((a: any, b: any) => ms(b.createdAt) - ms(a.createdAt)).slice(0, 30), short),
   };
+}
+
+/** What a manager needs to decide: for the same saved card, the evidence (which card, the same address or last name);
+ * for a name that didn't match, the clients with that first name to choose from (their phone number they gave first). */
+async function reviewCards(db: any, t: string, list: any[], short: (n: any) => string) {
+  let all: any[] | null = null;
+  const out: any[] = [];
+  for (const r of list) {
+    const base: any = { id: r.id, status: r.status, holdReason: r.holdReason || null, friend: r.friendFirst, referrer: r.referrerName ? short(r.referrerName) : null, named: r.namedFirst ? `${r.namedFirst}, phone ending ${r.namedPhoneLast4}` : null, createdAt: r.createdAt };
+    if (r.status === 'held' && r.holdReason === 'same_card') {
+      const [rc, fc] = await Promise.all([db.doc(`${T(t)}/clients/${r.referrerId}`).get(), db.doc(`${T(t)}/clients/${r.friendClientId}`).get()]);
+      const h = household(rc.data() || {}, fc.data() || {});
+      base.evidence = { card: cardLabel(rc.data() || {}), ...h, friendName: short((fc.data() || {}).name || r.friendFirst) };
+    }
+    if (r.status === 'unmatched' && r.namedFirst) {
+      if (!all) all = rows(await db.collection(`${T(t)}/clients`).get()).filter((c: any) => !c.archived && c.status !== 'archived' && !c.ownerRenterId);
+      const pool = (all || []).filter((c: any) => c.id !== r.friendClientId && sameFirst(c.name || c.firstName, r.namedFirst));
+      base.candidates = pool.map((c: any) => ({ id: c.id, name: short(c.name), last4: last10(c.phone).slice(-4) || null, phoneMatch: !!r.namedPhone && last10(c.phone) === r.namedPhone, lastVisit: c.lastVisit || c.lastVisitAt || null }))
+        .sort((a: any, b: any) => Number(b.phoneMatch) - Number(a.phoneMatch) || String(b.lastVisit || '').localeCompare(String(a.lastVisit || ''))).slice(0, 6);
+    }
+    out.push(base);
+  }
+  return out;
 }
 
 // ── Trying it yourself (managers) ──────────────────────────────────────────────────────
@@ -420,7 +446,7 @@ export async function giveNow(db: any, t: string, id: string, actor: { name: str
 }
 
 /** A manager's decision: approve a held one (credit now), give no reward, or confirm an unmatched name to a client. */
-export async function decideReferral(db: any, t: string, b: { id: string; action: 'approve' | 'decline' | 'confirm'; referrerPhone?: string }, actor: { id: string; name: string }, now = Date.now()) {
+export async function decideReferral(db: any, t: string, b: { id: string; action: 'approve' | 'decline' | 'confirm'; referrerPhone?: string; referrerId?: string }, actor: { id: string; name: string }, now = Date.now()) {
   const ref = db.doc(`${T(t)}/referrals/${String(b.id || '').slice(0, 80)}`); const r: any = (await ref.get()).data(); if (!r) return { ok: false, error: 'This referral is no longer available.' };
   const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant);
   if (b.action === 'decline') { await ref.set({ status: 'declined', reason: 'manager', decidedBy: actor.name, decidedAt: iso(now) }, { merge: true }); return { ok: true }; }
@@ -430,11 +456,15 @@ export async function decideReferral(db: any, t: string, b: { id: string; action
   }
   if (b.action === 'confirm') {
     if (r.status !== 'unmatched') return { ok: false, error: 'This one is already matched.' };
-    const hits = await clientsByPhone(db, t, String(b.referrerPhone || '')); if (hits.length !== 1) return { ok: false, error: hits.length ? 'More than one client has that number. Please check it.' : 'No client has that number.' };
+    let hits: any[] = [];
+    if (b.referrerId) { const c = await db.doc(`${T(t)}/clients/${String(b.referrerId).slice(0, 120)}`).get(); if (c.exists) hits = [{ id: c.id, ...(c.data() || {}) }]; else return { ok: false, error: 'That client isn’t here any more.' }; }
+    else { hits = await clientsByPhone(db, t, String(b.referrerPhone || '')); if (hits.length !== 1) return { ok: false, error: hits.length ? 'More than one client has that number. Please check it.' : 'No client has that number.' }; }
     const fc: any = (await db.doc(`${T(t)}/clients/${r.friendClientId}`).get()).data() || {};
     const no = refusal(hits[0], { id: r.friendClientId, ...fc }); if (no) { await ref.set({ referrerId: hits[0].id, referrerName: hits[0].name || null, status: 'declined', reason: no, decidedBy: actor.name, decidedAt: iso(now) }, { merge: true }); return { ok: true, declined: no }; }
     await ref.set({ referrerId: hits[0].id, referrerName: hits[0].name || null, status: 'booked', bookedAt: r.createdAt, confirmedBy: actor.name, decidedAt: iso(now) }, { merge: true });
-    if (r.appointmentId) await db.doc(`${T(t)}/appointments/${r.appointmentId}`).set({ referralId: ref.id, referralBookedAt: r.createdAt }, { merge: true }).catch(() => {});
+    if (r.appointmentId) { const aRef = db.doc(`${T(t)}/appointments/${r.appointmentId}`); const a: any = ((await aRef.get()).data()) || {};
+      const notes = String(a.internalNotes || '').split('\n').filter((x: string) => !x.startsWith('Referral: they said')).join('\n');
+      await aRef.set({ referralId: ref.id, referralBookedAt: r.createdAt, internalNotes: notes }, { merge: true }).catch(() => {}); }
     return { ok: true };
   }
   return { ok: false, error: 'Unknown action.' };

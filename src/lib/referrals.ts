@@ -15,9 +15,9 @@ export type WelcomeLayout = typeof LAYOUTS[number];
 export const SECTIONS = ['favorite', 'provider', 'visit', 'photos', 'good', 'proof'] as const;
 export type WelcomeSection = typeof SECTIONS[number];
 export interface ReferralSettings { on: boolean; rewardCents: number; friendCents: number; unlock: 'paid' | 'booked'; months: number; cap: number; photos: string[]; arrival: string;
-  layout: WelcomeLayout | 'auto'; sections: WelcomeSection[]; motion: boolean; who: 'theirs' | 'first'; group: boolean }
+  layout: WelcomeLayout | 'auto'; sections: WelcomeSection[]; motion: boolean; who: 'theirs' | 'first'; group: boolean; household: 'review' | 'give' }
 export const REF_DEFAULTS: ReferralSettings = { on: false, rewardCents: 1500, friendCents: 1500, unlock: 'paid', months: 6, cap: 5, photos: [], arrival: '',
-  layout: 'auto', sections: [...SECTIONS], motion: true, who: 'theirs', group: true };
+  layout: 'auto', sections: [...SECTIONS], motion: true, who: 'theirs', group: true, household: 'review' };
 /** The layout a friend actually sees. */
 export const layoutOf = (S: Pick<ReferralSettings, 'layout' | 'photos'>, extraPhotos = 0): WelcomeLayout =>
   S.layout !== 'auto' && (LAYOUTS as readonly string[]).includes(S.layout) ? S.layout as WelcomeLayout : (S.photos.length + extraPhotos > 0 ? 'invitation' : 'simple');
@@ -36,7 +36,9 @@ export function referralSettingsOf(tenant: any): ReferralSettings {
     // Its layout, which sections show and in what order, gentle motion, and who a friend sees first (they can always choose).
     layout: r.layout === 'auto' || (LAYOUTS as readonly string[]).includes(r.layout) ? r.layout : 'auto', sections: sectionsOf(r.sections), motion: r.motion !== false, who: r.who === 'first' ? 'first' : 'theirs',
     // Bring a friend: a new guest booked together with a client counts as that client's referral.
-    group: r.group !== false };
+    group: r.group !== false,
+    // The same saved card at the same address (a parent paying for a teen, partners): ask, or give it automatically.
+    household: r.household === 'give' ? 'give' : 'review' };
 }
 
 export const last10 = (v: any) => String(v || '').replace(/\D+/g, '').slice(-10);
@@ -56,6 +58,14 @@ export function sameCard(a: any, b: any): boolean {
   if (x.paymentMethodId && x.paymentMethodId === y.paymentMethodId) return true;
   return !!(x.last4 && x.last4 === y.last4 && String(x.brand || '').toLowerCase() === String(y.brand || '').toLowerCase() && x.expMonth && x.expMonth === y.expMonth && x.expYear === y.expYear);
 }
+
+/** One household: the same street address (and zip), or failing an address, the same last name. */
+export function household(a: any, b: any): { sameAddress: boolean; sameLastName: boolean } {
+  const st = (c: any) => { const x = c?.address || {}; const street = String(x.street || '').toLowerCase().replace(/[^a-z0-9]/g, ''); const zip = String(x.zip || '').replace(/\D/g, '').slice(0, 5); return street && zip ? `${street}|${zip}` : ''; };
+  const ln = (c: any) => { const p = String(c?.name || '').trim().toLowerCase().split(/\s+/); return p.length > 1 ? p[p.length - 1].replace(/[^a-z]/g, '') : ''; };
+  return { sameAddress: !!st(a) && st(a) === st(b), sameLastName: !!ln(a) && ln(a) === ln(b) };
+}
+export const cardLabel = (c: any) => { const x = c?.cardOnFile || {}; return x.last4 ? `${String(x.brand || 'Card').replace(/^./, (m: string) => m.toUpperCase())} ···${x.last4}` : 'The same saved card'; };
 
 /** Why a friend can't be credited to this person at all (refused outright), or null. */
 export function refusal(referrer: any, friend: any): string | null {

@@ -77,9 +77,15 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-13T15:00:00-04:00'); const ag
   check('Sam’s earlier name that didn’t match is closed once his link matched', samAll.some((r: any) => r.reason === 'superseded'));
   check('Sam paid with the same saved card as Hannah → waits for a manager', samR?.status === 'held' && samR?.holdReason === 'same_card', samR);
   await db.doc(`${T}/clients/vic`).set({ id: 'vic', name: 'Vic Vale', phone: '+15555550108' });
+  await db.doc(`${T}/clients/bob1`).set({ id: 'bob1', name: 'Bobbie Bell', phone: '+15555550199' }); await db.doc(`${T}/clients/bob2`).set({ id: 'bob2', name: 'Bobbie Banks', phone: '+15555550100', lastVisit: '2026-09-01' });
+  await db.doc(`${T}/clients/bob3`).set({ id: 'bob3', name: 'Bobbie Bell', phone: '+15555550199' });
   await RS.matchOnBooking(db, 't1', { clientId: 'vic', appointmentId: 'v1', named: { firstName: 'Bobbie', phone: '5555550199' } }, NOW);
+  check('a name that didn’t match one client → a note on the visit for whoever checks them in', /Referral: they said Bobbie recommended them/.test((await db.doc(`${T}/appointments/v1`).get()).data()?.internalNotes || ''));
   const ov2: any = await RS.referralOverview(db, 't1', NOW + 5 * DAY);
   check('the business sees it under “Needs a look”, plus Vic’s name that didn’t match', ov2.review.some((r: any) => r.holdReason === 'same_card') && ov2.review.some((r: any) => r.status === 'unmatched' && /Bobbie, phone ending 0199/.test(r.named)) && ov2.top[0]?.name === 'Hannah K.', ov2.review);
+  const samCard = ov2.review.find((r: any) => r.holdReason === 'same_card'); const vicCard = ov2.review.find((r: any) => r.status === 'unmatched');
+  check('the same card comes with its evidence: which card, no shared address or last name', samCard?.evidence?.card === 'Visa ···4242' && samCard.evidence.sameAddress === false && samCard.evidence.sameLastName === false, samCard?.evidence);
+  check('a name that didn’t match comes with the clients called Bobbie, the ones with her number first', vicCard?.candidates?.length === 3 && vicCard.candidates[0].phoneMatch && vicCard.candidates[1].phoneMatch && !vicCard.candidates[2].phoneMatch, vicCard?.candidates);
   await RS.decideReferral(db, 't1', { id: samR.id, action: 'approve' }, { id: 'jess', name: 'Jessica' }, NOW + 5 * DAY);
   check('approved → credit given', ((await db.doc(`${T}/clients/hannah`).get()).data() as any).storeCredits.filter((x: any) => x.source === 'referral_reward').length === 2);
   const vicR = (await db.collection(`${T}/referrals`).get()).docs.map((d: any) => d.data()).find((r: any) => r.friendClientId === 'vic');
@@ -87,6 +93,7 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-13T15:00:00-04:00'); const ag
   check('the desk can’t match a shared number either; it asks them to check', !conf.ok && /More than one/.test(conf.error), conf);
   const conf2: any = await RS.decideReferral(db, 't1', { id: vicR.id, action: 'confirm', referrerPhone: '5555550102' }, { id: 'jess', name: 'Jessica' }, NOW);
   check('…with Maria’s number it matches, and waits for Vic’s first paid visit', conf2.ok && (await db.doc(`${T}/referrals/${vicR.id}`).get()).data()?.status === 'booked', conf2);
+  check('…and the note on the visit is cleared', !/Referral: they said/.test((await db.doc(`${T}/appointments/v1`).get()).data()?.internalNotes || ''));
   console.log('Referrals — refunds');
   await db.doc(`${T}/transactions/t9`).set({ appointmentId: 'm1', type: 'reversal', category: 'Refunds' });
   await RS.referralSweep(db, 't1', tenant, NOW + 6 * DAY);
@@ -181,5 +188,17 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-13T15:00:00-04:00'); const ag
   check('…stored as a count per month and per client, nothing about who opened it', opDoc.total === 2 && opDoc.by.hk === 2 && Object.keys(opDoc).sort().join() === 'by,total', opDoc);
   check('the period: this month → 1 month counted, 6 months charted; this year → 12', ov.months.length === 1 && ov.series.length === 6 && ((await RS.referralOverview(dbW, 't2', NOW, 'year')) as any).series.length === 12);
   check('the path counts friends who booked: booked ≥ first visit ≥ credit given', ov.funnel.booked >= ov.funnel.visited && ov.funnel.visited >= ov.funnel.credited && Array.isArray(ov.rewarded) && Array.isArray(ov.everyone), ov.funnel);
+
+  console.log('Referrals — one household');
+  const dbH = makeDb(); const TH = 'tenants/t4'; const card = { paymentMethodId: 'pm_mom', last4: '1111', brand: 'visa', expMonth: 2, expYear: 2031 };
+  await dbH.doc(TH).set({ name: 'Opal', timezone: 'America/New_York' }); await RS.setReferralSettings(dbH, 't4', { on: true, household: 'give' }, { id: 'j', name: 'Jessica' }, NOW);
+  await dbH.doc(`${TH}/clients/mom`).set({ id: 'mom', name: 'Rita Park', phone: '+15555550501', cardOnFile: card, address: { street: '12 Elm St', city: 'X', state: 'NY', zip: '10001' } });
+  await dbH.doc(`${TH}/clients/teen`).set({ id: 'teen', name: 'June Park', phone: '+15555550502', cardOnFile: card, address: { street: '12 Elm St.', city: 'X', state: 'NY', zip: '10001' } });
+  await dbH.doc(`${TH}/clients/pal`).set({ id: 'pal', name: 'Tess Cole', phone: '+15555550503', cardOnFile: card });
+  for (const [id, cid] of [['h1', 'teen'], ['h2', 'pal']]) { await dbH.doc(`${TH}/appointments/${id}`).set({ clientId: cid, status: 'completed', startTime: ago(3), checkedOutAt: ago(3) });
+    await dbH.doc(`${TH}/referrals/r${id}`).set({ id: `r${id}`, status: 'booked', referrerId: 'mom', referrerName: 'Rita Park', friendClientId: cid, friendFirst: cid === 'teen' ? 'June' : 'Tess', createdAt: ago(5), bookedAt: ago(5) }); }
+  await RS.referralSweep(dbH, 't4', (await dbH.doc(TH).get()).data(), NOW);
+  check('“give credit to one household”: the same card at the same address → given; the same card elsewhere still waits', (await dbH.doc(`${TH}/referrals/rh1`).get()).data()?.status === 'rewarded' && (await dbH.doc(`${TH}/referrals/rh2`).get()).data()?.status === 'held');
+  check('household test: same address (spelling aside) and last name', JSON.stringify(R.household({ name: 'A Park', address: { street: '12 Elm St', zip: '10001' } }, { name: 'B Park', address: { street: '12 elm st.', zip: '10001-22' } })) === '{"sameAddress":true,"sameLastName":true}');
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();
