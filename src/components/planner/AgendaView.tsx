@@ -31,6 +31,7 @@ export function visitMarks(a: any, client: any, service: any): { label: string; 
   if (c.activeMembershipId) out.push({ label: 'Member', tone: 'info' });
   if (a.packageId || a.redeemedPackageId) out.push({ label: 'Package', tone: 'info' });
   if (a.inspirationPhotoUrl) out.push({ label: 'Photo', tone: 'info' });
+  if (a.contentVisit?.campaignId) out.push({ label: 'Content visit', tone: 'info' });
   if (Array.isArray(a.addOnIds) && a.addOnIds.length) out.push({ label: `+${a.addOnIds.length} add-on${a.addOnIds.length === 1 ? '' : 's'}`, tone: 'info' });
   try { if (c.birthday && String(c.birthday).slice(5, 10) === new Date().toISOString().slice(5, 10)) out.push({ label: 'Birthday', tone: 'good' }); } catch { /* fine */ }
   return out;

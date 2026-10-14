@@ -2508,6 +2508,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               {f.note && <p>{f.note}</p>}
               {f.caseId && <a href={`/cases?id=${f.caseId}`} className="text-[13.5px] underline underline-offset-2">Open the case</a>}
             </div>); })()}
+          {(appointment as any)?.contentVisit?.campaignId && (() => { const cv: any = (appointment as any).contentVisit; return (
+            <div className="space-y-1 rounded-2xl border p-3 text-[14px]" style={{ borderColor: 'var(--line)' }}>
+              <p className="text-[12px] tracking-[0.1em] text-muted-foreground">content visit</p>
+              <p className="font-semibold">They’ll film or photograph this visit for “{cv.name || 'a campaign'}”.</p>
+              <p className="text-[13px] text-muted-foreground">Leave a little extra time for the shots. The visit is covered by an approved discount at checkout.</p>
+              <Link href={`/referrals/campaigns/${encodeURIComponent(cv.campaignId)}`} className="text-[13.5px] underline underline-offset-2">Open the brief and shot list</Link>
+            </div>); })()}
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">

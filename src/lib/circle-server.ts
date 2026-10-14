@@ -10,7 +10,7 @@
 // Client records keep it in client.circle { tier, tierAt, since, optIn, code, creator }. Requests to join live in
 // tenants/{t}/private/circleRequests; typed codes in tenants/{t}/private/referralTypedCodes (both server-only).
 import { referralSettingsOf, firstOf, last10, dollars, type ReferralSettings } from '@/lib/referrals';
-import { circleOf, tierFor, tierById, higher, nextTier, activeBoost, normalizeCode, typedCodeFor, welcomeIdFor, welcomeCodeFor, creatorOf, friendOfferFor, programName, TIER_IDS, type CircleSettings, type TierId } from '@/lib/circle';
+import { circleOf, tierFor, tierById, higher, nextTier, activeBoost, normalizeCode, typedCodeFor, welcomeIdFor, welcomeCodeFor, creatorOf, friendOfferFor, programName, seasonTier, TIER_IDS, type CircleSettings, type TierId } from '@/lib/circle';
 
 const T = (t: string) => `tenants/${t}`;
 const DAY = 864e5;
@@ -87,6 +87,38 @@ export async function afterReward(db: any, t: string, tenant: any, clientId: str
   if (up && text) { const tier = tierById(C, st.tier)!; const S = referralSettingsOf(tenant);
     await text({ id: clientId, ...c }, `Hi ${firstOf(c.name) || 'there'}! You’re now ${/^[aeiou]/i.test(tier.name) ? 'an' : 'a'} ${tier.name} in ${programName(C, biz(tenant))}. From now on you get ${dollars(tier.rewardCents)} for every friend${tier.friendCents !== S.friendCents ? `, and they get ${dollars(tier.friendCents)} off` : ''}. Thank you for sharing us!`); }
   return st.tier;
+}
+
+// ── The end of a season ──────────────────────────────────────────────────────────────
+const seasonsDoc = (t: string) => `${T(t)}/private/circleSeasons`;
+const an = (w: string) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
+/** Once the season's end date has passed: every member starts the new season at the level their last 12 months earned
+ *  (by default never more than one level down). Levels the business gave by hand stay. Each member still in the program
+ *  gets one short text, the business gets a summary, and it runs once per season. */
+export async function seasonReview(db: any, t: string, tenant: any, now = Date.now(), text?: (c: any, body: string) => Promise<any>) {
+  const C = circleOf(tenant); if (!C.on || !C.season.end || ms(C.season.end) > now) return null;
+  const key = C.season.end.slice(0, 10); const done: any = ((await db.doc(seasonsDoc(t)).get()).data()) || {};
+  if (done[key]) return null;
+  await db.doc(seasonsDoc(t)).set({ [key]: { name: C.season.name || null, end: C.season.end, startedAt: iso(now) } }, { merge: true });
+  const name = `${/^the /i.test(programName(C, biz(tenant))) ? '' : 'the '}${programName(C, biz(tenant))}`; const sum = { up: 0, same: 0, down: 0, left: 0, kept: 0 };
+  for (const c of rows(await db.collection(`${T(t)}/clients`).where('circle.tier', 'in', TIER_IDS).get())) {
+    const stored = c.circle.tier as TierId; const granted = c.circle.granted === true;
+    const friends = await friendsOf(db, t, c.id, now); const earned = tierFor(friends, C)?.id || null;
+    const next = seasonTier(C, stored, earned, granted);
+    if (granted) sum.kept++; else if (!next) sum.left++; else if (next === stored) sum.same++; else if (TIER_IDS.indexOf(next) > TIER_IDS.indexOf(stored)) sum.up++; else sum.down++;
+    await db.doc(`${T(t)}/clients/${c.id}`).set({ circle: { tier: next, tierAt: iso(now), lastSeason: { end: C.season.end, from: stored, to: next } } }, { merge: true });
+    if (!text || !next) continue;
+    const tier = tierById(C, next)!; const was = tierById(C, stored)!; const hi = `Hi ${firstOf(c.name) || 'there'}`;
+    const body = next === stored || granted ? `${hi}, a new season of ${name} starts today, and you’re still ${an(tier.name)} ${tier.name}. Thank you for sharing us!`
+      : TIER_IDS.indexOf(next) > TIER_IDS.indexOf(stored) ? `${hi}, a new season of ${name} starts today, and you’re ${an(tier.name)} ${tier.name}. Thank you for sharing us!`
+      : `${hi}, a new season of ${name} starts today. You’re ${an(tier.name)} ${tier.name} this season, and ${Math.max(1, was.friends - friends)} more ${was.friends - friends === 1 ? 'friend' : 'friends'} brings you back to ${was.name}.`;
+    await text(c, body);
+  }
+  await db.doc(seasonsDoc(t)).set({ [key]: { name: C.season.name || null, end: C.season.end, startedAt: iso(now), ...sum } }, { merge: true });
+  const n = db.collection(`${T(t)}/notifications`).doc();
+  await n.set({ id: n.id, type: 'referral', read: false, createdAt: iso(now), link: '/referrals/settings#circle',
+    message: `${C.season.name ? `The ${C.season.name} season` : 'This season'} of ${name} has ended. ${sum.same + sum.kept} kept their level, ${sum.down} moved down one${sum.left ? `, ${sum.left} left` : ''}${sum.up ? `, ${sum.up} moved up` : ''}. Set the next season’s end date in Referrals → Settings.` });
+  return sum;
 }
 
 // ── The member's view (in their visit link) ─────────────────────────────────────────
@@ -184,6 +216,8 @@ export async function circleOverview(db: any, t: string, now = Date.now()) {
   return { ok: true, circle: C, business: biz(tenant), name: programName(C, biz(tenant)),
     counts: Object.fromEntries(C.tiers.map((x) => [x.id, members.filter((c: any) => c.circle?.tier === x.id).length])) as Record<TierId, number>, creatorsCount: creators.length,
     placesLeft: C.season.places != null ? Math.max(0, C.season.places - members.length) : null,
+    seasonEnded: !!C.season.end && ms(C.season.end) <= now,
+    lastSeason: (Object.values(((await db.doc(seasonsDoc(t)).get()).data()) || {}) as any[]).sort((a, b) => ms(b.end) - ms(a.end))[0] || null,
     members: [...byId.values()].map(card).sort((a, b) => (b.creator ? 1 : 0) - (a.creator ? 1 : 0) || b.friends - a.friends).slice(0, 200),
     requests: Object.values(reqs).filter((r: any) => r && ['new', 'waitlist'].includes(r.status)).sort((a: any, b: any) => ms(b.createdAt) - ms(a.createdAt)).slice(0, 100),
     owedCents: owed.reduce((n: number, r: any) => n + (Number(r.cashOwedCents) || 0), 0) + [...fees.values()].reduce((n, x) => n + x, 0),

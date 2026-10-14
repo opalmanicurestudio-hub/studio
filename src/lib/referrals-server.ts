@@ -305,6 +305,7 @@ async function reward(db: any, t: string, tenant: any, S: ReferralSettings, r: a
 /** Every pass: credit friends' first paid visits; hold the few that need a manager; take back credit for refunds. */
 export async function referralSweep(db: any, t: string, tenant: any, now = Date.now()) {
   const S = referralSettingsOf(tenant); if (!S.on) return { ok: true, skipped: 'off' };
+  try { const { seasonReview } = await import('@/lib/circle-server'); await seasonReview(db, t, tenant, now, (c, body) => textTo(db, t, c, body, 'referral_update')); } catch (e) { console.error('[referrals] season', e); }
   const all = rows(await db.collection(`${T(t)}/referrals`).where('status', 'in', ['booked', 'held', 'rewarded']).get());
   const month = iso(now).slice(0, 7);
   const thisMonth = new Map<string, number>(); for (const r of all) if (r.status === 'rewarded' && String(r.rewardedAt || '').slice(0, 7) === month) thisMonth.set(r.referrerId, (thisMonth.get(r.referrerId) || 0) + 1);

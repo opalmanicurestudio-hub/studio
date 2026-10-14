@@ -10,7 +10,7 @@ export interface Tier { id: TierId; name: string; friends: number; rewardCents: 
 export interface Boost { id: string; name: string; start: string; end: string; multiplier: number; tiers: TierId[] | null }
 export interface CircleSettings {
   on: boolean; name: string; tiers: Tier[];
-  season: { name: string; end: string | null; places: number | null };
+  season: { name: string; end: string | null; places: number | null; soft: boolean };
   show: { count: boolean; members: boolean; totals: boolean };
   boosts: Boost[];
 }
@@ -22,7 +22,7 @@ export const DEFAULT_TIERS: Tier[] = [
   { id: 'ambassador', name: 'Ambassador', friends: 6, rewardCents: 2000, friendCents: 2000, perks: ['More credit for every friend', 'Priority booking: see new times first', 'A free add-on every visit'] },
   { id: 'icon', name: 'Icon', friends: 12, rewardCents: 2500, friendCents: 2500, perks: ['The most credit for every friend', 'Your own page and code', 'A seasonal gift and first look at everything'] },
 ];
-export const CIRCLE_DEFAULTS: CircleSettings = { on: false, name: 'Circle', tiers: DEFAULT_TIERS, season: { name: '', end: null, places: null }, show: { count: true, members: true, totals: true }, boosts: [] };
+export const CIRCLE_DEFAULTS: CircleSettings = { on: false, name: 'Circle', tiers: DEFAULT_TIERS, season: { name: '', end: null, places: null, soft: true }, show: { count: true, members: true, totals: true }, boosts: [] };
 
 const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
 const str = (v: any, max: number) => String(v ?? '').trim().slice(0, max);
@@ -40,7 +40,7 @@ export function circleOf(tenant: any): CircleSettings {
     start: isoOrNull(b.start) || '', end: isoOrNull(b.end) || '', multiplier: Math.max(1, Math.min(5, Number(b.multiplier) || 2)), tiers: Array.isArray(b.tiers) ? b.tiers.filter((x: any) => TIER_IDS.includes(x)) : null }))
     .filter((b: Boost) => b.start && b.end && Date.parse(b.end) > Date.parse(b.start)).slice(-12);
   return { on: c.on === true, name: str(c.name, 30) || 'Circle', tiers, boosts,
-    season: { name: str(c.season?.name, 30), end: isoOrNull(c.season?.end), places: c.season?.places == null || c.season?.places === '' ? null : n(c.season.places, 1, 10000, 50) },
+    season: { name: str(c.season?.name, 30), end: isoOrNull(c.season?.end), places: c.season?.places == null || c.season?.places === '' ? null : n(c.season.places, 1, 10000, 50), soft: c.season?.soft !== false },
     show: { count: c.show?.count !== false, members: c.show?.members !== false, totals: c.show?.totals !== false } };
 }
 
@@ -55,6 +55,13 @@ export function tierById(C: CircleSettings, id: any): Tier | null { return C.tie
 /** The higher of two tiers (tiers only move up; they're rechecked after a quiet stretch). */
 export function higher(C: CircleSettings, a: TierId | null | undefined, b: TierId | null | undefined): TierId | null {
   const ia = a ? TIER_IDS.indexOf(a) : -1, ib = b ? TIER_IDS.indexOf(b) : -1; const i = Math.max(ia, ib); return i >= 0 ? TIER_IDS[i] : null;
+}
+/** One level below (null below the first). */
+export function below(id: TierId | null | undefined): TierId | null { const i = id ? TIER_IDS.indexOf(id) : -1; return i > 0 ? TIER_IDS[i - 1] : null; }
+/** The level a member starts a new season at: what they've earned, and with a soft landing never more than one below where they were. */
+export function seasonTier(C: CircleSettings, stored: TierId | null, earned: TierId | null, granted: boolean): TierId | null {
+  if (granted) return stored;
+  return C.season.soft ? higher(C, earned, below(stored)) : earned;
 }
 /** What's next, and how many more friends it takes. */
 export function nextTier(friends: number, C: CircleSettings, current: TierId | null): { tier: Tier; need: number } | null {

@@ -48,7 +48,7 @@ import {
   ShieldAlert,
   TrendingDown,
   TrendingUp,
-  Minus, Gift } from 'lucide-react';
+  Minus, Gift, Camera } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -354,6 +354,7 @@ export function AppointmentCard({
     if (hasInspiration) push('ref', 'info', FileImage, 'Photo');
     if (appointment.isSecondary) push('part', 'info', Sparkles, 'Part');
     if (appointment.isWalkIn) push('walk', 'info', Users, 'Walk-in');
+    if (a1.contentVisit?.campaignId) push('content', 'info', Camera, 'Content visit');
     if (isBirthdayToday) push('bday', 'info', Cake, 'Birthday');
     return out;
   }, [appointment, client, service, setupPending, profitTier, awaitingReview, hasDeferredFee, isMember, hasPackage, hasInspiration, isBirthdayToday, estimatedArrival, tripFresh, overMinutes]);

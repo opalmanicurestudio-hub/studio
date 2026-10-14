@@ -71,6 +71,10 @@ export function CircleBoard({ tenantId }: { tenantId: string }) {
         <p className="text-[13.5px]" style={{ color: MUTED }}>{[C.season?.name ? `${C.season.name} season` : null, d.placesLeft != null ? `${d.placesLeft} place${d.placesLeft === 1 ? '' : 's'} left` : null, `${d.members.length} member${d.members.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</p></div>
         <div className="flex gap-2"><a href={`/circle/${encodeURIComponent(tenantId)}`} target="_blank" rel="noreferrer" className={`${btn(false)} inline-flex items-center`} style={{ borderColor: LINE }}>See the public page ↗</a>
           <Link href="/referrals/settings#circle" className={`${btn(false)} inline-flex items-center`} style={{ borderColor: LINE }}>Circle settings</Link></div></div>
+      {d.seasonEnded && <div className="flex flex-wrap items-center gap-3 rounded-[18px] border p-4" style={{ borderColor: '#f3dfc4', background: '#fdf8f1' }}>
+        <div className="min-w-0 flex-1"><p className="text-[15px] font-semibold">{C.season?.name ? `The ${C.season.name} season` : 'This season'} has ended</p>
+          <p className="text-[13px]" style={{ color: MUTED }}>{d.lastSeason && d.lastSeason.end === C.season?.end && d.lastSeason.same != null ? `${(d.lastSeason.same || 0) + (d.lastSeason.kept || 0)} kept their level, ${d.lastSeason.down || 0} moved down one${d.lastSeason.left ? `, ${d.lastSeason.left} left` : ''}${d.lastSeason.up ? `, ${d.lastSeason.up} moved up` : ''}. ` : 'Levels are rechecked within the hour. '}Set when the next season ends.</p></div>
+        <Link href="/referrals/settings#circle" className={`${btn(true)} inline-flex items-center`} style={{ background: INK }}>Set the next season</Link></div>}
       {note && <p className="text-[13.5px] font-semibold" style={{ color: note.ok ? GREEN : RED }}>{note.t}</p>}
 
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
