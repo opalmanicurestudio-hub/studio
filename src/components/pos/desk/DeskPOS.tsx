@@ -42,12 +42,12 @@ import { useClientScreen, ClientScreenPanel } from '@/components/pos/ClientScree
 import { TodaysSales } from '@/components/pos/desk/TodaysSales';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
-import { LayoutGroup } from 'framer-motion';
+import { LayoutGroup, motion } from 'framer-motion';
 import { format, isToday, parseISO } from 'date-fns';
 import { moduleEnabled } from '@/lib/modules';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
-import { DeskFrame, Btn, Seg, Pill, GuestCard, Empty, Panel, Drawer, Menu } from './kit';
+import { DeskFrame, Btn, Seg, Pill, GuestCard, Empty, Panel, Drawer, Menu, Icon, Ring, LiveDot, Toggle, ThemeSwitch } from './kit';
 import { doc } from 'firebase/firestore';
 import { updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { logAuditClient } from '@/lib/audit-client';
@@ -71,12 +71,15 @@ import { resolvePolicy } from '@/lib/booking-policies';
 import { query, where } from 'firebase/firestore';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
-type View = 'timeline' | 'lanes' | 'stations' | 'mix';
+type View = 'day' | 'timeline' | 'lanes' | 'stations' | 'mix';
 type Guest = { awaitingDeposit?: boolean; key: string; kind: 'appt' | 'walkin'; appt?: any; walkIn?: any; name: string; service: string; staffId: string | null; staffName: string | null; at: Date | null; stage: Stage; lateMin: number };
 
 const toDate = (v: any): Date | null => { if (!v) return null; try { const d = v?.toDate ? v.toDate() : v instanceof Date ? v : typeof v === 'string' ? parseISO(v) : new Date(v); return isNaN(d.getTime()) ? null : d; } catch { return null; } };
 const STAGES: [Exclude<Stage, 'done'>, string][] = [['arriving', 'Arriving'], ['waiting', 'Waiting'], ['service', 'In service'], ['ready', 'Ready to pay']];
-const VIEW_KEY = 'cf.desk.view';
+const VIEW_KEY = 'cf.desk.view2';   // new key: everyone starts on the Day view once
+const first = (n: any) => String(n || '').split(' ')[0];
+const initials = (n: string) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join('').toUpperCase() || '?';
+const STEPS: [Stage, string][] = [['arriving', 'Booked'], ['waiting', 'Here'], ['service', 'In service'], ['ready', 'Ready to pay'], ['done', 'Paid']];
 const lateLabel = (m: number) => (m >= 90 ? `${Math.round(m / 60)} hr late` : `${m} min late`);
 
 export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; waitlist?: ReactNode; spaces?: ReactNode } }) {
@@ -84,9 +87,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const accent = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || null;
   const staffList: any[] = (e.staff || []).filter((s: any) => s.isActive !== false && !s.isStudent);
   const solo = staffList.length <= 1;
-  const recommended: View = solo ? 'timeline' : 'lanes';
+  const recommended: View = 'day';
   const [view, setView] = useState<View>(recommended);
-  useEffect(() => { try { const v = localStorage.getItem(VIEW_KEY) as View | null; if (v && ['timeline', 'lanes', 'stations', 'mix'].includes(v)) setView(v); } catch { /* per-device memory is a nicety */ } }, []);
+  useEffect(() => { try { const v = localStorage.getItem(VIEW_KEY) as View | null; if (v && ['day', 'timeline', 'lanes', 'stations', 'mix'].includes(v)) setView(v); } catch { /* per-device memory is a nicety */ } }, []);
   const pickView = (v: View) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ } };
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [payFor, setPayFor] = useState<any>(null); // arrived — payment required
@@ -177,6 +180,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const toggleToday = () => { const v = !todayOpen; setTodayOpen(v); try { localStorage.setItem('cf.desk.today', v ? 'open' : 'closed'); } catch { /* ignore */ } };
   const [assigning, setAssigning] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | Exclude<Stage, 'done'>>('all');
+  // The Day view: the selected guest's ticket on the right (a drawer on phones), one search-and-scan box.
+  const [sel, setSel] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [wide, setWide] = useState(true);
+  useEffect(() => { const mq = window.matchMedia('(min-width: 1024px)'); const f = () => setWide(mq.matches); f(); mq.addEventListener?.('change', f); return () => mq.removeEventListener?.('change', f); }, []);
   const [now, setNow] = useState(() => new Date());
   const stationRows = useMemo(() => stationReadiness(allResources || [], todaysAppts, e.services || [], now.getTime(), e.staff || [], protocols || []), [allResources, todaysAppts, e.services, now]);   // the desk's clock keeps the count fresh
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -231,6 +239,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   }, [e.appointmentsFromInventory, e.walkIns, e.services, e.staff, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = guests.filter((g) => g.stage !== 'done');
+  const selectedGuest = sel ? guests.find((g) => g.key === sel) || null : null;
   // K7: who's here and what's outstanding — checked-in guests not yet started + people at the front door, one list.
   const scanner = useScanSheet();   // one scanner for kits, bundles, sterilisers and stations (USB scanners open it too)
   const delays = useDelays(todaysAppts, e.services || [], e.selectedTenant || tenant);
@@ -334,7 +343,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     }
     if (g.stage === 'waiting') {
       if (g.kind === 'walkin' && !g.staffId) return assigning === g.key
-        ? <div className="flex flex-wrap justify-end gap-1">{staffList.map((s) => <Btn key={s.id} quiet onClick={() => assign(g, s.id)}>{String(s.name).split(' ')[0]}</Btn>)}<Btn quiet onClick={() => setAssigning(null)} label="Cancel">✕</Btn></div>
+        ? <div className="flex flex-wrap justify-end gap-1">{staffList.map((s) => <Btn key={s.id} quiet onClick={() => assign(g, s.id)}>{String(s.name).split(' ')[0]}</Btn>)}<Btn quiet onClick={() => setAssigning(null)} label="Cancel"><Icon name="close" size={14} /></Btn></div>
         : <Btn quiet onClick={() => setAssigning(g.key)}>Assign</Btn>;
       if (g.kind === 'appt' && paymentOutstanding(g.appt)) return <Btn onClick={() => setPayFor(g.appt)}>Payment required</Btn>;
       return <Btn quiet onClick={() => start(g)}>Start</Btn>;
@@ -414,54 +423,254 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     </div>
   );
 
-  const views: [View, string][] = solo ? [['timeline', 'Timeline'], ['lanes', 'Lanes']] : [['timeline', 'Timeline'], ['lanes', 'Lanes'], ['stations', 'Stations'], ['mix', 'Mix']];
-  const shown: View = solo && (view === 'stations' || view === 'mix') ? 'timeline' : view;
+
+  // ── The Day view ───────────────────────────────────────────────────────
+  // Walk-in turns, the same rule the engine's "assign next" uses: the business's
+  // order (ordered list) or whoever has gone longest without a walk-in (fair play).
+  const lastServed = (s: any) => toDate(s.lastWalkInCompletedAt || s.lastServedTimestamp)?.getTime() || 0;
+  const rotation = staffList.filter((s) => s.acceptingWalkIns !== false).sort((a, b) => (e.assignmentMode === 'fair_play' ? lastServed(a) - lastServed(b) : (a.turnOrder || 999) - (b.turnOrder || 999)));
+  const turnOf = (sid: string) => rotation.findIndex((s) => s.id === sid) + 1;
+  const busyNow = (sid: string) => active.some((g) => g.staffId === sid && g.stage === 'service');
+  const walkQueue = active.filter((g) => g.kind === 'walkin' && g.stage === 'waiting');
+  const kioskTaking = tenant?.walkInKiosk?.enabled === true;
+  // Who each unassigned walk-in would go to: first free provider in turn, else whoever frees up first.
+  // A guest who chose to wait for one provider is only ever suggested that provider.
+  const suggested = new Map<string, { staff: any; when: Date | null }>();
+  { const taken = new Set<string>();
+    for (const g of walkQueue) {
+      if (g.staffId) continue;
+      const w = g.walkIn || {}; const req = w.requestedStaffId || w.preferredStaffId || null; const hold = !!req && (w.waitForPreferred === true || w.waitingForRequested === true);
+      let pool = rotation.filter((s) => !s.onBreak && !taken.has(s.id)); if (hold) pool = pool.filter((s) => String(s.id) === String(req));
+      if (!pool.length) continue;
+      const free = pool.find((s) => !busyNow(s.id));
+      const pk = free || [...pool].sort((a, b) => (freeAt(a.id)?.getTime() || 0) - (freeAt(b.id)?.getTime() || 0))[0];
+      taken.add(pk.id); suggested.set(g.key, { staff: pk, when: free ? null : freeAt(pk.id) });
+    } }
+  const nextUp = rotation.find((s) => !s.onBreak && !busyNow(s.id)) || null;
+  const progressOf = (g: Guest) => { const s0 = startedAt(g); return s0 ? (now.getTime() - s0.getTime()) / 60000 / Math.max(1, minsOf(g)) : 0; };
+  const setTaking = (s: any, v: boolean) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'staff', s.id), { acceptingWalkIns: v }); };
+  const setKioskTaking = (v: boolean) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId), { walkInKiosk: { ...(tenant?.walkInKiosk || {}), enabled: v } }); };
+  const matches = (g: Guest) => { const t = q.trim().toLowerCase(); return !t || `${g.name} ${g.service} ${g.staffName || ''} ${g.walkIn?.shortCode || ''}`.toLowerCase().includes(t); };
+  const pick = (g: Guest) => setSel((cur) => (cur === g.key && wide ? null : g.key));
+  const lead = (g: Guest, size = 40) => g.stage === 'service'
+    ? <Ring progress={progressOf(g)} size={size} stroke={size > 44 ? 4 : 3}><span className="font-semibold" style={{ fontSize: size > 44 ? 15 : 12 }}>{initials(g.name)}</span></Ring>
+    : <span className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold" style={{ width: size, height: size, fontSize: size > 44 ? 15 : 12, background: g.stage === 'ready' ? 'color-mix(in srgb, var(--ok) 14%, transparent)' : 'var(--soft)', color: g.stage === 'ready' ? 'var(--ok)' : 'var(--ink)' }}>
+        {g.stage === 'ready' ? <Icon name="check" size={size > 44 ? 22 : 18} /> : g.kind === 'walkin' && !g.walkIn?.clientName && !g.walkIn?.customerName ? <Icon name="walk" size={size > 44 ? 22 : 18} /> : initials(g.name)}</span>;
+  const stop = (ev: any) => ev.stopPropagation();
+  // What's still outstanding for a guest who's here (forms, deposit, balance, kit, set-aside items) — the Here-now rules.
+  const owedOf = (g: Guest) => (hereNow.find((r) => r.kind === 'guest' && (r.key === `g:${g.appt?.id || g.walkIn?.id}` || (!!g.appt?.id && r.appointmentId === g.appt.id)))?.outstanding || []).filter((o) => o.key !== 'provider');
+  const row = (g: Guest, i: number) => { const tm = timerFor(g); const on = sel === g.key; const sug = suggested.get(g.key); const w = g.walkIn || {};
+    const code = w.shortCode || w.ticketCode || null; const queued = g.kind === 'walkin' && g.stage === 'waiting';
+    return (
+      <motion.div layout="position" key={g.key} transition={{ type: 'spring', stiffness: 420, damping: 38 }}
+        role="button" tabIndex={0} aria-pressed={on} aria-label={`Open ${g.name}`} onClick={() => pick(g)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(g); } }}
+        className="d-row d-rise flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2.5"
+        style={{ animationDelay: `${Math.min(i, 8) * 35}ms`, background: on ? 'var(--soft)' : undefined, border: `1px ${queued ? 'dashed' : 'solid'} ${on ? 'var(--ink)' : queued ? 'color-mix(in srgb, var(--ok) 50%, transparent)' : 'transparent'}` }}>
+        {lead(g)}
+        <div className="min-w-0 flex-1">
+          <p className="flex min-w-0 items-center gap-2 text-[14.5px] font-semibold"><span className="truncate">{g.name}</span>
+            {code && <span className="shrink-0 rounded-md px-1.5 text-[11px] font-semibold tabular-nums" style={{ background: 'var(--soft)', color: 'var(--muted)' }}>{code}</span>}
+            {g.awaitingDeposit && <Pill tone="warn">Deposit</Pill>}
+            {(() => { const o = owedOf(g).find((x) => x.tone !== 'info'); return o && !g.awaitingDeposit ? <Pill tone="warn">{o.label}</Pill> : null; })()}</p>
+          <p className="truncate text-[12.5px]" style={{ color: 'var(--muted)' }}>{g.service}{g.staffName ? ` · ${first(g.staffName)}` : g.kind === 'walkin' ? ' · anyone' : ''}</p>
+          {sug && <p className="mt-0.5 truncate text-[12px] font-medium" style={{ color: 'var(--ok)' }}>{sug.when ? `Next free: ${first(sug.staff.name)} ~${format(sug.when, 'h:mm')}` : `Next in turn: ${first(sug.staff.name)}, free now`}</p>}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          {tm && <span className="text-[12px] tabular-nums" style={tm.tone === 'warn' ? { color: 'var(--warn)', fontWeight: 600 } : { color: 'var(--muted)' }}>{tm.text}</span>}
+          {sug ? <span onClick={stop}><Btn onClick={() => assign(g, sug.staff.id)}>Assign</Btn></span>
+            : g.stage === 'ready' ? <span onClick={stop}><Btn onClick={() => checkout(g)}>Check out</Btn></span> : null}
+        </div>
+      </motion.div>
+    ); };
+  const dayGroups: { key: string; title: string; icon: string; list: Guest[]; note?: ReactNode; always?: boolean; empty?: string }[] = [
+    { key: 'ready', title: 'Ready to pay', icon: 'card', list: active.filter((g) => g.stage === 'ready' && matches(g)) },
+    { key: 'walkins', title: 'Walk-ins', icon: 'walk', list: walkQueue.filter(matches), always: kioskOn || walkQueue.length > 0 || (e.walkIns || []).length > 0,
+      note: walkQueue.length ? (() => { const est = estWait(); return est ? `about ${est} min wait` : 'someone is free now'; })() : kioskOn && !kioskTaking ? 'Kiosk paused' : null,
+      empty: nextUp ? `No one waiting. The next walk-in goes to ${first(nextUp.name)}.` : 'No one waiting.' },
+    { key: 'service', title: 'In service', icon: 'clock', list: active.filter((g) => g.stage === 'service' && matches(g)) },
+    { key: 'here', title: 'Here', icon: 'user', list: active.filter((g) => g.stage === 'waiting' && g.kind !== 'walkin' && matches(g)) },
+    { key: 'arriving', title: 'Arriving', icon: 'calendar', list: active.filter((g) => g.stage === 'arriving' && matches(g)) },
+  ];
+  const anyShown = dayGroups.some((gr) => gr.list.length);
+  const dayList = (
+    <div className="space-y-6">
+      {dayGroups.filter((gr) => gr.list.length || (gr.always && !q)).map((gr) => (
+        <section key={gr.key} aria-label={gr.title}>
+          <h3 className="mb-1.5 flex items-center gap-2 px-1 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>
+            <Icon name={gr.icon} size={16} /><span style={{ color: 'var(--ink)' }}>{gr.title}</span><span className="tabular-nums">{gr.list.length}</span>
+            {gr.key === 'service' && gr.list.length > 0 && <LiveDot />}
+            {gr.note && <span className="ml-auto truncate text-[12px] font-normal">{gr.note}</span>}
+          </h3>
+          {gr.list.length ? <div className="space-y-1">{gr.list.map(row)}</div>
+            : <p className="rounded-2xl px-4 py-3 text-[13px]" style={{ border: '1px dashed var(--line)', color: 'var(--muted)' }}>{gr.empty}</p>}
+        </section>
+      ))}
+      {!anyShown && <Empty>{q ? `No one today matches “${q}”. Press Enter to look it up as a code.` : 'No one else today. A quiet moment.'}</Empty>}
+    </div>
+  );
+  const bigAction = (g: Guest): { label: string; icon: string; run: () => void } | null => {
+    if (g.stage === 'arriving') return g.kind === 'appt' && skipsCheckIn(placeOf((e.services || []).find((x: any) => x.id === g.appt?.serviceId), g.appt).kind) ? { label: 'Start', icon: 'arrow', run: () => start(g) } : { label: 'Check in', icon: 'check', run: () => checkIn(g) };
+    if (g.stage === 'waiting') { if (g.kind === 'walkin' && !g.staffId) return null; if (g.kind === 'appt' && paymentOutstanding(g.appt)) return { label: 'Payment required', icon: 'card', run: () => setPayFor(g.appt) }; return { label: 'Start service', icon: 'arrow', run: () => start(g) }; }
+    if (g.stage === 'service') return g.appt ? { label: 'Finish service', icon: 'check', run: () => finish(g) } : null;
+    if (g.stage === 'ready') return { label: 'Check out', icon: 'card', run: () => checkout(g) };
+    return null;
+  };
+  const ticket = (g: Guest) => { const tm = timerFor(g); const fl = flagsFor(g); const w = g.walkIn || {}; const sug = suggested.get(g.key); const act = bigAction(g);
+    const idx = STEPS.findIndex(([k]) => k === g.stage); const ph = phoneOf(g); const asked = w.requestedStaffId || w.preferredStaffId || null;
+    const flags: { label: string; tone?: 'soft' | 'warn' | 'ok' | 'accent' }[] = [...(g.kind === 'walkin' ? [{ label: 'Walk-in' }] : []), ...(g.awaitingDeposit ? [{ label: g.appt?.depositDeskHold ? 'Deposit not paid, your call' : 'Awaiting deposit', tone: 'warn' as const }] : []), ...fl.map(([label, tone]) => ({ label, tone }))];
+    const facts: [string, ReactNode][] = [];
+    if (g.at) facts.push([g.kind === 'walkin' ? 'Came in' : 'Booked for', format(g.at, 'h:mm a')]);
+    if (tm) facts.push(['Now', <span key="t" style={tm.tone === 'warn' ? { color: 'var(--warn)', fontWeight: 600 } : undefined}>{tm.text}</span>]);
+    facts.push(['With', g.staffName || (g.kind === 'walkin' ? 'Anyone, next in turn' : 'Not set')]);
+    if (w.shortCode || w.ticketCode) facts.push(['Ticket', w.shortCode || w.ticketCode]);
+    if (g.kind === 'walkin' && g.stage === 'waiting') facts.push(['In line', `${walkQueue.findIndex((x) => x.key === g.key) + 1} of ${walkQueue.length}`]);
+    if (asked) facts.push(['Asked for', `${first(staffName(asked)) || 'a provider'}${w.waitForPreferred || w.waitingForRequested ? ', will wait' : ''}`]);
+    if (ph) { const d = ph.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); facts.push(['Phone', d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : ph]); }
+    return (
+      <div key={g.key} className="d-rise space-y-5">
+        <header className="flex items-start gap-3.5">
+          {lead(g, 56)}
+          <div className="min-w-0 flex-1 pt-0.5"><p className="truncate text-[24px] font-light leading-tight tracking-tight">{g.name}</p><p className="truncate text-[13px]" style={{ color: 'var(--muted)' }}>{g.service}</p></div>
+          <Menu items={menuFor(g)} label={`More for ${g.name}`} />
+        </header>
+        {flags.length > 0 && <div className="flex flex-wrap gap-1.5">{flags.map((f) => <Pill key={f.label} tone={f.tone}>{f.label}</Pill>)}</div>}
+        {owedOf(g).length > 0 && <section aria-label="Before they start" className="space-y-1.5 rounded-2xl p-3.5" style={{ background: 'color-mix(in srgb, var(--warn) 8%, transparent)' }}>
+          <p className="text-[12px] font-semibold" style={{ color: 'var(--warn)' }}>Still to do</p>
+          {owedOf(g).map((o) => <p key={o.key + o.label} className="flex items-center gap-2 text-[13.5px]"><Icon name={o.tone === 'info' ? 'clock' : 'alert'} size={15} style={{ color: o.tone === 'info' ? 'var(--muted)' : 'var(--warn)' }} />{o.label}</p>)}</section>}
+        <ol className="flex gap-1.5" aria-label="Where they are">{STEPS.map(([k, l], i) => (
+          <li key={k} className="flex min-w-0 flex-1 flex-col gap-1.5" aria-current={i === idx ? 'step' : undefined}>
+            <span className={`h-1 rounded-full ${i === idx ? 'd-breathe' : ''}`} style={{ background: i <= idx ? 'var(--ok)' : 'var(--line)' }} />
+            <span className="truncate text-[11px]" style={{ color: i === idx ? 'var(--ink)' : 'var(--muted)', fontWeight: i === idx ? 600 : 400 }}>{l}</span></li>))}</ol>
+        <dl className="overflow-hidden rounded-2xl" style={{ border: '1px solid var(--line)' }}>{facts.map(([k, v], i) => (
+          <div key={k} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[14px]" style={i ? { borderTop: '1px solid var(--line)' } : undefined}><dt style={{ color: 'var(--muted)' }}>{k}</dt><dd className="truncate text-right font-medium">{v}</dd></div>))}</dl>
+        {g.kind === 'walkin' && g.stage === 'waiting' && !g.staffId && <section aria-label="Assign" className="space-y-3 rounded-2xl p-4" style={{ border: '1px dashed color-mix(in srgb, var(--ok) 50%, transparent)' }}>
+          <p className="flex items-center gap-2 text-[14px] font-semibold"><Icon name="walk" size={18} style={{ color: 'var(--ok)' }} />
+            {sug ? (sug.when ? `Next free: ${first(sug.staff.name)}, about ${format(sug.when, 'h:mm')}` : `Next in turn: ${first(sug.staff.name)}, free now`) : 'No one on the floor is taking walk-ins'}</p>
+          {sug && <Btn big className="w-full" onClick={() => assign(g, sug.staff.id)}>Assign to {first(sug.staff.name)}</Btn>}
+          <div className="flex flex-wrap gap-1.5">{staffList.filter((s) => !sug || s.id !== sug.staff.id).map((s) => (
+            <Btn key={s.id} quiet onClick={() => assign(g, s.id)}>{first(s.name)}{turnOf(s.id) ? ` · turn ${turnOf(s.id)}` : ''}{busyNow(s.id) ? ' · busy' : ''}</Btn>))}</div>
+        </section>}
+        {act && <Btn big className="w-full" onClick={act.run}><Icon name={act.icon} size={18} />{act.label}</Btn>}
+        {g.appt?.id && <button type="button" onClick={() => open(g)} className="d-row flex w-full items-center justify-between rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ border: '1px solid var(--line)' }}>Open the full visit ticket<Icon name="chevron" size={16} /></button>}
+      </div>
+    ); };
+  const alsoItems = [
+    ...((interviews || []).filter((iv: any) => { const d = toDate(iv.chosenSlot); return d && isToday(d); }).map((iv: any) => ({ id: `iv-${iv.id}`, at: toDate(iv.chosenSlot)!, kind: 'Interview', icon: 'users', who: iv.applicantName || iv.name || 'Applicant', what: iv.listingTitle || iv.roleTitle || iv.role || 'Job interview', href: '/applicants', phone: iv.applicantPhone || iv.phone || '' }))),
+    ...((tours || []).filter((t: any) => !['cancelled', 'canceled', 'declined'].includes(String(t.status)) && (t.purpose === 'school' ? academyOn : rentalsOn)).map((t: any) => ({ id: `t-${t.id}`, at: new Date(`${t.date}T${t.time || '00:00'}`), kind: t.purpose === 'school' ? 'Academy tour' : 'Rental tour', icon: t.purpose === 'school' ? 'school' : 'home', who: t.name || 'Visitor', what: t.status === 'requested' ? 'Requested, needs confirming' : `${t.durationMins || 30} min visit`, href: t.purpose === 'school' ? '/academy?section=admissions' : '/pipeline', phone: t.phone || '' }))),
+  ].sort((a, b) => a.at.getTime() - b.at.getTime());
+  const alsoToday = (narrow: boolean) => alsoItems.length > 0 && <section aria-label="Also today" className={narrow ? '' : 'mt-8'}><p className="mb-2 text-[14px] font-semibold">Also today</p>
+    <div className={narrow ? 'space-y-2' : 'grid gap-2 sm:grid-cols-2 xl:grid-cols-3'}>{alsoItems.map((x) => <div key={x.id} className="flex items-center justify-between gap-3 rounded-2xl p-3" style={{ border: '1px solid var(--line)' }}>
+      <a href={x.href} className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: 'var(--soft)' }}><Icon name={x.icon} size={17} /></span>
+        <span className="min-w-0"><span className="block truncate text-[14px] font-semibold">{x.who}</span><span className="block truncate text-[12px]" style={{ color: 'var(--muted)' }}>{x.kind} · {format(x.at, 'h:mm a')} · {x.what}</span></span></a>
+      {x.phone && <Btn quiet onClick={() => { window.location.href = `tel:${String(x.phone).replace(/[^\d+]/g, '')}`; }} label={`Call ${x.who}`}><Icon name="phone" size={16} /></Btn>}</div>)}</div></section>;
+  const tiles: [string, string][] = [
+    ['Guests', `${doneCount} of ${guests.length} done`],
+    ['Average wait', today.avgWait === null ? '—' : `${Math.round(today.avgWait)} min`],
+    ['Average ticket', today.avgTicket === null ? '—' : `$${Math.round(today.avgTicket)}`],
+    ['Walk-ins served', today.walkinsServed === null ? '—' : `${today.walkinsServed}%`],
+  ];
+  const daySummary = (
+    <div className="d-rise space-y-5">
+      <div><p className="text-[13px]" style={{ color: 'var(--muted)' }}>Taken today</p><p className="text-[44px] font-light leading-none tracking-tight tabular-nums">${Math.round(takings).toLocaleString()}</p></div>
+      <div className="grid grid-cols-2 gap-2">{tiles.map(([l, v]) => <div key={l} className="rounded-2xl px-4 py-3" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={{ color: 'var(--muted)' }}>{l}</p><p className="text-[18px] font-light tracking-tight">{v}</p></div>)}</div>
+      {next && <button type="button" onClick={() => setSel(next.key)} className="d-row flex w-full items-center gap-3 rounded-2xl p-3 text-left" style={{ border: '1px solid var(--line)' }}>
+        {lead(next)}<span className="min-w-0 flex-1"><span className="block text-[12px]" style={{ color: 'var(--muted)' }}>Next to arrive</span><span className="block truncate text-[14px] font-semibold">{next.name}{next.at ? ` · ${format(next.at, 'h:mm a')}` : ''}</span></span><Icon name="chevron" size={16} /></button>}
+      {alsoToday(true)}
+      <p className="text-center text-[12px]" style={{ color: 'var(--muted)' }}>Select a guest to see their ticket here.</p>
+    </div>
+  );
+  const dayView = (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_430px]">
+      <div className="min-w-0">{dayList}</div>
+      {wide && <aside aria-label={selectedGuest ? `${selectedGuest.name}’s ticket` : 'Today'} className="sticky top-0 self-start rounded-[28px] p-5" style={{ background: 'var(--panel)', border: '1px solid var(--line)', boxShadow: 'var(--shade)' }}>
+        {selectedGuest ? ticket(selectedGuest) : daySummary}</aside>}
+    </div>
+  );
+  const teamStrip = !solo && (
+    <section aria-label="Team now" className="-mx-1 mb-5 flex gap-2 overflow-x-auto px-1 pb-1">
+      {kioskOn && <div className="flex shrink-0 items-center gap-3 rounded-2xl px-4 py-2" style={{ border: '1px solid var(--line)' }}>
+        <div className="text-[12px] leading-tight"><p className="text-[13px] font-semibold">Walk-ins</p><p style={{ color: kioskTaking ? 'var(--ok)' : 'var(--muted)' }}>{kioskTaking ? 'Kiosk is taking them' : 'Kiosk paused'}</p></div>
+        <Toggle on={kioskTaking} disabled={!isMgr} label="Take walk-ins at the kiosk" onChange={setKioskTaking} /></div>}
+      {staffList.map((s) => { const busy = active.filter((g) => g.staffId === s.id && g.stage === 'service'); const f = freeAt(s.id); const nx = active.filter((g) => g.staffId === s.id && (g.stage === 'arriving' || g.stage === 'waiting'))[0];
+        const t = turnOf(s.id); const taking = s.acceptingWalkIns !== false;
+        return <div key={s.id} className="flex shrink-0 items-center gap-2.5 rounded-2xl py-2 pl-2 pr-2.5" style={{ border: '1px solid var(--line)', background: 'var(--card)' }}>
+          {busy[0] ? <Ring progress={progressOf(busy[0])} size={40}><Face sid={s.id} size={30} /></Ring>
+            : <span className="relative"><Face sid={s.id} size={40} />{!s.onBreak && <span aria-hidden className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full" style={{ background: 'var(--ok)', border: '2px solid var(--card)' }} />}</span>}
+          <div className="text-[12px] leading-tight"><p className="flex items-center gap-1.5 text-[13px] font-semibold">{first(s.name)}{t > 0 && <span className="rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums" style={{ background: 'var(--soft)', color: 'var(--muted)' }} title="Walk-in turn">turn {t}</span>}</p>
+            <p style={{ color: s.onBreak ? 'var(--warn)' : busy.length ? 'var(--ink)' : 'var(--ok)' }}>{s.onBreak ? 'On a break' : busy.length ? `${busy.length > 1 ? `${busy.length} guests · ` : ''}free ~${f ? format(f, 'h:mm') : '—'}` : 'Free now'}</p>
+            {nx?.at && <p style={{ color: 'var(--muted)' }}>next {format(nx.at, 'h:mm')}</p>}</div>
+          <button type="button" aria-pressed={taking} disabled={!isMgr} onClick={() => setTaking(s, !taking)} title={taking ? 'Taking walk-ins' : 'Not taking walk-ins'} aria-label={`${first(s.name)} ${taking ? 'is taking walk-ins' : 'is not taking walk-ins'}`}
+            className="ml-1 flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:cursor-default" style={{ background: taking ? 'color-mix(in srgb, var(--ok) 14%, transparent)' : 'var(--soft)', color: taking ? 'var(--ok)' : 'var(--muted)', opacity: taking ? 1 : 0.7 }}>
+            <Icon name="walk" size={16} /></button>
+        </div>; })}
+    </section>
+  );
+  const toolItems = [
+    { label: 'Log a call', icon: 'phone', onSelect: () => setLogCallOpen(true) },
+    { label: 'Take a payment', icon: 'card', hint: 'Anyone, for anything they owe', onSelect: () => { setTakeFor(null); setPayOpen(true); } },
+    kioskOn && { label: 'Find a client', icon: 'search', onSelect: () => e.setIsScanLookupOpen?.(true) },
+    retailOn && { label: 'Order pickups', icon: 'box', onSelect: () => { setPickupScan(null); setPickupOpen(true); } },
+    rentalsOn && { label: 'Collect rent', icon: 'home', onSelect: () => setRentOpen(true) },
+    academyOn && { label: 'Tuition', icon: 'school', onSelect: () => setTuitionOpen(true) },
+    { label: 'Assist', icon: 'bell', count: openCount(assistItems), hint: 'Station requests, lounge orders, restocks', onSelect: () => setAssistOpen(true) },
+    { label: 'Housekeeping', icon: 'broom', count: hk.tasks.length, onSelect: () => setHkOpen(true) },
+    (allResources || []).length > 0 && { label: 'Stations', icon: 'station', count: needsAttention(stationRows), onSelect: () => setStationsOpen(true) },
+    { label: 'Kits & linens', icon: 'box', count: kitsToClean, onSelect: () => setKitsOpen(true) },
+    { label: 'Today’s sales', icon: 'receipt', onSelect: () => setSalesOpen(true) },
+    { label: 'Client screen', icon: 'screen', hint: clientScreen.connected ? (clientScreen.online ? 'Connected' : 'Connected, offline') : 'Not connected', onSelect: () => setScreenOpen(true) },
+    { label: 'Till', icon: 'till', onSelect: () => e.setIsTillManagementOpen(true) },
+    ...moreTabs.map(([k, l]) => ({ label: l, icon: k === 'team' ? 'users' : k === 'spaces' ? 'home' : 'list', onSelect: () => { setMoreTab(k as any); setMoreOpen(true); } })),
+  ];
+  const toolCount = (Number(openCount(assistItems)) || 0) + hk.tasks.length + kitsToClean + ((allResources || []).length ? Number(needsAttention(stationRows)) || 0 : 0);
+  const views: [View, string][] = solo ? [['day', 'Day'], ['timeline', 'Timeline'], ['lanes', 'Lanes']] : [['day', 'Day'], ['lanes', 'Lanes'], ['stations', 'Team'], ['timeline', 'Timeline'], ['mix', 'Mix']];
+  const shown: View = solo && (view === 'stations' || view === 'mix') ? 'day' : view;
   const readyIds: string[] = Array.from(e.selectedAppointmentIds || []);
 
   if (!mounted) return <DeskFrame accent={accent}><div className="p-8 text-[14px]" style={{ color: 'var(--muted)' }}>Opening the front desk…</div></DeskFrame>;
 
   return (
     <DeskFrame accent={accent}>
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-3 pt-4 md:px-8">
-        <div><p className="text-[22px] font-light tracking-tight">Front desk <span style={{ color: 'var(--muted)' }}>· {format(now, 'h:mm a')}</span></p>
-          <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{active.length} today{doneCount ? ` · ${doneCount} done` : ''} · ${Math.round(takings)} taken{next ? ` · next: ${next.name.split(' ')[0]} at ${next.at ? format(next.at, 'h:mm a') : '—'}` : ''}{requests > 0 && <> · <a href="/appointments/requests" className="font-semibold underline underline-offset-2" style={{ color: 'var(--accent)' }}>{requests} request{requests === 1 ? '' : 's'} to answer</a></>}</p></div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Seg label="Mode" value={mode} onChange={setMode} options={[['desk', 'Desk'], ['counter', 'Counter']]} />
-          {mode === 'desk' && <Seg label="View" value={shown} onChange={pickView} options={views.map(([k, l]) => [k, k === recommended ? `${l} ★` : l]) as [View, string][]} />}
-          {kioskOn && <Btn quiet onClick={() => e.setIsScanLookupOpen?.(true)}>Scan / find</Btn>}
-          <Btn quiet onClick={() => e.setIsQuickBookOpen(true)}>Book</Btn>
-          <Btn quiet onClick={() => setLogCallOpen(true)}>Log a call</Btn>
-          <Btn quiet onClick={() => setWalkInOpen(true)}>+ Walk-in</Btn>
-          <Btn quiet onClick={() => setAssistOpen(true)}>Assist{openCount(assistItems) ? ` · ${openCount(assistItems)}` : ''}</Btn>
-          <Btn quiet onClick={scanner.show}>Scan</Btn>
-          <Btn quiet onClick={() => setHkOpen(true)}>Housekeeping{hk.tasks.length ? ` · ${hk.tasks.length}` : ''}</Btn>
-          {(allResources || []).length > 0 && <Btn quiet onClick={() => setStationsOpen(true)}>Stations{needsAttention(stationRows) ? ` · ${needsAttention(stationRows)}` : ''}</Btn>}
-          {<Btn quiet onClick={() => setKitsOpen(true)}>Kits & linens{kitsToClean ? ` · ${kitsToClean}` : ''}</Btn>}
-          {retailOn && <Btn quiet onClick={() => { setPickupScan(null); setPickupOpen(true); }}>Pickups</Btn>}
-          <Btn quiet onClick={() => { setTakeFor(null); setPayOpen(true); }}>Take a payment</Btn>
-          {moduleEnabled(tenant, 'booth_rental') && <Btn quiet onClick={() => setRentOpen(true)}>Collect rent</Btn>}
-          {moduleEnabled(tenant, 'academy') && <Btn quiet onClick={() => setTuitionOpen(true)}>Tuition</Btn>}
-          <Btn quiet onClick={() => setSalesOpen(true)}>Today’s sales</Btn>
-          <Btn quiet onClick={() => setScreenOpen(true)}><span aria-hidden style={{ color: clientScreen.connected ? (clientScreen.online ? 'var(--ok)' : 'var(--warn)') : 'var(--muted)' }}>●</span> Client screen</Btn>
-          <Btn quiet={!opsCount.attention} onClick={() => setAttnOpen(true)}>{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
-          {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}>Checkout · {readyIds.length}</Btn>}
-          <Btn quiet onClick={() => e.setIsTillManagementOpen(true)}>Till</Btn>
-          {moreTabs.length > 0 && <Btn quiet onClick={() => setMoreOpen(true)}>More</Btn>}
+      <header className="space-y-3 px-4 pb-4 pt-4 md:px-8">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0"><p className="text-[26px] font-light tracking-tight">Front desk <span className="tabular-nums" style={{ color: 'var(--muted)' }}>{format(now, 'h:mm a')}</span></p>
+            <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{active.length} today{doneCount ? ` · ${doneCount} done` : ''} · ${Math.round(takings).toLocaleString()} taken{next ? ` · next: ${first(next.name)} at ${next.at ? format(next.at, 'h:mm a') : '—'}` : ''}{requests > 0 && <> · <a href="/appointments/requests" className="font-semibold underline underline-offset-2" style={{ color: 'var(--ink)' }}>{requests} request{requests === 1 ? '' : 's'} to answer</a></>}</p></div>
+          <div className="flex flex-wrap items-center gap-2">
+            {mode === 'desk' && <Seg label="View" value={shown} onChange={pickView} options={views} />}
+            <Btn quiet={!opsCount.attention && !opsCount.decisions} onClick={() => setAttnOpen(true)}><Icon name="alert" size={16} />{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
+            {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}><Icon name="card" size={16} />Checkout · {readyIds.length}</Btn>}
+            <ThemeSwitch />
+            <Menu label="More tools" width={290} items={toolItems} trigger={<><Icon name="grid" size={16} />Tools{toolCount > 0 && <span className="rounded-full px-1.5 text-[11px] tabular-nums" style={{ background: 'color-mix(in srgb, var(--warn) 14%, transparent)', color: 'var(--warn)' }}>{toolCount}</span>}</>} />
+          </div>
         </div>
-      </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {mode === 'counter' && <Btn quiet big className="!h-11 !px-4" onClick={() => setMode('desk')}><Icon name="back" size={18} /><span className="hidden sm:inline">Desk</span></Btn>}
+          <label className="flex h-11 min-w-0 flex-[1_1_100%] items-center gap-2.5 rounded-full px-4 sm:flex-[1_1_0%]" style={{ background: 'var(--soft)', border: '1px solid var(--line)' }}>
+            <Icon name="search" size={18} style={{ color: 'var(--muted)' }} />
+            <input value={q} placeholder="Find a guest, or scan a code" aria-label="Find a guest, or scan a code" className="min-w-0 flex-1 bg-transparent text-[14px] outline-none"
+              onChange={(ev) => { setQ(ev.target.value); if (mode !== 'desk') setMode('desk'); if (shown !== 'day') setView('day'); }}
+              onKeyDown={(ev) => { if (ev.key === 'Escape') setQ('');
+                if (ev.key === 'Enter' && q.trim()) { const hit = active.filter(matches); if (hit.length === 1) setSel(hit[0].key); else if (!hit.length) { e.handlePosScan?.(q.trim()); setQ(''); } } }} />
+            {q && <button type="button" aria-label="Clear the search" onClick={() => setQ('')} style={{ color: 'var(--muted)' }}><Icon name="close" size={16} /></button>}
+          </label>
+          <button type="button" aria-label="Scan kits, stations and bundles" title="Scan kits, stations and bundles" onClick={scanner.show} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full" style={{ background: 'var(--soft)', border: '1px solid var(--line)' }}><Icon name="scan" size={18} /></button>
+          <Btn big className="!h-11 !px-4" onClick={() => setWalkInOpen(true)} label="Add a walk-in"><Icon name="plus" size={18} /><span className="hidden sm:inline">Walk-in</span></Btn>
+          <Btn big quiet className="!h-11 !px-4" onClick={() => e.setIsQuickBookOpen(true)} label="Book"><Icon name="calendar" size={18} /><span className="hidden sm:inline">Book</span></Btn>
+          <Btn big quiet className="!h-11 !px-4" onClick={() => setMode(mode === 'counter' ? 'desk' : 'counter')} label="Sell"><Icon name="bag" size={18} /><span className="hidden sm:inline">Sell</span></Btn>
+        </div>
+      </header>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 md:px-8">
         <RunningBehind tenantId={e.tenantId} margin={delayMargin} delays={delays} appts={todaysAppts} staff={e.staff || []} onOpenVisit={(id: string) => openVisit(id)} />
-        <HereNow rows={hereNow} onOpenVisit={(id: string) => openVisit(id)} onOpenPickups={() => { setPickupScan(null); setPickupOpen(true); }}
+        <HereNow rows={mode === 'desk' && shown === 'day' ? hereNow.filter((r) => r.kind === 'door') : hereNow} onOpenVisit={(id: string) => openVisit(id)} onOpenPickups={() => { setPickupScan(null); setPickupOpen(true); }}
           onDoorDone={(id: string) => updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'frontDoor', id), { status: 'handled', handledAt: new Date().toISOString(), handledBy: (e as any).currentUserName || (e as any).currentStaffName || 'Front desk' })} />
-        {mode === 'desk' && <section aria-label="Today" className="mb-4">
-          <button type="button" onClick={toggleToday} aria-expanded={todayOpen} className="mb-2 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>Today {todayOpen ? '▴' : '▾'}</button>
+        {mode === 'desk' && shown !== 'day' && <section aria-label="Today" className="mb-4">
+          <button type="button" onClick={toggleToday} aria-expanded={todayOpen} className="mb-2 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}><span className="inline-flex items-center gap-1">Today<Icon name="chevron" size={14} className={`transition-transform ${todayOpen ? '-rotate-90' : 'rotate-90'}`} /></span></button>
           {todayOpen && <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{([
             ['Taken today', `$${Math.round(takings).toLocaleString()}`],
             ['Guests', `${doneCount} of ${guests.length} done`],
             ['Average wait', today.avgWait === null ? '—' : `${Math.round(today.avgWait)} min`],
             ['Average ticket', today.avgTicket === null ? '—' : `$${Math.round(today.avgTicket)}`],
             ['Walk-ins served', today.walkinsServed === null ? '—' : `${today.walkinsServed}%`],
-          ] as [string, string][]).map(([l, v]) => <div key={l} className="rounded-2xl px-4 py-3" style={{ background: 'var(--card)' }}><p className="text-[12px]" style={{ color: 'var(--muted)' }}>{l}</p><p className="text-[20px] font-light tracking-tight">{v}</p></div>)}</div>}
+          ] as [string, string][]).map(([l, v]) => <div key={l} className="rounded-2xl px-4 py-3" style={{ border: '1px solid var(--line)' }}><p className="text-[12px]" style={{ color: 'var(--muted)' }}>{l}</p><p className="text-[20px] font-light tracking-tight">{v}</p></div>)}</div>}
         </section>}
         {mode === 'desk' && (outages.length > 0 || disruptions.length > 0) && <section aria-label="Disruptions" className="mb-4 space-y-2 rounded-3xl p-4" style={{ background: 'color-mix(in srgb, var(--warn) 9%, var(--card))' }}>
           <p className="text-[14px] font-semibold" style={{ color: 'var(--warn)' }}>Heads up today</p>
@@ -469,27 +678,17 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           {outages.map((o) => <p key={o.rid} className="text-[14px]"><b>{o.name}</b> — {o.why}{o.affected ? <> · <span style={{ color: 'var(--warn)', fontWeight: 600 }}>{o.affected} booking{o.affected === 1 ? '' : 's'} today use it</span></> : ' · nothing booked on it today'}</p>)}
           {maintOn && <a href="/maintenance" className="inline-block text-[13px] underline underline-offset-2">Open maintenance</a>}
         </section>}
-        {mode === 'desk' && !solo && <section aria-label="Team now" className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1">{staffList.map((s) => { const busy = active.filter((g) => g.staffId === s.id && g.stage === 'service'); const f = freeAt(s.id); const nx = active.filter((g) => g.staffId === s.id && (g.stage === 'arriving' || g.stage === 'waiting'))[0];
-          return <div key={s.id} className="flex shrink-0 items-center gap-2.5 rounded-2xl py-2 pl-2 pr-4" style={{ background: 'var(--card)' }}><Face sid={s.id} size={34} /><div className="text-[12px] leading-tight"><p className="text-[13px] font-semibold">{String(s.name).split(' ')[0]}</p>
-            <p style={{ color: busy.length ? 'var(--ink)' : 'var(--ok)' }}>{busy.length ? `${busy.length > 1 ? `${busy.length} guests at once · ` : ''}free ~${f ? format(f, 'h:mm') : '—'}` : 'Free now'}</p>{nx?.at && <p style={{ color: 'var(--muted)' }}>next {format(nx.at, 'h:mm')}</p>}</div></div>; })}</section>}
+        {mode === 'desk' && teamStrip}
         {mode === 'counter' ? <Counter e={e} onFollowUp={(v: any) => setFollowFor(v)} /> : <LayoutGroup>
+          {shown === 'day' && dayView}
           {shown === 'timeline' && timeline}
           {shown === 'lanes' && lanes}
           {shown === 'stations' && stations}
           {shown === 'mix' && <div className="space-y-6">{stations}<div><p className="mb-2 text-[14px] font-semibold">The day</p>{timeline}</div></div>}
         </LayoutGroup>}
-        {mode === 'desk' && (() => {
-          const items = [
-            ...((interviews || []).filter((iv: any) => { const d = toDate(iv.chosenSlot); return d && isToday(d); }).map((iv: any) => ({ id: `iv-${iv.id}`, at: toDate(iv.chosenSlot)!, kind: 'Interview', who: iv.applicantName || iv.name || 'Applicant', what: iv.listingTitle || iv.roleTitle || iv.role || 'Job interview', href: '/applicants', phone: iv.applicantPhone || iv.phone || '' }))),
-            ...((tours || []).filter((t: any) => !['cancelled', 'canceled', 'declined'].includes(String(t.status)) && (t.purpose === 'school' ? academyOn : rentalsOn)).map((t: any) => ({ id: `t-${t.id}`, at: new Date(`${t.date}T${t.time || '00:00'}`), kind: t.purpose === 'school' ? 'Academy tour' : 'Rental tour', who: t.name || 'Visitor', what: t.status === 'requested' ? 'Requested — needs confirming' : `${t.durationMins || 30} min visit`, href: t.purpose === 'school' ? '/academy?section=admissions' : '/pipeline', phone: t.phone || '' }))),
-          ].sort((a, b) => a.at.getTime() - b.at.getTime());
-          return items.length > 0 && <section aria-label="Also today" className="mt-6"><p className="mb-2 text-[14px] font-semibold">Also today</p>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{items.map((x) => <div key={x.id} className="flex items-center justify-between gap-3 rounded-2xl p-3" style={{ background: 'var(--card)' }}>
-              <a href={x.href} className="min-w-0"><p className="truncate text-[14px] font-semibold">{x.who} <Pill tone="accent">{x.kind}</Pill></p><p className="truncate text-[12px]" style={{ color: 'var(--muted)' }}>{format(x.at, 'h:mm a')} · {x.what}</p></a>
-              {x.phone && <Btn quiet onClick={() => { window.location.href = `tel:${String(x.phone).replace(/[^\d+]/g, '')}`; }}>Call</Btn>}</div>)}</div></section>;
-        })()}
-        {mode === 'desk' && <p className="mt-6 text-center text-[12px]" style={{ color: 'var(--muted)' }}>★ recommended for {solo ? 'a solo business' : 'your team'} · this device remembers your view</p>}
+        {mode === 'desk' && (shown !== 'day' || !wide) && alsoToday(false)}
       </main>
+      <Drawer accent={accent} open={!wide && mode === 'desk' && shown === 'day' && !!selectedGuest} onClose={() => setSel(null)} title="Ticket">{selectedGuest && ticket(selectedGuest)}</Drawer>
       <DeskDelay e={e} appt={lateFor?.appt || null} accent={accent} onClose={() => setLateFor(null)} onReschedule={(a) => setMoveAppt(a)} />
       <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
       <DeskFollowUp e={e} visit={followFor} accent={accent} onClose={() => setFollowFor(null)} />
