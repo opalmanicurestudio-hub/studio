@@ -224,7 +224,7 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
       in_review: { t: 'Contacted', c: 'bg-amber-100 text-amber-700' },
       confirmed: { t: 'Confirmed', c: 'bg-indigo-100 text-indigo-700' },
       checked_in: { t: 'Checked in', c: 'bg-emerald-100 text-emerald-700' },
-      closed: { t: 'Toured', c: 'bg-slate-900 text-white' },
+      closed: { t: 'Toured', c: 'bg-foreground text-background' },
       no_show: { t: 'No-show', c: 'bg-red-100 text-red-700' },
     };
     const s = map[status] || map.new;
@@ -247,15 +247,15 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
           {/* Contact */}
           <div className="flex gap-2">
-            {tour?.phone && <a href={`tel:${tour.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Call</a>}
-            {tour?.phone && <a href={`sms:${tour.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Text</a>}
-            {tour?.email && <a href={`mailto:${tour.email}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Email</a>}
+            {tour?.phone && <a href={`tel:${tour.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center">Call</a>}
+            {tour?.phone && <a href={`sms:${tour.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center">Text</a>}
+            {tour?.email && <a href={`mailto:${tour.email}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center">Email</a>}
           </div>
 
           {/* Printouts */}
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={printVisitor} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center gap-1.5 hover:bg-slate-50"><Printer className="w-3.5 h-3.5" /> Visitor confirmation</button>
-            <button onClick={printPrep} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center gap-1.5 hover:bg-slate-50"><FileText className="w-3.5 h-3.5" /> Prep sheet</button>
+            <button onClick={printVisitor} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1.5 hover:bg-muted/60"><Printer className="w-3.5 h-3.5" /> Visitor confirmation</button>
+            <button onClick={printPrep} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1.5 hover:bg-muted/60"><FileText className="w-3.5 h-3.5" /> Prep sheet</button>
           </div>
 
           {/* Convert to renter — the post-tour bridge */}
@@ -276,11 +276,11 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
           {/* Reschedule */}
           <div className="rounded-2xl border-2 p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" /> When</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" /> When</p>
               <button onClick={() => setRescheduling(v => !v)} className="text-[10px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-1"><RotateCcw className="w-3 h-3" /> {rescheduling ? 'Close' : 'Reschedule'}</button>
             </div>
             {!rescheduling ? (
-              <p className="text-sm font-bold text-slate-800">{fmtWhen(tour?.tourStartIso)}{tour?.tourTimeTBD ? ' · time to confirm' : ''}</p>
+              <p className="text-sm font-bold text-foreground">{fmtWhen(tour?.tourStartIso)}{tour?.tourTimeTBD ? ' · time to confirm' : ''}</p>
             ) : (
               <div className="space-y-2">
                 <div className="flex gap-2">
@@ -294,13 +294,13 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
 
           {/* Notes */}
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Notes</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Notes</p>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} onBlur={saveNotes} rows={2} placeholder="What did they want, first impressions, follow-up…" className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium resize-none" />
           </div>
 
           {Array.isArray(hosts) && hosts.length > 0 && (
             <div className="rounded-2xl border-2 p-3 space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 Who is showing them round
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -310,7 +310,7 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
                     <button key={h.id} type="button" disabled={busy}
                       onClick={() => assignHost(on ? null : h)}
                       aria-pressed={on}
-                      className={`h-10 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>
+                      className={`h-10 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${on ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80'}`}>
                       {h.name}
                     </button>
                   );
@@ -340,23 +340,23 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
             <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/40 p-3.5 space-y-3">
               <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Tour outcome</p>
               <div>
-                <p className="text-[10px] font-bold text-slate-500 mb-1">Interest level</p>
+                <p className="text-[10px] font-bold text-muted-foreground mb-1">Interest level</p>
                 <div className="flex flex-wrap gap-1.5">
                   {cfg.interestLevels.map(v => (
-                    <button key={v} type="button" onClick={() => setInterest(v)} className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide ${interest === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>{v}</button>
+                    <button key={v} type="button" onClick={() => setInterest(v)} className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide ${interest === v ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80'}`}>{v}</button>
                   ))}
                 </div>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-slate-500 mb-1">Next step</p>
+                <p className="text-[10px] font-bold text-muted-foreground mb-1">Next step</p>
                 <div className="flex flex-wrap gap-1.5">
                   {cfg.nextSteps.map(v => (
-                    <button key={v} type="button" onClick={() => setNextStep(v)} className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide ${nextStep === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>{v}</button>
+                    <button key={v} type="button" onClick={() => setNextStep(v)} className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide ${nextStep === v ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80'}`}>{v}</button>
                   ))}
                 </div>
               </div>
               <div className="flex gap-2 pt-1">
-                <Button onClick={() => setOutcomeOpen(false)} variant="ghost" className="flex-1 h-10 rounded-xl font-black uppercase tracking-widest text-[10px] text-slate-400">Back</Button>
+                <Button onClick={() => setOutcomeOpen(false)} variant="ghost" className="flex-1 h-10 rounded-xl font-black uppercase tracking-widest text-[10px] text-muted-foreground">Back</Button>
                 <Button onClick={completeTour} disabled={busy} className="flex-[2] h-10 rounded-xl font-black uppercase tracking-widest text-[10px] bg-emerald-600 hover:bg-emerald-700">Save outcome{nextStep && nextStep !== 'None' ? ' + task' : ''}</Button>
               </div>
             </div>

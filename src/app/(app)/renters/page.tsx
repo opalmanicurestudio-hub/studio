@@ -171,7 +171,7 @@ export default function RentersPage() {
   ];
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Renters" />
       <div className="flex-1 w-full max-w-[1000px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -193,11 +193,11 @@ export default function RentersPage() {
       </header>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat icon={Users} label="Renting now" value={stats.active} tone="border-slate-200" />
+        <Stat icon={Users} label="Renting now" value={stats.active} tone="border-border" />
         <Stat icon={AlertTriangle} label="Needs setup" value={stats.setup}
-          tone={stats.setup > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-slate-200'} />
-        <Stat icon={Moon} label="On leave" value={stats.leave} tone="border-slate-200" />
-        <Stat icon={CheckCircle2} label="Past" value={stats.past} tone="border-slate-200" />
+          tone={stats.setup > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-border'} />
+        <Stat icon={Moon} label="On leave" value={stats.leave} tone="border-border" />
+        <Stat icon={CheckCircle2} label="Past" value={stats.past} tone="border-border" />
       </div>
 
       {tenantId && (
@@ -209,7 +209,7 @@ export default function RentersPage() {
         {FILTERS.map(([k, label]) => (
           <button key={k} onClick={() => setFilter(k)}
             className={cn('px-3.5 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-              filter === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+              filter === k ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80 border-border')}>
             {label}
           </button>
         ))}
@@ -235,7 +235,7 @@ export default function RentersPage() {
         <div className="space-y-2">
           {visible.map(({ r, unsigned, spaces, rent, freq, ownMode, book, needsSetup, noPortal }) => (
             <div key={r.id} className={cn('rounded-2xl border-2 p-4 space-y-3',
-              needsSetup ? 'border-rose-300 bg-rose-50' : unsigned ? 'border-amber-300 bg-amber-50' : 'border-slate-200')}>
+              needsSetup ? 'border-rose-300 bg-rose-50' : unsigned ? 'border-amber-300 bg-amber-50' : 'border-border')}>
               <div className="flex items-start justify-between gap-3 cursor-pointer" onClick={() => setProfileRenter(r)}>
                 <div className="min-w-0">
                   <p className="font-black text-sm truncate">{r.firstName} {r.lastName}</p>
@@ -253,12 +253,12 @@ export default function RentersPage() {
                   )}
                   {needsSetup && book.reason === 'no_provider' && (
                     <button type="button" onClick={(e) => { e.stopPropagation(); void enableBookings(r); }} disabled={enabling === r.id}
-                      className="rounded-full bg-slate-900 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-40">
+                      className="rounded-full bg-foreground px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-background disabled:opacity-40">
                       {enabling === r.id ? '…' : 'Turn on bookings'}
                     </button>
                   )}
                   {!needsSetup && ownMode && (
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600">
+                    <span className="rounded-full bg-muted px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-foreground/80">
                       Own booking system
                     </span>
                   )}
@@ -288,7 +288,7 @@ export default function RentersPage() {
                           setInviting('');
                         }}
                         className={cn('rounded-full border-2 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest disabled:opacity-50',
-                          r.portalInviteStatus === 'sent' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-300 bg-white text-slate-600')}>
+                          r.portalInviteStatus === 'sent' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-border bg-card text-foreground/80')}>
                         {inviting === r.id ? '…' : r.portalInviteStatus === 'sent' ? 'Resend portal link' : 'Send portal link'}
                       </button>
                     )
@@ -298,18 +298,18 @@ export default function RentersPage() {
 
               <div className="flex flex-wrap items-center gap-2">
                 {r.phone && (
-                  <a href={`tel:${r.phone}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
+                  <a href={`tel:${r.phone}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black">
                     <Phone className="h-3 w-3" /> Call
                   </a>
                 )}
                 {r.email && (
-                  <a href={`mailto:${r.email}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
+                  <a href={`mailto:${r.email}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black">
                     <Mail className="h-3 w-3" /> Email
                   </a>
                 )}
                 {ownMode && r.externalBookingUrl && (
                   <a href={r.externalBookingUrl} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
+                    className="flex items-center gap-1.5 rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black">
                     <ExternalLink className="h-3 w-3" /> Their booking page
                   </a>
                 )}
@@ -348,12 +348,12 @@ export default function RentersPage() {
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={() => setEditing(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md rounded-2xl bg-card p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
             <p className="text-[11px] font-black uppercase tracking-widest">Edit renter</p>
             {([['firstName', 'First name'], ['lastName', 'Last name'], ['email', 'Email'], ['phone', 'Phone'],
               ['specialty', 'Specialty'], ['businessName', 'Business name']] as [string, string][]).map(([k, label]) => (
               <label key={k} className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{label}</span>
                 <input value={editing[k] || ''} onChange={(e) => setEditing({ ...editing, [k]: e.target.value })}
                   className="mt-1 w-full rounded-xl border-2 px-3 py-2 text-sm font-bold" />
               </label>
@@ -381,10 +381,10 @@ export default function RentersPage() {
                   setEditing(null);
                 } catch { toast({ title: 'Could not save', description: 'Try again.' }); }
                 setBusy(false);
-              }} className="flex-1 rounded-2xl bg-slate-900 py-3 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+              }} className="flex-1 rounded-2xl bg-foreground py-3 text-[11px] font-black uppercase tracking-widest text-background disabled:opacity-50">
                 {busy ? 'Saving…' : 'Save'}
               </button>
-              <button onClick={() => setEditing(null)} className="rounded-2xl bg-slate-100 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+              <button onClick={() => setEditing(null)} className="rounded-2xl bg-muted px-5 py-3 text-[11px] font-black uppercase tracking-widest text-foreground/80">Cancel</button>
             </div>
           </div>
         </div>
@@ -396,7 +396,7 @@ export default function RentersPage() {
         const todos = lease ? offboardingTodos(lease) : [];
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={() => setEnding(null)}>
-            <div className="w-full max-w-md rounded-2xl bg-white p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full max-w-md rounded-2xl bg-card p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
               <p className="text-[11px] font-black uppercase tracking-widest">End lease</p>
               <p className="text-sm font-bold">
                 This ends <strong>{ending.firstName} {ending.lastName}</strong>&apos;s lease immediately and frees the booth. It can&apos;t be undone.
@@ -421,8 +421,8 @@ export default function RentersPage() {
               {lease && (
                 <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId || '')}&renterId=${encodeURIComponent(ending.id)}&mode=final`}
                   target="_blank" rel="noopener"
-                  className="flex items-center justify-between rounded-xl border-2 px-3 py-2.5 text-[11px] font-black uppercase tracking-widest text-slate-700">
-                  <span>Print move-out statement</span><span className="text-slate-400">↗</span>
+                  className="flex items-center justify-between rounded-xl border-2 px-3 py-2.5 text-[11px] font-black uppercase tracking-widest text-foreground/80">
+                  <span>Print move-out statement</span><span className="text-muted-foreground">↗</span>
                 </a>
               )}
               <div className="flex gap-2 pt-1">
@@ -438,7 +438,7 @@ export default function RentersPage() {
                 }} className="flex-1 rounded-2xl bg-rose-600 py-3 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
                   {busy ? 'Ending…' : lease ? 'End lease' : 'No active lease'}
                 </button>
-                <button onClick={() => setEnding(null)} className="rounded-2xl bg-slate-100 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                <button onClick={() => setEnding(null)} className="rounded-2xl bg-muted px-5 py-3 text-[11px] font-black uppercase tracking-widest text-foreground/80">Cancel</button>
               </div>
             </div>
           </div>

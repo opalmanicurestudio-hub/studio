@@ -150,7 +150,7 @@ export default function WholesaleAccountsPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -171,7 +171,7 @@ export default function WholesaleAccountsPage() {
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-4">
         {addOpen && (
-          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white">
+          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-card">
             <CardContent className="p-6 space-y-3">
               <Input placeholder="Business name" aria-label="Business name" autoComplete="organization" value={bizName}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBizName(e.target.value)}
@@ -222,7 +222,7 @@ export default function WholesaleAccountsPage() {
         )}
 
         {accounts.map((a) => (
-          <Card key={a.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', a.status === 'suspended' && 'opacity-70')}>
+          <Card key={a.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-card', a.status === 'suspended' && 'opacity-70')}>
             <CardContent className="p-5 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -232,7 +232,7 @@ export default function WholesaleAccountsPage() {
                   </p>
                 </div>
                 <Badge variant="outline" className={cn('h-6 px-2.5 font-black text-[8px] uppercase tracking-widest border-2 shrink-0',
-                  a.status === 'active' ? 'bg-green-50 border-green-100 text-green-700' : 'bg-slate-100 border-slate-200 text-slate-500')}>
+                  a.status === 'active' ? 'bg-green-50 border-green-100 text-green-700' : 'bg-muted border-border text-muted-foreground')}>
                   {a.status}
                 </Badge>
               </div>

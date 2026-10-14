@@ -52,7 +52,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Entry</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -159,7 +159,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
                         <div className="flex gap-2 animate-in slide-in-from-top-2">
                             <Input placeholder="NEW CLASSIFICATION..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} className="h-12 rounded-xl border-2 font-black uppercase text-xs" />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
-                            <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-slate-400 font-bold uppercase text-[10px]">Cancel</Button>
+                            <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-muted-foreground font-bold uppercase text-[10px]">Cancel</Button>
                         </div>
                     ) : (
                         <div className="flex gap-3">
@@ -173,7 +173,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-white/50 shadow-sm">
+                            <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-card/50 shadow-sm">
                                 <PlusCircle className="h-6 w-6 opacity-40" />
                             </Button>
                         </div>
@@ -268,7 +268,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
                         <label htmlFor="view-acc" className="cursor-pointer">
                             <div className={cn(
                                 "flex items-center justify-center p-4 rounded-xl border-2 transition-all",
-                                clientAccess === 'view' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white"
+                                clientAccess === 'view' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-card"
                             )}>
                                 <span className="text-[10px] font-black uppercase tracking-widest">View Only</span>
                                 <RadioGroupItem value="view" id="view-acc" className="sr-only" />
@@ -277,7 +277,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
                         <label htmlFor="edit-acc" className="cursor-pointer">
                             <div className={cn(
                                 "flex items-center justify-center p-4 rounded-xl border-2 transition-all",
-                                clientAccess === 'edit' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white"
+                                clientAccess === 'edit' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-card"
                             )}>
                                 <span className="text-[10px] font-black uppercase tracking-widest">Edit Permitted</span>
                                 <RadioGroupItem value="edit" id="edit-acc" className="sr-only" />
@@ -308,7 +308,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
             <Sparkles className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">{dialogTitle}</DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Build and configure your digital signature protocol.</DialogDescription>
         </DialogHeader>
 
@@ -320,7 +320,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
 
         <DialogFooter className="flex-shrink-0 border-t bg-background shadow-2xl p-6 sm:p-8">
           <div className="flex w-full gap-4">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-muted-foreground">Cancel</Button>
             <Button onClick={handleSave} className="flex-[2] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
               Establish Protocol <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
             </Button>

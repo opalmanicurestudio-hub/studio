@@ -30,7 +30,7 @@ const EmptyState = ({ type, onAdd }: { type: 'membership' | 'package', onAdd: ()
             <Icon className='w-10 h-10 text-muted-foreground' />
         </div>
         <div className="space-y-2 text-center">
-            <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900">Archive Idle</h3>
+            <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-foreground">Archive Idle</h3>
             <p className="text-[11px] md:text-sm font-bold uppercase tracking-tight text-muted-foreground max-sm mx-auto">
                 {type === 'membership' 
                     ? 'Build predictable, recurring revenue by offering exclusive perks to loyal clients.' 
@@ -130,12 +130,12 @@ export default function MembershipsPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Club Access" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Clubhouse</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">The Clubhouse</h1>
             <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
               Retention engine & recurring yield
             </p>
@@ -160,9 +160,9 @@ export default function MembershipsPage() {
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-full sm:w-fit overflow-x-auto scrollbar-hide">
-            <TabsTrigger value="memberships" className="flex-1 sm:flex-none px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Tiers (MRR)</TabsTrigger>
-            <TabsTrigger value="packages" className="flex-1 sm:flex-none px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Bundles (LTV)</TabsTrigger>
-            <TabsTrigger value="ledger" className="flex-1 sm:flex-none px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Collections</TabsTrigger>
+            <TabsTrigger value="memberships" className="flex-1 sm:flex-none px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Tiers (MRR)</TabsTrigger>
+            <TabsTrigger value="packages" className="flex-1 sm:flex-none px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Bundles (LTV)</TabsTrigger>
+            <TabsTrigger value="ledger" className="flex-1 sm:flex-none px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Collections</TabsTrigger>
           </TabsList>
           
           <TabsContent value="memberships" className="mt-0">

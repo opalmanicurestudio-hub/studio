@@ -187,9 +187,9 @@ const BusinessPulse = ({ tenantId }: { tenantId: string }) => {
   if (items.length === 0) return null;
 
   return (
-    <Card className="rounded-[2rem] border-4 border-slate-900/10 bg-white shadow-xl">
+    <Card className="rounded-[2rem] border-4 border-slate-900/10 bg-card shadow-xl">
       <CardHeader className="p-5 pb-2">
-        <CardTitle className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-900">
+        <CardTitle className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-foreground">
           <Zap className="h-3 w-3" aria-hidden="true" /> Needs your attention
         </CardTitle>
       </CardHeader>
@@ -197,10 +197,10 @@ const BusinessPulse = ({ tenantId }: { tenantId: string }) => {
         {items.slice(0, 8).map(it => (
           <Link key={it.key} href={it.href} className={cn(
             'flex items-center justify-between gap-2 rounded-xl border-2 px-3 py-2.5 transition-colors',
-            it.tone === 'urgent' ? 'border-amber-300 bg-amber-50 hover:bg-amber-100' : it.tone === 'good' ? 'border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/60' : 'bg-slate-50 hover:bg-slate-100'
+            it.tone === 'urgent' ? 'border-amber-300 bg-amber-50 hover:bg-amber-100' : it.tone === 'good' ? 'border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/60' : 'bg-muted/60 hover:bg-muted'
           )}>
-            <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-800">{it.icon} {it.text}</p>
-            <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-400">Open →</span>
+            <p className="min-w-0 flex-1 text-[12px] font-bold text-foreground">{it.icon} {it.text}</p>
+            <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Open →</span>
           </Link>
         ))}
       </CardContent>
@@ -236,7 +236,7 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                             initial={{ opacity: 0, x: -20 }}
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, scale: 0.95 }}
-                            className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2.5rem] border-2 bg-white shadow-sm hover:border-primary/20 transition-all gap-6 group"
+                            className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2.5rem] border-2 bg-card shadow-sm hover:border-primary/20 transition-all gap-6 group"
                         >
                             <div className="flex flex-col sm:flex-row items-center gap-6 text-left w-full sm:w-auto">
                                 <div className="p-4 bg-primary/5 rounded-2xl shadow-inner border border-primary/10 relative shrink-0">
@@ -258,7 +258,7 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                         </p>
                                     )}
                                     <div className="flex items-center gap-3">
-                                        <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
+                                        <p className="font-black text-xl uppercase tracking-tighter text-foreground">{request.itemName}</p>
                                         {(() => {
                                             const mins = requestWaitMinutes(request as any, nowTick);
                                             if (mins === null) return null;
@@ -328,7 +328,7 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                                     </p>
                                                 )}
                                                 {request.notes && (
-                                                    <p className="text-[10px] font-medium text-slate-600 leading-relaxed italic border-l-2 border-primary/20 pl-3">
+                                                    <p className="text-[10px] font-medium text-foreground/80 leading-relaxed italic border-l-2 border-primary/20 pl-3">
                                                         "{request.notes}"
                                                     </p>
                                                 )}
@@ -385,7 +385,7 @@ const ActiveSessionCard = ({ appointment, service, staffMember }: { appointment:
     }, [appointment, service]);
 
     return (
-        <div className={cn("p-4 rounded-2xl border-2 bg-white flex items-center justify-between transition-all", isOver ? "border-destructive ring-2 ring-destructive/10" : "border-border/50")}>
+        <div className={cn("p-4 rounded-2xl border-2 bg-card flex items-center justify-between transition-all", isOver ? "border-destructive ring-2 ring-destructive/10" : "border-border/50")}>
             <div className="flex items-center gap-3 min-w-0 text-left">
                 <Avatar className="h-10 w-10 border-2 rounded-xl shadow-sm">
                     <AvatarImage src={staffMember?.avatarUrl} className="object-cover" />
@@ -532,7 +532,7 @@ export default function DashboardPage() {
   if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">Syncing Operational Board...</p></div>;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Command Hub" />
       <main className="flex-1 p-4 md:p-10 max-w-7xl mx-auto w-full space-y-10">
         <MovingInCard tenantId={selectedTenant?.id || ''} tenant={selectedTenant} role={String(tenantRole || '')} />
@@ -542,17 +542,17 @@ export default function DashboardPage() {
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><TrendingUp className="w-3 h-3"/>Today's Gross</CardTitle></CardHeader>
                 <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-primary font-mono">${safeNumber(dashboardMetrics.dailyIncome).toFixed(2)}</p></CardContent>
             </Card>
-            <Card className="border-2 shadow-sm rounded-[2rem] bg-white text-left">
+            <Card className="border-2 shadow-sm rounded-[2rem] bg-card text-left">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 opacity-60"><Users className="w-3 h-3"/>Team Capacity</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-slate-900 font-mono">{safeNumber(dashboardMetrics.activeStaff)}<span className="text-xs ml-1">Pro</span></p></CardContent>
+                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-foreground font-mono">{safeNumber(dashboardMetrics.activeStaff)}<span className="text-xs ml-1">Pro</span></p></CardContent>
             </Card>
-            <Card className="border-2 shadow-sm rounded-[2rem] bg-white text-left">
+            <Card className="border-2 shadow-sm rounded-[2rem] bg-card text-left">
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 opacity-60"><MapPin className="w-3 h-3"/>Total Arrivals</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-slate-900 font-mono">{safeNumber(dashboardMetrics.todayArrivals)}<span className="text-xs ml-1">Guests</span></p></CardContent>
+                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-foreground font-mono">{safeNumber(dashboardMetrics.todayArrivals)}<span className="text-xs ml-1">Guests</span></p></CardContent>
             </Card>
-            <Card className={cn("border-2 shadow-sm rounded-[2rem] transition-all text-left", safeNumber(dashboardMetrics.totalArrears) > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-white")}>
+            <Card className={cn("border-2 shadow-sm rounded-[2rem] transition-all text-left", safeNumber(dashboardMetrics.totalArrears) > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-card")}>
                 <CardHeader className="p-5 pb-1 text-left"><CardTitle className={cn("text-[10px] font-black uppercase tracking-widest flex items-center gap-2", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-muted-foreground opacity-60")}><Wallet className="w-3 h-3"/>Arrears Recovery</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className={cn("text-2xl md:text-4xl font-black tracking-tighter font-mono", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-slate-900")}>${safeNumber(dashboardMetrics.totalArrears).toFixed(2)}</p></CardContent>
+                <CardContent className="p-5 pt-0 text-left"><p className={cn("text-2xl md:text-4xl font-black tracking-tighter font-mono", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-foreground")}>${safeNumber(dashboardMetrics.totalArrears).toFixed(2)}</p></CardContent>
             </Card>
         </div>
 
@@ -562,7 +562,7 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between px-1">
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-primary/10 rounded-xl"><Coffee className="w-5 h-5 text-primary" /></div>
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Hospitality Priority</h3>
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-foreground">Hospitality Priority</h3>
                         </div>
                         <Badge variant="secondary" className="h-6 px-3 rounded-full font-black text-[9px] uppercase border-none bg-primary text-white shadow-lg animate-pulse">{pendingRequests?.length || 0} PENDING</Badge>
                     </div>
@@ -580,7 +580,7 @@ export default function DashboardPage() {
                 <section className="space-y-6">
                     <div className="flex items-center gap-3 px-1 text-left">
                         <div className="p-2 bg-indigo-500/10 rounded-xl"><Zap className="w-5 h-5 text-indigo-600" /></div>
-                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Live Studio Pulse</h3>
+                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-foreground">Live Studio Pulse</h3>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {dashboardMetrics.liveSessions.length > 0 ? dashboardMetrics.liveSessions.map(apt => (
@@ -601,7 +601,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-10 text-left">
-                <Card className="border-4 border-primary/10 bg-white rounded-[2.5rem] shadow-xl overflow-hidden text-left">
+                <Card className="border-4 border-primary/10 bg-card rounded-[2.5rem] shadow-xl overflow-hidden text-left">
                     <CardHeader className="bg-muted/5 border-b p-6">
                         <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
                             <Timer className="w-3.5 h-3.5" /> Hospitality Insights
@@ -610,7 +610,7 @@ export default function DashboardPage() {
                     <CardContent className="p-6 space-y-6 text-left">
                         <div className="space-y-1 text-left">
                             <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Avg. Wait Velocity</p>
-                            <p className="text-3xl font-black tracking-tighter text-slate-900">{safeNumber(dashboardMetrics.hospitalityWaitVelocity)} <span className="text-xs uppercase opacity-40">Min</span></p>
+                            <p className="text-3xl font-black tracking-tighter text-foreground">{safeNumber(dashboardMetrics.hospitalityWaitVelocity)} <span className="text-xs uppercase opacity-40">Min</span></p>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1 p-3 rounded-xl bg-muted/20 border text-left">
@@ -625,7 +625,7 @@ export default function DashboardPage() {
                     </CardContent>
                 </Card>
 
-                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white text-left">
+                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card text-left">
                     <CardHeader className="bg-muted/5 border-b p-6 text-left">
                         <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldAlert className="w-3.5 h-3.5"/>Asset Safeguard</CardTitle>
                     </CardHeader>
@@ -663,7 +663,7 @@ export default function DashboardPage() {
                     </CardHeader>
                     <CardContent className="p-8 pt-0 space-y-6 text-left">
                         <div className="space-y-1 text-left">
-                            <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Daily Trajectory</p>
+                            <p className="text-[9px] font-bold text-foreground/80 uppercase tracking-widest">Daily Trajectory</p>
                             <p className="text-4xl font-black text-indigo-700 tracking-tighter leading-none">${safeNumber(dashboardMetrics.dailyIncome).toFixed(0)}</p>
                         </div>
                         <div className="pt-4 border-t border-indigo-500/10">

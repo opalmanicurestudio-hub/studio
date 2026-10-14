@@ -427,7 +427,7 @@ export default function RetailSettingsPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-28">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -451,7 +451,7 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'shop' ? null : 'shop')}
             aria-expanded={openGroup === 'shop'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'shop' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
@@ -468,7 +468,7 @@ export default function RetailSettingsPage() {
           </button>
           {openGroup === 'shop' && (
             <div className="space-y-5">
-        <Card className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', rs.storePaused && 'border-amber-300')}>
+        <Card className={cn('border-2 rounded-[2rem] overflow-hidden bg-card', rs.storePaused && 'border-amber-300')}>
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -505,7 +505,7 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -570,7 +570,7 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Car className="w-4 h-4 text-primary" />
@@ -649,7 +649,7 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'money' ? null : 'money')}
             aria-expanded={openGroup === 'money'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'money' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
@@ -666,7 +666,7 @@ export default function RetailSettingsPage() {
           </button>
           {openGroup === 'money' && (
             <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <DollarSign className="w-4 h-4 text-primary" />
@@ -708,7 +708,7 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Truck className="w-4 h-4 text-primary" />
@@ -754,7 +754,7 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'orders' ? null : 'orders')}
             aria-expanded={openGroup === 'orders'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'orders' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
@@ -771,7 +771,7 @@ export default function RetailSettingsPage() {
           </button>
           {openGroup === 'orders' && (
             <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Truck className="w-4 h-4 text-primary shrink-0" />
@@ -837,7 +837,7 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -887,7 +887,7 @@ export default function RetailSettingsPage() {
                             'h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest',
                             rs.signatureType === v
                               ? 'bg-foreground text-background border-foreground'
-                              : 'bg-white hover:border-primary/40'
+                              : 'bg-card hover:border-primary/40'
                           )}
                         >
                           {v === 'ADULT' ? 'Adult 21+' : 'Anyone'}
@@ -948,7 +948,7 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Camera className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -1021,7 +1021,7 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'after' ? null : 'after')}
             aria-expanded={openGroup === 'after'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'after' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
@@ -1038,7 +1038,7 @@ export default function RetailSettingsPage() {
           </button>
           {openGroup === 'after' && (
             <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -1102,7 +1102,7 @@ export default function RetailSettingsPage() {
                     onClick={() => setRs({ ...rs, returnLabelPayer: v })}
                     className={cn(
                       'h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all',
-                      (rs.returnLabelPayer || 'fault') === v ? 'border-primary bg-primary/5 text-primary' : 'bg-white'
+                      (rs.returnLabelPayer || 'fault') === v ? 'border-primary bg-primary/5 text-primary' : 'bg-card'
                     )}
                   >
                     {label}
@@ -1254,7 +1254,7 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'trade' ? null : 'trade')}
             aria-expanded={openGroup === 'trade'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'trade' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
@@ -1271,7 +1271,7 @@ export default function RetailSettingsPage() {
           </button>
           {openGroup === 'trade' && (
             <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Lock className="w-4 h-4 text-primary" />
@@ -1304,7 +1304,7 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'extras' ? null : 'extras')}
             aria-expanded={openGroup === 'extras'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'extras' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
@@ -1321,7 +1321,7 @@ export default function RetailSettingsPage() {
           </button>
           {openGroup === 'extras' && (
             <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-primary" />
@@ -1366,7 +1366,7 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'products' ? null : 'products')}
             aria-expanded={openGroup === 'products'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'products' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
@@ -1383,7 +1383,7 @@ export default function RetailSettingsPage() {
           </button>
           {openGroup === 'products' && (
             <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-3">
             <div>
               <p className="text-[11px] font-black uppercase tracking-widest">How your shop looks</p>
@@ -1396,7 +1396,7 @@ export default function RetailSettingsPage() {
             </Button>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-primary shrink-0" />
@@ -1493,7 +1493,7 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Printer className="w-4 h-4 text-primary shrink-0" />
@@ -1561,7 +1561,7 @@ export default function RetailSettingsPage() {
             </p>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">

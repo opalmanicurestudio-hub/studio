@@ -158,7 +158,7 @@ export function useReschedule(props: Props) {
         <p className="text-sm font-bold">With</p>
         <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{providers.map((p) => { const on = p.id === staffId; return (
           <button key={p.id} type="button" onClick={() => { setStaffId(p.id); setTime(''); setReason(null); setOverride(false); }} aria-pressed={on} className={`flex shrink-0 items-center gap-2 rounded-full border py-1 pl-1 pr-3.5 text-sm transition active:scale-95 ${on ? 'border-primary bg-primary text-primary-foreground shadow' : 'bg-background hover:bg-muted/40'}`}>
-            {p.avatarUrl ? <img src={p.avatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" /> : <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${on ? 'bg-white/25' : 'bg-muted'}`}>{p.name.charAt(0)}</span>}
+            {p.avatarUrl ? <img src={p.avatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" /> : <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${on ? 'bg-card/25' : 'bg-muted'}`}>{p.name.charAt(0)}</span>}
             {p.name.split(' ')[0]}{p.id === appointment?.staffId && <span className={`text-[10px] ${on ? 'opacity-80' : 'text-muted-foreground'}`}>· now</span>}
           </button>
         ); })}</div>
@@ -189,7 +189,7 @@ export function useReschedule(props: Props) {
           return (
             <button key={k} type="button" disabled={past} onClick={() => { setDay(k); setTime(''); setCustom(''); setReason(null); setOverride(false); }} aria-pressed={on} aria-label={`${format(d, 'EEEE, MMMM d')}${n >= 0 ? ` — ${n} open time${n === 1 ? '' : 's'}` : ''}`}
               className={`relative flex h-11 flex-col items-center justify-center rounded-xl text-sm transition active:scale-95 ${on ? 'bg-primary font-bold text-primary-foreground shadow' : past ? 'text-muted-foreground/40' : n === 0 ? 'text-muted-foreground/60' : 'hover:bg-muted/50'} ${isOrig && !on ? 'ring-1 ring-primary/40' : ''}`}>
-              {format(d, 'd')}{dot && <span className={`mt-0.5 h-1 rounded-full ${dot} ${on ? 'bg-white' : 'bg-emerald-600'}`} />}
+              {format(d, 'd')}{dot && <span className={`mt-0.5 h-1 rounded-full ${dot} ${on ? 'bg-card' : 'bg-emerald-600'}`} />}
             </button>
           ); })}</div>
         <p className="text-[11px] text-muted-foreground">Fuller dot = more open times · ringed = current day</p>

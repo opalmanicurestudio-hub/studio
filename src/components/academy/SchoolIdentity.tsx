@@ -126,15 +126,15 @@ export function SchoolIdentity({ tenantId, onSaved }: { tenantId: string; onSave
 
       {/* Preview */}
       <div className="space-y-1"><p className="text-[12px] font-black uppercase tracking-widest text-muted-foreground">Preview — an official document</p>
-        <div className="rounded-2xl bg-white p-5 text-stone-900 shadow-sm">
-          <div className="flex items-center justify-between gap-3 border-b border-stone-200 pb-3">
-            <div className="flex items-center gap-2.5">{shown('logo') && <img src={shown('logo')!} alt="" className="h-10 max-w-[130px] object-contain" />}<div><p className="text-base font-semibold leading-tight">{form.displayName || 'Your school'}</p>{form.legalName && form.legalName !== form.displayName && <p className="text-[10px] text-stone-500">{form.legalName}</p>}</div></div>
-            <p className="text-right text-[10px] leading-snug text-stone-500">{form.address}<br />{[form.phone, form.email].filter(Boolean).join(' · ')}{form.licenseNumber && <><br />{form.licensingBoard ? `${form.licensingBoard} · ` : ''}School licence #{form.licenseNumber}</>}</p>
+        <div className="rounded-2xl bg-card p-5 text-foreground shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+            <div className="flex items-center gap-2.5">{shown('logo') && <img src={shown('logo')!} alt="" className="h-10 max-w-[130px] object-contain" />}<div><p className="text-base font-semibold leading-tight">{form.displayName || 'Your school'}</p>{form.legalName && form.legalName !== form.displayName && <p className="text-[10px] text-muted-foreground">{form.legalName}</p>}</div></div>
+            <p className="text-right text-[10px] leading-snug text-muted-foreground">{form.address}<br />{[form.phone, form.email].filter(Boolean).join(' · ')}{form.licenseNumber && <><br />{form.licensingBoard ? `${form.licensingBoard} · ` : ''}School licence #{form.licenseNumber}</>}</p>
           </div>
-          <p className="py-4 text-[12px] text-stone-400">… the letter or record …</p>
+          <p className="py-4 text-[12px] text-muted-foreground">… the letter or record …</p>
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0 flex-1">{shown('signature') ? <img src={shown('signature')!} alt="" className="-mb-1 h-12 max-w-[200px] object-contain" /> : <div className="h-12" />}<p className="border-t border-stone-800 pt-1 text-[11px]">Authorised school official{who && <> — <b>{who}</b></>}</p></div>
-            {shown('seal') ? <img src={shown('seal')!} alt="" className="h-20 w-20 -rotate-6 object-contain" /> : <div className="flex h-20 w-20 items-center justify-center rounded-full border border-dashed border-stone-300 text-[9px] text-stone-400">School seal</div>}
+            {shown('seal') ? <img src={shown('seal')!} alt="" className="h-20 w-20 -rotate-6 object-contain" /> : <div className="flex h-20 w-20 items-center justify-center rounded-full border border-dashed border-border text-[9px] text-muted-foreground">School seal</div>}
           </div>
         </div>
       </div>
@@ -154,7 +154,7 @@ function SignaturePad({ onUse, onCancel }: { onUse: (dataUrl: string) => void; o
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onClick={onCancel}>
       <div className="w-full max-w-xl space-y-3 rounded-t-3xl bg-background p-4 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
         <p className="font-black">✍️ Sign here</p>
-        <canvas ref={ref} width={900} height={300} className="h-44 w-full touch-none rounded-2xl border-2 border-dashed bg-white" aria-label="Signature pad"
+        <canvas ref={ref} width={900} height={300} className="h-44 w-full touch-none rounded-2xl border-2 border-dashed bg-card" aria-label="Signature pad"
           onPointerDown={(e) => { (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId); last.current = pt(e); }}
           onPointerMove={(e) => { if (!last.current) return; const p = pt(e); line(last.current, p); last.current = p; setInked(true); }}
           onPointerUp={() => { last.current = null; }} onPointerCancel={() => { last.current = null; }} />

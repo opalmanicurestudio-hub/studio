@@ -5,7 +5,7 @@
 import * as React from 'react';
 import { settingsOf } from '@/lib/making-it-right';
 
-const INK = '#16171a', MUTED = '#6d7075';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))';
 const money = (c: number) => `$${(Math.round(c || 0) / 100).toFixed(2)}`;
 const tl = (t: string) => { const h = Number(t.slice(0, 2)); const m = t.slice(3, 5); return `${h % 12 || 12}${m === '00' ? '' : `:${m}`}${h < 12 ? 'am' : 'pm'}`; };
 const dl = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
@@ -27,7 +27,7 @@ export function RefundSheets({ p, tenant, onPrint }: { p: any; tenant: any; onPr
   const Logo = ({ s }: { s: number }) => logo ? <img src={logo} alt="" style={{ width: s, height: s, borderRadius: s * 0.3, objectFit: 'cover' }} /> : <span style={{ width: s, height: s, borderRadius: s * 0.3, background: accent, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: s * 0.42, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>{name.slice(0, 1)}</span>;
   const [first, ...rest] = String(p.noteText || '').split(/\n\s*\n/);
   return (
-    <div className="sheets" style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, letterSpacing: '-0.01em', background: '#fff' }}>
+    <div className="sheets" style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, letterSpacing: '-0.01em', background: 'hsl(var(--card))' }}>
       <style>{`@page slip { size: 9.5in 4.125in; margin: 0 } @page card { size: 5.5in 4.25in; margin: 0 }
         .slip { page: slip; width: 9.5in; height: 4.125in; } .card { page: card; width: 5.5in; height: 4.25in; }
         .sheet { box-sizing: border-box; break-after: page; overflow: hidden; } .sheet.card { break-after: auto; } @media print { .sheets, main, body { page: card } }
@@ -41,9 +41,9 @@ export function RefundSheets({ p, tenant, onPrint }: { p: any; tenant: any; onPr
               {p.pickup && <div style={{ fontSize: 14, marginTop: 6 }}>{dl(p.pickup.date)} · {tl(p.pickup.start)}–{tl(p.pickup.end)} · front desk</div>}</div>
             <div style={U}>Release only when the pickup code matches</div>
           </div>
-          <div style={{ flex: 1, background: '#f7f7f8', borderLeft: `2px solid ${INK}`, padding: '0.22in 0.24in', display: 'flex', flexDirection: 'column', gap: 12, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+          <div style={{ flex: 1, background: 'hsl(var(--secondary))', borderLeft: `2px solid ${INK}`, padding: '0.22in 0.24in', display: 'flex', flexDirection: 'column', gap: 12, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={U}>{p.number ? `Case ${p.number}` : 'Refund'}</span><span style={{ fontSize: 38, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{money(p.amountCents)}</span></div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{bills(p.amountCents).map((b) => <div key={b.label} style={{ background: '#fff', border: '1px solid #dcdde0', borderRadius: 10, padding: '5px 9px', minWidth: 52 }}><div style={{ fontSize: 17, fontWeight: 800 }}>{b.count}</div><div style={{ fontSize: 11, color: MUTED }}>× {b.label}</div></div>)}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{bills(p.amountCents).map((b) => <div key={b.label} style={{ background: 'hsl(var(--card))', border: '1px solid #dcdde0', borderRadius: 10, padding: '5px 9px', minWidth: 52 }}><div style={{ fontSize: 17, fontWeight: 800 }}>{b.count}</div><div style={{ fontSize: 11, color: MUTED }}>× {b.label}</div></div>)}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, marginTop: 'auto' }}>
               {['Prepared', 'Counted', 'Sealed at'].map((l) => <div key={l} style={U}><div style={{ borderBottom: `2px solid ${INK}`, height: 22 }} /><span style={{ display: 'block', paddingTop: 4 }}>{l}</span></div>)}
               <div style={{ ...U, display: 'flex', alignItems: 'flex-end', gap: 8 }}><span style={{ width: 14, height: 14, border: `2px solid ${INK}`, borderRadius: 3, display: 'inline-block' }} />Note inside</div>
@@ -60,7 +60,7 @@ export function RefundSheets({ p, tenant, onPrint }: { p: any; tenant: any; onPr
           {p.number && <div style={{ ...U, color: MUTED }}>Case {p.number}</div>}
         </div>
       </section>
-      <div className="no-print" style={{ textAlign: 'center', padding: 16 }}><button type="button" onClick={() => (onPrint ? onPrint() : window.print())} style={{ height: 44, padding: '0 20px', borderRadius: 999, background: INK, color: '#fff', border: 0, fontSize: 15 }}>Print</button></div>
+      <div className="no-print" style={{ textAlign: 'center', padding: 16 }}><button type="button" onClick={() => (onPrint ? onPrint() : window.print())} style={{ height: 44, padding: '0 20px', borderRadius: 999, background: INK, color: 'hsl(var(--background))', border: 0, fontSize: 15 }}>Print</button></div>
       <style>{`@media print { .no-print { display: none } }`}</style>
     </div>);
 }

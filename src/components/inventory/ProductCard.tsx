@@ -64,7 +64,7 @@ export const ProductCard = ({
         const batches = item.batches ?? [];
         const hasExpiredBatch = batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
         if (hasExpiredBatch) return { label: 'EXPIRED', className: 'bg-destructive text-white border-none animate-pulse' };
-        if (safeNumber(item.totalStock) <= 0 && safeNumber(item.partialContainerUses) <= 0 && safeNumber(item.partialContainerSize) <= 0 ) return { label: 'OUT OF STOCK', className: 'bg-slate-900 text-white border-none' };
+        if (safeNumber(item.totalStock) <= 0 && safeNumber(item.partialContainerUses) <= 0 && safeNumber(item.partialContainerSize) <= 0 ) return { label: 'OUT OF STOCK', className: 'bg-foreground text-background border-none' };
         if (item.reorderPoint && safeNumber(item.totalStock) <= item.reorderPoint) return { label: 'LOW STOCK', className: 'bg-amber-500 text-white border-none' };
         return { label: 'IN STOCK', className: 'bg-primary/10 text-primary border-primary/20' };
     }, [item]);
@@ -115,7 +115,7 @@ export const ProductCard = ({
     return (
         <Card className={cn(
             "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col",
-            isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 bg-white hover:border-primary/20 shadow-sm",
+            isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 bg-card hover:border-primary/20 shadow-sm",
             item.isExperimentActive && "border-purple-500/30 bg-purple-500/[0.01]"
         )}>
             <CardContent className="p-6 md:p-8 space-y-6 flex-1 flex flex-col" onClick={onSelect}>
@@ -150,7 +150,7 @@ export const ProductCard = ({
                         </Link>
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                                <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none text-left">{item.name}</p>
+                                <p className="font-black uppercase tracking-tight text-base md:text-lg text-foreground truncate leading-none text-left">{item.name}</p>
                             </div>
                             <div className="flex items-center gap-2 flex-wrap text-left">
                                 <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{item.category}</p>
@@ -196,7 +196,7 @@ export const ProductCard = ({
 
                 {item.description && (
                     <div className="px-1 text-left">
-                        <p className="text-[10px] font-medium text-slate-500 leading-relaxed line-clamp-2 uppercase italic opacity-60">
+                        <p className="text-[10px] font-medium text-muted-foreground leading-relaxed line-clamp-2 uppercase italic opacity-60">
                             "{item.description}"
                         </p>
                     </div>
@@ -205,7 +205,7 @@ export const ProductCard = ({
                 <div className={cn("grid gap-4 mt-auto", (partialDisplay || isRefreshment) ? "grid-cols-2" : "grid-cols-1")}>
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Full Stock</p>
-                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{safeNumber(item.totalStock)}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">UNT</span></p>
+                        <p className="text-xl font-black font-mono tracking-tighter text-foreground">{safeNumber(item.totalStock)}<span className="text-[10px] ml-0.5 font-bold uppercase opacity-40">UNT</span></p>
                     </div>
                     {isRefreshment ? (
                         <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 transition-all text-right shadow-inner">
@@ -227,7 +227,7 @@ export const ProductCard = ({
                                     <Button 
                                         variant="outline" 
                                         size="icon" 
-                                        className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
+                                        className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
                                         onClick={(e) => { e.stopPropagation(); onLogUse(item); }}
                                     >
                                         <Pipette className="h-5 w-5" />
@@ -242,7 +242,7 @@ export const ProductCard = ({
                                     <Button 
                                         variant="outline" 
                                         size="icon" 
-                                        className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-green-50 hover:border-green-500/30 text-green-600 transition-all active:scale-90"
+                                        className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card hover:bg-green-50 hover:border-green-500/30 text-green-600 transition-all active:scale-90"
                                         onClick={(e) => { e.stopPropagation(); onLogSale(item); }}
                                     >
                                         <DollarSign className="h-5 w-5" />
@@ -256,7 +256,7 @@ export const ProductCard = ({
                                 <Button 
                                     variant="outline" 
                                     size="icon" 
-                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-destructive/5 hover:border-destructive/30 text-destructive transition-all active:scale-90"
+                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card hover:bg-destructive/5 hover:border-destructive/30 text-destructive transition-all active:scale-90"
                                     onClick={(e) => { e.stopPropagation(); onWriteOff(item); }}
                                 >
                                     <PackageX className="h-5 w-5" />
@@ -269,7 +269,7 @@ export const ProductCard = ({
                                 <Button 
                                     variant="outline" 
                                     size="icon" 
-                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-purple-50 hover:border-purple-500/30 text-purple-600 transition-all active:scale-90"
+                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card hover:bg-purple-50 hover:border-purple-500/30 text-purple-600 transition-all active:scale-90"
                                     onClick={(e) => { e.stopPropagation(); item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item); }}
                                 >
                                     {item.isExperimentActive ? <CheckCircle className="h-5 w-5" /> : <Rocket className="h-5 w-5" />}

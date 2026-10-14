@@ -161,20 +161,20 @@ function InlineSearchPanel<T extends { id: string; name?: string }>({
   const selectedCount = selectedIds.length;
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white overflow-hidden">
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/60 transition-colors"
       >
         <div className="flex items-center gap-2">
           <Icon className="w-4 h-4 text-primary/40 shrink-0" />
-          <span className="font-semibold text-[11px] text-slate-700">{label}</span>
+          <span className="font-semibold text-[11px] text-foreground/80">{label}</span>
           {selectedCount > 0 && (
             <Badge className="bg-primary text-white border-none font-semibold text-[12px] h-4 px-1.5">{selectedCount}</Badge>
           )}
         </div>
-        {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
       </button>
 
       <AnimatePresence>
@@ -184,22 +184,22 @@ function InlineSearchPanel<T extends { id: string; name?: string }>({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="overflow-hidden border-t border-slate-100"
+            className="overflow-hidden border-t border-border"
           >
             <div className="p-3 space-y-2">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                 <input
                   type="text"
                   value={q}
                   onChange={e => setQ(e.target.value)}
                   placeholder={searchPlaceholder}
-                  className="w-full h-9 pl-8 pr-3 rounded-xl border border-slate-100 bg-slate-50 text-[11px] font-bold tracking-tight outline-none focus:border-primary/30"
+                  className="w-full h-9 pl-8 pr-3 rounded-xl border border-border bg-muted/60 text-[11px] font-bold tracking-tight outline-none focus:border-primary/30"
                 />
               </div>
               <div className="max-h-52 overflow-y-auto space-y-1">
                 {filtered.length === 0 && (
-                  <p className="text-center py-6 text-[12px] font-semibold text-slate-400">{emptyText}</p>
+                  <p className="text-center py-6 text-[12px] font-semibold text-muted-foreground">{emptyText}</p>
                 )}
                 {filtered.map(item => {
                   const selected = selectedIds.includes(item.id);
@@ -210,18 +210,18 @@ function InlineSearchPanel<T extends { id: string; name?: string }>({
                       onClick={() => onToggle(item.id)}
                       className={cn(
                         'flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all',
-                        selected ? 'bg-primary/5 border border-primary/20' : 'hover:bg-slate-50 border border-transparent'
+                        selected ? 'bg-primary/5 border border-primary/20' : 'hover:bg-muted/60 border border-transparent'
                       )}
                     >
                       <div className={cn(
                         'w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition-all',
-                        selected ? 'bg-primary border-primary' : 'border-slate-300'
+                        selected ? 'bg-primary border-primary' : 'border-border'
                       )}>
                         {selected && <Check className="w-3 h-3 text-white" />}
                       </div>
                       {renderItem
                         ? renderItem(item, selected)
-                        : <span className="font-bold text-[12px] text-slate-700 flex-1">{displayLabel}</span>}
+                        : <span className="font-bold text-[12px] text-foreground/80 flex-1">{displayLabel}</span>}
                     </div>
                   );
                 })}
@@ -280,7 +280,7 @@ const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
       <p className="text-[12px] font-semibold text-primary/60 flex items-center gap-1.5"><Target className="w-3 h-3" />Recovery Targets</p>
       {rows.map(r => (
         <div key={r.id} className="flex justify-between items-center">
-          <span className="text-[12px] font-bold text-slate-600">{r.name}</span>
+          <span className="text-[12px] font-bold text-foreground/80">{r.name}</span>
           <span className="font-semibold font-mono text-sm text-primary">${r.target.toFixed(2)}</span>
         </div>
       ))}
@@ -573,8 +573,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
         <div className="flex items-center gap-1.5 overflow-x-auto border-b px-6 py-2" style={{ background: 'var(--card)' }} role="tablist" aria-label="Steps">
           {FORM_STEPS.map(([title, short], i) => <button key={title} type="button" role="tab" aria-selected={!showAll && step === i} onClick={() => { if (showAll) document.getElementById(anchorId(title))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); else setStep(i); }}
-            className="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-semibold" style={!showAll && step === i ? { background: 'var(--ink, #1c1917)', color: '#fff' } : { background: 'var(--soft, #efebe6)' }}>{showAll ? short : `${i + 1}. ${short}`}</button>)}
-          <button type="button" onClick={() => setShowAll((v) => !v)} aria-pressed={showAll} className="ml-auto h-9 shrink-0 rounded-full px-3 text-[13px]" style={{ color: 'var(--muted, #6b635c)' }}>{showAll ? 'One step at a time' : 'Show everything'}</button>
+            className="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-semibold" style={!showAll && step === i ? { background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' } : { background: 'hsl(var(--secondary))' }}>{showAll ? short : `${i + 1}. ${short}`}</button>)}
+          <button type="button" onClick={() => setShowAll((v) => !v)} aria-pressed={showAll} className="ml-auto h-9 shrink-0 rounded-full px-3 text-[13px]" style={{ color: 'hsl(var(--muted-foreground))' }}>{showAll ? 'One step at a time' : 'Show everything'}</button>
         </div>
         <ScrollArea className="flex-1">
           <div className="px-6 py-6 space-y-8 pb-32">
@@ -582,7 +582,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
             <section hidden={!showAll && step !== 0} className="space-y-4">
               <SectionLabel>Basics</SectionLabel>
 
-              <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white">
+              <div className="flex items-center justify-between p-4 rounded-2xl border border-border bg-card">
                 <div>
                   <p className="font-semibold text-sm tracking-tight">This is an add-on</p>
                   <p className="text-[12px] font-bold text-muted-foreground opacity-60">Offered alongside a main service, not booked on its own</p>
@@ -678,7 +678,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {([['studio', 'In person'], ['online', 'Video call'], ['phone', 'Phone call'], ['client', 'At the client’s location']] as const).map(([k, l]) => {
                     const on = (watch('where') || 'studio') === k;
-                    return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('where', k, { shouldDirty: true })} className={`h-11 rounded-xl border text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>;
+                    return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('where', k, { shouldDirty: true })} className={`h-11 rounded-xl border text-sm ${on ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>;
                   })}
                 </div>
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!watch('clientChoosesPlace')} onChange={(e) => setValue('clientChoosesPlace', e.target.checked, { shouldDirty: true })} /> Clients can choose</label>
@@ -694,7 +694,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 {(watch('where') === 'phone' || (watch('clientChoosesPlace') && ((watch('placeAlternatives') as any) || []).includes('phone'))) && <div className="grid grid-cols-2 gap-2">
                   {([['we_call', 'We call them'], ['they_call', 'They call us']] as const).map(([k, l]) => {
                     const on = (watch('phoneWho') || 'we_call') === k;
-                    return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('phoneWho', k, { shouldDirty: true })} className={`h-10 rounded-xl border text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>;
+                    return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('phoneWho', k, { shouldDirty: true })} className={`h-10 rounded-xl border text-sm ${on ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>;
                   })}
                 </div>}
                 <p className="text-xs text-muted-foreground">{
@@ -728,7 +728,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 emptyText="No professional products found"
                 renderItem={(item, selected) => (
                   <div className="flex-1 flex items-center justify-between gap-2">
-                    <span className="font-bold text-[12px] text-slate-700 truncate">{item.name || 'Untitled'}</span>
+                    <span className="font-bold text-[12px] text-foreground/80 truncate">{item.name || 'Untitled'}</span>
                     <span className="text-[12px] font-semibold text-primary/50 shrink-0">
                       {(item as any).costingMethod === 'uses' ? (item as any).useUnit || 'uses' : (item as any).unit || 'unit'}
                     </span>
@@ -742,8 +742,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                     const inv = inventory.find(i => i.id === product.id);
                     const unit = inv?.costingMethod === 'uses' ? (inv.useUnit || 'uses') : (inv?.unit || 'ml');
                     return (
-                      <div key={product.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-white">
-                        <span className="font-semibold text-[12px] text-slate-700 flex-1 truncate">{product.name || 'Untitled'}</span>
+                      <div key={product.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
+                        <span className="font-semibold text-[12px] text-foreground/80 flex-1 truncate">{product.name || 'Untitled'}</span>
                         <div className="flex items-center gap-2 shrink-0">
                           <Input
                             type="number"
@@ -787,7 +787,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                     emptyText="No add-ons found — create addon-type services first"
                     renderItem={(item, selected) => (
                       <div className="flex-1 flex items-center justify-between gap-2">
-                        <span className="font-bold text-[12px] text-slate-700 truncate">{item.name || 'Untitled'}</span>
+                        <span className="font-bold text-[12px] text-foreground/80 truncate">{item.name || 'Untitled'}</span>
                         <span className="text-[12px] font-semibold text-primary/50 shrink-0">{(item as any).duration}m · ${((item as any).price || 0).toFixed(0)}</span>
                       </div>
                     )}
@@ -865,7 +865,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                       const tierData = serviceTiers.find((t: any) => t.tierId === tier.id);
                       const enabled  = !!tierData;
                       return (
-                        <div key={tier.id} className={cn('rounded-2xl border overflow-hidden transition-all', enabled ? 'border-primary/30 bg-primary/[0.02]' : 'border-slate-100 opacity-60')}>
+                        <div key={tier.id} className={cn('rounded-2xl border overflow-hidden transition-all', enabled ? 'border-primary/30 bg-primary/[0.02]' : 'border-border opacity-60')}>
                           <div className="flex items-center justify-between px-4 py-3">
                             <span className="font-semibold text-[11px]">{tier.name}</span>
                             <Switch checked={enabled} onCheckedChange={checked => toggleTier(tier.id, checked)} />
@@ -911,7 +911,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                       <label key={t} htmlFor={`dep-${t}-${service?.id || 'new'}`} className="cursor-pointer">
                         <div className={cn(
                           'flex items-center justify-center p-3 rounded-xl border transition-all text-center',
-                          field.value === t ? 'border-primary bg-primary/5 shadow-sm' : 'border-slate-100 bg-white hover:border-primary/20'
+                          field.value === t ? 'border-primary bg-primary/5 shadow-sm' : 'border-border bg-card hover:border-primary/20'
                         )}>
                           <span className="text-[12px] font-semibold">{t === 'breakeven' ? 'Overhead' : t}</span>
                           <RadioGroupItem value={t} id={`dep-${t}-${service?.id || 'new'}`} className="sr-only" />
@@ -1022,7 +1022,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 searchPlaceholder="Search forms..."
                 emptyText="No consent forms configured"
                 renderItem={(item, selected) => (
-                  <span className="font-bold text-[12px] text-slate-700 flex-1 truncate">{(item as any).title || item.name || 'Untitled form'}</span>
+                  <span className="font-bold text-[12px] text-foreground/80 flex-1 truncate">{(item as any).title || item.name || 'Untitled form'}</span>
                 )}
               />
             </section>
@@ -1062,7 +1062,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
 
 
-              <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-200">
+              <div className="flex items-center justify-between p-4 rounded-2xl border border-border">
                 <div>
                   <p className="font-semibold text-sm tracking-tight">Hidden from the booking page</p>
                   <p className="text-[12px] font-bold text-muted-foreground opacity-60">Hide from public booking</p>
@@ -1103,18 +1103,18 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               <SectionLabel>Documents</SectionLabel>
               <div className="space-y-2">
                 {fileRequirements.length === 0 && (
-                  <p className="text-center py-4 text-[12px] font-semibold text-slate-400">No documents required for this service</p>
+                  <p className="text-center py-4 text-[12px] font-semibold text-muted-foreground">No documents required for this service</p>
                 )}
                 {fileRequirements.map((fr: any) => (
-                  <div key={fr.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-white">
+                  <div key={fr.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
                     <FileText className="w-4 h-4 text-primary/40 shrink-0" />
-                    <p className="flex-1 min-w-0 font-bold text-[11px] text-slate-700 truncate">{fr.label}</p>
+                    <p className="flex-1 min-w-0 font-bold text-[11px] text-foreground/80 truncate">{fr.label}</p>
                     <button
                       type="button"
                       onClick={() => updateFileRequirement(fr.id, { persistToProfile: !fr.persistToProfile })}
                       className={cn(
                         'h-7 px-2.5 rounded-lg text-[12px] font-semibold border shrink-0 transition-colors',
-                        fr.persistToProfile ? 'border-primary/30 bg-primary/5 text-primary' : 'border-slate-200 text-slate-400',
+                        fr.persistToProfile ? 'border-primary/30 bg-primary/5 text-primary' : 'border-border text-muted-foreground',
                       )}
                     >
                       {fr.persistToProfile ? 'On File' : 'Every Time'}
@@ -1131,7 +1131,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   type="button" variant="outline" size="sm"
                   onClick={() => addFileRequirement('Photo ID', true)}
                   disabled={fileRequirements.some((f: any) => f.label === 'Photo ID')}
-                  className="h-8 rounded-xl border font-semibold text-[12px] tracking-tight bg-white shadow-sm"
+                  className="h-8 rounded-xl border font-semibold text-[12px] tracking-tight bg-card shadow-sm"
                 >
                   <Plus className="w-3 h-3 mr-1" /> Photo ID
                 </Button>
@@ -1151,7 +1151,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   title="Save to client profile — don't ask again"
                   className={cn(
                     'h-10 px-3 rounded-xl border text-[12px] font-semibold shrink-0 transition-colors',
-                    newFileReqPersist ? 'border-primary/30 bg-primary/5 text-primary' : 'border-slate-200 text-slate-400',
+                    newFileReqPersist ? 'border-primary/30 bg-primary/5 text-primary' : 'border-border text-muted-foreground',
                   )}
                 >
                   On File

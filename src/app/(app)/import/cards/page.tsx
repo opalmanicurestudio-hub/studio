@@ -8,8 +8,8 @@ import { useTenant } from '@/context/TenantContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
-const card = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18 } as const;
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
+const card = { background: 'hsl(var(--card))', border: `1px solid ${LINE}`, borderRadius: 18 } as const;
 const $ = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
 const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
 const DAY = 864e5;
@@ -36,14 +36,14 @@ export default function CardsOnFilePage() {
     return [`${m.link.count > 1 ? `Reminded ${m.link.count === 2 ? 'twice' : `${m.link.count} times`}` : `Link sent ${day(m.link.sentAt)}`}${nextRem ? ` — next ${day(new Date(nextRem).toISOString())}` : ''}`, m.nextCharge && Date.parse(m.nextCharge) - Date.now() < 7 * DAY ? AMBER : MUTED];
   };
   return (
-    <div className="min-h-screen" style={{ color: INK, backgroundColor: '#f7f7f8', backgroundImage: 'radial-gradient(120% 80% at 8% -5%, #e5e5ec 0%, transparent 55%)' }}>
+    <div className="min-h-screen" style={{ color: INK, backgroundColor: 'hsl(var(--background))', backgroundImage: 'radial-gradient(120% 80% at 8% -5%, #e5e5ec 0%, transparent 55%)' }}>
       <AppHeader title="Cards on file" />
       <main className="mx-auto max-w-6xl space-y-4 p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div><p className="text-[13px]" style={{ color: MUTED }}><a href="/import" className="underline-offset-4 hover:underline">Moving in</a> › Cards on file</p>
             <h1 className="text-[36px] font-normal tracking-[-0.03em]">Cards on file</h1>
             <p className="max-w-2xl text-[14.5px]" style={{ color: MUTED }}>Card details can’t be moved between apps — no app is allowed to hand them over. Members add theirs here with one tap from a private link.</p></div>
-          {toSend.length > 0 && <button type="button" disabled={!!busy} onClick={() => send(toSend.map((m) => m.clientId), 'all')} className="h-11 rounded-full px-5 text-[14.5px] font-semibold text-white disabled:opacity-50" style={{ background: INK }}>{busy === 'all' ? 'Sending…' : `Send ${toSend.length} link${toSend.length === 1 ? '' : 's'}`}</button>}
+          {toSend.length > 0 && <button type="button" disabled={!!busy} onClick={() => send(toSend.map((m) => m.clientId), 'all')} className="h-11 rounded-full px-5 text-[14.5px] font-semibold text-background disabled:opacity-50" style={{ background: INK }}>{busy === 'all' ? 'Sending…' : `Send ${toSend.length} link${toSend.length === 1 ? '' : 's'}`}</button>}
         </div>
         {msg && <p className="text-[14px] font-semibold" style={{ color: msg.ok ? GREEN : RED }} role="status">{msg.t}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

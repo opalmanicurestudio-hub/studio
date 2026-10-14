@@ -121,7 +121,7 @@ export default function BookingSettingsPage() {
         <span className="flex items-center gap-1.5">
           <input inputMode="numeric" aria-label={label} value={val(k)} disabled={!isMgr}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, [k]: e.target.value.replace(/[^0-9]/g, '') }))}
-            className="h-9 w-20 rounded-xl border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60 disabled:opacity-50" />
+            className="h-9 w-20 rounded-xl border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60 disabled:opacity-50" />
           <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{unit}</span>
           <Button size="sm" variant="outline" disabled={!isMgr || busy === k || val(k) === initial[k]}
             onClick={() => void save(k, field, transform ? transform(Number(val(k)) || 0) : Math.max(0, Number(val(k)) || 0), label)}
@@ -140,7 +140,7 @@ export default function BookingSettingsPage() {
   return (
     <SettingsPage title="How bookings come in" help={`What happens when someone books online, and how your booking page looks.${isMgr ? '' : ' (View only.)'}`}>
       <div className="space-y-6">
-        <Card id="rules" className="scroll-mt-20 border-2 rounded-[2rem] bg-white">
+        <Card id="rules" className="scroll-mt-20 border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How online bookings arrive</p>
             {MODES.map((m) => {
@@ -150,7 +150,7 @@ export default function BookingSettingsPage() {
                 <button key={m.id} type="button" disabled={!isMgr || busy === 'mode'}
                   onClick={() => void save('mode', 'bookingMode.mode', m.id, 'Booking mode')}
                   className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-all disabled:opacity-60',
-                    active ? 'border-foreground bg-foreground/[0.04]' : 'bg-white hover:border-primary/40')}>
+                    active ? 'border-foreground bg-foreground/[0.04]' : 'bg-card hover:border-primary/40')}>
                   <span className="flex items-start gap-3">
                     <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')} />
                     <span className="min-w-0 flex-1">
@@ -234,7 +234,7 @@ export default function BookingSettingsPage() {
         {/* Guardian's two numbers. Both were in the code — half the price, and
             more than two strikes — with the threshold repeated in eleven
             places. One definition now, and it belongs to the shop. */}
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Guardian — clients who let you down</p>
@@ -249,7 +249,7 @@ export default function BookingSettingsPage() {
                 value={gDraft.riskThreshold !== undefined ? gDraft.riskThreshold : String(gp.riskThreshold)}
                 onChange={(e) => setGDraft((d) => ({ ...d, riskThreshold: e.target.value.replace(/[^0-9]/g, '') }))}
                 disabled={!isMgr}
-                className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                className="h-8 w-16 rounded-lg border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
               <Button size="sm" variant="outline" disabled={!isMgr || busy === 'guardian-thr'}
                 onClick={() => {
                   const n = Number(gDraft.riskThreshold ?? String(gp.riskThreshold));
@@ -270,7 +270,7 @@ export default function BookingSettingsPage() {
                 value={gDraft.percent !== undefined ? gDraft.percent : String(gp.percent)}
                 onChange={(e) => setGDraft((d) => ({ ...d, percent: e.target.value.replace(/[^0-9]/g, '') }))}
                 disabled={!isMgr}
-                className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                className="h-8 w-16 rounded-lg border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
               <Button size="sm" variant="outline" disabled={!isMgr || busy === 'guardian-pct'}
                 onClick={() => {
                   const n = Number(gDraft.percent ?? String(gp.percent));
@@ -287,7 +287,7 @@ export default function BookingSettingsPage() {
         {/* Rebooking at the counter is a different act from booking online —
             the client is in front of you and their card is often already on
             file. Until now a rebook just inherited the service's rule. */}
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Rebooking at the counter</p>
@@ -306,7 +306,7 @@ export default function BookingSettingsPage() {
                   aria-pressed={rb.mode === mode}
                   onClick={() => void save('rebook', 'rebookDeposit', { ...rb, mode }, 'Rebooking deposits')}
                   className={cn('rounded-2xl border-2 px-3 py-2.5 text-left transition-colors disabled:opacity-40',
-                    rb.mode === mode ? 'border-foreground bg-foreground text-background' : 'bg-white hover:border-primary/40')}>
+                    rb.mode === mode ? 'border-foreground bg-foreground text-background' : 'bg-card hover:border-primary/40')}>
                   <span className="block text-[11px] font-black uppercase tracking-widest">{label}</span>
                   <span className={cn('block text-[10px] font-bold', rb.mode === mode ? 'opacity-70' : 'text-muted-foreground')}>{note}</span>
                 </button>
@@ -320,7 +320,7 @@ export default function BookingSettingsPage() {
                   value={rbPct !== '' ? rbPct : String(rb.fallbackPercent)}
                   onChange={(e) => setRbPct(e.target.value.replace(/[^0-9]/g, ''))}
                   disabled={!isMgr}
-                  className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                  className="h-8 w-16 rounded-lg border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
                 <Button size="sm" variant="outline" disabled={!isMgr || busy === 'rebook-pct'}
                   onClick={() => {
                     const n = Number(rbPct !== '' ? rbPct : rb.fallbackPercent);
@@ -345,7 +345,7 @@ export default function BookingSettingsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What happens when</p>
             <p className="text-xs text-muted-foreground">All your policies — cancellations, no-shows, rescheduling, late arrivals and what clients are told — are together in <a href="/settings/policies" className="underline">Booking policies</a>.</p>
@@ -395,7 +395,7 @@ export default function BookingSettingsPage() {
           onSave={save}
         />
 
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-2">
             <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
               <Timer className="h-3 w-3" /> When plans change

@@ -25,12 +25,12 @@ export function useDeferred(ms = 5000) {
 export function UndoBar({ label, ms, onUndo, onNow }: { label: string; ms: number; onUndo: () => void; onNow: () => void }) {
   return (
     <div role="status" aria-live="polite" className="fixed inset-x-0 bottom-[max(16px,env(safe-area-inset-bottom))] z-[90] flex justify-center px-4">
-      <div className="relative flex w-full max-w-[520px] items-center gap-3 overflow-hidden rounded-full bg-[#17181A] py-2 pl-5 pr-2 text-white shadow-2xl">
+      <div className="relative flex w-full max-w-[520px] items-center gap-3 overflow-hidden rounded-full bg-foreground py-2 pl-5 pr-2 text-background shadow-2xl">
         <style>{`@keyframes cfUndo{from{transform:scaleX(1)}to{transform:scaleX(0)}}@media (prefers-reduced-motion: reduce){.cf-undo-bar{animation:none!important}}`}</style>
-        <span aria-hidden className="cf-undo-bar absolute bottom-0 left-0 h-[3px] w-full origin-left bg-white/60" style={{ animation: `cfUndo ${ms}ms linear forwards` }} />
+        <span aria-hidden className="cf-undo-bar absolute bottom-0 left-0 h-[3px] w-full origin-left bg-card/60" style={{ animation: `cfUndo ${ms}ms linear forwards` }} />
         <span className="min-w-0 flex-1 truncate text-[14px] font-[600]">{label}</span>
         <button type="button" onClick={onNow} className="h-10 rounded-full px-3 text-[13px] font-[600] text-white/80">Now</button>
-        <button type="button" onClick={onUndo} className="h-10 rounded-full bg-white px-5 text-[14px] font-[800] text-[#17181A]">Undo</button>
+        <button type="button" onClick={onUndo} className="h-10 rounded-full bg-card px-5 text-[14px] font-[800] text-foreground">Undo</button>
       </div>
     </div>);
 }

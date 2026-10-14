@@ -241,7 +241,7 @@ type TimelineEvent = {
   label: string; detail?: string; tone?: 'good' | 'warn' | 'bad';
 };
 const TIMELINE_TONE: Record<string, string> = {
-  good: 'text-green-600', warn: 'text-amber-600', bad: 'text-destructive', default: 'text-slate-600',
+  good: 'text-green-600', warn: 'text-amber-600', bad: 'text-destructive', default: 'text-foreground/80',
 };
 const TIMELINE_BG: Record<string, string> = {
   good: 'bg-green-500', warn: 'bg-amber-500', bad: 'bg-destructive', default: 'bg-slate-400',
@@ -503,7 +503,7 @@ const ClientStatsBar = ({ client, recentVisits, allVisits, isLoading }: { client
           showSkeleton && 'animate-pulse'
         )}>
           <div className={cn('flex justify-center mb-1', s.warn ? 'text-destructive' : 'text-muted-foreground opacity-40')}>{s.icon}</div>
-          <p className={cn('text-[12px] font-semibold font-mono leading-none', s.warn ? 'text-destructive' : 'text-slate-800')}>{s.value}</p>
+          <p className={cn('text-[12px] font-semibold font-mono leading-none', s.warn ? 'text-destructive' : 'text-foreground')}>{s.value}</p>
           <p className="text-[12px] font-bold text-muted-foreground opacity-50 mt-0.5 leading-tight">{s.label}</p>
         </div>
       ))}
@@ -561,7 +561,7 @@ const SessionNotePanel = ({
               <Edit className="w-2.5 h-2.5 mr-1" /> Edit
             </Button>
           </div>
-          <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5">{existing}</p>
+          <p className="text-[11px] font-medium text-foreground/80 leading-relaxed pl-5">{existing}</p>
         </div>
       ) : editing ? (
         <div className="space-y-2.5 p-4 rounded-2xl border border-primary/20 bg-primary/[0.02]">
@@ -746,7 +746,7 @@ const EditableNoteRow = ({
           <Edit className="w-2.5 h-2.5 mr-1" /> Edit
         </Button>
       </div>
-      <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5 whitespace-pre-wrap break-words">{value}</p>
+      <p className="text-[11px] font-medium text-foreground/80 leading-relaxed pl-5 whitespace-pre-wrap break-words">{value}</p>
     </div>
   );
 };
@@ -785,15 +785,15 @@ const AppointmentNotesPanel = ({
           from every other note. Repeated here so one place answers "what do we
           know about this appointment." */}
       {resolutionNote && (
-        <div className="rounded-2xl border border-slate-300 bg-slate-50 p-4 space-y-2">
+        <div className="rounded-2xl border border-border bg-muted/60 p-4 space-y-2">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <ShieldCheck className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <span className="text-[12px] font-semibold text-muted-foreground opacity-60">
               Escalation resolved
               {appointment?.resolvedAt && ` · ${fmtDT(appointment.resolvedAt, 'MMM d')}`}
             </span>
           </div>
-          <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5 whitespace-pre-wrap break-words">{resolutionNote}</p>
+          <p className="text-[11px] font-medium text-foreground/80 leading-relaxed pl-5 whitespace-pre-wrap break-words">{resolutionNote}</p>
         </div>
       )}
 
@@ -872,7 +872,7 @@ const VisitOutcomePanel = ({
             <Edit className="w-2.5 h-2.5 mr-1" /> Edit
           </Button>
         </div>
-        {existing.text && <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5">{existing.text}</p>}
+        {existing.text && <p className="text-[11px] font-medium text-foreground/80 leading-relaxed pl-5">{existing.text}</p>}
         <div className="flex flex-wrap items-center gap-3 pl-5">
           {existing.satisfactionRating != null && (
             <span className="flex items-center gap-0.5">
@@ -1051,7 +1051,7 @@ const CancellationRecord = ({
   const dispositionLabel = appointment.depositDisposition === 'refunded' ? `Refunded to card${refunded > 0 ? ` · $${refunded.toFixed(2)}` : ''}` : appointment.depositDisposition === 'store_credit' ? `Converted to credit${creditFromDeposit > 0 ? ` · $${creditFromDeposit.toFixed(2)}` : ''}` : appointment.depositDisposition === 'forfeited' || appointment.depositForfeited ? 'Forfeited (studio kept it)' : null;
 
   const rows: { label: string; value: string; tone: string }[] = [];
-  if (depositPaid > 0) rows.push({ label: 'Deposit collected', value: `$${depositPaid.toFixed(2)}`, tone: 'text-slate-700' });
+  if (depositPaid > 0) rows.push({ label: 'Deposit collected', value: `$${depositPaid.toFixed(2)}`, tone: 'text-foreground/80' });
   rows.push({ label: 'Cancellation fee', value: feeWaived ? 'Waived' : feeCharged > 0 ? `$${feeCharged.toFixed(2)}` : 'None', tone: feeWaived ? 'text-green-600' : feeCharged > 0 ? 'text-amber-600' : 'text-muted-foreground opacity-50' });
   if (dispositionLabel) rows.push({ label: 'Deposit outcome', value: dispositionLabel, tone: 'text-primary/80' });
   if (storeCreditIssued > 0) rows.push({ label: 'Store credit issued', value: `$${storeCreditIssued.toFixed(2)}`, tone: 'text-green-600' });
@@ -1088,7 +1088,7 @@ const CancellationRecord = ({
             {audit?.timestamp && <p className="text-[12px] font-bold text-destructive/60 tracking-wide">{fmtDT(audit.timestamp, 'MMM d, yyyy · h:mm a')}</p>}
           </div>
         </div>
-        {reasonText && <p className="text-[12px] font-bold text-slate-600 tracking-tight leading-relaxed pl-7">{reasonText}{audit?.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}</p>}
+        {reasonText && <p className="text-[12px] font-bold text-foreground/80 tracking-tight leading-relaxed pl-7">{reasonText}{audit?.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}</p>}
         {isNoShow && safeNumber(appointment.lateTimeMinutes) > 0 && (
           <p className="text-[12px] font-bold text-muted-foreground tracking-tight pl-7 opacity-70">
             {appointment.noShowConfirmedBy ? `Confirmed by ${staffName(appointment.noShowConfirmedBy, staff)}` : `Automatically flagged after ${appointment.lateTimeMinutes}m past start`}
@@ -1096,7 +1096,7 @@ const CancellationRecord = ({
         )}
       </div>
       <div className="px-5 pb-5 space-y-2">
-        <div className="rounded-2xl bg-white border border-destructive/10 divide-y divide-dashed divide-muted/40">
+        <div className="rounded-2xl bg-card border border-destructive/10 divide-y divide-dashed divide-muted/40">
           {rows.map((r, i) => (
             <div key={i} className="flex items-center justify-between px-4 py-3">
               <span className="text-[12px] font-semibold text-muted-foreground">{r.label}</span>
@@ -1146,9 +1146,9 @@ const CancellationRecord = ({
               <div key={t.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/10 border border-muted/30">
                 <div className="min-w-0 flex items-center gap-2">
                   <History className="w-3 h-3 text-muted-foreground opacity-40 shrink-0" />
-                  <span className="text-[12px] font-bold tracking-tight text-slate-600 truncate">{String(t.description || t.category || 'Transaction')}</span>
+                  <span className="text-[12px] font-bold tracking-tight text-foreground/80 truncate">{String(t.description || t.category || 'Transaction')}</span>
                 </div>
-                <span className={cn('text-[12px] font-semibold font-mono shrink-0 ml-2', t.type === 'income' ? 'text-green-600' : t.type === 'refund' || t.type === 'reversal' ? 'text-slate-400' : t.type === 'store_credit_issued' ? 'text-primary' : 'text-amber-600')}>
+                <span className={cn('text-[12px] font-semibold font-mono shrink-0 ml-2', t.type === 'income' ? 'text-green-600' : t.type === 'refund' || t.type === 'reversal' ? 'text-muted-foreground' : t.type === 'store_credit_issued' ? 'text-primary' : 'text-amber-600')}>
                   {t.type === 'income' ? '+' : t.type === 'refund' || t.type === 'reversal' ? '−' : ''}${Math.abs(safeNumber(t.amount)).toFixed(2)}
                 </span>
               </div>
@@ -1202,7 +1202,7 @@ const CompletionReceipt = ({ appointment, transactions, staff, providers }: { ap
         )}
       </div>
       <div className="px-5 pb-5">
-        <div className="rounded-2xl bg-white border border-green-100 divide-y divide-dashed divide-muted/30">
+        <div className="rounded-2xl bg-card border border-green-100 divide-y divide-dashed divide-muted/30">
           <div className="flex items-center justify-between px-4 py-3">
             <span className="text-[12px] font-semibold text-muted-foreground">Service Revenue</span>
             <span className="text-[11px] font-semibold font-mono">${serviceRevenue.toFixed(2)}</span>
@@ -1266,7 +1266,7 @@ const CompletionReceipt = ({ appointment, transactions, staff, providers }: { ap
             </div>
           )}
           <div className="flex items-center justify-between px-4 py-3 bg-green-50/50">
-            <span className="text-[12px] font-semibold text-slate-700">Total Collected</span>
+            <span className="text-[12px] font-semibold text-foreground/80">Total Collected</span>
             <span className="text-[13px] font-semibold font-mono text-primary">${total.toFixed(2)}</span>
           </div>
         </div>
@@ -1326,7 +1326,7 @@ export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposi
     );
   }
 
-  const BG: Record<string, string> = { banned: 'bg-slate-900 border-slate-900', dispute: 'bg-purple-50 border-purple-300', danger: 'bg-red-50 border-red-300', allergy: 'bg-red-50 border-red-400', warn: 'bg-amber-50 border-amber-200', info: 'bg-blue-50 border-blue-200' };
+  const BG: Record<string, string> = { banned: 'bg-foreground border-slate-900', dispute: 'bg-purple-50 border-purple-300', danger: 'bg-red-50 border-red-300', allergy: 'bg-red-50 border-red-400', warn: 'bg-amber-50 border-amber-200', info: 'bg-blue-50 border-blue-200' };
   const TX: Record<string, string> = { banned: 'text-white', dispute: 'text-purple-900', danger: 'text-red-900', allergy: 'text-red-900', warn: 'text-amber-900', info: 'text-blue-800' };
   const IC: Record<string, string> = { banned: 'text-white', dispute: 'text-purple-600', danger: 'text-red-600', allergy: 'text-red-600', warn: 'text-amber-600', info: 'text-blue-500' };
 
@@ -1445,7 +1445,7 @@ const MidServiceHandoffDialog = ({
                   onClick={() => { setSelectedServiceId(s.id); setSelectedStaffId(''); }}
                   className={cn(
                     'flex items-center justify-between p-3 rounded-xl border text-left transition-all',
-                    selectedServiceId === s.id ? 'border-primary bg-primary/5' : 'border-border bg-white'
+                    selectedServiceId === s.id ? 'border-primary bg-primary/5' : 'border-border bg-card'
                   )}
                 >
                   <span className="text-[12px] font-semibold tracking-tight flex items-center gap-2 min-w-0">
@@ -1470,7 +1470,7 @@ const MidServiceHandoffDialog = ({
                   onClick={() => setSelectedStaffId(s.id)}
                   className={cn(
                     'flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all',
-                    selectedStaffId === s.id ? 'border-primary bg-primary/5' : 'border-border bg-white'
+                    selectedStaffId === s.id ? 'border-primary bg-primary/5' : 'border-border bg-card'
                   )}
                 >
                   <Avatar className="h-6 w-6 border shrink-0">
@@ -1579,7 +1579,7 @@ function LateBanner({ appointment, tenantId, onCancel, onDone }: { appointment: 
     <section aria-label="Running late" className="space-y-3 rounded-3xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
       <div><p className="font-semibold">{first} is running {mins ? `~${mins} min ` : ''}late{etaText ? ` — arriving about ${etaText}` : ''}</p>
         {appointment.clientLateNote && <p className="text-sm">“{appointment.clientLateNote}”</p>}</div>
-      {reply?.message && <p className="rounded-2xl bg-white/70 p-3 text-sm"><b>They’ve been told:</b> {reply.message}</p>}
+      {reply?.message && <p className="rounded-2xl bg-card/70 p-3 text-sm"><b>They’ve been told:</b> {reply.message}</p>}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} /> Tell {first} by text/email (their visit link updates too)</label>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={!!busy} onClick={() => send('keep')}>{busy === 'keep' ? 'Saving…' : 'Still see them'}</Button>
@@ -2408,7 +2408,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             {elapsedLabel(appointment) && <span className="ml-auto shrink-0 text-[22px] font-light tabular-nums" style={{ color: stateOf(appointment, service).over ? 'var(--warn, #b45309)' : 'var(--ink)' }} aria-label="Time in the chair">{elapsedLabel(appointment)}</span>}
           </Link>
           {client.activeMembershipId && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-indigo-600 text-white border-none shrink-0"><Award className="w-2 h-2 mr-0.5" />Member</Badge>}
-          {client.status === 'banned' && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-black text-white border-none shrink-0"><Ban className="w-2 h-2 mr-0.5" />Banned</Badge>}
+          {client.status === 'banned' && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-foreground text-background border-none shrink-0"><Ban className="w-2 h-2 mr-0.5" />Banned</Badge>}
           {client.hasOpenDispute && <Badge className="h-[16px] px-1.5 rounded-full font-semibold text-[12px] bg-purple-600 text-white border-none shrink-0"><AlertTriangle className="w-2 h-2 mr-0.5" />Dispute</Badge>}
           <StoreCreditBadge credits={Array.isArray(availableCredits) ? availableCredits : []} totalAvailable={totalStoreCreditAvailable} />
         </div>
@@ -2526,7 +2526,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             {isRunningOver && <p className="text-[12px] font-semibold text-destructive/60 mt-1">Running over by {Math.floor(differenceInSeconds(new Date(), safeDate(appointment.actualStartTime)) / 60) - (service?.duration || 0)}m</p>}
             <button
               onClick={() => setIsHandoffOpen(true)}
-              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-primary/20 bg-white/60 hover:bg-white hover:border-primary/40 transition-all"
+              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-primary/20 bg-card/60 hover:bg-card hover:border-primary/40 transition-all"
             >
               <Repeat2 className="w-3 h-3 text-primary/60" />
               <span className="text-[12px] font-semibold text-primary/60">Client wants a different artist? Hand off now</span>
@@ -2576,7 +2576,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <Card className="rounded-[1.5rem] border bg-muted/5 shadow-inner overflow-hidden">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-700 tracking-tight">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-foreground/80 tracking-tight">
                 <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
                 {fmtDT(appointment.startTime, 'EEE, MMM d · h:mm a')}
                 {appointment.rescheduledFromTime && (
@@ -2597,7 +2597,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                   <span className="text-[12px] font-semibold text-indigo-700 shrink-0">Multi-Provider:</span>
                   {providers.map((p) => (
-                    <span key={p.staffId} className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white border border-indigo-200">
+                    <span key={p.staffId} className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-card border border-indigo-200">
                       <Avatar className="h-3.5 w-3.5">
                         <AvatarImage src={p.staffMember?.avatarUrl} className="object-cover" />
                         <AvatarFallback className="text-[6px] font-semibold bg-primary/10 text-primary">
@@ -2616,7 +2616,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
             <div className="flex justify-between items-start gap-4">
               <div className="space-y-1 min-w-0 flex-1">
-                <p className="font-semibold text-base tracking-tight text-slate-900 truncate leading-tight">{service.name}</p>
+                <p className="font-semibold text-base tracking-tight text-foreground truncate leading-tight">{service.name}</p>
                 <div className="flex items-center gap-2 text-[12px] font-bold text-muted-foreground">
                   <Clock className="w-2.5 h-2.5" /> {service.duration}m
                   {(appointment.addOnIds || []).length > 0 && <span className="opacity-60">· {(appointment.addOnIds || []).length} add-on{(appointment.addOnIds || []).length !== 1 ? 's' : ''}</span>}
@@ -2648,7 +2648,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   const isConcurrent = (appointment.checkoutState?.concurrentServiceIds || []).includes(id);
                   const assignedStaffMember = isDifferentProvider ? (staff || []).find((st: any) => st.id === assignedStaffId) : null;
                   return (
-                    <div key={id} className="flex items-center justify-between text-[12px] font-bold text-muted-foreground bg-white p-2 rounded-lg border border-muted/20">
+                    <div key={id} className="flex items-center justify-between text-[12px] font-bold text-muted-foreground bg-card p-2 rounded-lg border border-muted/20">
                       <span className="truncate flex items-center gap-2 min-w-0">
                         <Sparkles className="w-3 h-3 shrink-0" />
                         <span className="truncate">{s.name}</span>
@@ -2695,7 +2695,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
               <DollarSign className="w-3 h-3" /> Financial Summary
             </h3>
-            <div className="rounded-2xl border bg-white shadow-inner divide-y divide-dashed divide-muted/30 px-4">
+            <div className="rounded-2xl border bg-card shadow-inner divide-y divide-dashed divide-muted/30 px-4">
               <RequirementRow
                 icon={<Wallet className="w-3.5 h-3.5" />} label="Deposit"
                 status={appointment.depositStatus === 'paid' ? 'good' : depositOwedCents > 0 ? 'bad' : 'neutral'}
@@ -2793,7 +2793,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <div className="rounded-2xl bg-red-50 border border-red-300 p-3.5 space-y-2">
               <p className="text-[12px] font-semibold text-red-700 flex items-center gap-1.5"><HeartPulse className="w-3 h-3" /> Health Disclosure Required</p>
               {complianceInfo.healthPendingForms.map(f => (
-                <div key={f.id} className="flex items-center justify-between text-[12px] font-bold text-red-700 bg-white/70 p-2 rounded-lg border border-red-200">
+                <div key={f.id} className="flex items-center justify-between text-[12px] font-bold text-red-700 bg-card/70 p-2 rounded-lg border border-red-200">
                   <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-50" /> {f.title}</span>
                   <span className="shrink-0 ml-4 opacity-70">Unsigned</span>
                 </div>
@@ -2887,10 +2887,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                                 key={f.id}
                                 type="button"
                                 onClick={() => setSelectedExtraFormIds(prev => isChecked ? prev.filter(id => id !== f.id) : [...prev, f.id])}
-                                className={cn('w-full flex items-center justify-between px-3 py-2 text-left transition-colors', isChecked ? 'bg-primary/5' : 'bg-white hover:bg-muted/10')}
+                                className={cn('w-full flex items-center justify-between px-3 py-2 text-left transition-colors', isChecked ? 'bg-primary/5' : 'bg-card hover:bg-muted/10')}
                               >
                                 <span className="flex items-center gap-2 min-w-0">
-                                  <div className={cn('w-4 h-4 rounded border shrink-0 flex items-center justify-center', isChecked ? 'bg-primary border-primary' : 'border-slate-300')}>
+                                  <div className={cn('w-4 h-4 rounded border shrink-0 flex items-center justify-center', isChecked ? 'bg-primary border-primary' : 'border-border')}>
                                     {isChecked && <Check className="w-2.5 h-2.5 text-white" />}
                                   </div>
                                   <span className="text-[12px] font-bold truncate">{f.title || f.name}</span>
@@ -2906,10 +2906,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   )}
 
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestPhotos ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                    <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestPhotos ? 'border-primary bg-primary/5' : 'border-border bg-card')}>
                       <span className="text-[12px] font-semibold flex items-center gap-1.5"><FileImage className="w-3.5 h-3.5 text-primary shrink-0" /> Inspo photos</span>
                     </button>
-                    <button type="button" onClick={() => setRequestPhotoId(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestPhotoId ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                    <button type="button" onClick={() => setRequestPhotoId(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestPhotoId ? 'border-primary bg-primary/5' : 'border-border bg-card')}>
                       <span className="text-[12px] font-semibold flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0" /> Photo ID</span>
                     </button>
                   </div>
@@ -2931,19 +2931,19 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setRequestMarketingConsent(v => !v)} className={cn('p-3 rounded-xl border text-left transition-all', requestMarketingConsent ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                    <button type="button" onClick={() => setRequestMarketingConsent(v => !v)} className={cn('p-3 rounded-xl border text-left transition-all', requestMarketingConsent ? 'border-primary bg-primary/5' : 'border-border bg-card')}>
                       <span className="text-[12px] font-semibold flex items-center gap-1.5"><Camera className="w-3.5 h-3.5 text-primary shrink-0" /> Marketing consent</span>
                     </button>
-                    <button type="button" onClick={() => setRequestEmergencyContact(v => !v)} className={cn('p-3 rounded-xl border text-left transition-all', requestEmergencyContact ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                    <button type="button" onClick={() => setRequestEmergencyContact(v => !v)} className={cn('p-3 rounded-xl border text-left transition-all', requestEmergencyContact ? 'border-primary bg-primary/5' : 'border-border bg-card')}>
                       <span className="text-[12px] font-semibold flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-primary shrink-0" /> Emergency contact</span>
                     </button>
                   </div>
 
                   <div className="space-y-1.5">
-                    <button type="button" onClick={() => setRequestAcknowledgment(v => !v)} className={cn('w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestAcknowledgment ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                    <button type="button" onClick={() => setRequestAcknowledgment(v => !v)} className={cn('w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all', requestAcknowledgment ? 'border-primary bg-primary/5' : 'border-border bg-card')}>
                       <span className="text-[12px] font-semibold flex items-center gap-2"><Info className="w-3.5 h-3.5 text-primary" /> Pre-appointment acknowledgment</span>
-                      <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', requestAcknowledgment ? 'bg-primary' : 'bg-slate-200')}>
-                        <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', requestAcknowledgment ? 'left-[18px]' : 'left-0.5')} />
+                      <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', requestAcknowledgment ? 'bg-primary' : 'bg-border')}>
+                        <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-card shadow transition-all', requestAcknowledgment ? 'left-[18px]' : 'left-0.5')} />
                       </div>
                     </button>
                     {requestAcknowledgment && (
@@ -2964,7 +2964,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             ) : (
               <div className="space-y-2 pt-2">
                 <div className="flex items-center gap-2">
-                  <input readOnly value={reqLink} onFocus={e => e.currentTarget.select()} className="flex-1 h-10 rounded-xl border px-3 text-[12px] font-mono bg-white" />
+                  <input readOnly value={reqLink} onFocus={e => e.currentTarget.select()} className="flex-1 h-10 rounded-xl border px-3 text-[12px] font-mono bg-card" />
                   <Button onClick={() => { navigator.clipboard.writeText(reqLink!); setReqCopied(true); setTimeout(() => setReqCopied(false), 2000); }} className="h-10 px-3 rounded-xl font-semibold text-[12px] shrink-0">
                     {reqCopied ? 'Copied' : 'Copy'}
                   </Button>
@@ -3012,18 +3012,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {appointment.incident && (
           <div className="space-y-3">
             <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Incident Report</h3>
-            <div className={cn('rounded-2xl border p-4 space-y-2.5', appointment.incident.severity === 'Severe' ? 'bg-red-50 border-red-300' : appointment.incident.severity === 'Moderate' ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200')}>
+            <div className={cn('rounded-2xl border p-4 space-y-2.5', appointment.incident.severity === 'Severe' ? 'bg-red-50 border-red-300' : appointment.incident.severity === 'Moderate' ? 'bg-amber-50 border-amber-300' : 'bg-muted/60 border-border')}>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[12px] font-semibold tracking-wide flex items-center gap-2 text-slate-800"><AlertCircle className="w-3.5 h-3.5" /> {appointment.incident.type}</span>
+                <span className="text-[12px] font-semibold tracking-wide flex items-center gap-2 text-foreground"><AlertCircle className="w-3.5 h-3.5" /> {appointment.incident.type}</span>
                 <Badge className={cn('text-[12px] font-semibold border-none text-white shrink-0', appointment.incident.severity === 'Severe' ? 'bg-red-600' : appointment.incident.severity === 'Moderate' ? 'bg-amber-600' : 'bg-slate-500')}>{appointment.incident.severity}</Badge>
               </div>
               {appointment.incident.date && <p className="text-[12px] font-bold text-muted-foreground opacity-60">{format(safeDate(appointment.incident.date), 'MMM d, yyyy · h:mm a')}</p>}
-              <p className="text-[12px] font-medium text-slate-700 leading-relaxed">{appointment.incident.description}</p>
+              <p className="text-[12px] font-medium text-foreground/80 leading-relaxed">{appointment.incident.description}</p>
               {appointment.incident.actionsTaken && <p className="text-[12px] font-bold text-muted-foreground"><span className="opacity-60">Action taken: </span>{appointment.incident.actionsTaken}</p>}
               {appointment.incident.photoUrls?.length > 0 && (
                 <div className="grid grid-cols-4 gap-2 pt-1">
                   {appointment.incident.photoUrls.map((url: string, i: number) => (
-                    <button key={i} onClick={() => openLightbox(appointment.incident.photoUrls.map((u: string) => ({ url: u, name: 'Incident documentation' })), i)} className="relative aspect-square rounded-lg overflow-hidden border bg-white cursor-zoom-in">
+                    <button key={i} onClick={() => openLightbox(appointment.incident.photoUrls.map((u: string) => ({ url: u, name: 'Incident documentation' })), i)} className="relative aspect-square rounded-lg overflow-hidden border bg-card cursor-zoom-in">
                       <img src={url} alt="Incident documentation" className="w-full h-full object-cover" />
                     </button>
                   ))}
@@ -3046,16 +3046,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               red: 'border-red-200 bg-red-50',
               amber: 'border-amber-200 bg-amber-50',
               green: 'border-emerald-200 bg-emerald-50',
-              slate: 'border-slate-200 bg-white',
+              slate: 'border-border bg-card',
             };
             const TEXT: Record<string, string> = {
-              red: 'text-red-700', amber: 'text-amber-700', green: 'text-emerald-700', slate: 'text-slate-600',
+              red: 'text-red-700', amber: 'text-amber-700', green: 'text-emerald-700', slate: 'text-foreground/80',
             };
             return (
               <div key={label} className={cn('rounded-2xl border px-3 py-2.5', TONES[g.tone])}>
-                <p className="text-[12px] font-semibold tracking-[0.18em] text-slate-400">{label}</p>
+                <p className="text-[12px] font-semibold tracking-[0.18em] text-muted-foreground">{label}</p>
                 <p className={cn('text-[11px] font-semibold tracking-tight mt-0.5', TEXT[g.tone])}>{g.label}</p>
-                {g.hint && <p className="text-[12px] font-bold text-slate-500 mt-0.5 leading-snug">{g.hint}</p>}
+                {g.hint && <p className="text-[12px] font-bold text-muted-foreground mt-0.5 leading-snug">{g.hint}</p>}
               </div>
             );
           })}
@@ -3065,9 +3065,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div hidden={visitTab !== 'history'} className="space-y-5">
         {/* ── Activity timeline ────────────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
-          <AccordionItem value="timeline" className="border rounded-2xl overflow-hidden bg-white shadow-inner">
+          <AccordionItem value="timeline" className="border rounded-2xl overflow-hidden bg-card shadow-inner">
             <AccordionTrigger className="px-4 py-3 hover:no-underline">
-              <span className="flex items-center gap-2 font-semibold text-[12px] text-slate-700">
+              <span className="flex items-center gap-2 font-semibold text-[12px] text-foreground/80">
                 <History className="w-3.5 h-3.5 text-primary" /> Activity Timeline
                 <Badge variant="outline" className="h-5 px-2 rounded-full text-[12px] font-semibold border ml-1">{timelineEvents.length}</Badge>
               </span>
@@ -3108,9 +3108,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div hidden={visitTab !== 'history'} className="space-y-5">
         {/* ── Communications journey ───────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
-          <AccordionItem value="comms" className="border rounded-2xl overflow-hidden bg-white shadow-inner">
+          <AccordionItem value="comms" className="border rounded-2xl overflow-hidden bg-card shadow-inner">
             <AccordionTrigger className="px-4 py-3 hover:no-underline">
-              <span className="flex items-center gap-2 font-semibold text-[12px] text-slate-700">
+              <span className="flex items-center gap-2 font-semibold text-[12px] text-foreground/80">
                 <Send className="w-3.5 h-3.5 text-primary" /> Communications
                 <Badge variant="outline" className="h-5 px-2 rounded-full text-[12px] font-semibold border ml-1">{messages.length}</Badge>
                 {messages.some((m: any) => m.bouncedAt || m.status === 'failed') && (
@@ -3150,7 +3150,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         {(m.channel === 'sms' ? STEPS.slice(0, 2) : STEPS).map((s, i) => (
                           <span key={s} className={cn(
                             'px-2 h-5 inline-flex items-center rounded-full text-[12px] font-semibold tracking-wide border',
-                            i <= reached ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-white text-slate-300 border-slate-100',
+                            i <= reached ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-card text-muted-foreground/70 border-border',
                           )}>
                             {i <= reached ? '✓ ' : ''}{s}
                           </span>
@@ -3172,7 +3172,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
               {/* Fix & resend — corrects the client record AND resends in one motion */}
               <div className="rounded-xl border p-3 space-y-2">
-                <p className="text-[12px] font-semibold text-slate-600">Fix contact info &amp; resend confirmation</p>
+                <p className="text-[12px] font-semibold text-foreground/80">Fix contact info &amp; resend confirmation</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Input value={resendEmail} onChange={(e) => setResendEmail(e.target.value)} placeholder="client@email.com" type="email" className="h-9 text-xs" />
                   <Input value={resendPhone} onChange={(e) => setResendPhone(e.target.value)} placeholder="Phone" type="tel" className="h-9 text-xs" />
@@ -3194,7 +3194,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           <Accordion type="multiple" className="w-full space-y-2">
 
             <AccordionItem value="pref-notes" className="border rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
-              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-slate-600">
+              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-foreground/80">
                 <Sparkles className="w-3.5 h-3.5 mr-2 opacity-40" /> Client Profile &amp; Preferences
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
@@ -3214,18 +3214,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </AccordionItem>
 
             <AccordionItem value="prev-formulas" className="border rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
-              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-slate-600">
+              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-foreground/80">
                 <FlaskConical className="w-3.5 h-3.5 mr-2 opacity-40" /> Technical Formulas
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-3">
                 {client.customFormulas && client.customFormulas.length > 0 ? (
                   <div className="grid gap-2">
                     {client.customFormulas.map((f: any) => (
-                      <div key={f.id} className="p-3 rounded-xl bg-white border border-transparent hover:border-primary/10 transition-all flex justify-between items-center shadow-sm">
+                      <div key={f.id} className="p-3 rounded-xl bg-card border border-transparent hover:border-primary/10 transition-all flex justify-between items-center shadow-sm">
                         <div className="min-w-0">
                           <span className="text-[12px] font-semibold tracking-tight truncate block">{f.name}</span>
                           <span className="text-[12px] font-bold text-muted-foreground opacity-60">{fmtDT(f.date, 'MMM d, yyyy')}</span>
-                          {f.text && <span className="mt-1 block whitespace-pre-wrap font-mono text-[12px] text-slate-700">{f.text}</span>}
+                          {f.text && <span className="mt-1 block whitespace-pre-wrap font-mono text-[12px] text-foreground/80">{f.text}</span>}
                         </div>
                         <ArrowRight className="w-3 h-3 text-primary opacity-20" />
                       </div>
@@ -3238,14 +3238,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </AccordionItem>
 
             <AccordionItem value="recent-visits" className="border rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
-              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-slate-600">
+              <AccordionTrigger className="px-4 py-3 hover:no-underline font-semibold text-[12px] text-foreground/80">
                 <Calendar className="w-3.5 h-3.5 mr-2 opacity-40" /> Recent Visits
                 <Badge variant="outline" className="h-4 px-1.5 rounded-full text-[12px] font-semibold border ml-2">{allClientVisits.length}</Badge>
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-2">
                 {/* Visit frequency sparkline */}
                 {allClientVisits.length > 1 && (
-                  <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white border border-muted/20 mb-2">
+                  <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-card border border-muted/20 mb-2">
                     <div className="min-w-0">
                       <p className="text-[12px] font-semibold text-muted-foreground opacity-60 mb-1">Visit frequency</p>
                       <VisitSparkline visits={allClientVisits} />
@@ -3256,7 +3256,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   const svc = (allServices || []).find((s: any) => s.id === a.serviceId);
                   const staffMember = (staff || []).find((s: any) => s.id === a.staffId);
                   return (
-                    <div key={a.id} className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-muted/20">
+                    <div key={a.id} className="flex items-center justify-between p-2.5 rounded-xl bg-card border border-muted/20">
                       <div className="min-w-0">
                         <p className="text-[12px] font-semibold tracking-tight truncate">{svc?.name || 'Service'}</p>
                         <p className="text-[12px] font-bold text-muted-foreground opacity-60">
@@ -3310,9 +3310,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-4 border-t border-white/20">
                   <div className="space-y-2">
                     <Label className="text-[12px] font-semibold text-white/60 ml-1">Resolution Protocol Summary</Label>
-                    <Textarea value={resolutionNote} onChange={e => setResolutionNote(e.target.value)} placeholder="Detail the manager intervention..." className="bg-white/10 border-white/20 text-white placeholder:text-white/40 min-h-[80px] rounded-xl focus-visible:ring-white/20" />
+                    <Textarea value={resolutionNote} onChange={e => setResolutionNote(e.target.value)} placeholder="Detail the manager intervention..." className="bg-card/10 border-white/20 text-white placeholder:text-white/40 min-h-[80px] rounded-xl focus-visible:ring-white/20" />
                   </div>
-                  <Button onClick={handleResolveEscalation} disabled={isResolving || !resolutionNote.trim()} className="w-full h-12 bg-white text-destructive hover:bg-white/90 rounded-xl font-semibold text-[12px]">
+                  <Button onClick={handleResolveEscalation} disabled={isResolving || !resolutionNote.trim()} className="w-full h-12 bg-card text-destructive hover:bg-card/90 rounded-xl font-semibold text-[12px]">
                     {isResolving ? <Loader className="animate-spin" /> : 'Certify Resolution & Clear Alert'}
                   </Button>
                 </motion.div>
@@ -3327,7 +3327,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     {appointment.resolvedAt && ` · ${format(safeDate(appointment.resolvedAt), 'MMM d, h:mm a')}`}
                     {appointment.resolvedBy && ` · ${staffName(appointment.resolvedBy, staff)}`}
                   </p>
-                  <p className="text-[12px] font-medium text-slate-600 leading-relaxed">{appointment.resolutionNotes}</p>
+                  <p className="text-[12px] font-medium text-foreground/80 leading-relaxed">{appointment.resolutionNotes}</p>
                 </div>
               )}
               <button onClick={handleEscalate} disabled={isEscalating} className="w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-destructive/15 bg-destructive/[0.02] hover:bg-destructive/5 transition-all text-left">
@@ -3358,7 +3358,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   // ── Action bar ─────────────────────────────────────────────────────────────
   const ActionBar = (
-    <div className="border-t bg-white/95 backdrop-blur-md flex-shrink-0 p-3 md:px-6 flex items-center gap-2">
+    <div className="border-t bg-card/95 backdrop-blur-md flex-shrink-0 p-3 md:px-6 flex items-center gap-2">
       {canStart && (
         <TooltipProvider>
           <Tooltip>

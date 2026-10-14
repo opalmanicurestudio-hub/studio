@@ -232,7 +232,7 @@ export default function RetailReturnsPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -254,7 +254,7 @@ export default function RetailReturnsPage() {
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
         {lookupOpen && !target && (
-          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white">
+          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-card">
             <CardContent className="p-6 space-y-4">
               <div className="flex items-center gap-2">
                 <QrCode className="w-4 h-4 text-primary" />
@@ -280,7 +280,7 @@ export default function RetailReturnsPage() {
         )}
 
         {target && (
-          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white">
+          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-card">
             <CardContent className="p-6 space-y-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-black uppercase tracking-tight text-sm">
@@ -313,7 +313,7 @@ export default function RetailReturnsPage() {
                             <button key={r} type="button"
                               onClick={() => setReasons({ ...reasons, [l.lineId]: r })}
                               className={cn('h-8 px-3 rounded-full border-2 text-[9px] font-black uppercase tracking-widest',
-                                (reasons[l.lineId] || 'other') === r ? 'bg-foreground text-background border-foreground' : 'bg-white')}>
+                                (reasons[l.lineId] || 'other') === r ? 'bg-foreground text-background border-foreground' : 'bg-card')}>
                               {REASON_LABELS[r]}
                             </button>
                           ))}
@@ -354,7 +354,7 @@ export default function RetailReturnsPage() {
             </div>
           )}
           {returns.map((r) => (
-            <Card key={r.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white',
+            <Card key={r.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-card',
               activeReturn?.id === r.id && 'border-primary shadow-lg shadow-primary/10')}>
               <CardContent className="p-5 space-y-3">
                 <button type="button" className="w-full text-left" onClick={() => setActiveReturn(activeReturn?.id === r.id ? null : r)}>

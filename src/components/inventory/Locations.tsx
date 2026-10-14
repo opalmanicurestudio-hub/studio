@@ -45,14 +45,14 @@ const LocationContentsDialog = ({ location, items, open, onOpenChange }: { locat
                         <MapPin className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Zone Audit</span>
                     </div>
-                    <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Items in {location.name}</DialogTitle>
+                    <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Items in {location.name}</DialogTitle>
                     <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verified manifest for this storage unit.</DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="flex-1">
                     <div className="p-8 space-y-3">
                         {items.length > 0 ? items.map(item => (
                             <Link href={`/inventory/${item.id}`} key={item.id} className="block group">
-                                <div className="flex items-center gap-4 p-4 rounded-2xl border-2 border-transparent hover:border-primary/10 hover:bg-primary/[0.02] transition-all bg-white shadow-sm">
+                                <div className="flex items-center gap-4 p-4 rounded-2xl border-2 border-transparent hover:border-primary/10 hover:bg-primary/[0.02] transition-all bg-card shadow-sm">
                                     <div className="w-14 h-14 bg-muted/30 rounded-2xl flex-shrink-0 border-2 border-white shadow-inner overflow-hidden relative flex items-center justify-center">
                                          {item.imageUrl ? (
                                             <Image src={item.imageUrl} alt={item.name} fill className='object-cover'/>
@@ -61,7 +61,7 @@ const LocationContentsDialog = ({ location, items, open, onOpenChange }: { locat
                                          )}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-black text-xs md:text-sm uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
+                                        <p className="font-black text-xs md:text-sm uppercase tracking-tight text-foreground truncate">{item.name}</p>
                                         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{item.category}</p>
                                     </div>
                                     <div className="text-right shrink-0">
@@ -103,7 +103,7 @@ const LocationCard = ({
 }) => {
     const Icon = locationType ? iconMap[locationType.icon]?.component : Box;
     return (
-        <Card className="transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col bg-white hover:border-primary/20 hover:shadow-2xl hover:shadow-primary/5 cursor-pointer shadow-sm" onClick={() => onClick(location)}>
+        <Card className="transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col bg-card hover:border-primary/20 hover:shadow-2xl hover:shadow-primary/5 cursor-pointer shadow-sm" onClick={() => onClick(location)}>
             <CardContent className="p-6 space-y-6 flex-1 text-left">
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex items-center gap-4 min-w-0">
@@ -111,7 +111,7 @@ const LocationCard = ({
                             {Icon && <Icon className="w-6 h-6 text-primary group-hover:text-white transition-colors" />}
                         </div>
                         <div className="min-w-0">
-                            <p className="font-black uppercase tracking-tight text-sm md:text-base text-slate-900 truncate leading-none mb-1.5">{location.name}</p>
+                            <p className="font-black uppercase tracking-tight text-sm md:text-base text-foreground truncate leading-none mb-1.5">{location.name}</p>
                             <Badge variant="outline" className="h-5 px-2 rounded-full font-black text-[8px] uppercase tracking-widest border-2">
                                 {locationType?.name || 'Standard Unit'}
                             </Badge>
@@ -138,9 +138,9 @@ const LocationCard = ({
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all flex justify-between items-center">
                         <div className="space-y-0.5">
                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none">Manifest Load</p>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Assigned SKUs</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Assigned SKUs</p>
                         </div>
-                        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">{itemCount}</p>
+                        <p className="text-2xl font-black font-mono tracking-tighter text-foreground">{itemCount}</p>
                     </div>
                 </div>
             </CardContent>
@@ -160,7 +160,7 @@ const EmptyState = ({ onAdd }: { onAdd: () => void }) => (
             <Warehouse className='w-12 h-12 text-muted-foreground' />
         </div>
         <div className="space-y-2">
-            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Zones Inactive</h3>
+            <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">Zones Inactive</h3>
             <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
                 Define your studio's physical organizational matrix to enable zone-specific asset tracking.
             </p>
@@ -199,7 +199,7 @@ export const Locations = ({
         <div className="space-y-10 text-left">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
                 <div className="space-y-1">
-                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Storage Architecture</h3>
+                    <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-foreground leading-none">Storage Architecture</h3>
                     <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Physical organizational matrix</p>
                 </div>
                 <Button onClick={onAddLocation} className="h-12 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full sm:w-auto">

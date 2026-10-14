@@ -231,7 +231,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Recovery</p>
-            <h3 className="text-sm md:text-base font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</h3>
+            <h3 className="text-sm md:text-base font-black uppercase tracking-tighter text-foreground leading-none">{title}</h3>
         </div>
     </div>
   );
@@ -247,7 +247,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
             <HeartHandshake className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Reputation Suite</span>
           </div>
-          <SheetTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Issue Recovery</SheetTitle>
+          <SheetTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Issue Recovery</SheetTitle>
           <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Resolution protocol for: <strong>{client.name}</strong></SheetDescription>
         </SheetHeader>
 
@@ -257,22 +257,22 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                     <SectionHeader icon={Zap} title="Select Yield Type" />
                     <RadioGroup value={mode} onValueChange={(v: any) => setMode(v)} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <label htmlFor="mode-wallet" className="cursor-pointer">
-                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'wallet' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
-                                <Wallet className={cn("w-6 h-6 mb-2", mode === 'wallet' ? "text-primary" : "text-slate-400")} />
+                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'wallet' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-card")}>
+                                <Wallet className={cn("w-6 h-6 mb-2", mode === 'wallet' ? "text-primary" : "text-muted-foreground")} />
                                 <span className="text-[9px] font-black uppercase tracking-widest">Store Credit</span>
                                 <RadioGroupItem value="wallet" id="mode-wallet" className="sr-only" />
                             </div>
                         </label>
                         <label htmlFor="mode-service" className="cursor-pointer">
-                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'service' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
-                                <Sparkles className={cn("w-6 h-6 mb-2", mode === 'service' ? "text-primary" : "text-slate-400")} />
+                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'service' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-card")}>
+                                <Sparkles className={cn("w-6 h-6 mb-2", mode === 'service' ? "text-primary" : "text-muted-foreground")} />
                                 <span className="text-[9px] font-black uppercase tracking-widest">Service Gift</span>
                                 <RadioGroupItem value="service" id="mode-service" className="sr-only" />
                             </div>
                         </label>
                         <label htmlFor="mode-hosp" className="cursor-pointer">
-                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'hospitality' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
-                                <Coffee className={cn("w-6 h-6 mb-2", mode === 'hospitality' ? "text-primary" : "text-slate-400")} />
+                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'hospitality' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-card")}>
+                                <Coffee className={cn("w-6 h-6 mb-2", mode === 'hospitality' ? "text-primary" : "text-muted-foreground")} />
                                 <span className="text-[9px] font-black uppercase tracking-widest">Hospitality</span>
                                 <RadioGroupItem value="hospitality" id="mode-hosp" className="sr-only" />
                             </div>
@@ -344,7 +344,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                     {needsPin && (
                     <div className="space-y-4 pt-4 border-t border-dashed">
                         <div className="flex items-center gap-3 px-1">
-                            <div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-slate-400" /></div>
+                            <div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-muted-foreground" /></div>
                             <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Manager Authorization PIN</Label>
                         </div>
                         <Input 
@@ -365,7 +365,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
             <Button onClick={handleAction} disabled={isSubmitting || !reason.trim() || (needsPin && pin.length < 4)} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">
                 {isSubmitting ? <Loader className="animate-spin" /> : 'Certify Recovery'}
             </Button>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-muted-foreground">Abort Protocol</Button>
         </DialogFooter>
       </ContentComp>
     </DialogComp>

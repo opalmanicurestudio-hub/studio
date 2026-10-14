@@ -49,14 +49,14 @@ export function HousekeepingStats() {
   const tips = React.useMemo(() => (kits && linens ? buyingTips({ appts: appointments || [], services: services || [], kits: kits || [], kitTypes: kitTypes || [], linens: linens || [], days }) : []), [appointments, services, kits, kitTypes, linens, days]);
   if (!manager || (!(kits || []).length && !(linens || []).length && !resets.length)) return null;
   const tile = (label: string, value: React.ReactNode, sub?: string) => (
-    <div className="rounded-[20px] bg-white p-4 shadow-[0_8px_22px_-16px_rgba(23,24,26,0.35)]" style={{ border: '1px solid #ECE6DD' }}>
-      <p className="text-[12px] font-[700] text-[#8A847A]">{label}</p><p className="text-[28px] font-[800] leading-tight tabular-nums">{value}</p>{sub && <p className="text-[12px] text-[#6A655D]">{sub}</p>}
+    <div className="rounded-[20px] bg-card p-4 shadow-[0_8px_22px_-16px_rgba(23,24,26,0.35)]" style={{ border: '1px solid hsl(var(--border))' }}>
+      <p className="text-[12px] font-[700] text-muted-foreground">{label}</p><p className="text-[28px] font-[800] leading-tight tabular-nums">{value}</p>{sub && <p className="text-[12px] text-muted-foreground">{sub}</p>}
     </div>);
   return (
-    <section aria-label="Housekeeping" className="space-y-4 rounded-[28px] p-5" style={{ background: '#FBF9F6', border: '1px solid #ECE6DD' }}>
+    <section aria-label="Housekeeping" className="space-y-4 rounded-[28px] p-5" style={{ background: '#FBF9F6', border: '1px solid hsl(var(--border))' }}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 className="text-[22px] font-[800] tracking-[-0.01em]">Housekeeping</h2><p className="text-[13px] text-[#6A655D]">Resets, cleansing, laundry — and what to buy</p></div>
-        <div className="flex overflow-hidden rounded-full border text-[13px] font-[600]">{[7, 30].map((d) => <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)} className={`h-10 px-4 ${days === d ? 'bg-[#17181A] text-white' : 'bg-white'}`}>Last {d} days</button>)}</div>
+        <div><h2 className="text-[22px] font-[800] tracking-[-0.01em]">Housekeeping</h2><p className="text-[13px] text-muted-foreground">Resets, cleansing, laundry — and what to buy</p></div>
+        <div className="flex overflow-hidden rounded-full border text-[13px] font-[600]">{[7, 30].map((d) => <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)} className={`h-10 px-4 ${days === d ? 'bg-foreground text-background' : 'bg-card'}`}>Last {d} days</button>)}</div>
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {tile('Station resets', resets.length, resets.length ? `${Math.round(((resets.length - late.length) / resets.length) * 100)}% ready on time` : undefined)}
@@ -64,12 +64,12 @@ export function HousekeepingStats() {
         {tile('Cleanses started', count(/^kit\.cleanse_started$/), `${count(/^kit\.swapped$/)} swaps at the chair · ${count(/^kit\.out$/)} pulled out`)}
         {tile('Laundry loads', count(/^linen\.wash$/), `${count(/^bundle\.retagged$/)} tags reprinted`)}
       </div>
-      {people.length > 0 && <div className="rounded-[20px] bg-white p-4" style={{ border: '1px solid #ECE6DD' }}><p className="mb-2 text-[13px] font-[700]">Who did the resets</p>
+      {people.length > 0 && <div className="rounded-[20px] bg-card p-4" style={{ border: '1px solid hsl(var(--border))' }}><p className="mb-2 text-[13px] font-[700]">Who did the resets</p>
         <div className="flex flex-wrap gap-2">{people.map(([name, e]) => <span key={name} className="rounded-full bg-[#F1ECE5] px-3 py-1.5 text-[13px] font-[600]">{name} · {e.n}{e.late ? <span className="text-[#B42318]"> · {e.late} late</span> : null}</span>)}</div></div>}
-      <div className="rounded-[20px] bg-white p-4" style={{ border: '1px solid #ECE6DD' }}>
+      <div className="rounded-[20px] bg-card p-4" style={{ border: '1px solid hsl(var(--border))' }}>
         <p className="mb-1 text-[13px] font-[700]">Buying tips</p>
         {tips.length ? <ul className="space-y-1.5">{tips.map((t) => <li key={t.kind + t.name} className="flex items-start gap-2 text-[14px]"><span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#7A5C3A]" /><span><b className="font-[700]">{t.name}:</b> {t.text}</span></li>)}</ul>
-          : <p className="text-[14px] text-[#6A655D]">You own enough of everything your bookings needed at once in the last {days} days.</p>}
+          : <p className="text-[14px] text-muted-foreground">You own enough of everything your bookings needed at once in the last {days} days.</p>}
       </div>
     </section>);
 }

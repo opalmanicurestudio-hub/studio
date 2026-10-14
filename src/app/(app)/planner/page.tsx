@@ -1475,8 +1475,8 @@ function PlannerPageContent() {
                 </div></div>}
       {leftOpenSheet && tenantId && (
         <div role="dialog" aria-modal="true" aria-label="Left open from earlier days" className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 sm:items-center" onClick={() => setLeftOpenSheet(false)}>
-          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-[24px] bg-white p-5 sm:rounded-[24px]" onClick={(ev) => ev.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between"><p className="text-[18px] font-bold">Left open from earlier days</p><button type="button" onClick={() => setLeftOpenSheet(false)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: '#f4f4f5' }}>Close</button></div>
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-[24px] bg-card p-5 sm:rounded-[24px]" onClick={(ev) => ev.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between"><p className="text-[18px] font-bold">Left open from earlier days</p><button type="button" onClick={() => setLeftOpenSheet(false)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>Close</button></div>
             <LeftOpen firestore={firestore} tenantId={tenantId} items={leftOpenList} staff={allStaff || []} who={(currentUser as any)?.displayName || 'Planner'} />
           </div>
         </div>)}
@@ -1512,7 +1512,7 @@ function PlannerPageContent() {
         ]}
         onFindTime={() => setFindOpen(true)}
         viewControls={<><span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda', 'week', 'month'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span></>} />
-      <main className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
+      <main className="flex-1 flex flex-col min-h-0 bg-muted/50">
         {isMobile && <div className="flex gap-1 px-3 pt-2" role="tablist" aria-label="View">{([['now', 'Now'], ['grid', 'Grid'], ['list', 'List'], ['week', 'Week'], ['month', 'Month']] as const).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={phoneView === v} onClick={() => choosePhoneView(v)} className="h-9 flex-1 rounded-full text-[13px] font-semibold" style={phoneView === v ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}</div>}
         {isMobile && phoneView === 'now' && <NowFirst appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
           onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => { setBookPreset(null); setIsAddAppointmentOpen(true); }}

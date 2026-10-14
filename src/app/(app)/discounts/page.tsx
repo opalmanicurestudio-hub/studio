@@ -49,15 +49,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
-    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
+    <Card className="border-2 shadow-sm min-w-0 text-left bg-card/50 backdrop-blur-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-1 md:pb-2">
             <CardTitle className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 truncate mr-1">
                 {title}
             </CardTitle>
-            <Icon className={cn("h-3 w-3 md:h-3.5 md:w-3.5 opacity-40", colorClass || "text-slate-900")} />
+            <Icon className={cn("h-3 w-3 md:h-3.5 md:w-3.5 opacity-40", colorClass || "text-foreground")} />
         </CardHeader>
         <CardContent className="p-3 md:p-4 pt-0">
-            <div className={cn("text-lg md:text-2xl font-black tracking-tighter font-mono truncate", colorClass || "text-slate-900")}>
+            <div className={cn("text-lg md:text-2xl font-black tracking-tighter font-mono truncate", colorClass || "text-foreground")}>
                 {value}
             </div>
             <p className="text-[7px] md:text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>
@@ -66,15 +66,15 @@ const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title:
 );
 
 const AutomationCard = ({ icon: Icon, title, description, onSetup }: { icon: any, title: string, description: string, onSetup: () => void }) => (
-    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden group h-full flex flex-col bg-white">
+    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden group h-full flex flex-col bg-card">
         <CardHeader className="p-6 md:p-8 flex-1 text-left">
             <div className="flex flex-col items-center sm:items-start text-center sm:text-left space-y-4">
                 <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 shadow-inner group-hover:bg-primary transition-all duration-500">
                     <Icon className="w-8 h-8 text-primary group-hover:text-white transition-colors" />
                 </div>
                 <div className="space-y-1">
-                    <CardTitle className="text-lg font-black uppercase tracking-tight text-slate-900">{title}</CardTitle>
-                    <CardDescription className="text-xs font-medium text-slate-500 leading-relaxed uppercase tracking-tight">{description}</CardDescription>
+                    <CardTitle className="text-lg font-black uppercase tracking-tight text-foreground">{title}</CardTitle>
+                    <CardDescription className="text-xs font-medium text-muted-foreground leading-relaxed uppercase tracking-tight">{description}</CardDescription>
                 </div>
             </div>
         </CardHeader>
@@ -116,11 +116,11 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
             <CardHeader className="p-6 md:p-8">
                 <div className="flex items-center justify-between">
                      <div className="flex items-center gap-4">
-                        <div className="p-3 bg-white rounded-2xl shadow-inner border border-primary/10">
+                        <div className="p-3 bg-card rounded-2xl shadow-inner border border-primary/10">
                            <Icon className="w-6 h-6 text-primary" />
                         </div>
                         <div className="text-left min-w-0">
-                            <CardTitle className="text-sm md:text-lg font-black uppercase tracking-tight text-slate-900 truncate">{title}</CardTitle>
+                            <CardTitle className="text-sm md:text-lg font-black uppercase tracking-tight text-foreground truncate">{title}</CardTitle>
                             <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest leading-none mt-1">Status: Active</p>
                         </div>
                     </div>
@@ -136,18 +136,18 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
                 </div>
             </CardHeader>
             <CardContent className="px-6 md:px-8 pb-6 flex-1 text-left space-y-4">
-                <div className="p-5 rounded-2xl bg-white border-2 border-primary/10 shadow-inner text-center">
+                <div className="p-5 rounded-2xl bg-card border-2 border-primary/10 shadow-inner text-center">
                     <p className="text-[9px] font-black uppercase text-primary/60 tracking-[0.2em]">Incentive Yield</p>
                     <p className="text-3xl font-black text-primary tracking-tighter font-mono">
                         {discount.type === 'percentage' ? `${discount.value}%` : `$${discount.value.toFixed(2)}`}<span className="text-xs ml-1 uppercase">Off</span>
                     </p>
                 </div>
-                <p className="text-[10px] font-bold text-slate-600 uppercase leading-relaxed tracking-tight text-center">{triggerText[discount.automation?.trigger || 'none']}</p>
+                <p className="text-[10px] font-bold text-foreground/80 uppercase leading-relaxed tracking-tight text-center">{triggerText[discount.automation?.trigger || 'none']}</p>
             </CardContent>
             <CardFooter className="p-4 border-t border-primary/10 bg-primary/[0.02] mt-auto">
                 <div className="flex justify-between items-center w-full px-1">
                     <span className="text-[9px] font-black uppercase text-primary/40 tracking-widest">Protocol Code</span>
-                    <Badge variant="secondary" className="bg-white border-2 border-primary/10 text-primary font-mono font-black text-[10px] h-6 px-3">{discount.code}</Badge>
+                    <Badge variant="secondary" className="bg-card border-2 border-primary/10 text-primary font-mono font-black text-[10px] h-6 px-3">{discount.code}</Badge>
                 </div>
             </CardFooter>
         </Card>
@@ -330,12 +330,12 @@ function DiscountsContent() {
     }, [discounts, searchTerm]);
 
     return (
-        <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
+        <div className="flex min-h-screen w-full flex-col bg-background overflow-x-hidden">
             <AppHeader title="Incentive Hub" />
             <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
                     <div className="space-y-1">
-                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Incentives</h1>
+                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Incentives</h1>
                         <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
                             Retention matrix & logic control
                         </p>
@@ -355,9 +355,9 @@ function DiscountsContent() {
                 <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
                     <div className="w-full overflow-x-auto pb-4 scrollbar-hide">
                         <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5 mb-4 min-w-full sm:min-w-0">
-                            <TabsTrigger value="codes" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Script Ledger</TabsTrigger>
-                            <TabsTrigger value="automations" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logic Flows</TabsTrigger>
-                            <TabsTrigger value="referrals" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Referral Engine</TabsTrigger>
+                            <TabsTrigger value="codes" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Script Ledger</TabsTrigger>
+                            <TabsTrigger value="automations" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Logic Flows</TabsTrigger>
+                            <TabsTrigger value="referrals" className="px-6 sm:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Referral Engine</TabsTrigger>
                         </TabsList>
                     </div>
                     
@@ -372,7 +372,7 @@ function DiscountsContent() {
                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                                     <Input 
                                         placeholder="SEARCH SCRIPTS..." 
-                                        className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                                        className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-card"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                     />
@@ -454,11 +454,11 @@ function DiscountsContent() {
                                 <div className="flex items-center gap-3 flex-shrink-0 w-full sm:w-auto">
                                 {isReferralEditing ? (
                                     <>
-                                        <Button variant="ghost" onClick={handleReferralCancel} className="flex-1 sm:w-auto h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                                        <Button variant="ghost" onClick={handleReferralCancel} className="flex-1 sm:w-auto h-12 font-black uppercase text-[10px] tracking-widest text-muted-foreground">Cancel</Button>
                                         <Button onClick={handleReferralSave} className="flex-1 sm:w-auto h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Protocol</Button>
                                     </>
                                 ) : (
-                                    <Button onClick={handleReferralEdit} className="w-full sm:w-auto h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><Edit className="mr-2 h-4 w-4"/>Edit Architecture</Button>
+                                    <Button onClick={handleReferralEdit} className="w-full sm:w-auto h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-card shadow-sm"><Edit className="mr-2 h-4 w-4"/>Edit Architecture</Button>
                                 )}
                                 </div>
                             </CardHeader>
@@ -507,9 +507,9 @@ function DiscountsContent() {
 // Incentives (discounts, loyalty, referrals) — for roles that run marketing (Settings → Roles and permissions).
 export default function DiscountsPage() {
     const { can } = useTenant() as any;
-    if (typeof can === 'function' && !can('marketing.manage')) return <div className="p-6"><AppHeader title="Incentives" /><p className="mt-6 text-[15px]" style={{ color: '#6d7075' }}>Incentives are managed by the people your business lets run marketing.</p></div>;
+    if (typeof can === 'function' && !can('marketing.manage')) return <div className="p-6"><AppHeader title="Incentives" /><p className="mt-6 text-[15px]" style={{ color: 'hsl(var(--muted-foreground))' }}>Incentives are managed by the people your business lets run marketing.</p></div>;
     return (
-        <Suspense fallback={<div className="flex min-h-screen w-full flex-col bg-slate-50/50 justify-center items-center"><Loader className="animate-spin text-primary h-8 w-8" /></div>}>
+        <Suspense fallback={<div className="flex min-h-screen w-full flex-col bg-background justify-center items-center"><Loader className="animate-spin text-primary h-8 w-8" /></div>}>
             <DiscountsContent />
         </Suspense>
     );

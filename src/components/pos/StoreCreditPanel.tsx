@@ -44,14 +44,14 @@ export const StoreCreditPanel: React.FC<Props> = ({ client, totalOwed, onCreditA
             <p className="text-[12.5px]" style={{ color: 'var(--muted, #6d7075)' }}>{on ? `Used when this sale is paid${totalAvailable - appliedAmount > 0.004 ? ` · ${money(totalAvailable - appliedAmount)} stays for next time` : ''}` : 'Not used on this sale'}{soon ? ` · ${formatCreditExpiry(soon.expiresAt)}` : ''}</p></div></div>
         <div className="flex shrink-0 gap-1.5">
           {on ? <>
-            <button type="button" onClick={() => { setVal(appliedAmount.toFixed(2)); setEditing(!editing); }} className="h-9 rounded-full bg-white px-3 text-[13px] font-semibold">Change</button>
-            <button type="button" onClick={() => { skipped.current = cid; setEditing(false); set(0); }} className="h-9 rounded-full bg-white px-3 text-[13px]">Don’t use</button></>
+            <button type="button" onClick={() => { setVal(appliedAmount.toFixed(2)); setEditing(!editing); }} className="h-9 rounded-full bg-card px-3 text-[13px] font-semibold">Change</button>
+            <button type="button" onClick={() => { skipped.current = cid; setEditing(false); set(0); }} className="h-9 rounded-full bg-card px-3 text-[13px]">Don’t use</button></>
             : <button type="button" onClick={() => { skipped.current = ''; set(maxApplicable); }} disabled={maxApplicable <= 0} className="h-9 rounded-full px-3.5 text-[13px] font-semibold text-white disabled:opacity-40" style={{ background: '#1f7a4d' }}>Use {money(maxApplicable)}</button>}
         </div>
       </div>
       {editing && on && <div className="flex items-center gap-2">
-        <label className="flex items-center gap-1 text-[14px]">$<input type="number" step="0.01" min={0} max={maxApplicable} value={val} onChange={(e) => setVal(e.target.value)} aria-label="Credit to use" className="h-10 w-28 rounded-xl border bg-white px-2 text-[14px]" style={{ borderColor: 'var(--line, #ececee)' }} /></label>
-        <button type="button" onClick={() => { const n = parseFloat(val); if (Number.isFinite(n)) { if (n <= 0) skipped.current = cid; set(n); } setEditing(false); }} className="h-10 rounded-full px-4 text-[13px] font-semibold text-white" style={{ background: '#16171a' }}>Use this</button>
+        <label className="flex items-center gap-1 text-[14px]">$<input type="number" step="0.01" min={0} max={maxApplicable} value={val} onChange={(e) => setVal(e.target.value)} aria-label="Credit to use" className="h-10 w-28 rounded-xl border bg-card px-2 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }} /></label>
+        <button type="button" onClick={() => { const n = parseFloat(val); if (Number.isFinite(n)) { if (n <= 0) skipped.current = cid; set(n); } setEditing(false); }} className="h-10 rounded-full px-4 text-[13px] font-semibold text-white" style={{ background: 'hsl(var(--foreground))' }}>Use this</button>
         <span className="text-[12px]" style={{ color: 'var(--muted, #6d7075)' }}>up to {money(maxApplicable)}</span></div>}
     </div>);
 };

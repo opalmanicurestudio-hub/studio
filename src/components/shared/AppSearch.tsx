@@ -30,7 +30,7 @@ export function AppSearch() {
   const go = (h: Hit) => { setOpen(false); setQ(''); box.current?.blur(); router.push(h.href); };
   return (
     <div className="relative w-full max-w-[420px]">
-      <label className="flex h-10 items-center gap-2.5 rounded-full px-4" style={{ background: '#f3eee8' }}>
+      <label className="flex h-10 items-center gap-2.5 rounded-full px-4" style={{ background: 'hsl(var(--secondary))' }}>
         <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         <input ref={box} value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
           onKeyDown={(e) => { if (e.key === 'ArrowDown') { e.preventDefault(); setSel((v) => Math.min(v + 1, hits.length - 1)); } else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((v) => Math.max(v - 1, 0)); }
@@ -40,10 +40,10 @@ export function AppSearch() {
         <kbd className="hidden shrink-0 rounded-md border px-1.5 text-[11px] text-muted-foreground lg:inline">⌘K</kbd>
       </label>
       {open && q.trim().length >= 2 && (
-        <div id="app-search-results" role="listbox" className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-2xl shadow-[0_12px_40px_rgba(28,25,23,.14)]" style={{ background: 'var(--cf-search-bg, #fff)', border: '1px solid #e7e2dc' }}>
+        <div id="app-search-results" role="listbox" className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-2xl shadow-[0_12px_40px_rgba(28,25,23,.14)]" style={{ background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))' }}>
           {hits.length ? hits.map((h, i) => (
             <button key={h.href + h.title} type="button" role="option" aria-selected={i === sel} onMouseDown={(e) => { e.preventDefault(); go(h); }} onMouseEnter={() => setSel(i)}
-              className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left" style={i === sel ? { background: '#f3eee8' } : undefined}>
+              className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left" style={i === sel ? { background: 'hsl(var(--secondary))' } : undefined}>
               <span className="truncate text-[14.5px] font-medium">{h.title}</span><span className="shrink-0 text-[12px] text-muted-foreground">{h.where}</span>
             </button>)) : <p className="px-4 py-3 text-[14px] text-muted-foreground">Nothing matches “{q}”. Try another word.</p>}
         </div>)}

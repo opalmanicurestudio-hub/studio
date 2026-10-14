@@ -6,7 +6,7 @@
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', BLUE = '#2563eb';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', BLUE = '#2563eb';
 const DOT: Record<string, string> = { next: BLUE, balance: '#1f7a4d', product: MUTED, nudge: MUTED };
 
 export function VisitMoments({ tenantId, appointment, compact = false }: { tenantId: string; appointment: any; compact?: boolean }) {
@@ -16,7 +16,7 @@ export function VisitMoments({ tenantId, appointment, compact = false }: { tenan
     payPost('/api/opportunities', { tenantId, action: 'visit', appointmentId: id }).then((r) => { if (live) setM(r?.ok ? r.moments || [] : []); }); return () => { live = false; }; }, [tenantId, id, appointment?.clientId, done]);
   if (!m || !m.length) return null;
   return (
-    <div className={`space-y-1.5 ${compact ? 'rounded-[16px] p-3' : 'rounded-2xl border p-3.5'}`} style={compact ? { background: '#f6f6f7', color: INK } : { borderColor: LINE, color: INK }}>
+    <div className={`space-y-1.5 ${compact ? 'rounded-[16px] p-3' : 'rounded-2xl border p-3.5'}`} style={compact ? { background: 'hsl(var(--secondary))', color: INK } : { borderColor: LINE, color: INK }}>
       <p className="text-[11.5px] font-bold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Before they leave</p>
       {m.map((x) => <div key={x.key} className="flex gap-2"><span className="mt-[7px] h-2 w-2 shrink-0 rounded-full" style={{ background: DOT[x.kind] || MUTED }} aria-hidden="true" />
         <div className="min-w-0"><p className="text-[13.5px] leading-snug">{x.line}</p>{x.sub && !compact && <p className="text-[12px] leading-snug" style={{ color: MUTED }}>{x.sub}</p>}</div></div>)}

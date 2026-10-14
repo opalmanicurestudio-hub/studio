@@ -88,7 +88,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any; title: string }) => (
     </div>
     <div className="space-y-0.5 text-left">
       <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Operational</p>
-      <h3 className="text-sm md:text-base font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+      <h3 className="text-sm md:text-base font-black uppercase tracking-tighter text-foreground">{title}</h3>
     </div>
   </div>
 );
@@ -102,7 +102,7 @@ const SettingRow = ({ icon: Icon, color = 'primary', title, description, childre
     green:   'border-green-500/20 bg-green-500/5',
     red:     'border-red-500/20 bg-red-500/5',
     blue:    'border-blue-500/20 bg-blue-500/5',
-    slate:   'border-slate-200 bg-slate-50',
+    slate:   'border-border bg-muted/60',
   };
   const textMap: Record<string, string> = {
     primary: 'text-primary',
@@ -110,12 +110,12 @@ const SettingRow = ({ icon: Icon, color = 'primary', title, description, childre
     green:   'text-green-700',
     red:     'text-red-700',
     blue:    'text-blue-700',
-    slate:   'text-slate-700',
+    slate:   'text-foreground/80',
   };
   return (
     <div className={cn('flex items-center justify-between p-5 rounded-[2rem] border-2 gap-6', colorMap[color] || colorMap.primary)}>
       <div className="flex items-start gap-4 min-w-0">
-        <div className={cn('p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0 mt-0.5', colorMap[color])}>
+        <div className={cn('p-2.5 rounded-xl bg-card border-2 shadow-sm shrink-0 mt-0.5', colorMap[color])}>
           <Icon className={cn('w-4 h-4', textMap[color] || textMap.primary)} />
         </div>
         <div className="space-y-0.5 min-w-0">
@@ -138,7 +138,7 @@ const NumberInput = ({ value, onChange, disabled, suffix, prefix, min, max, step
       disabled={disabled}
       min={min} max={max} step={step || 1}
       placeholder={placeholder || '0'}
-      className={cn('h-12 rounded-2xl border-2 font-black text-center shadow-inner bg-white', prefix && 'pl-8', suffix && 'pr-8')}
+      className={cn('h-12 rounded-2xl border-2 font-black text-center shadow-inner bg-card', prefix && 'pl-8', suffix && 'pr-8')}
     />
     {suffix && <span className="absolute right-4 text-[10px] font-black uppercase text-muted-foreground opacity-40">{suffix}</span>}
   </div>
@@ -149,7 +149,7 @@ const DayHoursRow = ({ day, data, onChange, disabled }: {
   onChange: (day: string, updates: Partial<DayHours>) => void;
   disabled?: boolean;
 }) => (
-  <div className={cn('flex flex-col items-stretch p-4 md:p-5 rounded-[2rem] border-2 transition-all gap-4', data.enabled ? 'bg-white border-border shadow-sm' : 'bg-muted/30 border-transparent opacity-60')}>
+  <div className={cn('flex flex-col items-stretch p-4 md:p-5 rounded-[2rem] border-2 transition-all gap-4', data.enabled ? 'bg-card border-border shadow-sm' : 'bg-muted/30 border-transparent opacity-60')}>
     <div className="flex items-center gap-4 text-left">
       <Switch checked={data.enabled} onCheckedChange={(val) => onChange(day, { enabled: val })} disabled={disabled} />
       <span className="text-xs font-black uppercase tracking-widest w-24 text-left">{day}</span>
@@ -207,12 +207,12 @@ const ServicePolicyCard = ({ service, tmhr, inventory, isEditing, localPolicy, o
   const policy = localPolicy || { mode: 'inherit', window: undefined, value: undefined };
 
   return (
-    <Card className={cn('transition-all border-2 rounded-[2rem] overflow-hidden shadow-sm', policy.mode !== 'inherit' ? 'border-primary/20 bg-primary/[0.01]' : 'bg-white')}>
+    <Card className={cn('transition-all border-2 rounded-[2rem] overflow-hidden shadow-sm', policy.mode !== 'inherit' ? 'border-primary/20 bg-primary/[0.01]' : 'bg-card')}>
       <CardHeader className="p-4 border-b bg-muted/5 flex flex-row items-center justify-between gap-4 text-left">
         <div className="flex items-center gap-3 min-w-0 text-left">
           <div className="p-2 rounded-lg bg-background border shadow-sm"><Star className="w-3.5 h-3.5 text-primary opacity-40" /></div>
           <div className="min-w-0 text-left">
-            <CardTitle className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{service.name}</CardTitle>
+            <CardTitle className="text-[11px] font-black uppercase tracking-tight text-foreground truncate text-left">{service.name}</CardTitle>
             <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">ID: {service.id.slice(-6).toUpperCase()}</p>
           </div>
         </div>
@@ -257,7 +257,7 @@ const ServicePolicyCard = ({ service, tmhr, inventory, isEditing, localPolicy, o
                 <div className="flex items-center gap-2 text-left">
                   <Landmark className="w-3.5 h-3.5 text-primary opacity-40" />
                   <span className="text-[9px] font-black uppercase text-muted-foreground">House Floor Minimum</span>
-                  <span className="font-black font-mono text-sm text-slate-900">${floor.toFixed(2)}</span>
+                  <span className="font-black font-mono text-sm text-foreground">${floor.toFixed(2)}</span>
                 </div>
               </div>
             </CardContent>
@@ -713,7 +713,7 @@ function SettingsPageImpl() {
                 <Row label="Store credit expires after" help="Leave at 0 to never expire." inline><Num field="storeCreditExpiryDays" suffix="days" int /></Row>
                 <Row label="How tips are shared" help="Direct: everyone keeps the tips given to them. Tip-out: providers pass a set share to support roles on shift that day. Pool: the period’s tips are shared by hours (from the time clock), by hours with role weights, or equally. Owners, managers and supervisors never receive shared tips (US federal law) unless marked “works as a provider only” on their profile; renters are never included. Each period is reviewed and approved in Money before payroll pays it.">
                   {(() => { const t: any = (tenantData as any).tipSharing || {}; const mode = ['direct', 'tipout', 'pool'].includes(t.mode) ? t.mode : 'direct'; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, tipSharing: { ...((prev as any).tipSharing || {}), ...patch } }));
-                    const tipouts: any[] = Array.isArray(t.tipouts) ? t.tipouts : [{ to: 'role:assistant', pct: 10 }]; const ipt = { borderColor: 'var(--line, #e7e2dc)' } as any;
+                    const tipouts: any[] = Array.isArray(t.tipouts) ? t.tipouts : [{ to: 'role:assistant', pct: 10 }]; const ipt = { borderColor: 'hsl(var(--border))' } as any;
                     return (<div className="space-y-3 text-[15px]">
                       <select value={mode} onChange={(e) => set({ mode: e.target.value })} aria-label="How tips are shared" className="h-11 rounded-xl border px-3" style={ipt}><option value="direct">Direct — everyone keeps their own</option><option value="tipout">Tip-out — providers pass a share to support roles</option><option value="pool">Pool — shared by the team each period</option></select>
                       {mode !== 'direct' && <div className="flex flex-wrap items-center gap-2"><span>Period</span><select value={t.period === 'week' ? 'week' : 'day'} onChange={(e) => set({ period: e.target.value })} aria-label="Period" className="h-11 rounded-xl border px-3" style={ipt}><option value="day">each day</option><option value="week">each week</option></select>
@@ -727,10 +727,10 @@ function SettingsPageImpl() {
                 </Row>
                 <Row label="Minimum wage" help="Each workweek, everyone paid by commission, per service or by the hour must earn at least this for every hour on the clock (tips don’t count). Payday and payroll add a top-up when they don’t, and overtime on commission or per service pay is worked out from it. Use your state or city rate when it’s higher than the federal $7.25.">
                   {(() => { const pr: any = (tenantData as any).payRules || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } }));
-                    return (<div className="flex flex-wrap items-center gap-2 text-[15px]">$<input type="number" min={0} step={0.01} value={pr.minimumWage ?? ''} placeholder="7.25" onChange={(e) => set({ minimumWage: Math.max(0, parseFloat(e.target.value) || 0) || null })} aria-label="Minimum wage per hour" className="h-11 w-24 rounded-xl border px-3 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /><span>an hour</span></div>); })()}
+                    return (<div className="flex flex-wrap items-center gap-2 text-[15px]">$<input type="number" min={0} step={0.01} value={pr.minimumWage ?? ''} placeholder="7.25" onChange={(e) => set({ minimumWage: Math.max(0, parseFloat(e.target.value) || 0) || null })} aria-label="Minimum wage per hour" className="h-11 w-24 rounded-xl border px-3 text-right" style={{ borderColor: 'hsl(var(--border))' }} /><span>an hour</span></div>); })()}
                 </Row>
                 <Row label="Commission rules" help="How commission is worked out for everyone on commission. Changes apply to new sales.">
-                  {(() => { const pr: any = (tenantData as any).payRules || {}; const pc: any = pr.productCharge || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } })); const ipt = { borderColor: 'var(--line, #e7e2dc)' } as any;
+                  {(() => { const pr: any = (tenantData as any).payRules || {}; const pc: any = pr.productCharge || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } })); const ipt = { borderColor: 'hsl(var(--border))' } as any;
                     return (<div className="space-y-2 text-[15px]">
                       <div className="flex flex-wrap items-center gap-2"><span>Take a product charge off first:</span>
                         <input type="number" min={0} step={0.01} value={pc.amount ?? ''} placeholder="0" onChange={(e) => set({ productCharge: { ...pc, amount: Math.max(0, parseFloat(e.target.value) || 0) } })} aria-label="Product charge" className="h-11 w-24 rounded-xl border px-3 text-right" style={ipt} />
@@ -749,7 +749,7 @@ function SettingsPageImpl() {
                     </div>); })()}
                 </Row>
                 <Row label="Extra pay for providers" help="On top of commission or per service pay. A bonus for selling a membership or package goes to whoever sold it at checkout. A share of no-show and late-cancellation fees goes to the provider the visit was booked with — only fees actually collected count. Both go into payroll as commission.">
-                  {(() => { const x: any = (tenantData as any).payExtras || {}; const ms: any = x.membershipSale || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payExtras: { ...((prev as any).payExtras || {}), ...patch } })); const ipt = { borderColor: 'var(--line, #e7e2dc)' } as any;
+                  {(() => { const x: any = (tenantData as any).payExtras || {}; const ms: any = x.membershipSale || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payExtras: { ...((prev as any).payExtras || {}), ...patch } })); const ipt = { borderColor: 'hsl(var(--border))' } as any;
                     return (<div className="space-y-2 text-[15px]">
                       <div className="flex flex-wrap items-center gap-2"><span>Selling a membership or package pays</span>
                         <input type="number" min={0} step={0.01} value={ms.amount ?? ''} placeholder="0" onChange={(e) => set({ membershipSale: { ...ms, amount: Math.max(0, parseFloat(e.target.value) || 0) } })} aria-label="Membership sale bonus" className="h-11 w-24 rounded-xl border px-3 text-right" style={ipt} />
@@ -763,20 +763,20 @@ function SettingsPageImpl() {
                   {(() => { const r: any = (tenantData as any).restocking || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, restocking: { ...((prev as any).restocking || {}), ...patch } }));
                     return (<div className="flex flex-wrap items-center gap-3 text-[15px]">
                       <label className="inline-flex items-center gap-2"><input type="checkbox" checked={r.enabled === true} onChange={(e) => set({ enabled: e.target.checked })} className="h-5 w-5" />Set aside automatically</label>
-                      <span className="inline-flex items-center gap-2">with a markup of <input type="number" min={0} value={r.markupPct ?? 40} onChange={(e) => set({ markupPct: Math.max(0, parseInt(e.target.value) || 0) })} aria-label="Restocking markup percent" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} />% on product cost</span>
+                      <span className="inline-flex items-center gap-2">with a markup of <input type="number" min={0} value={r.markupPct ?? 40} onChange={(e) => set({ markupPct: Math.max(0, parseInt(e.target.value) || 0) })} aria-label="Restocking markup percent" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'hsl(var(--border))' }} />% on product cost</span>
                     </div>); })()}
                 </Row>
                 <Row label="Running over" help="For services timed by the provider. A charge is only ever suggested when the provider said the client asked for the extra time — the desk adds or waives it. The suggestion itself is switched on in Automations.">
                   {(() => { const tp: any = (tenantData as any).timingPolicy || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, timingPolicy: { ...((prev as any).timingPolicy || {}), ...patch } }));
                     const pricing = tp.pricing === 'per_block' ? 'per_block' : 'service_rate';
                     return (<div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2 text-[15px]"><span>Free grace of</span><input type="number" min={0} value={tp.graceMinutes ?? 15} onChange={(e) => set({ graceMinutes: Math.max(0, parseInt(e.target.value) || 0) })} aria-label="Grace minutes" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /><span>minutes past the booked time</span></div>
+                      <div className="flex flex-wrap items-center gap-2 text-[15px]"><span>Free grace of</span><input type="number" min={0} value={tp.graceMinutes ?? 15} onChange={(e) => set({ graceMinutes: Math.max(0, parseInt(e.target.value) || 0) })} aria-label="Grace minutes" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'hsl(var(--border))' }} /><span>minutes past the booked time</span></div>
                       <div className="flex flex-wrap items-center gap-2 text-[15px]"><span>Then charge</span>
-                        <select value={pricing} onChange={(e) => set({ pricing: e.target.value })} aria-label="How extra time is priced" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+                        <select value={pricing} onChange={(e) => set({ pricing: e.target.value })} aria-label="How extra time is priced" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'hsl(var(--border))' }}>
                           <option value="service_rate">at the service’s own price per minute</option><option value="per_block">a set price per block of time</option></select>
-                        {pricing === 'per_block' && <span className="inline-flex items-center gap-1">$<input type="number" min={0} value={tp.blockPrice ?? ''} onChange={(e) => set({ blockPrice: Math.max(0, parseFloat(e.target.value) || 0) })} aria-label="Price per block" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /> per <input type="number" min={5} value={tp.blockMinutes ?? 15} onChange={(e) => set({ blockMinutes: Math.max(5, parseInt(e.target.value) || 15) })} aria-label="Block minutes" className="h-11 w-16 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /> min (started blocks)</span>}</div>
+                        {pricing === 'per_block' && <span className="inline-flex items-center gap-1">$<input type="number" min={0} value={tp.blockPrice ?? ''} onChange={(e) => set({ blockPrice: Math.max(0, parseFloat(e.target.value) || 0) })} aria-label="Price per block" className="h-11 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'hsl(var(--border))' }} /> per <input type="number" min={5} value={tp.blockMinutes ?? 15} onChange={(e) => set({ blockMinutes: Math.max(5, parseInt(e.target.value) || 15) })} aria-label="Block minutes" className="h-11 w-16 rounded-xl border px-2 text-right" style={{ borderColor: 'hsl(var(--border))' }} /> min (started blocks)</span>}</div>
                       <div className="flex flex-wrap items-center gap-2 text-[15px]"><span>Extra product used</span>
-                        <select value={['retail', 'cost', 'off'].includes(tp.extraProduct) ? tp.extraProduct : 'retail'} onChange={(e) => set({ extraProduct: e.target.value })} aria-label="How extra product is priced" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+                        <select value={['retail', 'cost', 'off'].includes(tp.extraProduct) ? tp.extraProduct : 'retail'} onChange={(e) => set({ extraProduct: e.target.value })} aria-label="How extra product is priced" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'hsl(var(--border))' }}>
                           <option value="retail">suggested at retail price</option><option value="cost">suggested at cost</option><option value="off">never charged</option></select></div>
                     </div>); })()}
                 </Row>
@@ -784,13 +784,13 @@ function SettingsPageImpl() {
                   {(() => { const r: any = (tenantData as any).cardOnFileCharge || {}; const mode = ['off', 'manager', 'limit'].includes(r.mode) ? r.mode : 'manager';
                     const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, cardOnFileCharge: { mode, limitCents: Number(r.limitCents) || 0, ...patch } }));
                     return (<div className="flex flex-wrap items-center gap-2">
-                      <select value={mode} onChange={(e) => set({ mode: e.target.value })} aria-label="Who can charge a saved card" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+                      <select value={mode} onChange={(e) => set({ mode: e.target.value })} aria-label="Who can charge a saved card" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'hsl(var(--border))' }}>
                         <option value="off">Off — send a pay link instead</option>
                         <option value="manager">A manager approves every charge</option>
                         <option value="limit">Staff can charge up to an amount</option>
                       </select>
                       {mode === 'limit' && <span className="inline-flex items-center gap-1 text-[15px]">$<input type="number" inputMode="decimal" min={0} value={((Number(r.limitCents) || 0) / 100) || ''} onChange={(e) => set({ limitCents: Math.max(0, Math.round((parseFloat(e.target.value) || 0) * 100)) })}
-                        aria-label="Staff can charge up to" className="h-11 w-24 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} /><span className="text-[14px] cf-muted">— a manager approves above it</span></span>}
+                        aria-label="Staff can charge up to" className="h-11 w-24 rounded-xl border px-2 text-right" style={{ borderColor: 'hsl(var(--border))' }} /><span className="text-[14px] cf-muted">— a manager approves above it</span></span>}
                     </div>); })()}
                 </Row>
               </Section>
@@ -805,7 +805,7 @@ function SettingsPageImpl() {
                   <Row label="Quick credits staff can pick">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {tenantData.recoveryPresets?.map(preset => (
-                          <div key={preset.id} className="p-4 rounded-2xl border-2 bg-white shadow-sm flex flex-col gap-4 group">
+                          <div key={preset.id} className="p-4 rounded-2xl border-2 bg-card shadow-sm flex flex-col gap-4 group">
                             <div className="flex items-center justify-between gap-4">
                               <Input value={preset.label} onChange={e => handleUpdatePreset(preset.id, { label: e.target.value.toUpperCase() })} disabled={!isEditing} className="h-9 border-none bg-transparent font-black uppercase tracking-tight text-xs p-0 focus-visible:ring-0" />
                               {isEditing && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePreset(preset.id)}><Trash2 className="w-4 h-4" /></Button>}

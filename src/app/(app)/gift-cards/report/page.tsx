@@ -7,8 +7,8 @@ import { useTenant } from '@/context/TenantContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#b45309';
-const card = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18 } as const;
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', AMBER = '#b45309';
+const card = { background: 'hsl(var(--card))', border: `1px solid ${LINE}`, borderRadius: 18 } as const;
 const $ = (c: number) => `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const label = (ym: string) => new Date(`${ym}-15T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
@@ -24,11 +24,11 @@ export default function GiftCardReportPage() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `gift-cards-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); };
   const idle = d?.idle;
   return (
-    <div className="min-h-screen" style={{ color: INK, backgroundColor: '#f7f7f8' }}>
+    <div className="min-h-screen" style={{ color: INK, backgroundColor: 'hsl(var(--background))' }}>
       <AppHeader title="Gift card report" />
       <main className="mx-auto max-w-5xl space-y-4 p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}><a href="/gift-cards" className="hover:underline">gift cards</a> · report</p><h1 className="text-[34px] font-normal tracking-[-0.03em]">Gift card money</h1></div>
-          <button type="button" disabled={!d?.months?.length} onClick={csv} className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-medium text-white disabled:opacity-40" style={{ background: INK }}>Download for your accountant</button></div>
+          <button type="button" disabled={!d?.months?.length} onClick={csv} className="inline-flex h-11 items-center rounded-full px-5 text-[14px] font-medium text-background disabled:opacity-40" style={{ background: INK }}>Download for your accountant</button></div>
         {!d ? <p style={{ color: MUTED }}>Loading…</p> : <>
           <div className="grid gap-3 md:grid-cols-4">
             <div className="p-4" style={card}><p className="text-[26px] font-normal tracking-[-0.03em]">{$(d.owedNow)}</p><p className="text-[13px]" style={{ color: MUTED }}>owed on cards now</p></div>

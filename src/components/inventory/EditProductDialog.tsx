@@ -128,7 +128,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -169,7 +169,7 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                                 className="h-12 rounded-xl border-2 font-bold uppercase text-xs"
                             />
                             <Button onClick={handleAddNewCategory} type="button" className="h-12 w-12 rounded-xl shadow-lg"><Check className="h-5 w-5" /></Button>
-                            <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-slate-400 font-bold uppercase text-[10px]">Cancel</Button>
+                            <Button variant="ghost" onClick={() => setIsAddingCategory(false)} type="button" className="h-12 rounded-xl text-muted-foreground font-bold uppercase text-[10px]">Cancel</Button>
                         </div>
                     ) : (
                         <div className="flex gap-3">
@@ -197,21 +197,21 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Role</Label>
                             <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-3">
                                 <label htmlFor="professional-e" className="cursor-pointer">
-                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'professional' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
+                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'professional' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-card")}>
                                         <Package className={cn("mb-1 h-5 w-5", field.value === 'professional' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                         <span className="text-[9px] font-black uppercase">Professional</span>
                                         <RadioGroupItem value="professional" id="professional-e" className="sr-only" />
                                     </div>
                                 </label>
                                 <label htmlFor="retail-e" className="cursor-pointer">
-                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'retail' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
+                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'retail' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-card")}>
                                         <ShoppingCart className={cn("mb-1 h-5 w-5", field.value === 'retail' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                         <span className="text-[9px] font-black uppercase">Retail</span>
                                         <RadioGroupItem value="retail" id="retail-e" className="sr-only" />
                                     </div>
                                 </label>
                                 <label htmlFor="refreshment-e" className="cursor-pointer">
-                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'refreshment' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
+                                    <div className={cn("flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all h-full text-center", field.value === 'refreshment' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-card")}>
                                         <Coffee className={cn("mb-1 h-5 w-5", field.value === 'refreshment' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                         <span className="text-[9px] font-black uppercase">Amenity</span>
                                         <RadioGroupItem value="refreshment" id="refreshment-e" className="sr-only" />
@@ -292,12 +292,12 @@ const Step2 = () => {
                     <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Base Economics</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-6">
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Amount</Label><Input type="number" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Qty</Label><Input type="number" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Invoice Amount</Label><Input type="number" {...register('totalPurchaseCost')} className="h-11 rounded-xl border-2 font-bold bg-card" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Unit Qty</Label><Input type="number" {...register('numUnits')} className="h-11 rounded-xl border-2 font-bold bg-card" /></div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shipping</Label><Input type="number" {...register('shippingCost')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
-                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Taxes</Label><Input type="number" {...register('taxCost')} className="h-11 rounded-xl border-2 font-bold bg-white" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Shipping</Label><Input type="number" {...register('shippingCost')} className="h-11 rounded-xl border-2 font-bold bg-card" /></div>
+                            <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Taxes</Label><Input type="number" {...register('taxCost')} className="h-11 rounded-xl border-2 font-bold bg-card" /></div>
                         </div>
                         <div className="p-5 rounded-2xl bg-primary/5 border-2 border-primary/10 flex justify-between items-center shadow-inner text-left">
                             <span className="text-[10px] font-black uppercase text-primary tracking-widest">Landed / Unit</span>
@@ -366,10 +366,10 @@ const Step2 = () => {
                         <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Retail Profit Architecture</CardTitle></CardHeader>
                         <CardContent className="p-6 space-y-8">
                             <div className="p-5 rounded-2xl bg-muted/10 border-2 space-y-4">
-                                <div className="flex justify-between items-center text-left"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Direct (MSRP)</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary"/><Input type="number" {...register('msrp')} className="h-10 pl-7 rounded-xl border-2 font-black text-primary font-mono text-lg shadow-inner bg-white"/></div></div>
+                                <div className="flex justify-between items-center text-left"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Direct (MSRP)</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary"/><Input type="number" {...register('msrp')} className="h-10 pl-7 rounded-xl border-2 font-black text-primary font-mono text-lg shadow-inner bg-card"/></div></div>
                             </div>
                             <div className="p-5 rounded-2xl bg-muted/10 border-2 space-y-4">
-                                <div className="flex justify-between items-center text-left"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Wholesale Rate</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"/><Input type="number" {...register('wholesalePrice')} className="h-10 pl-7 rounded-xl border-2 font-black text-slate-700 font-mono text-lg shadow-inner bg-white"/></div></div>
+                                <div className="flex justify-between items-center text-left"><span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Wholesale Rate</span> <div className="relative w-32"><DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/><Input type="number" {...register('wholesalePrice')} className="h-10 pl-7 rounded-xl border-2 font-black text-foreground/80 font-mono text-lg shadow-inner bg-card"/></div></div>
                             </div>
                         </CardContent>
                     </Card>
@@ -430,7 +430,7 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                         <CardContent className="p-6 space-y-5 text-left">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Asset SKU</Label><Input placeholder="Registry ID" {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
-                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Point</Label><Input type="number" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg shadow-inner bg-white" /></div>
+                                <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Point</Label><Input type="number" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg shadow-inner bg-card" /></div>
                             </div>
                             <div className="space-y-1.5">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Placement Zone</Label>
@@ -532,7 +532,7 @@ export const EditProductDialog: React.FC<{
             <Edit className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Refinement</span>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Modify Asset Record</DialogTitle>
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none text-left">Modify Asset Record</DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Refining record ID: {product.id.slice(-6).toUpperCase()}</DialogDescription>
           <div className="pt-6"><Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" /></div>
         </DialogHeader>
@@ -545,7 +545,7 @@ export const EditProductDialog: React.FC<{
         </ScrollArea>
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
           <div className='flex w-full gap-4'>
-            {step > 1 && <Button variant="ghost" onClick={handleBack} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">Back</Button>}
+            {step > 1 && <Button variant="ghost" onClick={handleBack} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-muted-foreground">Back</Button>}
             <div className={cn("flex gap-3", step === 1 ? "w-full" : "flex-[2.5]")}>
               <Button variant="outline" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-widest text-[10px] md:text-xl border-2">Cancel</Button>
               {step < totalSteps ? (

@@ -60,24 +60,24 @@ export function ScanSheet({ open, onClose, tenantId, tenant, appts, services, st
       <div className="flex h-full w-full flex-col overflow-hidden bg-[#F6F3EE] sm:max-w-[520px] sm:rounded-l-[28px] sm:shadow-2xl">
         <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-[max(16px,env(safe-area-inset-top))]">
           <div><p className="text-[22px] font-[800] tracking-[-0.01em]">Scan</p>
-            <p className="text-[12px] text-[#6A655D]">Kits · bundles · sterilisers · stations{Date.now() - machineAt.current < LOAD_WINDOW_MS ? ' · loading a steriliser' : ''}</p></div>
-          <button type="button" onClick={onClose} className="h-11 rounded-full bg-[#17181A] px-5 text-[15px] font-[700] text-white">Done</button>
+            <p className="text-[12px] text-muted-foreground">Kits · bundles · sterilisers · stations{Date.now() - machineAt.current < LOAD_WINDOW_MS ? ' · loading a steriliser' : ''}</p></div>
+          <button type="button" onClick={onClose} className="h-11 rounded-full bg-foreground px-5 text-[15px] font-[700] text-background">Done</button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-[max(20px,env(safe-area-inset-bottom))]">
           <OfflineNote />
           {cam ? <ScanGate onScan={scan} label="Hold a label in the box — it scans by itself" /> : null}
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setCam((x) => !x)} className="h-11 flex-1 rounded-full border bg-white px-4 text-[14px] font-[600]">{cam ? 'Hide the camera' : 'Show the camera'}</button>
-            {nfc.supported && <button type="button" onClick={() => (nfc.on ? nfc.end() : nfc.start())} className="h-11 flex-1 rounded-full border bg-white px-4 text-[14px] font-[600]">{nfc.on ? 'NFC on — tap a tag' : 'Tap NFC tags'}</button>}
+            <button type="button" onClick={() => setCam((x) => !x)} className="h-11 flex-1 rounded-full border bg-card px-4 text-[14px] font-[600]">{cam ? 'Hide the camera' : 'Show the camera'}</button>
+            {nfc.supported && <button type="button" onClick={() => (nfc.on ? nfc.end() : nfc.start())} className="h-11 flex-1 rounded-full border bg-card px-4 text-[14px] font-[600]">{nfc.on ? 'NFC on — tap a tag' : 'Tap NFC tags'}</button>}
           </div>
           {note && <p role="status" className="rounded-2xl px-4 py-3 text-[14px] font-[600]" style={{ background: note.ok ? '#E3F3E7' : '#FBEAE8', color: note.ok ? '#1F6B3A' : '#B42318' }}>{note.text}</p>}
           {mode?.kind === 'kit' && <Kits firestore={firestore} tenantId={tenantId} kits={(kits || []) as any} services={services} manager={manager} appts={appts} inventory={inventory} staff={staff} resources={resources || []} incoming={incoming} focusId={mode.id} hideScan />}
           {mode?.kind === 'bundle' && <Linens tenantId={tenantId} services={services} appts={appts} inventory={inventory} manager={manager} staff={staff} incoming={incoming} focusLinenId={mode.linenId} hideScan />}
           {mode?.kind === 'steriliser' && <Sterilisation tenantId={tenantId} tenant={tenant} kits={(kits || []) as any} manager={manager} incoming={incoming} hideScan />}
           {mode?.kind === 'station' && <Stations firestore={firestore} tenantId={tenantId} resources={resources || []} appts={appts} services={services} staff={staff} protocols={protocols || []} onlyRow={(r) => r.id === mode.id} />}
-          {!mode && !note && <p className="rounded-2xl border border-dashed bg-white/60 p-4 text-[14px] text-[#6A655D]">Scan a kit, a linen bundle, a steriliser’s label or a station’s label. A USB or Bluetooth scanner works too — no need to tap anything first.</p>}
-          {recent.length > 0 && <div className="space-y-1"><p className="text-[12px] font-[700] text-[#8A847A]">Just scanned</p>
-            {recent.map((x, i) => <p key={i} className="flex items-center gap-2 text-[13px]"><span aria-hidden className="h-2 w-2 rounded-full" style={{ background: x.ok ? '#1F6B3A' : '#B42318' }} /><span className="min-w-0 flex-1 truncate">{x.label}</span><span className="tabular-nums text-[#8A847A]">{hm(x.at)}</span></p>)}</div>}
+          {!mode && !note && <p className="rounded-2xl border border-dashed bg-card/60 p-4 text-[14px] text-muted-foreground">Scan a kit, a linen bundle, a steriliser’s label or a station’s label. A USB or Bluetooth scanner works too — no need to tap anything first.</p>}
+          {recent.length > 0 && <div className="space-y-1"><p className="text-[12px] font-[700] text-muted-foreground">Just scanned</p>
+            {recent.map((x, i) => <p key={i} className="flex items-center gap-2 text-[13px]"><span aria-hidden className="h-2 w-2 rounded-full" style={{ background: x.ok ? '#1F6B3A' : '#B42318' }} /><span className="min-w-0 flex-1 truncate">{x.label}</span><span className="tabular-nums text-muted-foreground">{hm(x.at)}</span></p>)}</div>}
         </div>
       </div>
     </div>, document.body);

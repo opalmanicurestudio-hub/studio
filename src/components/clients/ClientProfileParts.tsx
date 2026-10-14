@@ -14,8 +14,8 @@ import { reachOf } from '@/lib/client-reach';
 const safe = (v: any) => new Date(v?.toDate ? v.toDate() : v);
 const money = (n: number) => `$${Math.abs(n).toFixed(2)}`;
 const live = (a: any) => !['cancelled', 'declined', 'no_show'].includes(String(a.status));
-const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
-const card = { background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' } as React.CSSProperties;
+const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
+const card = { background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' } as React.CSSProperties;
 
 export function clientFacts(client: any, appointments: any[], services: any[], staff: any[]) {
   const now = new Date();
@@ -56,7 +56,7 @@ export function clientSummary(client: any, f: ReturnType<typeof clientFacts>, op
 export function ReachPill({ client }: { client: any }) {
   const r = reachOf(client);
   const style: React.CSSProperties = r.reach === 'app_push' ? { background: 'color-mix(in srgb, var(--ok, #15803d) 12%, transparent)', color: 'var(--ok, #15803d)' }
-    : r.reach === 'texts' ? { background: 'var(--soft, #efebe6)', color: 'var(--muted, #6b635c)' } : { background: 'var(--soft, #efebe6)' };
+    : r.reach === 'texts' ? { background: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' } : { background: 'hsl(var(--secondary))' };
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
       <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold" style={style} title={r.detail || undefined}>{r.label}</span>
@@ -87,32 +87,32 @@ export function ClientHeader({ client, facts, showMoney, canSeeContact, balance,
   const summary = summaryOn ? clientSummary(client, facts, { showMoney, balance, credit }) : '';
   const btn = 'h-10 rounded-full px-4 text-[14px] font-semibold';
   return (
-    <header className="space-y-3 rounded-3xl p-4 md:p-6" style={{ background: 'linear-gradient(color-mix(in srgb, var(--accent, #2e6f6a) 7%, var(--paper, #faf8f5)), var(--paper, #faf8f5))', border: '1px solid var(--line, #e7e2dc)' }}>
+    <header className="space-y-3 rounded-3xl p-4 md:p-6" style={{ background: 'linear-gradient(color-mix(in srgb, var(--accent, #2e6f6a) 7%, hsl(var(--background))), hsl(var(--background)))', border: '1px solid var(--line, hsl(var(--border)))' }}>
       <div className="flex flex-wrap items-center gap-4">
         <div className="shrink-0">{avatar}</div>
         <div className="min-w-0 flex-1"><h1 className="truncate text-[28px] font-light leading-tight md:text-[36px]">{client.name || 'Client'}</h1>{contact && <p className="mt-1 text-[14px]" style={muted}>{contact}</p>}<div className="mt-1.5 flex flex-wrap items-center gap-2"><ReachPill client={client} />{contactStatus}</div></div>
         <div className="flex w-full flex-wrap gap-2 md:w-auto">
-          {client.status !== 'banned' && <button type="button" onClick={onBook} className={`${btn} order-first h-12 w-full text-[15px] md:order-last md:h-10 md:w-auto md:text-[14px]`} style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Book {String(client.name || '').split(' ')[0] || 'them'}</button>}
-          {onMessage && <button type="button" onClick={onMessage} className={`${btn} flex-1 md:flex-none`} style={{ background: 'var(--soft, #efebe6)' }}>Message</button>}
-          {onPay && balance > 0 && <button type="button" onClick={onPay} className={`${btn} flex-1 md:flex-none`} style={{ background: 'var(--soft, #efebe6)' }}><span className="md:hidden">Pay</span><span className="hidden md:inline">Take payment</span></button>}
-          {onEdit && <button type="button" onClick={onEdit} className={`${btn} flex-1 md:flex-none`} style={{ background: 'var(--soft, #efebe6)' }}>Edit</button>}
+          {client.status !== 'banned' && <button type="button" onClick={onBook} className={`${btn} order-first h-12 w-full text-[15px] md:order-last md:h-10 md:w-auto md:text-[14px]`} style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}>Book {String(client.name || '').split(' ')[0] || 'them'}</button>}
+          {onMessage && <button type="button" onClick={onMessage} className={`${btn} flex-1 md:flex-none`} style={{ background: 'hsl(var(--secondary))' }}>Message</button>}
+          {onPay && balance > 0 && <button type="button" onClick={onPay} className={`${btn} flex-1 md:flex-none`} style={{ background: 'hsl(var(--secondary))' }}><span className="md:hidden">Pay</span><span className="hidden md:inline">Take payment</span></button>}
+          {onEdit && <button type="button" onClick={onEdit} className={`${btn} flex-1 md:flex-none`} style={{ background: 'hsl(var(--secondary))' }}>Edit</button>}
         </div>
       </div>
       {summary && <p className="max-w-[900px] text-[15px] leading-relaxed md:text-[16px]">{summary}</p>}
-      {flags.length > 0 && <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 md:flex-wrap md:overflow-visible">{flags.map(([l, t]) => <span key={l} className="shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-semibold" style={t === 'warn' ? { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' } : { background: 'var(--soft, #efebe6)' }}>{l}</span>)}</div>}
+      {flags.length > 0 && <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 md:flex-wrap md:overflow-visible">{flags.map(([l, t]) => <span key={l} className="shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-semibold" style={t === 'warn' ? { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' } : { background: 'hsl(var(--secondary))' }}>{l}</span>)}</div>}
     </header>);
 }
 
 export function NextVisitCard({ facts, services, staff, onOpenVisit, onBook }: { facts: ReturnType<typeof clientFacts>; services: any[]; staff: any[]; onOpenVisit: (a: any) => void; onBook: () => void }) {
   const a = facts.here || facts.next;
-  if (!a) return (<section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl p-5" style={card}><div><p className="text-[12px] font-semibold" style={muted}>NEXT VISIT</p><p className="mt-1 text-[16px]">Nothing booked{facts.last ? ` — last seen ${format(safe(facts.last.startTime), 'd MMMM')}` : ''}.</p></div><button type="button" onClick={onBook} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Book</button></section>);
+  if (!a) return (<section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl p-5" style={card}><div><p className="text-[12px] font-semibold" style={muted}>NEXT VISIT</p><p className="mt-1 text-[16px]">Nothing booked{facts.last ? ` — last seen ${format(safe(facts.last.startTime), 'd MMMM')}` : ''}.</p></div><button type="button" onClick={onBook} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}>Book</button></section>);
   const svc = services.find((s) => s.id === a.serviceId); const who = staff.find((s) => s.id === a.staffId);
   return (
-    <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl p-5" style={{ ...card, borderColor: 'var(--ink, #1c1917)' }} aria-label="Next visit">
+    <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl p-5" style={{ ...card, borderColor: 'hsl(var(--foreground))' }} aria-label="Next visit">
       <div className="min-w-0"><p className="text-[12px] font-semibold" style={muted}>{facts.here ? 'HERE NOW' : 'NEXT VISIT'}</p>
         <p className="mt-1 text-[17px]"><b>{format(safe(a.startTime), 'EEE d MMM · h:mm a')}</b> · {svc?.name || a.serviceName || 'Service'}{who ? ` · ${who.name}` : ''}{svc?.duration ? ` · ${svc.duration} min` : ''}</p>
         {facts.formsDue && <p className="mt-1 text-[13px]" style={{ color: 'var(--warn, #b45309)' }}>A required form isn’t signed yet.</p>}</div>
-      <button type="button" onClick={() => onOpenVisit(a)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Open visit</button>
+      <button type="button" onClick={() => onOpenVisit(a)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>Open visit</button>
     </section>);
 }
 
@@ -131,7 +131,7 @@ export function ClientRail({ client, facts, showMoney, ltv, balance, credit, can
           const charged = facts.done.reduce((m: number, a: any) => m + (Number(a.checkoutState?.adjustments?.timeOverage) || 0), 0);
           const label = per.length ? `${per.length === 1 ? (per[0] > 0 ? '+' : '') + per[0] + ' min on 1 service' : `on ${per.length} services`}` : all ? `${all > 0 ? '+' : ''}${all} min every visit` : '';
           return (<>{label && row('Usual extra time', label)}{showMoney && charged > 0 && row('Charged for extra time', money(charged))}</>); })()}
-        <div className="mt-2 flex h-9 items-end gap-1" aria-label={`Visits a month: ${facts.perMonth.join(', ')}`}>{facts.perMonth.map((n, i) => <i key={i} className="flex-1 rounded-[3px]" style={{ height: `${Math.max(6, (n / max) * 100)}%`, background: n ? 'color-mix(in srgb, var(--accent, #2e6f6a) 55%, transparent)' : 'var(--line, #e7e2dc)' }} title={`${format(facts.months[i], 'MMM')}: ${n}`} />)}</div>
+        <div className="mt-2 flex h-9 items-end gap-1" aria-label={`Visits a month: ${facts.perMonth.join(', ')}`}>{facts.perMonth.map((n, i) => <i key={i} className="flex-1 rounded-[3px]" style={{ height: `${Math.max(6, (n / max) * 100)}%`, background: n ? 'color-mix(in srgb, var(--accent, #2e6f6a) 55%, transparent)' : 'hsl(var(--border))' }} title={`${format(facts.months[i], 'MMM')}: ${n}`} />)}</div>
         <p className="mt-1 text-[12px]" style={muted}>visits a month, {format(facts.months[0], 'MMM')}–{format(facts.months[6], 'MMM')}</p></section>
       <section className="rounded-3xl p-4" style={card}><p className="mb-1 text-[12px] font-semibold" style={muted}>MONEY</p>
         {showMoney ? <>{row('Owes', balance > 0 ? money(balance) : 'Nothing', balance > 0)}{row('Credit', credit > 0 ? money(credit) : 'None')}{client.cardBrand && client.cardLast4 && row('Card on file', `${client.cardBrand} ·· ${client.cardLast4}`)}</>

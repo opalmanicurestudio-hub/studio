@@ -173,14 +173,14 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
 
   const Tab = ({ k, label, count, tone }: { k: typeof tab; label: string; count?: number; tone?: string }) => (
     <button type="button" onClick={() => setTab(k)} aria-pressed={tab === k}
-      className={cn('h-10 rounded-xl border-2 px-3.5 text-[11px] font-black transition-all flex items-center gap-2', tab === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+      className={cn('h-10 rounded-xl border-2 px-3.5 text-[11px] font-black transition-all flex items-center gap-2', tab === k ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80 border-border')}>
       {label}
-      {count !== undefined && count > 0 && <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', tab === k ? 'bg-white text-slate-900' : tone || 'bg-slate-900 text-white')}>{count}</span>}
+      {count !== undefined && count > 0 && <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', tab === k ? 'bg-card text-foreground' : tone || 'bg-foreground text-background')}>{count}</span>}
     </button>
   );
 
   return (
-    <section className="rounded-[2rem] border-2 bg-white p-4 sm:p-5 space-y-3">
+    <section className="rounded-[2rem] border-2 bg-card p-4 sm:p-5 space-y-3">
       <div className="flex flex-wrap gap-2">
         <Tab k="inbox" label="Waiting on you" count={unread.length} tone="bg-amber-500 text-white" />
         <Tab k="concerns" label="Concerns" count={openConcerns.length} tone="bg-red-600 text-white" />
@@ -198,10 +198,10 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
               <button key={t.id} type="button" onClick={() => { void markRead(id); onOpenRenter(id); }}
                 className="w-full rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-2.5 text-left hover:bg-amber-100 transition-colors">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-[12px] font-black truncate">{nameOf(id)}{boothNameOf(id) ? <span className="font-bold text-slate-500"> · {boothNameOf(id)}</span> : null}</p>
+                  <p className="text-[12px] font-black truncate">{nameOf(id)}{boothNameOf(id) ? <span className="font-bold text-muted-foreground"> · {boothNameOf(id)}</span> : null}</p>
                   <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-amber-800">{ago(t.lastAt)}</span>
                 </div>
-                <p className="text-[11px] font-medium text-slate-700 truncate">{t.lastText || 'New message'}</p>
+                <p className="text-[11px] font-medium text-foreground/80 truncate">{t.lastText || 'New message'}</p>
               </button>
             );
           })}
@@ -212,29 +212,29 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
         <div className="space-y-2">
           {openConcerns.length === 0 && <p className="text-[11px] font-bold text-muted-foreground">No open concerns. Renters raise them from their portal; each gets a reference and a receipt.</p>}
           {openConcerns.map((g) => (
-            <div key={g.id} className={cn('rounded-2xl border-2 px-3.5 py-3 space-y-2', g.status === 'open' ? 'border-red-300 bg-red-50/60' : 'border-slate-200 bg-slate-50')}>
+            <div key={g.id} className={cn('rounded-2xl border-2 px-3.5 py-3 space-y-2', g.status === 'open' ? 'border-red-300 bg-red-50/60' : 'border-border bg-muted/60')}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[12px] font-black">
                     <button type="button" onClick={() => onOpenRenter(g.renterId)} className="underline decoration-2 underline-offset-2">{g.renterName || nameOf(g.renterId)}</button>
-                    <span className="font-bold text-slate-500"> · {g.ref} · {GRIEVANCE_CATEGORY_LABEL[g.category as keyof typeof GRIEVANCE_CATEGORY_LABEL] || g.category}</span>
-                    {g.confidential && <span className="ml-1.5 rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-white">confidential</span>}
+                    <span className="font-bold text-muted-foreground"> · {g.ref} · {GRIEVANCE_CATEGORY_LABEL[g.category as keyof typeof GRIEVANCE_CATEGORY_LABEL] || g.category}</span>
+                    {g.confidential && <span className="ml-1.5 rounded-full bg-foreground px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-background">confidential</span>}
                   </p>
-                  <p className="text-[10px] font-bold text-slate-500">Filed {ago(g.filedAt)} · about {g.when} · {GRIEVANCE_STATUS_LABEL[g.status as keyof typeof GRIEVANCE_STATUS_LABEL]}</p>
+                  <p className="text-[10px] font-bold text-muted-foreground">Filed {ago(g.filedAt)} · about {g.when} · {GRIEVANCE_STATUS_LABEL[g.status as keyof typeof GRIEVANCE_STATUS_LABEL]}</p>
                 </div>
               </div>
-              <p className="text-[12px] font-medium text-slate-800 whitespace-pre-wrap">{g.what}</p>
+              <p className="text-[12px] font-medium text-foreground whitespace-pre-wrap">{g.what}</p>
               {Array.isArray(g.photoUrls) && g.photoUrls.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {g.photoUrls.map((u: string, i: number) => (
-                    <a key={i} href={u} target="_blank" rel="noopener" className="h-16 w-16 overflow-hidden rounded-xl border-2 bg-white"><img src={u} alt={`Photo ${i + 1} from ${g.ref}`} className="h-full w-full object-cover" /></a>
+                    <a key={i} href={u} target="_blank" rel="noopener" className="h-16 w-16 overflow-hidden rounded-xl border-2 bg-card"><img src={u} alt={`Photo ${i + 1} from ${g.ref}`} className="h-full w-full object-cover" /></a>
                   ))}
                 </div>
               )}
-              {g.wanted && <p className="text-[11px] font-bold text-slate-600">What they'd like: <span className="font-medium">{g.wanted}</span></p>}
+              {g.wanted && <p className="text-[11px] font-bold text-foreground/80">What they'd like: <span className="font-medium">{g.wanted}</span></p>}
               <textarea value={reply[g.id] || ''} onChange={(e) => setReply((m) => ({ ...m, [g.id]: e.target.value }))} rows={2}
                 aria-label={`Reply to ${g.ref}`} placeholder="Your reply goes to their portal, email and phone, with the reference on it."
-                className="w-full rounded-xl border-2 bg-white px-3 py-2 text-sm" />
+                className="w-full rounded-xl border-2 bg-card px-3 py-2 text-sm" />
               <div className="flex flex-wrap gap-2">
                 {g.status === 'open' && <Button variant="outline" onClick={() => respond(g, 'acknowledged')} disabled={busy === g.id} className="h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest">Acknowledge{(reply[g.id] || '').trim() ? ' + reply' : ''}</Button>}
                 <Button onClick={() => respond(g, null)} disabled={busy === g.id || !(reply[g.id] || '').trim()} className="h-9 rounded-lg font-black uppercase text-[9px] tracking-widest">Reply</Button>
@@ -244,11 +244,11 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
           ))}
           {doneConcerns.length > 0 && (
             <div>
-              <button type="button" onClick={() => setShowDone((v) => !v)} aria-expanded={showDone} className="text-[9px] font-black uppercase tracking-widest text-slate-500">{showDone ? 'Hide' : 'Show'} {doneConcerns.length} resolved</button>
+              <button type="button" onClick={() => setShowDone((v) => !v)} aria-expanded={showDone} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{showDone ? 'Hide' : 'Show'} {doneConcerns.length} resolved</button>
               {showDone && doneConcerns.map((g) => (
-                <div key={g.id} className="mt-1.5 rounded-xl border-2 bg-white px-3 py-2">
-                  <p className="text-[11px] font-black">{g.renterName || nameOf(g.renterId)}<span className="font-bold text-slate-500"> · {g.ref} · {GRIEVANCE_CATEGORY_LABEL[g.category as keyof typeof GRIEVANCE_CATEGORY_LABEL] || g.category} · {GRIEVANCE_STATUS_LABEL[g.status as keyof typeof GRIEVANCE_STATUS_LABEL]} {String(g.resolvedAt || '').slice(0, 10)}</span></p>
-                  {g.resolution && <p className="text-[11px] font-medium text-slate-600">{g.resolution}</p>}
+                <div key={g.id} className="mt-1.5 rounded-xl border-2 bg-card px-3 py-2">
+                  <p className="text-[11px] font-black">{g.renterName || nameOf(g.renterId)}<span className="font-bold text-muted-foreground"> · {g.ref} · {GRIEVANCE_CATEGORY_LABEL[g.category as keyof typeof GRIEVANCE_CATEGORY_LABEL] || g.category} · {GRIEVANCE_STATUS_LABEL[g.status as keyof typeof GRIEVANCE_STATUS_LABEL]} {String(g.resolvedAt || '').slice(0, 10)}</span></p>
+                  {g.resolution && <p className="text-[11px] font-medium text-foreground/80">{g.resolution}</p>}
                 </div>
               ))}
             </div>
@@ -258,13 +258,13 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
 
       {tab === 'coverage' && (
         <div className="space-y-1.5">
-          <p className="text-[10px] font-bold text-slate-500">
+          <p className="text-[10px] font-bold text-muted-foreground">
             Insurance and licence on file for everyone renting now. Expiring means within 30 days. {(tenant?.bookingPageSettings?.automationRules?.requireInsurance || tenant?.bookingPageSettings?.automationRules?.requireLicense) ? 'Missing counts as a problem because your onboarding rules require it.' : 'Nothing is required by your onboarding rules, so missing is information, not a problem — turn requirements on under the booking page settings if you want the nightly to chase them.'}
           </p>
           {coverage.length === 0 && <p className="text-[11px] font-bold text-muted-foreground">No current renters.</p>}
           {coverage.map(({ renter: r, views }) => (
-            <div key={r.id} className="rounded-2xl border-2 bg-white px-3.5 py-2.5 space-y-1.5">
-              <p className="text-[12px] font-black"><button type="button" onClick={() => onOpenRenter(r.id)} className="underline decoration-2 underline-offset-2">{`${r.firstName || ''} ${r.lastName || ''}`.trim()}</button>{boothNameOf(r.id) ? <span className="font-bold text-slate-500"> · {boothNameOf(r.id)}</span> : null}</p>
+            <div key={r.id} className="rounded-2xl border-2 bg-card px-3.5 py-2.5 space-y-1.5">
+              <p className="text-[12px] font-black"><button type="button" onClick={() => onOpenRenter(r.id)} className="underline decoration-2 underline-offset-2">{`${r.firstName || ''} ${r.lastName || ''}`.trim()}</button>{boothNameOf(r.id) ? <span className="font-bold text-muted-foreground"> · {boothNameOf(r.id)}</span> : null}</p>
               {views.map((v) => {
                 const bad = isProblem(v);
                 const key = `${r.id}-${v.kind}`;
@@ -272,14 +272,14 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
                   <div key={v.kind} className="flex items-center justify-between gap-2">
                     <p className="text-[11px] font-bold truncate">
                       <span className={cn('inline-block h-2 w-2 rounded-full mr-1.5 align-middle', v.state === 'ok' ? 'bg-emerald-500' : v.state === 'expiring' ? 'bg-amber-500' : bad ? 'bg-red-600' : 'bg-slate-300')} />
-                      {CREDENTIAL_LABEL[v.kind]} <span className={cn('font-black', bad ? 'text-red-700' : v.state === 'ok' ? 'text-emerald-700' : 'text-slate-500')}>· {stateLabel(v)}</span>
-                      {v.kind === 'insurance' && v.carrier ? <span className="font-medium text-slate-500"> · {v.carrier}{v.policyNumber ? ` ${v.policyNumber}` : ''}</span> : null}
+                      {CREDENTIAL_LABEL[v.kind]} <span className={cn('font-black', bad ? 'text-red-700' : v.state === 'ok' ? 'text-emerald-700' : 'text-muted-foreground')}>· {stateLabel(v)}</span>
+                      {v.kind === 'insurance' && v.carrier ? <span className="font-medium text-muted-foreground"> · {v.carrier}{v.policyNumber ? ` ${v.policyNumber}` : ''}</span> : null}
                     </p>
                     <div className="flex shrink-0 gap-1.5">
-                      {v.docUrl && <a href={v.docUrl} target="_blank" rel="noopener" className="h-8 inline-flex items-center rounded-lg border-2 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-slate-700">See</a>}
+                      {v.docUrl && <a href={v.docUrl} target="_blank" rel="noopener" className="h-8 inline-flex items-center rounded-lg border-2 bg-card px-2.5 text-[9px] font-black uppercase tracking-widest text-foreground/80">See</a>}
                       {(bad || v.state === 'missing') && (
                         <button type="button" disabled={busy === `ask-${key}` || askSent[key]} onClick={() => askFor(r.id, v.kind, v.state)}
-                          className={cn('h-8 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest', askSent[key] ? 'border-emerald-200 text-emerald-700 bg-white' : 'border-slate-900 bg-slate-900 text-white')}>
+                          className={cn('h-8 rounded-lg border-2 px-2.5 text-[9px] font-black uppercase tracking-widest', askSent[key] ? 'border-emerald-200 text-emerald-700 bg-card' : 'border-slate-900 bg-foreground text-background')}>
                           {askSent[key] ? 'Asked ✓' : busy === `ask-${key}` ? '…' : 'Ask for it'}
                         </button>
                       )}
@@ -294,38 +294,38 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
 
       {tab === 'documents' && (
         <div className="space-y-3">
-          <div className="rounded-2xl border-2 bg-slate-50 px-3.5 py-3 space-y-2">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Send a document</p>
+          <div className="rounded-2xl border-2 bg-muted/60 px-3.5 py-3 space-y-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Send a document</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <select value={docRenter} onChange={(e) => { setDocRenter(e.target.value); setDocTouched(false); }} aria-label="Renter" className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold">
+              <select value={docRenter} onChange={(e) => { setDocRenter(e.target.value); setDocTouched(false); }} aria-label="Renter" className="h-10 rounded-xl border-2 bg-card px-3 text-sm font-bold">
                 <option value="">Who is it for?</option>
                 {allRenters.map((r) => <option key={r.id} value={r.id}>{`${r.firstName || ''} ${r.lastName || ''}`.trim()}{boothNameOf(r.id) ? ` · ${boothNameOf(r.id)}` : ''}</option>)}
               </select>
-              <select value={docKind} onChange={(e) => { setDocKind(e.target.value as RenterDocKind); setDocFields({}); setDocTouched(false); setDocSent(''); }} aria-label="Document" className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold" disabled={!docRenter}>
+              <select value={docKind} onChange={(e) => { setDocKind(e.target.value as RenterDocKind); setDocFields({}); setDocTouched(false); setDocSent(''); }} aria-label="Document" className="h-10 rounded-xl border-2 bg-card px-3 text-sm font-bold" disabled={!docRenter}>
                 <option value="">Which document?</option>
                 {(Object.keys(RENTER_DOC_TEMPLATES) as RenterDocKind[]).map((k) => <option key={k} value={k}>{RENTER_DOC_TEMPLATES[k].title}</option>)}
               </select>
             </div>
-            {docKind && <p className="text-[10px] font-bold text-slate-500">{RENTER_DOC_TEMPLATES[docKind].blurb}{docRenter && !docLease ? ' No active lease found for this renter — numbers will show as blanks.' : ''}</p>}
+            {docKind && <p className="text-[10px] font-bold text-muted-foreground">{RENTER_DOC_TEMPLATES[docKind].blurb}{docRenter && !docLease ? ' No active lease found for this renter — numbers will show as blanks.' : ''}</p>}
             {docKind && RENTER_DOC_FIELDS[docKind].length > 0 && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {RENTER_DOC_FIELDS[docKind].map((f) => f.multiline ? (
-                  <textarea key={f.key} value={docFields[f.key] || ''} onChange={(e) => { setDocFields((m) => ({ ...m, [f.key]: e.target.value })); setDocTouched(false); }} rows={2} aria-label={f.label} placeholder={`${f.label} — ${f.placeholder}`} className="sm:col-span-2 rounded-xl border-2 bg-white px-3 py-2 text-sm" />
+                  <textarea key={f.key} value={docFields[f.key] || ''} onChange={(e) => { setDocFields((m) => ({ ...m, [f.key]: e.target.value })); setDocTouched(false); }} rows={2} aria-label={f.label} placeholder={`${f.label} — ${f.placeholder}`} className="sm:col-span-2 rounded-xl border-2 bg-card px-3 py-2 text-sm" />
                 ) : (
-                  <input key={f.key} type={f.type === 'date' ? 'date' : 'text'} inputMode={f.type === 'money' ? 'decimal' : undefined} value={docFields[f.key] || ''} onChange={(e) => { setDocFields((m) => ({ ...m, [f.key]: e.target.value })); setDocTouched(false); }} aria-label={f.label} placeholder={`${f.label}${f.placeholder ? ` — ${f.placeholder}` : ''}`} className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold" />
+                  <input key={f.key} type={f.type === 'date' ? 'date' : 'text'} inputMode={f.type === 'money' ? 'decimal' : undefined} value={docFields[f.key] || ''} onChange={(e) => { setDocFields((m) => ({ ...m, [f.key]: e.target.value })); setDocTouched(false); }} aria-label={f.label} placeholder={`${f.label}${f.placeholder ? ` — ${f.placeholder}` : ''}`} className="h-10 rounded-xl border-2 bg-card px-3 text-sm font-bold" />
                 ))}
               </div>
             )}
             {docPreview && (
               <div className="space-y-1.5">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{docPreview.title} · what they will {RENTER_DOC_TEMPLATES[docKind as RenterDocKind].action} — edit freely</p>
-                <textarea value={docBody} onChange={(e) => { setDocBody(e.target.value); setDocTouched(true); }} rows={12} aria-label="Document text" className="w-full rounded-xl border-2 bg-white px-3 py-2 text-[12px] leading-relaxed font-medium" />
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{docPreview.title} · what they will {RENTER_DOC_TEMPLATES[docKind as RenterDocKind].action} — edit freely</p>
+                <textarea value={docBody} onChange={(e) => { setDocBody(e.target.value); setDocTouched(true); }} rows={12} aria-label="Document text" className="w-full rounded-xl border-2 bg-card px-3 py-2 text-[12px] leading-relaxed font-medium" />
                 {docBlanks.length > 0 && <p className="text-[10px] font-black text-red-700">Still blank: {docBlanks.join(', ')} — fill them above or edit them out of the text.</p>}
                 <div className="flex items-center gap-2">
                   <Button onClick={sendDoc} disabled={busy === 'doc' || docBlanks.length > 0 || !docBody.trim()} className="h-10 flex-1 rounded-xl font-black uppercase text-[10px] tracking-widest">{busy === 'doc' ? 'Sending…' : `Send for ${RENTER_DOC_TEMPLATES[docKind as RenterDocKind].action === 'sign' ? 'signature' : 'acknowledgment'}`}</Button>
-                  {docTouched && <button type="button" onClick={() => { setDocTouched(false); if (docPreview) setDocBody(docPreview.body); }} className="h-10 rounded-xl border-2 bg-white px-3 text-[9px] font-black uppercase tracking-widest text-slate-600">Reset text</button>}
+                  {docTouched && <button type="button" onClick={() => { setDocTouched(false); if (docPreview) setDocBody(docPreview.body); }} className="h-10 rounded-xl border-2 bg-card px-3 text-[9px] font-black uppercase tracking-widest text-foreground/80">Reset text</button>}
                 </div>
-                <p className="text-[9px] font-bold text-slate-400">The text is frozen when you send. Templates are starting points, not legal advice — the words you send are the words they sign.</p>
+                <p className="text-[9px] font-bold text-muted-foreground">The text is frozen when you send. Templates are starting points, not legal advice — the words you send are the words they sign.</p>
               </div>
             )}
             {docSent && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{docSent}</p>}
@@ -335,10 +335,10 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
               <p className="text-[9px] font-black uppercase tracking-widest text-amber-800">Waiting on them</p>
               {pendingDocs.map((d) => (
                 <div key={d.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-2.5 flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-black truncate"><button type="button" onClick={() => onOpenRenter(d.renterId)} className="underline decoration-2 underline-offset-2">{d.renterName}</button><span className="font-bold text-slate-500"> · {d.title} · sent {ago(d.sentAt)}</span></p>
+                  <p className="text-[11px] font-black truncate"><button type="button" onClick={() => onOpenRenter(d.renterId)} className="underline decoration-2 underline-offset-2">{d.renterName}</button><span className="font-bold text-muted-foreground"> · {d.title} · sent {ago(d.sentAt)}</span></p>
                   <div className="flex shrink-0 gap-1.5">
-                    <a href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noopener" className="h-8 inline-flex items-center rounded-lg border-2 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-slate-700">View</a>
-                    <button type="button" onClick={() => withdrawDoc(d)} className="h-8 rounded-lg border-2 border-red-200 bg-white px-2.5 text-[9px] font-black uppercase tracking-widest text-red-700">Withdraw</button>
+                    <a href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noopener" className="h-8 inline-flex items-center rounded-lg border-2 bg-card px-2.5 text-[9px] font-black uppercase tracking-widest text-foreground/80">View</a>
+                    <button type="button" onClick={() => withdrawDoc(d)} className="h-8 rounded-lg border-2 border-red-200 bg-card px-2.5 text-[9px] font-black uppercase tracking-widest text-red-700">Withdraw</button>
                   </div>
                 </div>
               ))}
@@ -346,10 +346,10 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
           )}
           {doneDocs.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Recent</p>
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Recent</p>
               {doneDocs.map((d) => (
-                <p key={d.id} className="text-[10px] font-bold text-slate-600 flex items-center justify-between gap-2">
-                  <span className="truncate">{d.renterName} · {d.title} · <span className={cn('font-black', d.status === 'signed' ? 'text-emerald-700' : d.status === 'declined' ? 'text-red-700' : 'text-slate-500')}>{d.status}</span>{d.signedName ? ` as ${d.signedName}` : ''}{d.declineNote ? ` — “${d.declineNote}”` : ''}</span>
+                <p key={d.id} className="text-[10px] font-bold text-foreground/80 flex items-center justify-between gap-2">
+                  <span className="truncate">{d.renterName} · {d.title} · <span className={cn('font-black', d.status === 'signed' ? 'text-emerald-700' : d.status === 'declined' ? 'text-red-700' : 'text-muted-foreground')}>{d.status}</span>{d.signedName ? ` as ${d.signedName}` : ''}{d.declineNote ? ` — “${d.declineNote}”` : ''}</span>
                   <a href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noopener" className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</a>
                 </p>
               ))}
@@ -363,21 +363,21 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
           <div className="flex flex-wrap gap-1.5">
             {([['active', `Everyone renting now · ${activeRenters.length}`], ['all', `Including on leave · ${allRenters.length}`], ['picked', `Pick renters${picked.length ? ` · ${picked.length}` : ''}`]] as const).map(([k, label]) => (
               <button key={k} type="button" onClick={() => setAudience(k)} aria-pressed={audience === k}
-                className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', audience === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600')}>{label}</button>
+                className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', audience === k ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80')}>{label}</button>
             ))}
           </div>
           {audience === 'picked' && (
             <div className="flex flex-wrap gap-1.5">
               {allRenters.map((r) => { const on = picked.includes(r.id); return (
                 <button key={r.id} type="button" aria-pressed={on} onClick={() => setPicked((p) => on ? p.filter((x) => x !== r.id) : [...p, r.id])}
-                  className={cn('h-8 rounded-full border-2 px-2.5 text-[10px] font-black', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600')}>{`${r.firstName || ''} ${r.lastName || ''}`.trim()}</button>
+                  className={cn('h-8 rounded-full border-2 px-2.5 text-[10px] font-black', on ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80')}>{`${r.firstName || ''} ${r.lastName || ''}`.trim()}</button>
               ); })}
             </div>
           )}
           <textarea value={bText} onChange={(e) => setBText(e.target.value.slice(0, 2000))} rows={4} aria-label="Message to every renter"
             placeholder="Water is off Tuesday 9–11 while the plumber replaces the main. Plan clients around it — sorry for the hassle."
-            className="w-full rounded-xl border-2 bg-white px-3 py-2 text-sm" />
-          <p className="text-[10px] font-bold text-slate-500">Each renter gets their own copy — email, text and their portal thread — with delivery status on their card. Nobody sees anyone else's address. Replies come only to you.</p>
+            className="w-full rounded-xl border-2 bg-card px-3 py-2 text-sm" />
+          <p className="text-[10px] font-bold text-muted-foreground">Each renter gets their own copy — email, text and their portal thread — with delivery status on their card. Nobody sees anyone else's address. Replies come only to you.</p>
           <div className="flex items-center gap-2">
             <Button onClick={() => { if (sendArm) void broadcast(); else setSendArm(true); }} disabled={busy === 'broadcast' || !bText.trim() || audienceCount === 0}
               className={cn('h-10 flex-1 rounded-xl font-black uppercase text-[10px] tracking-widest', sendArm && 'bg-red-700 hover:bg-red-800')}>

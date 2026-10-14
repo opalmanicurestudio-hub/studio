@@ -21,7 +21,7 @@ async function shrink(file: File): Promise<string> {
   for (const q of [0.82, 0.7, 0.58, 0.46]) { const d = c.toDataURL('image/jpeg', q); if (d.length * 0.75 < 850_000) return d; }
   return c.toDataURL('image/jpeg', 0.4);
 }
-const STATUS: Record<string, [string, string]> = { pending: ['Waiting for approval', 'bg-amber-100 text-amber-900'], approved: ['Approved ✓', 'bg-emerald-100 text-emerald-800'], hidden: ['Hidden by instructor', 'bg-stone-200 text-stone-700'] };
+const STATUS: Record<string, [string, string]> = { pending: ['Waiting for approval', 'bg-amber-100 text-amber-900'], approved: ['Approved ✓', 'bg-emerald-100 text-emerald-800'], hidden: ['Hidden by instructor', 'bg-border text-foreground/80'] };
 
 export function PortfolioCard({ tenantId, color }: { tenantId: string; color: string }) {
   const [open, setOpen] = useState(false); const [n, setN] = useState<number | null>(null);
@@ -29,7 +29,7 @@ export function PortfolioCard({ tenantId, color }: { tenantId: string; color: st
   return (<>
     <button type="button" onClick={() => setOpen(true)} className="glass flex w-full items-center gap-4 rounded-[1.5rem] border border-white/70 p-4 text-left">
       <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-2xl" style={{ background: `${color}1a` }}>💅</span>
-      <span className="min-w-0 flex-1"><span className="block text-lg font-semibold">My portfolio</span><span className="text-sm text-stone-600">{n ? `${n} piece${n === 1 ? '' : 's'} of work` : 'Show your best before-and-afters'}</span></span><span className="text-stone-400">›</span>
+      <span className="min-w-0 flex-1"><span className="block text-lg font-semibold">My portfolio</span><span className="text-sm text-foreground/80">{n ? `${n} piece${n === 1 ? '' : 's'} of work` : 'Show your best before-and-afters'}</span></span><span className="text-muted-foreground">›</span>
     </button>
     {open && <PortfolioHub tenantId={tenantId} color={color} onClose={() => setOpen(false)} />}
   </>);
@@ -45,27 +45,27 @@ function PortfolioHub({ tenantId, color, onClose }: any) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f7f5f2]">
       <div className="mx-auto max-w-xl space-y-4 p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <div className="flex items-center justify-between"><p className="text-2xl font-light">💅 My portfolio</p><button type="button" onClick={onClose} className="rounded-full bg-white px-4 py-2 text-sm">Close</button></div>
+        <div className="flex items-center justify-between"><p className="text-2xl font-light">💅 My portfolio</p><button type="button" onClick={onClose} className="rounded-full bg-card px-4 py-2 text-sm">Close</button></div>
         {!d ? <Loading /> : <>
-          <section className="space-y-3 rounded-3xl bg-white p-4">
-            <div className="flex items-center justify-between gap-3"><div><p className="font-semibold">Share my portfolio</p><p className="text-[13px] text-stone-500">{d.share.on ? `On — ${approved} approved piece${approved === 1 ? '' : 's'} showing` : 'Off — no one can see it'}</p></div>
-              <button type="button" role="switch" aria-checked={d.share.on} onClick={() => setShare(!d.share.on)} className="relative h-8 w-14 shrink-0 rounded-full transition-colors" style={{ background: d.share.on ? color : '#d6d3d1' }}><span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${d.share.on ? 'left-7' : 'left-1'}`} /></button></div>
+          <section className="space-y-3 rounded-3xl bg-card p-4">
+            <div className="flex items-center justify-between gap-3"><div><p className="font-semibold">Share my portfolio</p><p className="text-[13px] text-muted-foreground">{d.share.on ? `On — ${approved} approved piece${approved === 1 ? '' : 's'} showing` : 'Off — no one can see it'}</p></div>
+              <button type="button" role="switch" aria-checked={d.share.on} onClick={() => setShare(!d.share.on)} className="relative h-8 w-14 shrink-0 rounded-full transition-colors" style={{ background: d.share.on ? color : '#d6d3d1' }}><span className={`absolute top-1 h-6 w-6 rounded-full bg-card shadow transition-all ${d.share.on ? 'left-7' : 'left-1'}`} /></button></div>
             {d.share.on && <>
-              <label className="block text-[12px] font-semibold text-stone-500">Name shown<input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setShare(true)} className="mt-1 h-11 w-full rounded-2xl border px-3 text-[16px] text-stone-900" /></label>
+              <label className="block text-[12px] font-semibold text-muted-foreground">Name shown<input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setShare(true)} className="mt-1 h-11 w-full rounded-2xl border px-3 text-[16px] text-foreground" /></label>
               <div className="flex gap-2"><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { /* */ } }} className="h-11 flex-1 rounded-full text-sm font-medium text-white" style={{ background: color }}>{copied ? '✓ Link copied' : 'Copy link'}</button>
-                <button type="button" onClick={async () => setQr(qr ? null : await QRCode.toDataURL(link, { margin: 1, width: 260 }))} className="h-11 rounded-full bg-stone-100 px-4 text-sm">QR</button>
-                <a href={link} target="_blank" rel="noreferrer" className="flex h-11 items-center rounded-full bg-stone-100 px-4 text-sm">View</a></div>
+                <button type="button" onClick={async () => setQr(qr ? null : await QRCode.toDataURL(link, { margin: 1, width: 260 }))} className="h-11 rounded-full bg-muted px-4 text-sm">QR</button>
+                <a href={link} target="_blank" rel="noreferrer" className="flex h-11 items-center rounded-full bg-muted px-4 text-sm">View</a></div>
               {qr && <img src={qr} alt="Portfolio QR code" className="mx-auto w-52" />}
-              <p className="text-[12px] text-stone-500">Only work your instructor approves is shown. Switch sharing off any time and the link stops working.</p>
+              <p className="text-[12px] text-muted-foreground">Only work your instructor approves is shown. Switch sharing off any time and the link stops working.</p>
             </>}
           </section>
-          <button type="button" onClick={() => setAdding(true)} className="h-14 w-full rounded-3xl border-2 border-dashed border-stone-300 bg-white text-sm font-semibold">＋ Add work</button>
-          {d.items.length === 0 && <p className="text-center text-sm text-stone-500">Add before-and-after photos of services you’re proud of.</p>}
+          <button type="button" onClick={() => setAdding(true)} className="h-14 w-full rounded-3xl border-2 border-dashed border-border bg-card text-sm font-semibold">＋ Add work</button>
+          {d.items.length === 0 && <p className="text-center text-sm text-muted-foreground">Add before-and-after photos of services you’re proud of.</p>}
           <div className="grid gap-3">{d.items.map((x: any) => (
-            <div key={x.id} className="space-y-2 rounded-3xl bg-white p-3">
-              <div className="grid grid-cols-2 gap-2">{[['Before', x.before], ['After', x.after]].map(([l, u]: any) => <div key={l} className="relative aspect-square overflow-hidden rounded-2xl bg-stone-100">{u ? <img src={u} alt={l} className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-[12px] text-stone-400">No {String(l).toLowerCase()} photo</span>}<span className="absolute left-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-[11px] text-white">{l}</span></div>)}</div>
-              <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{x.service}</p>{x.note && <p className="text-[13px] text-stone-600">{x.note}</p>}{x.reviewNote && <p className="text-[12px] text-stone-500">Instructor: {x.reviewNote}</p>}</div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS[x.status]?.[1] || ''}`}>{STATUS[x.status]?.[0]}</span></div>
-              <button type="button" onClick={async () => { if (!window.confirm('Remove this from your portfolio?')) return; await api({ action: 'pf-delete', tenantId, token: getToken(tenantId), id: x.id }); await load(); }} className="text-[12px] text-stone-400 underline">Remove</button>
+            <div key={x.id} className="space-y-2 rounded-3xl bg-card p-3">
+              <div className="grid grid-cols-2 gap-2">{[['Before', x.before], ['After', x.after]].map(([l, u]: any) => <div key={l} className="relative aspect-square overflow-hidden rounded-2xl bg-muted">{u ? <img src={u} alt={l} className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-[12px] text-muted-foreground">No {String(l).toLowerCase()} photo</span>}<span className="absolute left-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-[11px] text-white">{l}</span></div>)}</div>
+              <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{x.service}</p>{x.note && <p className="text-[13px] text-foreground/80">{x.note}</p>}{x.reviewNote && <p className="text-[12px] text-muted-foreground">Instructor: {x.reviewNote}</p>}</div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS[x.status]?.[1] || ''}`}>{STATUS[x.status]?.[0]}</span></div>
+              <button type="button" onClick={async () => { if (!window.confirm('Remove this from your portfolio?')) return; await api({ action: 'pf-delete', tenantId, token: getToken(tenantId), id: x.id }); await load(); }} className="text-[12px] text-muted-foreground underline">Remove</button>
             </div>
           ))}</div>
         </>}
@@ -81,12 +81,12 @@ function PhotoPick({ label, value, onPick }: { label: string; value: string | nu
   const take = async (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onPick(await shrink(f)); };
   return (
     <div className="space-y-1.5">
-      <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 text-sm text-stone-500">
+      <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-muted/60 text-sm text-muted-foreground">
         {value ? <img src={value} alt={label} className="h-full w-full object-cover" /> : <span className="text-center">🖼<br />{label}</span>}
       </div>
       <div className="grid grid-cols-2 gap-1.5">
-        <label className="flex h-10 cursor-pointer items-center justify-center rounded-full bg-white whitespace-nowrap text-[12px] font-medium shadow-sm">📷 Camera<input type="file" accept="image/*" capture="environment" className="hidden" onChange={take} aria-label={`${label}: take a photo`} /></label>
-        <label className="flex h-10 cursor-pointer items-center justify-center rounded-full bg-white whitespace-nowrap text-[12px] font-medium shadow-sm">🖼 Library<input type="file" accept="image/*" className="hidden" onChange={take} aria-label={`${label}: choose from your photos`} /></label>
+        <label className="flex h-10 cursor-pointer items-center justify-center rounded-full bg-card whitespace-nowrap text-[12px] font-medium shadow-sm">📷 Camera<input type="file" accept="image/*" capture="environment" className="hidden" onChange={take} aria-label={`${label}: take a photo`} /></label>
+        <label className="flex h-10 cursor-pointer items-center justify-center rounded-full bg-card whitespace-nowrap text-[12px] font-medium shadow-sm">🖼 Library<input type="file" accept="image/*" className="hidden" onChange={take} aria-label={`${label}: choose from your photos`} /></label>
       </div>
     </div>
   );
@@ -96,17 +96,17 @@ function AddWork({ tenantId, color, onClose }: any) {
   const ready = !!after && service.trim() && consent && initials.trim();
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={() => !busy && onClose(false)}>
-      <div onClick={(e) => e.stopPropagation()} className="cf-land max-h-[94dvh] w-full max-w-md space-y-3 overflow-y-auto rounded-t-3xl bg-white p-5 sm:rounded-3xl">
+      <div onClick={(e) => e.stopPropagation()} className="cf-land max-h-[94dvh] w-full max-w-md space-y-3 overflow-y-auto rounded-t-3xl bg-card p-5 sm:rounded-3xl">
         <p className="text-xl font-semibold">Add work</p>
         <p className="rounded-2xl bg-amber-50 p-3 text-[13px] text-amber-900">📸 Photograph <b>hands and nails only</b> — no faces, no jewellery that identifies your client, nothing in the background with their details.</p>
         <div className="grid grid-cols-2 gap-2"><PhotoPick label="Before (optional)" value={before} onPick={setBefore} /><PhotoPick label="After" value={after} onPick={setAfter} /></div>
         <input value={service} onChange={(e) => setService(e.target.value)} placeholder="Service — e.g. Gel manicure, nude ombré" className="h-12 w-full rounded-2xl border px-4 text-[16px]" />
         <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="A note (optional) — what you did, what you’re proud of" className="w-full rounded-2xl border p-3 text-[16px]" />
-        <label className="flex items-start gap-3 rounded-2xl bg-stone-50 p-3 text-[14px]"><input type="checkbox" className="mt-1 h-5 w-5" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span>My client agreed to these photos being shown in my portfolio.</span></label>
+        <label className="flex items-start gap-3 rounded-2xl bg-muted/60 p-3 text-[14px]"><input type="checkbox" className="mt-1 h-5 w-5" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span>My client agreed to these photos being shown in my portfolio.</span></label>
         {consent && <input value={initials} onChange={(e) => setInitials(e.target.value.toUpperCase())} maxLength={6} placeholder="Client’s initials" className="h-12 w-full rounded-2xl border px-4 text-[16px] uppercase" />}
         {err && <p className="text-sm text-red-700">{err}</p>}
         <button type="button" disabled={!ready || busy} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'pf-add', tenantId, token: getToken(tenantId), before, after, service, note, consent, initials }); setBusy(false); if (r.ok) onClose(true); else setErr(r.error); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy ? 'Uploading…' : 'Send for approval'}</button>
-        <p className="text-center text-[12px] text-stone-500">Your instructor approves each piece before it can be shared.</p>
+        <p className="text-center text-[12px] text-muted-foreground">Your instructor approves each piece before it can be shared.</p>
       </div>
     </div>
   );
@@ -120,7 +120,7 @@ function Compare({ before, after }: { before: string | null; after: string | nul
     <div className="relative aspect-square w-full select-none overflow-hidden rounded-3xl">
       <img src={after || ''} alt="After" className="absolute inset-0 h-full w-full object-cover" />
       <div className="absolute inset-0 overflow-hidden" style={{ clipPath: `inset(0 ${100 - x}% 0 0)` }}><img src={before} alt="Before" className="h-full w-full object-cover" /></div>
-      <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-white shadow" style={{ left: `${x}%` }} />
+      <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-card shadow" style={{ left: `${x}%` }} />
       <span className="absolute left-3 top-3 rounded-full bg-black/50 px-2 py-0.5 text-[11px] text-white">Before</span><span className="absolute right-3 top-3 rounded-full bg-black/50 px-2 py-0.5 text-[11px] text-white">After</span>
       <input type="range" min={0} max={100} value={x} onChange={(e) => setX(Number(e.target.value))} aria-label="Compare before and after" className="absolute inset-x-4 bottom-3 accent-white" />
     </div>
@@ -130,15 +130,15 @@ export function PortfolioPublic({ tenantId, token }: { tenantId: string; token: 
   const [d, setD] = useState<any>(null);
   useEffect(() => { api({ action: 'portfolio-public', tenantId, token }).then(setD); }, [tenantId, token]);
   if (!d) return <div className="min-h-dvh bg-[#f7f5f2] p-10"><Loading /></div>;
-  if (!d.ok) return <div className="flex min-h-dvh items-center justify-center bg-[#f7f5f2] p-6 text-center text-stone-600">{d.error}</div>;
+  if (!d.ok) return <div className="flex min-h-dvh items-center justify-center bg-[#f7f5f2] p-6 text-center text-foreground/80">{d.error}</div>;
   const c = d.color || '#7c3aed';
   return (
-    <div className="min-h-dvh bg-[#f7f5f2] text-stone-900">
+    <div className="min-h-dvh bg-[#f7f5f2] text-foreground">
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-10">
-        <header className="cf-land space-y-2 text-center">{d.logoUrl && <img src={d.logoUrl} alt="" className="mx-auto h-12 w-auto" />}<p className="text-[11px] uppercase tracking-[0.3em] text-stone-500">Portfolio</p><h1 className="text-4xl font-light tracking-tight">{d.name}</h1><p className="text-stone-600">Student at <b style={{ color: c }}>{d.school}</b></p></header>
-        {d.items.length === 0 ? <p className="text-center text-stone-500">No work to show yet.</p> :
-          <div className="grid gap-5 sm:grid-cols-2">{d.items.map((x: any) => <figure key={x.id} className="space-y-2"><Compare before={x.before} after={x.after} /><figcaption><p className="font-semibold">{x.service}</p>{x.note && <p className="text-[14px] text-stone-600">{x.note}</p>}</figcaption></figure>)}</div>}
-        <p className="pt-6 text-center text-[11px] text-stone-400">Shared by the student · Powered by ClarityFlow</p>
+        <header className="cf-land space-y-2 text-center">{d.logoUrl && <img src={d.logoUrl} alt="" className="mx-auto h-12 w-auto" />}<p className="text-[11px] uppercase tracking-[0.3em] text-muted-foreground">Portfolio</p><h1 className="text-4xl font-light tracking-tight">{d.name}</h1><p className="text-foreground/80">Student at <b style={{ color: c }}>{d.school}</b></p></header>
+        {d.items.length === 0 ? <p className="text-center text-muted-foreground">No work to show yet.</p> :
+          <div className="grid gap-5 sm:grid-cols-2">{d.items.map((x: any) => <figure key={x.id} className="space-y-2"><Compare before={x.before} after={x.after} /><figcaption><p className="font-semibold">{x.service}</p>{x.note && <p className="text-[14px] text-foreground/80">{x.note}</p>}</figcaption></figure>)}</div>}
+        <p className="pt-6 text-center text-[11px] text-muted-foreground">Shared by the student · Powered by ClarityFlow</p>
       </div>
     </div>
   );

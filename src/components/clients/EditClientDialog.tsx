@@ -199,7 +199,7 @@ const IntelCategory = ({
                 checked={getValues(flagsFieldName)?.includes(item)}
                 className="h-5 w-5 rounded-lg border-2"
               />
-              <Label htmlFor={`check-${title}-${item}`} className="text-xs font-bold uppercase tracking-tight text-slate-600">{item}</Label>
+              <Label htmlFor={`check-${title}-${item}`} className="text-xs font-bold uppercase tracking-tight text-foreground/80">{item}</Label>
             </div>
           ))}
         </div>
@@ -281,7 +281,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
             </div>
             <div className="space-y-0.5 text-left">
                 <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-                <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+                <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
             </div>
         </div>
     );
@@ -309,7 +309,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                     <div className="flex-1 space-y-4 w-full text-left">
                         <div className="space-y-1.5 text-left">
                             <Label htmlFor="full-name-edit" className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Legal Name</Label>
-                            <Input id="full-name-edit" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base shadow-inner bg-white" />
+                            <Input id="full-name-edit" placeholder="ALEXANDER SMITH" {...register('name')} className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base shadow-inner bg-card" />
                             {errors.name && <p className="text-[9px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>}
                         </div>
                         <div className="space-y-1.5 text-left">
@@ -371,21 +371,21 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                             render={({ field }) => (
                                 <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     <label htmlFor="st-active" className="cursor-pointer h-full">
-                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'active' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
+                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'active' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-card")}>
                                             <CheckCircle2 className={cn("w-5 h-5 mb-1.5", field.value === 'active' ? "text-primary" : "text-muted-foreground opacity-40")} />
                                             <span className="text-[10px] font-black uppercase">Active</span>
                                             <RadioGroupItem value="active" id="st-active" className="sr-only" />
                                         </div>
                                     </label>
                                     <label htmlFor="st-archived" className="cursor-pointer h-full">
-                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'archived' ? "border-slate-900 bg-slate-900 text-white shadow-md" : "border-border bg-white")}>
+                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'archived' ? "border-slate-900 bg-foreground text-background shadow-md" : "border-border bg-card")}>
                                             <ArchiveIcon className={cn("w-5 h-5 mb-1.5", field.value === 'archived' ? "text-white" : "text-muted-foreground opacity-40")} />
                                             <span className="text-[10px] font-black uppercase">Archived</span>
                                             <RadioGroupItem value="archived" id="st-archived" className="sr-only" />
                                         </div>
                                     </label>
                                     <label htmlFor="st-banned" className="cursor-pointer h-full">
-                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'banned' ? "border-destructive bg-destructive/5 text-destructive shadow-md" : "border-border bg-white")}>
+                                        <div className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-full text-center", field.value === 'banned' ? "border-destructive bg-destructive/5 text-destructive shadow-md" : "border-border bg-card")}>
                                             <Ban className={cn("w-5 h-5 mb-1.5", field.value === 'banned' ? "text-destructive" : "text-muted-foreground opacity-40")} />
                                             <span className="text-[10px] font-black uppercase">Banned</span>
                                             <RadioGroupItem value="banned" id="st-banned" className="sr-only" />
@@ -405,7 +405,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                                         id="ban-msg" 
                                         placeholder="Enter the message this guest will see if they attempt to book..." 
                                         {...register('banMessage')}
-                                        className="rounded-xl border-2 border-destructive/20 bg-white min-h-[100px] focus-visible:ring-destructive/20 font-medium"
+                                        className="rounded-xl border-2 border-destructive/20 bg-card min-h-[100px] focus-visible:ring-destructive/20 font-medium"
                                     />
                                     <p className="text-[9px] font-bold text-destructive/60 uppercase leading-relaxed ml-1 italic">
                                         Guests see this if they attempt online booking or kiosk check-in.
@@ -425,7 +425,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                             <Lock className="w-5 h-5 text-primary opacity-40" />
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">PCI Compliant Archive</span>
                         </div>
-                        <Badge variant="outline" className="font-black text-[8px] uppercase tracking-widest h-6 px-3 bg-white border-2">Card on File</Badge>
+                        <Badge variant="outline" className="font-black text-[8px] uppercase tracking-widest h-6 px-3 bg-card border-2">Card on File</Badge>
                     </div>
                     
                     <div className="space-y-2 text-left">
@@ -553,7 +553,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                         { id: 'history', label: 'Historical Service Context', placeholder: 'Past experiences and preferences.' },
                         { id: 'other', label: 'Miscellaneous Intel', placeholder: 'Other relevant tactical details.' }
                     ].map(section => (
-                        <AccordionItem key={section.id} value={section.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-white shadow-sm">
+                        <AccordionItem key={section.id} value={section.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-card shadow-sm">
                             <AccordionTrigger className="px-6 py-4 text-xs font-black uppercase tracking-widest hover:no-underline bg-muted/10">{section.label}</AccordionTrigger>
                             <AccordionContent className="p-6">
                                 <Textarea placeholder={section.placeholder} className="text-sm rounded-xl border-2 bg-muted/5 min-h-[120px]" {...register(`notes.${section.id}` as any)} />
@@ -621,7 +621,7 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
                 <Edit className="w-5 h-5 text-primary" />
                 <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
             </div>
-            <DialogTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>{title}</DialogTitle>
+            <DialogTitle className={cn("font-black uppercase tracking-tighter text-foreground leading-none", isMobile ? "text-xl" : "text-3xl")}>{title}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{description}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1">

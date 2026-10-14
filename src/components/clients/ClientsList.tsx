@@ -11,11 +11,11 @@ import { format, differenceInDays, differenceInYears } from 'date-fns';
 import { reachOf, type Reach } from '@/lib/client-reach';
 
 const safe = (v: any) => new Date(v?.toDate ? v.toDate() : v);
-const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
-const card = { background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' } as React.CSSProperties;
+const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
+const card = { background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' } as React.CSSProperties;
 const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 const AV = ['#b98a6a', '#6a8ab9', '#8a6ab9', '#6ab98a', '#b96a8a', '#8ab96a', '#2e6f6a'];
-const pill = (l: string, tone: 'warn' | 'ok' | 'soft' = 'soft') => <span key={l} className="whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12px] font-semibold" style={tone === 'warn' ? { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' } : tone === 'ok' ? { background: 'color-mix(in srgb, var(--ok, #15803d) 12%, transparent)', color: 'var(--ok, #15803d)' } : { background: 'var(--soft, #efebe6)' }}>{l}</span>;
+const pill = (l: string, tone: 'warn' | 'ok' | 'soft' = 'soft') => <span key={l} className="whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12px] font-semibold" style={tone === 'warn' ? { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' } : tone === 'ok' ? { background: 'color-mix(in srgb, var(--ok, #15803d) 12%, transparent)', color: 'var(--ok, #15803d)' } : { background: 'hsl(var(--secondary))' }}>{l}</span>;
 const last10 = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
 
 export type Row = { c: any; visits: number; first: Date | null; last: Date | null; next: any | null; everyDays: number | null; usual: string | null; spent: number; dueBack: Date | null; dueThisWeek: boolean; quiet: boolean; isNew: boolean; regular: boolean; member: boolean; birthday: boolean; formDue: boolean; owes: number; age: number | null; dup: boolean };
@@ -97,17 +97,17 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
         <div className="min-w-0 flex-1"><h1 className="text-[28px] font-light leading-tight md:text-[32px]">Clients</h1>
           <p className="hidden text-[14px] md:block" style={muted}>{live.length} {live.length === 1 ? 'person' : 'people'} · {seen90} seen in the last 90 days{pushCount > 0 ? ` · ${pushCount} of ${live.length} clients get notifications` : ''}</p>
           <p className="truncate text-[13px] md:hidden" style={muted}>{[`${live.filter((r) => r.c.status !== 'banned').length} people`, dueWeek.length ? `${dueWeek.length} due back` : null, live.some((r) => r.quiet) ? `${live.filter((r) => r.quiet).length} gone quiet` : null, showMoney && owing.length ? `${money(owing.reduce((x, r) => x + r.owes, 0))} owed` : null].filter(Boolean).join(' · ')}</p></div>
-        {dupCount > 0 && canManage && <button type="button" onClick={onFindDuplicates} className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'var(--soft, #efebe6)' }}>Possible duplicates · {dupCount}</button>}
-        {canManage && <a href="/import" className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'var(--soft, #efebe6)' }}>Import</a>}
-        <button type="button" onClick={exportCsv} className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'var(--soft, #efebe6)' }}>Export</button>
-        <button type="button" onClick={onAdd} aria-label="Add client" className="h-11 w-11 rounded-full text-[22px] font-light md:h-10 md:w-auto md:px-5 md:text-[14px] md:font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}><span className="md:hidden">+</span><span className="hidden md:inline">+ Add client</span></button>
-        <span className="relative md:hidden"><button type="button" onClick={() => setMenu((v) => !v)} aria-label="More" aria-expanded={menu} className="h-11 w-11 rounded-full text-[18px]" style={{ background: 'var(--soft, #efebe6)' }}>⋯</button>
+        {dupCount > 0 && canManage && <button type="button" onClick={onFindDuplicates} className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'hsl(var(--secondary))' }}>Possible duplicates · {dupCount}</button>}
+        {canManage && <a href="/import" className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'hsl(var(--secondary))' }}>Import</a>}
+        <button type="button" onClick={exportCsv} className="hidden h-10 rounded-full px-4 text-[14px] font-semibold md:inline-flex md:items-center" style={{ background: 'hsl(var(--secondary))' }}>Export</button>
+        <button type="button" onClick={onAdd} aria-label="Add client" className="h-11 w-11 rounded-full text-[22px] font-light md:h-10 md:w-auto md:px-5 md:text-[14px] md:font-semibold" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}><span className="md:hidden">+</span><span className="hidden md:inline">+ Add client</span></button>
+        <span className="relative md:hidden"><button type="button" onClick={() => setMenu((v) => !v)} aria-label="More" aria-expanded={menu} className="h-11 w-11 rounded-full text-[18px]" style={{ background: 'hsl(var(--secondary))' }}>⋯</button>
           {menu && <div role="menu" className="absolute right-0 z-40 mt-2 w-60 overflow-hidden rounded-2xl text-[15px]" style={{ ...card, boxShadow: '0 12px 30px rgba(0,0,0,.14)' }}>
             <button type="button" role="menuitem" onClick={() => { setSelecting((v) => !v); setSel(new Set()); setMenu(false); }} className="block w-full px-4 py-3.5 text-left">{selecting ? 'Done selecting' : 'Select'}</button>
-            {dupCount > 0 && canManage && <button type="button" role="menuitem" onClick={() => { setMenu(false); onFindDuplicates(); }} className="block w-full border-t px-4 py-3.5 text-left" style={{ borderColor: 'var(--line, #efebe6)' }}>Possible duplicates · {dupCount}</button>}
-            <button type="button" role="menuitem" onClick={() => { setMenu(false); exportCsv(); }} className="block w-full border-t px-4 py-3.5 text-left" style={{ borderColor: 'var(--line, #efebe6)' }}>Export</button>
-            {canManage && <a href="/import" role="menuitem" className="block w-full border-t px-4 py-3.5 text-left" style={{ borderColor: 'var(--line, #efebe6)' }}>Import from another app</a>}
-            <p className="border-t px-4 pb-1 pt-3 text-[12px] font-semibold" style={{ ...muted, borderColor: 'var(--line, #efebe6)' }}>SORT BY</p>
+            {dupCount > 0 && canManage && <button type="button" role="menuitem" onClick={() => { setMenu(false); onFindDuplicates(); }} className="block w-full border-t px-4 py-3.5 text-left" style={{ borderColor: 'hsl(var(--border))' }}>Possible duplicates · {dupCount}</button>}
+            <button type="button" role="menuitem" onClick={() => { setMenu(false); exportCsv(); }} className="block w-full border-t px-4 py-3.5 text-left" style={{ borderColor: 'hsl(var(--border))' }}>Export</button>
+            {canManage && <a href="/import" role="menuitem" className="block w-full border-t px-4 py-3.5 text-left" style={{ borderColor: 'hsl(var(--border))' }}>Import from another app</a>}
+            <p className="border-t px-4 pb-1 pt-3 text-[12px] font-semibold" style={{ ...muted, borderColor: 'hsl(var(--border))' }}>SORT BY</p>
             {([['last', 'Last visit'], ['next', 'Next visit'], ['name', 'Name'], ['visits', 'Most visits'], ...(showMoney ? [['spent', 'Most spent']] : [])] as [any, string][]).map(([k, l]) => <button key={k} type="button" role="menuitemradio" aria-checked={sort === k} onClick={() => { setSort(k); setMenu(false); }} className="block w-full px-4 py-2.5 text-left" style={sort === k ? { fontWeight: 600 } : undefined}>{sort === k ? '✓ ' : ''}{l}</button>)}
           </div>}</span>
       </div>
@@ -119,32 +119,32 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
         {showMoney ? stat('Owe the business', money(owing.reduce((s, r) => s + r.owes, 0)), `${owing.length} ${owing.length === 1 ? 'person' : 'people'}`, owing.length > 0, 'owe') : stat('Regulars', live.filter((r) => r.regular).length, '6+ visits this year', false, 'regulars')}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <input value={q} onChange={(e) => { setQ(e.target.value); setLimit(50); }} placeholder={showContact ? 'Search name, phone or email' : 'Search name, or last 4 digits'} aria-label="Search clients" className="h-10 w-full rounded-full border px-4 text-[15px] sm:w-72" style={{ borderColor: 'var(--line, #e7e2dc)', background: 'var(--card, #fff)' }} />
+        <input value={q} onChange={(e) => { setQ(e.target.value); setLimit(50); }} placeholder={showContact ? 'Search name, phone or email' : 'Search name, or last 4 digits'} aria-label="Search clients" className="h-10 w-full rounded-full border px-4 text-[15px] sm:w-72" style={{ borderColor: 'hsl(var(--border))', background: 'hsl(var(--card))' }} />
         <div className="-mx-1 flex max-w-full gap-1.5 overflow-x-auto px-1" role="tablist" aria-label="Show">
           {[...segs.filter((s) => !s.money || showMoney), { k: 'archived' as Seg, l: 'Archived', f: () => true }].map((s) => { const n = segRows(s.k).length; if (n === 0 && !['all', seg].includes(s.k)) return null;
-            return <button key={s.k} type="button" role="tab" aria-selected={seg === s.k} onClick={() => { setSeg(s.k); setSel(new Set()); setLimit(50); }} className="h-9 shrink-0 rounded-full border px-3.5 text-[13px] font-semibold" style={seg === s.k ? { background: 'var(--ink, #1c1917)', color: '#fff', borderColor: 'var(--ink, #1c1917)' } : { background: 'var(--card, #fff)', borderColor: 'var(--line, #e7e2dc)' }}>{s.l} <span style={seg === s.k ? { color: '#d6d3d1' } : muted}>{n}</span></button>; })}
+            return <button key={s.k} type="button" role="tab" aria-selected={seg === s.k} onClick={() => { setSeg(s.k); setSel(new Set()); setLimit(50); }} className="h-9 shrink-0 rounded-full border px-3.5 text-[13px] font-semibold" style={seg === s.k ? { background: 'hsl(var(--foreground))', color: 'hsl(var(--background))', borderColor: 'hsl(var(--foreground))' } : { background: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>{s.l} <span style={seg === s.k ? { color: '#d6d3d1' } : muted}>{n}</span></button>; })}
         </div>
-        <select value={sort} onChange={(e) => setSort(e.target.value as any)} aria-label="Sort" className="ml-auto hidden h-9 rounded-full border px-3 text-[13px] md:block" style={{ borderColor: 'var(--line, #e7e2dc)', background: 'var(--card, #fff)' }}>
+        <select value={sort} onChange={(e) => setSort(e.target.value as any)} aria-label="Sort" className="ml-auto hidden h-9 rounded-full border px-3 text-[13px] md:block" style={{ borderColor: 'hsl(var(--border))', background: 'hsl(var(--card))' }}>
           <option value="last">Last visit</option><option value="next">Next visit</option><option value="name">Name</option><option value="visits">Most visits</option>{showMoney && <option value="spent">Most spent</option>}</select>
       </div>
       <div className="overflow-hidden rounded-3xl" style={card}>
         <div className="hidden grid-cols-[28px_44px_1.6fr_1.2fr_1.2fr_0.9fr_1.3fr_120px] items-center gap-3 px-4 py-2.5 text-[12px] font-semibold md:grid" style={muted}>
           <input type="checkbox" aria-label="Select all shown" checked={rows.length > 0 && rows.slice(0, limit).every((r) => sel.has(r.c.id))} onChange={(e) => setSel(e.target.checked ? new Set(rows.slice(0, limit).map((r) => r.c.id)) : new Set())} />
           <span /><span>Client</span><span>Next / last visit</span><span>Usually</span><span>{showMoney ? 'Spent' : 'Visits'}</span><span>Needs attention</span><span /></div>
-        {rows.length === 0 && <p className="border-t p-6 text-[14px]" style={{ ...muted, borderColor: 'var(--line, #efebe6)' }}>{term ? 'No one matches that search.' : 'No one here right now.'}</p>}
+        {rows.length === 0 && <p className="border-t p-6 text-[14px]" style={{ ...muted, borderColor: 'hsl(var(--border))' }}>{term ? 'No one matches that search.' : 'No one here right now.'}</p>}
         {rows.slice(0, limit).map((r, i) => { const pills = attention(r); const action = r.c.status === 'banned' ? null : r.quiet || r.dueThisWeek ? 'invite' : 'book';
           const status = r.next ? <>{format(safe(r.next.startTime), 'EEE d MMM · h:mm a')}</> : r.dueBack && !r.quiet ? <span style={{ color: 'var(--warn, #b45309)' }}>Due {format(r.dueBack, 'd MMM')}</span> : r.last ? <>Last seen {format(r.last, 'd MMM yyyy')}</> : <>No visits yet</>;
           const avatar = (size: number) => r.c.avatarUrl ? <img src={r.c.avatarUrl} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} /> : <span className="flex shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white" style={{ width: size, height: size, background: AV[i % AV.length] }} aria-hidden="true">{initials(r.c.name)}</span>;
           return (<React.Fragment key={r.c.id}>
             <button type="button" onClick={() => (selecting ? toggle(r.c.id) : onOpen(r.c.id))} aria-pressed={selecting ? sel.has(r.c.id) : undefined}
-              className="flex w-full items-center gap-3 border-t px-4 py-3.5 text-left md:hidden" style={{ borderColor: 'var(--line, #efebe6)', background: selecting && sel.has(r.c.id) ? 'color-mix(in srgb, var(--accent, #2e6f6a) 8%, transparent)' : undefined }}>
-              {selecting && <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[13px]" style={sel.has(r.c.id) ? { background: 'var(--ink, #1c1917)', borderColor: 'var(--ink, #1c1917)', color: '#fff' } : { borderColor: 'var(--line, #d6d3d1)' }} aria-hidden="true">{sel.has(r.c.id) ? '✓' : ''}</span>}
+              className="flex w-full items-center gap-3 border-t px-4 py-3.5 text-left md:hidden" style={{ borderColor: 'hsl(var(--border))', background: selecting && sel.has(r.c.id) ? 'color-mix(in srgb, var(--accent, #2e6f6a) 8%, transparent)' : undefined }}>
+              {selecting && <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[13px]" style={sel.has(r.c.id) ? { background: 'hsl(var(--foreground))', borderColor: 'hsl(var(--foreground))', color: 'hsl(var(--background))' } : { borderColor: 'hsl(var(--border))' }} aria-hidden="true">{sel.has(r.c.id) ? '✓' : ''}</span>}
               {avatar(44)}
               <span className="min-w-0 flex-1"><b className="block truncate text-[16px]">{r.c.name || 'Client'}</b><span className="block truncate text-[13px]" style={muted}>{status}</span></span>
               {pills[0] || null}
               {!selecting && <span className="text-[20px] leading-none" style={muted} aria-hidden="true">›</span>}
             </button>
-            <div className="hidden grid-cols-[28px_40px_1fr_auto] items-center gap-3 border-t px-4 py-3 text-[14px] md:grid md:grid-cols-[28px_44px_1.6fr_1.2fr_1.2fr_0.9fr_1.3fr_120px]" style={{ borderColor: 'var(--line, #efebe6)', background: sel.has(r.c.id) ? 'color-mix(in srgb, var(--accent, #2e6f6a) 6%, transparent)' : undefined }}>
+            <div className="hidden grid-cols-[28px_40px_1fr_auto] items-center gap-3 border-t px-4 py-3 text-[14px] md:grid md:grid-cols-[28px_44px_1.6fr_1.2fr_1.2fr_0.9fr_1.3fr_120px]" style={{ borderColor: 'hsl(var(--border))', background: sel.has(r.c.id) ? 'color-mix(in srgb, var(--accent, #2e6f6a) 6%, transparent)' : undefined }}>
               <input type="checkbox" aria-label={`Select ${r.c.name}`} checked={sel.has(r.c.id)} onChange={() => toggle(r.c.id)} />
               {avatar(40)}
               <button type="button" onClick={() => onOpen(r.c.id)} className="min-w-0 text-left"><b className="block truncate">{r.c.name || 'Client'}</b><span className="block truncate text-[12px]" style={muted}>{identity(r)}</span>
@@ -152,14 +152,14 @@ export function ClientsList({ tenantId, clients, appointments, services, staff, 
               <span className="hidden min-w-0 md:block">{r.next ? <b className="block truncate">{format(safe(r.next.startTime), 'EEE d MMM, h:mm a')}</b> : r.dueBack && !r.quiet ? <span className="block" style={{ color: 'var(--warn, #b45309)' }}>Due {format(r.dueBack, 'd MMM')}</span> : <span className="block" style={muted}>—</span>}
                 <span className="block text-[12px]" style={muted}>{r.last ? `last ${format(r.last, 'd MMM yyyy')}` : 'never visited'}</span></span>
               <span className="hidden min-w-0 md:block"><span className="block truncate">{r.usual || '—'}</span>{r.everyDays && <span className="block text-[12px]" style={muted}>every {Math.max(1, Math.round(r.everyDays / 7))} weeks</span>}</span>
-              <span className="hidden md:block">{showMoney ? <>{money(r.spent)}<span className="mt-1 block h-[5px] w-20 overflow-hidden rounded-full" style={{ background: 'var(--soft, #efebe6)' }}><i className="block h-full rounded-full" style={{ width: `${Math.round((r.spent / maxSpent) * 100)}%`, background: 'var(--accent, #2e6f6a)' }} /></span></> : r.visits}</span>
+              <span className="hidden md:block">{showMoney ? <>{money(r.spent)}<span className="mt-1 block h-[5px] w-20 overflow-hidden rounded-full" style={{ background: 'hsl(var(--secondary))' }}><i className="block h-full rounded-full" style={{ width: `${Math.round((r.spent / maxSpent) * 100)}%`, background: 'var(--accent, #2e6f6a)' }} /></span></> : r.visits}</span>
               <span className="hidden flex-wrap gap-1 md:flex">{pills.length ? pills : <span style={muted}>—</span>}</span>
-              <span className="text-right">{action === 'invite' && canMessage ? <button type="button" onClick={() => { setSel(new Set([r.c.id])); setCompose('invite'); }} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Invite back</button>
-                : action ? <button type="button" onClick={() => onBook(r.c.id)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Book</button> : null}</span>
+              <span className="text-right">{action === 'invite' && canMessage ? <button type="button" onClick={() => { setSel(new Set([r.c.id])); setCompose('invite'); }} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>Invite back</button>
+                : action ? <button type="button" onClick={() => onBook(r.c.id)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>Book</button> : null}</span>
             </div></React.Fragment>); })}
-        {rows.length > limit && <button type="button" onClick={() => setLimit(limit + 100)} className="w-full border-t py-3 text-[14px] font-semibold" style={{ borderColor: 'var(--line, #efebe6)' }}>Show more ({rows.length - limit})</button>}
+        {rows.length > limit && <button type="button" onClick={() => setLimit(limit + 100)} className="w-full border-t py-3 text-[14px] font-semibold" style={{ borderColor: 'hsl(var(--border))' }}>Show more ({rows.length - limit})</button>}
       </div>
-      {sel.size > 0 && <div className="fixed inset-x-3 bottom-3 z-40 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-2 text-[14px] shadow-lg md:sticky md:inset-x-auto md:z-30 md:mx-auto md:w-fit md:rounded-full" style={{ background: 'var(--ink, #1c1917)', color: '#fff', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }} role="toolbar" aria-label="With the selected clients">
+      {sel.size > 0 && <div className="fixed inset-x-3 bottom-3 z-40 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-2 text-[14px] shadow-lg md:sticky md:inset-x-auto md:z-30 md:mx-auto md:w-fit md:rounded-full" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }} role="toolbar" aria-label="With the selected clients">
         <span className="px-1">{sel.size} selected</span>
         {canMessage && <button type="button" onClick={() => setCompose('message')} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Message</button>}
         {canMessage && <button type="button" onClick={() => setCompose('invite')} className="h-9 rounded-full px-3 font-semibold" style={{ background: 'rgba(255,255,255,.14)' }}>Invite back</button>}
@@ -187,16 +187,16 @@ function BulkMessage({ tenantId, kind, people, onClose }: { tenantId: string; ki
     setBusy(false); setResult({ sent, skipped }); };
   return (
     <div role="dialog" aria-label={kind === 'invite' ? 'Invite back' : 'Message clients'} className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" style={{ background: 'rgba(28,25,23,.38)' }} onClick={() => !busy && onClose(!!result)}>
-      <div className="w-full max-w-lg space-y-3 rounded-t-[28px] p-5 sm:rounded-[26px]" style={{ background: 'var(--card, #fff)' }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg space-y-3 rounded-t-[28px] p-5 sm:rounded-[26px]" style={{ background: 'hsl(var(--card))' }} onClick={(e) => e.stopPropagation()}>
         <h2 className="text-[20px] font-light">{kind === 'invite' ? 'Invite back' : 'Message'} {capped.length} {capped.length === 1 ? 'person' : 'people'}</h2>
         {result ? <>
           <p className="text-[15px]"><b>{result.sent}</b> sent.{result.skipped.length ? ` ${result.skipped.length} not sent:` : ''}</p>
           {result.skipped.length > 0 && <ul className="max-h-48 list-disc space-y-1 overflow-auto pl-5 text-[13px]" style={muted}>{result.skipped.map((s) => <li key={s}>{s}</li>)}</ul>}
-          <button type="button" onClick={() => onClose(true)} className="h-10 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Done</button>
+          <button type="button" onClick={() => onClose(true)} className="h-10 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}>Done</button>
         </> : <>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} aria-label="Message" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} aria-label="Message" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'hsl(var(--border))' }} />
           <p className="text-[12px]" style={muted}>{'{first}'} becomes each person’s first name. Each goes by text where they allow texts, otherwise email; anyone who can’t be reached is listed afterwards.{people.length > 100 ? ' The first 100 are sent now.' : ''}</p>
-          <div className="flex gap-2"><button type="button" disabled={busy || !text.trim()} onClick={send} className="h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-50" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>{busy ? 'Sending…' : `Send to ${capped.length}`}</button><button type="button" disabled={busy} onClick={() => onClose(false)} className="h-10 rounded-full px-4 text-[14px]" style={muted}>Cancel</button></div>
+          <div className="flex gap-2"><button type="button" disabled={busy || !text.trim()} onClick={send} className="h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-50" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}>{busy ? 'Sending…' : `Send to ${capped.length}`}</button><button type="button" disabled={busy} onClick={() => onClose(false)} className="h-10 rounded-full px-4 text-[14px]" style={muted}>Cancel</button></div>
         </>}
       </div>
     </div>);

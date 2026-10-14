@@ -442,14 +442,14 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     };
 
     const laneTabs: { key: LaneKey; icon: any; label: string; count: number; colorClass: string }[] = [
-        { key: 'waiting', icon: Users, label: 'Waiting', count: activeWaitingCount, colorClass: 'text-slate-500' },
+        { key: 'waiting', icon: Users, label: 'Waiting', count: activeWaitingCount, colorClass: 'text-muted-foreground' },
         { key: 'called', icon: CheckCircle, label: 'Called', count: calledQueue.length, colorClass: 'text-green-500' },
         { key: 'inService', icon: Activity, label: 'In Service', count: inServiceQueue.length, colorClass: 'text-blue-500' },
         { key: 'atDesk', icon: ShoppingCart, label: 'At Desk', count: readyForCheckoutAppointments.length, colorClass: 'text-orange-500' },
     ];
 
     return (
-        <div className={cn(BOARD_MAX_WIDTH, 'flex flex-col border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white shadow-2xl shadow-primary/5')}>
+        <div className={cn(BOARD_MAX_WIDTH, 'flex flex-col border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-card shadow-2xl shadow-primary/5')}>
 
             <div className="flex items-center gap-3 px-4 md:px-6 py-3 border-b bg-muted/5 overflow-x-auto no-scrollbar">
                 <div className="flex items-center gap-2 shrink-0">
@@ -476,7 +476,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 hover:bg-emerald-500/20'
                                         : apt.needsAttention
                                             ? 'bg-amber-500/10 border-amber-500/40 text-amber-700 hover:bg-amber-500/20'
-                                            : 'bg-white border-muted-foreground/15 text-muted-foreground/70 hover:border-muted-foreground/40',
+                                            : 'bg-card border-muted-foreground/15 text-muted-foreground/70 hover:border-muted-foreground/40',
                                 )}
                             >
                                 {apt.hasArrived ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
@@ -502,14 +502,14 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                 'flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-[9px] font-black uppercase tracking-widest shrink-0 transition-all border-2',
                                 isActive
                                     ? 'bg-primary text-white border-primary shadow-sm'
-                                    : 'bg-white text-muted-foreground border-transparent hover:border-muted-foreground/20',
+                                    : 'bg-card text-muted-foreground border-transparent hover:border-muted-foreground/20',
                             )}
                         >
                             <Icon className="w-3.5 h-3.5" />
                             {tab.label}
                             <span className={cn(
                                 'w-4 h-4 rounded-full text-[8px] flex items-center justify-center font-black shrink-0',
-                                isActive ? 'bg-white/25 text-white' : 'bg-muted-foreground/15 text-muted-foreground',
+                                isActive ? 'bg-card/25 text-white' : 'bg-muted-foreground/15 text-muted-foreground',
                             )}>{tab.count}</span>
                         </button>
                     );

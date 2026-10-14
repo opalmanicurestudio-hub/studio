@@ -134,7 +134,7 @@ const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
     case 'income':  return <TrendingUp className="h-5 w-5 text-green-500" />;
     case 'expense': return <TrendingDown className="h-5 w-5 text-red-500" />;
     case 'payment': return <BookOpen className="h-5 w-5 text-primary" />;
-    case 'reversal':return <RefreshCw className="h-5 w-5 text-slate-400" />;
+    case 'reversal':return <RefreshCw className="h-5 w-5 text-muted-foreground" />;
     default:        return null;
   }
 };
@@ -184,10 +184,10 @@ const StatCard = ({
   sparkData?: number[];
 }) => {
   const TrendIcon = trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus;
-  const trendColor = trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-500' : 'text-slate-400';
+  const trendColor = trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-500' : 'text-muted-foreground';
 
   return (
-    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
+    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card">
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className={cn('p-2.5 rounded-2xl', accent)}>
@@ -198,7 +198,7 @@ const StatCard = ({
           )}
         </div>
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 mb-1">{label}</p>
-        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900 leading-none">{value}</p>
+        <p className="text-2xl font-black font-mono tracking-tighter text-foreground leading-none">{value}</p>
         {(sub || trendLabel) && (
           <div className="flex items-center gap-1.5 mt-2">
             {trend && <TrendIcon className={cn('w-3 h-3', trendColor)} />}
@@ -576,7 +576,7 @@ const ReceiptPreviewDialog = ({
             <Receipt className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Digital Receipt</span>
           </div>
-          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 truncate">{transaction.description}</DialogTitle>
+          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-foreground truncate">{transaction.description}</DialogTitle>
         </DialogHeader>
         <div className="p-6 max-h-[60vh] overflow-y-auto">
           {loading && <div className="flex flex-col items-center gap-3 py-12"><Loader className="w-8 h-8 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading receipt...</p></div>}
@@ -592,8 +592,8 @@ const ReceiptPreviewDialog = ({
               <div className="space-y-1.5">
                 {(receipt.lineItems || []).map((item, i) => (
                   <div key={i} className="flex justify-between items-start gap-3">
-                    <div className="flex-1 min-w-0"><span className="font-bold text-[12px] text-slate-900 block truncate">{item.label}</span>{item.staff && <span className="text-[10px] text-muted-foreground">· {item.staff}</span>}</div>
-                    <span className="font-black text-slate-900 shrink-0">${item.amount.toFixed(2)}</span>
+                    <div className="flex-1 min-w-0"><span className="font-bold text-[12px] text-foreground block truncate">{item.label}</span>{item.staff && <span className="text-[10px] text-muted-foreground">· {item.staff}</span>}</div>
+                    <span className="font-black text-foreground shrink-0">${item.amount.toFixed(2)}</span>
                   </div>
                 ))}
               </div>
@@ -721,7 +721,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
       <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
         <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
           <div className="flex items-center gap-3 mb-2"><Undo2 className="w-5 h-5 text-destructive" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Revenue Reversal</span></div>
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">Refund Protocol</DialogTitle>
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground leading-none">Refund Protocol</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Initiating reversal sequence.</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh]">
@@ -729,7 +729,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
             <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 text-center space-y-2">
               <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Reversal Value</p>
               <p className="text-5xl font-black text-destructive tracking-tighter font-mono">${totalOutlay.toFixed(2)}</p>
-              <p className="text-[10px] font-bold text-slate-600 uppercase flex items-center justify-center gap-2">
+              <p className="text-[10px] font-bold text-foreground/80 uppercase flex items-center justify-center gap-2">
                 {isCard ? <Lock className="w-3 h-3" /> : <Banknote className="w-3 h-3" />}
                 {isCard ? 'Original Card (Locked)' : transaction.paymentMethod}
               </p>
@@ -777,14 +777,14 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
               <Switch checked={logIncident} onCheckedChange={setLogIncident} />
             </div>
             <div className="space-y-3 pt-4 border-t border-dashed">
-              <div className="flex items-center gap-3"><div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-slate-400" /></div><Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Manager PIN</Label></div>
+              <div className="flex items-center gap-3"><div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-muted-foreground" /></div><Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Manager PIN</Label></div>
               <Input type="password" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 shadow-inner bg-muted/5" placeholder="••••" />
             </div>
           </div>
         </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3">
           <Button onClick={handleAction} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl text-xl font-black uppercase bg-destructive text-destructive-foreground hover:bg-destructive/90">Authorize Reversal</Button>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-muted-foreground">Abort</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -802,7 +802,7 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
       <SheetContent side="right" className="w-full sm:max-w-xl p-0 flex flex-col bg-background overflow-hidden">
         <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
           <div className="flex items-center gap-3 mb-2"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Audit Intelligence</span></div>
-          <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Record Dossier</SheetTitle>
+          <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Record Dossier</SheetTitle>
           <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Registry ID: {transaction.id.slice(-8).toUpperCase()}</SheetDescription>
         </SheetHeader>
         <ScrollArea className="flex-1">
@@ -819,8 +819,8 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
             </div>
             <div className="space-y-4">
               <div><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Entity Reference</p>
-                <p className="text-xl font-black uppercase tracking-tight text-slate-900">{transaction.description}</p>
-                <p className="text-xs font-bold text-slate-500 uppercase">{transaction.clientOrVendor}</p>
+                <p className="text-xl font-black uppercase tracking-tight text-foreground">{transaction.description}</p>
+                <p className="text-xs font-bold text-muted-foreground uppercase">{transaction.clientOrVendor}</p>
               </div>
               <div className="grid grid-cols-2 gap-6 pt-4 border-t border-dashed">
                 <div><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Timestamp</p>
@@ -829,13 +829,13 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
                 </div>
                 <div><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Settlement</p>
                   <p className="font-black text-sm uppercase tracking-tight">{transaction.paymentMethod}</p>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">{transaction.context} Account</p>
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase">{transaction.context} Account</p>
                 </div>
               </div>
               {staffMember && (
                 <div className="pt-4 border-t border-dashed space-y-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Authorized By</p>
-                  <div className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-white shadow-sm">
+                  <div className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-card shadow-sm">
                     <Avatar className="h-10 w-10 border shadow-sm rounded-xl"><AvatarImage src={staffMember.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback></Avatar>
                     <div><p className="font-black text-sm uppercase tracking-tight">{staffMember.name}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{staffMember.role}</p></div>
                   </div>
@@ -861,8 +861,8 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
               const tk = await getAuth().currentUser?.getIdToken().catch(() => ''); const r = await fetch(`/api/disputes/pack?tenantId=${encodeURIComponent(String(tenantId || ''))}&appointmentId=${encodeURIComponent(String((transaction as any).appointmentId))}`, { headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
               if (!r.ok) { const j = await r.json().catch(() => ({})); toast({ variant: 'destructive', title: 'Couldn’t build the pack', description: j.error }); return; }
               const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = 'dispute-pack.pdf'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
-            }} className="w-full h-12 rounded-xl text-[14px] font-medium border bg-white">Card dispute pack (PDF)</Button>}
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Close Archive</Button>
+            }} className="w-full h-12 rounded-xl text-[14px] font-medium border bg-card">Card dispute pack (PDF)</Button>}
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-card">Close Archive</Button>
           </div>
         </SheetFooter>
       </SheetContent>
@@ -933,15 +933,15 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
           <div className="space-y-2 text-xs">
             {[
               ['Gross Revenue', financialSummary.revenue + financialSummary.taxLiability, 'text-green-600'],
-              ['Tax Liability', -financialSummary.taxLiability, 'text-slate-400'],
+              ['Tax Liability', -financialSummary.taxLiability, 'text-muted-foreground'],
               ['Net Revenue', financialSummary.revenue, 'text-green-600'],
               ['COGS', -financialSummary.cogs, 'text-destructive'],
-              ['Gross Profit', financialSummary.grossProfit, 'text-slate-900'],
+              ['Gross Profit', financialSummary.grossProfit, 'text-foreground'],
               ['Card Fees Paid', -financialSummary.processingFeesPaid, 'text-purple-700'],
               ['Op. Expenses', -financialSummary.operatingExpenses, 'text-destructive'],
             ].map(([label, val, cls]) => (
               <div key={label as string} className="flex justify-between font-bold">
-                <span className={label === 'Tax Liability' ? 'text-slate-400 italic text-[10px]' : ''}>{label as string}</span>
+                <span className={label === 'Tax Liability' ? 'text-muted-foreground italic text-[10px]' : ''}>{label as string}</span>
                 <span className={cn('font-mono', cls as string)}>
                   {(val as number) < 0 ? '-' : ''}${Math.abs(val as number).toFixed(2)}
                   {label === 'Tax Liability' && <span className="text-[8px] ml-1 opacity-50">(held)</span>}
@@ -986,7 +986,7 @@ const TxnActions = ({ transaction, onRevertClick, onPreviewReceipt, onRefundClic
   </DropdownMenu>
 );
 
-const amountColor = (t: Transaction) => t.type === 'income' ? 'text-green-600' : t.type === 'reversal' ? 'text-slate-400' : 'text-destructive';
+const amountColor = (t: Transaction) => t.type === 'income' ? 'text-green-600' : t.type === 'reversal' ? 'text-muted-foreground' : 'text-destructive';
 const amountPrefix = (t: Transaction) => t.type === 'income' ? '+' : t.type === 'reversal' ? '' : '-';
 
 const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails, onRefundClick }: any) => (
@@ -997,7 +997,7 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
           <TransactionIcon type={transaction.type} />
         </div>
         <div className="min-w-0">
-          <span className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900 truncate block">{transaction.description}</span>
+          <span className="font-black uppercase tracking-tight text-xs md:text-sm text-foreground truncate block">{transaction.description}</span>
           <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-60 truncate block">{transaction.clientOrVendor}</span>
         </div>
       </div>
@@ -1005,7 +1005,7 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
     <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-70">{fmt(transaction.date, 'MMM d, p')}</TableCell>
     <TableCell>
       {staffMember
-        ? <div className="flex items-center gap-2"><Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl shrink-0"><AvatarImage src={staffMember.avatarUrl} className="object-cover" /><AvatarFallback className="text-[9px] bg-primary/10 text-primary font-black">{(staffMember.name||'S').charAt(0)}</AvatarFallback></Avatar><span className="text-[10px] font-black uppercase tracking-tight text-slate-700 truncate">{staffMember.name.split(' ')[0]}</span></div>
+        ? <div className="flex items-center gap-2"><Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl shrink-0"><AvatarImage src={staffMember.avatarUrl} className="object-cover" /><AvatarFallback className="text-[9px] bg-primary/10 text-primary font-black">{(staffMember.name||'S').charAt(0)}</AvatarFallback></Avatar><span className="text-[10px] font-black uppercase tracking-tight text-foreground/80 truncate">{staffMember.name.split(' ')[0]}</span></div>
         : <span className="text-[9px] font-black uppercase text-muted-foreground italic opacity-40">System</span>}
     </TableCell>
     <TableCell><Badge className={cn('text-[9px] h-5 px-2 font-black uppercase tracking-widest border-none', transaction.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>{transaction.context}</Badge></TableCell>
@@ -1037,7 +1037,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
           <TransactionIcon type={transaction.type} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-black text-[13px] uppercase tracking-tight text-slate-900 truncate leading-tight">{transaction.description}</p>
+          <p className="font-black text-[13px] uppercase tracking-tight text-foreground truncate leading-tight">{transaction.description}</p>
           <p className="text-[9px] text-muted-foreground font-black uppercase tracking-widest opacity-60 truncate">
             {transaction.clientOrVendor} · {fmt(transaction.date, 'MMM d, p')}
             {staffMember ? <span className="text-primary opacity-100"> · {staffMember.name.split(' ')[0]}</span> : null}
@@ -1333,13 +1333,13 @@ const LedgerTab = () => {
                instead of two stacked 56px full-width buttons ─────────────── */}
         <div className="flex flex-row items-center justify-between gap-3 mb-5 md:mb-8">
           <div className="min-w-0">
-            <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate">The Ledger</h1>
+            <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-foreground leading-none truncate">The Ledger</h1>
             <p className="hidden sm:block text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Official financial audit trail</p>
           </div>
           <div className="flex items-center gap-2 md:gap-3 shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" aria-label="Reports" className="h-11 w-11 p-0 md:h-14 md:w-auto md:px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
+                <Button variant="outline" aria-label="Reports" className="h-11 w-11 p-0 md:h-14 md:w-auto md:px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-card">
                   <Printer className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">Reports</span>
                 </Button>
               </DropdownMenuTrigger>
@@ -1357,7 +1357,7 @@ const LedgerTab = () => {
                   <Users className="w-3.5 h-3.5 mr-2 text-sky-600 opacity-60" /> Payroll Register
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openReport('audit')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
-                  <ShieldCheck className="w-3.5 h-3.5 mr-2 text-slate-500 opacity-60" /> Audit Trail
+                  <ShieldCheck className="w-3.5 h-3.5 mr-2 text-muted-foreground opacity-60" /> Audit Trail
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1405,7 +1405,7 @@ const LedgerTab = () => {
             label="Tax Liability"
             value={fmtCurrency(financialSummary.taxLiability)}
             icon={AlertCircle}
-            accent="bg-slate-100 text-slate-500"
+            accent="bg-muted text-muted-foreground"
             sub="Held — not your income"
           />
         </div>
@@ -1417,7 +1417,7 @@ const LedgerTab = () => {
           {([['today', 'Today'], ['7days', '7D'], ['30days', '30D'], ['thisMonth', 'Month'], ['lastMonth', 'Last Mo']] as [string, string][]).map(([v, l]) => (
             <Button key={v} variant="ghost" size="sm" onClick={() => setPeriodPreset(v)}
               className={cn('flex-1 text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all whitespace-nowrap',
-                periodPreset === v ? 'bg-white shadow-sm border border-border/50' : 'hover:bg-white/50')}>
+                periodPreset === v ? 'bg-card shadow-sm border border-border/50' : 'hover:bg-card/50')}>
               {l}
             </Button>
           ))}
@@ -1468,13 +1468,13 @@ const LedgerTab = () => {
             )}
 
             {/* ── Desktop table ─────────────────────────────────────────────── */}
-            <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
+            <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-card">
               <CardContent className="p-0 overflow-x-auto">
                 <Table>
                   <TableHeader className="bg-muted/30 border-b-2">
                     <TableRow>
                       {['Description & Entity','Timestamp','Provider','Context','Account','Category'].map(h => (
-                        <TableHead key={h} className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-slate-900">{h}</TableHead>
+                        <TableHead key={h} className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-foreground">{h}</TableHead>
                       ))}
                       <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-primary pr-10">Amount</TableHead>
                       <TableHead><span className="sr-only">Actions</span></TableHead>
@@ -1535,7 +1535,7 @@ const LedgerTab = () => {
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl bg-background">
           <AlertDialogHeader className="p-6 pb-0">
             <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Reversal</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase tracking-tight">
+            <AlertDialogDescription className="font-bold text-sm text-foreground/80 leading-relaxed uppercase tracking-tight">
               Create an audit-trail reversal for &quot;{transactionToRevert?.description}&quot;?
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1588,7 +1588,7 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
                 <p className="text-[8px] font-bold text-muted-foreground opacity-60">{percentage}% Allocation</p>
             </div>
         </div>
-        <p className="text-base md:text-lg font-black font-mono tracking-tighter text-slate-900">${amount.toFixed(2)}</p>
+        <p className="text-base md:text-lg font-black font-mono tracking-tighter text-foreground">${amount.toFixed(2)}</p>
     </div>
 );
 
@@ -1944,7 +1944,7 @@ const PaydayTab = () => {
     <div className="p-4 md:p-8">
         <div className="max-w-2xl mx-auto px-2 md:px-0 space-y-8 md:space-y-10">
             <div className="text-center space-y-1">
-                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Run Payday</h1>
+                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Run Payday</h1>
                 <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
                     Reconcile Period & Allocate Revenue
                 </p>
@@ -1953,7 +1953,7 @@ const PaydayTab = () => {
             <div className="space-y-6">
                 <div className="max-w-[340px] mx-auto flex gap-1.5 p-2 bg-muted border-2 border-muted rounded-2xl shadow-inner">
                     {(['weekly', 'bi-weekly', 'monthly', 'custom'] as Cadence[]).map(c => (
-                        <Button key={c} variant="ghost" size="sm" onClick={() => handleCadenceChange(c)} className={cn("flex-1 text-[9px] font-black uppercase h-8 rounded-xl transition-all", cadence === c ? "bg-white shadow-sm border border-border/50" : "hover:bg-white/50")}>{c.replace('-', ' ')}</Button>
+                        <Button key={c} variant="ghost" size="sm" onClick={() => handleCadenceChange(c)} className={cn("flex-1 text-[9px] font-black uppercase h-8 rounded-xl transition-all", cadence === c ? "bg-card shadow-sm border border-border/50" : "hover:bg-card/50")}>{c.replace('-', ' ')}</Button>
                     ))}
                 </div>
 
@@ -1995,14 +1995,14 @@ const PaydayTab = () => {
                             variant="ghost"
                             size="icon"
                             onClick={handlePrevPeriod}
-                            className="h-10 w-10 md:h-12 md:w-12 hover:bg-white rounded-full shadow-sm"
+                            className="h-10 w-10 md:h-12 md:w-12 hover:bg-card rounded-full shadow-sm"
                         >
                             <ChevronLeft className="w-5 h-5 md:w-6 md:h-6"/>
                         </Button>
 
                         <div className="text-center px-2">
                             <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary mb-1">Reconciling Period</p>
-                            <p className="text-sm md:text-xl font-black text-slate-900 leading-none">
+                            <p className="text-sm md:text-xl font-black text-foreground leading-none">
                                 {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
                             </p>
                         </div>
@@ -2011,7 +2011,7 @@ const PaydayTab = () => {
                             variant="ghost"
                             size="icon"
                             onClick={handleNextPeriod}
-                            className="h-10 w-10 md:h-12 md:w-12 hover:bg-white rounded-full shadow-sm"
+                            className="h-10 w-10 md:h-12 md:w-12 hover:bg-card rounded-full shadow-sm"
                         >
                             <ChevronRight className="w-5 h-5 md:w-6 md:h-6"/>
                         </Button>
@@ -2053,7 +2053,7 @@ const PaydayTab = () => {
                         <p className="text-[9px] font-black uppercase tracking-widest text-primary mb-1 flex items-center gap-1.5">
                             <CalendarRange className="w-3.5 h-3.5" /> Payroll draft ready
                         </p>
-                        <p className="text-xs md:text-sm font-black text-slate-900">
+                        <p className="text-xs md:text-sm font-black text-foreground">
                             {format(safeDate(pendingDraft.periodStart), 'MMM d')} – {format(safeDate(pendingDraft.periodEnd), 'MMM d')} · {pendingDraft.lines?.length || 0} staff · gross ${Number(pendingDraft.grossTotal || 0).toFixed(2)} + est. taxes ${Number(pendingDraft.estimatedEmployerTaxes || 0).toFixed(2)}
                         </p>
                         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-0.5">
@@ -2381,7 +2381,7 @@ const BillRow = ({ bill, onMarkPaid }: { bill: EnrichedBill; onMarkPaid: (b: Enr
           : <User className={cn('w-4 h-4', bill.overdue ? 'text-destructive' : 'text-purple-600')} />}
       </div>
       <div className="min-w-0">
-        <p className="text-xs font-black uppercase tracking-tight text-slate-900 truncate">{bill.definition?.name || 'Unknown Bill'}</p>
+        <p className="text-xs font-black uppercase tracking-tight text-foreground truncate">{bill.definition?.name || 'Unknown Bill'}</p>
         <div className="flex items-center gap-2 mt-0.5">
           <span className={cn('text-[9px] font-black uppercase tracking-widest', bill.overdue ? 'text-destructive' : 'text-muted-foreground opacity-60')}>
             {bill.overdue
@@ -2514,7 +2514,7 @@ const BillsTab = () => {
     <div className="p-4 md:p-8">
       <div className="max-w-3xl mx-auto space-y-8">
         <div className="text-center space-y-1">
-          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Bills & Obligations</h1>
+          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Bills & Obligations</h1>
           <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
             Every unpaid instance across business & personal
           </p>
@@ -2525,7 +2525,7 @@ const BillsTab = () => {
           <Card className={cn('border-2 shadow-sm', overdueTotal > 0 ? 'bg-destructive/5 border-destructive/20' : 'bg-muted/20')}>
             <CardContent className="p-4 md:p-5">
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Overdue</p>
-              <p className={cn('text-lg md:text-2xl font-black font-mono tracking-tighter', overdueTotal > 0 ? 'text-destructive' : 'text-slate-900')}>${overdueTotal.toFixed(2)}</p>
+              <p className={cn('text-lg md:text-2xl font-black font-mono tracking-tighter', overdueTotal > 0 ? 'text-destructive' : 'text-foreground')}>${overdueTotal.toFixed(2)}</p>
               <p className="text-[8px] font-bold uppercase text-muted-foreground opacity-60 mt-1">{overdueBills.length} bill{overdueBills.length === 1 ? '' : 's'}</p>
             </CardContent>
           </Card>
@@ -2595,7 +2595,7 @@ const BillsTab = () => {
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl bg-background">
           <AlertDialogHeader className="p-6 pb-0">
             <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Mark Bill Paid</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase tracking-tight">
+            <AlertDialogDescription className="font-bold text-sm text-foreground/80 leading-relaxed uppercase tracking-tight">
               Log ${(billToPay?.definition?.amount || 0).toFixed(2)} for &quot;{billToPay?.definition?.name}&quot; as paid? An expense entry will be added to the ledger.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -2726,14 +2726,14 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
         {/* ── Header + period pills ── */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Money Overview</h1>
+            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Money Overview</h1>
             <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70 mt-1">
               {format(range.from, 'MMM d')} – {format(range.to, 'MMM d, yyyy')}
             </p>
           </div>
           <div className="flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner">
             {([['7days', '7 Days'], ['30days', '30 Days'], ['thisMonth', 'This Month']] as [OverviewPreset, string][]).map(([v, l]) => (
-              <Button key={v} variant="ghost" size="sm" onClick={() => setPreset(v)} className={cn('text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all', preset === v ? 'bg-white shadow-sm border border-border/50' : 'hover:bg-white/50')}>{l}</Button>
+              <Button key={v} variant="ghost" size="sm" onClick={() => setPreset(v)} className={cn('text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all', preset === v ? 'bg-card shadow-sm border border-border/50' : 'hover:bg-card/50')}>{l}</Button>
             ))}
           </div>
         </div>
@@ -2771,7 +2771,7 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
             label="Tax Held"
             value={fmtCurrency(summary.taxLiability)}
             icon={AlertCircle}
-            accent="bg-slate-100 text-slate-500"
+            accent="bg-muted text-muted-foreground"
             sub="Not your income"
           />
         </div>
@@ -2913,7 +2913,7 @@ const ACTIVITY_KINDS: Record<string, { icon: React.ElementType; cls: string; lab
   debt:        { icon: FileWarning, cls: 'bg-orange-100 text-orange-700', label: 'Debt' },
 };
 const kindOf = (action?: string) =>
-  ACTIVITY_KINDS[(action || '').split('.')[0]] || { icon: ShieldCheck, cls: 'bg-slate-100 text-slate-600', label: 'Other' };
+  ACTIVITY_KINDS[(action || '').split('.')[0]] || { icon: ShieldCheck, cls: 'bg-muted text-foreground/80', label: 'Other' };
 
 const dayLabel = (d: Date) => {
   const now = new Date();
@@ -2947,10 +2947,10 @@ const ActivityRow = ({ e }: { e: any }) => {
             {e.at ? format(safeDate(e.at), 'h:mm a') : ''}
           </span>
         </div>
-        <p className="text-xs font-bold text-slate-800 mt-1 leading-relaxed">{e.summary}</p>
+        <p className="text-xs font-bold text-foreground mt-1 leading-relaxed">{e.summary}</p>
       </div>
       {typeof e.amount === 'number' && (
-        <span className="font-mono font-black text-sm tracking-tighter text-slate-900 shrink-0 mt-0.5">
+        <span className="font-mono font-black text-sm tracking-tighter text-foreground shrink-0 mt-0.5">
           {fmtCurrency(e.amount)}
         </span>
       )}
@@ -3016,7 +3016,7 @@ const ActivityTab = () => {
     <div className="p-4 md:p-8">
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="text-center space-y-1">
-          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Activity</h1>
+          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Activity</h1>
           <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
             Everything happening in your business — people & automations
           </p>
@@ -3036,7 +3036,7 @@ const ActivityTab = () => {
             {['all', ...Object.keys(ACTIVITY_KINDS)].map(k => (
               <Button key={k} variant="ghost" size="sm" onClick={() => setKindFilter(k)}
                 className={cn('flex-1 text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all whitespace-nowrap',
-                  kindFilter === k ? 'bg-white shadow-sm border border-border/50' : 'hover:bg-white/50')}>
+                  kindFilter === k ? 'bg-card shadow-sm border border-border/50' : 'hover:bg-card/50')}>
                 {k === 'all' ? 'All' : ACTIVITY_KINDS[k].label}
               </Button>
             ))}
@@ -3147,7 +3147,7 @@ function MoneyHubContent() {
               onClick={() => handleTabChange(key)}
               className={cn(
                 'relative flex-1 h-9 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all gap-1.5',
-                activeTab === key ? 'bg-white shadow-sm border border-border/50 text-primary' : 'hover:bg-white/50 text-muted-foreground'
+                activeTab === key ? 'bg-card shadow-sm border border-border/50 text-primary' : 'hover:bg-card/50 text-muted-foreground'
               )}
             >
               <Icon className="w-3.5 h-3.5 shrink-0" />

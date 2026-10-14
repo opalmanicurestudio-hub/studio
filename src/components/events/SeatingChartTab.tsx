@@ -121,12 +121,12 @@ const CanvasTableCard = ({
         </div>
 
         {/* Body */}
-        <div className="bg-white/95 px-3 py-2 space-y-2">
+        <div className="bg-card/95 px-3 py-2 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Seats</span>
-            <span className="text-[10px] font-black text-slate-700">{filledSeats}/{table.seatCount}</span>
+            <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Seats</span>
+            <span className="text-[10px] font-black text-foreground/80">{filledSeats}/{table.seatCount}</span>
           </div>
-          <div className="h-1 rounded-full bg-slate-100 overflow-hidden">
+          <div className="h-1 rounded-full bg-muted overflow-hidden">
             <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${pct}%` }} />
           </div>
 
@@ -145,7 +145,7 @@ const CanvasTableCard = ({
                 </div>
               ) : null)}
               {overflowCount > 0 && (
-                <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[7px] font-black text-slate-500 ring-1 ring-white">
+                <div className="w-5 h-5 rounded-full bg-border flex items-center justify-center text-[7px] font-black text-muted-foreground ring-1 ring-white">
                   +{overflowCount}
                 </div>
               )}
@@ -153,7 +153,7 @@ const CanvasTableCard = ({
           )}
 
           {table.staffIds.length > 0 && (
-            <div className="flex flex-wrap gap-0.5 pt-0.5 border-t border-slate-100">
+            <div className="flex flex-wrap gap-0.5 pt-0.5 border-t border-border">
               {table.staffIds.slice(0, 3).map(sid => {
                 const s = staffList.find(st => st.id === sid);
                 return s ? (
@@ -163,7 +163,7 @@ const CanvasTableCard = ({
                 ) : null;
               })}
               {table.staffIds.length > 3 && (
-                <span className="text-[7px] font-black text-slate-400">+{table.staffIds.length - 3}</span>
+                <span className="text-[7px] font-black text-muted-foreground">+{table.staffIds.length - 3}</span>
               )}
             </div>
           )}
@@ -222,12 +222,12 @@ const GuestAssignSheet = ({
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search guests…"
-            className="w-full h-11 rounded-xl border-2 border-slate-200 px-4 text-sm font-bold text-slate-800 outline-none focus:border-slate-400 transition-colors"
+            className="w-full h-11 rounded-xl border-2 border-border px-4 text-sm font-bold text-foreground outline-none focus:border-slate-400 transition-colors"
           />
         </div>
         <div className="flex-1 overflow-y-auto space-y-2 pb-4">
           {available.length === 0 && (
-            <p className="text-center py-8 text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <p className="text-center py-8 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
               No available guests
             </p>
           )}
@@ -236,14 +236,14 @@ const GuestAssignSheet = ({
               key={g.id}
               onClick={() => handlePick(g.id)}
               disabled={!!assigning}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl border-2 border-slate-100 hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
+              className="w-full flex items-center gap-3 p-3 rounded-2xl border-2 border-border hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
             >
               <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center font-black text-white text-sm shrink-0', getAvatarColor(g.name))}>
                 {getInitials(g.name)}
               </div>
-              <p className="font-black text-slate-900">{g.name}</p>
+              <p className="font-black text-foreground">{g.name}</p>
               {assigning === g.id
-                ? <Loader className="w-4 h-4 animate-spin text-slate-400 ml-auto" />
+                ? <Loader className="w-4 h-4 animate-spin text-muted-foreground ml-auto" />
                 : <Check className="w-4 h-4 text-slate-200 ml-auto" />
               }
             </button>
@@ -302,41 +302,41 @@ const TableConfigPanel = ({
     <div className="space-y-5">
       {/* Name */}
       <div className="space-y-1.5">
-        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Table Name</label>
+        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Table Name</label>
         <input
           value={table.name}
           onChange={e => onUpdate({ ...table, name: e.target.value })}
-          className="w-full h-10 rounded-xl border-2 border-slate-100 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-slate-300"
+          className="w-full h-10 rounded-xl border-2 border-border bg-card px-3 text-sm font-bold text-foreground outline-none focus:border-border"
         />
       </div>
 
       {/* Seats */}
       <div className="space-y-1.5">
-        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Seat Count</label>
+        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Seat Count</label>
         <div className="flex items-center gap-3">
           <button onClick={() => handleSeatCountChange(Math.max(1, table.seatCount - 1))}
-            className="w-9 h-9 rounded-xl border-2 border-slate-100 flex items-center justify-center font-black text-slate-500 hover:border-slate-300">−</button>
-          <span className="text-2xl font-black text-slate-800 w-8 text-center">{table.seatCount}</span>
+            className="w-9 h-9 rounded-xl border-2 border-border flex items-center justify-center font-black text-muted-foreground hover:border-border">−</button>
+          <span className="text-2xl font-black text-foreground w-8 text-center">{table.seatCount}</span>
           <button onClick={() => handleSeatCountChange(Math.min(20, table.seatCount + 1))}
-            className="w-9 h-9 rounded-xl border-2 border-slate-100 flex items-center justify-center font-black text-slate-500 hover:border-slate-300">+</button>
+            className="w-9 h-9 rounded-xl border-2 border-border flex items-center justify-center font-black text-muted-foreground hover:border-border">+</button>
         </div>
       </div>
 
       {/* Label style */}
       <div className="space-y-1.5">
-        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Seat Labels</label>
+        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Seat Labels</label>
         <div className="flex gap-2">
           {(['letters', 'numbers'] as const).map(s => (
             <button key={s} onClick={() => handleLabelStyleChange(s)}
               className={cn('flex-1 h-9 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest transition-all',
-                table.seatLabelStyle === s ? 'bg-slate-900 border-slate-900 text-white' : 'border-slate-100 text-slate-500 hover:border-slate-300')}>
+                table.seatLabelStyle === s ? 'bg-foreground border-slate-900 text-background' : 'border-border text-muted-foreground hover:border-border')}>
               {s === 'letters' ? 'A, B, C' : '1, 2, 3'}
             </button>
           ))}
         </div>
         <div className="flex flex-wrap gap-1.5 pt-1">
           {table.seats.map(seat => (
-            <span key={seat.id} className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-600">
+            <span key={seat.id} className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center text-[10px] font-black text-foreground/80">
               {seat.label}
             </span>
           ))}
@@ -345,7 +345,7 @@ const TableConfigPanel = ({
 
       {/* Color */}
       <div className="space-y-1.5">
-        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Table Color</label>
+        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Table Color</label>
         <div className="flex gap-2">
           {TABLE_COLORS.map(c => (
             <button key={c.id} onClick={() => onUpdate({ ...table, color: c.id })}
@@ -357,38 +357,38 @@ const TableConfigPanel = ({
 
       {/* Staff coverage */}
       <div className="space-y-1.5">
-        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Staff Coverage</label>
+        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Staff Coverage</label>
         <div className="space-y-1.5">
           {staff.map(s => (
             <button key={s.id} onClick={() => toggleStaff(s.id)}
               className={cn('w-full flex items-center gap-3 p-2.5 rounded-xl border-2 transition-all',
-                table.staffIds.includes(s.id) ? 'border-violet-200 bg-violet-50' : 'border-slate-100 bg-white hover:border-slate-200')}>
+                table.staffIds.includes(s.id) ? 'border-violet-200 bg-violet-50' : 'border-border bg-card hover:border-border')}>
               <div className={cn('w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0',
-                table.staffIds.includes(s.id) ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500')}>
+                table.staffIds.includes(s.id) ? 'bg-violet-600 text-white' : 'bg-muted text-muted-foreground')}>
                 {getInitials(s.name)}
               </div>
               <span className={cn('text-sm font-black flex-1 text-left',
-                table.staffIds.includes(s.id) ? 'text-violet-700' : 'text-slate-600')}>
+                table.staffIds.includes(s.id) ? 'text-violet-700' : 'text-foreground/80')}>
                 {s.name}
               </span>
               {table.staffIds.includes(s.id) && <Check className="w-3.5 h-3.5 text-violet-500 shrink-0" />}
             </button>
           ))}
           {staff.length === 0 && (
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">No staff assigned to this event</p>
+            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">No staff assigned to this event</p>
           )}
         </div>
       </div>
 
       {/* Guest seat assignment */}
       <div className="space-y-1.5">
-        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Seat Assignments</label>
+        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Seat Assignments</label>
         <div className="space-y-2">
           {table.seats.map(seat => {
             const assigned = assignedGuests.find(a => a.seatId === seat.id);
             return (
               <div key={seat.id} className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-600 shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-[10px] font-black text-foreground/80 shrink-0">
                   {seat.label}
                 </div>
                 {assigned ? (
@@ -409,9 +409,9 @@ const TableConfigPanel = ({
                 ) : (
                   <button
                     onClick={() => openAssignSheet(seat)}
-                    className="flex-1 h-10 rounded-xl border-2 border-slate-100 bg-white px-3 text-sm font-bold text-slate-400 text-left hover:border-slate-300 transition-colors flex items-center gap-2"
+                    className="flex-1 h-10 rounded-xl border-2 border-border bg-card px-3 text-sm font-bold text-muted-foreground text-left hover:border-border transition-colors flex items-center gap-2"
                   >
-                    <Users className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                    <Users className="w-3.5 h-3.5 text-muted-foreground/70 shrink-0" />
                     Assign guest…
                   </button>
                 )}
@@ -424,7 +424,7 @@ const TableConfigPanel = ({
       {/* QR codes */}
       <div className="space-y-2">
         <button onClick={generateQrCodes}
-          className="w-full h-10 rounded-xl border-2 border-slate-100 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-all">
+          className="w-full h-10 rounded-xl border-2 border-border flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-border hover:text-foreground/80 transition-all">
           <QrCode className="w-4 h-4" /> Generate QR Codes
         </button>
         <AnimatePresence>
@@ -433,8 +433,8 @@ const TableConfigPanel = ({
               <div className="grid grid-cols-3 gap-2 pt-2">
                 {table.seats.map(seat => (
                   <div key={seat.id} className="text-center space-y-1">
-                    {qrUrls[seat.id] && <img src={qrUrls[seat.id]} alt={`Seat ${seat.label}`} className="w-full rounded-lg border border-slate-100" />}
-                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Seat {seat.label}</p>
+                    {qrUrls[seat.id] && <img src={qrUrls[seat.id]} alt={`Seat ${seat.label}`} className="w-full rounded-lg border border-border" />}
+                    <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Seat {seat.label}</p>
                   </div>
                 ))}
               </div>
@@ -447,7 +447,7 @@ const TableConfigPanel = ({
                     a.click();
                   }
                 });
-              }} className="w-full mt-2 h-9 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5">
+              }} className="w-full mt-2 h-9 rounded-xl bg-foreground text-background text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5">
                 <Download className="w-3.5 h-3.5" /> Download All
               </button>
             </motion.div>
@@ -681,18 +681,18 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h3 className="font-black text-slate-900 text-sm uppercase tracking-tight">Room Layout</h3>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
+          <h3 className="font-black text-foreground text-sm uppercase tracking-tight">Room Layout</h3>
+          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">
             {tables.length} table{tables.length !== 1 ? 's' : ''} · {tables.reduce((n, t) => n + t.seatCount, 0)} seats
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={printAllQrCodes}
-            className="h-8 px-3 rounded-xl border-2 border-slate-100 text-[9px] font-black uppercase tracking-widest text-slate-500 hover:border-slate-300 flex items-center gap-1.5">
+            className="h-8 px-3 rounded-xl border-2 border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-border flex items-center gap-1.5">
             <Printer className="w-3.5 h-3.5" /> Print All QR
           </button>
           <button onClick={addTable}
-            className="h-8 px-3 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5">
+            className="h-8 px-3 rounded-xl bg-foreground text-background text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> Add Table
           </button>
           <button onClick={handleSave} disabled={isSaving}
@@ -713,7 +713,7 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
         <div className="flex-1 min-w-0">
           <div
             ref={canvasRef}
-            className="relative w-full bg-slate-50 border-2 border-slate-200 rounded-2xl overflow-hidden"
+            className="relative w-full bg-muted/60 border-2 border-border rounded-2xl overflow-hidden"
             style={{ aspectRatio: '16/9' }}
             onClick={e => { if (e.target === canvasRef.current) setSelectedId(null); }}
           >
@@ -724,18 +724,18 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
                 backgroundSize: '10% 10%',
               }} />
 
-            <div className="absolute top-3 left-3 px-2 py-1 rounded-lg bg-white/80 border border-slate-200">
-              <p className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-400">Room Layout</p>
+            <div className="absolute top-3 left-3 px-2 py-1 rounded-lg bg-card/80 border border-border">
+              <p className="text-[8px] font-black uppercase tracking-[0.3em] text-muted-foreground">Room Layout</p>
             </div>
             <div className="absolute bottom-3 right-3 flex items-center gap-1 opacity-50">
-              <Move className="w-3 h-3 text-slate-400" />
-              <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">Drag to position</p>
+              <Move className="w-3 h-3 text-muted-foreground" />
+              <p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest">Drag to position</p>
             </div>
 
             {tables.length === 0 && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
-                <LayoutGrid className="w-10 h-10 text-slate-300" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Add tables to build the room layout</p>
+                <LayoutGrid className="w-10 h-10 text-muted-foreground/70" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Add tables to build the room layout</p>
               </div>
             )}
 
@@ -767,11 +767,11 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
                 return (
                   <button key={table.id} onClick={() => setSelectedId(table.id)}
                     className={cn('flex items-center gap-2 p-2 rounded-xl border-2 text-left transition-all',
-                      selectedId === table.id ? 'border-slate-300 bg-slate-50' : 'border-slate-100 bg-white hover:border-slate-200')}>
+                      selectedId === table.id ? 'border-border bg-muted/60' : 'border-border bg-card hover:border-border')}>
                     <div className={cn('w-3 h-3 rounded-sm shrink-0', color.bg)} />
                     <div className="min-w-0">
-                      <p className="text-[10px] font-black uppercase tracking-tight text-slate-800 truncate">{table.name}</p>
-                      <p className="text-[8px] font-bold text-slate-400">{filled}/{table.seatCount} seated</p>
+                      <p className="text-[10px] font-black uppercase tracking-tight text-foreground truncate">{table.name}</p>
+                      <p className="text-[8px] font-bold text-muted-foreground">{filled}/{table.seatCount} seated</p>
                     </div>
                   </button>
                 );
@@ -789,11 +789,11 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
               exit={{ opacity: 0, y: 16 }}
               className="w-full md:w-[280px] md:shrink-0"
             >
-              <div className="bg-white border-2 border-slate-100 rounded-2xl overflow-y-auto max-h-[70vh] md:max-h-[600px]">
-                <div className="sticky top-0 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between z-10">
-                  <p className="font-black text-sm text-slate-800 uppercase tracking-tight">{selectedTable.name}</p>
-                  <button onClick={() => setSelectedId(null)} className="w-6 h-6 rounded-lg hover:bg-slate-100 flex items-center justify-center">
-                    <X className="w-3.5 h-3.5 text-slate-400" />
+              <div className="bg-card border-2 border-border rounded-2xl overflow-y-auto max-h-[70vh] md:max-h-[600px]">
+                <div className="sticky top-0 bg-card border-b border-border px-4 py-3 flex items-center justify-between z-10">
+                  <p className="font-black text-sm text-foreground uppercase tracking-tight">{selectedTable.name}</p>
+                  <button onClick={() => setSelectedId(null)} className="w-6 h-6 rounded-lg hover:bg-muted flex items-center justify-center">
+                    <X className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
                 </div>
                 <div className="p-4">

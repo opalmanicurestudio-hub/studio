@@ -36,7 +36,7 @@ export function Toggle({ checked, onChange, label, disabled }: { checked: boolea
   return (
     <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)}
       className="relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-40" style={{ background: checked ? 'var(--accent)' : 'var(--line)' }}>
-      <span className="absolute top-1 h-5 w-5 rounded-full shadow transition-[left]" style={{ left: checked ? 24 : 4, background: '#fff' }} />
+      <span className="absolute top-1 h-5 w-5 rounded-full shadow transition-[left]" style={{ left: checked ? 24 : 4, background: 'hsl(var(--card))' }} />
     </button>
   );
 }

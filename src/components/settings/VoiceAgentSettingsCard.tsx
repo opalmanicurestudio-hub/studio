@@ -60,9 +60,9 @@ const sanitize = (obj: Record<string, any>) =>
 
 function FieldLabel({ icon: Icon, children, optional }: { icon: React.ElementType; children: React.ReactNode; optional?: boolean }) {
   return (
-    <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400 flex items-center gap-1.5">
+    <p className="text-[9px] font-black uppercase tracking-[0.18em] text-muted-foreground flex items-center gap-1.5">
       <Icon className="w-3 h-3" /> {children}
-      {optional && <span className="normal-case tracking-normal font-bold text-slate-300">(optional)</span>}
+      {optional && <span className="normal-case tracking-normal font-bold text-muted-foreground/70">(optional)</span>}
     </p>
   );
 }
@@ -257,14 +257,14 @@ export function VoiceAgentSettingsCard({
   };
 
   return (
-    <div className={cn('rounded-2xl border bg-white overflow-hidden shadow-sm', className)}>
+    <div className={cn('rounded-2xl border bg-card overflow-hidden shadow-sm', className)}>
       <div className="p-4 border-b flex items-start gap-3">
         <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
           <Bot className="w-4 h-4 text-indigo-600" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900">Your assistant</p>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-sm font-semibold text-foreground">Your assistant</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
             Pre-filled from what we already know about your business — review,
             tweak, save.
           </p>
@@ -293,7 +293,7 @@ export function VoiceAgentSettingsCard({
                     'px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors',
                     agentName === n
                       ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                      : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                      : 'border-border text-muted-foreground hover:border-border',
                   )}
                 >
                   {n}
@@ -314,15 +314,15 @@ export function VoiceAgentSettingsCard({
                     'w-full rounded-lg border px-3 py-2 text-left flex items-center justify-between gap-2 transition-colors',
                     voiceStyle === v.id
                       ? 'border-indigo-200 bg-indigo-50'
-                      : 'border-slate-200 hover:border-slate-300',
+                      : 'border-border hover:border-border',
                   )}
                 >
-                  <span className="text-[11px] font-medium text-slate-700">{v.label}</span>
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{v.sub}</span>
+                  <span className="text-[11px] font-medium text-foreground/80">{v.label}</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{v.sub}</span>
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-slate-400">
+            <p className="text-[10px] text-muted-foreground">
               Applied when your assistant's number is connected.
             </p>
           </div>
@@ -340,7 +340,7 @@ export function VoiceAgentSettingsCard({
                   'px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors',
                   nicheId === n.id
                     ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                    : 'border-border text-muted-foreground hover:border-border',
                 )}
               >
                 {n.label}
@@ -353,7 +353,7 @@ export function VoiceAgentSettingsCard({
                 'px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors',
                 !nicheId
                   ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                  : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                  : 'border-border text-muted-foreground hover:border-border',
               )}
             >
               Other…
@@ -387,25 +387,25 @@ export function VoiceAgentSettingsCard({
             </button>
           </div>
 
-          <div className="rounded-xl border bg-slate-50/60 p-3">
+          <div className="rounded-xl border bg-muted/60 p-3">
             <p className="text-[9px] font-black uppercase tracking-widest text-teal-600 mb-1.5 flex items-center gap-1">
               <Check className="w-3 h-3" /> Ready · {scriptSourceLabel}
             </p>
             {effectiveQuestions.length > 0 ? (
               <div className="space-y-0.5">
                 {effectiveQuestions.slice(0, 3).map((q, i) => (
-                  <p key={i} className="text-[11px] text-slate-600">
-                    <span className="text-slate-300 font-bold">{i + 1}.</span> {q}
+                  <p key={i} className="text-[11px] text-foreground/80">
+                    <span className="text-muted-foreground/70 font-bold">{i + 1}.</span> {q}
                   </p>
                 ))}
                 {effectiveQuestions.length > 3 && (
-                  <p className="text-[10px] text-slate-400">
+                  <p className="text-[10px] text-muted-foreground">
                     + {effectiveQuestions.length - 3} more
                   </p>
                 )}
               </div>
             ) : (
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-muted-foreground">
                 Pick a business type above or add questions to build the script.
               </p>
             )}
@@ -419,13 +419,13 @@ export function VoiceAgentSettingsCard({
                   onClick={() => setConsultationSource('form')}
                   className={cn(
                     'rounded-xl border p-2.5 text-left transition-all',
-                    effectiveSource === 'form' ? 'border-teal-200 bg-teal-50' : 'border-slate-200 hover:border-slate-300',
+                    effectiveSource === 'form' ? 'border-teal-200 bg-teal-50' : 'border-border hover:border-border',
                   )}
                 >
-                  <p className="text-xs font-medium text-slate-900 flex items-center gap-1.5">
+                  <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
                     <FileSignature className="w-3.5 h-3.5" /> Use a form
                   </p>
-                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
                     Walk an intake form from your form builder — build once,
                     sign digitally or conduct by voice.
                   </p>
@@ -440,11 +440,11 @@ export function VoiceAgentSettingsCard({
                   }}
                   className={cn(
                     'rounded-xl border p-2.5 text-left transition-all',
-                    effectiveSource === 'custom' ? 'border-teal-200 bg-teal-50' : 'border-slate-200 hover:border-slate-300',
+                    effectiveSource === 'custom' ? 'border-teal-200 bg-teal-50' : 'border-border hover:border-border',
                   )}
                 >
-                  <p className="text-xs font-medium text-slate-900">Custom questions</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                  <p className="text-xs font-medium text-foreground">Custom questions</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
                     Edit the list — starts from your niche's expert pack.
                   </p>
                 </button>
@@ -454,7 +454,7 @@ export function VoiceAgentSettingsCard({
                 <select
                   value={effectiveFormId}
                   onChange={(e) => { setConsultationSource('form'); setConsultationFormId(e.target.value); }}
-                  className="w-full h-10 rounded-lg border text-xs px-3 bg-white"
+                  className="w-full h-10 rounded-lg border text-xs px-3 bg-card"
                 >
                   <option value="">Choose a form…</option>
                   {forms.map((f) => (
@@ -483,7 +483,7 @@ export function VoiceAgentSettingsCard({
                           const base = questions.length > 0 ? questions : effectiveQuestions;
                           setQuestions(base.filter((_, idx) => idx !== i));
                         }}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 shrink-0"
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground/70 hover:text-red-500 hover:bg-red-50 shrink-0"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -506,7 +506,7 @@ export function VoiceAgentSettingsCard({
             <select
               value={consultationServiceId}
               onChange={(e) => setConsultationServiceId(e.target.value)}
-              className="w-full h-10 rounded-lg border text-xs px-3 bg-white"
+              className="w-full h-10 rounded-lg border text-xs px-3 bg-card"
             >
               <option value="">Consultations are a free quick chat</option>
               {services.map((s) => (
@@ -515,7 +515,7 @@ export function VoiceAgentSettingsCard({
                 </option>
               ))}
             </select>
-            <p className="text-[10px] text-slate-400">
+            <p className="text-[10px] text-muted-foreground">
               Pick a service to make consultations a paid, scheduled call the
               assistant sells, books, and conducts with this script.
             </p>
@@ -523,7 +523,7 @@ export function VoiceAgentSettingsCard({
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">
+          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-muted-foreground">
             When a caller agrees to a time
           </p>
           <div className="grid grid-cols-2 gap-2">
@@ -532,11 +532,11 @@ export function VoiceAgentSettingsCard({
               onClick={() => setBookingMode('approval')}
               className={cn(
                 'rounded-xl border p-3 text-left transition-all',
-                bookingMode === 'approval' ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-slate-300',
+                bookingMode === 'approval' ? 'border-indigo-200 bg-indigo-50' : 'border-border hover:border-border',
               )}
             >
-              <p className="text-xs font-medium text-slate-900">Hold for my approval</p>
-              <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+              <p className="text-xs font-medium text-foreground">Hold for my approval</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
                 Slot held instantly; you approve before the deposit link goes out.
               </p>
             </button>
@@ -545,11 +545,11 @@ export function VoiceAgentSettingsCard({
               onClick={() => setBookingMode('instant')}
               className={cn(
                 'rounded-xl border p-3 text-left transition-all',
-                bookingMode === 'instant' ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-slate-300',
+                bookingMode === 'instant' ? 'border-indigo-200 bg-indigo-50' : 'border-border hover:border-border',
               )}
             >
-              <p className="text-xs font-medium text-slate-900">Book instantly</p>
-              <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+              <p className="text-xs font-medium text-foreground">Book instantly</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
                 Deposit link texts within seconds — the deposit is the approval.
               </p>
             </button>
@@ -561,19 +561,19 @@ export function VoiceAgentSettingsCard({
           onClick={() => setVoiceReminders((v) => !v)}
           className={cn(
             'w-full rounded-xl border p-3.5 text-left transition-all',
-            voiceReminders ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200',
+            voiceReminders ? 'border-indigo-200 bg-indigo-50' : 'border-border',
           )}
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium text-slate-700">Voice appointment reminders</p>
-              <p className="text-[10px] text-slate-400 mt-0.5">
+              <p className="text-xs font-medium text-foreground/80">Voice appointment reminders</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
                 Calls clients before their visit (9am–8pm) — and reschedules
                 them on the spot if they can't make it.
               </p>
             </div>
-            <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', voiceReminders ? 'bg-indigo-500' : 'bg-slate-200')}>
-              <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', voiceReminders ? 'left-[22px]' : 'left-0.5')} />
+            <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', voiceReminders ? 'bg-indigo-500' : 'bg-border')}>
+              <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-card shadow transition-all', voiceReminders ? 'left-[22px]' : 'left-0.5')} />
             </div>
           </div>
         </button>
@@ -621,7 +621,7 @@ export function VoiceAgentSettingsCard({
             />
           </div>
         </div>
-        <p className="text-[10px] text-slate-400 -mt-2">
+        <p className="text-[10px] text-muted-foreground -mt-2">
           Calls to the assistant number load this business. Transfer is only
           for callers who ask for a person — complaints are always call-backs
           you review first.

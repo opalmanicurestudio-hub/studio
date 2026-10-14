@@ -16,9 +16,9 @@ export function VoidsApprovalsCard({ tenantId, tenant, canEdit }: { tenantId: st
   const { data: staff } = useCollection<any>(sq);
   const approvers = (staff || []).filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role || '').toLowerCase()) && m.isActive !== false);
   const save = async (patch: any) => { setMsg(null); try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), patch); setMsg('Saved.'); } catch (e: any) { setMsg(e?.message || 'Couldn’t save.'); } };
-  const Pill = ({ on, onClick, children }: any) => <button type="button" disabled={!canEdit} aria-pressed={on} onClick={onClick} className={`rounded-full border px-4 py-1.5 text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{children}</button>;
+  const Pill = ({ on, onClick, children }: any) => <button type="button" disabled={!canEdit} aria-pressed={on} onClick={onClick} className={`rounded-full border px-4 py-1.5 text-sm ${on ? 'bg-foreground text-background' : 'bg-card'}`}>{children}</button>;
   return (
-    <div className="space-y-4 rounded-[2rem] border-2 bg-white p-6">
+    <div className="space-y-4 rounded-[2rem] border-2 bg-card p-6">
       <div><p className="text-lg font-semibold">Voids and approvals</p>
         <p className="text-sm text-muted-foreground">A manager approves voids, fee waivers, and service recovery over your limit — by signing in, entering their PIN (checked securely), or from their phone. Who asked, who approved and why are recorded on the sale and in the activity log.</p></div>
       <div className="space-y-2 text-sm"><p className="font-semibold">A whole sale can be voided</p>
@@ -29,7 +29,7 @@ export function VoidsApprovalsCard({ tenantId, tenant, canEdit }: { tenantId: st
         <p className="text-xs text-muted-foreground">Staff give discounts with a reason — never by changing a price. Above this, a manager approves. Managers aren’t limited.</p></div>
       <label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1" checked={phone} disabled={!canEdit} onChange={(e) => { setPhone(e.target.checked); save({ 'approvalRules.phoneApproval': e.target.checked }); }} />
         <span><b>Managers can approve from their phone</b> <span className="text-muted-foreground">— the desk can ask, and the manager taps Approve or Decline.</span></span></label>
-      {phone && <div className="space-y-3 rounded-2xl bg-slate-50 p-4 text-sm">
+      {phone && <div className="space-y-3 rounded-2xl bg-muted/60 p-4 text-sm">
         <div className="space-y-2"><p className="font-semibold">Remote requests are sent by</p>
           <div className="flex flex-wrap gap-2">{([['both', 'Text and email'], ['text', 'Text'], ['email', 'Email']] as const).map(([v, l]) => <Pill key={v} on={via === v} onClick={() => { setVia(v); save({ 'approvalRules.remoteChannel': v }); }}>{l}</Pill>)}</div>
           <p className="text-xs text-muted-foreground">They open a page, enter their own PIN, and tap Approve or Decline — it’s recorded in their name. Requests expire after 15 minutes.</p></div>

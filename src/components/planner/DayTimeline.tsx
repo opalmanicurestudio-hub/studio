@@ -412,9 +412,9 @@ export const DayTimeline = ({
         return (
             <React.Fragment key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}-f`}>
             {shiftPx > 0 && <div aria-hidden className="pointer-events-none absolute z-[4] rounded-xl" style={{ top: `${bookedTop}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left, border: '1.5px dashed color-mix(in srgb, #b42318 45%, transparent)', background: 'color-mix(in srgb, #b42318 4%, transparent)' }}>
-                {shiftPx >= 18 && <span className="absolute left-2 top-0.5 text-[11px] font-[600]" style={{ color: '#b42318' }}>Booked {format(startTime, 'h:mm')}</span>}</div>}
+                {shiftPx >= 18 && <span className="absolute left-2 top-0.5 text-[11px] font-[600]" style={{ color: 'var(--bad-ink)' }}>Booked {format(startTime, 'h:mm')}</span>}</div>}
             {overPx > 2 && <div aria-hidden className="pointer-events-none absolute z-[11] flex items-end rounded-b-xl px-2 pb-1" style={{ top: `${overTop}px`, height: `${overPx}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left, background: 'repeating-linear-gradient(-45deg, color-mix(in srgb, #b42318 22%, transparent) 0 5px, color-mix(in srgb, #b42318 8%, transparent) 5px 10px)', borderLeft: '3px solid #b42318' }}>
-                {overPx > 14 && <span className="rounded-full bg-white/90 px-1.5 text-[11px] font-[700] tabular-nums" style={{ color: '#b42318' }}>+{lateBy!.min} min · ~{format(new Date(lateBy!.endMs), 'h:mm')}</span>}</div>}
+                {overPx > 14 && <span className="rounded-full bg-card/90 px-1.5 text-[11px] font-[700] tabular-nums" style={{ color: 'var(--bad-ink)' }}>+{lateBy!.min} min · ~{format(new Date(lateBy!.endMs), 'h:mm')}</span>}</div>}
             <div
                 key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`}
                 data-apt-id={item.id}
@@ -495,8 +495,8 @@ export const DayTimeline = ({
         const scheme = live
             ? { bg: 'bg-emerald-500/[0.07]', border: 'border-emerald-600/50', text: 'text-emerald-900', badge: 'bg-emerald-600' }
             : isTour
-            ? { bg: 'bg-white', border: 'border-foreground/30 border-dashed', text: 'text-foreground', badge: 'bg-foreground/70' }
-            : { bg: 'bg-white', border: 'border-border', text: 'text-foreground', badge: 'bg-foreground/70' };
+            ? { bg: 'bg-card', border: 'border-foreground/30 border-dashed', text: 'text-foreground', badge: 'bg-foreground/70' }
+            : { bg: 'bg-card', border: 'border-border', text: 'text-foreground', badge: 'bg-foreground/70' };
         const label = isTour ? 'Tour' : (item.bookingType === 'hourly' ? 'Hourly' : 'Day rental');
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
@@ -533,8 +533,8 @@ export const DayTimeline = ({
                     )}
                     {tall && item.phone && (
                         <div className="relative z-20 flex gap-1 mt-1.5">
-                            <a href={`tel:${item.phone}`} aria-label={`Call ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold rounded-md bg-white/80 border py-1 active:scale-95"><Phone className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Call</a>
-                            <a href={`sms:${item.phone}`} aria-label={`Text ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold rounded-md bg-white/80 border py-1 active:scale-95"><MessageSquare className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Text</a>
+                            <a href={`tel:${item.phone}`} aria-label={`Call ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold rounded-md bg-card/80 border py-1 active:scale-95"><Phone className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Call</a>
+                            <a href={`sms:${item.phone}`} aria-label={`Text ${item.guestName || item.name || 'guest'}`} className="flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold rounded-md bg-card/80 border py-1 active:scale-95"><MessageSquare className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />Text</a>
                         </div>
                     )}
                 </div>
@@ -629,7 +629,7 @@ export const DayTimeline = ({
                                     <p className="font-semibold tracking-tight text-xs truncate max-w-[180px]">{column.name || 'Unnamed'}</p>
                                     {'role' in column && (() => { const its = (positionedItemsByColumn.get(column.id) || []).filter((it: any) => it.itemType !== 'bill' && it.itemType !== 'block' && it.itemType !== 'event'); const live = its.find((it: any) => it.status === 'servicing');
                                         const over = live?.actualStartTime ? Math.max(0, differenceInMinutes(new Date(), safeDate(live.actualStartTime)) - (Number(services?.find((sv: any) => sv.id === live.serviceId)?.duration) || 0)) : 0;
-                                        return <p className="text-[12px] truncate" style={{ color: over > 0 ? 'var(--warn, #b45309)' : 'var(--muted, #6b635c)' }}>{its.length} visit{its.length === 1 ? '' : 's'}{over > 0 ? ` · ${over} min behind` : live ? ' · on time' : ''}</p>; })()}
+                                        return <p className="text-[12px] truncate" style={{ color: over > 0 ? 'var(--warn, #b45309)' : 'hsl(var(--muted-foreground))' }}>{its.length} visit{its.length === 1 ? '' : 's'}{over > 0 ? ` · ${over} min behind` : live ? ' · on time' : ''}</p>; })()}
                                 </div>
                             )}
                         </div>
@@ -642,7 +642,7 @@ export const DayTimeline = ({
                         </div>
                     ))}
                 </div>
-                <div className="col-start-2 grid relative bg-white/30" style={gridStyle}>
+                <div className="col-start-2 grid relative bg-card/30" style={gridStyle}>
                     {displayedColumns.map(column => (
                         <div key={column.id} className="relative border-r border-border"
                              onDragOver={(e) => { if (!dragRef.current || !onMoveAppointment) return; e.preventDefault(); const rect = e.currentTarget.getBoundingClientRect(); const y = e.clientY - rect.top - (dragRef.current.grabOffset || 0); const mins = Math.max(0, Math.round((y / PX_PER_MIN) / 5) * 5); setDrag({ id: dragRef.current.id, mins, columnId: column.id, top: mins * PX_PER_MIN }); }}
@@ -656,7 +656,7 @@ export const DayTimeline = ({
                                 const nowMin = isToday(date) ? differenceInMinutes(new Date(), startOfDay(new Date())) : -1; const gaps: number[][] = []; let cursor = Math.max(h.start, nowMin > 0 ? Math.ceil(nowMin / 5) * 5 : h.start);
                                 for (const [a, b] of busy) { if (a - cursor >= 20) gaps.push([cursor, a]); cursor = Math.max(cursor, b); } if (h.end - cursor >= 20) gaps.push([cursor, h.end]);
                                 return gaps.map(([a, b]) => { const when = new Date(startOfDay(date).getTime() + a * 60000); const top = (a - s0) * PX_PER_MIN + 2, h = Math.max(22, (b - a) * PX_PER_MIN - 4);
-                                    return (<div key={`gap-${a}`} className="absolute left-1 right-1 z-[4] flex items-center justify-between gap-2 rounded-lg border border-dashed px-2 text-[12px]" style={{ top: `${top}px`, height: `${h}px`, borderColor: 'var(--line, #e7e2dc)', color: 'var(--muted, #6b635c)' }}>
+                                    return (<div key={`gap-${a}`} className="absolute left-1 right-1 z-[4] flex items-center justify-between gap-2 rounded-lg border border-dashed px-2 text-[12px]" style={{ top: `${top}px`, height: `${h}px`, borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
                                         <span>{b - a} min open</span>
                                         <span className="flex gap-2">{onBlockAt && <button type="button" onClick={() => onBlockAt(column.id, when, b - a)} className="font-semibold underline-offset-2 hover:underline" aria-label={`Block ${b - a} minutes at ${format(when, 'h:mm a')}`}>Block</button>}
                                         <button type="button" onClick={() => onBookAt(column.id, when)} className="font-semibold" style={{ color: 'var(--accent)' }} aria-label={`${b - a} minute gap at ${format(when, 'h:mm a')} — book here`}>Book here</button></span>
@@ -679,9 +679,9 @@ export const DayTimeline = ({
                                     const style = { top: `${mins * PX_PER_MIN}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
                                     return (
                                         <div key={item.id} style={style} title={`${item.label || item.reason || 'Blocked'} · ${item.source === 'renter_portal' ? 'set by the renter' : 'blocked'}`}
-                                             className="absolute z-[5] overflow-hidden rounded-lg border border-slate-300 bg-slate-50/90 px-2 py-1 text-left">
-                                            <p className="truncate text-[12px] font-semibold text-slate-500">{item.label || item.reason || 'Blocked'}</p>
-                                            {height > 34 && <p className="truncate text-[12px] font-bold text-slate-400">{item.source === 'renter_portal' ? 'Set by renter' : 'Not bookable'}</p>}
+                                             className="absolute z-[5] overflow-hidden rounded-lg border border-border bg-muted/90 px-2 py-1 text-left">
+                                            <p className="truncate text-[12px] font-semibold text-muted-foreground">{item.label || item.reason || 'Blocked'}</p>
+                                            {height > 34 && <p className="truncate text-[12px] font-bold text-muted-foreground">{item.source === 'renter_portal' ? 'Set by renter' : 'Not bookable'}</p>}
                                         </div>
                                     );
                                 }

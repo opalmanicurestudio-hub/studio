@@ -289,7 +289,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
       { label: 'Requests not yet done', n: visible.filter((t) => t.kind === 'request').length } ];
     const left = lines.filter((x) => x.n > 0);
     return (
-      <section aria-label="Closing up" className="rounded-[22px] bg-white p-4 shadow-[0_10px_24px_-18px_rgba(23,24,26,0.45)]" style={{ border: `1px solid ${left.length ? '#F0D9AE' : '#CDE7D4'}` }}>
+      <section aria-label="Closing up" className="rounded-[22px] bg-card p-4 shadow-[0_10px_24px_-18px_rgba(23,24,26,0.45)]" style={{ border: `1px solid ${left.length ? '#F0D9AE' : '#CDE7D4'}` }}>
         <p className="text-[16px] font-[800]">{left.length ? `Closing up — ${left.length} thing${left.length === 1 ? '' : 's'} left` : 'Closing up — all done'}</p>
         <ul className="mt-2 space-y-1">{lines.map((x) => <li key={x.label} className="flex items-center gap-2 text-[14px]"><span aria-hidden className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-[800]" style={{ background: x.n ? '#FDF1DC' : '#E3F3E7', color: x.n ? '#7A4A00' : '#1F6B3A' }}>{x.n ? x.n : '✓'}</span><span style={{ color: x.n ? '#17181A' : '#8A847A' }}>{x.label}</span></li>)}</ul>
         <p className="mt-2 text-[12px] text-muted-foreground">Kits left in use after their visit move to “needs cleaning” by themselves; loads keep their timers overnight. Check tomorrow’s readiness in the card above.</p>

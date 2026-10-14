@@ -67,7 +67,7 @@ export const SelectServicesDialog: React.FC<SelectServicesDialogProps> = ({
       <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 shadow-3xl overflow-hidden flex flex-col max-h-[90dvh]">
 
         <DialogHeader className="flex-shrink-0 p-8 pb-4 border-b bg-muted/5 text-left">
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Select Services</DialogTitle>
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">Select Services</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Choose the services this staff member can perform.</DialogDescription>
         </DialogHeader>
 
@@ -92,7 +92,7 @@ export const SelectServicesDialog: React.FC<SelectServicesDialogProps> = ({
                   key={service.id}
                   className={cn(
                     "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer",
-                    isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-white"
+                    isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-card"
                   )}
                   onClick={() => handleToggle(service.id)}
                 >
@@ -111,7 +111,7 @@ export const SelectServicesDialog: React.FC<SelectServicesDialogProps> = ({
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                    <p className="text-sm font-black uppercase tracking-tight text-foreground truncate">
                       {service.name}
                     </p>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
@@ -133,7 +133,7 @@ export const SelectServicesDialog: React.FC<SelectServicesDialogProps> = ({
         <DialogFooter className="flex-shrink-0 p-8 pt-4 border-t bg-muted/5">
           <div className="flex flex-col gap-3 w-full">
             <Button onClick={handleSave} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Add Selected</Button>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Cancel</Button>
           </div>
         </DialogFooter>
 

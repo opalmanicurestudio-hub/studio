@@ -74,7 +74,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Entry</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -396,7 +396,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Accounting Suite</span>
               </div>
-              <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Add New Transaction</DialogTitle>
+              <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Add New Transaction</DialogTitle>
               <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Manually log an income or expense into the studio ledger.</DialogDescription>
             </div>
 
@@ -408,7 +408,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
 
             <div className="flex-shrink-0 border-t bg-background shadow-2xl p-6 sm:p-8">
               <div className="flex w-full gap-4">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-slate-500">Cancel</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-muted-foreground">Cancel</Button>
                 <Button type="submit" className="flex-[2.5] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
                   Log Transaction <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </Button>

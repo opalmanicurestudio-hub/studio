@@ -55,7 +55,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
     return (
         <Card className={cn(
             "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col",
-            isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 bg-white hover:border-primary/20 shadow-sm",
+            isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 bg-card hover:border-primary/20 shadow-sm",
             hasDebt && "border-destructive/30 bg-destructive/[0.01]",
             isMember && "border-indigo-500/20 bg-indigo-500/[0.01]"
         )}>
@@ -82,7 +82,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                         </div>
                         <div className="flex-1 min-w-0 text-left">
                             <div className="flex items-center gap-2 mb-1">
-                                <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none">{client.name}</p>
+                                <p className="font-black uppercase tracking-tight text-base md:text-lg text-foreground truncate leading-none">{client.name}</p>
                                 {hasCardOnFile && (
                                     <TooltipProvider>
                                         <Tooltip>
@@ -105,7 +105,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                 <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Gross Yield</p>
-                        <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${safeLTV.toFixed(2)}</p>
+                        <p className="text-xl font-black font-mono tracking-tighter text-foreground">${safeLTV.toFixed(2)}</p>
                     </div>
                     {hasDebt ? (
                         <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 space-y-1 text-left">
@@ -115,7 +115,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                     ) : (
                         <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all text-right">
                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Last Seen</p>
-                            <p className="text-xs font-black uppercase tracking-tight text-slate-700">
+                            <p className="text-xs font-black uppercase tracking-tight text-foreground/80">
                                 {lastAppointment ? format(lastAppointment, 'MMM d, yyyy') : 'New Guest'}
                             </p>
                         </div>
@@ -163,7 +163,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                                 <Button 
                                     variant="outline" 
                                     size="icon" 
-                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
+                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
                                     asChild
                                 >
                                     <Link href={`/clients/${client.id}`} onClick={e => e.stopPropagation()}>
@@ -178,7 +178,7 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                                 <Button 
                                     variant="outline" 
                                     size="icon" 
-                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
+                                    className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
                                     asChild
                                 >
                                     <Link href={`/pos?payer_id=${client.id}`} onClick={e => e.stopPropagation()}>

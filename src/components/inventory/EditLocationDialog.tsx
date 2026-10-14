@@ -60,7 +60,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Refinement</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -147,7 +147,7 @@ export const EditLocationDialog = ({
                     <Edit className="w-5 h-5 text-primary" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Architecture Refinement</span>
                 </div>
-                <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Modify Zone Detail</DialogTitle>
+                <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Modify Zone Detail</DialogTitle>
                 <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Refining record ID: {location.id.slice(-6).toUpperCase()}</DialogDescription>
             </DialogHeader>
             
@@ -172,7 +172,7 @@ export const EditLocationDialog = ({
                                                 placeholder="e.g., DRAWER UNIT" 
                                                 value={newTypeName}
                                                 onChange={(e) => setNewTypeName(e.target.value)}
-                                                className="h-11 rounded-xl border-2 font-bold uppercase text-sm bg-white"
+                                                className="h-11 rounded-xl border-2 font-bold uppercase text-sm bg-card"
                                             />
                                         </div>
                                         <div className="space-y-3">
@@ -181,7 +181,7 @@ export const EditLocationDialog = ({
                                                 {Object.entries(iconMap).map(([iconKey, { component: Icon, label }]) => (
                                                     <div key={iconKey}>
                                                         <RadioGroupItem value={iconKey} id={`edit-type-${iconKey}`} className="peer sr-only" />
-                                                        <Label htmlFor={`edit-type-${iconKey}`} className={cn("flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-tighter hover:bg-primary/[0.03] peer-data-[state=checked]:border-primary peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 shadow-sm")}>
+                                                        <Label htmlFor={`edit-type-${iconKey}`} className={cn("flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-card p-3 text-[10px] font-black uppercase tracking-tighter hover:bg-primary/[0.03] peer-data-[state=checked]:border-primary peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 shadow-sm")}>
                                                             <Icon className="w-5 h-5 mb-1" />
                                                             {label}
                                                         </Label>
@@ -191,7 +191,7 @@ export const EditLocationDialog = ({
                                         </div>
                                         <div className="flex gap-3 pt-2">
                                             <Button onClick={handleAddNewType} type="button" className="flex-1 h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl">Define Type</Button>
-                                            <Button variant="ghost" onClick={() => setIsAddingType(false)} type="button" className="h-11 rounded-xl font-bold uppercase text-[10px] text-slate-400">Cancel</Button>
+                                            <Button variant="ghost" onClick={() => setIsAddingType(false)} type="button" className="h-11 rounded-xl font-bold uppercase text-[10px] text-muted-foreground">Cancel</Button>
                                         </div>
                                     </div>
                                 ) : (
@@ -220,7 +220,7 @@ export const EditLocationDialog = ({
                                                 </Select>
                                             )}
                                         />
-                                        <Button variant="outline" size="icon" onClick={() => setIsAddingType(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-white/50">
+                                        <Button variant="outline" size="icon" onClick={() => setIsAddingType(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-card/50">
                                             <PlusCircle className="h-6 w-6 opacity-40" />
                                         </Button>
                                     </div>
@@ -242,7 +242,7 @@ export const EditLocationDialog = ({
                                         { id: 'ventilated-edit', label: 'Air Flow Required', icon: Wind, color: 'text-teal-500', field: 'ventilated' },
                                         { id: 'humidityControlled-edit', label: 'Humidity Monitored', icon: Droplets, color: 'text-indigo-500', field: 'humidityControlled' }
                                     ].map(spec => (
-                                        <div key={spec.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/10 transition-all has-[:checked]:bg-white has-[:checked]:border-primary/20 shadow-sm">
+                                        <div key={spec.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/10 transition-all has-[:checked]:bg-card has-[:checked]:border-primary/20 shadow-sm">
                                             <div className="flex items-center gap-3">
                                                 <div className={cn("p-2 rounded-lg bg-background shadow-inner", spec.color)}>
                                                     <spec.icon className="w-4 h-4" />
@@ -273,7 +273,7 @@ export const EditLocationDialog = ({
 
             <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
                 <div className="grid grid-cols-2 gap-3 w-full">
-                    <Button variant="ghost" onClick={handleClose} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                    <Button variant="ghost" onClick={handleClose} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Cancel</Button>
                     <Button type="submit" className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit Changes <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
                 </div>
             </DialogFooter>

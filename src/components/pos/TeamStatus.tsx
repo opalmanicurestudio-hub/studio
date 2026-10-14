@@ -91,7 +91,7 @@ const StaffMemberCard = ({
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0">
-                            <p className="font-black uppercase tracking-tight text-xs truncate text-slate-900 leading-tight">{member.name || 'Staff'}</p>
+                            <p className="font-black uppercase tracking-tight text-xs truncate text-foreground leading-tight">{member.name || 'Staff'}</p>
                             {nextAppointment?.checkInStatus === 'arrived' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping shrink-0" />}
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
@@ -278,7 +278,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
                     <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">Turn rotation and expertise pulse.</p>
                 </div>
                 <Select value={assignmentMode} onValueChange={onAssignmentModeChange as any}>
-                    <SelectTrigger className="h-11 border-2 rounded-2xl w-full sm:w-64 bg-white/50 backdrop-blur-sm font-black uppercase text-[10px] tracking-widest shadow-sm">
+                    <SelectTrigger className="h-11 border-2 rounded-2xl w-full sm:w-64 bg-card/50 backdrop-blur-sm font-black uppercase text-[10px] tracking-widest shadow-sm">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-2xl border-2 shadow-2xl">
@@ -303,7 +303,7 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
                         <ScrollArea className="h-[80px]">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pr-4">
                                 {resourcePulse.map(res => (
-                                    <div key={res.id} className="flex items-center justify-between p-2 rounded-xl bg-white border-2 border-indigo-500/5 shadow-sm">
+                                    <div key={res.id} className="flex items-center justify-between p-2 rounded-xl bg-card border-2 border-indigo-500/5 shadow-sm">
                                         <div className="flex items-center gap-2 min-w-0">
                                             {res.type === 'room' ? <Building className="w-3 h-3 text-indigo-400" /> : <HardHat className="w-3 h-3 text-indigo-400" />}
                                             <span className="font-black uppercase text-[8px] tracking-tight truncate">{res.name}</span>

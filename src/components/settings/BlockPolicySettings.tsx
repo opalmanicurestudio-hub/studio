@@ -37,7 +37,7 @@ export function BlockPolicySettings({
   const gated = BLOCK_TYPES.filter(b => ruleFor(b.id)?.permission === 'approval').length;
 
   return (
-    <Card className="border-2 rounded-[2rem] bg-white">
+    <Card className="border-2 rounded-[2rem] bg-card">
       <CardContent className="p-5 space-y-4">
         <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
           <CalendarOff className="h-3 w-3" aria-hidden="true" /> Blocking their own calendar
@@ -57,7 +57,7 @@ export function BlockPolicySettings({
             const rule = ruleFor(b.id);
             const cap = typeof rule?.dailyCapMinutes === 'number' ? rule.dailyCapMinutes : 0;
             return (
-              <div key={b.id} className="rounded-2xl border-2 border-border bg-white p-3 space-y-2">
+              <div key={b.id} className="rounded-2xl border-2 border-border bg-card p-3 space-y-2">
                 <div className="min-w-0">
                   <p className="text-[12px] font-black tracking-tight text-foreground">{b.label}</p>
                   <p className="text-[11px] font-bold leading-snug text-muted-foreground">{b.blurb}</p>

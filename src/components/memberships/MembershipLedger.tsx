@@ -116,15 +116,15 @@ const safeDate = (val: any): Date => {
 };
 
 const KpiCardInternal = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
-    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
+    <Card className="border-2 shadow-sm min-w-0 text-left bg-card/50 backdrop-blur-sm overflow-hidden">
         <CardHeader className="p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                 {title}
             </CardTitle>
-            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
+            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-foreground")} />
         </CardHeader>
         <CardContent className="p-4 pt-0">
-            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-foreground")}>
                 {value}
             </div>
             <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>
@@ -153,20 +153,20 @@ const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTer
                         )}
                     </div>
                     <div className="min-w-0 text-left">
-                        <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{instance.clientName}</p>
+                        <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">{instance.clientName}</p>
                         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{instance.membershipName}</p>
                     </div>
                 </div>
             </TableCell>
             <TableCell>
                 <div className="text-left">
-                    <p className="font-black text-sm text-slate-900 font-mono tracking-tighter">${instance.amount.toFixed(2)}</p>
+                    <p className="font-black text-sm text-foreground font-mono tracking-tighter">${instance.amount.toFixed(2)}</p>
                     <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-40">Monthly Due</p>
                 </div>
             </TableCell>
             <TableCell>
                 <div className="text-left space-y-1">
-                    <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
+                    <p className="text-[10px] font-black uppercase text-foreground/80">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
                     {isOverdue && <Badge variant="destructive" className="h-4 text-[7px] font-black uppercase animate-pulse border-none">Overdue</Badge>}
                 </div>
             </TableCell>
@@ -177,7 +177,7 @@ const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTer
                         "h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2",
                         instance.status === 'paid' ? "bg-green-500 border-none text-white shadow-sm" : 
                         instance.status === 'failed' ? "text-destructive border-destructive/20" : 
-                        "bg-white"
+                        "bg-card"
                     )}
                 >
                     {instance.status}
@@ -190,7 +190,7 @@ const SubscriptionRowInternal = ({ instance, client, membership, onSettle, onTer
                             size="sm" 
                             className={cn(
                                 "h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg transition-all active:scale-95",
-                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-slate-600 shadow-none border-2"
+                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-foreground/80 shadow-none border-2"
                             )}
                             onClick={() => onSettle(instance)}
                         >
@@ -216,7 +216,7 @@ const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTe
     return (
         <Card className={cn(
             "border-2 rounded-[1.5rem] shadow-sm overflow-hidden text-left",
-            isOverdue ? "border-destructive/20 bg-destructive/[0.01]" : "bg-white"
+            isOverdue ? "border-destructive/20 bg-destructive/[0.01]" : "bg-card"
         )}>
             <CardContent className="p-4 space-y-4">
                 <div className="flex justify-between items-start gap-3">
@@ -233,12 +233,12 @@ const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTe
                             )}
                         </div>
                         <div className="min-w-0">
-                            <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{instance.clientName}</p>
+                            <p className="font-black uppercase tracking-tight text-xs text-foreground truncate">{instance.clientName}</p>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{instance.membershipName}</p>
                         </div>
                     </div>
                     <div className="text-right shrink-0">
-                        <p className="font-black font-mono text-sm text-slate-900">${instance.amount.toFixed(2)}</p>
+                        <p className="font-black font-mono text-sm text-foreground">${instance.amount.toFixed(2)}</p>
                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40">Monthly</p>
                     </div>
                 </div>
@@ -246,14 +246,14 @@ const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTe
                 <div className="flex items-center justify-between py-3 border-y border-dashed">
                     <div className="space-y-0.5">
                         <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">Due Date</p>
-                        <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
+                        <p className="text-[10px] font-black uppercase text-foreground/80">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                         <Badge 
                             variant={instance.status === 'paid' ? 'default' : 'outline'} 
                             className={cn(
                                 "h-4 px-1.5 font-black text-[7px] uppercase border-2",
-                                instance.status === 'paid' ? "bg-green-50 text-white border-none" : "bg-white"
+                                instance.status === 'paid' ? "bg-green-50 text-white border-none" : "bg-card"
                             )}
                         >
                             {instance.status}
@@ -267,7 +267,7 @@ const SubscriptionCardInternal = ({ instance, client, membership, onSettle, onTe
                         <Button 
                             className={cn(
                                 "flex-1 h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg",
-                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-slate-600 shadow-none border-2"
+                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-foreground/80 shadow-none border-2"
                             )}
                             onClick={() => onSettle(instance)}
                         >
@@ -322,7 +322,7 @@ const SettleMembershipDialogInternal = ({ open, onOpenChange, instance, client, 
                         <DollarSign className="w-5 h-5 text-primary" />
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Revenue Settlement</span>
                     </div>
-                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Settle Dues</DialogTitle>
+                    <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">Settle Dues</DialogTitle>
                     <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Collecting for: {instance?.clientName}</DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="flex-1">
@@ -380,7 +380,7 @@ const SettleMembershipDialogInternal = ({ open, onOpenChange, instance, client, 
                 </ScrollArea>
                 <DialogFooter className="p-8 pt-4 border-t bg-muted/5 shrink-0">
                     <div className="flex gap-3 w-full">
-                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Cancel</Button>
                         <Button onClick={methods.handleSubmit(onConfirm)} className="flex-[2] h-14 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 group">
                             Finalize Settlement <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/>
                         </Button>
@@ -650,7 +650,7 @@ export const MembershipLedger = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-            <Card className={cn("lg:col-span-2 border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white")}>
+            <Card className={cn("lg:col-span-2 border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card")}>
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-6 md:space-y-8 text-left">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                         <div className="space-y-1">
@@ -673,7 +673,7 @@ export const MembershipLedger = () => {
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                             <Input 
                                 placeholder="SEARCH GUESTS..." 
-                                className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner"
+                                className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-card shadow-inner"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
@@ -681,7 +681,7 @@ export const MembershipLedger = () => {
                         {activeSubTab === 'pending' && (
                             <div className="w-full md:w-auto">
                                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner">
+                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-card shadow-inner">
                                         <SelectValue placeholder="STATUS" />
                                     </SelectTrigger>
                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -703,11 +703,11 @@ export const MembershipLedger = () => {
                                     <Table>
                                         <TableHeader className="bg-muted/10 border-b-2">
                                             <TableRow>
-                                                <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Member & Tier</TableHead>
-                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Value</TableHead>
-                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Due Date</TableHead>
-                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">State</TableHead>
-                                                <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
+                                                <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-foreground text-left">Member & Tier</TableHead>
+                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground text-left">Value</TableHead>
+                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground text-left">Due Date</TableHead>
+                                                <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground text-left">State</TableHead>
+                                                <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-foreground">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -744,10 +744,10 @@ export const MembershipLedger = () => {
                                 <Table>
                                     <TableHeader className="bg-muted/10 border-b-2">
                                         <TableRow>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Transaction & Member</TableHead>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Settlement</TableHead>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Method</TableHead>
-                                            <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Amount</TableHead>
+                                            <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-foreground text-left">Transaction & Member</TableHead>
+                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground text-left">Settlement</TableHead>
+                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground text-left">Method</TableHead>
+                                            <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-foreground">Amount</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -755,11 +755,11 @@ export const MembershipLedger = () => {
                                             <TableRow key={t.id} className="hover:bg-muted/5 transition-colors">
                                                 <TableCell className="p-6 text-left">
                                                     <div className="text-left space-y-1">
-                                                        <p className="font-black uppercase tracking-tight text-xs text-slate-900">{t.clientOrVendor}</p>
+                                                        <p className="font-black uppercase tracking-tight text-xs text-foreground">{t.clientOrVendor}</p>
                                                         <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate max-w-[200px]">{t.description}</p>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="text-left font-black text-[10px] uppercase text-slate-600">{format(safeDate(t.date), 'MMM d, yyyy')}</TableCell>
+                                                <TableCell className="text-left font-black text-[10px] uppercase text-foreground/80">{format(safeDate(t.date), 'MMM d, yyyy')}</TableCell>
                                                 <TableCell className="text-left">
                                                     <Badge variant="outline" className="h-5 px-2 border-none bg-primary/5 text-primary text-[8px] font-black uppercase">{t.paymentMethod}</Badge>
                                                 </TableCell>
@@ -776,10 +776,10 @@ export const MembershipLedger = () => {
                                 <Table>
                                     <TableHeader className="bg-muted/10 border-b-2">
                                         <TableRow>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Perk Event</TableHead>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Member Account</TableHead>
-                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Protocol Status</TableHead>
-                                            <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Timestamp</TableHead>
+                                            <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-foreground text-left">Perk Event</TableHead>
+                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground text-left">Member Account</TableHead>
+                                            <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground text-left">Protocol Status</TableHead>
+                                            <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-foreground">Timestamp</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -792,10 +792,10 @@ export const MembershipLedger = () => {
                                                             <div className={cn("p-2 rounded-xl shadow-inner", r.isForfeit ? "bg-destructive/10 text-destructive" : r.isRollover ? "bg-blue-500/10 text-blue-600" : "bg-indigo-500/10 text-indigo-600")}>
                                                                 {r.isForfeit ? <AlertTriangle className="w-4 h-4" /> : r.isRollover ? <RefreshCw className="w-4 h-4" /> : <Star className="w-4 h-4" />}
                                                             </div>
-                                                            <p className="font-black uppercase tracking-tight text-xs text-slate-900">{r.serviceName}</p>
+                                                            <p className="font-black uppercase tracking-tight text-xs text-foreground">{r.serviceName}</p>
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell className="text-left font-black uppercase text-[10px] text-slate-600">{rClient?.name || 'Guest'}</TableCell>
+                                                    <TableCell className="text-left font-black uppercase text-[10px] text-foreground/80">{rClient?.name || 'Guest'}</TableCell>
                                                     <TableCell className="text-left">
                                                         <Badge 
                                                             variant={r.isForfeit ? "destructive" : r.isRollover ? "outline" : "secondary"} 
@@ -804,7 +804,7 @@ export const MembershipLedger = () => {
                                                             {r.isForfeit ? "FORFEITED" : r.isRollover ? "ROLLED OVER" : "REDEEMED"}
                                                         </Badge>
                                                     </TableCell>
-                                                    <TableCell className="text-right pr-10 font-black font-mono text-xs text-slate-400">{format(safeDate(r.date), 'MMM d, p')}</TableCell>
+                                                    <TableCell className="text-right pr-10 font-black font-mono text-xs text-muted-foreground">{format(safeDate(r.date), 'MMM d, p')}</TableCell>
                                                 </TableRow>
                                             )
                                         }) : (
@@ -821,7 +821,7 @@ export const MembershipLedger = () => {
             <div className="space-y-6">
                 <Card className={cn(
                     "border-4 rounded-[2.5rem] shadow-2xl overflow-hidden transition-all",
-                    isGatewayActive ? "border-primary/20 bg-primary/5 shadow-primary/10" : "border-border bg-white opacity-60"
+                    isGatewayActive ? "border-primary/20 bg-primary/5 shadow-primary/10" : "border-border bg-card opacity-60"
                 )}>
                     <CardHeader className="p-6 pb-2 text-left">
                         <div className="flex items-center gap-3 mb-2">
@@ -839,10 +839,10 @@ export const MembershipLedger = () => {
                             <span className="text-[9px] font-black uppercase text-muted-foreground">Auto-Process</span>
                             <Badge variant={selectedTenant?.autoProcessMemberships ? "default" : "secondary"} className="h-5 px-2 font-black text-[8px] uppercase">{selectedTenant?.autoProcessMemberships ? "ACTIVE" : "DISABLED"}</Badge>
                         </div>
-                        <p className="text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-left">
+                        <p className="text-[10px] font-medium text-muted-foreground uppercase leading-relaxed text-left">
                             {isGatewayActive ? "Autonomous billing protocol is online. Cards on file will be auto-debited on their renewal dates." : "Connect Stripe or Square in Settings to enable autonomous recurring billing."}
                         </p>
-                        <Button variant="outline" asChild className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm">
+                        <Button variant="outline" asChild className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm">
                             <Link href="/settings?tab=integrations">Configure Gateway</Link>
                         </Button>
                     </CardContent>
@@ -852,7 +852,7 @@ export const MembershipLedger = () => {
                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                     <div className="space-y-1">
                         <p className="text-[10px] font-black uppercase text-primary">Operational Protocol</p>
-                        <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                        <p className="text-[11px] font-medium text-foreground/80 leading-relaxed uppercase tracking-tight">
                             Settling a payment advances the billing date and **resets perk usage** for the new cycle, instantly authorizing guest access in the terminal.
                         </p>
                     </div>
@@ -876,7 +876,7 @@ export const MembershipLedger = () => {
                         Guest: <strong>{terminatingInstance?.clientName}</strong>
                     </AlertDialogDescription>
                 </AlertDialogHeader>
-                <div className="p-6 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight text-left">
+                <div className="p-6 text-sm font-medium text-foreground/80 leading-relaxed uppercase tracking-tight text-left">
                     You are stopping the recurring cycle for this member. Access will be revoked immediately. Confirm termination?
                 </div>
                 <AlertDialogFooter className="p-6 sm:p-8 pt-4 bg-muted/5 border-t gap-3 flex flex-col">

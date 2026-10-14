@@ -11,7 +11,7 @@ import { designsSync, inSeason } from '@/lib/gift-designs';
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 const field = 'h-11 w-full rounded-xl border px-3 text-[15px]';
-const fs = { borderColor: 'var(--line, #ececee)', background: 'var(--card, #fff)' } as const;
+const fs = { borderColor: 'hsl(var(--border))', background: 'var(--card, #fff)' } as const;
 const muted = { color: 'var(--muted, #6d7075)' } as const;
 
 export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, applied, setApplied, holdId, addGiftCardToCart, brandName, brandLogo, brandAccent, screen, script, services, offer }: {
@@ -61,7 +61,7 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
     setTab(''); setTo(''); setNote(''); setDesign('frost'); setLine(null); setSendAtIso(null); setFilled(false); setPhone(''); setEmail(''); setLater(''); setOther(''); };
 
   return (
-    <section className="space-y-3 rounded-[20px] p-4" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #ececee)' }} aria-label="Gift cards">
+    <section className="space-y-3 rounded-[20px] p-4" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, hsl(var(--border)))' }} aria-label="Gift cards">
       <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">Gift cards</p>
         <div className="flex gap-1.5">{(['pay', 'sell'] as const).map((k) => <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(tab === k ? '' : k)} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={tab === k ? { background: 'var(--ink, #16171a)', color: '#fff' } : { background: 'var(--soft, #f3f3f5)' }}>{k === 'pay' ? 'Pay with one' : 'Sell one'}</button>)}</div></div>
       {/* The client has gift cards: say so up front, with one tap to use them (or ask them on the client screen). */}
@@ -73,7 +73,7 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
             <div className="min-w-0 flex-1"><p className="text-[15px] font-semibold">{nm} {cards.some((c) => c.mine) ? 'has' : 'bought'} {money(total / 100).replace('.00', '')} on {cards.length > 1 ? `${cards.length} gift cards` : 'a gift card'}</p>
               <p className="text-[12.5px]" style={muted}>{first.kind === 'service' ? `For a ${first.serviceName} · ` : ''}{first.purchaserName && first.mine ? `From ${String(first.purchaserName).split(' ')[0]} · ` : ''}{first.code}</p></div>
             <div className="flex shrink-0 gap-1.5">
-              {screen?.connected && <button type="button" disabled={busy || !!askUse} onClick={async () => { const id = await screen.ask('giftuse', { cards: cards.slice(0, 3).map((c) => ({ id: c.id, design: c.design || null, line: c.line || null, cents: c.availableCents, from: c.purchaserName || null, last4: String(c.code || '').slice(-4) })), clientFirst: nm }); if (id) setAskUse(id); }} className="h-10 rounded-full px-3.5 text-[13.5px] font-semibold" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #ececee)' }}>{askUse ? 'Asking…' : 'Ask them'}</button>}
+              {screen?.connected && <button type="button" disabled={busy || !!askUse} onClick={async () => { const id = await screen.ask('giftuse', { cards: cards.slice(0, 3).map((c) => ({ id: c.id, design: c.design || null, line: c.line || null, cents: c.availableCents, from: c.purchaserName || null, last4: String(c.code || '').slice(-4) })), clientFirst: nm }); if (id) setAskUse(id); }} className="h-10 rounded-full px-3.5 text-[13.5px] font-semibold" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, hsl(var(--border)))' }}>{askUse ? 'Asking…' : 'Ask them'}</button>}
               <button type="button" disabled={busy} onClick={useAll} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--ink, #16171a)', color: '#fff' }}>Use it</button></div>
           </div>); })()}
       {applied.map((g) => <div key={g.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'color-mix(in srgb, var(--ok, #1f7a4d) 9%, transparent)' }}>
@@ -88,9 +88,9 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
         {err && <p className="text-[13.5px] font-semibold" style={{ color: 'var(--warn, #b42318)' }}>{err}</p>}
       </div>}
       {tab === 'sell' && <div className="space-y-3">
-        <div className="grid grid-cols-5 gap-1.5">{[25, 50, 75, 100].map((v) => <button key={v} type="button" onClick={() => { setAmt(v); setOther(''); setSvcId(''); }} className="h-11 rounded-xl text-[15px] font-semibold" style={!svc && !other && amt === v ? { background: 'var(--ink, #16171a)', color: '#fff' } : { border: '1px solid var(--line, #ececee)', background: 'var(--card, #fff)' }}>${v}</button>)}
+        <div className="grid grid-cols-5 gap-1.5">{[25, 50, 75, 100].map((v) => <button key={v} type="button" onClick={() => { setAmt(v); setOther(''); setSvcId(''); }} className="h-11 rounded-xl text-[15px] font-semibold" style={!svc && !other && amt === v ? { background: 'var(--ink, #16171a)', color: '#fff' } : { border: '1px solid var(--line, hsl(var(--border)))', background: 'var(--card, #fff)' }}>${v}</button>)}
           <input value={other} onChange={(e) => { setOther(e.target.value.replace(/[^0-9.]/g, '')); setSvcId(''); }} inputMode="decimal" placeholder="$ other" aria-label="Other amount" className="h-11 rounded-xl border px-2 text-center text-[14px]" style={fs} /></div>
-        {offer && !svc && <p className="rounded-2xl px-3.5 py-2.5 text-[13.5px]" style={{ background: '#e9f3ed', color: '#1f7a4d' }}><b>{offer.name}:</b> {bonusOn(amount) > 0 ? `${clientName ? String(clientName).split(' ')[0] : 'the buyer'} gets ${money(bonusOn(amount)).replace('.00', '')} for themselves with this card.` : `buy ${money(offer.tiers[0].buyCents / 100).replace('.00', '')} or more and they get ${money(offer.tiers[0].bonusCents / 100).replace('.00', '')} for themselves.`}</p>}
+        {offer && !svc && <p className="rounded-2xl px-3.5 py-2.5 text-[13.5px]" style={{ background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: 'var(--ok-ink)' }}><b>{offer.name}:</b> {bonusOn(amount) > 0 ? `${clientName ? String(clientName).split(' ')[0] : 'the buyer'} gets ${money(bonusOn(amount)).replace('.00', '')} for themselves with this card.` : `buy ${money(offer.tiers[0].buyCents / 100).replace('.00', '')} or more and they get ${money(offer.tiers[0].bonusCents / 100).replace('.00', '')} for themselves.`}</p>}
         {!!services?.length && <select value={svcId} onChange={(e) => { setSvcId(e.target.value); setLine(null); }} aria-label="Or gift a service" className={field} style={fs}><option value="">Or gift a service — covered even if the price goes up</option>{services.map((x) => <option key={x.id} value={x.id}>{x.name} · {money(x.price).replace('.00', '')}</option>)}</select>}
         <div><p className="mb-1.5 text-[13px] font-semibold" style={muted}>Design{dz ? ` — ${dz.name}` : ''}</p>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{designs.map((d) => <button key={d.id} type="button" aria-pressed={design === d.id} aria-label={d.name} onClick={() => { setDesign(d.id); setLine(null); }} className="shrink-0 rounded-[9px] p-[2px]" style={{ outline: design === d.id ? '2px solid var(--ink, #16171a)' : 'none', outlineOffset: 1 }}><GiftCardFace design={d} brand={brand} amount={okAmt ? money(amount).replace('.00', '') : '$'} name=" " width={104} /></button>)}</div></div>

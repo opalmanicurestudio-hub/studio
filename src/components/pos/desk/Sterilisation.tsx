@@ -95,7 +95,7 @@ export function Sterilisation({ tenantId, tenant, kits, manager, incoming = null
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3"><p className="text-[20px] font-[700]">{c.device}</p><p className={`text-[13px] font-bold ${done ? 'text-emerald-800' : ''}`}>{done ? 'Finished' : 'Running'} · cycle {c.number}</p></div>
             <p className="text-[13px] text-muted-foreground">{c.minutes} min{c.temp ? ` at ${c.temp}°${c.tempUnit}` : ''} · started by {c.startedBy} at {new Date(c.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>
-            <div className="flex flex-wrap gap-1.5">{c.kits.map((k) => <span key={k.id} title={k.name} className={`rounded-lg px-2 py-1 font-mono text-[12px] font-bold tracking-wider ${done ? 'bg-white' : 'bg-muted'}`}>{k.code}</span>)}</div>
+            <div className="flex flex-wrap gap-1.5">{c.kits.map((k) => <span key={k.id} title={k.name} className={`rounded-lg px-2 py-1 font-mono text-[12px] font-bold tracking-wider ${done ? 'bg-card' : 'bg-muted'}`}>{k.code}</span>)}</div>
             {finishing === c.id ? (
               <div className="space-y-2">
                 <input autoFocus value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="What happened? (e.g. the indicator didn’t change)" className="h-11 w-full rounded-xl border bg-background px-3 text-[14px]" />

@@ -274,7 +274,7 @@ export const AssignStaffDialog: React.FC<AssignStaffDialogProps> = ({
                             Up Next
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="h-5 text-[8px] uppercase text-slate-400">
+                          <Badge variant="outline" className="h-5 text-[8px] uppercase text-muted-foreground">
                             #{index + 1}
                           </Badge>
                         )}

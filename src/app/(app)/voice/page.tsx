@@ -308,7 +308,7 @@ export default function VoicePage() {
                     className={cn(
                       'h-9 rounded-xl font-black uppercase text-[9px] tracking-widest px-4',
                       isConfigured
-                        ? 'bg-white/10 hover:bg-white/20 text-white border border-white/10'
+                        ? 'bg-card/10 hover:bg-card/20 text-white border border-white/10'
                         : 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/40',
                     )}
                   >

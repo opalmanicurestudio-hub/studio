@@ -59,7 +59,7 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
                         <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
                             <FileText className="w-3.5 h-3.5 text-primary opacity-40"/> Session Dossier
                         </h4>
-                        {event.notes && <p className="text-sm font-medium text-slate-700 leading-relaxed italic">"{event.notes}"</p>}
+                        {event.notes && <p className="text-sm font-medium text-foreground/80 leading-relaxed italic">"{event.notes}"</p>}
                         
                         {event.location && (
                             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-muted/50 border-2">
@@ -145,7 +145,7 @@ export function EventCard({
     const typeStyles = {
         personal: 'bg-blue-500/10 border-blue-500/30 text-blue-800',
         business: 'bg-primary/5 border-primary/20 text-primary',
-        blocked: 'border-slate-300',
+        blocked: 'border-border',
     };
 
     let Icon = Briefcase;
@@ -175,7 +175,7 @@ export function EventCard({
                     <Icon className="w-3.5 h-3.5 text-muted-foreground opacity-40 flex-shrink-0 mt-0.5" />
                     <p className="font-black uppercase tracking-tight text-[11px] truncate flex-1 leading-none">{event.title}</p>
                 </div>
-                {event.status === 'pending' && <Badge variant="outline" className="text-[8px] h-4 px-1.5 uppercase font-black bg-white/50">REQ</Badge>}
+                {event.status === 'pending' && <Badge variant="outline" className="text-[8px] h-4 px-1.5 uppercase font-black bg-card/50">REQ</Badge>}
             </div>
             
             <div className='flex-grow mt-2 overflow-hidden'>
@@ -196,7 +196,7 @@ export function EventCard({
                 )}
             </div>
             {isOwnerOrAdmin && event.status === 'pending' && (
-                <div className="absolute inset-0 bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                <div className="absolute inset-0 bg-card/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 gap-2 opacity-0 group-hover:opacity-100 transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest mb-1">Approval Required</p>
                     <div className="flex w-full gap-2">
                         <Button size="xs" variant="destructive" className="flex-1 h-8 rounded-lg font-black text-[8px] uppercase" onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}>
@@ -223,7 +223,7 @@ export function EventCard({
                             <Sparkles className="w-5 h-5 text-primary" />
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Event Dossier</span>
                         </div>
-                        <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900">{event.title}</SheetTitle>
+                        <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-foreground">{event.title}</SheetTitle>
                         <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60">
                             {format(event.startTime, 'EEEE, LLL d')} &middot; {format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}
                         </SheetDescription>

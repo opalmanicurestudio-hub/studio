@@ -152,7 +152,7 @@ export default function ShopDesignerPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-28">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -174,7 +174,7 @@ export default function ShopDesignerPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-4 space-y-3 sm:p-5">
             <div className="flex items-center gap-2">
               <Paintbrush className="w-4 h-4 text-primary shrink-0" />
@@ -234,7 +234,7 @@ export default function ShopDesignerPage() {
                             aria-label={`${lab} colour`}
                             value={(theme as any)[key]}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
-                            className="h-11 w-11 shrink-0 cursor-pointer rounded-xl border-2 bg-white p-1"
+                            className="h-11 w-11 shrink-0 cursor-pointer rounded-xl border-2 bg-card p-1"
                           />
                           <div className="min-w-0 flex-1">
                             <Label htmlFor={`theme-${key}`} className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
@@ -274,7 +274,7 @@ export default function ShopDesignerPage() {
                                 aria-pressed={(theme as any)[key] === val}
                                 onClick={() => setTheme({ ...theme, [key]: val } as ShopTheme)}
                                 className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest',
-                                  (theme as any)[key] === val ? 'border-foreground bg-foreground text-background' : 'bg-white')}>
+                                  (theme as any)[key] === val ? 'border-foreground bg-foreground text-background' : 'bg-card')}>
                                 {name}
                               </button>
                             ))}
@@ -300,7 +300,7 @@ export default function ShopDesignerPage() {
                                 aria-pressed={(theme as any)[key] === val}
                                 onClick={() => setTheme({ ...theme, [key]: val } as ShopTheme)}
                                 className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest',
-                                  (theme as any)[key] === val ? 'border-foreground bg-foreground text-background' : 'bg-white')}>
+                                  (theme as any)[key] === val ? 'border-foreground bg-foreground text-background' : 'bg-card')}>
                                 {name}
                               </button>
                             ))}
@@ -412,7 +412,7 @@ export default function ShopDesignerPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-5 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -475,7 +475,7 @@ export default function ShopDesignerPage() {
         </Card>
 
         {selected && (
-          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white">
+          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-card">
             <CardContent className="p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-primary">
@@ -486,7 +486,7 @@ export default function ShopDesignerPage() {
                     <button key={l.id} type="button" onClick={() => updateSection(selected.id, { layout: l.id })}
                       className={cn('h-8 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest transition-all',
                         (selected.layout || SHOP_SECTION_DEFS[selected.type].layouts[0].id) === l.id
-                          ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+                          ? 'bg-foreground text-background border-foreground' : 'bg-card hover:border-primary/40')}>
                       {l.label}
                     </button>
                   ))}

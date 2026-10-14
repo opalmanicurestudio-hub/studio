@@ -43,7 +43,7 @@ function Section({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   return (
-    <div className="rounded-[1.5rem] border-2 bg-white overflow-hidden">
+    <div className="rounded-[1.5rem] border-2 bg-card overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -342,7 +342,7 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
                     next[gi] = { ...g, choices };
                     setGroups(next);
                   }}
-                  className="h-11 rounded-xl border-2 bg-white px-2 text-xs font-bold sm:col-span-2"
+                  className="h-11 rounded-xl border-2 bg-card px-2 text-xs font-bold sm:col-span-2"
                 >
                   <option value="">Just changes the price (no stock of its own)</option>
                   {variantCandidates.map((v) => (

@@ -76,7 +76,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Protocol Entry</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -104,7 +104,7 @@ const ProfitabilityAnalysis = ({
             </h4>
             <Accordion type="multiple" className="w-full space-y-2">
                 {services.map(service => (
-                    <AccordionItem key={service.id} value={service.id} className="border-2 rounded-2xl overflow-hidden bg-white">
+                    <AccordionItem key={service.id} value={service.id} className="border-2 rounded-2xl overflow-hidden bg-card">
                         <AccordionTrigger className="px-4 py-3 font-black uppercase text-[10px] tracking-widest hover:no-underline bg-muted/10">
                             {service.name}
                         </AccordionTrigger>
@@ -126,7 +126,7 @@ const ProfitabilityAnalysis = ({
                                             {newProfit < 0 && <Badge variant="destructive" className="h-4 text-[8px] font-black uppercase border-none">Loss Warning</Badge>}
                                         </div>
                                         <div className="flex justify-between items-baseline">
-                                            <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">Retail: <span className="font-black text-slate-900">${originalPrice.toFixed(2)}</span></span>
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">Retail: <span className="font-black text-foreground">${originalPrice.toFixed(2)}</span></span>
                                             <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">New: <span className="font-black text-primary">${discountedPrice.toFixed(2)}</span></span>
                                         </div>
                                         <div className="flex justify-between items-center pt-2 border-t border-dashed">
@@ -205,7 +205,7 @@ const PotentialImpactAnalysis = ({
             <Label className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Exposure Risk Analysis</Label>
             <Card className="bg-muted/50 border-2 rounded-[2rem] overflow-hidden shadow-inner">
                 <CardContent className="p-6 grid grid-cols-2 gap-4">
-                    <div className="text-center p-4 rounded-2xl bg-white border shadow-sm space-y-1">
+                    <div className="text-center p-4 rounded-2xl bg-card border shadow-sm space-y-1">
                         <p className="text-[9px] uppercase font-black text-muted-foreground opacity-60">Max Expense</p>
                         {isNaN(impact.loss) ? (
                             <p className="text-xl font-black text-destructive">N/A*</p>
@@ -213,7 +213,7 @@ const PotentialImpactAnalysis = ({
                             <p className="text-xl font-black text-destructive">-${impact.loss.toFixed(2)}</p>
                         )}
                     </div>
-                    <div className="text-center p-4 rounded-2xl bg-white border shadow-sm space-y-1">
+                    <div className="text-center p-4 rounded-2xl bg-card border shadow-sm space-y-1">
                         <p className="text-[9px] uppercase font-black text-muted-foreground opacity-60">Target Yield</p>
                         {isNaN(impact.profit) ? (
                             <p className="text-xl font-black text-primary">N/A*</p>
@@ -329,7 +329,7 @@ export const AddDiscountDialog: React.FC<{
                                     field.value === 'percentage' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:border-primary/20"
                                 )}>
                                     <Percent className={cn("mb-2 h-6 w-6", field.value === 'percentage' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">% Percentage</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-foreground">% Percentage</span>
                                     <RadioGroupItem value="percentage" id="percentage-edit" className="sr-only" />
                                 </div>
                             </label>
@@ -339,7 +339,7 @@ export const AddDiscountDialog: React.FC<{
                                     field.value === 'fixed' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:border-primary/20"
                                 )}>
                                     <DollarSign className={cn("mb-2 h-6 w-6", field.value === 'fixed' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">$ Fixed Amount</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-foreground">$ Fixed Amount</span>
                                     <RadioGroupItem value="fixed" id="fixed-edit" className="sr-only" />
                                 </div>
                             </label>
@@ -372,15 +372,15 @@ export const AddDiscountDialog: React.FC<{
                         <div className="space-y-6">
                             <div className="space-y-1 text-left">
                                 <Label className="font-black uppercase text-[10px] tracking-widest text-muted-foreground ml-1">Service Constraints</Label>
-                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight leading-relaxed ml-1 opacity-60">
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight leading-relaxed ml-1 opacity-60">
                                     Restrict this discount to specific treatments to safeguard low-margin sessions. Leave empty for studio-wide application.
                                 </p>
                             </div>
                             {selectedServices.length > 0 && (
                                 <div className="grid gap-2">
                                     {selectedServices.map(service => (
-                                        <div key={service.id} className="flex justify-between items-center bg-white p-4 rounded-2xl border-2 shadow-sm group">
-                                            <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate">{service.name}</span>
+                                        <div key={service.id} className="flex justify-between items-center bg-card p-4 rounded-2xl border-2 shadow-sm group">
+                                            <span className="text-[11px] font-black uppercase tracking-tight text-foreground truncate">{service.name}</span>
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-40 group-hover:opacity-100 transition-opacity" onClick={() => removeService(service.id)} type="button">
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
@@ -448,7 +448,7 @@ export const AddDiscountDialog: React.FC<{
                     <AccordionContent className="pt-8 space-y-8 px-1 text-left">
                         <Alert className="bg-primary/5 border-primary/20 rounded-2xl p-5 border-2">
                             <Sparkles className="h-5 w-5 text-primary" />
-                            <AlertDescription className="text-[10px] font-bold uppercase tracking-tight leading-relaxed text-slate-600">
+                            <AlertDescription className="text-[10px] font-bold uppercase tracking-tight leading-relaxed text-foreground/80">
                                 Automated scripts are intelligently evaluated during guest checkout and suggested in the studio terminal when criteria are met.
                             </AlertDescription>
                         </Alert>
@@ -480,7 +480,7 @@ export const AddDiscountDialog: React.FC<{
                                 render={({ field }) => (
                                     <div className="space-y-3 animate-in slide-in-from-top-2">
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Visit Threshold</Label>
-                                        <Input type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-white text-center" />
+                                        <Input type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-card text-center" />
                                         <p className="text-[9px] font-bold text-muted-foreground uppercase text-center opacity-60">Authorize reward after this many completed treatments.</p>
                                     </div>
                                 )}
@@ -493,7 +493,7 @@ export const AddDiscountDialog: React.FC<{
                                 render={({ field }) => (
                                     <div className="space-y-3 animate-in slide-in-from-top-2">
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Inactivity Window (Days)</Label>
-                                        <Input type="number" placeholder="e.g., 90" {...field} value={field.value ?? ''} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-white text-center" />
+                                        <Input type="number" placeholder="e.g., 90" {...field} value={field.value ?? ''} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-card text-center" />
                                         <p className="text-[9px] font-bold text-muted-foreground uppercase text-center opacity-60">Authorize acquisition script after this many dormant days.</p>
                                     </div>
                                 )}
@@ -526,7 +526,7 @@ export const AddDiscountDialog: React.FC<{
                                 <Sparkles className="w-5 h-5 text-primary" />
                                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
                             </div>
-                            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Initialize Discount</DialogTitle>
+                            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Initialize Discount</DialogTitle>
                             <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Define your rules and values. Note: Only one code can be applied per transaction.</DialogDescription>
                         </DialogHeader>
 
@@ -538,7 +538,7 @@ export const AddDiscountDialog: React.FC<{
 
                         <DialogFooter className="border-t bg-background flex-shrink-0 shadow-2xl p-8 pt-4">
                             <div className="grid grid-cols-2 gap-3 w-full">
-                                <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                                <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Cancel</Button>
                                 <Button type="submit" className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30">Commit Protocol</Button>
                             </div>
                         </DialogFooter>

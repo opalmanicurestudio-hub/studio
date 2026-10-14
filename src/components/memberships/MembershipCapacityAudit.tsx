@@ -108,7 +108,7 @@ export const MembershipCapacityAudit: React.FC<MembershipCapacityAuditProps> = (
                     <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Capacity Safeguard</span>
                 </div>
                 <CardTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter leading-none">Subscription Liability Audit</CardTitle>
-                <CardDescription className="text-xs md:text-sm font-medium text-slate-600 max-w-xl mt-2">
+                <CardDescription className="text-xs md:text-sm font-medium text-foreground/80 max-w-xl mt-2">
                     Ensuring studio fulfillment capacity for {audit.memberCount} active subscribers across {audit.staffCount} technicians.
                 </CardDescription>
             </CardHeader>
@@ -150,34 +150,34 @@ export const MembershipCapacityAudit: React.FC<MembershipCapacityAuditProps> = (
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="p-4 rounded-2xl bg-white border-2 border-primary/10 shadow-sm text-left">
+                        <div className="p-4 rounded-2xl bg-card border-2 border-primary/10 shadow-sm text-left">
                             <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 flex items-center gap-1.5 mb-1"><Clock className="w-3 h-3"/> Liability</p>
-                            <p className="text-lg md:text-xl font-black font-mono tracking-tighter text-slate-900">{audit.liability.toFixed(0)}h</p>
+                            <p className="text-lg md:text-xl font-black font-mono tracking-tighter text-foreground">{audit.liability.toFixed(0)}h</p>
                         </div>
-                        <div className="p-4 rounded-2xl bg-white border-2 border-primary/10 shadow-sm text-left">
+                        <div className="p-4 rounded-2xl bg-card border-2 border-primary/10 shadow-sm text-left">
                             <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 flex items-center gap-1.5 mb-1"><Users className="w-3 h-3"/> Capacity</p>
-                            <p className="text-lg md:text-xl font-black font-mono tracking-tighter text-slate-900">{audit.capacity.toFixed(0)}h</p>
+                            <p className="text-lg md:text-xl font-black font-mono tracking-tighter text-foreground">{audit.capacity.toFixed(0)}h</p>
                         </div>
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-dashed border-primary/20">
                     <div className="flex items-start gap-4 text-left">
-                        <div className="p-3 bg-white rounded-2xl shadow-inner border border-primary/10 shrink-0">
+                        <div className="p-3 bg-card rounded-2xl shadow-inner border border-primary/10 shrink-0">
                             <Zap className="w-5 h-5 text-primary" />
                         </div>
                         <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase text-slate-900">Availability Buffer</p>
-                            <p className="text-[11px] font-medium text-slate-500 leading-relaxed">You have <strong>{(audit.capacity - audit.liability).toFixed(0)} hours</strong> of uncommitted monthly capacity for new member acquisition and retail walk-ins.</p>
+                            <p className="text-[10px] font-black uppercase text-foreground">Availability Buffer</p>
+                            <p className="text-[11px] font-medium text-muted-foreground leading-relaxed">You have <strong>{(audit.capacity - audit.liability).toFixed(0)} hours</strong> of uncommitted monthly capacity for new member acquisition and retail walk-ins.</p>
                         </div>
                     </div>
                     <div className="flex items-start gap-4 text-left">
-                        <div className="p-3 bg-white rounded-2xl shadow-inner border border-primary/10 shrink-0">
+                        <div className="p-3 bg-card rounded-2xl shadow-inner border border-primary/10 shrink-0">
                             <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
                         </div>
                         <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase text-slate-900">Strategic Guidance</p>
-                            <p className="text-[11px] font-medium text-slate-500 leading-relaxed uppercase tracking-tight">
+                            <p className="text-[10px] font-black uppercase text-foreground">Strategic Guidance</p>
+                            <p className="text-[11px] font-medium text-muted-foreground leading-relaxed uppercase tracking-tight">
                                 {status === 'safe' ? "Load is optimal. Aggressively market high-tier memberships to secure recurring revenue." : 
                                  status === 'balanced' ? "Load is balanced. Focus on high-margin retail sales to supplement the booked schedule." : 
                                  "Saturation detected. Consider adding a technician or increasing membership rates to restore studio flow."}

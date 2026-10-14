@@ -69,14 +69,14 @@ function Group({ title, items, pick, onPick }: { title: string; items: any[]; pi
 function Card({ x, on, onPick }: { x: any; on: boolean; onPick: () => void }) {
   const edge = x.needsReturn ? RED : x.status === 'to_send' || x.status === 'choose' || x.status === 'pickup_time' ? INK : x.prep?.sealedAt ? GREEN : ['handed', 'sent', 'credited', 'cancelled'].includes(x.status) ? '#c7cad1' : AMBER;
   const sub = x.method === 'pickup' && x.pickup ? `${x.number || 'Refund'} · ${dl(x.pickup.date).split(',')[0]} ${wl(x.pickup)}` : `${x.number || 'Refund'} · ${x.method ? LABELS[x.method] : 'Choosing how'}`;
-  return <button type="button" onClick={onPick} className="block w-full rounded-2xl border bg-white p-3.5 text-left" style={{ borderColor: on ? INK : LINE, borderLeft: `3px solid ${edge}`, boxShadow: on ? `0 0 0 1px ${INK}` : undefined }}>
+  return <button type="button" onClick={onPick} className="block w-full rounded-2xl border bg-card p-3.5 text-left" style={{ borderColor: on ? INK : LINE, borderLeft: `3px solid ${edge}`, boxShadow: on ? `0 0 0 1px ${INK}` : undefined }}>
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-[16px] font-medium">{x.clientName}</p><p className="truncate text-[13px]" style={{ color: MUTED }}>{sub}</p></div><p className="text-[19px] font-bold tabular-nums">{money(x.amountCents)}</p></div>
     {(x.status === 'on_way' || x.prep?.printedAt || x.prep?.sealedAt) && <div className="mt-2 flex flex-wrap gap-1.5">
       {x.status === 'on_way' && <Chip dark>{x.trip?.etaMin != null && x.trip?.live ? `On the way · ${x.trip.etaMin} min` : `On the way${x.trip?.etaMin ? ` · ~${x.trip.etaMin} min` : ''}`}</Chip>}
       {x.prep?.sealedAt ? <Chip ok>Sealed</Chip> : x.prep?.tillAt ? <Chip ok>Cash out</Chip> : x.prep?.printedAt ? <Chip ok>Printed</Chip> : null}</div>}
   </button>;
 }
-const Chip = ({ children, ok, dark }: { children: React.ReactNode; ok?: boolean; dark?: boolean }) => <span className="inline-flex h-7 items-center rounded-full px-2.5 text-[12.5px] font-medium" style={dark ? { background: INK, color: '#fff' } : ok ? { background: '#e9f3ed', color: GREEN } : { background: '#f3f3f5', color: MUTED }}>{children}</span>;
+const Chip = ({ children, ok, dark }: { children: React.ReactNode; ok?: boolean; dark?: boolean }) => <span className="inline-flex h-7 items-center rounded-full px-2.5 text-[12.5px] font-medium" style={dark ? { background: INK, color: '#fff' } : ok ? { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: GREEN } : { background: 'hsl(var(--secondary))', color: MUTED }}>{children}</span>;
 
 function Detail({ p, tenantId, tenant, staff, phone = false }: { p: any; tenantId: string; tenant: any; staff: any[]; phone?: boolean }) {
   const C = settingsOf(tenant).cashRefund; const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [ok, setOk] = React.useState('');
@@ -85,8 +85,8 @@ function Detail({ p, tenantId, tenant, staff, phone = false }: { p: any; tenantI
   return <div className="mx-auto max-w-[620px] space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-3"><div><p className={LABEL} style={{ color: MUTED }}>{(p.number ? `case ${p.number}` : 'refund').toLowerCase()} · {p.method ? LABELS[p.method].toLowerCase() : 'choosing how'}</p><h2 className="text-[30px] font-normal tracking-[-0.03em]">{p.clientName} · <b className="font-bold tabular-nums">{money(p.amountCents)}</b></h2></div>
       {p.caseId && <a href={`/cases?id=${p.caseId}`} className="text-[14px] underline underline-offset-2">Open the case</a>}</div>
-    {err && <p className="rounded-2xl p-3 text-[14px] font-medium" style={{ background: '#fdecec', color: RED }}>{err}</p>}
-    {ok && <p className="rounded-2xl p-3 text-[14px] font-medium" style={{ background: '#e9f3ed', color: GREEN }}>{ok}</p>}
+    {err && <p className="rounded-2xl p-3 text-[14px] font-medium" style={{ background: 'color-mix(in srgb, #b42318 10%, transparent)', color: RED }}>{err}</p>}
+    {ok && <p className="rounded-2xl p-3 text-[14px] font-medium" style={{ background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: GREEN }}>{ok}</p>}
 
     {p.status === 'on_way' && <OnWayCard p={p} />}
     {p.needsReturn && !p.returnedLaterAt && <div className="p-4" style={CARD}><p className="text-[15px]"><b>{money(p.amountCents)} is out of a closed till.</b> Put it back in today’s drawer and note it.</p>
@@ -96,7 +96,7 @@ function Detail({ p, tenantId, tenant, staff, phone = false }: { p: any; tenantI
     {p.status === 'to_send' && <SendApp p={p} C={C} busy={busy} act={act} />}
     {['choose', 'pickup_time'].includes(p.status) && <Waiting p={p} busy={busy} act={act} tenantId={tenantId} />}
     {isDone && <div className="space-y-1 p-4" style={CARD}><p className="text-[16px] font-medium">{p.status === 'handed' ? `Handed over ${p.handedAt ? new Date(p.handedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''} by ${p.handedBy}` : p.status === 'sent' ? `Sent by ${LABELS[p.method]} — ${p.app?.sentBy}${p.app?.ref ? ` · ref ${p.app.ref}` : ''}` : p.status === 'credited' ? 'Added as store credit' : 'Cancelled'}</p>
-      {p.signatureUrl && <img src={p.signatureUrl} alt="Client signature" className="mt-2 h-24 rounded-xl border bg-white object-contain" style={{ borderColor: LINE }} />}
+      {p.signatureUrl && <img src={p.signatureUrl} alt="Client signature" className="mt-2 h-24 rounded-xl border bg-card object-contain" style={{ borderColor: LINE }} />}
       {p.app?.proofUrl && <a href={p.app.proofUrl} target="_blank" rel="noreferrer" className="text-[14px] underline underline-offset-2">Payment screenshot</a>}</div>}
 
     <details className="p-4" style={CARD}><summary className="cursor-pointer text-[14.5px] font-medium">What happened</summary>
@@ -107,7 +107,7 @@ function Detail({ p, tenantId, tenant, staff, phone = false }: { p: any; tenantI
 
 function OnWayCard({ p }: { p: any }) {
   const t = p.trip || {}; const live = !!t.live && t.distanceMi != null;
-  return <div className="space-y-2.5 p-4" style={{ ...CARD, background: '#fff' }}>
+  return <div className="space-y-2.5 p-4" style={{ ...CARD, background: 'hsl(var(--card))' }}>
     <div className="flex items-center justify-between"><p className="text-[16px] font-medium">{p.clientFirst} is on the way</p>{t.live && <span className="inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium text-white" style={{ background: INK }}><span className="h-[7px] w-[7px] rounded-full" style={{ background: '#6ee7a8' }} />Live</span>}</div>
     <div className="flex items-baseline gap-2"><span className="text-[30px] font-bold tabular-nums tracking-[-0.02em]">{t.etaMin != null ? `${t.etaMin} min` : '—'}</span><span className="text-[13.5px]" style={{ color: MUTED }}>{live ? `${t.distanceMi} mi away · updated ${ago(t.updatedAt)}` : `they said about ${t.etaMin} min · ${ago(t.at)}`}</span></div>
     {!p.prep?.sealedAt && <p className="text-[13.5px] font-medium" style={{ color: AMBER }}>Envelope isn’t ready yet.</p>}
@@ -126,28 +126,28 @@ function Pickup({ p, C, staff, busy, act, tenantId, phone = false }: { p: any; C
 
     <div className="space-y-3 p-4" style={CARD}>
       <p className="text-[15px] font-medium">1 · The note inside</p>
-      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={6} className="w-full rounded-2xl border bg-white p-3 text-[14.5px] leading-relaxed" style={{ borderColor: LINE }} />
+      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={6} className="w-full rounded-2xl border bg-card p-3 text-[14.5px] leading-relaxed" style={{ borderColor: LINE }} />
       <div className="flex flex-wrap gap-2">
         {phone ? <p className="w-full text-[13.5px]" style={{ color: MUTED }}>{prep.printedAt ? 'Printed at the desk.' : 'Print the slip and note from the front desk computer (Refunds to give).'}</p>
           : <button type="button" disabled={busy} onClick={async () => { await act('note', { text: note }, 'Note saved.'); window.open(`/refunds/print/${p.id}`, '_blank'); }} className={btn} style={{ background: INK, color: '#fff' }}>{prep.printedAt ? 'Print again' : 'Print slip and note'}</button>}
-        {note !== (p.noteText || '') && <button type="button" disabled={busy} onClick={() => act('note', { text: note }, 'Note saved.')} className={`${btn} border bg-white`} style={{ borderColor: LINE }}>Save note</button>}
+        {note !== (p.noteText || '') && <button type="button" disabled={busy} onClick={() => act('note', { text: note }, 'Note saved.')} className={`${btn} border bg-card`} style={{ borderColor: LINE }}>Save note</button>}
       </div>
     </div>
 
     <div className="space-y-3 p-4" style={CARD}>
       <p className="text-[15px] font-medium">2 · Prepare the envelope</p>
-      <div className="flex flex-wrap gap-1.5">{bills(p.amountCents).map((b) => <span key={b.label} className="rounded-xl border bg-white px-3 py-1.5 text-[14px]" style={{ borderColor: LINE }}><b className="tabular-nums">{b.count}</b> × {b.label}</span>)}</div>
+      <div className="flex flex-wrap gap-1.5">{bills(p.amountCents).map((b) => <span key={b.label} className="rounded-xl border bg-card px-3 py-1.5 text-[14px]" style={{ borderColor: LINE }}><b className="tabular-nums">{b.count}</b> × {b.label}</span>)}</div>
       {!prep.tillAt ? <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={async () => { const r = await act('till', {}, 'Taken from the till.'); if (!r && window.confirm('No till is open. Take it from the safe instead?')) await act('till', { fromSafe: true }, 'Taken from the safe.'); }} className={btn} style={{ background: INK, color: '#fff' }}>Take {money(p.amountCents)} from the till</button></div>
         : !prep.countedBy && C.twoPerson ? <div className="flex flex-wrap items-center gap-2">
-          <select value={counter} onChange={(e) => setCounter(e.target.value)} aria-label="Who counted it" className="h-11 rounded-full border bg-white px-4 text-[14.5px]" style={{ borderColor: LINE }}><option value="">Who counted it?</option>{others.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}</select>
+          <select value={counter} onChange={(e) => setCounter(e.target.value)} aria-label="Who counted it" className="h-11 rounded-full border bg-card px-4 text-[14.5px]" style={{ borderColor: LINE }}><option value="">Who counted it?</option>{others.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}</select>
           <button type="button" disabled={busy || !counter} onClick={() => act('counted', { countedBy: counter }, 'Counted and sealed.')} className={btn} style={{ background: INK, color: '#fff' }}>Counted and sealed</button>
           <button type="button" disabled={busy} onClick={() => act('return_till', {}, 'Back in the till.')} className="text-[14px] underline underline-offset-2">Put it back</button></div>
-        : <div className="flex flex-wrap items-center gap-3"><Chip ok>Ready</Chip>{!C.twoPerson && !prep.countedBy && <button type="button" disabled={busy} onClick={() => act('counted', {}, 'Sealed.')} className={`${btn} border bg-white`} style={{ borderColor: LINE }}>Mark sealed</button>}<button type="button" disabled={busy} onClick={() => act('return_till', {}, 'Back in the till.')} className="text-[14px] underline underline-offset-2">Put it back in the till</button></div>}
+        : <div className="flex flex-wrap items-center gap-3"><Chip ok>Ready</Chip>{!C.twoPerson && !prep.countedBy && <button type="button" disabled={busy} onClick={() => act('counted', {}, 'Sealed.')} className={`${btn} border bg-card`} style={{ borderColor: LINE }}>Mark sealed</button>}<button type="button" disabled={busy} onClick={() => act('return_till', {}, 'Back in the till.')} className="text-[14px] underline underline-offset-2">Put it back in the till</button></div>}
     </div>
 
     <div className="space-y-3 p-4" style={CARD}>
       <p className="text-[15px] font-medium">3 · Hand it over</p>
-      <label className={`block ${LABEL}`} style={{ color: MUTED }}>their pickup code<input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" autoComplete="off" className="mt-1.5 block h-16 w-48 rounded-2xl border bg-white text-center text-[30px] font-bold tracking-[0.3em] text-[#16171a]" style={{ borderColor: code.length === 4 ? INK : LINE }} /></label>
+      <label className={`block ${LABEL}`} style={{ color: MUTED }}>their pickup code<input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" autoComplete="off" className="mt-1.5 block h-16 w-48 rounded-2xl border bg-card text-center text-[30px] font-bold tracking-[0.3em] text-foreground" style={{ borderColor: code.length === 4 ? INK : LINE }} /></label>
       <p className={LABEL} style={{ color: MUTED }}>they count it and sign</p>
       <SignaturePad onChange={setSig} caption={`I received ${money(p.amountCents)} in cash · ${p.clientName}`} />
       <button type="button" disabled={busy || code.length !== 4 || !sig || !prep.tillAt} onClick={() => act('handover', { code, signature: sig }, 'Handed over. The refund is in Money and on the case.')} className={`${btn} w-full`} style={{ background: INK, color: '#fff', height: 52 }}>Handed over, close the refund</button>
@@ -173,18 +173,18 @@ function SendApp({ p, C, busy, act }: { p: any; C: any; busy: boolean; act: any 
   const copy = (t: string) => navigator.clipboard?.writeText(t).catch(() => {});
   const pickProof = (f?: File | null) => { if (!f) return; const r = new FileReader(); r.onload = () => { const img = new Image(); img.onload = () => { const s = Math.min(1, 1400 / Math.max(img.width, img.height)); const cv = document.createElement('canvas'); cv.width = img.width * s; cv.height = img.height * s; (cv.getContext('2d') as CanvasRenderingContext2D).drawImage(img, 0, 0, cv.width, cv.height); setProof(cv.toDataURL('image/jpeg', 0.8)); }; img.src = String(r.result); }; r.readAsDataURL(f); };
   return <>
-    <div className="space-y-2.5 p-4" style={{ ...CARD, background: '#fff' }}>
+    <div className="space-y-2.5 p-4" style={{ ...CARD, background: 'hsl(var(--card))' }}>
       <p className="text-[34px] font-bold tabular-nums tracking-[-0.02em]">{money(p.amountCents)}</p>
       <Line k="To" v={`${h}${p.app?.accountName ? ` · ${p.app.accountName}` : ''}`} />{from && <Line k="From" v={from} />}<Line k="Note" v={noteTxt} />
       {p.app?.confirmedAt && <Chip ok>{p.clientFirst} confirmed this account</Chip>}
     </div>
     <div className="space-y-3 p-4" style={CARD}>
       <p className="text-[14.5px]"><b>1 ·</b> {link ? `Open ${app.label}. The amount and note are filled in — check the name before you pay.` : `Open ${app.label === 'Zelle' ? 'the business bank app' : 'Messages on the business iPhone'} and send ${money(p.amountCents)} to ${h}.`}</p>
-      <div className="flex flex-wrap gap-2">{link ? <a href={link} target="_blank" rel="noreferrer" className={`${btn} inline-flex items-center border bg-white`} style={{ borderColor: INK }}>Open {app.label}</a> : null}
-        <button type="button" onClick={() => copy(h)} className={`${btn} border bg-white`} style={{ borderColor: LINE }}>Copy {app.label === 'Apple Cash' ? 'number' : 'handle'}</button><button type="button" onClick={() => copy(amt)} className={`${btn} border bg-white`} style={{ borderColor: LINE }}>Copy amount</button></div>
+      <div className="flex flex-wrap gap-2">{link ? <a href={link} target="_blank" rel="noreferrer" className={`${btn} inline-flex items-center border bg-card`} style={{ borderColor: INK }}>Open {app.label}</a> : null}
+        <button type="button" onClick={() => copy(h)} className={`${btn} border bg-card`} style={{ borderColor: LINE }}>Copy {app.label === 'Apple Cash' ? 'number' : 'handle'}</button><button type="button" onClick={() => copy(amt)} className={`${btn} border bg-card`} style={{ borderColor: LINE }}>Copy amount</button></div>
       <p className="pt-1 text-[14.5px]"><b>2 ·</b> Come back and add the payment ID or a screenshot.</p>
-      <div className="flex flex-wrap gap-2"><input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Payment ID" aria-label="Payment ID" className="h-11 min-w-0 flex-1 rounded-2xl border bg-white px-3 text-[14.5px]" style={{ borderColor: LINE }} />
-        <label className={`${btn} inline-flex cursor-pointer items-center border bg-white`} style={{ borderColor: LINE }}>{proof ? 'Screenshot added' : 'Add screenshot'}<input type="file" accept="image/*" className="sr-only" onChange={(e) => pickProof(e.target.files?.[0])} /></label></div>
+      <div className="flex flex-wrap gap-2"><input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Payment ID" aria-label="Payment ID" className="h-11 min-w-0 flex-1 rounded-2xl border bg-card px-3 text-[14.5px]" style={{ borderColor: LINE }} />
+        <label className={`${btn} inline-flex cursor-pointer items-center border bg-card`} style={{ borderColor: LINE }}>{proof ? 'Screenshot added' : 'Add screenshot'}<input type="file" accept="image/*" className="sr-only" onChange={(e) => pickProof(e.target.files?.[0])} /></label></div>
       <button type="button" disabled={busy || (!ref && !proof)} onClick={() => act('sent', { ref, proof }, `Recorded. We’ve texted ${p.clientFirst}.`)} className={`${btn} w-full`} style={{ background: INK, color: '#fff', height: 52 }}>I sent it, text {p.clientFirst}</button>
       {C.sendRole === 'manager' && <p className="text-[12.5px]" style={{ color: MUTED }}>Only a manager can mark app refunds sent.</p>}
     </div>
@@ -200,9 +200,9 @@ function Waiting({ p, busy, act, tenantId }: { p: any; busy: boolean; act: any; 
     <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={async () => { const r = await act('resend', {}, 'Texted them the link again.'); if (r?.link) await navigator.clipboard?.writeText(`${window.location.origin}${r.link}`).catch(() => {}); }} className={btn} style={{ background: INK, color: '#fff' }}>Text the link again</button></div>
     <details><summary className="cursor-pointer text-[14px] underline underline-offset-2">Choose for them (they called or are here)</summary>
       {opts && <div className="mt-3 space-y-3">
-        <div className="flex flex-wrap gap-2">{opts.methods.filter((x: any) => !(x.id === 'pickup' && p.pickupBlocked)).map((x: any) => <button key={x.id} type="button" onClick={() => setM(x.id)} className="h-10 rounded-full border px-4 text-[14px]" style={m === x.id ? { background: INK, color: '#fff', borderColor: INK } : { background: '#fff', borderColor: LINE }}>{x.label}</button>)}</div>
-        {m === 'pickup' && <div className="flex flex-wrap gap-2">{opts.windows.slice(0, 12).map((x: any) => { const on = w && w.date === x.date && w.start === x.start; return <button key={x.date + x.start} type="button" onClick={() => setW(x)} className="h-10 rounded-full border px-3.5 text-[13.5px]" style={on ? { background: INK, color: '#fff', borderColor: INK } : { background: '#fff', borderColor: LINE }}>{x.dayLabel} {wl(x)}</button>; })}</div>}
-        {M?.ask && <div className="grid gap-2 sm:grid-cols-2"><input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder={M.placeholder || M.ask} aria-label={M.ask} className="h-11 rounded-2xl border bg-white px-3 text-[14.5px]" style={{ borderColor: LINE }} /><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name on the account" aria-label="Name on the account" className="h-11 rounded-2xl border bg-white px-3 text-[14.5px]" style={{ borderColor: LINE }} /></div>}
+        <div className="flex flex-wrap gap-2">{opts.methods.filter((x: any) => !(x.id === 'pickup' && p.pickupBlocked)).map((x: any) => <button key={x.id} type="button" onClick={() => setM(x.id)} className="h-10 rounded-full border px-4 text-[14px]" style={m === x.id ? { background: INK, color: '#fff', borderColor: INK } : { background: 'hsl(var(--card))', borderColor: LINE }}>{x.label}</button>)}</div>
+        {m === 'pickup' && <div className="flex flex-wrap gap-2">{opts.windows.slice(0, 12).map((x: any) => { const on = w && w.date === x.date && w.start === x.start; return <button key={x.date + x.start} type="button" onClick={() => setW(x)} className="h-10 rounded-full border px-3.5 text-[13.5px]" style={on ? { background: INK, color: '#fff', borderColor: INK } : { background: 'hsl(var(--card))', borderColor: LINE }}>{x.dayLabel} {wl(x)}</button>; })}</div>}
+        {M?.ask && <div className="grid gap-2 sm:grid-cols-2"><input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder={M.placeholder || M.ask} aria-label={M.ask} className="h-11 rounded-2xl border bg-card px-3 text-[14.5px]" style={{ borderColor: LINE }} /><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name on the account" aria-label="Name on the account" className="h-11 rounded-2xl border bg-card px-3 text-[14.5px]" style={{ borderColor: LINE }} /></div>}
         {m && <button type="button" disabled={busy || (m === 'pickup' && !w) || (!!M?.ask && !handle)} onClick={() => act('choose', { method: m, pickup: w, handle, accountName: name }, 'Saved — we’ve texted them.')} className={btn} style={{ background: INK, color: '#fff' }}>Save</button>}
       </div>}</details>
   </div>;
@@ -218,7 +218,7 @@ function SignaturePad({ onChange, caption }: { onChange: (d: string | null) => v
   const move = (e: React.PointerEvent) => { if (!drawing.current) return; const x = ref.current!.getContext('2d') as CanvasRenderingContext2D; const p = pos(e); x.lineTo(p.x, p.y); x.stroke(); drawn.current = true; if (!has) setHas(true); };
   const up = () => { if (!drawing.current) return; drawing.current = false; if (drawn.current) onChange(ref.current!.toDataURL('image/png')); };
   const clear = () => { const c = ref.current!; (c.getContext('2d') as CanvasRenderingContext2D).clearRect(0, 0, c.width, c.height); drawn.current = false; setHas(false); onChange(null); };
-  return <div className="rounded-2xl border bg-white p-3" style={{ borderColor: LINE }}>
+  return <div className="rounded-2xl border bg-card p-3" style={{ borderColor: LINE }}>
     <canvas ref={ref} aria-label="Signature" className="h-36 w-full touch-none" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up} />
     <div className="flex items-center justify-between border-t pt-2 text-[12.5px]" style={{ borderColor: LINE, color: MUTED }}><span>{caption}</span>{has && <button type="button" onClick={clear} className="underline underline-offset-2">Clear</button>}</div>
   </div>;

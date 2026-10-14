@@ -176,28 +176,28 @@ export function VoiceBookingApprovalsPanel({
             <div key={apt.id} className="px-3.5 py-3 space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-slate-900 truncate">
+                  <p className="text-xs font-semibold text-foreground truncate">
                     {apt.clientName || 'Unknown caller'}
                     {meta.clientPhone && (
-                      <span className="font-normal text-slate-400 ml-1.5 inline-flex items-center gap-1">
+                      <span className="font-normal text-muted-foreground ml-1.5 inline-flex items-center gap-1">
                         <Phone className="w-2.5 h-2.5" /> {meta.clientPhone}
                       </span>
                     )}
                   </p>
-                  <p className="text-[11px] text-slate-700 mt-0.5">
+                  <p className="text-[11px] text-foreground/80 mt-0.5">
                     {meta.spoken || `${meta.serviceName || 'Service'} · ${meta.providerName || ''}`}
                   </p>
                   <div className="flex items-center gap-2 flex-wrap mt-1">
-                    <span className="text-[10px] font-medium text-slate-500 bg-white border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span className="text-[10px] font-medium text-muted-foreground bg-card border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                       <Bot className="w-2.5 h-2.5" /> Slot already held
                     </span>
                     {deposit > 0 && (
-                      <span className="text-[10px] font-medium text-amber-800 bg-white border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <span className="text-[10px] font-medium text-amber-800 bg-card border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                         <Wallet className="w-2.5 h-2.5" /> ${(deposit / 100).toFixed(2)} deposit on approve
                       </span>
                     )}
                     {(meta.formsNeeded || 0) > 0 && (
-                      <span className="text-[10px] font-medium text-slate-600 bg-white border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <span className="text-[10px] font-medium text-foreground/80 bg-card border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                         <FileText className="w-2.5 h-2.5" /> {meta.formsNeeded} form{meta.formsNeeded !== 1 ? 's' : ''}
                       </span>
                     )}

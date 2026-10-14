@@ -65,11 +65,11 @@ export function ESignAgreement({
     <div className="flex flex-col gap-4">
       {/* Header */}
       <div className="flex items-center gap-2.5">
-        <span className="h-9 w-9 rounded-2xl bg-slate-900 flex items-center justify-center shrink-0">
+        <span className="h-9 w-9 rounded-2xl bg-foreground flex items-center justify-center shrink-0">
           <PenLine className="h-4 w-4 text-white" />
         </span>
         <div className="min-w-0">
-          <h3 className="text-base font-black uppercase tracking-tight text-slate-900 leading-none truncate">{title}</h3>
+          <h3 className="text-base font-black uppercase tracking-tight text-foreground leading-none truncate">{title}</h3>
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-1">Please read fully before signing</p>
         </div>
       </div>
@@ -77,7 +77,7 @@ export function ESignAgreement({
       {/* Agreement body */}
       <div
         onScroll={handleScroll}
-        className="max-h-[42vh] overflow-y-auto rounded-2xl border-2 bg-muted/20 p-4 text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap"
+        className="max-h-[42vh] overflow-y-auto rounded-2xl border-2 bg-muted/20 p-4 text-[13px] leading-relaxed text-foreground/80 whitespace-pre-wrap"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {agreementText}
@@ -90,12 +90,12 @@ export function ESignAgreement({
       <button
         type="button"
         onClick={() => setAgreed(a => !a)}
-        className="flex items-start gap-3 text-left rounded-2xl border-2 p-3.5 transition-colors hover:border-slate-300"
+        className="flex items-start gap-3 text-left rounded-2xl border-2 p-3.5 transition-colors hover:border-border"
       >
-        <span className={`mt-0.5 h-5 w-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${agreed ? 'bg-slate-900 border-slate-900' : 'border-slate-300'}`}>
+        <span className={`mt-0.5 h-5 w-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${agreed ? 'bg-foreground border-slate-900' : 'border-border'}`}>
           {agreed && <Check className="h-3.5 w-3.5 text-white" />}
         </span>
-        <span className="text-[12px] font-semibold text-slate-700 leading-snug">
+        <span className="text-[12px] font-semibold text-foreground/80 leading-snug">
           I have read and agree to this {title}. I understand that typing my name below is a legal electronic signature.
         </span>
       </button>
@@ -119,7 +119,7 @@ export function ESignAgreement({
       {/* Actions */}
       <div className="flex gap-2 pt-1">
         {onCancel && (
-          <Button type="button" variant="ghost" onClick={onCancel} disabled={busy} className="flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] text-slate-400">
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={busy} className="flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] text-muted-foreground">
             Cancel
           </Button>
         )}

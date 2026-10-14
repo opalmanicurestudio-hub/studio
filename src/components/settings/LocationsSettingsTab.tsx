@@ -81,7 +81,7 @@ const COMMON_TIMEZONES = [
 const DEFAULT_RADIUS_M = 200;
 const DEFAULT_BREAK_RADIUS_M = 500;
 
-const FIELD = 'h-12 rounded-2xl border-2 font-bold bg-white focus:border-primary/50';
+const FIELD = 'h-12 rounded-2xl border-2 font-bold bg-card focus:border-primary/50';
 const FIELD_LABEL = 'text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1';
 
 const SectionHeader = ({ icon: Icon, title }: { icon: any; title: string }) => (
@@ -91,7 +91,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any; title: string }) => (
     </div>
     <div className="space-y-0.5 text-left">
       <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Operational</p>
-      <h3 className="text-sm md:text-base font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+      <h3 className="text-sm md:text-base font-black uppercase tracking-tighter text-foreground">{title}</h3>
     </div>
   </div>
 );
@@ -102,13 +102,13 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any; title: string }) => (
 const Panel = ({ icon: Icon, title, hint, children }: {
   icon: any; title: string; hint?: string; children: React.ReactNode;
 }) => (
-  <div className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-4">
+  <div className="p-5 rounded-[2rem] border-2 bg-muted/60 border-border space-y-4">
     <div className="flex items-start gap-3">
-      <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0">
+      <div className="p-2.5 rounded-xl bg-card border-2 shadow-sm shrink-0">
         <Icon className="w-4 h-4 text-primary" />
       </div>
       <div className="space-y-1 min-w-0">
-        <p className="text-sm font-black uppercase tracking-tight text-slate-900">{title}</p>
+        <p className="text-sm font-black uppercase tracking-tight text-foreground">{title}</p>
         {hint && (
           <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 leading-relaxed">{hint}</p>
         )}
@@ -461,9 +461,9 @@ export function LocationsSettingsTab() {
 
   return (
     <div className="space-y-6">
-      {dupDone && <p className="rounded-xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, #16a34a 10%, var(--card))', color: '#166534' }}>{dupDone}</p>}
+      {dupDone && <p className="rounded-xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, #16a34a 10%, var(--card))', color: 'var(--ok-ink)' }}>{dupDone}</p>}
       {dupes && dupes.removableIds.length > 0 && (
-        <div className="space-y-2 rounded-2xl px-4 py-3" style={{ background: '#fffbeb', border: '1px solid #fde68a' }}>
+        <div className="space-y-2 rounded-2xl px-4 py-3" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)', border: '1px solid #fde68a' }}>
           <p className="text-[14px]">{dupes.removableIds.length} duplicate “Main Location” {dupes.removableIds.length === 1 ? 'entry was' : 'entries were'} made by an older version of the app — not by you.</p>
           <Button size="sm" disabled={dupBusy} onClick={cleanupDupes}>{dupBusy ? 'Removing…' : `Remove ${dupes.removableIds.length} unused duplicate${dupes.removableIds.length === 1 ? '' : 's'}`}</Button>
         </div>)}
@@ -512,7 +512,7 @@ export function LocationsSettingsTab() {
               ? <>{allowance.count} of {allowance.limit} location{allowance.limit === 1 ? '' : 's'} included in your plan{!allowance.canAdd && <> · <a href="/subscriptions" className="font-medium underline underline-offset-2">See plans</a> to add more</>}</>
               : <>Each location beyond {allowance.included + allowance.granted} is ${allowance.unitPrice}/month on your subscription.</>}
           </p>)}
-        {pageMsg && <p role="status" className="rounded-xl px-4 py-3 text-[14px]" style={{ background: '#fffbeb', color: '#92400e' }}>{pageMsg}{allowance && !allowance.canAdd && <> <a href="/subscriptions" className="underline">See plans</a></>}</p>}
+        {pageMsg && <p role="status" className="rounded-xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)', color: 'var(--warn-ink)' }}>{pageMsg}{allowance && !allowance.canAdd && <> <a href="/subscriptions" className="underline">See plans</a></>}</p>}
       </div>
 
       <Dialog open={bulkOpen} onOpenChange={(o) => { if (!o) setBulkOpen(false); }}>
@@ -528,7 +528,7 @@ export function LocationsSettingsTab() {
           {bulkCheck && (
             <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
               {bulkCheck.results.map((r) => (
-                <div key={r.id} className={`rounded-xl border px-3 py-2 text-sm ${r.canDelete ? 'border-red-200 bg-red-50/50' : 'border-slate-200 bg-slate-50'}`}>
+                <div key={r.id} className={`rounded-xl border px-3 py-2 text-sm ${r.canDelete ? 'border-red-200 bg-red-50/50' : 'border-border bg-muted/60'}`}>
                   <p className="font-bold">{r.canDelete ? '✕ ' : '— '}{r.name}</p>
                   <p className="text-xs text-muted-foreground">{r.canDelete ? 'Nothing uses it — will be deleted.' : r.reason}</p>
                 </div>
@@ -538,7 +538,7 @@ export function LocationsSettingsTab() {
           {bulkCheck && bulkCheck.results.some((r) => !r.canDelete && r.refs?.length) && (
             <div className="space-y-2 rounded-xl border-2 border-sky-200 bg-sky-50 p-3">
               <p className="text-sm font-bold text-sky-900">Duplicates that are in use can be merged instead: everything recorded against them moves to the location you keep, then they’re deleted.</p>
-              <select value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)} aria-label="Location to keep" className="h-10 w-full rounded-lg border-2 bg-white px-2 text-sm font-bold">
+              <select value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)} aria-label="Location to keep" className="h-10 w-full rounded-lg border-2 bg-card px-2 text-sm font-bold">
                 <option value="">Keep which location?</option>
                 {locations.filter((l) => !picked.has(l.id)).map((l) => <option key={l.id} value={l.id}>{l.name}{l.isActive ? '' : ' (inactive)'}</option>)}
               </select>

@@ -74,7 +74,7 @@ export default function MakingItRightSettings() {
           <div key={r.id + i} className="flex flex-wrap items-center gap-3 px-5 py-3 [&+&]:border-t" style={{ borderColor: 'var(--line)' }}>
             <Toggle checked={r.on !== false} onChange={(v) => setReason(i, { on: v })} label={`Use “${r.label}”`} disabled={!canEdit} />
             <input value={r.label} onChange={(e) => setReason(i, { label: e.target.value })} disabled={!canEdit} className={`${cfInput} h-10 min-w-[12rem] flex-1`} style={cfInputStyle} aria-label="What went wrong" />
-            <button type="button" disabled={!canEdit} onClick={() => setReason(i, { safety: !r.safety })} className="h-9 rounded-full px-3.5 text-[13px] font-semibold" style={r.safety ? { background: '#fdecec', color: '#b42318' } : { background: 'var(--soft)', color: 'var(--muted)' }} aria-pressed={!!r.safety}>{r.safety ? 'Safety' : 'Not safety'}</button>
+            <button type="button" disabled={!canEdit} onClick={() => setReason(i, { safety: !r.safety })} className="h-9 rounded-full px-3.5 text-[13px] font-semibold" style={r.safety ? { background: 'color-mix(in srgb, #b42318 10%, transparent)', color: 'var(--bad-ink)' } : { background: 'var(--soft)', color: 'var(--muted)' }} aria-pressed={!!r.safety}>{r.safety ? 'Safety' : 'Not safety'}</button>
           </div>))}
         {canEdit && <div className="flex gap-2 px-5 py-3 border-t" style={{ borderColor: 'var(--line)' }}>
           <input value={newReason} onChange={(e) => setNewReason(e.target.value)} placeholder="Add another, e.g. Product ran out" className={`${cfInput} h-10 flex-1`} style={cfInputStyle} />

@@ -8,7 +8,7 @@ import { format, differenceInMinutes, isToday, startOfDay } from 'date-fns';
 
 const safe = (v: any) => (v instanceof Date ? v : new Date(v?.toDate ? v.toDate() : v));
 export const STATE_WORD: Record<string, string> = { confirmed: 'Booked', requested: 'Requested', servicing: 'In the chair', ready_for_checkout: 'Ready to pay', completed: 'Done', cancelled: 'Cancelled', declined: 'Declined', deposit_pending: 'Deposit due', pending_payment: 'Deposit unpaid' };
-export const STATE_COLOR: Record<string, string> = { completed: 'var(--ok, #15803d)', servicing: 'var(--accent)', ready_for_checkout: 'var(--ok, #15803d)', confirmed: 'var(--accent)', requested: 'var(--muted, #6b635c)', deposit_pending: 'var(--warn, #b45309)', pending_payment: 'var(--warn, #b45309)', cancelled: '#a8a29e', declined: '#a8a29e' };
+export const STATE_COLOR: Record<string, string> = { completed: 'var(--ok, #15803d)', servicing: 'var(--accent)', ready_for_checkout: 'var(--ok, #15803d)', confirmed: 'var(--accent)', requested: 'hsl(var(--muted-foreground))', deposit_pending: 'var(--warn, #b45309)', pending_payment: 'var(--warn, #b45309)', cancelled: '#a8a29e', declined: '#a8a29e' };
 /** A clock that re-renders every `ms` — for live timers and "N min over". */
 export function useNow(ms = 1000) { const [, set] = React.useState(0); React.useEffect(() => { const t = setInterval(() => set((x) => x + 1), ms); return () => clearInterval(t); }, [ms]); return new Date(); }
 /** "12:04" elapsed since the visit started (hours shown past 60 minutes). */
@@ -36,7 +36,7 @@ export function visitMarks(a: any, client: any, service: any): { label: string; 
   try { if (c.birthday && String(c.birthday).slice(5, 10) === new Date().toISOString().slice(5, 10)) out.push({ label: 'Birthday', tone: 'good' }); } catch { /* fine */ }
   return out;
 }
-export const MARK_COLOR = { alert: 'var(--warn, #b45309)', good: 'var(--ok, #15803d)', info: 'var(--muted, #6b635c)' } as const;
+export const MARK_COLOR = { alert: 'var(--warn, #b45309)', good: 'var(--ok, #15803d)', info: 'hsl(var(--muted-foreground))' } as const;
 export function stateOf(a: any, service: any): { word: string; color: string; over: number } {
   let over = 0;
   if (a.status === 'servicing' && a.actualStartTime) { const booked = (Number(service?.duration) || 0) + 0; over = booked > 0 ? Math.max(0, differenceInMinutes(new Date(), safe(a.actualStartTime)) - booked) : 0; }
@@ -44,7 +44,7 @@ export function stateOf(a: any, service: any): { word: string; color: string; ov
   if (a.status === 'requested' || a.approvalStatus === 'pending') return { word: 'Request — needs an answer', color: 'var(--warn, #b45309)', over: 0 };
   if (a.status === 'confirmed' && a.checkInStatus === 'arrived') return { word: 'Here, waiting', color: 'var(--accent)', over: 0 };
   if (a.status === 'confirmed' && a.checkInStatus === 'running_late') return { word: 'Running late', color: 'var(--warn, #b45309)', over: 0 };
-  return { word: STATE_WORD[a.status] || a.status, color: STATE_COLOR[a.status] || 'var(--muted, #6b635c)', over: 0 };
+  return { word: STATE_WORD[a.status] || a.status, color: STATE_COLOR[a.status] || 'hsl(var(--muted-foreground))', over: 0 };
 }
 
 export function AgendaView({ date, appointments, clients, services, staff, selectedId, onSelect, onOpen, onBookAt, providerFilter, onProviderFilter, extras = [], onOpenExtra }: {
@@ -69,7 +69,7 @@ export function AgendaView({ date, appointments, clients, services, staff, selec
   const listRef = React.useRef<HTMLDivElement>(null);
   const onKey = (e: React.KeyboardEvent) => { const visits = rows.filter((r) => r.kind === 'visit'); if (!visits.length) return; const i = visits.findIndex((r: any) => r.a.id === selectedId);
     if (e.key === 'ArrowDown') { e.preventDefault(); onSelect(visits[Math.min(visits.length - 1, i + 1)].a); } else if (e.key === 'ArrowUp') { e.preventDefault(); onSelect(visits[Math.max(0, i - 1)].a); } else if (e.key === 'Enter' && i >= 0) { e.preventDefault(); onOpen(visits[i].a); } };
-  const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
+  const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
   let lastHour = -1;
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} aria-label="Agenda">
@@ -87,7 +87,7 @@ export function AgendaView({ date, appointments, clients, services, staff, selec
                 <span className="min-w-0 truncate">{r.x.itemType === 'block' ? <span style={muted}>{r.x.label || r.x.reason || 'Blocked'}{r.x.staffId ? ` · ${staff.find((s) => s.id === r.x.staffId)?.name || ''}` : ''}</span> : <><b>{r.x.title || r.x.name || 'Event'}</b>{r.x.type ? ` · ${String(r.x.type).replace(/_/g, ' ')}` : ''}</>}</span>
                 <span className="text-[13px]" style={muted}>{r.x.itemType === 'block' ? 'Not bookable' : 'Event'}</span>
               </button>) : r.kind === 'gap' ? (
-              <button type="button" onClick={() => onBookAt?.(r.staff.id, r.at)} className="grid w-full grid-cols-[64px_6px_minmax(0,1fr)_auto] items-center gap-3 border-t px-4 py-2 text-left text-[13px]" style={{ borderColor: 'var(--line)', background: 'var(--paper, #faf8f5)', ...muted }} aria-label={`${r.minutes} minute gap for ${r.staff.name} at ${format(r.at, 'h:mm a')} — book here`}>
+              <button type="button" onClick={() => onBookAt?.(r.staff.id, r.at)} className="grid w-full grid-cols-[64px_6px_minmax(0,1fr)_auto] items-center gap-3 border-t px-4 py-2 text-left text-[13px]" style={{ borderColor: 'var(--line)', background: 'hsl(var(--background))', ...muted }} aria-label={`${r.minutes} minute gap for ${r.staff.name} at ${format(r.at, 'h:mm a')} — book here`}>
                 <span>{format(r.at, 'h:mm')}</span><span className="h-8 w-1.5 rounded-full" style={{ background: 'var(--line)' }} /><span>{r.staff.name} · {r.minutes} min open</span><span className="font-semibold" style={{ color: 'var(--accent)' }}>Book here</span>
               </button>) : (() => { const a = r.a; const client = clients.find((c) => c.id === a.clientId); const service = services.find((s) => s.id === a.serviceId); const prov = staff.find((s) => s.id === a.staffId); const st = stateOf(a, service); const sel = a.id === selectedId;
               return (<div role="option" aria-selected={sel} onClick={() => onSelect(a)} onDoubleClick={() => onOpen(a)} className="grid cursor-pointer grid-cols-[64px_6px_minmax(0,1fr)_auto] items-center gap-3 border-t px-4 py-3 text-[14px]" style={{ borderColor: 'var(--line)', background: sel ? 'color-mix(in srgb, var(--accent) 7%, var(--card))' : undefined }}>

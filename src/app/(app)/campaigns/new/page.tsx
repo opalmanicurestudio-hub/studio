@@ -73,12 +73,12 @@ const segmentsOf = (t: string) => { const gsm = /^[\n\r\x20-\x7E]*$/.test(t); co
 
 // Layout pieces live OUTSIDE the editor: defined inside, they'd be new
 // components on every keystroke and inputs would lose focus.
-const Card = ({ children, className }: any) => <div className={cn('rounded-3xl border-2 border-slate-200 bg-white p-5 space-y-4', className)}>{children}</div>;
-const H = ({ children, sub }: any) => <div><h2 className="text-lg font-black tracking-tight text-slate-900">{children}</h2>{sub && <p className="text-sm text-slate-500 mt-0.5">{sub}</p>}</div>;
+const Card = ({ children, className }: any) => <div className={cn('rounded-3xl border-2 border-border bg-card p-5 space-y-4', className)}>{children}</div>;
+const H = ({ children, sub }: any) => <div><h2 className="text-lg font-black tracking-tight text-foreground">{children}</h2>{sub && <p className="text-sm text-muted-foreground mt-0.5">{sub}</p>}</div>;
 const Choice = ({ on, onClick, title, hint, icon: Icon }: any) => (
-  <button type="button" onClick={onClick} aria-pressed={on} className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-colors', on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white hover:border-slate-400')}>
+  <button type="button" onClick={onClick} aria-pressed={on} className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-colors', on ? 'border-slate-900 bg-foreground text-background' : 'border-border bg-card hover:border-slate-400')}>
     <span className="flex items-center gap-2 text-sm font-black">{Icon && <Icon className="h-4 w-4 shrink-0" />}{title}{on && <Check className="ml-auto h-4 w-4" />}</span>
-    {hint && <span className={cn('block text-xs mt-0.5', on ? 'text-white/70' : 'text-slate-500')}>{hint}</span>}
+    {hint && <span className={cn('block text-xs mt-0.5', on ? 'text-white/70' : 'text-muted-foreground')}>{hint}</span>}
   </button>
 );
 
@@ -260,14 +260,14 @@ function Editor() {
   const filteredClients = (clients || []).filter((c: any) => !c.ownerRenterId && (!clientQuery || String(c.name || '').toLowerCase().includes(clientQuery.toLowerCase()) || String(c.email || '').toLowerCase().includes(clientQuery.toLowerCase()))).slice(0, 60);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       <AppHeader title={editId ? 'Campaign' : 'New campaign'} />
       <main className="mx-auto max-w-2xl px-4 pb-40 pt-4 space-y-5">
         {/* Steps */}
         <nav className="flex gap-1 overflow-x-auto pb-1" aria-label="Steps">
           {STEPS.map((s, i) => (
             <button key={s.id} type="button" onClick={() => go(s.id)} disabled={locked && s.id !== 'review'}
-              className={cn('shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-widest', s.id === step ? 'bg-slate-900 text-white' : i < idx ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-slate-400 border')}>
+              className={cn('shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-widest', s.id === step ? 'bg-foreground text-background' : i < idx ? 'bg-emerald-100 text-emerald-800' : 'bg-card text-muted-foreground border')}>
               {i < idx ? '✓ ' : `${i + 1} `}{s.label}
             </button>
           ))}
@@ -281,14 +281,14 @@ function Editor() {
             <H sub="Pick one to start from — you can change every word.">What do you want to do?</H>
             <div className="grid gap-2 sm:grid-cols-2">
               {CAMPAIGN_TEMPLATES.map((t) => (
-                <button key={t.id} type="button" onClick={() => pickTemplate(t)} className="rounded-2xl border-2 border-slate-200 bg-white p-3.5 text-left hover:border-slate-900">
-                  <span className="flex items-center gap-2 text-sm font-black text-slate-900">{t.channel === 'sms' ? <MessageSquare className="h-4 w-4" /> : <Mail className="h-4 w-4" />}{t.title}</span>
-                  <span className="block text-xs text-slate-500 mt-0.5">{t.blurb}{t.automation ? ' · repeats automatically' : ''}</span>
+                <button key={t.id} type="button" onClick={() => pickTemplate(t)} className="rounded-2xl border-2 border-border bg-card p-3.5 text-left hover:border-slate-900">
+                  <span className="flex items-center gap-2 text-sm font-black text-foreground">{t.channel === 'sms' ? <MessageSquare className="h-4 w-4" /> : <Mail className="h-4 w-4" />}{t.title}</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">{t.blurb}{t.automation ? ' · repeats automatically' : ''}</span>
                 </button>
               ))}
-              <button type="button" onClick={() => pickTemplate(null)} className="rounded-2xl border-2 border-dashed border-slate-300 p-3.5 text-left hover:border-slate-900">
-                <span className="text-sm font-black text-slate-900">Start from a blank message</span>
-                <span className="block text-xs text-slate-500 mt-0.5">Write your own.</span>
+              <button type="button" onClick={() => pickTemplate(null)} className="rounded-2xl border-2 border-dashed border-border p-3.5 text-left hover:border-slate-900">
+                <span className="text-sm font-black text-foreground">Start from a blank message</span>
+                <span className="block text-xs text-muted-foreground mt-0.5">Write your own.</span>
               </button>
             </div>
           </Card>
@@ -300,38 +300,38 @@ function Editor() {
             <H sub="Only clients who can receive it are counted — you’ll see the exact number on Review.">Who should get it?</H>
             {(['everyone', 'visits', 'pick'] as const).map((g) => (
               <div key={g} className="space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{g === 'everyone' ? 'Everyone' : g === 'visits' ? 'Based on their visits' : 'You choose'}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{g === 'everyone' ? 'Everyone' : g === 'visits' ? 'Based on their visits' : 'You choose'}</p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {AUDIENCES.filter((a) => a.group === g).map((a) => <Choice key={a.id} on={d.targetAudience === a.id} onClick={() => set({ targetAudience: a.id })} title={a.label} hint={a.hint} />)}
                 </div>
               </div>
             ))}
             {d.targetAudience === 'service' && (
-              <div className="flex flex-wrap gap-2">{(services || []).map((s: any) => { const on = d.targetServiceIds.includes(s.id); return <button key={s.id} type="button" onClick={() => set({ targetServiceIds: on ? d.targetServiceIds.filter((x) => x !== s.id) : [...d.targetServiceIds, s.id] })} className={cn('h-9 rounded-xl border-2 px-3 text-xs font-bold', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200')}>{s.name}</button>; })}</div>
+              <div className="flex flex-wrap gap-2">{(services || []).map((s: any) => { const on = d.targetServiceIds.includes(s.id); return <button key={s.id} type="button" onClick={() => set({ targetServiceIds: on ? d.targetServiceIds.filter((x) => x !== s.id) : [...d.targetServiceIds, s.id] })} className={cn('h-9 rounded-xl border-2 px-3 text-xs font-bold', on ? 'bg-foreground text-background border-slate-900' : 'border-border')}>{s.name}</button>; })}</div>
             )}
             {d.targetAudience === 'provider' && (
-              <div className="flex flex-wrap gap-2">{(staff || []).filter((s: any) => s.isActive !== false && !s.isRenter).map((s: any) => { const on = d.targetStaffIds.includes(s.id); return <button key={s.id} type="button" onClick={() => set({ targetStaffIds: on ? d.targetStaffIds.filter((x) => x !== s.id) : [...d.targetStaffIds, s.id] })} className={cn('h-9 rounded-xl border-2 px-3 text-xs font-bold', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200')}>{s.name || 'Team member'}</button>; })}</div>
+              <div className="flex flex-wrap gap-2">{(staff || []).filter((s: any) => s.isActive !== false && !s.isRenter).map((s: any) => { const on = d.targetStaffIds.includes(s.id); return <button key={s.id} type="button" onClick={() => set({ targetStaffIds: on ? d.targetStaffIds.filter((x) => x !== s.id) : [...d.targetStaffIds, s.id] })} className={cn('h-9 rounded-xl border-2 px-3 text-xs font-bold', on ? 'bg-foreground text-background border-slate-900' : 'border-border')}>{s.name || 'Team member'}</button>; })}</div>
             )}
             {d.targetAudience === 'spent_over' && (
               <label className="flex items-center gap-2 text-sm font-bold">Spent at least $<Input type="number" min={1} value={d.targetMinSpend || ''} onChange={(e) => set({ targetMinSpend: Number(e.target.value) || 0 })} className="h-10 w-32" /> in the last 12 months</label>
             )}
-            <div className="rounded-2xl border-2 border-dashed border-slate-200 p-3 space-y-2">
+            <div className="rounded-2xl border-2 border-dashed border-border p-3 space-y-2">
               {!reach?.recipients || reachBusy
                 ? <Button type="button" variant="outline" disabled={reachBusy || !!stepProblem('who')} onClick={checkReach} className="w-full">{reachBusy ? <><Loader className="h-4 w-4 mr-2 animate-spin" />Finding them…</> : <><Users className="h-4 w-4 mr-2" />See who’s in it</>}</Button>
                 : <>
-                    <div className="flex items-center justify-between"><p className="text-xs font-black uppercase tracking-widest text-slate-500">{audience?.label}</p><button type="button" onClick={checkReach} className="text-[11px] font-bold text-slate-500 underline">Refresh</button></div>
+                    <div className="flex items-center justify-between"><p className="text-xs font-black uppercase tracking-widest text-muted-foreground">{audience?.label}</p><button type="button" onClick={checkReach} className="text-[11px] font-bold text-muted-foreground underline">Refresh</button></div>
                     <AudienceList recipients={reach.recipients} skipped={reach.skipped} channel={d.type} total={reach.summary?.willReceive} compact />
                   </>}
             </div>
             {d.targetAudience === 'specific' && (
               <div className="space-y-2">
-                <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><Input value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="Search clients" className="h-10 pl-9" /></div>
-                <p className="text-xs font-bold text-slate-500">{d.targetClientIds.length} picked</p>
+                <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="Search clients" className="h-10 pl-9" /></div>
+                <p className="text-xs font-bold text-muted-foreground">{d.targetClientIds.length} picked</p>
                 <div className="max-h-64 overflow-y-auto rounded-xl border divide-y">
                   {filteredClients.map((c: any) => { const on = d.targetClientIds.includes(c.id); return (
                     <label key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer">
                       <input type="checkbox" checked={on} onChange={() => set({ targetClientIds: on ? d.targetClientIds.filter((x) => x !== c.id) : [...d.targetClientIds, c.id] })} className="h-4 w-4" />
-                      <span className="font-bold">{c.name || 'Client'}</span><span className="text-xs text-slate-400 truncate">{c.email || c.phone || ''}</span>
+                      <span className="font-bold">{c.name || 'Client'}</span><span className="text-xs text-muted-foreground truncate">{c.email || c.phone || ''}</span>
                     </label>); })}
                 </div>
               </div>
@@ -349,30 +349,30 @@ function Editor() {
             </div>
             {d.type === 'email' && (
               <div className="space-y-2">
-                <label className="block text-xs font-black uppercase tracking-widest text-slate-500">Subject</label>
+                <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground">Subject</label>
                 <Input value={d.subject} onChange={(e) => set({ subject: e.target.value.slice(0, 140) })} placeholder="What they see in their inbox" className="h-11" />
-                <label className="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" checked={abOn} onChange={(e) => setAbOn(e.target.checked)} className="h-4 w-4" />Try a second subject (half get each — you’ll see which brought more bookings)</label>
+                <label className="flex items-center gap-2 text-xs font-bold text-foreground/80"><input type="checkbox" checked={abOn} onChange={(e) => setAbOn(e.target.checked)} className="h-4 w-4" />Try a second subject (half get each — you’ll see which brought more bookings)</label>
                 {abOn && <Input value={d.subjectB} onChange={(e) => set({ subjectB: e.target.value.slice(0, 140) })} placeholder="Second subject" className="h-11" />}
               </div>
             )}
             <div className="space-y-2">
-              <label className="block text-xs font-black uppercase tracking-widest text-slate-500">Message</label>
-              <div className="flex flex-wrap gap-1.5">{TOKENS.map((t) => <button key={t.token} type="button" onClick={() => insertToken(t.token)} className="rounded-full border-2 border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:border-slate-900">+ {t.label}</button>)}</div>
+              <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground">Message</label>
+              <div className="flex flex-wrap gap-1.5">{TOKENS.map((t) => <button key={t.token} type="button" onClick={() => insertToken(t.token)} className="rounded-full border-2 border-border px-2.5 py-1 text-[11px] font-bold text-foreground/80 hover:border-slate-900">+ {t.label}</button>)}</div>
               <Textarea ref={bodyRef} value={d.body} onChange={(e) => set({ body: e.target.value.slice(0, 2000) })} rows={d.type === 'sms' ? 4 : 9} placeholder="Hi {first}, …" />
-              {d.type === 'sms' && <p className="text-xs font-bold text-slate-500">{smsFull.length} characters · {segmentsOf(smsFull)} text{segmentsOf(smsFull) === 1 ? '' : 's'} each (your business name and “Reply STOP to opt out” are included){/[^\n\r\x20-\x7E]/.test(smsFull) ? ' · emoji make texts shorter and cost more' : ''}</p>}
+              {d.type === 'sms' && <p className="text-xs font-bold text-muted-foreground">{smsFull.length} characters · {segmentsOf(smsFull)} text{segmentsOf(smsFull) === 1 ? '' : 's'} each (your business name and “Reply STOP to opt out” are included){/[^\n\r\x20-\x7E]/.test(smsFull) ? ' · emoji make texts shorter and cost more' : ''}</p>}
               {/\[[^\]]+\]/.test(d.body) && <p className="text-xs font-bold text-amber-700">Replace the part in [square brackets] with your own words.</p>}
             </div>
             {d.type === 'email' && (
               <div className="space-y-1">
-                <label className="block text-xs font-black uppercase tracking-widest text-slate-500">Picture (optional)</label>
+                <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground">Picture (optional)</label>
                 <Input value={d.imageUrl} onChange={(e) => set({ imageUrl: e.target.value.trim() })} placeholder="https://… link to an image" className="h-10" />
               </div>
             )}
-            <div className="rounded-2xl bg-slate-100 p-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Preview · as Alexandra sees it</p>
+            <div className="rounded-2xl bg-muted p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Preview · as Alexandra sees it</p>
               {d.type === 'sms'
-                ? <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-white p-3 text-sm whitespace-pre-wrap shadow-sm">{smsFull}</div>
-                : <div className="rounded-2xl bg-white p-4 shadow-sm space-y-2"><p className="text-sm font-black">{fillTokens(d.subject || '(no subject)', { first: 'Alexandra', business, offer: offerLine, link: null })}</p><p className="text-sm whitespace-pre-wrap text-slate-700">{previewBody}{offerLine && !d.body.includes('{offer}') ? `\n\n${offerLine}` : ''}</p><span className="inline-block rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white">Book now</span></div>}
+                ? <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-card p-3 text-sm whitespace-pre-wrap shadow-sm">{smsFull}</div>
+                : <div className="rounded-2xl bg-card p-4 shadow-sm space-y-2"><p className="text-sm font-black">{fillTokens(d.subject || '(no subject)', { first: 'Alexandra', business, offer: offerLine, link: null })}</p><p className="text-sm whitespace-pre-wrap text-foreground/80">{previewBody}{offerLine && !d.body.includes('{offer}') ? `\n\n${offerLine}` : ''}</p><span className="inline-block rounded-lg bg-foreground px-3 py-1.5 text-xs font-black text-background">Book now</span></div>}
             </div>
           </Card>
         )}
@@ -398,16 +398,16 @@ function Editor() {
                     <Choice on={newOffer.kind === 'fixed'} onClick={() => setNewOffer((x) => ({ ...x, kind: 'fixed' }))} title="$ off" />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <label className="text-xs font-bold text-slate-600">Amount<Input type="number" min={1} value={newOffer.value} onChange={(e) => setNewOffer((x) => ({ ...x, value: e.target.value }))} className="h-10 mt-1" /></label>
-                    <label className="text-xs font-bold text-slate-600">Code<Input value={newOffer.code} onChange={(e) => setNewOffer((x) => ({ ...x, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20) }))} className="h-10 mt-1" /></label>
+                    <label className="text-xs font-bold text-foreground/80">Amount<Input type="number" min={1} value={newOffer.value} onChange={(e) => setNewOffer((x) => ({ ...x, value: e.target.value }))} className="h-10 mt-1" /></label>
+                    <label className="text-xs font-bold text-foreground/80">Code<Input value={newOffer.code} onChange={(e) => setNewOffer((x) => ({ ...x, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20) }))} className="h-10 mt-1" /></label>
                   </div>
-                  <label className="block text-xs font-bold text-slate-600">Ends (optional)<Input type="date" value={newOffer.until} onChange={(e) => setNewOffer((x) => ({ ...x, until: e.target.value }))} className="h-10 mt-1" /></label>
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" checked={newOffer.onePer} onChange={(e) => setNewOffer((x) => ({ ...x, onePer: e.target.checked }))} className="h-4 w-4" />Once per client</label>
+                  <label className="block text-xs font-bold text-foreground/80">Ends (optional)<Input type="date" value={newOffer.until} onChange={(e) => setNewOffer((x) => ({ ...x, until: e.target.value }))} className="h-10 mt-1" /></label>
+                  <label className="flex items-center gap-2 text-xs font-bold text-foreground/80"><input type="checkbox" checked={newOffer.onePer} onChange={(e) => setNewOffer((x) => ({ ...x, onePer: e.target.checked }))} className="h-4 w-4" />Once per client</label>
                   <div className="flex gap-2"><Button type="button" onClick={createOffer}>Create and attach</Button><Button type="button" variant="ghost" onClick={() => setNewOffer((x) => ({ ...x, open: false }))}>Cancel</Button></div>
-                  <p className="text-[11px] text-slate-500">It also appears on your Discounts page, where you can pause or edit it.</p>
+                  <p className="text-[11px] text-muted-foreground">It also appears on your Discounts page, where you can pause or edit it.</p>
                 </div>
               )}
-            {chosenOffer && !d.body.includes('{offer}') && <p className="text-xs font-bold text-slate-500">Your message doesn’t mention the offer, so it’s added at the end. To place it yourself, add “The offer” in the message.</p>}
+            {chosenOffer && !d.body.includes('{offer}') && <p className="text-xs font-bold text-muted-foreground">Your message doesn’t mention the offer, so it’s added at the end. To place it yourself, add “The offer” in the message.</p>}
           </Card>
         )}
 
@@ -428,7 +428,7 @@ function Editor() {
                   <Choice on={autoTrigger === 'first_visit_followup'} onClick={() => setAutoTrigger('first_visit_followup')} title="After a first visit" hint="Once, a few days later" />
                 </div>
                 {autoTrigger === 'first_visit_followup' && <label className="flex items-center gap-2 text-sm font-bold">Send <Input type="number" min={1} max={90} value={autoDays} onChange={(e) => setAutoDays(Number(e.target.value) || 7)} className="h-10 w-20" /> days after their first visit</label>}
-                <p className="text-xs text-slate-500">With “Repeat automatically”, who gets it is decided by the choice above, not the Who step.</p>
+                <p className="text-xs text-muted-foreground">With “Repeat automatically”, who gets it is decided by the choice above, not the Who step.</p>
                 {automation && <p className="text-xs font-bold text-violet-700">This automation is {automation.active ? 'on' : 'paused'}. <button type="button" className="underline" onClick={async () => { const r = await call('pause', { active: !automation.active }); if (r?.ok) setAutomation({ ...automation, active: r.active }); }}>{automation.active ? 'Pause it' : 'Resume it'}</button></p>}
               </div>
             )}
@@ -440,7 +440,7 @@ function Editor() {
           <div className="space-y-4">
             <Card>
               <H>Review</H>
-              <label className="block text-xs font-black uppercase tracking-widest text-slate-500">Name (only you see it)<Input value={d.name} onChange={(e) => set({ name: e.target.value.slice(0, 80) })} placeholder="e.g. September win-back" className="h-11 mt-1" disabled={locked} /></label>
+              <label className="block text-xs font-black uppercase tracking-widest text-muted-foreground">Name (only you see it)<Input value={d.name} onChange={(e) => set({ name: e.target.value.slice(0, 80) })} placeholder="e.g. September win-back" className="h-11 mt-1" disabled={locked} /></label>
               {[
                 ['Who', whenMode === 'automate' ? (autoTrigger === 'birthday' ? 'Each client in their birthday month' : `Each new client, ${autoDays} days after their first visit`) : `${audience?.label || d.targetAudience}${d.targetAudience === 'specific' ? ` (${d.targetClientIds.length})` : ''}`, 'who'],
                 ['How', d.type === 'sms' ? 'Text' : `Email${abOn && d.subjectB ? ' · two subjects' : ''}`, 'message'],
@@ -448,24 +448,24 @@ function Editor() {
                 ['When', whenMode === 'now' ? 'Now' : whenMode === 'schedule' ? (scheduleAt ? new Date(scheduleAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—') : 'Repeats automatically', 'when'],
               ].map(([k, v, s]) => (
                 <div key={k} className="flex items-center justify-between gap-3 border-t pt-3 text-sm">
-                  <span className="text-slate-500 font-bold">{k}</span><span className="flex-1 text-right font-black text-slate-900">{v}</span>
-                  {!locked && <button type="button" onClick={() => go(s as Step)} className="text-xs font-bold text-slate-500 underline">Edit</button>}
+                  <span className="text-muted-foreground font-bold">{k}</span><span className="flex-1 text-right font-black text-foreground">{v}</span>
+                  {!locked && <button type="button" onClick={() => go(s as Step)} className="text-xs font-bold text-muted-foreground underline">Edit</button>}
                 </div>
               ))}
             </Card>
 
             <Card>
-              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Who it reaches{whenMode === 'automate' ? ' today' : ''}</p>
-              {reachBusy ? <p className="text-sm text-slate-500 flex items-center gap-2"><Loader className="h-4 w-4 animate-spin" />Working it out…</p>
+              <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Who it reaches{whenMode === 'automate' ? ' today' : ''}</p>
+              {reachBusy ? <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader className="h-4 w-4 animate-spin" />Working it out…</p>
                 : reach?.error ? <p className="text-sm font-bold text-red-700">{reach.error}</p>
                 : reach?.summary ? (
                   <div className="space-y-1 text-sm">
-                    <p className="flex items-center gap-2 font-black text-slate-900"><Users className="h-4 w-4" />{reach.summary.willReceive} client{reach.summary.willReceive === 1 ? '' : 's'}</p>
-                    {reach.summary.skippedNoConsent > 0 && <p className="text-slate-500">{reach.summary.skippedNoConsent} left out — haven’t said yes to offers by text</p>}
-                    {reach.summary.skippedMonthlyCap > 0 && <p className="text-slate-500">{reach.summary.skippedMonthlyCap} left out — already had 4 marketing texts this month</p>}
-                    {reach.summary.skippedNoContact > 0 && <p className="text-slate-500">{reach.summary.skippedNoContact} left out — no {d.type === 'sms' ? 'mobile number' : 'email'} on file</p>}
-                    {reach.summary.skippedUnsubscribed > 0 && <p className="text-slate-500">{reach.summary.skippedUnsubscribed} left out — unsubscribed</p>}
-                    {d.type === 'sms' && reach.estCostCents > 0 && <p className="font-bold text-slate-700">Estimated text cost: about ${(reach.estCostCents / 100).toFixed(2)}</p>}
+                    <p className="flex items-center gap-2 font-black text-foreground"><Users className="h-4 w-4" />{reach.summary.willReceive} client{reach.summary.willReceive === 1 ? '' : 's'}</p>
+                    {reach.summary.skippedNoConsent > 0 && <p className="text-muted-foreground">{reach.summary.skippedNoConsent} left out — haven’t said yes to offers by text</p>}
+                    {reach.summary.skippedMonthlyCap > 0 && <p className="text-muted-foreground">{reach.summary.skippedMonthlyCap} left out — already had 4 marketing texts this month</p>}
+                    {reach.summary.skippedNoContact > 0 && <p className="text-muted-foreground">{reach.summary.skippedNoContact} left out — no {d.type === 'sms' ? 'mobile number' : 'email'} on file</p>}
+                    {reach.summary.skippedUnsubscribed > 0 && <p className="text-muted-foreground">{reach.summary.skippedUnsubscribed} left out — unsubscribed</p>}
+                    {d.type === 'sms' && reach.estCostCents > 0 && <p className="font-bold text-foreground/80">Estimated text cost: about ${(reach.estCostCents / 100).toFixed(2)}</p>}
                     {reach.summary.willReceive === 0 && d.type === 'sms' && reach.summary.skippedNoConsent > 0 && <p className="text-xs font-bold text-amber-700">Tip: send it as an email instead — emails reach everyone with an address.</p>}
                     {reach.recipients && <div className="pt-2"><AudienceList recipients={reach.recipients} skipped={reach.skipped} channel={d.type} total={reach.summary.willReceive} /></div>}
                   </div>
@@ -474,15 +474,15 @@ function Editor() {
 
             {reach?.sampleText && (
               <Card>
-                <p className="text-xs font-black uppercase tracking-widest text-slate-500">The message, exactly as sent</p>
+                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">The message, exactly as sent</p>
                 {reach.sampleSubject && <p className="text-sm font-black">{reach.sampleSubject}</p>}
-                <p className="text-sm whitespace-pre-wrap text-slate-700">{d.type === 'sms' ? `${reach.senderName}: ${reach.sampleText}\nReply STOP to opt out.` : reach.sampleText}</p>
+                <p className="text-sm whitespace-pre-wrap text-foreground/80">{d.type === 'sms' ? `${reach.senderName}: ${reach.sampleText}\nReply STOP to opt out.` : reach.sampleText}</p>
               </Card>
             )}
 
             {!locked && (
               <Card>
-                <p className="text-xs font-black uppercase tracking-widest text-slate-500">Send yourself a test</p>
+                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Send yourself a test</p>
                 <div className="flex gap-2">
                   <Input value={testTo} onChange={(e) => { setTestTo(e.target.value); setTestResult(null); }} type={d.type === 'sms' ? 'tel' : 'email'} placeholder={d.type === 'sms' ? 'Your mobile number' : 'Your email'} className="h-11" />
                   <Button type="button" variant="outline" onClick={runTest} className="h-11 shrink-0">Send test</Button>
@@ -496,14 +496,14 @@ function Editor() {
 
       {/* Bottom bar */}
       {step !== 'start' && !locked && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 backdrop-blur px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
           <div className="mx-auto flex max-w-2xl gap-2">
             <Button type="button" variant="outline" className="h-12" onClick={() => go(STEPS[Math.max(0, idx - 1)].id)}><ArrowLeft className="h-4 w-4 mr-1" />Back</Button>
             {step !== 'review'
               ? <Button type="button" className="h-12 flex-1" onClick={() => go(STEPS[idx + 1].id)}>Next: {STEPS[idx + 1].label}<ArrowRight className="h-4 w-4 ml-1" /></Button>
               : <Button type="button" className="h-12 flex-1" disabled={busy} onClick={finish}>{busy ? <><Loader className="h-4 w-4 mr-2 animate-spin" />{progress || 'Working…'}</> : <><Sparkles className="h-4 w-4 mr-2" />{actionLabel}</>}</Button>}
           </div>
-          <p className="mx-auto max-w-2xl pt-1 text-center text-[10px] font-bold text-slate-400">Saved automatically · nothing is sent until you press the last button</p>
+          <p className="mx-auto max-w-2xl pt-1 text-center text-[10px] font-bold text-muted-foreground">Saved automatically · nothing is sent until you press the last button</p>
         </div>
       )}
     </div>
@@ -512,7 +512,7 @@ function Editor() {
 
 export default function NewCampaignPage() {
   return (
-    <Suspense fallback={<div className="p-10 text-sm text-slate-500">Loading…</div>}>
+    <Suspense fallback={<div className="p-10 text-sm text-muted-foreground">Loading…</div>}>
       <Editor />
     </Suspense>
   );

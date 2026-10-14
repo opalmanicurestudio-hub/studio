@@ -5,7 +5,7 @@ import { rebookReport } from '@/lib/rebook-report';
 
 export function RebookingReport({ appointments, staff, from, to }: { appointments: any[]; staff: any[]; from: Date; to: Date }) {
   const r = React.useMemo(() => rebookReport(appointments || [], staff || [], from, to), [appointments, staff, from, to]);
-  const box = 'rounded-[2rem] border-2 bg-white p-6';
+  const box = 'rounded-[2rem] border-2 bg-card p-6';
   if (!r.visits) return <div className={box}><p className="text-sm text-muted-foreground">No finished visits in this period yet.</p></div>;
   const bar = (p: number, c: string) => <div className="h-2 w-full overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full" style={{ width: `${p}%`, background: c }} /></div>;
   return (

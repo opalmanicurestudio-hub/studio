@@ -747,7 +747,7 @@ export default function PipelinePage() {
   ];
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Pipeline" />
       <div className="flex-1 w-full max-w-[1000px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -770,17 +770,17 @@ export default function PipelinePage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat icon={AlertTriangle} label="Needs you" value={stats.attention}
-          tone={stats.attention > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-slate-200'} />
-        <Stat icon={CalendarClock} label="Tours ahead" value={stats.upcoming} tone="border-slate-200" />
-        <Stat icon={Users} label="Open leads" value={stats.open} tone="border-slate-200" />
-        <Stat icon={CheckCircle2} label="Converted" value={stats.converted} tone="border-slate-200" />
+          tone={stats.attention > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-border'} />
+        <Stat icon={CalendarClock} label="Tours ahead" value={stats.upcoming} tone="border-border" />
+        <Stat icon={Users} label="Open leads" value={stats.open} tone="border-border" />
+        <Stat icon={CheckCircle2} label="Converted" value={stats.converted} tone="border-border" />
       </div>
 
       <div className="flex flex-wrap gap-2">
         {FILTERS.map(([k, label]) => (
           <button key={k} onClick={() => setFilter(k)}
             className={cn('px-3.5 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-              filter === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+              filter === k ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80 border-border')}>
             {label}
           </button>
         ))}
@@ -789,11 +789,11 @@ export default function PipelinePage() {
       {filter === 'people' ? (
         <div className="space-y-3">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input value={peopleSearch} onChange={(e) => setPeopleSearch(e.target.value)}
               placeholder="Search by name, phone or email"
               aria-label="Search people"
-              className="w-full h-12 pl-9 pr-3 rounded-2xl border-2 bg-white text-sm font-bold" />
+              className="w-full h-12 pl-9 pr-3 rounded-2xl border-2 bg-card text-sm font-bold" />
           </div>
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
             {visiblePeople.length} {visiblePeople.length === 1 ? 'person' : 'people'} · everyone who has enquired, toured, booked a day or rented
@@ -804,7 +804,7 @@ export default function PipelinePage() {
               <p className="text-sm font-black">Nobody matches that.</p>
             </div>
           ) : visiblePeople.slice(0, 200).map((g: GuestBookEntry) => (
-            <div key={g.key} className="rounded-2xl border-2 bg-white p-4 space-y-2">
+            <div key={g.key} className="rounded-2xl border-2 bg-card p-4 space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-black text-sm truncate">{g.name}</p>
@@ -816,7 +816,7 @@ export default function PipelinePage() {
                   g.stage === 'renter' ? 'bg-emerald-200 text-emerald-900'
                     : g.stage === 'repeat' ? 'bg-indigo-200 text-indigo-900'
                     : g.stage === 'guest' ? 'bg-sky-100 text-sky-800'
-                    : 'bg-slate-100 text-slate-600')}>
+                    : 'bg-muted text-foreground/80')}>
                   {STAGE_LABEL[g.stage]}
                 </span>
               </div>
@@ -835,12 +835,12 @@ export default function PipelinePage() {
               {(g.tags.length > 0 || g.tier !== 'new') && (
                 <div className="flex flex-wrap gap-1.5">
                   {g.tier !== 'new' && (
-                    <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-white">
+                    <span className="rounded-full bg-foreground px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-background">
                       {g.tier}
                     </span>
                   )}
                   {g.tags.map((t) => (
-                    <span key={t} className="rounded-full border-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                    <span key={t} className="rounded-full border-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                       {t}
                     </span>
                   ))}
@@ -849,17 +849,17 @@ export default function PipelinePage() {
 
               <div className="flex flex-wrap items-center gap-2">
                 {g.phone && (
-                  <a href={`tel:${g.phone}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
+                  <a href={`tel:${g.phone}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black">
                     <Phone className="h-3 w-3" /> Call
                   </a>
                 )}
                 {g.email && (
-                  <a href={`mailto:${g.email}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black">
+                  <a href={`mailto:${g.email}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black">
                     <Mail className="h-3 w-3" /> Email
                   </a>
                 )}
                 {g.convertedRenterId && (
-                  <a href="/renters" className="rounded-xl border-2 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-600">
+                  <a href="/renters" className="rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black uppercase tracking-widest text-foreground/80">
                     Renter card
                   </a>
                 )}
@@ -904,7 +904,7 @@ export default function PipelinePage() {
           {visible.map(({ r, u }) => (
             <div key={r.id} id={`lead-${r.id}`} className={cn('rounded-2xl border-2 p-4 space-y-3',
               u.tone === 'rose' ? 'border-rose-300 bg-rose-50'
-                : u.tone === 'amber' ? 'border-amber-300 bg-amber-50' : 'border-slate-200')}>
+                : u.tone === 'amber' ? 'border-amber-300 bg-amber-50' : 'border-border')}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-black text-sm truncate">{r.name}</p>
@@ -916,7 +916,7 @@ export default function PipelinePage() {
                 </div>
                 <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest',
                   u.tone === 'rose' ? 'bg-rose-200 text-rose-900'
-                    : u.tone === 'amber' ? 'bg-amber-200 text-amber-900' : 'bg-slate-100 text-slate-600')}>
+                    : u.tone === 'amber' ? 'bg-amber-200 text-amber-900' : 'bg-muted text-foreground/80')}>
                   {u.label}
                 </span>
               </div>
@@ -929,9 +929,9 @@ export default function PipelinePage() {
                   confirmed: ['Confirmed', 'border-emerald-200 bg-emerald-50 text-emerald-800'],
                   requested: ['Awaiting your OK', 'border-amber-200 bg-amber-50 text-amber-900'],
                   declined: ['Declined', 'border-red-200 bg-red-50 text-red-700'],
-                  cancelled: ['Cancelled', 'border-slate-200 bg-slate-50 text-slate-500'],
+                  cancelled: ['Cancelled', 'border-border bg-muted/60 text-muted-foreground'],
                 };
-                const [label, tone] = map[String(t.status)] || ['Booked', 'border-slate-200 bg-slate-50 text-slate-600'];
+                const [label, tone] = map[String(t.status)] || ['Booked', 'border-border bg-muted/60 text-foreground/80'];
                 return (
                   <div className={cn('flex items-center gap-2 rounded-xl border-2 px-3 py-2', tone)}>
                     <CalendarClock className="h-3.5 w-3.5 shrink-0" />
@@ -959,7 +959,7 @@ export default function PipelinePage() {
                 const hit = key ? people.find((g) => g.key === key) : null;
                 if (!hit || !hit.tags.includes('barred')) return null;
                 return (
-                  <div className="flex items-center gap-2 rounded-xl border-2 border-slate-900 bg-slate-900 px-3 py-2 text-white">
+                  <div className="flex items-center gap-2 rounded-xl border-2 border-slate-900 bg-foreground px-3 py-2 text-background">
                     <ShieldOff className="h-3.5 w-3.5 shrink-0" />
                     <span className="text-[11px] font-black uppercase tracking-widest">Barred — unpaid balance as a former renter</span>
                   </div>
@@ -997,9 +997,9 @@ export default function PipelinePage() {
                 const isBusy = busy === r.id;
 
                 const btn = 'rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50';
-                const quiet = cn(btn, 'border-2 bg-white text-slate-600');
+                const quiet = cn(btn, 'border-2 bg-card text-foreground/80');
                 const danger = (key: string) => cn(btn, 'border-2',
-                  armed === key ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 bg-white text-red-600');
+                  armed === key ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 bg-card text-red-600');
                 const openOffer = () => { setOfferFor(offerFor === r.id ? '' : r.id); setOfferSlots(['', '', '']); };
 
                 // ── Primary ──
@@ -1040,14 +1040,14 @@ export default function PipelinePage() {
                   primaryKey = 'contacted';
                   primary = (
                     <button onClick={() => setStatus(r, 'in_review', 'Marked contacted')} disabled={!!busy}
-                      className={cn(btn, 'bg-slate-900 text-white')}>
+                      className={cn(btn, 'bg-foreground text-background')}>
                       {isBusy ? '…' : 'Contacted'}
                     </button>
                   );
                 } else if (isOpen && !t) {
                   primaryKey = 'offer';
                   primary = (
-                    <button onClick={openOffer} disabled={!!busy} className={cn(btn, 'bg-slate-900 text-white')}>
+                    <button onClick={openOffer} disabled={!!busy} className={cn(btn, 'bg-foreground text-background')}>
                       Tour times
                     </button>
                   );
@@ -1083,14 +1083,14 @@ export default function PipelinePage() {
                 if (r.kind === 'tour' && isOpen) secondary.push(
                   <button key="noshow" onClick={() => arm(`${r.id}:no-show`, () => setStatus(r, 'no_show', 'Marked no-show'))} disabled={!!busy}
                     aria-live="polite"
-                    className={cn(btn, 'border-2', armed === `${r.id}:no-show` ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-600')}>
+                    className={cn(btn, 'border-2', armed === `${r.id}:no-show` ? 'bg-foreground border-slate-900 text-background' : 'bg-card text-foreground/80')}>
                     {armedLabel(armed === `${r.id}:no-show`, 'No-show', 'Tap again — no-show')}
                   </button>);
                 if (isOpen && r.status === 'new' && primaryKey !== 'contacted') secondary.push(
                   <button key="contacted" onClick={() => setStatus(r, 'in_review', 'Marked contacted')} disabled={!!busy} className={quiet}>Contacted</button>);
                 if (isOpen && primaryKey !== 'convert') secondary.push(
                   <button key="convert" onClick={() => arm(`${r.id}:convert`, () => convert(r))} disabled={!!busy} aria-live="polite"
-                    className={cn(btn, 'border-2', armed === `${r.id}:convert` ? 'bg-emerald-700 border-emerald-700 text-white' : 'border-emerald-200 bg-white text-emerald-700')}>
+                    className={cn(btn, 'border-2', armed === `${r.id}:convert` ? 'bg-emerald-700 border-emerald-700 text-white' : 'border-emerald-200 bg-card text-emerald-700')}>
                     {armedLabel(armed === `${r.id}:convert`, 'Convert', 'Tap again — make them a renter')}
                   </button>);
                 if (isOpen) {
@@ -1099,7 +1099,7 @@ export default function PipelinePage() {
                   secondary.push(
                     <button key="close" onClick={() => arm(`${r.id}:close`, () => setStatus(r, 'closed', 'Closed out'))} disabled={!!busy}
                       aria-live="polite"
-                      className={cn(btn, 'border-2', on ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-600')}>
+                      className={cn(btn, 'border-2', on ? 'bg-foreground border-slate-900 text-background' : 'bg-card text-foreground/80')}>
                       {on ? (hasLive ? 'Tap again — also cancels their tour' : 'Tap again to close') : 'Close'}
                     </button>);
                 }
@@ -1109,13 +1109,13 @@ export default function PipelinePage() {
                     <div className="flex items-center gap-2">
                       {r.phone && (
                         <a href={`tel:${r.phone}`} aria-label={`Call ${r.name}`}
-                          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-white text-slate-600">
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-card text-foreground/80">
                           <Phone className="h-3.5 w-3.5" />
                         </a>
                       )}
                       {r.email && (
                         <a href={`mailto:${r.email}`} aria-label={`Email ${r.name}`}
-                          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-white text-slate-600">
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-card text-foreground/80">
                           <Mail className="h-3.5 w-3.5" />
                         </a>
                       )}
@@ -1124,14 +1124,14 @@ export default function PipelinePage() {
                         <button type="button" onClick={() => setActivityFor(activityFor === r.id ? '' : r.id)}
                           aria-expanded={activityFor === r.id}
                           className={cn('h-9 rounded-xl border-2 px-2.5 text-[9px] font-black uppercase tracking-widest',
-                            activityFor === r.id ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white text-slate-500')}>
+                            activityFor === r.id ? 'bg-foreground border-slate-900 text-background' : 'bg-card text-muted-foreground')}>
                           Activity
                         </button>
                         {secondary.length > 0 && (
                           <button type="button" onClick={() => setMoreFor(moreOpen ? '' : r.id)}
                             aria-expanded={moreOpen} aria-label="More actions"
-                            className={cn('grid h-9 w-9 place-items-center rounded-xl border-2 text-slate-600',
-                              moreOpen ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white')}>
+                            className={cn('grid h-9 w-9 place-items-center rounded-xl border-2 text-foreground/80',
+                              moreOpen ? 'bg-foreground border-slate-900 text-background' : 'bg-card')}>
                             <MoreHorizontal className="h-4 w-4" />
                           </button>
                         )}
@@ -1158,7 +1158,7 @@ export default function PipelinePage() {
                     <div className="flex flex-wrap gap-1.5">
                       {theirs.map((iso) => (
                         <button key={iso} onClick={() => confirmTour(r, inv, iso)} disabled={!!busy}
-                          className="rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-black text-white disabled:opacity-50">
+                          className="rounded-xl bg-foreground px-3 py-2 text-[11px] font-black text-background disabled:opacity-50">
                           {whenTime(iso)}
                         </button>
                       ))}
@@ -1174,8 +1174,8 @@ export default function PipelinePage() {
               })()}
 
               {offerFor === r.id && (
-                <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                <div className="rounded-2xl border-2 bg-card p-3 space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                     Offer up to three times
                   </p>
                   {offerSlots.map((val, i) => (
@@ -1186,11 +1186,11 @@ export default function PipelinePage() {
                   ))}
                   <div className="flex gap-2">
                     <button onClick={() => sendTourTimes(r)} disabled={!!busy}
-                      className="flex-1 h-11 rounded-xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest disabled:opacity-50">
+                      className="flex-1 h-11 rounded-xl bg-foreground text-background text-[11px] font-black uppercase tracking-widest disabled:opacity-50">
                       {busy === r.id ? '…' : 'Create link'}
                     </button>
                     <button onClick={() => setOfferFor('')}
-                      className="h-11 px-4 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest text-slate-600">
+                      className="h-11 px-4 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest text-foreground/80">
                       Cancel
                     </button>
                   </div>
@@ -1218,15 +1218,15 @@ export default function PipelinePage() {
                   <div className="rounded-2xl border-2 overflow-hidden">
                     <button type="button" onClick={() => setHistoryOpen(isOpen ? '' : r.id)}
                       aria-expanded={isOpen}
-                      className="w-full px-3 py-2.5 flex items-center justify-between gap-2 bg-white">
-                      <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-600">
+                      className="w-full px-3 py-2.5 flex items-center justify-between gap-2 bg-card">
+                      <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-foreground/80">
                         <HistoryIcon className="h-3 w-3 text-primary" /> History
                         <span className="rounded-full border-2 px-1.5 text-[8px]">{lines.length}</span>
                       </span>
-                      <ChevronDown className={cn('h-3.5 w-3.5 text-slate-400 transition-transform', isOpen && 'rotate-180')} />
+                      <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', isOpen && 'rotate-180')} />
                     </button>
                     {isOpen && (
-                      <div className="px-3 pb-3 space-y-1.5 bg-white">
+                      <div className="px-3 pb-3 space-y-1.5 bg-card">
                         {lines.map((l, i) => (
                           <div key={`${l.at}-${i}`} className="flex items-start gap-2">
                             <span className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full',

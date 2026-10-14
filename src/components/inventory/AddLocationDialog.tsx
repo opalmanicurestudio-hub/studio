@@ -46,7 +46,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
     </div>
     <div className="space-y-0.5 text-left">
       <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-      <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+      <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
     </div>
   </div>
 );
@@ -102,7 +102,7 @@ export const AddLocationDialog = ({
             <Sparkles className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Architecture Intake</span>
           </div>
-          <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register New Zone</h2>
+          <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Register New Zone</h2>
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Establish a physical storage unit within the studio manifest.</p>
         </div>
 
@@ -123,7 +123,7 @@ export const AddLocationDialog = ({
                     <div className="p-6 rounded-[2rem] border-4 border-primary/10 bg-primary/[0.02] space-y-6 shadow-inner animate-in slide-in-from-top-2">
                       <div className="space-y-2">
                         <Label className="text-[9px] font-black uppercase text-primary tracking-widest">Type Name</Label>
-                        <Input placeholder="e.g., DRAWER UNIT" value={newTypeName} onChange={e => setNewTypeName(e.target.value)} className="h-11 rounded-xl border-2 font-bold uppercase text-sm bg-white" />
+                        <Input placeholder="e.g., DRAWER UNIT" value={newTypeName} onChange={e => setNewTypeName(e.target.value)} className="h-11 rounded-xl border-2 font-bold uppercase text-sm bg-card" />
                       </div>
                       <div className="space-y-3">
                         <Label className="text-[9px] font-black uppercase text-primary tracking-widest">Icon Glyph</Label>
@@ -131,7 +131,7 @@ export const AddLocationDialog = ({
                           {Object.entries(iconMap).map(([iconKey, { component: Icon, label }]) => (
                             <div key={iconKey}>
                               <RadioGroupItem value={iconKey} id={`new-type-${iconKey}`} className="peer sr-only" />
-                              <Label htmlFor={`new-type-${iconKey}`} className="flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-white p-3 text-[10px] font-black uppercase tracking-tighter hover:bg-primary/[0.03] peer-data-[state=checked]:border-primary peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 shadow-sm">
+                              <Label htmlFor={`new-type-${iconKey}`} className="flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-card p-3 text-[10px] font-black uppercase tracking-tighter hover:bg-primary/[0.03] peer-data-[state=checked]:border-primary peer-data-[state=checked]:text-primary transition-all cursor-pointer h-16 shadow-sm">
                                 <Icon className="w-5 h-5 mb-1" />{label}
                               </Label>
                             </div>
@@ -140,7 +140,7 @@ export const AddLocationDialog = ({
                       </div>
                       <div className="flex gap-3 pt-2">
                         <Button onClick={handleAddNewType} type="button" className="flex-1 h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl">Define Type</Button>
-                        <Button variant="ghost" onClick={() => setIsAddingType(false)} type="button" className="h-11 rounded-xl font-bold uppercase text-[10px] text-slate-400">Cancel</Button>
+                        <Button variant="ghost" onClick={() => setIsAddingType(false)} type="button" className="h-11 rounded-xl font-bold uppercase text-[10px] text-muted-foreground">Cancel</Button>
                       </div>
                     </div>
                   ) : (
@@ -162,7 +162,7 @@ export const AddLocationDialog = ({
                           </SelectContent>
                         </Select>
                       )} />
-                      <Button variant="outline" size="icon" onClick={() => setIsAddingType(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-white/50">
+                      <Button variant="outline" size="icon" onClick={() => setIsAddingType(true)} type="button" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-card/50">
                         <PlusCircle className="h-6 w-6 opacity-40" />
                       </Button>
                     </div>
@@ -184,7 +184,7 @@ export const AddLocationDialog = ({
                       { id: 'ventilated', label: 'Air Flow Required', icon: Wind, color: 'text-teal-500' },
                       { id: 'humidityControlled', label: 'Humidity Monitored', icon: Droplets, color: 'text-indigo-500' },
                     ].map(spec => (
-                      <div key={spec.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/10 transition-all has-[:checked]:bg-white has-[:checked]:border-primary/20 shadow-sm">
+                      <div key={spec.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/10 transition-all has-[:checked]:bg-card has-[:checked]:border-primary/20 shadow-sm">
                         <div className="flex items-center gap-3">
                           <div className={cn('p-2 rounded-lg bg-background shadow-inner', spec.color)}>
                             <spec.icon className="w-4 h-4" />
@@ -214,7 +214,7 @@ export const AddLocationDialog = ({
 
         <div className="flex-shrink-0 border-t bg-background shadow-2xl p-4 md:p-6">
           <div className="grid grid-cols-2 gap-3 w-full">
-            <Button variant="ghost" onClick={handleClose} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+            <Button variant="ghost" onClick={handleClose} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Cancel</Button>
             <Button type="submit" className="h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
               Establish Zone <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
             </Button>

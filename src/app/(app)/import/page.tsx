@@ -14,8 +14,8 @@ import { PhotosDrawer } from '@/components/import/PhotosDrawer';
 import { totalsCheck } from '@/lib/pdf-table';
 import { parseCsv, autoMatch, cleanRow, mergeWithin, guessKind, howToGet, FIELDS, APPS, type ImportKind, type CleanRow } from '@/lib/import-records';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
-const card = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18 } as const;
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
+const card = { background: 'hsl(var(--card))', border: `1px solid ${LINE}`, borderRadius: 18 } as const;
 const lab = 'text-[12px] tracking-[0.1em]';
 const btn = 'h-11 rounded-full px-5 text-[14.5px] font-semibold disabled:opacity-40';
 const $ = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
@@ -36,7 +36,7 @@ const TILES: { kind: Kind | 'team'; title: string; sub: string }[] = [
   { kind: 'sales', title: 'Past sales totals', sub: 'By day or month — for last-year comparisons' },
 ];
 const NOUN: Record<ImportKind, [string, string]> = { clients: ['client', 'clients'], services: ['service', 'services'], products: ['product', 'products'], appointments: ['appointment', 'appointments'], giftcards: ['gift card', 'gift cards'], packages: ['package balance', 'package balances'], memberships: ['member', 'members'], balances: ['client balance', 'client balances'], formulas: ['formula note', 'formula notes'], discounts: ['discount code', 'discount codes'], sales: ['sales total', 'sales totals'], files: ['file', 'files'] };
-const pill = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` });
+const pill = (on: boolean) => (on ? { background: INK, color: 'hsl(var(--background))' } : { background: 'hsl(var(--card))', border: `1px solid ${LINE}` });
 
 async function readRows(f: File): Promise<string[][]> {
   if (/\.(xlsx)$/i.test(f.name)) {
@@ -129,7 +129,7 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-label={`Bring in ${NOUN[kind][1]}`}>
       <button type="button" aria-label="Close" className="absolute inset-0" style={{ background: 'rgba(22,23,26,.18)' }} onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-[680px] flex-col gap-4 overflow-y-auto bg-white p-5 md:p-7" style={{ borderLeft: `1px solid ${LINE}` }}>
+      <div className="relative flex h-full w-full max-w-[680px] flex-col gap-4 overflow-y-auto bg-card p-5 md:p-7" style={{ borderLeft: `1px solid ${LINE}` }}>
         <div className="flex items-start justify-between gap-3"><div><p className={lab} style={{ color: MUTED }}>{NOUN[kind][1]}{A && A.id !== 'other' ? ` · from ${A.name.toLowerCase()}` : ''}{file ? ` · ${body.length.toLocaleString()} rows` : ''}</p>
           <h2 className="text-[26px] font-normal tracking-[-0.02em]">{done ? 'Done' : step === 0 ? `Bring in ${NOUN[kind][1]}` : step === 1 ? 'Here’s how they’ll look' : step === 2 ? 'A few quick questions' : 'Ready to bring in'}</h2></div>
           <button type="button" onClick={onClose} className="text-[24px] leading-none" style={{ color: MUTED }} aria-label="Close">×</button></div>
@@ -149,10 +149,10 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
 
         {step === 1 && cleaned && <>
           {guessed && <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl p-3 text-[14px]" style={{ background: SOFT }}><span>This looks like <b>{NOUN[kind][1]}</b>.</span>
-            <select value={kind} onChange={(e) => setKind(e.target.value as ImportKind)} aria-label="What this file is" className="h-9 rounded-full border bg-white px-3 text-[13.5px]" style={{ borderColor: LINE }}>{(Object.keys(NOUN) as ImportKind[]).filter((k) => k !== 'files').map((k) => <option key={k} value={k}>{NOUN[k][1][0].toUpperCase() + NOUN[k][1].slice(1)}</option>)}</select></div>}
+            <select value={kind} onChange={(e) => setKind(e.target.value as ImportKind)} aria-label="What this file is" className="h-9 rounded-full border bg-card px-3 text-[13.5px]" style={{ borderColor: LINE }}>{(Object.keys(NOUN) as ImportKind[]).filter((k) => k !== 'files').map((k) => <option key={k} value={k}>{NOUN[k][1][0].toUpperCase() + NOUN[k][1].slice(1)}</option>)}</select></div>}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="min-w-0 space-y-2"><p className="text-[12px] font-semibold" style={{ color: MUTED }}>YOUR FILE</p>
-              <div className="overflow-x-auto" style={card}><table className="w-full text-[11.5px]"><thead><tr>{showCols.map(({ h, i }) => <th key={i} className="whitespace-nowrap px-2 py-1.5 text-left font-semibold" style={matchedCols.has(i) ? { background: '#e9f3ed', color: GREEN } : { background: SOFT, color: MUTED }}>{h || `Column ${i + 1}`}</th>)}</tr></thead>
+              <div className="overflow-x-auto" style={card}><table className="w-full text-[11.5px]"><thead><tr>{showCols.map(({ h, i }) => <th key={i} className="whitespace-nowrap px-2 py-1.5 text-left font-semibold" style={matchedCols.has(i) ? { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: GREEN } : { background: SOFT, color: MUTED }}>{h || `Column ${i + 1}`}</th>)}</tr></thead>
                 <tbody>{body.slice(0, 4).map((r, j) => <tr key={j} style={{ borderTop: `1px solid ${LINE}` }}>{showCols.map(({ i }) => <td key={i} className="max-w-[110px] truncate whitespace-nowrap px-2 py-1.5" style={{ color: matchedCols.has(i) ? INK : '#b9babd' }}>{r[i]}</td>)}</tr>)}</tbody></table></div>
               <p className="text-[12px]" style={{ color: MUTED }}>Green columns come over. <button type="button" onClick={() => setCols(!cols)} className="font-semibold underline">{cols ? 'Hide' : 'Change'} which column is which</button></p></div>
             <div className="min-w-0 space-y-2"><p className="text-[12px] font-semibold" style={{ color: MUTED }}>HERE</p>{sample.map((r) => <Card2 key={r.row} r={r} />)}
@@ -160,13 +160,13 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
           </div>
           {cols && <div className="overflow-hidden" style={card}>{fields.map((f, i) => { const col = map[f.key]; return <div key={f.key} className="grid items-center gap-2 px-4 py-2.5 sm:grid-cols-[170px_1fr]" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}>
             <span className="text-[14px]">{f.label}{f.required && <span style={{ color: RED }}> *</span>}</span>
-            <select value={col ?? -1} onChange={(e) => { const v = Number(e.target.value); setMap((m) => { const o = { ...m }; if (v < 0) delete o[f.key]; else o[f.key] = v; return o; }); }} className="h-10 w-full rounded-xl border bg-white px-3 text-[14px]" style={{ borderColor: LINE }} aria-label={f.label}>
+            <select value={col ?? -1} onChange={(e) => { const v = Number(e.target.value); setMap((m) => { const o = { ...m }; if (v < 0) delete o[f.key]; else o[f.key] = v; return o; }); }} className="h-10 w-full rounded-xl border bg-card px-3 text-[14px]" style={{ borderColor: LINE }} aria-label={f.label}>
               <option value={-1}>Not in my file</option>{headers.map((h, j) => <option key={j} value={j}>{h || `Column ${j + 1}`}</option>)}</select></div>; })}</div>}
           <div className="grid grid-cols-3 gap-2">{[[good.length, `${NOUN[kind][1]} ready`, INK], [cleaned.merged, 'duplicates joined', MUTED], [skipped.length, 'left out', skipped.length ? AMBER : MUTED]].map(([n, l, c]) => <div key={String(l)} className="rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[24px] font-normal tracking-[-0.03em]" style={{ color: c as string }}>{Number(n).toLocaleString()}</p><p className="text-[12px]" style={{ color: MUTED }}>{l}</p></div>)}</div>
           {sums.length > 0 && (sums.every((x) => x.ok)
-            ? <p className="rounded-2xl p-3 text-[13.5px] font-semibold" style={{ background: '#e9f3ed', color: GREEN }}>✓ Adds up to the report’s own total{sums.length > 1 ? 's' : ''}: {sums.map((x) => `${x.column} ${$(x.report)}`).join(' · ')}.</p>
-            : <p className="rounded-2xl p-3 text-[13.5px]" style={{ background: '#fdf3e6', color: '#7a3e05' }}><b>This doesn’t add up to the report’s total.</b> {sums.filter((x) => !x.ok).map((x) => `${x.column}: the report says ${$(x.report)}, the rows we read add up to ${$(x.read)}`).join(' · ')}. A row may have been missed or misread — compare a few against the PDF before bringing them in.</p>)}
-          {(problems.length > 0 || skipped.length > 0) && <details className="rounded-2xl p-3 text-[13.5px]" style={{ background: '#fdf3e6' }}><summary className="cursor-pointer font-semibold" style={{ color: AMBER }}>See what was left out and why</summary>
+            ? <p className="rounded-2xl p-3 text-[13.5px] font-semibold" style={{ background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: GREEN }}>✓ Adds up to the report’s own total{sums.length > 1 ? 's' : ''}: {sums.map((x) => `${x.column} ${$(x.report)}`).join(' · ')}.</p>
+            : <p className="rounded-2xl p-3 text-[13.5px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)', color: 'var(--warn-ink)' }}><b>This doesn’t add up to the report’s total.</b> {sums.filter((x) => !x.ok).map((x) => `${x.column}: the report says ${$(x.report)}, the rows we read add up to ${$(x.read)}`).join(' · ')}. A row may have been missed or misread — compare a few against the PDF before bringing them in.</p>)}
+          {(problems.length > 0 || skipped.length > 0) && <details className="rounded-2xl p-3 text-[13.5px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)' }}><summary className="cursor-pointer font-semibold" style={{ color: AMBER }}>See what was left out and why</summary>
             <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">{[...skipped.map((r) => `Row ${r.row}: ${r.skip}`), ...problems.flatMap((r) => r.problems.map((p) => `Row ${r.row} (${r.data.name}): ${p}`))].slice(0, 200).map((x, i) => <li key={i}>{x}</li>)}</ul></details>}
           {!nameOk && <p className="text-[14px] font-semibold" style={{ color: RED }}>We couldn’t find {missingRequired.length ? missingRequired.map((f) => f.label.toLowerCase()).join(' and ') : 'the key columns'} — <button type="button" onClick={() => setCols(true)} className="underline">choose the columns</button>.</p>}
           {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
@@ -182,7 +182,7 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
                 <option value="">Choose…</option>{qs.team.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}<option value="__past">Past team member — keep for history</option></select></div>)}</div>}
           {qs && qs.services.some((s: any) => !s.sure) && <div className="space-y-1"><p className="pt-2 text-[17px] font-medium">Which service is it?</p><p className="text-[13.5px]" style={{ color: MUTED }}>Names in the file that aren’t exactly on your menu.</p>
             {qs.services.filter((s: any) => !s.sure).map((s: any) => <div key={s.name} className="grid grid-cols-[1fr_20px_1fr] items-center gap-2 py-2" style={{ borderTop: `1px solid ${LINE}` }}><span className="text-[14px]">{s.name} <span style={{ color: MUTED }}>· {s.count}</span></span><span style={{ color: MUTED }}>→</span>
-              <select value={serviceMap[s.name] || '__keep'} onChange={(e) => setServiceMap({ ...serviceMap, [s.name]: e.target.value })} aria-label={`Which service is ${s.name}`} className="h-10 rounded-xl border bg-white px-3 text-[14px]" style={{ borderColor: LINE }}>
+              <select value={serviceMap[s.name] || '__keep'} onChange={(e) => setServiceMap({ ...serviceMap, [s.name]: e.target.value })} aria-label={`Which service is ${s.name}`} className="h-10 rounded-xl border bg-card px-3 text-[14px]" style={{ borderColor: LINE }}>
                 <option value="__keep">Keep the name “{s.name}”</option>{s.split && <option value={s.suggest}>Split: {s.split}</option>}{qs.menu.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>)}
             {qs.services.some((s: any) => s.split) && <p className="pt-1 text-[12.5px]" style={{ color: MUTED }}>“Split” books the first as the visit’s service and the rest as add-ons, so each is priced and paid on its own.</p>}</div>}
           {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
@@ -207,16 +207,16 @@ function Drawer({ tenantId, startKind, app, onClose, onDone }: { tenantId: strin
           {progress !== null && <div className="h-2 rounded-full" style={{ background: SOFT }}><div className="h-2 rounded-full transition-all" style={{ width: `${progress}%`, background: INK }} /></div>}
           {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
         </>}
-        {done && <div className="space-y-2 rounded-2xl p-4" style={{ background: '#e9f3ed' }}><p className="text-[17px] font-bold" style={{ color: GREEN }}>{done.added.toLocaleString()} {done.added === 1 ? NOUN[kind][0] : NOUN[kind][1]} brought in{done.filled ? `, ${done.filled.toLocaleString()} filled in` : ''}.</p>
+        {done && <div className="space-y-2 rounded-2xl p-4" style={{ background: 'color-mix(in srgb, #1f7a4d 11%, transparent)' }}><p className="text-[17px] font-bold" style={{ color: GREEN }}>{done.added.toLocaleString()} {done.added === 1 ? NOUN[kind][0] : NOUN[kind][1]} brought in{done.filled ? `, ${done.filled.toLocaleString()} filled in` : ''}.</p>
           <p className="text-[14px]">{[done.clientsAdded ? `${done.clientsAdded} new clients added` : '', done.owedCents ? `${$(done.owedCents / 100)} in gift card balances` : '', done.skipped ? `${done.skipped} already here, skipped` : ''].filter(Boolean).join(' · ')}</p></div>}
 
         <div className="mt-auto flex gap-2 pt-2">
-          {done ? <button type="button" onClick={onClose} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>Back to Moving in</button> : <>
+          {done ? <button type="button" onClick={onClose} className={`${btn} flex-1`} style={{ background: INK, color: 'hsl(var(--background))' }}>Back to Moving in</button> : <>
             {step > 0 && <button type="button" onClick={() => setStep(step === 3 && !(marketingQ || qs) ? 1 : step - 1)} className={btn} style={{ border: `1px solid ${LINE}` }}>Back</button>}
             {step === 0 && <button type="button" onClick={onClose} className={btn} style={{ border: `1px solid ${LINE}` }}>Cancel</button>}
-            {step === 1 && <button type="button" disabled={!nameOk || !good.length || busy} onClick={toQuestions} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>{busy ? 'Checking…' : 'Looks right'}</button>}
-            {step === 2 && <button type="button" disabled={busy || (qs && qs.staff.some((s: any) => !staffMap[s.name]))} onClick={toCheck} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>{busy ? 'Checking…' : 'Next'}</button>}
-            {step === 3 && <button type="button" disabled={progress !== null || (!check?.fresh && !check?.fills)} onClick={save} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>{progress !== null ? `Saving… ${progress}%` : kind === 'giftcards' ? `Bring in ${check.fresh} cards · ${$(check.owed / 100)}` : `Bring in ${check.fresh.toLocaleString()}${check.fills ? ` and fill in ${check.fills}` : ''}`}</button>}
+            {step === 1 && <button type="button" disabled={!nameOk || !good.length || busy} onClick={toQuestions} className={`${btn} flex-1`} style={{ background: INK, color: 'hsl(var(--background))' }}>{busy ? 'Checking…' : 'Looks right'}</button>}
+            {step === 2 && <button type="button" disabled={busy || (qs && qs.staff.some((s: any) => !staffMap[s.name]))} onClick={toCheck} className={`${btn} flex-1`} style={{ background: INK, color: 'hsl(var(--background))' }}>{busy ? 'Checking…' : 'Next'}</button>}
+            {step === 3 && <button type="button" disabled={progress !== null || (!check?.fresh && !check?.fills)} onClick={save} className={`${btn} flex-1`} style={{ background: INK, color: 'hsl(var(--background))' }}>{progress !== null ? `Saving… ${progress}%` : kind === 'giftcards' ? `Bring in ${check.fresh} cards · ${$(check.owed / 100)}` : `Bring in ${check.fresh.toLocaleString()}${check.fills ? ` and fill in ${check.fills}` : ''}`}</button>}
           </>}
         </div>
       </div>
@@ -231,13 +231,13 @@ function ServicesCheck({ tenantId, firestore, onClose, onDone }: { tenantId: str
   const save = async (ids: string[]) => { setBusy(true); await payPost('/api/import', { tenantId, action: 'moving', moving: { showServices: ids } }); setBusy(false); onDone(); onClose(); };
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-label="Check your menu"><button type="button" aria-label="Close" className="absolute inset-0" style={{ background: 'rgba(22,23,26,.18)' }} onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-[640px] flex-col gap-4 overflow-y-auto bg-white p-5 md:p-7">
+      <div className="relative flex h-full w-full max-w-[640px] flex-col gap-4 overflow-y-auto bg-card p-5 md:p-7">
         <div className="flex items-start justify-between"><div><p className={lab} style={{ color: MUTED }}>{list.length} services brought in</p><h2 className="text-[26px] font-normal tracking-[-0.02em]">Check your menu</h2><p className="text-[14px]" style={{ color: MUTED }}>Hidden from your booking page until you switch them on. Change prices and lengths on Services.</p></div><button type="button" onClick={onClose} className="text-[24px]" style={{ color: MUTED }} aria-label="Close">×</button></div>
         <div className="overflow-hidden" style={card}>{list.map((s: any, i: number) => { const shown = !s.isPrivate || on.has(s.id); const flag = !(Number(s.price) > 0) ? 'No price in the file — set it on Services' : '';
           return <div key={s.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-3" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}><span className="min-w-0"><span className="block truncate text-[14.5px] font-semibold">{s.name}</span>{flag && <span className="block text-[12px]" style={{ color: AMBER }}>{flag}</span>}</span><span className="text-[13.5px]" style={{ color: MUTED }}>{s.duration} min</span><span className="text-[14px]">{$(Number(s.price) || 0)}</span>
-            <button type="button" role="switch" aria-checked={shown} aria-label={`Show ${s.name} on booking`} disabled={!s.isPrivate} onClick={() => setOn((x) => { const y = new Set(x); if (y.has(s.id)) y.delete(s.id); else y.add(s.id); return y; })} className="relative h-7 w-12 rounded-full disabled:opacity-60" style={{ background: shown ? INK : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: shown ? 23 : 3 }} /></button></div>; })}</div>
+            <button type="button" role="switch" aria-checked={shown} aria-label={`Show ${s.name} on booking`} disabled={!s.isPrivate} onClick={() => setOn((x) => { const y = new Set(x); if (y.has(s.id)) y.delete(s.id); else y.add(s.id); return y; })} className="relative h-7 w-12 rounded-full disabled:opacity-60" style={{ background: shown ? INK : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-card transition-all" style={{ left: shown ? 23 : 3 }} /></button></div>; })}</div>
         <div className="mt-auto flex gap-2"><a href="/services" className={`${btn} inline-flex items-center`} style={{ border: `1px solid ${LINE}` }}>Edit on Services</a>
-          <button type="button" disabled={busy || !on.size} onClick={() => save([...on])} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>Show {on.size || ''} on booking</button>
+          <button type="button" disabled={busy || !on.size} onClick={() => save([...on])} className={`${btn} flex-1`} style={{ background: INK, color: 'hsl(var(--background))' }}>Show {on.size || ''} on booking</button>
           <button type="button" disabled={busy || !list.some((s: any) => s.isPrivate)} onClick={() => save(list.filter((s: any) => s.isPrivate).map((s: any) => s.id))} className={btn} style={{ background: SOFT }}>Show all</button></div>
       </div></div>);
 }
@@ -272,16 +272,16 @@ export default function MovingInPage() {
   const bookingUrl = typeof window !== 'undefined' && st ? `${window.location.origin}${st.bookingPath}` : '';
   const countOf = (k: Kind | 'team') => k === 'team' ? st?.team : k === 'giftcards' && st?.owedCents ? $(st.owedCents / 100) : k === 'services' && st?.servicesHidden ? st.servicesHidden : moved[k];
   return (
-    <div className="min-h-screen" style={{ color: INK, backgroundColor: '#f7f7f8', backgroundImage: 'radial-gradient(120% 80% at 8% -5%, #e5e5ec 0%, transparent 55%), radial-gradient(100% 70% at 100% 0%, #e8eaf0 0%, transparent 50%)' }}>
+    <div className="min-h-screen" style={{ color: INK, backgroundColor: 'hsl(var(--background))', backgroundImage: 'radial-gradient(120% 80% at 8% -5%, #e5e5ec 0%, transparent 55%), radial-gradient(100% 70% at 100% 0%, #e8eaf0 0%, transparent 50%)' }}>
       <AppHeader title="Moving in" />
       <main className="mx-auto max-w-6xl space-y-4 p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div><div className="flex items-center gap-2"><span className={lab} style={{ color: MUTED }}>coming from</span>
-            <select value={app} onChange={(e) => setMoving({ app: e.target.value })} aria-label="Which app you’re coming from" className="h-8 rounded-full border bg-white px-3 text-[13px] font-semibold" style={{ borderColor: LINE }}><option value="">Choose…</option>{APPS.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+            <select value={app} onChange={(e) => setMoving({ app: e.target.value })} aria-label="Which app you’re coming from" className="h-8 rounded-full border bg-card px-3 text-[13px] font-semibold" style={{ borderColor: LINE }}><option value="">Choose…</option>{APPS.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
             <h1 className="text-[36px] font-normal tracking-[-0.03em]">{allIn && switchDone >= 4 ? 'You’re moved in.' : 'Moving in'}</h1>
             <p className="text-[14.5px]" style={{ color: MUTED }}>Bring each part over from your old app. You’ll see everything before it’s saved, and every import can be undone.</p></div>
           <div className="w-full max-w-[340px]"><div className="mb-1.5 flex justify-between text-[13px]"><span>{doneN} of {core.length} moved</span>
-            <label className="flex items-center gap-1.5" style={{ color: MUTED }}>switch-over day <input type="date" value={st?.moving?.switchDate || ''} onChange={(e) => setMoving({ switchDate: e.target.value })} className="h-7 rounded-lg border bg-white px-1.5 text-[12.5px]" style={{ borderColor: LINE }} aria-label="Switch-over day" /></label></div>
+            <label className="flex items-center gap-1.5" style={{ color: MUTED }}>switch-over day <input type="date" value={st?.moving?.switchDate || ''} onChange={(e) => setMoving({ switchDate: e.target.value })} className="h-7 rounded-lg border bg-card px-1.5 text-[12.5px]" style={{ borderColor: LINE }} aria-label="Switch-over day" /></label></div>
             <div className="h-2 rounded-full" style={{ background: SOFT }}><div className="h-2 rounded-full" style={{ width: `${(doneN / core.length) * 100}%`, background: INK }} /></div></div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -292,14 +292,14 @@ export default function MovingInPage() {
               <div className="flex items-center justify-between gap-2"><span className="text-[15.5px] font-semibold">{t.title}</span><span className="inline-flex h-6 items-center rounded-full px-2.5 text-[11.5px] font-semibold" style={{ color: badge[1], background: badge[2] }}>{badge[0]}</span></div>
               <p className="min-h-[34px] text-[12.5px] leading-snug" style={{ color: MUTED }}>{t.kind === 'team' ? (s === 'done' ? 'Usually quicker to add by hand than to export' : 'Usually quicker to add by hand — then they show up in appointments') : t.sub}</p>
               {countOf(t.kind) ? <p className="text-[26px] font-normal tracking-[-0.03em]">{typeof countOf(t.kind) === 'number' ? Number(countOf(t.kind)).toLocaleString() : countOf(t.kind)}</p> : null}
-              <button type="button" onClick={go} className="mt-auto h-10 rounded-full text-[13.5px] font-semibold" style={isNext ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}`, background: '#fff' }}>{cta}</button></div>; })}
-          <button type="button" onClick={() => setDrawer('other')} className="flex flex-col justify-center gap-1.5 rounded-[18px] border-[1.5px] border-dashed p-4 text-left" style={{ borderColor: '#c9cacd' }}><span className="text-[15px] font-semibold">Something else?</span><span className="text-[12.5px]" style={{ color: MUTED }}>Drop any export — we’ll work out what it is.</span></button>
+              <button type="button" onClick={go} className="mt-auto h-10 rounded-full text-[13.5px] font-semibold" style={isNext ? { background: INK, color: 'hsl(var(--background))' } : { border: `1px solid ${LINE}`, background: 'hsl(var(--card))' }}>{cta}</button></div>; })}
+          <button type="button" onClick={() => setDrawer('other')} className="flex flex-col justify-center gap-1.5 rounded-[18px] border-[1.5px] border-dashed p-4 text-left" style={{ borderColor: 'hsl(var(--border))' }}><span className="text-[15px] font-semibold">Something else?</span><span className="text-[12.5px]" style={{ color: MUTED }}>Drop any export — we’ll work out what it is.</span></button>
         </div>
 
         <section className="overflow-hidden" style={card}>
           <button type="button" onClick={() => setShowSwitch(!showSwitch)} className="flex w-full items-center justify-between gap-3 p-4 text-left"><span><span className="block text-[15.5px] font-semibold">Switch-over day{st?.moving?.switchDate ? ` · ${new Date(`${st.moving.switchDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}</span><span className="block text-[13px]" style={{ color: MUTED }}>Do these the same day and clients won’t notice a thing · {switchDone} of {SWITCH.length} done</span></span><span className="text-[14px] font-semibold">{showSwitch ? 'Hide' : 'Open'}</span></button>
           {showSwitch && SWITCH.map((x) => { const on = !!st?.moving?.switch?.[x.key]; return <div key={x.key} className="grid grid-cols-[28px_1fr_auto] items-center gap-3 px-4 py-3" style={{ borderTop: `1px solid ${LINE}` }}>
-            <button type="button" role="checkbox" aria-checked={on} aria-label={x.title} onClick={() => setMoving({ switch: { [x.key]: !on } })} className="flex h-6 w-6 items-center justify-center rounded-full" style={on ? { background: GREEN } : { border: '1.5px dashed #c9cacd' }}>{on && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5"><path d="M5 12l5 5 9-10" /></svg>}</button>
+            <button type="button" role="checkbox" aria-checked={on} aria-label={x.title} onClick={() => setMoving({ switch: { [x.key]: !on } })} className="flex h-6 w-6 items-center justify-center rounded-full" style={on ? { background: GREEN } : { border: '1.5px dashed hsl(var(--border))' }}>{on && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5"><path d="M5 12l5 5 9-10" /></svg>}</button>
             <span><span className="block text-[14.5px] font-semibold">{x.title}</span><span className="block text-[13px] leading-snug" style={{ color: MUTED }}>{x.sub}</span></span>
             {x.key === 'latest' ? <button type="button" onClick={() => setDrawer('appointments')} className="h-9 rounded-full border px-3.5 text-[13px]" style={{ borderColor: LINE }}>Upload</button>
               : x.key === 'links' ? <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(bookingUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { window.prompt('Your booking link', bookingUrl); } }} className="h-9 rounded-full border px-3.5 text-[13px]" style={{ borderColor: LINE }}>{copied ? 'Copied' : 'Copy link'}</button>

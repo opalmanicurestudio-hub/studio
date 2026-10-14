@@ -93,7 +93,7 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
         onInteractOutside={(e) => e.stopPropagation()}
       >
         <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Select Compatible Add-ons</DialogTitle>
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">Select Compatible Add-ons</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Choose which add-on services can be booked with this main service.</DialogDescription>
         </DialogHeader>
         <div className="p-8 space-y-6">
@@ -115,7 +115,7 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
                             key={addOn.id}
                             className={cn(
                                 "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer",
-                                isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-white"
+                                isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-card"
                             )}
                             onClick={() => handleToggle(addOn.id)}
                         >
@@ -134,7 +134,7 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                                <p className="text-sm font-black uppercase tracking-tight text-foreground truncate">
                                     {addOn.name || 'Untitled add-on'}
                                 </p>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
@@ -156,7 +156,7 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
           <div className="flex flex-col gap-3 w-full">
             <Button type="button" onClick={handleSave} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Add Selected</Button>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Cancel</Button>
           </div>
         </DialogFooter>
       </DialogContent>

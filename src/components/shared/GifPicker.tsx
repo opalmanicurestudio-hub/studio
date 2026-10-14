@@ -63,10 +63,10 @@ export function GifPicker({
   }, [search]);
 
   return (
-    <div className={cn('rounded-xl border-2 bg-white p-3 space-y-2', className)}>
+    <div className={cn('rounded-xl border-2 bg-card p-3 space-y-2', className)}>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -76,21 +76,21 @@ export function GifPicker({
           />
         </div>
         <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted/40">
-          <X className="w-4 h-4 text-slate-500" />
+          <X className="w-4 h-4 text-muted-foreground" />
         </button>
       </div>
       <div className="grid grid-cols-3 gap-1.5 max-h-56 overflow-y-auto">
-        {loading && <div className="col-span-3 py-8 flex justify-center"><Loader className="w-4 h-4 animate-spin text-slate-300" /></div>}
+        {loading && <div className="col-span-3 py-8 flex justify-center"><Loader className="w-4 h-4 animate-spin text-muted-foreground/70" /></div>}
         {!loading && gifs.map(g => (
           <button key={g.id} onClick={() => onSelect(g.url)} className="rounded-lg overflow-hidden border hover:border-indigo-400 transition-colors aspect-square">
             <img src={g.preview} alt="" className="w-full h-full object-cover" loading="lazy" />
           </button>
         ))}
         {!loading && gifs.length === 0 && (
-          <p className="col-span-3 text-center py-6 text-[9px] font-black uppercase text-slate-400">No GIFs found</p>
+          <p className="col-span-3 text-center py-6 text-[9px] font-black uppercase text-muted-foreground">No GIFs found</p>
         )}
       </div>
-      <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest text-right">Via Tenor</p>
+      <p className="text-[8px] font-bold text-muted-foreground/70 uppercase tracking-widest text-right">Via Tenor</p>
     </div>
   );
 }

@@ -333,13 +333,13 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                               </Button>
                             )}
                             {isRenter && (
-                              <span className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-slate-300 bg-slate-100 px-3 font-black uppercase tracking-widest text-[10px] text-slate-700">
+                              <span className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-border bg-muted px-3 font-black uppercase tracking-widest text-[10px] text-foreground/80">
                                   Renter
                               </span>
                             )}
                             {!isRenter && (member as any).payPending === true && (
                               <span title="Pay was skipped when they were added. Open their card to set it."
-                                    className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-slate-300 bg-slate-50 px-3 font-black uppercase tracking-widest text-[10px] text-slate-600">
+                                    className="h-10 shrink-0 inline-flex items-center rounded-xl border-2 border-border bg-muted/60 px-3 font-black uppercase tracking-widest text-[10px] text-foreground/80">
                                   Pay not set
                               </span>
                             )}
@@ -411,7 +411,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                               id={`fulfilment-${member.id}`}
                               value={String((member as any).fulfilmentRole || '')}
                               onChange={(e) => onFulfilmentRole(member, e.target.value)}
-                              className="mt-2 h-10 w-full rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
+                              className="mt-2 h-10 w-full rounded-xl border-2 bg-card px-2 text-[11px] font-black uppercase tracking-widest"
                             >
                               <option value="">Follow role</option>
                               {FULFILMENT_ROLES.map((r) => (
@@ -420,10 +420,10 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                             </select>
                           </div>
                         )}
-                        <Button variant="outline" onClick={() => { setActionsOpen(false); onConvert(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-slate-700">
+                        <Button variant="outline" onClick={() => { setActionsOpen(false); onConvert(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-foreground/80">
                             <Armchair className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Becomes a renter
                         </Button>
-                        <Button variant="outline" onClick={() => { setActionsOpen(false); onArchiveToggle(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-slate-700">
+                        <Button variant="outline" onClick={() => { setActionsOpen(false); onArchiveToggle(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-foreground/80">
                             <Users className="mr-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {(member as any).archived ? 'Restore' : 'Archive'}
                         </Button>
                         <Button variant="outline" onClick={() => { setActionsOpen(false); onDelete(member); }} className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-[11px] justify-start px-3 text-destructive border-destructive/30 hover:bg-destructive/5">
@@ -546,7 +546,7 @@ const PricingTierCard = ({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <div className="p-6">
-                        <p className="text-sm font-medium text-slate-600 leading-relaxed">This will permanently delete the pricing tier. Staff members assigned to this tier will need to be reassigned to maintain accurate service pricing.</p>
+                        <p className="text-sm font-medium text-foreground/80 leading-relaxed">This will permanently delete the pricing tier. Staff members assigned to this tier will need to be reassigned to maintain accurate service pricing.</p>
                     </div>
                     <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                         <Button onClick={confirmDeleteTier} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Delete Tier</Button>
@@ -1053,13 +1053,13 @@ export default function StaffPage() {
 
   return (
     <>
-    <div className={cn("flex min-h-screen w-full flex-col bg-slate-50/50", reviewFor && "print:hidden")}>
+    <div className={cn("flex min-h-screen w-full flex-col bg-muted/50", reviewFor && "print:hidden")}>
       <AppHeader title="Team Intelligence" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
         {String(role || '').toLowerCase() === 'owner' && !(selectedTenant as any)?.payMovedAt && !payMoved && (
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white p-4" style={{ borderColor: 'var(--line, #ececee)' }}>
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card p-4" style={{ borderColor: 'hsl(var(--border))' }}>
             <div className="min-w-0 flex-1"><p className="text-[15px] font-medium">Make pay rates private</p><p className="text-[13.5px] text-muted-foreground">Rates are stored on team records that everyone on the team can read. Move them to a place only managers and each person can see. Nothing else changes.</p></div>
-            <button type="button" disabled={movingPay} onClick={async () => { setMovingPay(true); const r = await payPost('/api/staff/move-pay', { tenantId }); setMovingPay(false); if (r.ok) { setPayMoved(true); uiToast({ title: 'Pay rates are private now', description: `${r.moved} team record${r.moved === 1 ? '' : 's'} updated.` }); } else uiToast({ variant: 'destructive', title: 'Couldn’t move pay', description: r.error }); }} className="h-11 rounded-full px-5 text-[14.5px] font-medium text-white disabled:opacity-40" style={{ background: '#16171a' }}>{movingPay ? 'Moving…' : 'Make private'}</button>
+            <button type="button" disabled={movingPay} onClick={async () => { setMovingPay(true); const r = await payPost('/api/staff/move-pay', { tenantId }); setMovingPay(false); if (r.ok) { setPayMoved(true); uiToast({ title: 'Pay rates are private now', description: `${r.moved} team record${r.moved === 1 ? '' : 's'} updated.` }); } else uiToast({ variant: 'destructive', title: 'Couldn’t move pay', description: r.error }); }} className="h-11 rounded-full px-5 text-[14.5px] font-medium text-white disabled:opacity-40" style={{ background: 'hsl(var(--foreground))' }}>{movingPay ? 'Moving…' : 'Make private'}</button>
           </div>
         )}
         {isLoading || staffLoading || pricingTiersLoading ? (
@@ -1106,7 +1106,7 @@ export default function StaffPage() {
             <>
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-6 md:mb-10">
                     <div className="space-y-1">
-                        <h1 className="text-xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Pro Team</h1>
+                        <h1 className="text-xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Pro Team</h1>
                         <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Team manager & performance hub</p>
                     </div>
                     <Button onClick={() => setIsAddStaffOpen(true)} className="h-12 sm:h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full sm:w-auto">
@@ -1119,7 +1119,7 @@ export default function StaffPage() {
                         <div className="flex-1 w-full space-y-2">
                             <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze Period</Label>
                             <Select value={periodPreset} onValueChange={setPeriodPreset}>
-                                <SelectTrigger className="h-12 sm:h-14 rounded-2xl border-2 bg-white font-black uppercase text-[10px] tracking-widest shadow-sm focus:ring-primary/20">
+                                <SelectTrigger className="h-12 sm:h-14 rounded-2xl border-2 bg-card font-black uppercase text-[10px] tracking-widest shadow-sm focus:ring-primary/20">
                                     <SelectValue placeholder="Select Period" />
                                 </SelectTrigger>
                                 <SelectContent className="rounded-2xl border-2 shadow-2xl">
@@ -1146,7 +1146,7 @@ export default function StaffPage() {
                                                 const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
                                                 setDateRange(prev => ({ from: d || prev?.from, to: prev?.to }));
                                             }}
-                                            className="w-full h-12 sm:h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                            className="w-full h-12 sm:h-14 rounded-2xl border-2 bg-card px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
                                         />
                                     </div>
                                     <div className="space-y-2 text-left">
@@ -1159,7 +1159,7 @@ export default function StaffPage() {
                                                 const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined;
                                                 setDateRange(prev => ({ from: prev?.from, to: d || prev?.to }));
                                             }}
-                                            className="w-full h-12 sm:h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                                            className="w-full h-12 sm:h-14 rounded-2xl border-2 bg-card px-4 font-bold text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
                                         />
                                     </div>
                                 </motion.div>
@@ -1187,7 +1187,7 @@ export default function StaffPage() {
                                         onChange={(e) => setRosterQuery(e.target.value)}
                                         aria-label="Search team members"
                                         placeholder="Search by name, email, or role"
-                                        className="h-12 rounded-2xl border-2 bg-white pl-4 pr-10 font-bold text-sm"
+                                        className="h-12 rounded-2xl border-2 bg-card pl-4 pr-10 font-bold text-sm"
                                     />
                                     {rosterQuery && (
                                         <button type="button" aria-label="Clear search" onClick={() => setRosterQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground font-black text-sm px-1">
@@ -1204,7 +1204,7 @@ export default function StaffPage() {
                                             onClick={() => setRosterFilter(key)}
                                             className={cn(
                                                 "h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest",
-                                                rosterFilter === key ? "bg-primary text-primary-foreground border-primary" : "bg-white text-muted-foreground"
+                                                rosterFilter === key ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground"
                                             )}
                                         >
                                             {label}
@@ -1222,8 +1222,8 @@ export default function StaffPage() {
                                 ))}
                             </div>
                             ) : (
-                            <div className="rounded-[2rem] border-2 border-dashed bg-white/50 py-14 text-center">
-                                <p className="text-sm font-black uppercase tracking-widest text-slate-900">No one matches</p>
+                            <div className="rounded-[2rem] border-2 border-dashed bg-card/50 py-14 text-center">
+                                <p className="text-sm font-black uppercase tracking-widest text-foreground">No one matches</p>
                                 <p className="mt-1 text-[12px] font-bold text-muted-foreground">Try a different name or switch the filter back to Everyone.</p>
                             </div>
                             )}
@@ -1232,7 +1232,7 @@ export default function StaffPage() {
                             <Card className="border-4 border-dashed rounded-[3rem] opacity-40">
                                 <CardContent className="py-24 flex flex-col items-center justify-center text-center text-muted-foreground">
                                     <Users className="w-16 h-16 mb-4"/>
-                                <h3 className="text-2xl font-black uppercase tracking-widest text-slate-900">No team yet</h3>
+                                <h3 className="text-2xl font-black uppercase tracking-widest text-foreground">No team yet</h3>
                                 <p className="mt-2 font-bold text-sm uppercase opacity-60 tracking-tight">Add your first team member to get started.</p>
                                 </CardContent>
                             </Card>
@@ -1349,7 +1349,7 @@ export default function StaffPage() {
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="p-6">
-                <p className="text-sm font-medium text-slate-600 leading-relaxed text-left">This permanently deletes their profile. If you just need them off the roster, Archive keeps their history for reports. <strong>Deleting cannot be undone.</strong></p>
+                <p className="text-sm font-medium text-foreground/80 leading-relaxed text-left">This permanently deletes their profile. If you just need them off the roster, Archive keeps their history for reports. <strong>Deleting cannot be undone.</strong></p>
             </div>
             <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3">
                 <Button onClick={confirmDeleteStaff} variant="destructive" className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Yes, delete forever</Button>

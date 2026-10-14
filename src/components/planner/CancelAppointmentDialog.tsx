@@ -489,7 +489,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               Protocol Termination
             </span>
           </div>
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground leading-none text-left">
             Cancel Appointment
           </DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">
@@ -517,7 +517,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                       'flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all text-center',
                       actorType === 'studio'
                         ? 'border-primary bg-primary/5 shadow-md'
-                        : 'border-border bg-white hover:border-primary/20',
+                        : 'border-border bg-card hover:border-primary/20',
                     )}
                   >
                     <Building2
@@ -540,7 +540,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                       'flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all text-center',
                       actorType === 'client'
                         ? 'border-primary bg-primary/5 shadow-md'
-                        : 'border-border bg-white hover:border-primary/20',
+                        : 'border-border bg-card hover:border-primary/20',
                     )}
                   >
                     <UserCircle
@@ -563,7 +563,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                       'flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all text-center',
                       actorType === 'no_show'
                         ? 'border-destructive bg-destructive/5 shadow-md'
-                        : 'border-border bg-white hover:border-destructive/20',
+                        : 'border-border bg-card hover:border-destructive/20',
                     )}
                   >
                     <UserX
@@ -583,7 +583,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               {actorType === 'studio' && (
                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1 opacity-60">
                   Will be logged as cancelled by{' '}
-                  <strong className="text-slate-700">
+                  <strong className="text-foreground/80">
                     {currentStaff?.name || 'the logged-in staff member'}
                   </strong>
                   .
@@ -619,8 +619,8 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                           className={cn(
                             'flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center gap-1.5',
                             depositDisposition === 'refund'
-                              ? 'border-primary bg-white shadow-lg'
-                              : 'border-border bg-white/50',
+                              ? 'border-primary bg-card shadow-lg'
+                              : 'border-border bg-card/50',
                           )}
                         >
                           <RefreshCw className={cn('w-4 h-4', depositDisposition === 'refund' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
@@ -634,8 +634,8 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                           className={cn(
                             'flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center gap-1.5',
                             depositDisposition === 'store_credit'
-                              ? 'border-primary bg-white shadow-lg'
-                              : 'border-border bg-white/50',
+                              ? 'border-primary bg-card shadow-lg'
+                              : 'border-border bg-card/50',
                           )}
                         >
                           <Wallet className={cn('w-4 h-4', depositDisposition === 'store_credit' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
@@ -664,7 +664,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                             value={additionalCreditValue || ''}
                             onChange={e => setAdditionalCreditValue(Math.max(0, parseFloat(e.target.value) || 0))}
                             placeholder="0.00"
-                            className="h-11 pl-9 rounded-xl border-2 font-bold text-sm bg-white"
+                            className="h-11 pl-9 rounded-xl border-2 font-bold text-sm bg-card"
                           />
                         </div>
                         <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">
@@ -686,7 +686,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
                 {actorType === 'studio' && (
                   <Select value={studioReason} onValueChange={v => setStudioReason(v as StudioCancellationReason)}>
-                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight bg-white shadow-inner">
+                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight bg-card shadow-inner">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -701,7 +701,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
                 {actorType === 'client' && (
                   <Select value={clientReason} onValueChange={v => setClientReason(v as ClientCancellationReason)}>
-                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight bg-white shadow-inner">
+                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight bg-card shadow-inner">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -719,7 +719,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     value={customReason}
                     onChange={e => setCustomReason(e.target.value)}
                     placeholder="Describe the reason..."
-                    className="h-12 rounded-xl border-2 font-bold text-sm bg-white"
+                    className="h-12 rounded-xl border-2 font-bold text-sm bg-card"
                   />
                 )}
               </div>
@@ -751,12 +751,12 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   return (
                     <div key={m.id} className="flex items-center justify-between p-3 rounded-xl border border-dashed bg-muted/5">
                       <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-tight text-slate-700 truncate">{m.name}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-tight text-foreground/80 truncate">{m.name}</p>
                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
                           {m.overrideFee > 0 ? 'Fixed service override' : `Time + materials $${m.houseFloor.toFixed(2)} · Labor $${m.laborProtection.toFixed(2)}`}
                         </p>
                       </div>
-                      <span className="font-mono text-xs font-black text-slate-700 shrink-0 ml-3">${lineTotal.toFixed(2)}</span>
+                      <span className="font-mono text-xs font-black text-foreground/80 shrink-0 ml-3">${lineTotal.toFixed(2)}</span>
                     </div>
                   );
                 })}
@@ -790,7 +790,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     step="0.01"
                     value={feeValue || ''}
                     onChange={e => setFeeValue(toCents2(parseFloat(e.target.value) || 0))}
-                    className="h-16 pl-12 rounded-2xl border-2 font-black text-3xl tracking-tighter text-primary bg-white shadow-inner"
+                    className="h-16 pl-12 rounded-2xl border-2 font-black text-3xl tracking-tighter text-primary bg-card shadow-inner"
                   />
                 </div>
               )}
@@ -837,13 +837,13 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                                 'flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full',
                                 paymentMethod === 'card_on_file'
                                   ? 'border-primary bg-primary/5 shadow-lg'
-                                  : 'border-border bg-white shadow-sm',
+                                  : 'border-border bg-card shadow-sm',
                               )}
                             >
                               {hasCardOnFile ? (
                                 <ShieldCheck className="w-6 h-6 mb-2 text-primary" />
                               ) : (
-                                <Lock className="w-6 h-6 mb-2 text-slate-400" />
+                                <Lock className="w-6 h-6 mb-2 text-muted-foreground" />
                               )}
                               <span className="text-[10px] font-black uppercase tracking-widest leading-none">
                                 Vault Card
@@ -861,7 +861,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                                 'flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all text-center h-full',
                                 paymentMethod === 'add_to_balance'
                                   ? 'border-primary bg-primary/5 shadow-lg'
-                                  : 'border-border bg-white shadow-sm',
+                                  : 'border-border bg-card shadow-sm',
                               )}
                             >
                               <Landmark
@@ -889,7 +889,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 shrink-0">
           <div className="px-2 py-3 rounded-xl bg-muted/10 border border-dashed text-center">
-            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed">
+            <p className="text-[10px] font-bold text-foreground/80 uppercase tracking-tight leading-relaxed">
               {client?.name || appointment.clientName || 'Client'} will be {chargeFee && finalFeeAmount > 0
                 ? <>charged <span className="font-black text-primary">${finalFeeAmount.toFixed(2)}</span> via {paymentMethod === 'card_on_file' ? 'card on file' : 'balance owed'}</>
                 : <span className="font-black text-green-600">charged no fee</span>}
@@ -915,7 +915,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           <Button
             variant="ghost"
             onClick={() => onOpenChange(false)}
-            className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400"
+            className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-muted-foreground"
           >
             Abort Protocol
           </Button>

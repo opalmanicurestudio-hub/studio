@@ -799,8 +799,22 @@ html.studio.dark {
    Many older screens write white panels and ink text directly (bg-white, text-slate-900, or an inline #fff / #16171a)
    instead of using the theme. In black they're mapped to the black palette here, so no screen is left half-white.
    Paper things stay paper: receipts, slips, tickets and signature pads carry .cf-paper and are never changed. */
+/* Status colours for text that must stay readable in both: green, amber, red, blue — lighter in black. */
+:root { --ok-ink: #1f7a4d; --warn-ink: #b45309; --bad-ink: #b42318; --info-ink: #3d5a99; }
+html.dark { --ok-ink: #7fd1a5; --warn-ink: #f0b35a; --bad-ink: #ff8a80; --info-ink: #9db4e8; }
 html.dark { color-scheme: dark; }
-html.dark :is(.bg-white, .bg-white\/80, .bg-white\/90, .bg-white\/95, .bg-background):not(.cf-paper, .cf-paper *) { background-color: hsl(var(--card)) !important; }
+/* Pale status fills (badges, callouts) become calm see-through tints in black instead of bright blocks;
+   their dark text lightens to match. */
+html.dark :is(.bg-emerald-50, .bg-green-50, .bg-emerald-100, .bg-green-100, .bg-teal-50):not(.cf-paper, .cf-paper *) { background-color: rgb(127 209 165 / 0.12) !important; }
+html.dark :is(.bg-amber-50, .bg-yellow-50, .bg-orange-50, .bg-amber-100, .bg-yellow-100, .bg-orange-100):not(.cf-paper, .cf-paper *) { background-color: rgb(240 179 90 / 0.12) !important; }
+html.dark :is(.bg-red-50, .bg-rose-50, .bg-red-100, .bg-rose-100, .bg-pink-50):not(.cf-paper, .cf-paper *) { background-color: rgb(255 138 128 / 0.12) !important; }
+html.dark :is(.bg-blue-50, .bg-sky-50, .bg-indigo-50, .bg-blue-100, .bg-sky-100, .bg-indigo-100, .bg-violet-50, .bg-purple-50, .bg-violet-100, .bg-purple-100):not(.cf-paper, .cf-paper *) { background-color: rgb(157 180 232 / 0.12) !important; }
+html.dark :is(.text-emerald-700, .text-emerald-800, .text-green-700, .text-green-800, .text-emerald-600, .text-green-600, .text-teal-700):not(.cf-paper, .cf-paper *) { color: #7fd1a5 !important; }
+html.dark :is(.text-amber-700, .text-amber-800, .text-amber-900, .text-yellow-800, .text-orange-700, .text-amber-600):not(.cf-paper, .cf-paper *) { color: #f0b35a !important; }
+html.dark :is(.text-red-700, .text-red-800, .text-red-600, .text-rose-700, .text-destructive):not(.cf-paper, .cf-paper *) { color: #ff8a80 !important; }
+html.dark :is(.text-blue-700, .text-blue-800, .text-sky-700, .text-indigo-700, .text-violet-700, .text-purple-700, .text-blue-600):not(.cf-paper, .cf-paper *) { color: #9db4e8 !important; }
+html.dark :is(.border-emerald-200, .border-green-200, .border-amber-200, .border-amber-300, .border-red-200, .border-red-300, .border-blue-200, .border-violet-200):not(.cf-paper, .cf-paper *) { border-color: hsl(var(--border)) !important; }
+html.dark :is(.bg-white, .bg-white\/80, .bg-white\/90, .bg-white\/95):not(.cf-paper, .cf-paper *) { background-color: hsl(var(--card)) !important; }
 html.dark :is(.bg-slate-50, .bg-gray-50, .bg-zinc-50, .bg-neutral-50, .bg-stone-50, .bg-slate-100, .bg-gray-100, .bg-zinc-100, .bg-neutral-100, .bg-stone-100, .bg-slate-200, .bg-gray-200):not(.cf-paper, .cf-paper *) { background-color: hsl(var(--secondary)) !important; }
 html.dark :is(.text-slate-900, .text-slate-800, .text-gray-900, .text-gray-800, .text-zinc-900, .text-neutral-900, .text-stone-900, .text-black):not(.cf-paper, .cf-paper *) { color: hsl(var(--foreground)) !important; }
 html.dark :is(.text-slate-700, .text-slate-600, .text-gray-700, .text-gray-600, .text-zinc-700, .text-stone-700):not(.cf-paper, .cf-paper *) { color: hsl(var(--foreground) / 0.82) !important; }

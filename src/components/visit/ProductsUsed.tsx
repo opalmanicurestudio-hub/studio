@@ -33,7 +33,7 @@ export function ProductsUsed({ tenantId, visitId, className, style }: { tenantId
           <span className="text-[12px]" style={{ color: 'var(--muted)' }}>{l.unit}</span>
           <button type="button" disabled={busy} onClick={() => finished(l)} className="h-9 rounded-full border px-3 text-[12px]">Bottle finished</button>
         </div>))}
-      {changed && <button type="button" disabled={busy} onClick={save} className="h-10 rounded-full bg-stone-900 px-4 text-[13px] font-semibold text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save actual amounts'}</button>}
+      {changed && <button type="button" disabled={busy} onClick={save} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background disabled:opacity-40">{busy ? 'Saving…' : 'Save actual amounts'}</button>}
       {msg && <p role="status" className="text-[13px]">{msg}</p>}
     </section>
   );

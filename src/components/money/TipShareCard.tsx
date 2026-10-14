@@ -14,9 +14,9 @@ export function TipShareCard({ tenantId, mode, period }: { tenantId: string; mod
   const load = React.useCallback(async () => { setBusy(true); const r = await post({ tenantId, action: 'preview', start: `${start}T00:00:00.000Z`, end: `${end}T23:59:59.999Z` }); setBusy(false); setD(r?.ok ? r : null); }, [tenantId, start, end]);
   React.useEffect(() => { void load(); }, [load]);
   if (mode === 'direct') return null;
-  const muted = { color: 'var(--muted, #78716c)' }; const ipt = { borderColor: 'var(--line, #e7e2dc)' } as any;
+  const muted = { color: 'hsl(var(--muted-foreground))' }; const ipt = { borderColor: 'hsl(var(--border))' } as any;
   return (
-    <section className="space-y-3 rounded-3xl p-5" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' }} aria-label="Tip sharing">
+    <section className="space-y-3 rounded-3xl p-5" style={{ background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' }} aria-label="Tip sharing">
       <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-[15px] font-semibold">Tip sharing — {mode === 'pool' ? 'pool' : 'tip-outs'}</h2><Link href="/settings?tab=policies" className="text-[13px] font-semibold underline underline-offset-2">Settings</Link></div>
       <div className="flex flex-wrap items-center gap-2 text-[14px]"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} aria-label="From" className="h-10 rounded-xl border px-2" style={ipt} /><span>to</span><input type="date" value={end} onChange={(e) => setEnd(e.target.value)} aria-label="To" className="h-10 rounded-xl border px-2" style={ipt} /></div>
       {busy && !d ? <p className="text-[14px]" style={muted}>Working it out…</p> : d ? (<>

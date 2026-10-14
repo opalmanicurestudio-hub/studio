@@ -58,7 +58,7 @@ const CustomizationSidebar = ({
   );
 
   return (
-    <Card className="lg:sticky top-24 border-2 rounded-[2rem] overflow-hidden shadow-sm bg-white">
+    <Card className="lg:sticky top-24 border-2 rounded-[2rem] overflow-hidden shadow-sm bg-card">
       <CardHeader className="bg-muted/5 border-b p-6">
         <CardTitle className="text-sm font-black uppercase tracking-widest">Customize Labels</CardTitle>
         <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Select products, content, and print format.</CardDescription>
@@ -76,7 +76,7 @@ const CustomizationSidebar = ({
                     <ChevronsUpDown className="h-4 w-4 text-primary" />
                  </div>
             </div>
-            <div className="p-3 rounded-xl bg-muted/20 border-2 border-dashed text-[10px] font-bold uppercase text-slate-600 leading-relaxed">
+            <div className="p-3 rounded-xl bg-muted/20 border-2 border-dashed text-[10px] font-bold uppercase text-foreground/80 leading-relaxed">
                 Mode: {printMode === 'sheet' ? 'Full Sheet (Avery 5160)' : 'Single Label (Thermal)'}.
             </div>
         </div>
@@ -118,7 +118,7 @@ const CustomizationSidebar = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-primary/5 border-primary/10 shadow-inner">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white rounded-lg shadow-sm"><ImageIcon className="w-4 h-4 text-primary" /></div>
+                    <div className="p-2 bg-card rounded-lg shadow-sm"><ImageIcon className="w-4 h-4 text-primary" /></div>
                     <Label htmlFor="use-custom-img" className="text-[11px] font-black uppercase tracking-tight cursor-pointer">Use Master Label Image</Label>
                 </div>
                 <Switch 
@@ -138,7 +138,7 @@ const CustomizationSidebar = ({
                             { id: 'show-qr-code', label: 'Display QR', field: 'showQRCode' },
                         ].map((opt) => (
                             <div key={opt.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-background">
-                                <Label htmlFor={opt.id} className="text-[10px] font-black uppercase tracking-widest text-slate-600">{opt.label}</Label>
+                                <Label htmlFor={opt.id} className="text-[10px] font-black uppercase tracking-widest text-foreground/80">{opt.label}</Label>
                                 <Checkbox 
                                     id={opt.id} 
                                     checked={(labelContent as any)[opt.field]}
@@ -164,14 +164,14 @@ const GeneratedLabel = ({ product, options }: { product: InventoryItem, options:
 
     if (options.useCustomImage && product.labelImageUrl) {
         return (
-            <div className="relative w-full h-full p-1 border border-dashed border-gray-400 bg-white">
+            <div className="relative w-full h-full p-1 border border-dashed border-gray-400 bg-card">
                 <Image src={product.labelImageUrl} alt="Custom Label" fill className="object-contain" unoptimized />
             </div>
         )
     }
 
     return (
-        <div className="p-1 border border-dashed border-gray-400 text-center flex flex-col items-center justify-around break-words h-full bg-white">
+        <div className="p-1 border border-dashed border-gray-400 text-center flex flex-col items-center justify-around break-words h-full bg-card">
             <div className="leading-tight space-y-0.5">
                 {options.showProductName && <p className="font-bold text-[8px] uppercase">{product.name}</p>}
                 {options.showPrice && price > 0 && <p className="font-mono text-[7px] font-black">${price.toFixed(2)}</p>}
@@ -199,14 +199,14 @@ const SingleLabel = ({ product, options }: { product: InventoryItem, options: La
 
     if (options.useCustomImage && product.labelImageUrl) {
         return (
-            <div className="relative w-full h-full p-2 bg-white">
+            <div className="relative w-full h-full p-2 bg-card">
                 <Image src={product.labelImageUrl} alt="Custom Label" fill className="object-contain" unoptimized />
             </div>
         )
     }
 
     return (
-        <div className="text-center flex flex-col items-center justify-around h-full w-full break-words text-black bg-white">
+        <div className="text-center flex flex-col items-center justify-around h-full w-full break-words text-foreground bg-card">
             <div className="leading-tight space-y-1">
                 {options.showProductName && <p className="font-black uppercase text-[10px] tracking-tight">{product.name}</p>}
                 {options.showPrice && price > 0 && <p className="font-mono text-[10px] font-black">${price.toFixed(2)}</p>}
@@ -261,7 +261,7 @@ const PrintPreview = ({
   
 
   return (
-    <Card className="border-4 rounded-[3rem] overflow-hidden shadow-2xl bg-white">
+    <Card className="border-4 rounded-[3rem] overflow-hidden shadow-2xl bg-card">
       <CardHeader className="bg-muted/5 border-b p-6 text-left">
         <CardTitle className="text-base font-black uppercase tracking-widest">Protocol Preview</CardTitle>
         <CardDescription className="text-[10px] font-bold uppercase opacity-60">Real-time rendering of technical collateral.</CardDescription>
@@ -269,13 +269,13 @@ const PrintPreview = ({
       <CardContent className="bg-muted/30 p-4 sm:p-10 flex flex-col items-center">
         {selectedProducts.length > 0 ? (
             printMode === 'sheet' ? (
-                <div id="label-sheet" className="grid grid-cols-3 grid-rows-10 gap-x-2 gap-y-0 p-4 bg-white shadow-2xl aspect-[8.5/11] border border-border w-full max-w-[600px]">
+                <div id="label-sheet" className="grid grid-cols-3 grid-rows-10 gap-x-2 gap-y-0 p-4 bg-card shadow-2xl aspect-[8.5/11] border border-border w-full max-w-[600px]">
                     {labelsToRender.map((product, index) => (
                         product ? <GeneratedLabel key={`${product.id}-${index}`} product={product} options={labelContent} /> : <div key={index} className="border border-dashed border-gray-400"></div>
                     ))}
                 </div>
             ) : (
-                <div id="single-label-preview" className="bg-white shadow-2xl mx-auto border-2 rounded-xl flex items-center justify-center" style={{ width: '2.25in', height: '1.25in', padding: '0.1in' }}>
+                <div id="single-label-preview" className="bg-card shadow-2xl mx-auto border-2 rounded-xl flex items-center justify-center" style={{ width: '2.25in', height: '1.25in', padding: '0.1in' }}>
                    {labelsToRender[0] && <SingleLabel product={labelsToRender[0]} options={labelContent} />}
                 </div>
             )
@@ -351,25 +351,25 @@ function LabelPageContent() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Registry Collateral" />
       <main className="flex-1 p-4 md:p-10" id="main-content">
         <div className="max-w-7xl mx-auto space-y-10">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div className="flex items-center gap-4 text-left">
-              <Button variant="outline" asChild className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm print:hidden">
+              <Button variant="outline" asChild className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-card shadow-sm print:hidden">
                 <Link href="/inventory">
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Return
                 </Link>
               </Button>
               <div className="space-y-1">
-                <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Print Station</h1>
+                <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Print Station</h1>
                 <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 print:hidden">Physical asset identifier generator</p>
               </div>
             </div>
             <div className="flex items-center gap-3 print:hidden w-full sm:w-auto">
-              <Button variant="outline" className="flex-1 sm:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+              <Button variant="outline" className="flex-1 sm:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-card shadow-sm">
                 <Download className="mr-2 h-4 w-4 opacity-40" /> PDF Manifest
               </Button>
               <Button onClick={handlePrint} className="flex-1 sm:flex-none h-14 px-10 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20">

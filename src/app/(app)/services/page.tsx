@@ -117,7 +117,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   return (
     <Card className={cn(
       'transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col',
-      isSelected ? 'border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]' : 'border-border/50 bg-white hover:border-primary/20 shadow-sm',
+      isSelected ? 'border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]' : 'border-border/50 bg-card hover:border-primary/20 shadow-sm',
     )}>
       <CardContent className="p-6 md:p-8 space-y-6 flex-1 flex flex-col" onClick={onSelectItem}>
         <div className="flex items-start gap-4 cursor-pointer">
@@ -136,7 +136,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
           </Link>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 text-left">
-              <p className="font-black uppercase tracking-tight text-base md:text-lg text-slate-900 truncate leading-none">{service.name}</p>
+              <p className="font-black uppercase tracking-tight text-base md:text-lg text-foreground truncate leading-none">{service.name}</p>
             </div>
             <div className="flex items-center gap-2">
               <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest">{service.category}</p>
@@ -162,11 +162,11 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         <div className="grid grid-cols-2 gap-4">
           <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/10 transition-all text-left">
             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Bookings (all time)</p>
-            <p className="text-xl font-black font-mono tracking-tighter text-slate-900">{performance.totalBookings}</p>
+            <p className="text-xl font-black font-mono tracking-tighter text-foreground">{performance.totalBookings}</p>
           </div>
           <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/10 transition-all text-right">
             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60">Revenue</p>
-            <p className="text-xl font-black font-mono tracking-tighter text-slate-900">${performance.totalRevenue.toFixed(0)}</p>
+            <p className="text-xl font-black font-mono tracking-tighter text-foreground">${performance.totalRevenue.toFixed(0)}</p>
           </div>
         </div>
         {/* What the owner actually needs at a glance: what it costs to deliver, what's left, how it's selling, and anything to fix. */}
@@ -187,17 +187,17 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                 <div key={tier.id} className="space-y-2">
                   <div className="flex justify-between items-center px-1 text-left">
                     <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{tier.name}</span>
-                    <span className="font-mono text-[9px] font-black text-slate-900">${tier.price.toFixed(2)}</span>
+                    <span className="font-mono text-[9px] font-black text-foreground">${tier.price.toFixed(2)}</span>
                   </div>
                   <div className="grid gap-1.5">
                     {tier.staffAnalysis.length > 0 ? tier.staffAnalysis.map(sa => (
-                      <div key={sa.id} className={cn('p-2 rounded-xl border-2 flex justify-between items-center bg-white transition-all', sa.studioNet >= 0 ? 'border-primary/5' : 'border-red-100')}>
+                      <div key={sa.id} className={cn('p-2 rounded-xl border-2 flex justify-between items-center bg-card transition-all', sa.studioNet >= 0 ? 'border-primary/5' : 'border-red-100')}>
                         <div className="flex items-center gap-2 min-w-0">
                           <Avatar className="h-6 w-6 border shadow-inner">
                             <AvatarImage src={sa.avatarUrl} className="object-cover" />
                             <AvatarFallback className="text-[7px] font-black">{(sa.name || 'S')[0]}</AvatarFallback>
                           </Avatar>
-                          <span className="font-black uppercase text-[9px] truncate text-slate-700">{sa.name.split(' ')[0]}</span>
+                          <span className="font-black uppercase text-[9px] truncate text-foreground/80">{sa.name.split(' ')[0]}</span>
                         </div>
                         <span className={cn('font-black font-mono text-[10px]', sa.studioNet >= 0 ? 'text-primary' : 'text-destructive')}>
                           ${sa.studioNet.toFixed(2)}
@@ -223,7 +223,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
               <TooltipTrigger asChild>
                 <Button
                   variant="outline" size="icon"
-                  className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
+                  className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
                   onClick={e => { e.stopPropagation(); onEditServiceOpen(service); }}
                 >
                   <Pencil className="h-4 w-4" />
@@ -233,7 +233,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
             </Tooltip>
             {(service as any).__duplicate && <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white text-primary" onClick={e => { e.stopPropagation(); (service as any).__duplicate(); }} aria-label="Make a copy">
+                <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card text-primary" onClick={e => { e.stopPropagation(); (service as any).__duplicate(); }} aria-label="Make a copy">
                   <Copy className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
@@ -243,7 +243,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
               <TooltipTrigger asChild>
                 <Button
                   variant="outline" size="icon"
-                  className="h-10 w-10 rounded-xl border-2 shadow-sm bg-white hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
+                  className="h-10 w-10 rounded-xl border-2 shadow-sm bg-card hover:bg-primary/5 hover:border-primary/30 text-primary transition-all active:scale-90"
                   onClick={handleCopyLink}
                 >
                   <LinkIcon className="h-4 w-4" />
@@ -269,7 +269,7 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
       <BookOpen className="w-12 h-12 text-muted-foreground" />
     </div>
     <div className="space-y-2 text-center">
-      <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Library is Empty</h3>
+      <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">Library is Empty</h3>
       <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
         Populate your menu to unlock automated breakeven analysis and client booking.
       </p>
@@ -408,11 +408,11 @@ export default function ServicesPage() {
 
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Menu</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">The Menu</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Treatment catalog & profitability matrix</p>
           </div>
           <div className="flex items-center gap-3 w-full md:w-auto">
-            <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm">
+            <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-card/50 backdrop-blur-sm">
               <Link href="/services/report"><BarChart className="mr-2 h-4 w-4" /> Reports</Link>
             </Button>
             <Button onClick={() => setQuickAdd({ open: true, category: category === 'all' ? null : category })} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
@@ -429,7 +429,7 @@ export default function ServicesPage() {
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                   <Input
                     placeholder="Search services"
-                    className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                    className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-card"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                   />
@@ -449,26 +449,26 @@ export default function ServicesPage() {
                   </div>
                   <div className="flex items-center space-x-2">
                     <Switch id="show-archived-svc" checked={showArchived} onCheckedChange={setShowArchived} />
-                    <Label htmlFor="show-archived-svc" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived</Label>
+                    <Label htmlFor="show-archived-svc" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-foreground/80">Archived</Label>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-6 md:p-8">
                 {selectedItems.size > 0 && (
-                  <div className="mb-8 p-5 rounded-[2rem] bg-slate-900 text-white flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
+                  <div className="mb-8 p-5 rounded-[2rem] bg-foreground text-background flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
                     <div className="flex items-center gap-4">
-                      <div className="p-2 bg-white/10 rounded-xl"><Check className="w-5 h-5" /></div>
+                      <div className="p-2 bg-card/10 rounded-xl"><Check className="w-5 h-5" /></div>
                       <p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p>
                     </div>
                     <div className="flex gap-2">
                       <select aria-label="Change category" defaultValue="" onChange={(e) => { const v = e.target.value; if (!v || !firestore || !tenantId) return; const cat = v === '__new' ? window.prompt('New category name') : v; if (!cat) return;
                           selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { category: cat })); toast({ title: `Moved to ${cat}` }); setSelectedItems(new Set()); e.target.value = ''; }}
-                        className="h-10 rounded-xl border border-white/20 bg-transparent px-2 text-[12px] font-semibold"><option value="">Change category…</option>{categories.map((c) => <option key={c} value={c} style={{ color: '#111' }}>{c}</option>)}<option value="__new" style={{ color: '#111' }}>New category…</option></select>
-                      <Button variant="outline" size="sm" className="h-10 rounded-xl border-white/20 hover:bg-white/10 text-[12px] font-semibold" onClick={() => { if (!firestore || !tenantId) return; selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { isPrivate: false })); toast({ title: 'Shown on the booking page' }); setSelectedItems(new Set()); }}>Show online</Button>
-                      <Button variant="outline" size="sm" className="h-10 rounded-xl border-white/20 hover:bg-white/10 text-[12px] font-semibold" onClick={() => { if (!firestore || !tenantId) return; selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { isPrivate: true })); toast({ title: 'Hidden from the booking page' }); setSelectedItems(new Set()); }}>Hide online</Button>
+                        className="h-10 rounded-xl border border-white/20 bg-transparent px-2 text-[12px] font-semibold"><option value="">Change category…</option>{categories.map((c) => <option key={c} value={c} style={{ color: 'hsl(var(--foreground))' }}>{c}</option>)}<option value="__new" style={{ color: 'hsl(var(--foreground))' }}>New category…</option></select>
+                      <Button variant="outline" size="sm" className="h-10 rounded-xl border-white/20 hover:bg-card/10 text-[12px] font-semibold" onClick={() => { if (!firestore || !tenantId) return; selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { isPrivate: false })); toast({ title: 'Shown on the booking page' }); setSelectedItems(new Set()); }}>Show online</Button>
+                      <Button variant="outline" size="sm" className="h-10 rounded-xl border-white/20 hover:bg-card/10 text-[12px] font-semibold" onClick={() => { if (!firestore || !tenantId) return; selectedItems.forEach(id => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { isPrivate: true })); toast({ title: 'Hidden from the booking page' }); setSelectedItems(new Set()); }}>Hide online</Button>
                       {showArchived
-                        ? <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore</Button>
-                        : <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>
+                        ? <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-card/10" onClick={handleBulkUnarchive}>Restore</Button>
+                        : <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-card/10" onClick={handleBulkArchive}>Archive</Button>
                       }
                       <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={() => setIsBulkDeleteConfirmOpen(true)}>Purge</Button>
                     </div>
@@ -491,8 +491,8 @@ export default function ServicesPage() {
                 : (<>
                 <Tabs defaultValue="services" className="w-full">
                   <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8">
-                    <TabsTrigger value="services" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Treatments</TabsTrigger>
-                    <TabsTrigger value="add-ons" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Enhancements</TabsTrigger>
+                    <TabsTrigger value="services" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Treatments</TabsTrigger>
+                    <TabsTrigger value="add-ons" className="flex-1 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Enhancements</TabsTrigger>
                   </TabsList>
                   <TabsContent value="services" className="mt-0">
                     {!hasServices && !isLoading ? (
@@ -547,15 +547,15 @@ export default function ServicesPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-8 pt-0 text-left">
-                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Studio Floor Rate</p>
+                <p className="text-[10px] font-bold text-foreground/80 uppercase tracking-widest mb-1">Studio Floor Rate</p>
                 <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
-                <div className="mt-6 p-4 rounded-2xl bg-white/50 border border-primary/10 shadow-sm">
+                <div className="mt-6 p-4 rounded-2xl bg-card/50 border border-primary/10 shadow-sm">
                   <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-2">Base Metric</p>
-                  <p className="text-xs font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                  <p className="text-xs font-medium text-foreground/80 leading-relaxed uppercase tracking-tight">
                     Every session is evaluated against this hourly breakeven threshold to ensure studio growth.
                   </p>
                 </div>
-                <Button variant="outline" asChild className="w-full mt-6 h-12 rounded-xl border-2 font-black uppercase tracking-widest text-[9px] bg-white shadow-sm">
+                <Button variant="outline" asChild className="w-full mt-6 h-12 rounded-xl border-2 font-black uppercase tracking-widest text-[9px] bg-card shadow-sm">
                   <Link href="/financials">Recalculate Foundation</Link>
                 </Button>
               </CardContent>
@@ -591,7 +591,7 @@ export default function ServicesPage() {
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
           <AlertDialogHeader className="p-6 pb-0 text-left">
             <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Menu Items</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+            <AlertDialogDescription className="font-bold text-sm text-foreground/80 leading-relaxed uppercase">
               Permanently delete {selectedItems.size} services. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -663,7 +663,7 @@ export default function RetailFulfillmentBoard() {
     const sla: SlaInfo | null = ['paid', 'picking', 'packed'].includes(o.stage) ? slaFor(o, policy) : null;
     return (
       <Card className={cn(
-        'border-2 rounded-[1.75rem] overflow-hidden bg-white',
+        'border-2 rounded-[1.75rem] overflow-hidden bg-card',
         o.stage === 'arrived' && 'border-primary shadow-lg shadow-primary/15',
         sla?.state === 'late' && 'border-destructive/60',
         sla?.state === 'due' && 'border-amber-300',
@@ -756,7 +756,7 @@ export default function RetailFulfillmentBoard() {
 
   return (
     <div className={`min-h-dvh bg-muted/5 pb-28${stationMode ? ' station-mode' : ''}`}>
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-7xl mx-auto px-4 py-3 sm:py-4 flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="w-full sm:w-auto sm:flex-1 min-w-0 flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -897,7 +897,7 @@ export default function RetailFulfillmentBoard() {
             </p>
             <div className="mt-3 space-y-2">
               {staleReady.slice(0, 5).map((o) => (
-                <div key={o.id} className="flex items-center justify-between gap-3 rounded-xl border-2 border-amber-200 bg-white p-3">
+                <div key={o.id} className="flex items-center justify-between gap-3 rounded-xl border-2 border-amber-200 bg-card p-3">
                   <div className="min-w-0">
                     <p className="truncate text-xs font-black uppercase tracking-tight">
                       #{String(o.orderNumber).padStart(4, '0')} · {o.customerName}
@@ -929,7 +929,7 @@ export default function RetailFulfillmentBoard() {
 
       {myBatch && (
         <section className="max-w-7xl mx-auto px-4 pt-5">
-          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white shadow-xl shadow-primary/10">
+          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-card shadow-xl shadow-primary/10">
             <CardContent className="p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
@@ -941,7 +941,7 @@ export default function RetailFulfillmentBoard() {
                     <button key={v} type="button" aria-pressed={batchView === v}
                       onClick={() => setBatchView(v)}
                       className={cn('h-8 px-3 text-[9px] font-black uppercase tracking-widest',
-                        batchView === v ? 'bg-foreground text-background' : 'bg-white')}>
+                        batchView === v ? 'bg-foreground text-background' : 'bg-card')}>
                       {v === 'shelf' ? 'By shelf' : 'By order'}
                     </button>
                   ))}
@@ -1098,7 +1098,7 @@ export default function RetailFulfillmentBoard() {
 
       <div className="max-w-7xl mx-auto px-4 pt-4">
         <div className={cn('rounded-[1.5rem] border-2 p-3 grid grid-cols-2 sm:grid-cols-4 gap-3',
-          health.late > 0 ? 'border-destructive/50 bg-destructive/[0.04]' : 'bg-white')}>
+          health.late > 0 ? 'border-destructive/50 bg-destructive/[0.04]' : 'bg-card')}>
           {[
             { n: health.late, label: 'past due', tone: health.late > 0 ? 'bad' : 'ok' },
             { n: health.due, label: 'due soon', tone: health.due > 0 ? 'warn' : 'ok' },
@@ -1129,7 +1129,7 @@ export default function RetailFulfillmentBoard() {
               {exceptions.slice(0, 6).map((x) => (
                 <div
                   key={x.id}
-                  className={cn('rounded-xl border-2 bg-white p-3',
+                  className={cn('rounded-xl border-2 bg-card p-3',
                     x.tone === 'bad' ? 'border-destructive/40' : 'border-amber-200')}
                 >
                   <p className={cn('text-xs font-black uppercase tracking-tight',
@@ -1157,7 +1157,7 @@ export default function RetailFulfillmentBoard() {
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {[...waitingNow.curbside, ...waitingNow.lounge].slice(0, 8).map((w) => (
-                <span key={w.id} className="rounded-lg border-2 border-amber-200 bg-white px-2 py-1 text-[11px] font-black uppercase tracking-widest text-amber-900">
+                <span key={w.id} className="rounded-lg border-2 border-amber-200 bg-card px-2 py-1 text-[11px] font-black uppercase tracking-widest text-amber-900">
                   {w.label} · {w.waitedMin} min
                 </span>
               ))}
@@ -1380,7 +1380,7 @@ export default function RetailFulfillmentBoard() {
                     <button key={pr.id} type="button" aria-pressed={activePresetId === pr.id}
                       onClick={() => applyPreset(pr)}
                       className={cn('h-8 rounded-lg border-2 px-2.5 text-[8px] font-black uppercase tracking-widest transition-all active:scale-95',
-                        activePresetId === pr.id ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+                        activePresetId === pr.id ? 'bg-foreground text-background border-foreground' : 'bg-card hover:border-primary/40')}>
                       {pr.name}
                     </button>
                   ))}

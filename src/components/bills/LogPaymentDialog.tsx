@@ -70,7 +70,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-primary/60">Module Entry</p>
-            <h3 className="text-sm md:text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-sm md:text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -228,7 +228,7 @@ export const LogPaymentDialog: React.FC<LogPaymentDialogProps> = ({
                 <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />
                 <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Distribution</span>
             </div>
-            <SheetTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</SheetTitle>
+            <SheetTitle className="text-xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">{title}</SheetTitle>
             <SheetDescription className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{description}</SheetDescription>
         </SheetHeader>
         
@@ -242,7 +242,7 @@ export const LogPaymentDialog: React.FC<LogPaymentDialogProps> = ({
 
         <SheetFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8")}>
             <div className="flex w-full gap-3 md:gap-4">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-11 md:h-14 font-black uppercase tracking-widest text-[10px] md:text-[11px] text-slate-500">Cancel</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-11 md:h-14 font-black uppercase tracking-widest text-[10px] md:text-[11px] text-muted-foreground">Cancel</Button>
                 <Button onClick={handleSubmit(onConfirm)} className="flex-[2] h-11 md:h-14 rounded-xl md:rounded-[2rem] font-black uppercase tracking-widest text-[10px] md:text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Confirm Settlement <ArrowRight className="ml-2 w-3.5 h-3.5 md:w-4 md:h-4 transition-transform group-hover:translate-x-1"/></Button>
             </div>
         </SheetFooter>

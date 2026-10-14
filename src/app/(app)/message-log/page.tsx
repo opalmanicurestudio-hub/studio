@@ -89,12 +89,12 @@ export default function MessageLogPage() {
     <div className="p-3 sm:p-6 w-full max-w-4xl mx-auto space-y-3 sm:space-y-4 min-w-0 overflow-x-clip"
       style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
       {/* Header */}
-      <div className="rounded-3xl bg-slate-900 text-white p-4 sm:p-6 shadow-xl">
-        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 flex items-center gap-2">
+      <div className="rounded-3xl bg-foreground text-background p-4 sm:p-6 shadow-xl">
+        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground flex items-center gap-2">
           <Send className="w-3.5 h-3.5" /> Communications
         </p>
         <h1 className="text-xl sm:text-2xl font-black tracking-tight mt-1">Message Log</h1>
-        <p className="text-[11px] sm:text-xs font-bold text-slate-300 mt-1.5 break-words">
+        <p className="text-[11px] sm:text-xs font-bold text-muted-foreground/70 mt-1.5 break-words">
           Every email and text the platform sends — clients, staff, renters, maintenance — with delivery, opens, and failures.
         </p>
         {attentionCount > 0 && (
@@ -115,7 +115,7 @@ export default function MessageLogPage() {
               <button key={a.key} onClick={() => setAudience(a.key)}
                 className={cn(
                   'h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1.5 transition-colors',
-                  audience === a.key ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600',
+                  audience === a.key ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80',
                 )}>
                 <Icon className="w-3 h-3" /> {a.label}
               </button>
@@ -127,7 +127,7 @@ export default function MessageLogPage() {
             <button key={c} onClick={() => setChannel(c)}
               className={cn(
                 'h-9 px-3 rounded-full border-2 text-[9px] font-black uppercase tracking-widest inline-flex items-center gap-1.5',
-                channel === c ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-white text-slate-400',
+                channel === c ? 'bg-muted border-border text-foreground' : 'bg-card text-muted-foreground',
               )}>
               {c === 'email' ? <Mail className="w-3 h-3" /> : c === 'sms' ? <MessageSquare className="w-3 h-3" /> : null}
               {c === 'all' ? 'All channels' : c === 'email' ? 'Email' : 'Text'}
@@ -136,13 +136,13 @@ export default function MessageLogPage() {
           <button onClick={() => setNeedsAttention((v) => !v)}
             className={cn(
               'h-9 px-3 rounded-full border-2 text-[9px] font-black uppercase tracking-widest inline-flex items-center gap-1.5',
-              needsAttention ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white text-slate-400',
+              needsAttention ? 'bg-red-50 border-red-300 text-red-700' : 'bg-card text-muted-foreground',
             )}>
             <AlertCircle className="w-3 h-3" /> Needs attention
           </button>
         </div>
         <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, number, email, content…"
             className="h-11 pl-9 text-sm rounded-2xl border-2 w-full" />
@@ -152,12 +152,12 @@ export default function MessageLogPage() {
       {/* List */}
       <div className="space-y-2">
         {!docs && (
-          <div className="rounded-2xl border-2 bg-white p-8 text-center">
-            <RefreshCw className="w-5 h-5 mx-auto animate-spin text-slate-300" />
+          <div className="rounded-2xl border-2 bg-card p-8 text-center">
+            <RefreshCw className="w-5 h-5 mx-auto animate-spin text-muted-foreground/70" />
           </div>
         )}
         {docs && messages.length === 0 && (
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center py-8">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-center py-8">
             Nothing here yet — sends will appear the moment they happen
           </p>
         )}
@@ -168,7 +168,7 @@ export default function MessageLogPage() {
           const reached = STEPS.indexOf(stage);
           const rType = m.recipientType || (m.clientId ? 'client' : 'other');
           return (
-            <div key={m.id} className={cn('rounded-2xl border-2 bg-white p-3.5', failed && 'border-red-200 bg-red-50/40')}>
+            <div key={m.id} className={cn('rounded-2xl border-2 bg-card p-3.5', failed && 'border-red-200 bg-red-50/40')}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[11px] font-black uppercase tracking-tight flex items-center gap-1.5 flex-wrap">
@@ -176,14 +176,14 @@ export default function MessageLogPage() {
                     <span className="truncate">{m.recipientName || m.clientName || m.to || 'Unknown'}</span>
                     <Badge variant="outline" className="h-4 px-1.5 rounded-full text-[7px] font-black border-2 uppercase">{rType}</Badge>
                   </p>
-                  <p className="text-[9px] font-bold text-slate-500 mt-0.5 break-all">
+                  <p className="text-[9px] font-bold text-muted-foreground mt-0.5 break-all">
                     {String(m.kind || 'message').replace(/_/g, ' ')} · {m.to || '—'}
                   </p>
                   {(m.subject || m.preview) && (
-                    <p className="text-[9px] font-medium text-slate-400 mt-0.5 line-clamp-1 italic">{m.subject || m.preview}</p>
+                    <p className="text-[9px] font-medium text-muted-foreground mt-0.5 line-clamp-1 italic">{m.subject || m.preview}</p>
                   )}
                 </div>
-                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide shrink-0 whitespace-nowrap">
+                <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wide shrink-0 whitespace-nowrap">
                   {m.sentAt ? fmtDT(m.sentAt) : ''}
                 </span>
               </div>
@@ -192,7 +192,7 @@ export default function MessageLogPage() {
                   {(m.channel === 'sms' ? STEPS.slice(0, 2) : STEPS).map((s, i) => (
                     <span key={s} className={cn(
                       'px-2 h-5 inline-flex items-center rounded-full text-[8px] font-black uppercase tracking-wide border-2',
-                      i <= reached ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-white text-slate-300 border-slate-100',
+                      i <= reached ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-card text-muted-foreground/70 border-border',
                     )}>
                       {i <= reached ? <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> : null}{s}
                     </span>
@@ -214,7 +214,7 @@ export default function MessageLogPage() {
         })}
       </div>
       {docs && docs.length >= 300 && (
-        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest text-center">Showing the latest 300 sends</p>
+        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest text-center">Showing the latest 300 sends</p>
       )}
     </div>
   );

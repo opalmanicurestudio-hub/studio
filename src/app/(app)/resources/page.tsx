@@ -81,7 +81,7 @@ const ResourceCard = ({
 
     return (
         <Card className={cn(
-            "transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col bg-white hover:border-primary/20 hover:shadow-2xl hover:shadow-primary/5 shadow-sm",
+            "transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col bg-card hover:border-primary/20 hover:shadow-2xl hover:shadow-primary/5 shadow-sm",
             resource.isOutOfService && "opacity-60 grayscale-[0.5] border-dashed",
             isNameless && "border-destructive/30 border-dashed"
         )}>
@@ -100,7 +100,7 @@ const ResourceCard = ({
                         <div className="min-w-0">
                             <CardTitle className={cn(
                                 "text-lg md:text-xl font-black uppercase tracking-tight leading-none mb-1.5 truncate",
-                                isNameless ? "text-destructive/70 italic" : "text-slate-900"
+                                isNameless ? "text-destructive/70 italic" : "text-foreground"
                             )}>{displayName}</CardTitle>
                             <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest">{displayType}</p>
@@ -130,7 +130,7 @@ const ResourceCard = ({
             <CardContent className="p-6 flex-1 space-y-6">
                 {resource.type === 'equipment' && linkedItem && (
                     <div className="p-4 rounded-2xl bg-primary/[0.02] border-2 border-primary/10 flex items-center gap-4 text-left">
-                        <div className="w-14 h-14 bg-white rounded-xl flex-shrink-0 relative border-2 border-primary/5 shadow-sm overflow-hidden flex items-center justify-center">
+                        <div className="w-14 h-14 bg-card rounded-xl flex-shrink-0 relative border-2 border-primary/5 shadow-sm overflow-hidden flex items-center justify-center">
                             {imageUrl ? (
                                 <Image src={imageUrl} alt={linkedItem.name} fill className="object-cover" />
                             ) : (
@@ -139,7 +139,7 @@ const ResourceCard = ({
                         </div>
                         <div className="min-w-0">
                             <p className="text-[8px] font-black uppercase text-primary/60 tracking-widest mb-0.5">Asset Registry</p>
-                            <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate leading-tight">{linkedItem.name}</p>
+                            <p className="font-black text-[11px] uppercase tracking-tight text-foreground truncate leading-tight">{linkedItem.name}</p>
                         </div>
                     </div>
                 )}
@@ -158,9 +158,9 @@ const ResourceCard = ({
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all flex justify-between items-center text-left">
                         <div className="space-y-0.5">
                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none">Simultaneous Capacity</p>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Active Load</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Active Load</p>
                         </div>
-                        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">{resource.capacity || 1}</p>
+                        <p className="text-2xl font-black font-mono tracking-tighter text-foreground">{resource.capacity || 1}</p>
                     </div>
                 </div>
             </CardContent>
@@ -273,12 +273,12 @@ export default function ResourcesPage() {
     );
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Studio Infrastructure" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Matrix</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">The Matrix</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
               Studio layout & bookable asset manifest
             </p>
@@ -297,7 +297,7 @@ export default function ResourcesPage() {
             <div className="space-y-16">
                  <section className="space-y-8">
                     <div className="space-y-1 text-left px-1">
-                        <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900">Rooms & Stations</h2>
+                        <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-foreground">Rooms & Stations</h2>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Primary treatment environments</p>
                     </div>
                     {roomsAndStations.length > 0 ? (
@@ -316,7 +316,7 @@ export default function ResourcesPage() {
 
                 <section className="space-y-8">
                     <div className="space-y-1 text-left px-1">
-                        <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900">Capital Hardware</h2>
+                        <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-foreground">Capital Hardware</h2>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Bookable equipment & machinery</p>
                     </div>
                     {equipment.length > 0 ? (
@@ -356,7 +356,7 @@ export default function ResourcesPage() {
                     <Box className='w-12 h-12 text-muted-foreground' />
                 </div>
                 <div className="space-y-2">
-                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Infrastructure Empty</h3>
+                    <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">Infrastructure Empty</h3>
                     <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
                         Establish your physical studio zones to enable coordinate-based planning and resource scheduling.
                     </p>

@@ -46,44 +46,44 @@ export function TypicalTimes({ tenantId, staffId, staffMember, services = [] }: 
   const addable = services.filter((s: any) => s?.id && !ownIds.includes(s.id));
 
   return (
-    <section className="space-y-3 rounded-3xl p-5" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' }} aria-label="Typical times">
+    <section className="space-y-3 rounded-3xl p-5" style={{ background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' }} aria-label="Typical times">
       <p className="text-[15px] font-semibold">Typical times</p>
-      {!d.rows.length ? <p className="text-[14px]" style={{ color: 'var(--muted, #78716c)' }}>Not enough timed visits yet — numbers appear after 5 counted visits of a service.</p>
+      {!d.rows.length ? <p className="text-[14px]" style={{ color: 'hsl(var(--muted-foreground))' }}>Not enough timed visits yet — numbers appear after 5 counted visits of a service.</p>
         : d.rows.slice(0, 10).map((r: any) => { const sug = round5(Number(r.typical) || 0); const set = r.serviceId ? own[r.serviceId] : undefined;
           return (
           <div key={r.label} className="text-[14px]">
-            <p><b>{r.label}</b> · typically <b>{r.typical} min</b> <span style={{ color: 'var(--muted, #78716c)' }}>(booked {r.booked} · usually {r.low}–{r.high})</span></p>
-            <p style={{ color: 'var(--muted, #78716c)' }}>On time {Math.round(r.onTime * 100)}% of {r.count}{r.clientCaused || r.ranBehind ? ` · ran over: ${r.clientCaused} client-caused, ${r.ranBehind} ran behind` : ''}{r.trend !== null ? ` · ${r.trend < 0 ? `${Math.abs(r.trend)} min faster` : r.trend > 0 ? `${r.trend} min slower` : 'steady'} lately` : ''}{r.team !== null && d.isStudent ? ` · team typically ${r.team}` : ''}</p>
+            <p><b>{r.label}</b> · typically <b>{r.typical} min</b> <span style={{ color: 'hsl(var(--muted-foreground))' }}>(booked {r.booked} · usually {r.low}–{r.high})</span></p>
+            <p style={{ color: 'hsl(var(--muted-foreground))' }}>On time {Math.round(r.onTime * 100)}% of {r.count}{r.clientCaused || r.ranBehind ? ` · ran over: ${r.clientCaused} client-caused, ${r.ranBehind} ran behind` : ''}{r.trend !== null ? ` · ${r.trend < 0 ? `${Math.abs(r.trend)} min faster` : r.trend > 0 ? `${r.trend} min slower` : 'steady'} lately` : ''}{r.team !== null && d.isStudent ? ` · team typically ${r.team}` : ''}</p>
             {r.serviceId && sug !== (set ?? Number(r.booked)) && (
-              <button type="button" disabled={busy === r.serviceId} onClick={() => save(r.serviceId, sug)} className="mt-1 h-9 rounded-full border px-3 text-[13px] font-[600]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+              <button type="button" disabled={busy === r.serviceId} onClick={() => save(r.serviceId, sug)} className="mt-1 h-9 rounded-full border px-3 text-[13px] font-[600]" style={{ borderColor: 'hsl(var(--border))' }}>
                 Book {first}’s at {sug} min
               </button>)}
           </div>); })}
 
-      <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+      <div className="space-y-2 border-t pt-3" style={{ borderColor: 'hsl(var(--border))' }}>
         <p className="text-[14px] font-[700]">{first}’s own booking lengths</p>
-        <p className="text-[13px]" style={{ color: 'var(--muted, #78716c)' }}>Online booking, the desk and the planner hold this long when {first} does the service. Everyone else keeps the service’s length.</p>
-        {ownIds.length === 0 && <p className="text-[13px]" style={{ color: 'var(--muted, #78716c)' }}>None yet — {first} books at each service’s own length.</p>}
+        <p className="text-[13px]" style={{ color: 'hsl(var(--muted-foreground))' }}>Online booking, the desk and the planner hold this long when {first} does the service. Everyone else keeps the service’s length.</p>
+        {ownIds.length === 0 && <p className="text-[13px]" style={{ color: 'hsl(var(--muted-foreground))' }}>None yet — {first} books at each service’s own length.</p>}
         {ownIds.map((id) => { const v = draft[id] ?? String(own[id]); const diff = Number(own[id]) - svcLen(id);
           return (
           <div key={id} className="flex flex-wrap items-center gap-2 text-[14px]">
-            <span className="min-w-0 basis-full sm:basis-auto sm:flex-1"><b className="font-[700]">{svcName(id)}</b> <span style={{ color: 'var(--muted, #78716c)' }}>· service is {svcLen(id)} min{diff ? ` · ${diff > 0 ? '+' : ''}${diff}` : ''}</span></span>
+            <span className="min-w-0 basis-full sm:basis-auto sm:flex-1"><b className="font-[700]">{svcName(id)}</b> <span style={{ color: 'hsl(var(--muted-foreground))' }}>· service is {svcLen(id)} min{diff ? ` · ${diff > 0 ? '+' : ''}${diff}` : ''}</span></span>
             <input aria-label={`${svcName(id)} minutes for ${first}`} inputMode="numeric" value={v} onChange={(e) => setDraft((x) => ({ ...x, [id]: e.target.value.replace(/\D/g, '').slice(0, 3) }))}
-              className="h-10 w-20 rounded-xl border px-3 text-right tabular-nums" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
+              className="h-10 w-20 rounded-xl border px-3 text-right tabular-nums" style={{ borderColor: 'hsl(var(--border))' }} />
             <span>min</span>
-            {draft[id] != null && draft[id] !== String(own[id]) && <button type="button" disabled={busy === id} onClick={() => save(id, Number(draft[id]))} className="h-10 rounded-full bg-[#17181A] px-4 text-[13px] font-[700] text-white">Save</button>}
-            <button type="button" disabled={busy === id} onClick={() => save(id, null)} className="h-10 rounded-full border px-3 text-[13px] font-[600]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>Use the service’s</button>
+            {draft[id] != null && draft[id] !== String(own[id]) && <button type="button" disabled={busy === id} onClick={() => save(id, Number(draft[id]))} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-[700] text-background">Save</button>}
+            <button type="button" disabled={busy === id} onClick={() => save(id, null)} className="h-10 rounded-full border px-3 text-[13px] font-[600]" style={{ borderColor: 'hsl(var(--border))' }}>Use the service’s</button>
           </div>); })}
         {addable.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            <select aria-label="Add a service" value={adding} onChange={(e) => setAdding(e.target.value)} className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+            <select aria-label="Add a service" value={adding} onChange={(e) => setAdding(e.target.value)} className="h-10 min-w-0 flex-1 rounded-xl border bg-card px-3 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }}>
               <option value="">Set a length for another service…</option>
               {addable.map((s: any) => <option key={s.id} value={s.id}>{s.name} ({Number(s.duration) || 60} min)</option>)}
             </select>
-            <button type="button" disabled={!adding || busy === adding} onClick={() => { const id = adding; setAdding(''); save(id, svcLen(id)); }} className="h-10 rounded-full border px-4 text-[13px] font-[600]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>Add</button>
+            <button type="button" disabled={!adding || busy === adding} onClick={() => { const id = adding; setAdding(''); save(id, svcLen(id)); }} className="h-10 rounded-full border px-4 text-[13px] font-[600]" style={{ borderColor: 'hsl(var(--border))' }}>Add</button>
           </div>)}
         {err && <p role="alert" className="text-[13px] font-[600] text-[#B42318]">{err}</p>}
       </div>
-      <p className="text-[12px]" style={{ color: 'var(--muted, #78716c)' }}>For coaching and booking lengths — the provider sees the same numbers in their portal.</p>
+      <p className="text-[12px]" style={{ color: 'hsl(var(--muted-foreground))' }}>For coaching and booking lengths — the provider sees the same numbers in their portal.</p>
     </section>);
 }

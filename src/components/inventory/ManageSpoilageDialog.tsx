@@ -87,7 +87,7 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
           <AlertTriangle className="w-5 h-5 text-destructive" />
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Spoilage Reconciliation</span>
         </div>
-        <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Manage Expired Stock</h2>
+        <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Manage Expired Stock</h2>
         <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Select expired batches to write off from the studio ledger.</p>
       </div>
 
@@ -101,7 +101,7 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
                 key={item.batchId}
                 className={cn(
                   'flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer',
-                  isSelected ? 'border-destructive/30 bg-destructive/5 shadow-md' : 'border-border/50 bg-white hover:border-destructive/20',
+                  isSelected ? 'border-destructive/30 bg-destructive/5 shadow-md' : 'border-border/50 bg-card hover:border-destructive/20',
                 )}
                 onClick={() => handleToggle(item.batchId)}
               >
@@ -120,7 +120,7 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.productName}</p>
+                  <p className="font-black text-xs uppercase tracking-tight text-foreground truncate">{item.productName}</p>
                   <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
                     {item.stock} units &middot; Expired {format(parseISO(item.expirationDate), 'MMM d, yyyy')}
                   </p>
@@ -157,7 +157,7 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
           >
             Write-Off Selected ({selectedSpoilage.size}) <ArrowRight className="ml-2 w-4 h-4" />
           </Button>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-muted-foreground">
             Cancel
           </Button>
         </div>
@@ -184,7 +184,7 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
       <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
         <AlertDialogContent className="rounded-[2.5rem] border-4 shadow-2xl p-0 overflow-hidden">
           <AlertDialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
-            <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Confirm Write-Off</AlertDialogTitle>
+            <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">Confirm Write-Off</AlertDialogTitle>
             <AlertDialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
               {selectedSpoilage.size} batch(es) &middot; Total loss ${totalLoss.toFixed(2)}. This permanently adjusts inventory and logs an expense.
             </AlertDialogDescription>
@@ -203,7 +203,7 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
             <AlertDialogAction onClick={handleFinalConfirm} className={cn(buttonVariants({ variant: 'destructive' }), 'w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px]')}>
               Authorize Write-Off
             </AlertDialogAction>
-            <AlertDialogCancel className="w-full h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none text-slate-400">
+            <AlertDialogCancel className="w-full h-10 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none text-muted-foreground">
               Cancel
             </AlertDialogCancel>
           </AlertDialogFooter>

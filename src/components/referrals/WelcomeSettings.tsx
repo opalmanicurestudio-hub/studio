@@ -7,7 +7,7 @@ import * as React from 'react';
 import { Reorder, useDragControls } from 'framer-motion';
 import { payPost } from '@/components/pay/pay-client';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d';
 const ALL = ['favorite', 'provider', 'visit', 'photos', 'good', 'proof'];
 const NAMES: Record<string, [string, string]> = {
   favorite: ['Their friend’s favorite, with open times', ''], provider: ['Who they’ll see', 'they can choose someone else'], visit: ['Their first visit, in steps', ''],
@@ -20,21 +20,21 @@ const LAYOUTS: { id: string; name: string; sub: string }[] = [
 const bar = (w: number, c: string, h = 6, mt = 0) => <div style={{ width: `${w}%`, height: h, borderRadius: 3, background: c, marginTop: mt }} />;
 const DARK = 'linear-gradient(180deg,#b9bcc4,#26282d)';
 function Thumb({ id }: { id: string }) {
-  if (id === 'invitation') return <div className="absolute inset-0" style={{ background: DARK }}><div className="absolute inset-x-2.5 bottom-3">{bar(60, '#fff')}{bar(85, '#fff', 9, 6)}<div className="mt-2.5 h-3.5 rounded-full bg-white" /></div></div>;
-  if (id === 'editorial') return <div className="absolute inset-0 bg-white"><div className="h-[52%]" style={{ background: 'linear-gradient(180deg,#b9bcc4,#55585e)' }} /><div className="p-2">{bar(40, LINE)}{bar(80, '#d4d5d9', 8, 6)}{bar(70, LINE, 6, 6)}</div></div>;
-  if (id === 'postcard') return <div className="absolute inset-0" style={{ background: SOFT }}><div className="absolute inset-x-3 top-4 h-[66%] -rotate-2 overflow-hidden rounded-[10px] bg-white shadow"><div className="h-[42%]" style={{ background: '#c9cacf' }} /><div className="p-1.5">{bar(50, INK, 8)}</div></div></div>;
+  if (id === 'invitation') return <div className="absolute inset-0" style={{ background: DARK }}><div className="absolute inset-x-2.5 bottom-3">{bar(60, '#fff')}{bar(85, '#fff', 9, 6)}<div className="mt-2.5 h-3.5 rounded-full bg-card" /></div></div>;
+  if (id === 'editorial') return <div className="absolute inset-0 bg-card"><div className="h-[52%]" style={{ background: 'linear-gradient(180deg,#b9bcc4,#55585e)' }} /><div className="p-2">{bar(40, LINE)}{bar(80, '#d4d5d9', 8, 6)}{bar(70, LINE, 6, 6)}</div></div>;
+  if (id === 'postcard') return <div className="absolute inset-0" style={{ background: SOFT }}><div className="absolute inset-x-3 top-4 h-[66%] -rotate-2 overflow-hidden rounded-[10px] bg-card shadow"><div className="h-[42%]" style={{ background: '#c9cacf' }} /><div className="p-1.5">{bar(50, INK, 8)}</div></div></div>;
   if (id === 'stories') return <div className="absolute inset-0" style={{ background: DARK }}><div className="absolute inset-x-2 top-2 flex gap-[3px]">{[0, 1, 2, 3, 4].map((k) => <span key={k} className="h-[2px] flex-1" style={{ background: k < 2 ? '#fff' : 'rgba(255,255,255,.4)' }} />)}</div><div className="absolute inset-x-2.5 bottom-3.5">{bar(50, '#fff', 12)}</div></div>;
-  return <div className="absolute inset-0 bg-white p-3">{[[55, 12], [75, 8], [50, 8], [65, 8]].map(([w, h], k) => <div key={k} className="py-1.5" style={{ borderBottom: `1px solid ${LINE}` }}>{bar(w, '#c9cacf', h)}</div>)}</div>;
+  return <div className="absolute inset-0 bg-card p-3">{[[55, 12], [75, 8], [50, 8], [65, 8]].map(([w, h], k) => <div key={k} className="py-1.5" style={{ borderBottom: `1px solid ${LINE}` }}>{bar(w, '#c9cacf', h)}</div>)}</div>;
 }
 
 function Row({ k, on, toggle, move, first, last }: { k: string; on: boolean; toggle: () => void; move: (d: number) => void; first: boolean; last: boolean }) {
   const drag = useDragControls();
-  return <Reorder.Item value={k} dragListener={false} dragControls={drag} className="flex items-center gap-2.5 bg-white py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+  return <Reorder.Item value={k} dragListener={false} dragControls={drag} className="flex items-center gap-2.5 bg-card py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
     <button type="button" aria-label="Drag to reorder" onPointerDown={(e) => drag.start(e)} className="cursor-grab touch-none px-1 text-[15px]" style={{ color: MUTED }}>⋮⋮</button>
     <span className="min-w-0 flex-1"><span className="block text-[13.5px]" style={{ color: on ? INK : MUTED }}>{NAMES[k][0]}</span>{NAMES[k][1] && <span className="block text-[11.5px]" style={{ color: MUTED }}>{NAMES[k][1]}</span>}</span>
     <button type="button" aria-label="Move up" disabled={first} onClick={() => move(-1)} className="h-7 w-7 rounded-full text-[13px] disabled:opacity-30" style={{ background: SOFT }}>↑</button>
     <button type="button" aria-label="Move down" disabled={last} onClick={() => move(1)} className="h-7 w-7 rounded-full text-[13px] disabled:opacity-30" style={{ background: SOFT }}>↓</button>
-    <button type="button" role="switch" aria-checked={on} aria-label={`Show ${NAMES[k][0]}`} onClick={toggle} className="relative h-6 w-10 shrink-0 rounded-full" style={{ background: on ? GREEN : '#d4d5d9' }}><span className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white transition-all" style={{ left: on ? 19 : 3 }} /></button>
+    <button type="button" role="switch" aria-checked={on} aria-label={`Show ${NAMES[k][0]}`} onClick={toggle} className="relative h-6 w-10 shrink-0 rounded-full" style={{ background: on ? GREEN : '#d4d5d9' }}><span className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-card transition-all" style={{ left: on ? 19 : 3 }} /></button>
   </Reorder.Item>;
 }
 
@@ -72,7 +72,7 @@ export function WelcomeSettings({ tenantId, s, setS }: { tenantId: string; s: an
                 <span className="block text-[13.5px] font-semibold">{t}</span><span className="block text-[11.5px]" style={{ color: MUTED }}>{sub}</span></button>)}</div>
             <p className="mt-1.5 text-[11.5px] leading-snug" style={{ color: MUTED }}>Either way, they can tap Change to pick anyone else who does that service.</p></div>
           <div className="flex items-center justify-between gap-3"><span className="text-[13.5px]">Gentle animation</span>
-            <button type="button" role="switch" aria-checked={s.motion !== false} aria-label="Gentle animation" onClick={() => setS((x: any) => ({ ...x, motion: x.motion === false }))} className="relative h-6 w-10 shrink-0 rounded-full" style={{ background: s.motion !== false ? GREEN : '#d4d5d9' }}><span className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white transition-all" style={{ left: s.motion !== false ? 19 : 3 }} /></button></div>
+            <button type="button" role="switch" aria-checked={s.motion !== false} aria-label="Gentle animation" onClick={() => setS((x: any) => ({ ...x, motion: x.motion === false }))} className="relative h-6 w-10 shrink-0 rounded-full" style={{ background: s.motion !== false ? GREEN : '#d4d5d9' }}><span className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-card transition-all" style={{ left: s.motion !== false ? 19 : 3 }} /></button></div>
           <p className="text-[11.5px] leading-snug" style={{ color: MUTED }}>Always still for people who turn on Reduce Motion on their phone.</p>
         </div>
       </div>

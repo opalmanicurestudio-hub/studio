@@ -83,7 +83,7 @@ export function CallbackQueue({ tenantId, uid }: { tenantId: string; uid?: strin
             </div>
             {openDone === d.id && <div className="space-y-2 rounded-xl bg-secondary p-3">
               <p className="text-xs font-semibold">What happened?</p>
-              <div className="flex flex-wrap gap-1.5">{OUTCOMES.map(([k, l]) => <button key={k} type="button" aria-pressed={outcome === k} onClick={() => setOutcome(k)} className={`rounded-full border px-3 py-1 text-xs ${outcome === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+              <div className="flex flex-wrap gap-1.5">{OUTCOMES.map(([k, l]) => <button key={k} type="button" aria-pressed={outcome === k} onClick={() => setOutcome(k)} className={`rounded-full border px-3 py-1 text-xs ${outcome === k ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={outcome === 'other' ? 'A short note (needed)' : 'Note (optional)'} className="h-9 w-full rounded-lg border px-3 text-sm" />
               <button type="button" disabled={!!busy || (outcome === 'other' && !note.trim())} onClick={async () => { if (await act(d.id, 'done', { action: 'resolve', outcome, note }, 'Closed.')) setOpenDone(null); }} className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${d.id}:done` ? 'Saving…' : 'Close it'}</button>
             </div>}

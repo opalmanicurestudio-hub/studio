@@ -68,12 +68,12 @@ function AutoBlock({
   icon: React.ElementType; title: string; source: string; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border bg-slate-50/60 p-3">
+    <div className="rounded-xl border bg-muted/60 p-3">
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
+        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
           <Icon className="w-3 h-3" /> {title}
         </p>
-        <p className="text-[8px] font-bold uppercase tracking-widest text-slate-300">
+        <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/70">
           {source}
         </p>
       </div>
@@ -222,14 +222,14 @@ export function VoiceKnowledgeManager({
   const policyLines = derivePolicyLines(tenant);
 
   return (
-    <div className={cn('rounded-2xl border bg-white overflow-hidden shadow-sm', className)}>
+    <div className={cn('rounded-2xl border bg-card overflow-hidden shadow-sm', className)}>
       <div className="p-4 border-b flex items-start gap-3">
         <div className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
           <BookOpen className="w-4 h-4 text-teal-600" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900">What the assistant knows</p>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-sm font-semibold text-foreground">What the assistant knows</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
             Compiled fresh on every call — the top section updates itself from
             your existing settings; you only maintain the questions below.
           </p>
@@ -244,7 +244,7 @@ export function VoiceKnowledgeManager({
       <div className="p-4 space-y-4">
 
         <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-300">
+          <p className="text-[9px] font-black uppercase tracking-[0.22em] text-muted-foreground/70">
             Known automatically
           </p>
           <div className="grid sm:grid-cols-2 gap-2">
@@ -252,11 +252,11 @@ export function VoiceKnowledgeManager({
               {hourLines.length > 0 ? (
                 <div className="space-y-0.5">
                   {hourLines.map((l) => (
-                    <p key={l} className="text-[11px] text-slate-600">{l}</p>
+                    <p key={l} className="text-[11px] text-foreground/80">{l}</p>
                   ))}
                 </div>
               ) : (
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-muted-foreground">
                   From your active schedule profile — set one under Settings → Schedule.
                 </p>
               )}
@@ -265,11 +265,11 @@ export function VoiceKnowledgeManager({
               {policyLines.length > 0 ? (
                 <div className="space-y-0.5">
                   {policyLines.map((l) => (
-                    <p key={l} className="text-[11px] text-slate-600">{l}</p>
+                    <p key={l} className="text-[11px] text-foreground/80">{l}</p>
                   ))}
                 </div>
               ) : (
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-muted-foreground">
                   Cancellation, late & no-show policies flow in from Settings the
                   moment you configure them.
                 </p>
@@ -277,7 +277,7 @@ export function VoiceKnowledgeManager({
             </AutoBlock>
             <AutoBlock icon={DollarSign} title="Service menu & prices" source="Services">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] text-slate-600">
+                <p className="text-[11px] text-foreground/80">
                   {servicesCount !== undefined
                     ? `${servicesCount} live services with current prices`
                     : 'Your live menu with current prices'}
@@ -288,12 +288,12 @@ export function VoiceKnowledgeManager({
                   className="shrink-0 text-teal-600"
                   title={includePrices ? 'Prices shared with callers' : 'Prices not shared'}
                 >
-                  {includePrices ? <ToggleRight className="w-6 h-6" /> : <ToggleLeft className="w-6 h-6 text-slate-300" />}
+                  {includePrices ? <ToggleRight className="w-6 h-6" /> : <ToggleLeft className="w-6 h-6 text-muted-foreground/70" />}
                 </button>
               </div>
             </AutoBlock>
             <AutoBlock icon={Users} title="Team" source="Pro Team">
-              <p className="text-[11px] text-slate-600">
+              <p className="text-[11px] text-foreground/80">
                 {staffNames && staffNames.length > 0
                   ? staffNames.join(', ')
                   : 'Active providers, by first name'}
@@ -304,7 +304,7 @@ export function VoiceKnowledgeManager({
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-300">
+            <p className="text-[9px] font-black uppercase tracking-[0.22em] text-muted-foreground/70">
               Frequently asked
             </p>
             <div className="flex items-center gap-1.5">
@@ -338,14 +338,14 @@ export function VoiceKnowledgeManager({
                 value={draft.question}
                 onChange={(e) => setDraft({ ...draft, question: e.target.value })}
                 placeholder="The question, as a caller would ask it"
-                className="h-9 text-xs bg-white"
+                className="h-9 text-xs bg-card"
               />
               <textarea
                 value={draft.answer}
                 onChange={(e) => setDraft({ ...draft, answer: e.target.value })}
                 rows={2}
                 placeholder="The answer, exactly as the assistant should say it"
-                className="w-full rounded-lg border px-3 py-2 text-xs resize-y bg-white"
+                className="w-full rounded-lg border px-3 py-2 text-xs resize-y bg-card"
               />
               <div className="flex gap-2 justify-end">
                 <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setDraft(null)}>
@@ -389,7 +389,7 @@ export function VoiceKnowledgeManager({
                     type="button"
                     onClick={() => toggleFaq(faq)}
                     disabled={!answered}
-                    className={cn('shrink-0 mt-0.5', live ? 'text-teal-600' : 'text-slate-300')}
+                    className={cn('shrink-0 mt-0.5', live ? 'text-teal-600' : 'text-muted-foreground/70')}
                     title={
                       !answered ? 'Answer it to turn it on'
                         : live ? 'The assistant uses this — tap to turn off'
@@ -399,9 +399,9 @@ export function VoiceKnowledgeManager({
                     {live ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-slate-900">{faq.question}</p>
+                    <p className="text-xs font-medium text-foreground">{faq.question}</p>
                     {answered ? (
-                      <p className="text-[11px] text-slate-500 mt-0.5">{faq.answer}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{faq.answer}</p>
                     ) : (
                       <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 mt-0.5 flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> Needs an answer
@@ -413,7 +413,7 @@ export function VoiceKnowledgeManager({
                     <button
                       type="button"
                       onClick={() => setDraft({ id: faq.id, question: faq.question, answer: faq.answer || '' })}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground/80 hover:bg-muted"
                     >
                       <Pencil className="w-3 h-3" />
                     </button>
@@ -421,7 +421,7 @@ export function VoiceKnowledgeManager({
                       type="button"
                       onClick={() => deleteFaq(faq.id)}
                       disabled={busyId === faq.id}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground/70 hover:text-red-500 hover:bg-red-50"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -433,7 +433,7 @@ export function VoiceKnowledgeManager({
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-300">
+          <p className="text-[9px] font-black uppercase tracking-[0.22em] text-muted-foreground/70">
             Anything else
           </p>
           <textarea
@@ -441,7 +441,7 @@ export function VoiceKnowledgeManager({
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
             placeholder="Anything that doesn't fit above — seasonal notes, house rules, directions quirks."
-            className="w-full rounded-lg border px-3 py-2.5 text-xs resize-y bg-white leading-relaxed"
+            className="w-full rounded-lg border px-3 py-2.5 text-xs resize-y bg-card leading-relaxed"
           />
           <div className="flex justify-end">
             <Button size="sm" className="h-8 text-xs" onClick={saveNotes} disabled={notesSaving}>

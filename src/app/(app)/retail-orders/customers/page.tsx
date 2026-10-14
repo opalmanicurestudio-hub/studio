@@ -219,7 +219,7 @@ export default function ShoppersPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 border-b-2 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b-2 bg-card/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-4">
           <Button asChild variant="ghost" size="icon" aria-label="Back to shop orders" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -241,7 +241,7 @@ export default function ShoppersPage() {
             { label: 'repeat customers', value: `${totals.repeatRate}%` },
             { label: 'customers', value: String(totals.customers) },
           ].map((k) => (
-            <div key={k.label} className="rounded-2xl border-2 bg-white p-3">
+            <div key={k.label} className="rounded-2xl border-2 bg-card p-3">
               <p className="font-mono text-lg font-bold leading-none">{k.value}</p>
               <p className="mt-1 text-[11px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
             </div>
@@ -249,7 +249,7 @@ export default function ShoppersPage() {
         </div>
 
         {rawOrders.length > 0 && (
-          <div className="rounded-2xl border-2 bg-white p-4">
+          <div className="rounded-2xl border-2 bg-card p-4">
             <div className="flex items-center gap-2">
               <UserPlus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <p className="text-[11px] font-black uppercase tracking-widest">New vs returning</p>
@@ -295,7 +295,7 @@ export default function ShoppersPage() {
         )}
 
         {rawOrders.length > 0 && (
-          <div className="rounded-2xl border-2 bg-white p-4">
+          <div className="rounded-2xl border-2 bg-card p-4">
             <div className="flex items-center gap-2">
               <Trophy className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <p className="text-[11px] font-black uppercase tracking-widest">Milestones</p>
@@ -367,7 +367,7 @@ export default function ShoppersPage() {
               aria-pressed={segment === key}
               className={cn(
                 'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border-2 px-3.5 text-[11px] font-black uppercase tracking-widest transition-colors',
-                segment === key ? 'border-foreground bg-foreground text-background' : 'bg-white'
+                segment === key ? 'border-foreground bg-foreground text-background' : 'bg-card'
               )}
             >
               <Icon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -399,7 +399,7 @@ export default function ShoppersPage() {
                 key={s.email}
                 type="button"
                 onClick={() => setDetail(s)}
-                className="w-full rounded-[1.5rem] border-2 bg-white p-4 text-left transition-shadow hover:shadow-md"
+                className="w-full rounded-[1.5rem] border-2 bg-card p-4 text-left transition-shadow hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">

@@ -47,16 +47,16 @@ function Assignment({ tenantId, courseId, lessonId, color }: { tenantId: string;
     else { const data = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(f); }); setFiles((x) => [...x, { name: f.name, data }]); } } };
   return (
     <Glass className="space-y-3">
-      <div className="flex items-center justify-between"><p className="text-lg font-semibold">📎 Your submission</p>{d.due && <p className="text-[12px] text-stone-500">Due {new Date(d.due).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}</div>
+      <div className="flex items-center justify-between"><p className="text-lg font-semibold">📎 Your submission</p>{d.due && <p className="text-[12px] text-muted-foreground">Due {new Date(d.due).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}</div>
       {s?.grade && s.status !== 'submitted' && (
-        <div className={`rounded-2xl p-4 ${s.status === 'resubmit' ? 'bg-sky-50' : 'bg-emerald-50'}`}><p className="text-2xl font-semibold">{s.grade.pct}% <span className="text-lg">· {s.grade.letter}</span></p>{s.status === 'resubmit' && <p className="text-sm font-semibold text-sky-900">Your instructor has asked you to try again.</p>}<p className="mt-1 whitespace-pre-wrap text-[15px]">{s.grade.feedback}</p><p className="mt-1 text-[11px] text-stone-500">{s.grade.by} · {new Date(s.grade.at).toLocaleDateString()}</p></div>
+        <div className={`rounded-2xl p-4 ${s.status === 'resubmit' ? 'bg-sky-50' : 'bg-emerald-50'}`}><p className="text-2xl font-semibold">{s.grade.pct}% <span className="text-lg">· {s.grade.letter}</span></p>{s.status === 'resubmit' && <p className="text-sm font-semibold text-sky-900">Your instructor has asked you to try again.</p>}<p className="mt-1 whitespace-pre-wrap text-[15px]">{s.grade.feedback}</p><p className="mt-1 text-[11px] text-muted-foreground">{s.grade.by} · {new Date(s.grade.at).toLocaleDateString()}</p></div>
       )}
       {s?.status === 'submitted' && <p className="rounded-2xl bg-amber-50 p-3 text-sm">✓ Submitted {new Date(s.submittedAt).toLocaleString()} — waiting for your instructor. You can still update it.</p>}
-      {(s?.files || []).length > 0 && <div className="flex flex-wrap gap-2">{s.files.map((f: any, i: number) => f.type?.startsWith('image/') ? <img key={i} src={f.url} alt={f.name} className="h-20 w-20 rounded-xl object-cover" /> : <a key={i} href={f.url} target="_blank" rel="noreferrer" className="rounded-xl bg-white/80 px-3 py-2 text-sm">📄 {f.name}</a>)}</div>}
+      {(s?.files || []).length > 0 && <div className="flex flex-wrap gap-2">{s.files.map((f: any, i: number) => f.type?.startsWith('image/') ? <img key={i} src={f.url} alt={f.name} className="h-20 w-20 rounded-xl object-cover" /> : <a key={i} href={f.url} target="_blank" rel="noreferrer" className="rounded-xl bg-card/80 px-3 py-2 text-sm">📄 {f.name}</a>)}</div>}
       {canSubmit && (
         <>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} placeholder="Write your answer here" className="w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-[15px]" />
-          <div className="flex flex-wrap gap-2">{files.map((f, i) => <div key={i} className="relative">{f.preview ? <img src={f.preview} alt="" className="h-20 w-20 rounded-xl object-cover" /> : <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-white/80 text-center text-[11px]">📄 {f.name}</div>}<button type="button" onClick={() => setFiles(files.filter((_, k) => k !== i))} className="absolute -right-1 -top-1 h-6 w-6 rounded-full bg-black/70 text-[11px] text-white" aria-label="Remove">✕</button></div>)}
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} placeholder="Write your answer here" className="w-full rounded-2xl border border-white/80 bg-card/80 p-3 text-[15px]" />
+          <div className="flex flex-wrap gap-2">{files.map((f, i) => <div key={i} className="relative">{f.preview ? <img src={f.preview} alt="" className="h-20 w-20 rounded-xl object-cover" /> : <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-card/80 text-center text-[11px]">📄 {f.name}</div>}<button type="button" onClick={() => setFiles(files.filter((_, k) => k !== i))} className="absolute -right-1 -top-1 h-6 w-6 rounded-full bg-black/70 text-[11px] text-white" aria-label="Remove">✕</button></div>)}
             <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed text-[12px]">📷<span>Add</span><input type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={(e) => void add(e.target.files)} /></label></div>
           {err && <p className="text-sm text-red-700">{err}</p>}
           <button type="button" disabled={busy || (!text.trim() && !files.length)} onClick={async () => { setBusy(true); setErr(''); const r = await api({ action: 'assignment-submit', tenantId, token: getToken(tenantId), courseId, lessonId, text, files: files.map((f) => ({ name: f.name, data: f.data })) }); setBusy(false); if (r.ok) { setFiles([]); void load(); } else setErr(r.error); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy ? 'Sending…' : s ? 'Submit again' : 'Submit'}</button>
@@ -75,11 +75,11 @@ export function Blocks({ blocks, accent, hideAt, report, audioFirst, extraTime }
   function oneBlock(b: any, i: number) {
       if (b.type === 'text') return <Glass key={i} className="space-y-2">{audioFirst && <div className="flex justify-end"><Listen text={b.text} /></div>}<Prose text={b.text} /></Glass>;
       if (b.type === 'callout') return <div key={i} className={`rounded-[1.25rem] border-2 p-4 ${tone[b.tone]?.[1] || ''}`}><p className="text-[12px] font-semibold uppercase tracking-widest">{tone[b.tone]?.[0]}</p><p className="mt-1 whitespace-pre-wrap text-[15px]">{b.text}</p></div>;
-      if (b.type === 'image') return b.media?.url ? <figure key={i}><img src={b.media.url} alt={b.caption || ''} className="w-full rounded-[1.25rem]" />{b.caption && <figcaption className="mt-1 text-center text-[13px] text-stone-500">{b.caption}</figcaption>}</figure> : null;
-      if (b.type === 'file') return b.media?.url ? <a key={i} href={b.media.url} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>{b.media.kind === 'audio' ? '🎧' : '📄'} {b.label || b.media.name}</span><span className="text-stone-500">Open</span></a> : null;
+      if (b.type === 'image') return b.media?.url ? <figure key={i}><img src={b.media.url} alt={b.caption || ''} className="w-full rounded-[1.25rem]" />{b.caption && <figcaption className="mt-1 text-center text-[13px] text-muted-foreground">{b.caption}</figcaption>}</figure> : null;
+      if (b.type === 'file') return b.media?.url ? <a key={i} href={b.media.url} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>{b.media.kind === 'audio' ? '🎧' : '📄'} {b.label || b.media.name}</span><span className="text-muted-foreground">Open</span></a> : null;
       if (b.type === 'steps') return (
         <Glass key={i} className="space-y-4">{b.title && <p className="text-lg font-semibold">{b.title}</p>}
-          {b.steps.map((s: any, k: number) => <div key={k} className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-start"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-900 text-sm font-semibold text-white">{k + 1}</span>
+          {b.steps.map((s: any, k: number) => <div key={k} className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-start"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-sm font-semibold text-background">{k + 1}</span>
             <div className="space-y-2">{s.text && <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{s.text}</p>}{s.media?.url && <img src={s.media.url} alt={`Step ${k + 1}`} className="w-full max-w-md rounded-2xl" />}</div></div>)}</Glass>
       );
       if (b.type === 'divider') return <hr key={i} className="border-white/70" />;
@@ -123,17 +123,17 @@ function A11yMenu({ a, save }: { a: A11y; save: (x: A11y) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Reading and display settings" className="h-9 rounded-full bg-white/70 px-3 text-sm font-semibold">Aa</button>
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Reading and display settings" className="h-9 rounded-full bg-card/70 px-3 text-sm font-semibold">Aa</button>
       {open && typeof document !== 'undefined' && createPortal(
         <>
         <div className="fixed inset-0 z-[70] bg-black/20" onClick={() => setOpen(false)} aria-hidden />
-        <div className="fixed inset-x-3 top-16 z-[71] space-y-3 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-900 shadow-2xl sm:inset-x-auto sm:right-6 sm:w-80" role="dialog" aria-label="Display settings">
-          <div className="flex items-center justify-between"><p className="font-semibold">Reading & display</p><button type="button" onClick={() => setOpen(false)} aria-label="Close" className="h-8 w-8 rounded-full bg-stone-100">✕</button></div>
-          <div><p className="font-semibold">Text size</p><div className="mt-1 flex gap-1">{[0, 1, 2, 3].map((n) => <button key={n} type="button" onClick={() => save({ ...a, size: n as A11y['size'] })} aria-pressed={a.size === n} className={`h-9 flex-1 rounded-lg ${a.size === n ? 'bg-stone-900 text-white' : 'bg-stone-100'}`} style={{ fontSize: 12 + n * 3 }}>A</button>)}</div></div>
+        <div className="fixed inset-x-3 top-16 z-[71] space-y-3 rounded-2xl border border-border bg-card p-4 text-sm text-foreground shadow-2xl sm:inset-x-auto sm:right-6 sm:w-80" role="dialog" aria-label="Display settings">
+          <div className="flex items-center justify-between"><p className="font-semibold">Reading & display</p><button type="button" onClick={() => setOpen(false)} aria-label="Close" className="h-8 w-8 rounded-full bg-muted">✕</button></div>
+          <div><p className="font-semibold">Text size</p><div className="mt-1 flex gap-1">{[0, 1, 2, 3].map((n) => <button key={n} type="button" onClick={() => save({ ...a, size: n as A11y['size'] })} aria-pressed={a.size === n} className={`h-9 flex-1 rounded-lg ${a.size === n ? 'bg-foreground text-background' : 'bg-muted'}`} style={{ fontSize: 12 + n * 3 }}>A</button>)}</div></div>
           {([['contrast', 'High contrast', 'Solid backgrounds, darker text'], ['readable', 'Easier-to-read font', 'Clearer letters and more spacing — helpful for dyslexia'], ['still', 'Reduce motion', 'No animations']] as const).map(([k, l, h]) => (
-            <label key={k} className="flex cursor-pointer items-start gap-2"><input type="checkbox" className="mt-1" checked={a[k]} onChange={(e) => save({ ...a, [k]: e.target.checked })} /><span><span className="font-semibold">{l}</span><span className="block text-[12px] text-stone-500">{h}</span></span></label>
+            <label key={k} className="flex cursor-pointer items-start gap-2"><input type="checkbox" className="mt-1" checked={a[k]} onChange={(e) => save({ ...a, [k]: e.target.checked })} /><span><span className="font-semibold">{l}</span><span className="block text-[12px] text-muted-foreground">{h}</span></span></label>
           ))}
-          <p className="text-[11px] text-stone-500">Saved on this device. Lessons also have “Listen” to hear the notes read aloud, and videos have their own caption and speed controls.</p>
+          <p className="text-[11px] text-muted-foreground">Saved on this device. Lessons also have “Listen” to hear the notes read aloud, and videos have their own caption and speed controls.</p>
         </div>
         </>, document.body)}
     </div>
@@ -146,7 +146,7 @@ function Listen({ text }: { text: string }) {
   useEffect(() => () => { try { window.speechSynthesis.cancel(); } catch { /* none */ } }, []);
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) return null;
   const toggle = () => { const s = window.speechSynthesis; if (on) { s.cancel(); setOn(false); return; } const u = new SpeechSynthesisUtterance(text.replace(/^#+\s*/gm, '')); u.rate = 0.95; u.onend = () => setOn(false); s.cancel(); s.speak(u); setOn(true); };
-  return <button type="button" onClick={toggle} className="rounded-full bg-white/80 px-4 py-2 text-sm shadow-sm">{on ? '■ Stop' : '🔊 Listen'}</button>;
+  return <button type="button" onClick={toggle} className="rounded-full bg-card/80 px-4 py-2 text-sm shadow-sm">{on ? '■ Stop' : '🔊 Listen'}</button>;
 }
 
 // ── Flashcards: flip, then "Got it" or "Again" (missed cards come back) ───
@@ -159,10 +159,10 @@ function Flashcards({ cards, color }: { cards: { front: string; back: string }[]
   const next = (gotIt: boolean) => { setFlip(false); if (gotIt) { setKnown(known + 1); setDeck(deck.slice(1)); } else setDeck([...deck.slice(1), c]); };
   return (
     <Glass className="space-y-3">
-      <div className="flex justify-between text-[12px] text-stone-500"><span>Flashcards</span><span>{known} of {cards.length} learned</span></div>
-      <button type="button" onClick={() => setFlip(!flip)} aria-label={flip ? 'Show question' : 'Show answer'} className="flex min-h-40 w-full items-center justify-center rounded-2xl bg-white/80 p-6 text-center text-xl">{flip ? c.back : c.front}</button>
-      <p className="text-center text-[12px] text-stone-500">{flip ? 'Did you know it?' : 'Tap the card to see the answer'}</p>
-      {flip && <div className="flex gap-2"><button type="button" onClick={() => next(false)} className="h-11 flex-1 rounded-full bg-white/80 text-sm">Again</button><button type="button" onClick={() => next(true)} className="h-11 flex-1 rounded-full text-sm font-medium text-white" style={{ background: color }}>Got it</button></div>}
+      <div className="flex justify-between text-[12px] text-muted-foreground"><span>Flashcards</span><span>{known} of {cards.length} learned</span></div>
+      <button type="button" onClick={() => setFlip(!flip)} aria-label={flip ? 'Show question' : 'Show answer'} className="flex min-h-40 w-full items-center justify-center rounded-2xl bg-card/80 p-6 text-center text-xl">{flip ? c.back : c.front}</button>
+      <p className="text-center text-[12px] text-muted-foreground">{flip ? 'Did you know it?' : 'Tap the card to see the answer'}</p>
+      {flip && <div className="flex gap-2"><button type="button" onClick={() => next(false)} className="h-11 flex-1 rounded-full bg-card/80 text-sm">Again</button><button type="button" onClick={() => next(true)} className="h-11 flex-1 rounded-full text-sm font-medium text-white" style={{ background: color }}>Got it</button></div>}
     </Glass>
   );
 }
@@ -185,8 +185,8 @@ function Hotspots({ b }: { b: any }) {
     <Glass className="space-y-3">{b.title && <p className="text-lg font-semibold">📍 {b.title}</p>}
       <div className="relative mx-auto w-fit max-w-full"><img src={b.media.url} alt={b.title || ''} className="max-h-[70vh] max-w-full rounded-2xl" />
         {b.points.map((p: any, i: number) => <button key={i} type="button" onClick={() => setOn(on === i ? null : i)} aria-label={p.label} className={`absolute flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-sm font-bold text-white ring-2 ring-white transition ${on === i ? 'scale-110 bg-violet-700' : 'bg-stone-900/80'}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>{i + 1}</button>)}</div>
-      {on != null ? <div className="rounded-2xl bg-white/85 p-3"><p className="font-semibold">{on + 1}. {b.points[on].label}</p><p className="text-[15px] text-stone-700">{b.points[on].text}</p></div> : <p className="text-center text-[13px] text-stone-500">Tap a number to learn about that part.</p>}
-      <div className="flex flex-wrap gap-1.5">{b.points.map((p: any, i: number) => <button key={i} type="button" onClick={() => setOn(i)} className={`rounded-full px-2.5 py-1 text-[12px] ${on === i ? 'bg-violet-700 text-white' : 'bg-white/80'}`}>{i + 1}. {p.label}</button>)}</div>
+      {on != null ? <div className="rounded-2xl bg-card/85 p-3"><p className="font-semibold">{on + 1}. {b.points[on].label}</p><p className="text-[15px] text-foreground/80">{b.points[on].text}</p></div> : <p className="text-center text-[13px] text-muted-foreground">Tap a number to learn about that part.</p>}
+      <div className="flex flex-wrap gap-1.5">{b.points.map((p: any, i: number) => <button key={i} type="button" onClick={() => setOn(i)} className={`rounded-full px-2.5 py-1 text-[12px] ${on === i ? 'bg-violet-700 text-white' : 'bg-card/80'}`}>{i + 1}. {p.label}</button>)}</div>
     </Glass>
   );
 }
@@ -198,9 +198,9 @@ function Stages({ b }: { b: any }) {
   return (
     <Glass className="space-y-3">{b.title && <p className="text-lg font-semibold">🎚 {b.title}</p>}
       {st.media?.url && <img src={st.media.url} alt={st.label} className="w-full rounded-2xl" />}
-      <div><p className="text-[11px] uppercase tracking-widest text-stone-500">Stage {k + 1} of {b.stages.length}</p><p className="text-xl font-semibold">{st.label}</p><p className="text-[15px] text-stone-700">{st.text}</p></div>
+      <div><p className="text-[11px] uppercase tracking-widest text-muted-foreground">Stage {k + 1} of {b.stages.length}</p><p className="text-xl font-semibold">{st.label}</p><p className="text-[15px] text-foreground/80">{st.text}</p></div>
       <input type="range" min={0} max={b.stages.length - 1} step={1} value={k} onChange={(e) => setK(Number(e.target.value))} className="w-full" aria-label="Stage" />
-      <div className="flex justify-between gap-1 text-[11px] text-stone-500">{b.stages.map((x: any, i: number) => <button key={i} type="button" onClick={() => setK(i)} className={i === k ? 'font-semibold text-stone-900' : ''}>{x.label || i + 1}</button>)}</div>
+      <div className="flex justify-between gap-1 text-[11px] text-muted-foreground">{b.stages.map((x: any, i: number) => <button key={i} type="button" onClick={() => setK(i)} className={i === k ? 'font-semibold text-foreground' : ''}>{x.label || i + 1}</button>)}</div>
     </Glass>
   );
 }
@@ -209,14 +209,14 @@ function Stages({ b }: { b: any }) {
 function Cases({ c, color, report }: { c: any; color: string; report?: (pct: number) => void }) {
   const [i, setI] = useState(0); const [pick, setPick] = useState<number | null>(null); const [right, setRight] = useState(0); const [done, setDone] = useState(false);
   const x = c.cases[i];
-  if (done) return <Glass className="space-y-2 text-center"><p className="text-3xl">🩺</p><p className="text-xl font-semibold">{right} of {c.cases.length} right</p><p className="text-stone-600">Saved. When in doubt, refer — a doctor can rule things out safely.</p><button type="button" onClick={() => { setI(0); setPick(null); setRight(0); setDone(false); }} className="text-sm underline">Try again</button></Glass>;
+  if (done) return <Glass className="space-y-2 text-center"><p className="text-3xl">🩺</p><p className="text-xl font-semibold">{right} of {c.cases.length} right</p><p className="text-foreground/80">Saved. When in doubt, refer — a doctor can rule things out safely.</p><button type="button" onClick={() => { setI(0); setPick(null); setRight(0); setDone(false); }} className="text-sm underline">Try again</button></Glass>;
   return (
     <Glass className="space-y-3">
-      <div className="flex items-center justify-between"><p className="text-lg font-semibold">🩺 {c.prompt}</p><span className="text-sm text-stone-500">{i + 1}/{c.cases.length}</span></div>
+      <div className="flex items-center justify-between"><p className="text-lg font-semibold">🩺 {c.prompt}</p><span className="text-sm text-muted-foreground">{i + 1}/{c.cases.length}</span></div>
       {x.media?.url && <img src={x.media.url} alt="" className="w-full rounded-2xl" />}
       <p className="whitespace-pre-wrap text-[16px] leading-relaxed">{x.story}</p>
-      <div className="grid gap-2">{x.options.map((o: any, k: number) => { const chosen = pick === k; return <button key={k} type="button" disabled={pick != null} onClick={() => { setPick(k); if (o.correct) setRight((n) => n + 1); }} className={`min-h-12 rounded-2xl px-4 py-2 text-left text-[15px] ${pick != null && o.correct ? 'bg-emerald-600 text-white' : chosen ? 'bg-red-500 text-white' : 'bg-white/90'}`}>{o.text}</button>; })}</div>
-      {pick != null && <><p className="rounded-2xl bg-white/85 p-3 text-[15px]">{x.options[pick].feedback || (x.options[pick].correct ? 'Right choice.' : 'Not the best choice here.')}</p>
+      <div className="grid gap-2">{x.options.map((o: any, k: number) => { const chosen = pick === k; return <button key={k} type="button" disabled={pick != null} onClick={() => { setPick(k); if (o.correct) setRight((n) => n + 1); }} className={`min-h-12 rounded-2xl px-4 py-2 text-left text-[15px] ${pick != null && o.correct ? 'bg-emerald-600 text-white' : chosen ? 'bg-red-500 text-white' : 'bg-card/90'}`}>{o.text}</button>; })}</div>
+      {pick != null && <><p className="rounded-2xl bg-card/85 p-3 text-[15px]">{x.options[pick].feedback || (x.options[pick].correct ? 'Right choice.' : 'Not the best choice here.')}</p>
         <button type="button" onClick={() => { if (i + 1 >= c.cases.length) { setDone(true); report?.(Math.round((right / c.cases.length) * 100)); } else { setI(i + 1); setPick(null); } }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>{i + 1 >= c.cases.length ? 'See my score' : 'Next case'}</button></>}
     </Glass>
   );
@@ -242,13 +242,13 @@ function WordSearchGame({ a, color, report }: { a: any; color: string; report?: 
   return (
     <Glass className="space-y-3">
       <div className="flex items-center justify-between"><p className="text-lg font-semibold">🔎 {a.prompt}</p><span className="text-sm font-semibold">{found.length}/{ws.placed.length}</span></div>
-      <p className="text-[13px] text-stone-500">Tap the first letter of a word, then its last letter.</p>
+      <p className="text-[13px] text-muted-foreground">Tap the first letter of a word, then its last letter.</p>
       <div className={`mx-auto grid w-full max-w-md select-none gap-0.5 ${miss ? 'animate-pulse' : ''}`} style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }}>
         {ws.grid.map((row: string[], r: number) => row.map((ch, c) => { const on = lit.has(`${r},${c}`); const st = start && start[0] === r && start[1] === c; return (
-          <button key={`${r},${c}`} type="button" onClick={() => tap(r, c)} className={`aspect-square rounded-md text-[13px] font-semibold sm:text-sm ${st ? 'text-white' : on ? 'bg-emerald-200 text-emerald-900' : 'bg-white/80'}`} style={st ? { background: color } : undefined}>{ch}</button>
+          <button key={`${r},${c}`} type="button" onClick={() => tap(r, c)} className={`aspect-square rounded-md text-[13px] font-semibold sm:text-sm ${st ? 'text-white' : on ? 'bg-emerald-200 text-emerald-900' : 'bg-card/80'}`} style={st ? { background: color } : undefined}>{ch}</button>
         ); }))}
       </div>
-      <div className="flex flex-wrap gap-1.5">{ws.placed.map((p: any) => <span key={p.word} className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${found.includes(p.word) ? 'bg-emerald-100 text-emerald-800 line-through' : 'bg-white/80'}`}>{p.word}</span>)}</div>
+      <div className="flex flex-wrap gap-1.5">{ws.placed.map((p: any) => <span key={p.word} className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${found.includes(p.word) ? 'bg-emerald-100 text-emerald-800 line-through' : 'bg-card/80'}`}>{p.word}</span>)}</div>
       {done && <p className="rounded-2xl bg-emerald-50 p-3 text-center font-semibold text-emerald-800">🎉 All found — saved!</p>}
     </Glass>
   );
@@ -276,13 +276,13 @@ function CrosswordGame({ a, color, report }: { a: any; color: string; report?: (
       <p className="text-lg font-semibold">✏️ {a.prompt}</p>
       <div className="overflow-x-auto"><div className="mx-auto grid w-max gap-0" style={{ gridTemplateColumns: `repeat(${cw.cols}, 1.9rem)` }}>
         {cw.grid.map((row: string[], r: number) => row.map((sol, c) => { const k = `${r},${c}`; if (!sol) return <span key={k} className="h-[1.9rem] w-[1.9rem]" />; const bad = checked && v[k] !== sol; const good = checked && v[k] === sol; return (
-          <label key={k} className={`relative h-[1.9rem] w-[1.9rem] border border-stone-800 ${good ? 'bg-emerald-100' : bad ? 'bg-red-100' : 'bg-white'}`}>
+          <label key={k} className={`relative h-[1.9rem] w-[1.9rem] border border-stone-800 ${good ? 'bg-emerald-100' : bad ? 'bg-red-100' : 'bg-card'}`}>
             {cw.numbers.has(k) && <span className="absolute left-0.5 top-0 text-[8px] font-semibold leading-none">{cw.numbers.get(k)}</span>}
             <input ref={(el) => { refs.current[k] = el; }} value={v[k] || ''} onFocus={() => { dirRef.current = !cw.grid[r]?.[c + 1] && !cw.grid[r]?.[c - 1]; }} onChange={(e) => type(r, c, e.target.value)} maxLength={2} inputMode="text" autoCapitalize="characters" autoCorrect="off" spellCheck={false} aria-label={`Row ${r + 1} column ${c + 1}`} className="h-full w-full bg-transparent text-center text-[15px] font-semibold uppercase outline-none focus:bg-amber-50" />
           </label>
         ); }))}
       </div></div>
-      <div className="grid gap-3 sm:grid-cols-2">{[false, true].map((down) => <div key={String(down)}><p className="text-[11px] font-semibold uppercase tracking-widest text-stone-500">{down ? 'Down' : 'Across'}</p>{clues(down).map((p: any) => <p key={`${p.n}${down}`} className={`text-[14px] ${checked && wordOk(p) ? 'text-emerald-700' : ''}`}><b>{p.n}.</b> {p.clue} <span className="text-stone-400">({p.word.length})</span></p>)}</div>)}</div>
+      <div className="grid gap-3 sm:grid-cols-2">{[false, true].map((down) => <div key={String(down)}><p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">{down ? 'Down' : 'Across'}</p>{clues(down).map((p: any) => <p key={`${p.n}${down}`} className={`text-[14px] ${checked && wordOk(p) ? 'text-emerald-700' : ''}`}><b>{p.n}.</b> {p.clue} <span className="text-muted-foreground">({p.word.length})</span></p>)}</div>)}</div>
       <button type="button" onClick={() => { setChecked(true); report?.(Math.round((right / Math.max(1, cw.placed.length)) * 100)); }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>Check · {checked ? `${right} of ${cw.placed.length} right — saved` : 'see how you did'}</button>
     </Glass>
   );
@@ -298,9 +298,9 @@ function ClozeGame({ a, color, report }: { a: any; color: string; report?: (pct:
   return (
     <Glass className="space-y-3">
       <p className="text-lg font-semibold">📝 {a.prompt}</p>
-      <div className="flex flex-wrap gap-1.5">{bank.map((w: string, i: number) => <span key={i} className="rounded-full bg-white/80 px-2.5 py-1 text-[12px]">{w}</span>)}</div>
+      <div className="flex flex-wrap gap-1.5">{bank.map((w: string, i: number) => <span key={i} className="rounded-full bg-card/80 px-2.5 py-1 text-[12px]">{w}</span>)}</div>
       {a.items.map((x: any, i: number) => { const [before, after] = String(x.sentence).split('____'); const ok = checked && norm(ans[i]) === norm(x.answer); const bad = checked && !ok; return (
-        <p key={i} className="text-[15px] leading-9">{i + 1}. {before}<input value={ans[i]} onChange={(e) => { const n = [...ans]; n[i] = e.target.value; setAns(n); setChecked(false); }} className={`mx-1 h-9 w-36 rounded-lg border-2 px-2 text-[15px] ${ok ? 'border-emerald-500 bg-emerald-50' : bad ? 'border-red-400 bg-red-50' : 'border-stone-300 bg-white'}`} aria-label={`Blank ${i + 1}`} />{after}{bad && <span className="ml-1 text-[12px] text-red-700">→ {x.answer}</span>}</p>
+        <p key={i} className="text-[15px] leading-9">{i + 1}. {before}<input value={ans[i]} onChange={(e) => { const n = [...ans]; n[i] = e.target.value; setAns(n); setChecked(false); }} className={`mx-1 h-9 w-36 rounded-lg border-2 px-2 text-[15px] ${ok ? 'border-emerald-500 bg-emerald-50' : bad ? 'border-red-400 bg-red-50' : 'border-border bg-card'}`} aria-label={`Blank ${i + 1}`} />{after}{bad && <span className="ml-1 text-[12px] text-red-700">→ {x.answer}</span>}</p>
       ); })}
       <button type="button" onClick={() => { setChecked(true); report?.(Math.round((right / Math.max(1, a.items.length)) * 100)); }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>{checked ? `${right} of ${a.items.length} right — saved` : 'Check my answers'}</button>
     </Glass>
@@ -316,14 +316,14 @@ function LabelGame({ a, color }: { a: any; color: string }) {
   const place = (i: number) => { if (pick == null || done.has(i)) return; if (pick === i) { setDone(new Set([...done, i])); setPick(null); } else { setWrong(i); setTimeout(() => setWrong(null), 700); } };
   return (
     <Glass className="space-y-3">
-      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-stone-500">Tap a label below, then the numbered spot it belongs to.</p>
+      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-muted-foreground">Tap a label below, then the numbered spot it belongs to.</p>
       <div className="relative inline-block w-full">
         <img src={a.imageUrl} alt="Diagram to label" className="w-full rounded-2xl" />
         {a.points.map((p: any, i: number) => (
-          <button key={i} type="button" onClick={() => place(i)} aria-label={done.has(i) ? `Spot ${i + 1}: ${p.label}` : `Spot ${i + 1}`} className={`absolute flex min-h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full px-2 text-[12px] font-bold shadow ring-2 ring-white ${done.has(i) ? 'bg-emerald-600 text-white' : wrong === i ? 'bg-red-500 text-white' : 'bg-white text-stone-900'}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>{done.has(i) ? p.label : i + 1}</button>
+          <button key={i} type="button" onClick={() => place(i)} aria-label={done.has(i) ? `Spot ${i + 1}: ${p.label}` : `Spot ${i + 1}`} className={`absolute flex min-h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full px-2 text-[12px] font-bold shadow ring-2 ring-white ${done.has(i) ? 'bg-emerald-600 text-white' : wrong === i ? 'bg-red-500 text-white' : 'bg-card text-foreground'}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>{done.has(i) ? p.label : i + 1}</button>
         ))}
       </div>
-      <div className="flex flex-wrap gap-2">{labels.filter((l: any) => !done.has(l.i)).map((l: any) => <button key={l.i} type="button" onClick={() => setPick(l.i)} aria-pressed={pick === l.i} className={`rounded-full px-3 py-2 text-sm ${pick === l.i ? 'text-white' : 'bg-white/80'}`} style={pick === l.i ? { background: color } : undefined}>{l.text}</button>)}</div>
+      <div className="flex flex-wrap gap-2">{labels.filter((l: any) => !done.has(l.i)).map((l: any) => <button key={l.i} type="button" onClick={() => setPick(l.i)} aria-pressed={pick === l.i} className={`rounded-full px-3 py-2 text-sm ${pick === l.i ? 'text-white' : 'bg-card/80'}`} style={pick === l.i ? { background: color } : undefined}>{l.text}</button>)}</div>
       {done.size === a.points.length && <p className="font-semibold text-emerald-700">🎉 All labelled!</p>}
     </Glass>
   );
@@ -336,10 +336,10 @@ function MatchGame({ a, color }: { a: any; color: string }) {
   const tryMatch = (ri: number) => { if (pick == null) return; if (ri === pick) { setDone(new Set([...done, pick])); setPick(null); } else { setWrong(ri); setTimeout(() => setWrong(null), 700); } };
   return (
     <Glass className="space-y-3">
-      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-stone-500">Tap an item on the left, then its match on the right.</p>
+      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-muted-foreground">Tap an item on the left, then its match on the right.</p>
       <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-2">{a.pairs.map((p: any, i: number) => <button key={i} type="button" disabled={done.has(i)} onClick={() => setPick(i)} aria-pressed={pick === i} className={`w-full rounded-xl p-3 text-left text-sm ${done.has(i) ? 'bg-emerald-100 text-emerald-800' : pick === i ? 'text-white' : 'bg-white/80'}`} style={pick === i && !done.has(i) ? { background: color } : undefined}>{done.has(i) ? '✓ ' : ''}{p.left}</button>)}</div>
-        <div className="space-y-2">{rights.map((r: any) => <button key={r.i} type="button" disabled={done.has(r.i)} onClick={() => tryMatch(r.i)} className={`w-full rounded-xl p-3 text-left text-sm ${done.has(r.i) ? 'bg-emerald-100 text-emerald-800' : wrong === r.i ? 'bg-red-100' : 'bg-white/80'}`}>{r.text}</button>)}</div>
+        <div className="space-y-2">{a.pairs.map((p: any, i: number) => <button key={i} type="button" disabled={done.has(i)} onClick={() => setPick(i)} aria-pressed={pick === i} className={`w-full rounded-xl p-3 text-left text-sm ${done.has(i) ? 'bg-emerald-100 text-emerald-800' : pick === i ? 'text-white' : 'bg-card/80'}`} style={pick === i && !done.has(i) ? { background: color } : undefined}>{done.has(i) ? '✓ ' : ''}{p.left}</button>)}</div>
+        <div className="space-y-2">{rights.map((r: any) => <button key={r.i} type="button" disabled={done.has(r.i)} onClick={() => tryMatch(r.i)} className={`w-full rounded-xl p-3 text-left text-sm ${done.has(r.i) ? 'bg-emerald-100 text-emerald-800' : wrong === r.i ? 'bg-red-100' : 'bg-card/80'}`}>{r.text}</button>)}</div>
       </div>
       {done.size === a.pairs.length && <p className="font-semibold text-emerald-700">🎉 All matched!</p>}
     </Glass>
@@ -352,16 +352,16 @@ function OrderGame({ a, color }: { a: any; color: string }) {
   const right = items.every((x, i) => x === a.steps[i]);
   return (
     <Glass className="space-y-3">
-      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-stone-500">Use the arrows to put them in order, then check.</p>
+      <p className="font-semibold">{a.prompt}</p><p className="text-[12px] text-muted-foreground">Use the arrows to put them in order, then check.</p>
       <ol className="space-y-1.5">{items.map((x, i) => (
-        <li key={x} className={`flex items-center gap-2 rounded-xl p-2.5 text-sm ${checked ? (x === a.steps[i] ? 'bg-emerald-100' : 'bg-red-100') : 'bg-white/80'}`}>
+        <li key={x} className={`flex items-center gap-2 rounded-xl p-2.5 text-sm ${checked ? (x === a.steps[i] ? 'bg-emerald-100' : 'bg-red-100') : 'bg-card/80'}`}>
           <span className="w-6 text-center font-semibold">{i + 1}</span><span className="flex-1">{x}</span>
-          <button type="button" onClick={() => move(i, -1)} aria-label={`Move “${x}” up`} className="h-8 w-8 rounded-lg bg-white">↑</button>
-          <button type="button" onClick={() => move(i, 1)} aria-label={`Move “${x}” down`} className="h-8 w-8 rounded-lg bg-white">↓</button>
+          <button type="button" onClick={() => move(i, -1)} aria-label={`Move “${x}” up`} className="h-8 w-8 rounded-lg bg-card">↑</button>
+          <button type="button" onClick={() => move(i, 1)} aria-label={`Move “${x}” down`} className="h-8 w-8 rounded-lg bg-card">↓</button>
         </li>
       ))}</ol>
       <button type="button" onClick={() => setChecked(true)} className="h-11 rounded-full px-6 text-sm font-medium text-white" style={{ background: color }}>Check my order</button>
-      {checked && <p className={`font-semibold ${right ? 'text-emerald-700' : 'text-stone-700'}`}>{right ? '🎉 Perfect order!' : 'Not quite — the red ones are in the wrong place.'}</p>}
+      {checked && <p className={`font-semibold ${right ? 'text-emerald-700' : 'text-foreground/80'}`}>{right ? '🎉 Perfect order!' : 'Not quite — the red ones are in the wrong place.'}</p>}
     </Glass>
   );
 }
@@ -369,15 +369,15 @@ function Scenario({ a, color }: { a: any; color: string }) {
   const [chosen, setChosen] = useState<number | null>(null);
   return (
     <Glass className="space-y-3">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-400">Client scenario</p>
+      <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Client scenario</p>
       <p className="whitespace-pre-wrap text-[15px] font-semibold">{a.prompt}</p>
       <div className="space-y-2">{a.options.map((o: any, i: number) => (
         <div key={i}>
-          <button type="button" onClick={() => setChosen(i)} className={`w-full rounded-xl p-3 text-left text-sm ${chosen === i ? (o.correct ? 'bg-emerald-100' : 'bg-red-100') : 'bg-white/80'}`}>{o.text}</button>
+          <button type="button" onClick={() => setChosen(i)} className={`w-full rounded-xl p-3 text-left text-sm ${chosen === i ? (o.correct ? 'bg-emerald-100' : 'bg-red-100') : 'bg-card/80'}`}>{o.text}</button>
           {chosen === i && <p className={`mt-1 px-2 text-[13px] ${o.correct ? 'text-emerald-800' : 'text-red-800'}`}>{o.correct ? '✓ ' : '✗ '}{o.feedback}</p>}
         </div>
       ))}</div>
-      {chosen != null && !a.options[chosen].correct && <p className="text-[12px] text-stone-500">Try another answer.</p>}
+      {chosen != null && !a.options[chosen].correct && <p className="text-[12px] text-muted-foreground">Try another answer.</p>}
     </Glass>
   );
 }
@@ -398,9 +398,9 @@ function Tutor({ tenantId, courseId, lessonId, color }: { tenantId: string; cour
   return (
     <Glass className="space-y-3">
       <p className="font-semibold">✨ Ask the tutor</p>
-      <p className="text-[12px] text-stone-500">Answers come only from this course’s lessons. For anything else, message your instructor.</p>
-      {chat.map((c, i) => <div key={i} className="space-y-1.5"><p className="ml-auto max-w-[85%] rounded-2xl px-3 py-2 text-sm text-white" style={{ background: color }}>{c.q}</p><p className="max-w-[92%] whitespace-pre-wrap rounded-2xl bg-white/80 px-3 py-2 text-sm">{c.a}</p></div>)}
-      <div className="flex gap-2"><input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void ask(); }} placeholder="e.g. Why does the apex sit behind the stress point?" className="h-11 flex-1 rounded-2xl border border-white/80 bg-white/75 px-4 text-sm" />
+      <p className="text-[12px] text-muted-foreground">Answers come only from this course’s lessons. For anything else, message your instructor.</p>
+      {chat.map((c, i) => <div key={i} className="space-y-1.5"><p className="ml-auto max-w-[85%] rounded-2xl px-3 py-2 text-sm text-white" style={{ background: color }}>{c.q}</p><p className="max-w-[92%] whitespace-pre-wrap rounded-2xl bg-card/80 px-3 py-2 text-sm">{c.a}</p></div>)}
+      <div className="flex gap-2"><input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void ask(); }} placeholder="e.g. Why does the apex sit behind the stress point?" className="h-11 flex-1 rounded-2xl border border-white/80 bg-card/75 px-4 text-sm" />
         <button type="button" disabled={busy || !q.trim()} onClick={ask} className="rounded-2xl px-4 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy ? '…' : 'Ask'}</button></div>
       {err && <p className="text-sm text-red-700">{err}</p>}
     </Glass>
@@ -423,21 +423,21 @@ export const MOTION_CSS = `
 export function Shell({ brand, tenantId, children }: { brand?: any; tenantId: string; children: React.ReactNode }) {
   const [a, save] = useA11y(tenantId);
   return (
-    <div className="relative min-h-dvh text-stone-900" data-cf-contrast={a.contrast ? '1' : undefined} data-cf-readable={a.readable ? '1' : undefined} data-cf-still={a.still ? '1' : undefined}>
+    <div className="relative min-h-dvh text-foreground" data-cf-contrast={a.contrast ? '1' : undefined} data-cf-readable={a.readable ? '1' : undefined} data-cf-still={a.still ? '1' : undefined}>
       <style>{A11Y_CSS + MOTION_CSS}</style>
       <div className="cf-backdrop"><AuthBackdrop /></div>
       <div className="relative z-10">
-        <header className="sticky top-0 z-20 border-b border-white/60 bg-white/55 backdrop-blur-2xl">
+        <header className="sticky top-0 z-20 border-b border-white/60 bg-card/55 backdrop-blur-2xl">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-5 py-3">
             <Link href={`/learn/${tenantId}`} className="flex min-w-0 items-center gap-2">
               {brand?.logoUrl && <img src={brand.logoUrl} alt="" className="h-8 w-8 rounded-full object-cover" />}
               <span className="truncate text-lg font-light tracking-tight">{brand?.name || 'Academy'} <span className="font-semibold">Academy</span></span>
             </Link>
-            <div className="flex shrink-0 items-center gap-2"><A11yMenu a={a} save={save} /><Link href={`/learn/${tenantId}/my`} className="rounded-full bg-white/70 px-4 py-2 text-sm">My courses</Link></div>
+            <div className="flex shrink-0 items-center gap-2"><A11yMenu a={a} save={save} /><Link href={`/learn/${tenantId}/my`} className="rounded-full bg-card/70 px-4 py-2 text-sm">My courses</Link></div>
           </div>
         </header>
         <main className="mx-auto max-w-5xl px-5 pb-28 pt-8">{children}</main>
-        <p className="pb-8 text-center text-[11px] text-stone-400">Powered by ClarityFlow</p>
+        <p className="pb-8 text-center text-[11px] text-muted-foreground">Powered by ClarityFlow</p>
       </div>
     </div>
   );
@@ -448,7 +448,7 @@ export const Loading = () => <Skeleton />;
 /** Paragraphs and "# headings" — enough for lesson notes. */
 export function Prose({ text }: { text: string }) {
   if (!text?.trim()) return null;
-  return <div className="space-y-3 text-[15px] leading-relaxed text-stone-800">{text.split(/\n{2,}/).map((p, i) => p.startsWith('#') ? <h3 key={i} className="pt-2 text-lg font-semibold">{p.replace(/^#+\s*/, '')}</h3> : <p key={i} className="whitespace-pre-wrap">{p}</p>)}</div>;
+  return <div className="space-y-3 text-[15px] leading-relaxed text-foreground">{text.split(/\n{2,}/).map((p, i) => p.startsWith('#') ? <h3 key={i} className="pt-2 text-lg font-semibold">{p.replace(/^#+\s*/, '')}</h3> : <p key={i} className="whitespace-pre-wrap">{p}</p>)}</div>;
 }
 
 function MuxPlayer({ playbackId, token, color, title, bind }: { playbackId: string; token: string | null; color: string; title: string; bind?: (el: any) => void }) {
@@ -468,16 +468,16 @@ export function Catalog({ tenantId }: { tenantId: string }) {
   return (
     <Shell brand={d.brand} tenantId={tenantId}>
       <h1 className="text-4xl font-light tracking-tight sm:text-5xl">Learn with <span className="font-semibold">{d.brand.name}</span></h1>
-      <p className="mt-2 text-lg text-stone-600">Online courses you can take at your own pace.</p>
+      <p className="mt-2 text-lg text-foreground/80">Online courses you can take at your own pace.</p>
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        {d.courses.length === 0 && <Glass><p className="text-stone-600">New courses are on the way.</p></Glass>}
+        {d.courses.length === 0 && <Glass><p className="text-foreground/80">New courses are on the way.</p></Glass>}
         {d.courses.map((c: any) => (
           <Link key={c.id} href={`/learn/${tenantId}/${c.slug}`} className="glass block overflow-hidden rounded-[1.75rem] border border-white/70 transition hover:-translate-y-0.5">
             {c.coverUrl ? <img src={c.coverUrl} alt="" className="aspect-video w-full object-cover" /> : <div className="aspect-video w-full" style={{ background: `linear-gradient(135deg, ${d.brand.color}33, #f7f5f2)` }} />}
             <div className="p-5">
               <p className="text-xl font-semibold">{c.title}</p>
-              {c.subtitle && <p className="mt-1 text-stone-600">{c.subtitle}</p>}
-              <p className="mt-3 text-sm text-stone-500">{c.lessonCount} lessons{c.level ? ` · ${c.level}` : ''} · <span className="font-semibold text-stone-900">{money(c.priceCents)}</span></p>
+              {c.subtitle && <p className="mt-1 text-foreground/80">{c.subtitle}</p>}
+              <p className="mt-3 text-sm text-muted-foreground">{c.lessonCount} lessons{c.level ? ` · ${c.level}` : ''} · <span className="font-semibold text-foreground">{money(c.priceCents)}</span></p>
             </div>
           </Link>
         ))}
@@ -518,12 +518,12 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
           {c.coverUrl && <img src={c.coverUrl} alt="" className="aspect-video w-full rounded-[1.75rem] object-cover" />}
           <div>
             <h1 className="text-4xl font-light tracking-tight sm:text-5xl">{c.title}</h1>
-            {c.subtitle && <p className="mt-2 text-lg text-stone-600">{c.subtitle}</p>}
-            <p className="mt-2 text-sm text-stone-500">{c.instructorName ? `With ${c.instructorName} · ` : ''}{d.lessons.length} lessons{c.level ? ` · ${c.level}` : ''}</p>
+            {c.subtitle && <p className="mt-2 text-lg text-foreground/80">{c.subtitle}</p>}
+            <p className="mt-2 text-sm text-muted-foreground">{c.instructorName ? `With ${c.instructorName} · ` : ''}{d.lessons.length} lessons{c.level ? ` · ${c.level}` : ''}</p>
           </div>
-          {c.whatYouLearn?.length > 0 && <Glass><p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">What you’ll learn</p><ul className="mt-3 grid gap-2 sm:grid-cols-2">{c.whatYouLearn.map((w: string) => <li key={w} className="flex gap-2 text-[15px]"><span style={{ color }}>✓</span>{w}</li>)}</ul></Glass>}
+          {c.whatYouLearn?.length > 0 && <Glass><p className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground">What you’ll learn</p><ul className="mt-3 grid gap-2 sm:grid-cols-2">{c.whatYouLearn.map((w: string) => <li key={w} className="flex gap-2 text-[15px]"><span style={{ color }}>✓</span>{w}</li>)}</ul></Glass>}
           {d.enrolled && d.modules?.length > 0 ? <Journey d={d} tenantId={tenantId} slug={slug} color={color} /> : <Glass>
-            <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">Curriculum</p>
+            <p className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground">Curriculum</p>
             <div className="mt-3 space-y-4">
               {modules.map((m) => (
                 <div key={m.title}>
@@ -531,7 +531,7 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
                   <div className="mt-1.5 space-y-1">{m.lessons.map((l: any) => {
                     const locked = l.unlockAt && new Date(l.unlockAt).getTime() > Date.now();
                     const open = (d.enrolled && !locked) || l.preview;
-                    const row = <span className="flex items-center gap-2 rounded-2xl bg-white/60 px-3 py-2 text-sm"><span>{d.progress?.[l.id] ? '✓' : l.kind === 'video' ? '▶' : l.kind === 'download' ? '↓' : '≡'}</span><span className="min-w-0 flex-1 truncate">{l.title}</span>{!d.enrolled && l.preview && <span className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white" style={{ background: color }}>Watch free</span>}{!open && <span className="text-stone-400">{locked ? `🗓 ${new Date(l.unlockAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : '🔒'}</span>}<span className="text-[12px] text-stone-500">{mins(l.durationSec)}</span></span>;
+                    const row = <span className="flex items-center gap-2 rounded-2xl bg-card/60 px-3 py-2 text-sm"><span>{d.progress?.[l.id] ? '✓' : l.kind === 'video' ? '▶' : l.kind === 'download' ? '↓' : '≡'}</span><span className="min-w-0 flex-1 truncate">{l.title}</span>{!d.enrolled && l.preview && <span className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white" style={{ background: color }}>Watch free</span>}{!open && <span className="text-muted-foreground">{locked ? `🗓 ${new Date(l.unlockAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : '🔒'}</span>}<span className="text-[12px] text-muted-foreground">{mins(l.durationSec)}</span></span>;
                     return open ? <Link key={l.id} href={`/learn/${tenantId}/${slug}/${l.id}`}>{row}</Link> : <div key={l.id}>{row}</div>;
                   })}</div>
                 </div>
@@ -547,18 +547,18 @@ export function Course({ tenantId, slug }: { tenantId: string; slug: string }) {
               <>
                 <p className="text-lg font-semibold">You’re enrolled</p>
                 {d.game && <GameChips g={d.game} color={color} />}
-                <div><div className="h-2 rounded-full bg-white/70"><div className="h-2 rounded-full" style={{ width: `${pct}%`, background: color }} /></div><p className="mt-1 text-[12px] text-stone-500">{done} of {d.lessons.length} lessons · {pct}%</p></div>
+                <div><div className="h-2 rounded-full bg-card/70"><div className="h-2 rounded-full" style={{ width: `${pct}%`, background: color }} /></div><p className="mt-1 text-[12px] text-muted-foreground">{done} of {d.lessons.length} lessons · {pct}%</p></div>
                 {cont && <Link href={`/learn/${tenantId}/${slug}/${cont}`} className="block h-12 rounded-full text-center text-sm font-medium leading-[3rem] text-white" style={{ background: color }}>{done ? 'Continue' : 'Start the course'}</Link>}
               </>
             ) : (
               <>
                 <p className="text-3xl font-light tracking-tight">{money(c.priceCents)}</p>
-                {d.payLater && <p className="text-sm text-stone-600">or pay in instalments with Klarna, Afterpay or Affirm</p>}
-                {!d.student && <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" placeholder="Your email" className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4" />}
-                {!d.student && <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Your name" className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4" />}
+                {d.payLater && <p className="text-sm text-foreground/80">or pay in instalments with Klarna, Afterpay or Affirm</p>}
+                {!d.student && <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" placeholder="Your email" className="h-11 w-full rounded-2xl border border-white/80 bg-card/75 px-4" />}
+                {!d.student && <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Your name" className="h-11 w-full rounded-2xl border border-white/80 bg-card/75 px-4" />}
                 {err && <p className="text-sm text-red-700">{err}{/already/.test(err) && <> <Link href={`/learn/${tenantId}/my`} className="underline">Sign in</Link></>}</p>}
                 <button type="button" disabled={busy || (!d.student && !f.email.includes('@'))} onClick={enrol} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>{busy ? 'One moment…' : c.priceCents ? 'Enrol now' : 'Enrol free'}</button>
-                <p className="text-center text-[12px] text-stone-500">Lifetime access · learn at your own pace</p>
+                <p className="text-center text-[12px] text-muted-foreground">Lifetime access · learn at your own pace</p>
               </>
             )}
           </Glass>
@@ -710,62 +710,62 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
   };
   return (
     <Shell brand={course.brand} tenantId={tenantId}>
-      <Link href={`/learn/${tenantId}/${slug}`} className="text-sm text-stone-500">← {course.course.title}</Link>
+      <Link href={`/learn/${tenantId}/${slug}`} className="text-sm text-muted-foreground">← {course.course.title}</Link>
       <div className="mt-3 grid gap-6 lg:grid-cols-[1fr_300px]">
         <div className="space-y-4">
           {!lesson.ok ? (
             <Glass className="text-center"><p className="text-lg font-semibold">🔒 {lesson.error}</p><Link href={`/learn/${tenantId}/${slug}`} className="mt-3 inline-block rounded-full px-5 py-2.5 text-sm text-white" style={{ background: color }}>See the course</Link></Glass>
           ) : (
             <>
-              <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">{L.moduleTitle}</p>
+              <p className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground">{L.moduleTitle}</p>
               <h1 className="text-3xl font-light tracking-tight">{L.title}</h1>
               {lesson.enrolled && lesson.studentLang && lesson.studentLang !== 'en' && (
-                <div className="flex items-center gap-2"><button type="button" disabled={trBusy} onClick={async () => { if (tr) { setTr(null); return; } setTrBusy(true); const r = await api({ action: 'lesson-translate', tenantId, token, courseId: course.course.id, lessonId }); setTrBusy(false); if (r.ok) setTr(r); }} className="rounded-full bg-white/80 px-4 py-2 text-sm shadow-sm">{trBusy ? '…' : tr ? '🌐 Original' : '🌐 Translate'}</button>
-                  {tr && <span className="text-[12px] text-stone-500">Translated automatically — ask your instructor if anything is unclear.</span>}</div>
+                <div className="flex items-center gap-2"><button type="button" disabled={trBusy} onClick={async () => { if (tr) { setTr(null); return; } setTrBusy(true); const r = await api({ action: 'lesson-translate', tenantId, token, courseId: course.course.id, lessonId }); setTrBusy(false); if (r.ok) setTr(r); }} className="rounded-full bg-card/80 px-4 py-2 text-sm shadow-sm">{trBusy ? '…' : tr ? '🌐 Original' : '🌐 Translate'}</button>
+                  {tr && <span className="text-[12px] text-muted-foreground">Translated automatically — ask your instructor if anything is unclear.</span>}</div>
               )}
               {vq && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center" role="dialog" aria-label="Video question">
-                <div className="w-full max-w-md space-y-3 rounded-3xl bg-white p-5">
-                  <p className="text-[11px] uppercase tracking-widest text-stone-500">Quick question · {vqDone.size + 1} of {(L.videoQuestions || []).length}</p>
+                <div className="w-full max-w-md space-y-3 rounded-3xl bg-card p-5">
+                  <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Quick question · {vqDone.size + 1} of {(L.videoQuestions || []).length}</p>
                   <p className="text-lg font-semibold">{vq.q}</p>
-                  <div className="grid gap-2">{vq.options.map((o: string, k: number) => { const chosen = vqPick === k; const right = vqPick != null && k === vq.answer; return <button key={k} type="button" disabled={vqPick != null} onClick={() => setVqPick(k)} className={`min-h-12 rounded-2xl px-4 text-left text-[15px] ${right ? 'bg-emerald-600 text-white' : chosen ? 'bg-red-500 text-white' : 'bg-stone-100'}`}>{o}</button>; })}</div>
-                  {vqPick != null && <><p className="text-sm text-stone-600">{vqPick === vq.answer ? '✓ Right. ' : 'Not quite. '}{vq.explain}</p>
+                  <div className="grid gap-2">{vq.options.map((o: string, k: number) => { const chosen = vqPick === k; const right = vqPick != null && k === vq.answer; return <button key={k} type="button" disabled={vqPick != null} onClick={() => setVqPick(k)} className={`min-h-12 rounded-2xl px-4 text-left text-[15px] ${right ? 'bg-emerald-600 text-white' : chosen ? 'bg-red-500 text-white' : 'bg-muted'}`}>{o}</button>; })}</div>
+                  {vqPick != null && <><p className="text-sm text-foreground/80">{vqPick === vq.answer ? '✓ Right. ' : 'Not quite. '}{vq.explain}</p>
                     <button type="button" onClick={() => { const n = new Map(vqDone); n.set(vq.i, vqPick === vq.answer); setVqDone(n); setVq(null); setVqPick(null); if (n.size === (L.videoQuestions || []).length) void api({ action: 'activity-score', part: 'video', tenantId, token, courseId: course.course.id, lessonId, pct: Math.round(([...n.values()].filter(Boolean).length / n.size) * 100) }); try { playerEl.current?.play?.(); } catch { /* */ } }} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>Keep watching</button></>}
                 </div></div>}
               {stepping && <div className="cf-rise space-y-1"><div className="flex gap-1">{stepIds.map((id, i) => <button key={id} type="button" aria-label={`Step ${i + 1}`} onClick={() => goStep(i)} className="h-1.5 flex-1 rounded-full transition-colors" style={{ background: i <= cur ? color : 'rgba(120,113,108,.2)' }} />)}</div>
-                <p className="flex justify-between text-[12px] text-stone-500"><span>Step {cur + 1} of {stepIds.length}</span><button type="button" onClick={() => setShowAll(true)} className="underline">Show all</button></p></div>}
+                <p className="flex justify-between text-[12px] text-muted-foreground"><span>Step {cur + 1} of {stepIds.length}</span><button type="button" onClick={() => setShowAll(true)} className="underline">Show all</button></p></div>}
               <div className={`${hide('video')} ${layout === 'split' ? 'sticky top-2 z-20 rounded-[1.25rem] shadow-lg' : ''}`}>
               {mode === 'mux' && <MuxPlayer playbackId={L.video.playbackId} token={L.video.token} color={color} title={L.title} bind={(el: any) => { eng.bindPlayer(el); playerEl.current = el; }} />}
               {mode === 'embed' && L.video.url && <iframe src={L.video.url} title={L.title} className="aspect-video w-full rounded-[1.25rem]" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />}
-              {L.kind === 'video' && !L.video && <Glass><p className="text-stone-600">This video is being prepared — check back shortly.</p></Glass>}
+              {L.kind === 'video' && !L.video && <Glass><p className="text-foreground/80">This video is being prepared — check back shortly.</p></Glass>}
               </div>
               {lesson.enrolled && (
-                <div className="glass flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-white/70 px-4 py-2.5 text-[13px] text-stone-600">
-                  <span>⏱ Active time: <span className="font-semibold text-stone-900">{Math.floor(engaged / 60)} min</span>{trk.compliance && dur ? ` of ${Math.ceil((dur * (trk.minEngagementPct || 80)) / 100 / 60)} needed` : ''}{trk.compliance && L.minMinutes ? ` of ${L.minMinutes} needed` : ''}</span>
-                  {mode === 'mux' && dur > 0 && <span>▶ Watched: <span className="font-semibold text-stone-900">{Math.min(100, Math.round((watched / dur) * 100))}%</span>{trk.compliance ? ` of ${trk.minWatchPct || 90}% needed` : ''}</span>}
+                <div className="glass flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-white/70 px-4 py-2.5 text-[13px] text-foreground/80">
+                  <span>⏱ Active time: <span className="font-semibold text-foreground">{Math.floor(engaged / 60)} min</span>{trk.compliance && dur ? ` of ${Math.ceil((dur * (trk.minEngagementPct || 80)) / 100 / 60)} needed` : ''}{trk.compliance && L.minMinutes ? ` of ${L.minMinutes} needed` : ''}</span>
+                  {mode === 'mux' && dur > 0 && <span>▶ Watched: <span className="font-semibold text-foreground">{Math.min(100, Math.round((watched / dur) * 100))}%</span>{trk.compliance ? ` of ${trk.minWatchPct || 90}% needed` : ''}</span>}
                   {eng.paused && <span className="font-semibold text-amber-700">Paused — answer the check to keep your time counting</span>}
-                  {trk.compliance && <span className="w-full text-[11px] text-stone-400">This course records verified learning time for your school. Time counts while this page is open and you’re actively learning.</span>}
+                  {trk.compliance && <span className="w-full text-[11px] text-muted-foreground">This course records verified learning time for your school. Time counts while this page is open and you’re actively learning.</span>}
                 </div>
               )}
               <div ref={studyRef} className="contents">
               {L.body && (stepping ? sections.map((sec: any, si: number) => <Glass key={si} className={`space-y-3 ${hide(`body:${si}`)}`}>{sec.title && <h2 className="text-2xl font-light tracking-tight">{sec.title}</h2>}<div className="flex justify-end"><Listen text={sec.text} /></div><Prose text={sec.text} /></Glass>)
                 : <SectionedNotes sections={sections} layout={layout === 'steps' ? 'article' : layout} color={color} />)}
               <Celebrate show={cheer > 0} color={color} key={cheer} />
-              {gained > 0 && <p key={`g${cheer}`} className="cf-pop fixed left-1/2 top-20 z-40 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm font-semibold shadow-lg" style={{ color }}>+{gained} points</p>}
+              {gained > 0 && <p key={`g${cheer}`} className="cf-pop fixed left-1/2 top-20 z-40 -translate-x-1/2 rounded-full bg-card px-4 py-2 text-sm font-semibold shadow-lg" style={{ color }}>+{gained} points</p>}
               {recap && <ModuleRecap r={recap} color={color} onDone={() => { window.location.href = `/learn/${tenantId}/${slug}`; }} />}
               {(L.blocks || []).length > 0 && <Blocks blocks={L.blocks} accent={color} audioFirst={!!lesson.audioFirst} extraTime={Number(lesson.extraTime) || 1} hideAt={(i: number) => hide(`block:${i}`)} report={lesson.enrolled ? (blockId, pct) => void api({ action: 'activity-score', part: 'game', blockId, tenantId, token, courseId: course.course.id, lessonId, pct }) : undefined} />}
               </div>
               {lesson.enrolled && <StudyLayer tenantId={tenantId} token={token} courseId={course.course.id} lessonId={lessonId} containerRef={studyRef} color={color} />}
               {lesson.enrolled && L.kind === 'assignment' && <div className={hide('assignment')}><Assignment tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} /></div>}
-              {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-stone-700">{L.transcript}</p></details>}
+              {L.transcript && <details className="glass rounded-2xl border border-white/70 px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">📄 Transcript</summary><p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap text-[15px] leading-relaxed text-foreground/80">{L.transcript}</p></details>}
               {lesson.enrolled && L.cases?.cases?.length > 0 && <div className={hide('cases')}><Cases c={L.cases} color={color} report={(pct) => void api({ action: 'activity-score', part: 'cases', tenantId, token, courseId: course.course.id, lessonId, pct })} /></div>}
               {lesson.enrolled && L.activity && <div className={hide('activity')}><Activity a={L.activity} color={color} report={(pct) => void api({ action: 'activity-score', tenantId, token, courseId: course.course.id, lessonId, pct })} /></div>}
               {lesson.enrolled && L.flashcards?.length > 0 && <div className={hide('flashcards')}><Flashcards cards={L.flashcards} color={color} /></div>}
-              {L.downloadUrl && <div className={hide('download')}><a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-stone-500">Open</span></a></div>}
+              {L.downloadUrl && <div className={hide('download')}><a href={L.downloadUrl} target="_blank" rel="noreferrer" className="glass flex items-center justify-between rounded-2xl border border-white/70 px-4 py-3 text-sm"><span>↓ {L.downloadName || 'Download'}</span><span className="text-muted-foreground">Open</span></a></div>}
               {L.quiz && lesson.enrolled && (
                 <Glass className={`space-y-4 ${hide('quiz')}`}>
-                  <div className="flex items-baseline justify-between"><p className="text-lg font-semibold">Quiz</p><p className="text-[12px] text-stone-500">Pass mark {L.quiz.passPct}%{L.quiz.passed ? ' · ✓ passed' : ''}</p></div>
+                  <div className="flex items-baseline justify-between"><p className="text-lg font-semibold">Quiz</p><p className="text-[12px] text-muted-foreground">Pass mark {L.quiz.passPct}%{L.quiz.passed ? ' · ✓ passed' : ''}</p></div>
                   {L.quiz.questions.map((q: any, k: number) => (
-                    <div key={k} className={`rounded-2xl p-3 ${quizResult?.wrong?.includes(k) ? 'bg-red-50' : 'bg-white/60'}`}>
+                    <div key={k} className={`rounded-2xl p-3 ${quizResult?.wrong?.includes(k) ? 'bg-red-50' : 'bg-card/60'}`}>
                       <p className="flex items-start justify-between gap-2 font-medium"><span>{k + 1}. {q.q}</span>{lesson.audioFirst && <Listen text={`${q.q}. ${q.options.map((o: string, j: number) => `${'ABCD'[j]}: ${o}`).join('. ')}`} />}</p>
                       <div className="mt-2 space-y-1">{q.options.map((o: string, j: number) => (
                         <label key={j} className="flex cursor-pointer items-center gap-2 text-[15px]"><input type="radio" name={`q${k}`} checked={answers[k] === j} onChange={() => setAnswers({ ...answers, [k]: j })} />{o}</label>
@@ -774,15 +774,15 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
                   ))}
                   <button type="button" disabled={busy || Object.keys(answers).length < L.quiz.questions.length} onClick={submitQuiz} className="h-11 rounded-full px-6 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Submit answers</button>
                   {quizResult?.ok && <p className={`font-semibold ${quizResult.passed ? 'text-emerald-700' : 'text-red-700'}`}>{quizResult.score}% — {quizResult.passed ? 'passed ✓' : `not passed yet (${quizResult.correct}/${quizResult.total}). Review and try again.`}</p>}
-                  {(L.quiz.attempts || []).length > 0 && <p className="text-[12px] text-stone-500">Attempts: {L.quiz.attempts.map((a: any) => `${a.score}%`).join(' · ')}</p>}
+                  {(L.quiz.attempts || []).length > 0 && <p className="text-[12px] text-muted-foreground">Attempts: {L.quiz.attempts.map((a: any) => `${a.score}%`).join(' · ')}</p>}
                 </Glass>
               )}
               {lesson.aiTutor && <Tutor tenantId={tenantId} courseId={course.course.id} lessonId={lessonId} color={color} />}
               {note && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">{note}</p>}
-              {stepping && !lastStep && <div className="sticky bottom-3 z-20 flex gap-2 rounded-full bg-white/85 p-1.5 shadow-lg backdrop-blur"><button type="button" disabled={cur === 0} onClick={() => goStep(cur - 1)} className="h-12 flex-1 rounded-full text-sm disabled:opacity-40">Back</button><button type="button" onClick={() => goStep(cur + 1)} className="h-12 flex-[2] rounded-full text-sm font-medium text-white" style={{ background: color }}>Next</button></div>}
-              {stepping && lastStep && cur > 0 && <button type="button" onClick={() => goStep(cur - 1)} className="text-sm text-stone-500 underline">← Back a step</button>}
+              {stepping && !lastStep && <div className="sticky bottom-3 z-20 flex gap-2 rounded-full bg-card/85 p-1.5 shadow-lg backdrop-blur"><button type="button" disabled={cur === 0} onClick={() => goStep(cur - 1)} className="h-12 flex-1 rounded-full text-sm disabled:opacity-40">Back</button><button type="button" onClick={() => goStep(cur + 1)} className="h-12 flex-[2] rounded-full text-sm font-medium text-white" style={{ background: color }}>Next</button></div>}
+              {stepping && lastStep && cur > 0 && <button type="button" onClick={() => goStep(cur - 1)} className="text-sm text-muted-foreground underline">← Back a step</button>}
               <div className={`flex flex-wrap items-center gap-2 ${stepping && !lastStep ? 'hidden' : ''}`}>
-                {prev && <Link href={`/learn/${tenantId}/${slug}/${prev.id}`} className="rounded-full bg-white/70 px-4 py-2.5 text-sm">← Previous</Link>}
+                {prev && <Link href={`/learn/${tenantId}/${slug}/${prev.id}`} className="rounded-full bg-card/70 px-4 py-2.5 text-sm">← Previous</Link>}
                 {lesson.enrolled ? (
                   <button type="button" disabled={busy || (done && trk.compliance)} onClick={complete} className="ml-auto rounded-full px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: color }}>{done ? '✓ Completed' : next ? 'Mark complete → next' : 'Mark complete'}</button>
                 ) : (
@@ -794,10 +794,10 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
         </div>
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <Glass className="space-y-2">
-            {course.enrolled && <div><div className="h-2 rounded-full bg-white/70"><div className="h-2 rounded-full" style={{ width: `${pct}%`, background: color }} /></div><p className="mt-1 text-[12px] text-stone-500">{pct}% complete</p></div>}
+            {course.enrolled && <div><div className="h-2 rounded-full bg-card/70"><div className="h-2 rounded-full" style={{ width: `${pct}%`, background: color }} /></div><p className="mt-1 text-[12px] text-muted-foreground">{pct}% complete</p></div>}
             <div className="max-h-[60vh] space-y-1 overflow-y-auto">
-              {list.map((l: any) => { const open = course.enrolled || l.preview; const cls = `flex items-center gap-2 rounded-xl px-2.5 py-2 text-[13px] ${l.id === lessonId ? 'bg-white font-semibold' : ''}`; const inner = <><span>{course.progress?.[l.id] ? '✓' : open ? '○' : '🔒'}</span><span className="min-w-0 flex-1 truncate">{l.title}</span></>;
-                return open ? <Link key={l.id} href={`/learn/${tenantId}/${slug}/${l.id}`} className={cls}>{inner}</Link> : <div key={l.id} className={cls + ' text-stone-400'}>{inner}</div>; })}
+              {list.map((l: any) => { const open = course.enrolled || l.preview; const cls = `flex items-center gap-2 rounded-xl px-2.5 py-2 text-[13px] ${l.id === lessonId ? 'bg-card font-semibold' : ''}`; const inner = <><span>{course.progress?.[l.id] ? '✓' : open ? '○' : '🔒'}</span><span className="min-w-0 flex-1 truncate">{l.title}</span></>;
+                return open ? <Link key={l.id} href={`/learn/${tenantId}/${slug}/${l.id}`} className={cls}>{inner}</Link> : <div key={l.id} className={cls + ' text-muted-foreground'}>{inner}</div>; })}
             </div>
           </Glass>
         </aside>
@@ -808,7 +808,7 @@ export function Lesson({ tenantId, slug, lessonId }: { tenantId: string; slug: s
           <div className="w-full max-w-sm rounded-[1.75rem] bg-[#f7f5f2] p-6 text-center shadow-2xl">
             <p className="text-3xl">👋</p>
             <p className="mt-2 text-xl font-semibold">Still with us?</p>
-            <p className="mt-1 text-sm text-stone-600">Your school records active learning time. Tap below to keep it counting.</p>
+            <p className="mt-1 text-sm text-foreground/80">Your school records active learning time. Tap below to keep it counting.</p>
             <button type="button" onClick={() => eng.answer(eng.check!)} className="mt-4 h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>I’m here — continue</button>
           </div>
         </div>
@@ -845,13 +845,13 @@ function SelfieCamera({ onPhoto }: { onPhoto: (dataUrl: string | null, live: boo
   };
   return (
     <div className="space-y-2">
-      <div className="mx-auto aspect-square w-56 overflow-hidden rounded-full bg-stone-200">
+      <div className="mx-auto aspect-square w-56 overflow-hidden rounded-full bg-border">
         {shot ? <img src={shot} alt="Your photo" className="h-full w-full object-cover" /> : live ? <video ref={video} playsInline muted className="h-full w-full -scale-x-100 object-cover" /> : <div className="flex h-full items-center justify-center text-4xl">📷</div>}
       </div>
-      {shot ? <button type="button" onClick={() => { setShot(null); onPhoto(null, true); }} className="text-sm text-stone-500 underline">Retake</button>
-        : live ? <button type="button" onClick={snap} className="rounded-full bg-white px-5 py-2.5 text-sm shadow-sm">Take photo</button>
-        : <label className="inline-block cursor-pointer rounded-full bg-white px-5 py-2.5 text-sm shadow-sm">Take photo<input type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) fromFile(f); }} /></label>}
-      {err && <p className="text-[12px] text-stone-500">{err}</p>}
+      {shot ? <button type="button" onClick={() => { setShot(null); onPhoto(null, true); }} className="text-sm text-muted-foreground underline">Retake</button>
+        : live ? <button type="button" onClick={snap} className="rounded-full bg-card px-5 py-2.5 text-sm shadow-sm">Take photo</button>
+        : <label className="inline-block cursor-pointer rounded-full bg-card px-5 py-2.5 text-sm shadow-sm">Take photo<input type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) fromFile(f); }} /></label>}
+      {err && <p className="text-[12px] text-muted-foreground">{err}</p>}
     </div>
   );
 }
@@ -874,23 +874,23 @@ export function Attend({ tenantId }: { tenantId: string }) {
   };
   if (!st) return <Shell tenantId={tenantId}><Loading /></Shell>;
   if (st.needsSignIn || !st.ok) return (
-    <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-xl font-semibold">Sign in to clock in</p><p className="mt-1 text-sm text-stone-600">Use the email you enrolled with. Then scan the screen again.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full bg-stone-900 px-6 py-3 text-sm text-white">Sign in</Link></Glass></Shell>
+    <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-xl font-semibold">Sign in to clock in</p><p className="mt-1 text-sm text-foreground/80">Use the email you enrolled with. Then scan the screen again.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full bg-foreground px-6 py-3 text-sm text-background">Sign in</Link></Glass></Shell>
   );
   return (
     <Shell tenantId={tenantId}>
       <Glass className="mx-auto max-w-sm space-y-4 text-center">
-        <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">Attendance</p>
+        <p className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground">Attendance</p>
         <p className="text-2xl font-light">{st.student.name || st.student.email}</p>
         {res?.ok ? (
           <div className="rounded-2xl bg-emerald-50 p-4 text-emerald-900"><p className="text-3xl">✓</p><p className="font-semibold">{res.direction === 'in' ? 'Clocked in' : 'Clocked out'} at {new Date(res.at).toLocaleTimeString()}</p>{res.direction === 'out' && <p className="text-sm">{Math.floor(res.minutes / 60)}h {res.minutes % 60}m{res.pending ? ' — awaiting instructor approval' : ''}</p>}</div>
         ) : (
           <>
-            <p className="text-stone-600">{st.open ? `Clocked in since ${new Date(st.open.clockInAt).toLocaleTimeString()}` : 'Not clocked in'}</p>
+            <p className="text-foreground/80">{st.open ? `Clocked in since ${new Date(st.open.clockInAt).toLocaleTimeString()}` : 'Not clocked in'}</p>
             {!code && <p className="text-sm text-amber-700">Scan the code on the academy screen to clock {st.open ? 'out' : 'in'}.</p>}
             {code && st.requirePhoto && <SelfieCamera onPhoto={(url, live) => setPhoto({ url, live })} />}
-            {code && <button type="button" disabled={busy || (st.requirePhoto && !photo.url)} onClick={() => go(st.open ? 'out' : 'in')} className="h-14 w-full rounded-full bg-stone-900 text-base font-medium text-white disabled:opacity-50">{busy ? 'Checking…' : st.open ? 'Clock out' : 'Clock in'}</button>}
+            {code && <button type="button" disabled={busy || (st.requirePhoto && !photo.url)} onClick={() => go(st.open ? 'out' : 'in')} className="h-14 w-full rounded-full bg-foreground text-base font-medium text-background disabled:opacity-50">{busy ? 'Checking…' : st.open ? 'Clock out' : 'Clock in'}</button>}
             {res && !res.ok && <p className="rounded-2xl bg-red-50 p-3 text-sm text-red-800">{res.error}</p>}
-            <p className="text-[11px] text-stone-500">Your time, device{st.requirePhoto ? ', photo' : ''}{st.requireGeo ? ' and location' : ''} are recorded for your school’s attendance records. Photos are private — only your instructors and school managers can see them.</p>
+            <p className="text-[11px] text-muted-foreground">Your time, device{st.requirePhoto ? ', photo' : ''}{st.requireGeo ? ' and location' : ''} are recorded for your school’s attendance records. Photos are private — only your instructors and school managers can see them.</p>
           </>
         )}
       </Glass>
@@ -923,8 +923,8 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
           <Glass className="mt-6 space-y-3">
             {sent ? <p className="text-center">✉️ If that email has courses here, a sign-in link is on its way. It works for 30 minutes.</p> : (
               <>
-                <p className="text-sm text-stone-600">Enter the email you enrolled with — we’ll send you a sign-in link. No password needed.</p>
-                <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Your email" className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4" />
+                <p className="text-sm text-foreground/80">Enter the email you enrolled with — we’ll send you a sign-in link. No password needed.</p>
+                <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Your email" className="h-11 w-full rounded-2xl border border-white/80 bg-card/75 px-4" />
                 {err && <p className="text-sm text-red-700">{err}</p>}
                 <button type="button" disabled={!email.includes('@')} onClick={async () => { await api({ action: 'login', tenantId, email }); setSent(true); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>Email me a sign-in link</button>
               </>
@@ -935,20 +935,20 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
         <>
           <div className="flex flex-wrap items-end justify-between gap-2">
             <h1 className="text-4xl font-light tracking-tight">My <span className="font-semibold">courses</span></h1>
-            <div className="flex items-center gap-3"><Link href={`/learn/${tenantId}/live`} className="rounded-full px-4 py-2 text-sm text-white" style={{ background: color }}>● Join a live class</Link><button type="button" onClick={() => { setToken(tenantId, null); void load(); }} className="text-sm text-stone-500 underline">Sign out ({d.student.email})</button></div>
+            <div className="flex items-center gap-3"><Link href={`/learn/${tenantId}/live`} className="rounded-full px-4 py-2 text-sm text-white" style={{ background: color }}>● Join a live class</Link><button type="button" onClick={() => { setToken(tenantId, null); void load(); }} className="text-sm text-muted-foreground underline">Sign out ({d.student.email})</button></div>
           </div>
           <Inbox tenantId={tenantId} color={color} />
           {(d.programs || []).map((pr: any) => (
             <Glass key={pr.id} className="mt-6 space-y-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-2"><p className="text-xl font-semibold">{pr.name}</p><span className="text-[12px] uppercase tracking-widest text-stone-500">{pr.status === 'loa' ? 'leave of absence' : pr.status}</span></div>
-              {pr.totalHours && <div><div className="flex justify-between text-sm"><span>Hours</span><span className="font-semibold">{pr.hours.total} of {pr.totalHours} h</span></div><div className="mt-1 h-2 rounded-full bg-white/70"><div className="h-2 rounded-full" style={{ width: `${pr.hours.pct || 0}%`, background: color }} /></div><p className="mt-1 text-[12px] text-stone-500">{pr.hours.online} h online · {pr.hours.inPerson} h in person</p></div>}
+              <div className="flex flex-wrap items-baseline justify-between gap-2"><p className="text-xl font-semibold">{pr.name}</p><span className="text-[12px] uppercase tracking-widest text-muted-foreground">{pr.status === 'loa' ? 'leave of absence' : pr.status}</span></div>
+              {pr.totalHours && <div><div className="flex justify-between text-sm"><span>Hours</span><span className="font-semibold">{pr.hours.total} of {pr.totalHours} h</span></div><div className="mt-1 h-2 rounded-full bg-card/70"><div className="h-2 rounded-full" style={{ width: `${pr.hours.pct || 0}%`, background: color }} /></div><p className="mt-1 text-[12px] text-muted-foreground">{pr.hours.online} h online · {pr.hours.inPerson} h in person</p></div>}
               {pr.requirements.length > 0 && (
                 <div className="grid gap-2 sm:grid-cols-2">{pr.requirements.map((r: any) => (
-                  <div key={r.key} className="rounded-2xl bg-white/60 p-3"><div className="flex justify-between text-sm"><span>{r.label}</span><span className="font-semibold">{r.done} / {r.required}</span></div>
-                    <div className="mt-1 h-1.5 rounded-full bg-white"><div className="h-1.5 rounded-full" style={{ width: `${Math.min(100, (r.done / Math.max(1, r.required)) * 100)}%`, background: color }} /></div></div>
+                  <div key={r.key} className="rounded-2xl bg-card/60 p-3"><div className="flex justify-between text-sm"><span>{r.label}</span><span className="font-semibold">{r.done} / {r.required}</span></div>
+                    <div className="mt-1 h-1.5 rounded-full bg-card"><div className="h-1.5 rounded-full" style={{ width: `${Math.min(100, (r.done / Math.max(1, r.required)) * 100)}%`, background: color }} /></div></div>
                 ))}</div>
               )}
-              <p className="text-[12px] text-stone-500">Services count once an instructor signs them off as passed. <Link href={`/learn/${tenantId}/attend`} className="underline">Clock in / out</Link></p>
+              <p className="text-[12px] text-muted-foreground">Services count once an instructor signs them off as passed. <Link href={`/learn/${tenantId}/attend`} className="underline">Clock in / out</Link></p>
             </Glass>
           ))}
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -956,12 +956,12 @@ export function MyCourses({ tenantId }: { tenantId: string }) {
             {d.courses.map((c: any) => (
               <Glass key={c.id} className="space-y-3">
                 <p className="text-xl font-semibold">{c.title}</p>
-                <div><div className="h-2 rounded-full bg-white/70"><div className="h-2 rounded-full" style={{ width: `${c.pct}%`, background: color }} /></div><p className="mt-1 text-[12px] text-stone-500">{c.done} of {c.lessonCount} lessons · {c.pct}%</p></div>
-                {(c.requiredOnlineHours || c.onlineHours > 0) && <p className="text-[13px] text-stone-600">Online learning: <span className="font-semibold text-stone-900">{c.onlineHours} h</span>{c.requiredOnlineHours ? ` of ${c.requiredOnlineHours} h` : ''}{c.requiredInPersonHours ? ` · in-person required: ${c.requiredInPersonHours} h` : ''}</p>}
+                <div><div className="h-2 rounded-full bg-card/70"><div className="h-2 rounded-full" style={{ width: `${c.pct}%`, background: color }} /></div><p className="mt-1 text-[12px] text-muted-foreground">{c.done} of {c.lessonCount} lessons · {c.pct}%</p></div>
+                {(c.requiredOnlineHours || c.onlineHours > 0) && <p className="text-[13px] text-foreground/80">Online learning: <span className="font-semibold text-foreground">{c.onlineHours} h</span>{c.requiredOnlineHours ? ` of ${c.requiredOnlineHours} h` : ''}{c.requiredInPersonHours ? ` · in-person required: ${c.requiredInPersonHours} h` : ''}</p>}
                 <div className="flex flex-wrap gap-2">
                   <Link href={c.lastLessonId ? `/learn/${tenantId}/${c.slug}/${c.lastLessonId}` : `/learn/${tenantId}/${c.slug}`} className="inline-block rounded-full px-5 py-2.5 text-sm font-medium text-white" style={{ background: color }}>{c.done ? 'Continue' : 'Start'}</Link>
-                  {c.certificateCode ? <Link href={`/verify/${c.certificateCode}`} className="inline-block rounded-full bg-white/80 px-5 py-2.5 text-sm">🎓 Certificate</Link>
-                    : c.pct === 100 && <button type="button" onClick={async () => { const r = await api({ action: 'certificate', tenantId, token: getToken(tenantId), courseId: c.id }); if (r.ok) window.location.href = `/verify/${r.code}`; else alert(r.error); }} className="rounded-full bg-white/80 px-5 py-2.5 text-sm">Get my certificate</button>}
+                  {c.certificateCode ? <Link href={`/verify/${c.certificateCode}`} className="inline-block rounded-full bg-card/80 px-5 py-2.5 text-sm">🎓 Certificate</Link>
+                    : c.pct === 100 && <button type="button" onClick={async () => { const r = await api({ action: 'certificate', tenantId, token: getToken(tenantId), courseId: c.id }); if (r.ok) window.location.href = `/verify/${r.code}`; else alert(r.error); }} className="rounded-full bg-card/80 px-5 py-2.5 text-sm">Get my certificate</button>}
                 </div>
               </Glass>
             ))}
@@ -984,15 +984,15 @@ function Inbox({ tenantId, color }: { tenantId: string; color: string }) {
   return (
     <div className="mt-6 space-y-3">
       {d.announcements.filter((a: any) => !a.acked).slice(0, 3).map((a: any, i: number) => (
-        <div key={a.id || i} className="rounded-[1.5rem] border border-white/70 px-4 py-2" style={{ background: `${color}14` }}><p className="pt-2 text-[11px] uppercase tracking-[0.2em] text-stone-500">Announcement</p>
+        <div key={a.id || i} className="rounded-[1.5rem] border border-white/70 px-4 py-2" style={{ background: `${color}14` }}><p className="pt-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Announcement</p>
           <AnnouncementItem a={a} title={a.title} body={a.body} dateText={new Date(a.at).toLocaleDateString()} school="" color={color} words={{ gotIt: 'Got it', addToCalendar: 'Add to calendar' }} onAck={async (id) => { await api({ action: 'announcement-ack', tenantId, token: getToken(tenantId), id }); await load(); }} /></div>
       ))}
       <Glass className="space-y-2">
-        <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between text-left"><span className="font-semibold">Messages with your school{d.messages.length ? ` · ${d.messages.length}` : ''}</span><span className="text-sm text-stone-500">{open ? 'Hide' : 'Open'}</span></button>
+        <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between text-left"><span className="font-semibold">Messages with your school{d.messages.length ? ` · ${d.messages.length}` : ''}</span><span className="text-sm text-muted-foreground">{open ? 'Hide' : 'Open'}</span></button>
         {open && (
           <>
-            <div className="max-h-72 space-y-1.5 overflow-y-auto">{d.messages.length === 0 ? <p className="text-sm text-stone-500">Questions about hours, schedules or anything else — send a message.</p> : d.messages.map((m: any, i: number) => <div key={i} className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from === 'student' ? 'ml-auto text-white' : 'bg-white/80'}`} style={m.from === 'student' ? { background: color } : undefined}><p className="whitespace-pre-wrap">{m.text}</p><p className="mt-0.5 text-[10px] opacity-70">{m.from === 'school' ? m.by + ' · ' : ''}{new Date(m.at).toLocaleString()}</p></div>)}</div>
-            <div className="flex gap-2"><textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write to your school" className="flex-1 rounded-2xl border border-white/80 bg-white/75 p-3 text-sm" />
+            <div className="max-h-72 space-y-1.5 overflow-y-auto">{d.messages.length === 0 ? <p className="text-sm text-muted-foreground">Questions about hours, schedules or anything else — send a message.</p> : d.messages.map((m: any, i: number) => <div key={i} className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from === 'student' ? 'ml-auto text-white' : 'bg-card/80'}`} style={m.from === 'student' ? { background: color } : undefined}><p className="whitespace-pre-wrap">{m.text}</p><p className="mt-0.5 text-[10px] opacity-70">{m.from === 'school' ? m.by + ' · ' : ''}{new Date(m.at).toLocaleString()}</p></div>)}</div>
+            <div className="flex gap-2"><textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write to your school" className="flex-1 rounded-2xl border border-white/80 bg-card/75 p-3 text-sm" />
               <button type="button" disabled={busy || !text.trim()} onClick={async () => { setBusy(true); const r = await api({ action: 'message', tenantId, token: getToken(tenantId), text }); setBusy(false); if (r.ok) { setText(''); void load(); } }} className="rounded-2xl px-4 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Send</button></div>
           </>
         )}
@@ -1031,22 +1031,22 @@ export function LiveJoin({ tenantId }: { tenantId: string }) {
   const loadQueue = async () => { const r = await api({ action: 'live-queue', tenantId, token, sessionId: sid }); if (r.ok) setAsk((x) => ({ ...x, queue: r.queue })); };
   const color = st?.brand?.color || '#1c1917';
   if (token === undefined) return <Shell tenantId={tenantId}><Loading /></Shell>;
-  if (needSignIn || !token) return <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-xl font-semibold">Sign in to join</p><p className="mt-1 text-sm text-stone-500">Your minutes are recorded to your account.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full bg-stone-900 px-6 py-3 text-sm text-white">Sign in</Link></Glass></Shell>;
+  if (needSignIn || !token) return <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-xl font-semibold">Sign in to join</p><p className="mt-1 text-sm text-muted-foreground">Your minutes are recorded to your account.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full bg-foreground px-6 py-3 text-sm text-background">Sign in</Link></Glass></Shell>;
   if (!sid) return (
     <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm space-y-3 text-center">
       <p className="text-2xl font-light">Join a <span className="font-semibold">live class</span></p>
-      <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="6-digit code" className="h-14 w-full rounded-2xl border border-white/80 bg-white/80 text-center font-mono text-2xl tracking-[0.3em]" />
+      <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="6-digit code" className="h-14 w-full rounded-2xl border border-white/80 bg-card/80 text-center font-mono text-2xl tracking-[0.3em]" />
       {err && <p className="text-sm text-red-700">{err}</p>}
-      <button type="button" disabled={code.length !== 6} onClick={() => join(code)} className="h-12 w-full rounded-full bg-stone-900 text-sm font-medium text-white disabled:opacity-40">Join</button>
+      <button type="button" disabled={code.length !== 6} onClick={() => join(code)} className="h-12 w-full rounded-full bg-foreground text-sm font-medium text-background disabled:opacity-40">Join</button>
     </Glass></Shell>
   );
   if (!team) return (
     <Shell tenantId={tenantId}><Glass className="mx-auto max-w-sm space-y-3 text-center"><p className="text-2xl font-light">Where are <span className="font-semibold">you?</span></p>
-      <div className="grid grid-cols-2 gap-3">{([['room', '🏫', 'In the room'], ['home', '🏠', 'At home']] as const).map(([k, i, l]) => <button key={k} type="button" onClick={() => setTeam(k)} className="rounded-3xl bg-white/85 p-5 text-center shadow-sm active:scale-95"><span className="block text-4xl">{i}</span><span className="mt-1 block text-sm font-semibold">{l}</span></button>)}</div>
-      <p className="text-[12px] text-stone-500">You’ll be on that team for quiz points.</p></Glass></Shell>
+      <div className="grid grid-cols-2 gap-3">{([['room', '🏫', 'In the room'], ['home', '🏠', 'At home']] as const).map(([k, i, l]) => <button key={k} type="button" onClick={() => setTeam(k)} className="rounded-3xl bg-card/85 p-5 text-center shadow-sm active:scale-95"><span className="block text-4xl">{i}</span><span className="mt-1 block text-sm font-semibold">{l}</span></button>)}</div>
+      <p className="text-[12px] text-muted-foreground">You’ll be on that team for quiz points.</p></Glass></Shell>
   );
   if (!st) return <Shell tenantId={tenantId}><Loading /></Shell>;
-  if (st.status === 'ended') return <Shell brand={st.brand} tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-3xl">🎉</p><p className="text-xl font-semibold">Class finished</p><p className="mt-1 text-stone-600">{st.minutes} minutes recorded to your hours.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full px-6 py-3 text-sm text-white" style={{ background: color }}>Back to my portal</Link></Glass></Shell>;
+  if (st.status === 'ended') return <Shell brand={st.brand} tenantId={tenantId}><Glass className="mx-auto max-w-sm text-center"><p className="text-3xl">🎉</p><p className="text-xl font-semibold">Class finished</p><p className="mt-1 text-foreground/80">{st.minutes} minutes recorded to your hours.</p><Link href={`/learn/${tenantId}/my`} className="mt-4 inline-block rounded-full px-6 py-3 text-sm text-white" style={{ background: color }}>Back to my portal</Link></Glass></Shell>;
   const left = act?.endsAt ? Math.max(0, Math.ceil((new Date(act.endsAt).getTime() - now) / 1000)) : null;
   const closed = !act?.open || left === 0;
   const kind = act?.kind || 'quiz';
@@ -1054,39 +1054,39 @@ export function LiveJoin({ tenantId }: { tenantId: string }) {
     <Shell brand={st.brand} tenantId={tenantId}>
       <div className="mx-auto max-w-md space-y-4 pb-28">
         <div className="flex items-center justify-between"><p className="text-lg font-semibold">{st.title}</p><span className="rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-semibold text-white">● LIVE · {st.minutes} min</span></div>
-        {!act ? <Glass className="py-10 text-center"><p className="text-4xl">👀</p><p className="mt-2 text-stone-600">Listen in — activities will pop up here.</p></Glass> : (
+        {!act ? <Glass className="py-10 text-center"><p className="text-4xl">👀</p><p className="mt-2 text-foreground/80">Listen in — activities will pop up here.</p></Glass> : (
           <Glass className="space-y-3">
-            <div className="flex items-start justify-between gap-3"><p className="text-xl font-semibold leading-snug">{act.q}</p>{left != null && !mine && <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-bold ${left <= 5 ? 'bg-red-500 text-white' : 'bg-white/80'}`}>{left}</span>}</div>
+            <div className="flex items-start justify-between gap-3"><p className="text-xl font-semibold leading-snug">{act.q}</p>{left != null && !mine && <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-bold ${left <= 5 ? 'bg-red-500 text-white' : 'bg-card/80'}`}>{left}</span>}</div>
             {['quiz', 'poll', 'confidence'].includes(kind) && <div className="grid gap-2">{(act.options || []).map((o: string, i: number) => { const picked = mine?.choice === i; const right = act.reveal && act.correct === i; const wrong = act.reveal && picked && act.correct !== i && act.correct != null; return (
-              <button key={i} type="button" disabled={closed || mine != null} onClick={() => answer({ choice: i })} className={`min-h-14 rounded-2xl px-4 py-3 text-left text-[16px] font-medium shadow-sm transition active:scale-[0.98] ${right ? 'bg-emerald-600 text-white' : wrong ? 'bg-red-500 text-white' : picked ? 'text-white' : 'bg-white/90'}`} style={picked && !right && !wrong ? { background: color } : undefined}>{right ? '✓ ' : ''}{o}</button>); })}</div>}
-            {kind === 'word' && (mine ? <p className="rounded-2xl bg-white/80 p-3 text-center">You said <b>“{mine.text}”</b> — watch the screen ☁️</p> : <div className="flex gap-2"><input value={word} onChange={(e) => setWord(e.target.value.slice(0, 40))} placeholder="Your word" className="h-12 flex-1 rounded-2xl border border-white/80 bg-white/90 px-4 text-[16px]" /><button type="button" disabled={!word.trim() || closed} onClick={() => answer({ text: word })} className="rounded-2xl px-5 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Send</button></div>)}
-            {kind === 'rate' && <>{act.image && <img src={act.image} alt="" className="w-full rounded-2xl" />}<div className="flex justify-center gap-1">{[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" disabled={closed || mine != null} onClick={() => answer({ rating: n })} className={`h-14 w-14 rounded-2xl text-2xl ${mine?.rating >= n ? 'bg-amber-400' : 'bg-white/80'}`} aria-label={`${n} stars`}>⭐</button>)}</div>{act.reveal && act.instructorRating && <p className="rounded-2xl bg-emerald-50 p-3 text-center">Your instructor gave it <b>{act.instructorRating}/5</b>{mine?.rating ? ` — you said ${mine.rating}` : ''}.</p>}</>}
+              <button key={i} type="button" disabled={closed || mine != null} onClick={() => answer({ choice: i })} className={`min-h-14 rounded-2xl px-4 py-3 text-left text-[16px] font-medium shadow-sm transition active:scale-[0.98] ${right ? 'bg-emerald-600 text-white' : wrong ? 'bg-red-500 text-white' : picked ? 'text-white' : 'bg-card/90'}`} style={picked && !right && !wrong ? { background: color } : undefined}>{right ? '✓ ' : ''}{o}</button>); })}</div>}
+            {kind === 'word' && (mine ? <p className="rounded-2xl bg-card/80 p-3 text-center">You said <b>“{mine.text}”</b> — watch the screen ☁️</p> : <div className="flex gap-2"><input value={word} onChange={(e) => setWord(e.target.value.slice(0, 40))} placeholder="Your word" className="h-12 flex-1 rounded-2xl border border-white/80 bg-card/90 px-4 text-[16px]" /><button type="button" disabled={!word.trim() || closed} onClick={() => answer({ text: word })} className="rounded-2xl px-5 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Send</button></div>)}
+            {kind === 'rate' && <>{act.image && <img src={act.image} alt="" className="w-full rounded-2xl" />}<div className="flex justify-center gap-1">{[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" disabled={closed || mine != null} onClick={() => answer({ rating: n })} className={`h-14 w-14 rounded-2xl text-2xl ${mine?.rating >= n ? 'bg-amber-400' : 'bg-card/80'}`} aria-label={`${n} stars`}>⭐</button>)}</div>{act.reveal && act.instructorRating && <p className="rounded-2xl bg-emerald-50 p-3 text-center">Your instructor gave it <b>{act.instructorRating}/5</b>{mine?.rating ? ` — you said ${mine.rating}` : ''}.</p>}</>}
             {kind === 'tap' && act.image && <div className="relative" onClick={(e) => { if (closed || mine) return; const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); void answer({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }); }}>
               <img src={act.image} alt="" className="w-full rounded-2xl" />{mine?.x != null && <span className="absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white bg-red-500" style={{ left: `${mine.x}%`, top: `${mine.y}%` }} />}
               {act.reveal && act.target && <span className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-emerald-500" style={{ left: `${act.target.x}%`, top: `${act.target.y}%`, width: `${act.target.r * 2}%`, aspectRatio: '1' }} />}
               {!mine && !closed && <p className="absolute inset-x-0 bottom-2 text-center text-[12px] font-semibold text-white drop-shadow">Tap the photo</p>}</div>}
-            {kind === 'exit' && (mine ? <p className="rounded-2xl bg-white/80 p-3 text-center">✓ Sent{mine.score != null ? ` — ${mine.score}%` : ''}. Thanks!</p> : <div className="space-y-3">{(act.questions || []).map((q: any, qi: number) => <div key={qi}><p className="font-medium">{qi + 1}. {q.q}</p><div className="mt-1 grid gap-1.5">{q.options.map((o: string, oi: number) => <button key={oi} type="button" onClick={() => { const e = [...exit]; e[qi] = oi; setExit(e); }} className={`min-h-12 rounded-xl px-3 text-left text-[15px] ${exit[qi] === oi ? 'text-white' : 'bg-white/90'}`} style={exit[qi] === oi ? { background: color } : undefined}>{o}</button>)}</div></div>)}
+            {kind === 'exit' && (mine ? <p className="rounded-2xl bg-card/80 p-3 text-center">✓ Sent{mine.score != null ? ` — ${mine.score}%` : ''}. Thanks!</p> : <div className="space-y-3">{(act.questions || []).map((q: any, qi: number) => <div key={qi}><p className="font-medium">{qi + 1}. {q.q}</p><div className="mt-1 grid gap-1.5">{q.options.map((o: string, oi: number) => <button key={oi} type="button" onClick={() => { const e = [...exit]; e[qi] = oi; setExit(e); }} className={`min-h-12 rounded-xl px-3 text-left text-[15px] ${exit[qi] === oi ? 'text-white' : 'bg-card/90'}`} style={exit[qi] === oi ? { background: color } : undefined}>{o}</button>)}</div></div>)}
               <button type="button" disabled={closed || (act.questions || []).some((_: any, i: number) => exit[i] == null)} onClick={() => answer({ choices: exit })} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Hand in</button></div>)}
-            {mine && !act.reveal && kind === 'quiz' && <p className="text-center text-sm text-stone-500">Answer locked in ✓</p>}
-            {act.reveal && mine?.points != null && kind === 'quiz' && <p className={`text-center text-lg font-semibold ${mine.points ? 'text-emerald-700' : 'text-stone-500'}`}>{mine.points ? `+${mine.points} points!` : 'Not this time'}</p>}
+            {mine && !act.reveal && kind === 'quiz' && <p className="text-center text-sm text-muted-foreground">Answer locked in ✓</p>}
+            {act.reveal && mine?.points != null && kind === 'quiz' && <p className={`text-center text-lg font-semibold ${mine.points ? 'text-emerald-700' : 'text-muted-foreground'}`}>{mine.points ? `+${mine.points} points!` : 'Not this time'}</p>}
             {err && <p className="text-center text-sm text-red-700">{err}</p>}
           </Glass>
         )}
       </div>
       {/* Always-there bar: how I'm doing · too fast · ask */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-white/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-card/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-md items-center gap-2 p-2">
-          {(['green', 'yellow', 'red'] as const).map((k) => <button key={k} type="button" onClick={() => setPulse({ pulse: k })} aria-pressed={mood.pulse === k} aria-label={k === 'green' ? 'Got it' : k === 'yellow' ? 'Almost' : 'Lost'} className={`h-11 w-11 rounded-full text-xl transition ${mood.pulse === k ? 'scale-110 bg-white shadow ring-2 ring-stone-900' : 'opacity-70'}`}>{k === 'green' ? '🟢' : k === 'yellow' ? '🟡' : '🔴'}</button>)}
-          <button type="button" onClick={() => setPulse({ fast: !mood.fast })} aria-pressed={mood.fast} className={`h-11 rounded-full px-3 text-[13px] font-semibold ${mood.fast ? 'bg-red-500 text-white' : 'bg-white/80'}`}>🐢 Too fast</button>
+          {(['green', 'yellow', 'red'] as const).map((k) => <button key={k} type="button" onClick={() => setPulse({ pulse: k })} aria-pressed={mood.pulse === k} aria-label={k === 'green' ? 'Got it' : k === 'yellow' ? 'Almost' : 'Lost'} className={`h-11 w-11 rounded-full text-xl transition ${mood.pulse === k ? 'scale-110 bg-card shadow ring-2 ring-stone-900' : 'opacity-70'}`}>{k === 'green' ? '🟢' : k === 'yellow' ? '🟡' : '🔴'}</button>)}
+          <button type="button" onClick={() => setPulse({ fast: !mood.fast })} aria-pressed={mood.fast} className={`h-11 rounded-full px-3 text-[13px] font-semibold ${mood.fast ? 'bg-red-500 text-white' : 'bg-card/80'}`}>🐢 Too fast</button>
           <button type="button" onClick={() => { setAsk((x) => ({ ...x, open: true })); void loadQueue(); }} className="ml-auto h-11 rounded-full px-4 text-[13px] font-semibold text-white" style={{ background: color }}>✋ Ask</button>
         </div>
       </div>
       {ask.open && (
         <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setAsk((x) => ({ ...x, open: false }))}>
-          <div onClick={(e) => e.stopPropagation()} className="max-h-[80dvh] w-full space-y-3 overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-            <p className="text-lg font-semibold">Questions for your instructor</p><p className="text-[12px] text-stone-500">Classmates don’t see who asked. Tap ▲ on questions you want answered too.</p>
+          <div onClick={(e) => e.stopPropagation()} className="max-h-[80dvh] w-full space-y-3 overflow-y-auto rounded-t-3xl bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <p className="text-lg font-semibold">Questions for your instructor</p><p className="text-[12px] text-muted-foreground">Classmates don’t see who asked. Tap ▲ on questions you want answered too.</p>
             <div className="flex gap-2"><input value={ask.text} onChange={(e) => setAsk({ ...ask, text: e.target.value })} placeholder="Type your question" className="h-12 flex-1 rounded-2xl border px-3 text-[16px]" /><button type="button" disabled={!ask.text.trim()} onClick={async () => { const r = await api({ action: 'live-ask', tenantId, token, sessionId: sid, text: ask.text }); if (r.ok) setAsk({ ...ask, text: '', queue: r.queue }); }} className="rounded-2xl px-4 text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Send</button></div>
-            {ask.queue.map((q: any) => <div key={q.id} className={`flex items-center gap-3 rounded-2xl bg-stone-50 p-3 ${q.answered ? 'opacity-40' : ''}`}><button type="button" onClick={async () => { const r = await api({ action: 'live-vote', tenantId, token, sessionId: sid, qid: q.id }); if (r.ok) setAsk((x) => ({ ...x, queue: r.queue })); }} className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl text-sm font-bold ${q.mine ? 'text-white' : 'bg-white'}`} style={q.mine ? { background: color } : undefined}>▲<span>{q.votes}</span></button><p className="text-[15px]">{q.text}{q.answered ? ' · answered' : ''}</p></div>)}
+            {ask.queue.map((q: any) => <div key={q.id} className={`flex items-center gap-3 rounded-2xl bg-muted/60 p-3 ${q.answered ? 'opacity-40' : ''}`}><button type="button" onClick={async () => { const r = await api({ action: 'live-vote', tenantId, token, sessionId: sid, qid: q.id }); if (r.ok) setAsk((x) => ({ ...x, queue: r.queue })); }} className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl text-sm font-bold ${q.mine ? 'text-white' : 'bg-card'}`} style={q.mine ? { background: color } : undefined}>▲<span>{q.votes}</span></button><p className="text-[15px]">{q.text}{q.answered ? ' · answered' : ''}</p></div>)}
           </div>
         </div>
       )}
@@ -1117,8 +1117,8 @@ export function Welcome({ tenantId }: { tenantId: string }) {
     <Shell tenantId={tenantId}>
       <Glass className="mx-auto max-w-md text-center">
         {state === 'working' && <><Loading /><p>Confirming your enrolment…</p></>}
-        {state === 'done' && <><p className="text-4xl">🎓</p><p className="mt-2 text-2xl font-light">You’re <span className="font-semibold">in.</span></p><p className="mt-1 text-stone-600">Taking you to your course… we’ve emailed you a link too.</p></>}
-        {state === 'error' && <><p className="text-lg font-semibold">Almost there</p><p className="mt-1 text-stone-600">{err} If you were charged, you’ll get an email shortly — or <Link href={`/learn/${tenantId}/my`} className="underline">sign in</Link>.</p></>}
+        {state === 'done' && <><p className="text-4xl">🎓</p><p className="mt-2 text-2xl font-light">You’re <span className="font-semibold">in.</span></p><p className="mt-1 text-foreground/80">Taking you to your course… we’ve emailed you a link too.</p></>}
+        {state === 'error' && <><p className="text-lg font-semibold">Almost there</p><p className="mt-1 text-foreground/80">{err} If you were charged, you’ll get an email shortly — or <Link href={`/learn/${tenantId}/my`} className="underline">sign in</Link>.</p></>}
       </Glass>
     </Shell>
   );
@@ -1145,31 +1145,31 @@ export function Apply({ tenantId }: { tenantId: string }) {
   return (
     <Shell brand={d.brand} tenantId={tenantId}>
       <h1 className="text-4xl font-light tracking-tight sm:text-5xl">Start your <span className="font-semibold">career</span></h1>
-      <p className="mt-2 text-lg text-stone-600">Apply to {d.brand?.name}. It takes two minutes — no payment today.</p>
+      <p className="mt-2 text-lg text-foreground/80">Apply to {d.brand?.name}. It takes two minutes — no payment today.</p>
       {done ? (
-        <Glass className="mt-8 max-w-xl text-center"><p className="text-4xl">✉️</p><p className="mt-2 text-xl font-semibold">{done.applied ? 'Application started!' : 'Thanks — we’ll be in touch.'}</p><p className="mt-1 text-stone-600">{done.applied ? 'We’ve emailed you a private link to your application — upload your documents, read your enrolment agreement and finish when you’re ready.' : 'Someone from the school will reply soon.'}</p>{done.link && <a href={done.link} className="mt-4 inline-block rounded-full px-6 py-3 text-sm font-medium text-white" style={{ background: color }}>Open my application</a>}</Glass>
+        <Glass className="mt-8 max-w-xl text-center"><p className="text-4xl">✉️</p><p className="mt-2 text-xl font-semibold">{done.applied ? 'Application started!' : 'Thanks — we’ll be in touch.'}</p><p className="mt-1 text-foreground/80">{done.applied ? 'We’ve emailed you a private link to your application — upload your documents, read your enrolment agreement and finish when you’re ready.' : 'Someone from the school will reply soon.'}</p>{done.link && <a href={done.link} className="mt-4 inline-block rounded-full px-6 py-3 text-sm font-medium text-white" style={{ background: color }}>Open my application</a>}</Glass>
       ) : (
         <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_380px]">
           <div className="space-y-3">
             {d.programs.map((p: any) => (
               <button key={p.id} type="button" onClick={() => setF({ ...f, programId: p.id })} className={`glass block w-full rounded-[1.5rem] border p-5 text-left ${f.programId === p.id ? 'border-stone-900' : 'border-white/70'}`}>
                 <p className="text-xl font-semibold">{p.name}</p>
-                <p className="mt-1 text-sm text-stone-600">{p.totalHours ? `${p.totalHours} hours` : ''}{p.tuitionCents ? ` · ${usd(p.tuitionCents)} total${p.installments ? ` · payment plan available` : ''}` : ''}</p>
-                {p.description && <p className="mt-2 whitespace-pre-wrap text-[15px] text-stone-700">{p.description}</p>}
+                <p className="mt-1 text-sm text-foreground/80">{p.totalHours ? `${p.totalHours} hours` : ''}{p.tuitionCents ? ` · ${usd(p.tuitionCents)} total${p.installments ? ` · payment plan available` : ''}` : ''}</p>
+                {p.description && <p className="mt-2 whitespace-pre-wrap text-[15px] text-foreground/80">{p.description}</p>}
               </button>
             ))}
             {d.programs.length === 0 && <Glass><p>Programs will be listed here soon.</p></Glass>}
           </div>
           <Glass className="space-y-3 lg:sticky lg:top-24 lg:self-start">
-            {(['name', 'email', 'phone'] as const).map((k) => <input key={k} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} type={k === 'email' ? 'email' : 'text'} placeholder={k === 'name' ? 'Full legal name' : k === 'email' ? 'Email' : 'Phone (optional)'} className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4" />)}
-            {f.phone.trim() && <label className="flex items-center gap-2 text-[13px] text-stone-700"><input type="checkbox" checked={f.textOk} onChange={(e) => setF({ ...f, textOk: e.target.checked })} /> Text me updates about my application</label>}
+            {(['name', 'email', 'phone'] as const).map((k) => <input key={k} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} type={k === 'email' ? 'email' : 'text'} placeholder={k === 'name' ? 'Full legal name' : k === 'email' ? 'Email' : 'Phone (optional)'} className="h-11 w-full rounded-2xl border border-white/80 bg-card/75 px-4" />)}
+            {f.phone.trim() && <label className="flex items-center gap-2 text-[13px] text-foreground/80"><input type="checkbox" checked={f.textOk} onChange={(e) => setF({ ...f, textOk: e.target.checked })} /> Text me updates about my application</label>}
             {(() => { const prog = d.programs.find((x: any) => x.id === f.programId); return prog ? <ApplyQuestions prog={prog} answers={answers} setAnswers={setAnswers} color={color} /> : null; })()}
-            <textarea value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} rows={3} placeholder="Anything we should know? (optional)" className="w-full rounded-2xl border border-white/80 bg-white/75 p-4" />
-            {d.languages && <label className="block text-[13px] text-stone-600">Letters and emails in<select value={f.language} onChange={(e) => setF({ ...f, language: e.target.value })} className="mt-1 h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-3 text-sm">{Object.entries(d.languages).map(([k, v]: any) => <option key={k} value={k}>{v.native}</option>)}</select></label>}
-            <p className="text-[12px] text-stone-500">Applying doesn’t guarantee a place — the school reviews every application and emails you its decision.</p>
+            <textarea value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} rows={3} placeholder="Anything we should know? (optional)" className="w-full rounded-2xl border border-white/80 bg-card/75 p-4" />
+            {d.languages && <label className="block text-[13px] text-foreground/80">Letters and emails in<select value={f.language} onChange={(e) => setF({ ...f, language: e.target.value })} className="mt-1 h-11 w-full rounded-2xl border border-white/80 bg-card/75 px-3 text-sm">{Object.entries(d.languages).map(([k, v]: any) => <option key={k} value={k}>{v.native}</option>)}</select></label>}
+            <p className="text-[12px] text-muted-foreground">Applying doesn’t guarantee a place — the school reviews every application and emails you its decision.</p>
             {err && <p className="text-sm text-red-700">{err}</p>}
             <button type="button" disabled={busy || !f.programId || !f.name || !f.email.includes('@')} onClick={() => go('apply')} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>{busy ? 'One moment…' : 'Apply now'}</button>
-            <button type="button" disabled={busy || !f.programId || !f.name || !f.email.includes('@')} onClick={() => go('info')} className="h-11 w-full rounded-full bg-white/70 text-sm disabled:opacity-50">Just ask a question</button>
+            <button type="button" disabled={busy || !f.programId || !f.name || !f.email.includes('@')} onClick={() => go('info')} className="h-11 w-full rounded-full bg-card/70 text-sm disabled:opacity-50">Just ask a question</button>
           </Glass>
         </div>
       )}
@@ -1206,40 +1206,40 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
   return (
     <Shell brand={d.brand} tenantId={tenantId}>
       <h1 className="text-4xl font-light tracking-tight">Your application, <span className="font-semibold">{d.applicant.name.split(' ')[0]}</span></h1>
-      <p className="mt-2 text-stone-600">{d.program.name}{d.program.totalHours ? ` · ${d.program.totalHours} hours` : ''}{d.applicant.startDate ? ` · starts ${new Date(d.applicant.startDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}{d.applicant.waitlisted ? ' · on the waitlist' : ''}</p>
+      <p className="mt-2 text-foreground/80">{d.program.name}{d.program.totalHours ? ` · ${d.program.totalHours} hours` : ''}{d.applicant.startDate ? ` · starts ${new Date(d.applicant.startDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}{d.applicant.waitlisted ? ' · on the waitlist' : ''}</p>
       {busy === 'confirm' && <Glass className="mt-6"><p>Confirming your payment…</p></Glass>}
       {err && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm text-red-800">{err}</p>}
       <StatusTracker d={d} color={color} />
       {closed ? <ClosedCard d={d} color={color} /> : <div className="mt-6 space-y-4">
         {stage === 'offer' && d.offer && <OfferCard d={d} color={color} busy={busy} onAnswer={async (accept, reason) => { setBusy('offer'); setErr(''); const r = await api({ action: 'app-offer', tenantId, appToken, accept, reason }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} />}
-        {stage === 'waitlist' && <Glass className="space-y-1"><p className="text-lg font-semibold">⏳ You’re on the waitlist{d.applicant.position ? ` — number ${d.applicant.position}` : ''}</p><p className="text-sm text-stone-600">Your application meets our requirements, but the program is full right now. If a place opens, we’ll email you an offer and you’ll have a few days to accept it. You don’t need to do anything.</p></Glass>}
+        {stage === 'waitlist' && <Glass className="space-y-1"><p className="text-lg font-semibold">⏳ You’re on the waitlist{d.applicant.position ? ` — number ${d.applicant.position}` : ''}</p><p className="text-sm text-foreground/80">Your application meets our requirements, but the program is full right now. If a place opens, we’ll email you an offer and you’ll have a few days to accept it. You don’t need to do anything.</p></Glass>}
         {d.interview && <InterviewCard iv={d.interview} color={color} busy={busy} onPick={async (slot) => { setBusy('iv'); setErr(''); const r = await api({ action: 'app-interview-pick', tenantId, appToken, slot }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} onChange={async (v) => { setBusy('iv'); setErr(''); const r = await api({ action: 'app-interview-change', tenantId, appToken, ...v }); setBusy(''); if (!r.ok) { setErr(r.error); return false; } void load(); return true; }} />}
         <AppStep color={color} n={1} title="Upload your documents" done={docsIn}>
           {d.docs.map((x: any) => (
-            <div key={x.key} className="flex flex-wrap items-center gap-2 rounded-2xl bg-white/60 px-4 py-3 text-sm">
-              <span className="min-w-0 flex-1">{x.key} · <span className={x.status === 'verified' ? 'text-emerald-700' : x.status === 'rejected' ? 'text-red-700' : 'text-stone-500'}>{x.status === 'missing' ? 'needed' : x.status === 'submitted' ? 'received — being checked' : x.status === 'rejected' ? 'please upload again' : x.status}</span>{x.note && x.status !== 'verified' ? <span className="block text-[12px] text-stone-500">{x.note}</span> : null}{x.reason ? <span className="block text-[12px] text-red-700">{x.reason}</span> : null}</span>
-              {x.status !== 'verified' && <label className="cursor-pointer rounded-full bg-white px-4 py-2 text-[13px] shadow-sm">{busy === x.key ? 'Uploading…' : x.status === 'missing' ? 'Upload' : 'Replace'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void upload(x.key, file); }} /></label>}
+            <div key={x.key} className="flex flex-wrap items-center gap-2 rounded-2xl bg-card/60 px-4 py-3 text-sm">
+              <span className="min-w-0 flex-1">{x.key} · <span className={x.status === 'verified' ? 'text-emerald-700' : x.status === 'rejected' ? 'text-red-700' : 'text-muted-foreground'}>{x.status === 'missing' ? 'needed' : x.status === 'submitted' ? 'received — being checked' : x.status === 'rejected' ? 'please upload again' : x.status}</span>{x.note && x.status !== 'verified' ? <span className="block text-[12px] text-muted-foreground">{x.note}</span> : null}{x.reason ? <span className="block text-[12px] text-red-700">{x.reason}</span> : null}</span>
+              {x.status !== 'verified' && <label className="cursor-pointer rounded-full bg-card px-4 py-2 text-[13px] shadow-sm">{busy === x.key ? 'Uploading…' : x.status === 'missing' ? 'Upload' : 'Replace'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void upload(x.key, file); }} /></label>}
             </div>
           ))}
-          <p className="text-[12px] text-stone-500">A clear photo or a PDF. Your documents are private to the school’s admissions team.</p>
+          <p className="text-[12px] text-muted-foreground">A clear photo or a PDF. Your documents are private to the school’s admissions team.</p>
         </AppStep>
         <AppStep color={color} n={2} title="Read and sign your enrolment agreement" done={d.agreement.signed} locked={!d.canSign} lockedText={stage === 'offer' ? 'Opens when you accept your offer above.' : 'Opens once the school has reviewed your application and offered you a place. Applying doesn’t guarantee a place.'}>
-          <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-2xl bg-white/70 p-4 text-[13px] leading-relaxed">{d.agreement.text}</pre>
+          <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-2xl bg-card/70 p-4 text-[13px] leading-relaxed">{d.agreement.text}</pre>
           {d.agreement.signed ? <div className="space-y-2"><p className="text-sm text-emerald-700">✓ Signed by {d.agreement.signedName} on {new Date(d.agreement.signedAt).toLocaleString()}</p>
-            {d.agreement.hasPdf && <button type="button" disabled={!!busy} onClick={async () => { setBusy('pdf'); const r = await api({ action: 'app-agreement-pdf', tenantId, appToken }); setBusy(''); if (r.ok && r.url) window.open(r.url, '_blank'); else setErr(r.error || 'Couldn’t open your copy.'); }} className="h-11 rounded-full bg-white/85 px-5 text-sm shadow-sm">📄 {busy === 'pdf' ? 'Opening…' : 'Download signed copy'}</button>}
-            {d.agreement.hasPdf && <p className="text-[12px] text-stone-500">{d.agreement.countersigned ? 'Signed by you and the school.' : 'The school countersigns next — your copy updates when they do.'}</p>}</div> : (
+            {d.agreement.hasPdf && <button type="button" disabled={!!busy} onClick={async () => { setBusy('pdf'); const r = await api({ action: 'app-agreement-pdf', tenantId, appToken }); setBusy(''); if (r.ok && r.url) window.open(r.url, '_blank'); else setErr(r.error || 'Couldn’t open your copy.'); }} className="h-11 rounded-full bg-card/85 px-5 text-sm shadow-sm">📄 {busy === 'pdf' ? 'Opening…' : 'Download signed copy'}</button>}
+            {d.agreement.hasPdf && <p className="text-[12px] text-muted-foreground">{d.agreement.countersigned ? 'Signed by you and the school.' : 'The school countersigns next — your copy updates when they do.'}</p>}</div> : (
             <>
               <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={sign.agree} onChange={(e) => setSign({ ...sign, agree: e.target.checked })} />I have read and understood this agreement, and I agree to it.</label>
-              <input value={sign.typedName} onChange={(e) => setSign({ ...sign, typedName: e.target.value })} placeholder={`Type your full name: ${d.applicant.name}`} className="h-11 w-full rounded-2xl border border-white/80 bg-white/75 px-4 font-serif text-lg italic" />
+              <input value={sign.typedName} onChange={(e) => setSign({ ...sign, typedName: e.target.value })} placeholder={`Type your full name: ${d.applicant.name}`} className="h-11 w-full rounded-2xl border border-white/80 bg-card/75 px-4 font-serif text-lg italic" />
               <SignatureField color={color} label="Draw your signature" onChange={(png) => setSign((x) => ({ ...x, signature: png }))} />
               <button type="button" disabled={!d.canSign || !docsIn || !sign.agree || !sign.typedName || !sign.signature || !!busy} onClick={async () => { setBusy('sign'); setErr(''); const r = await api({ action: 'app-sign', tenantId, appToken, ...sign }); setBusy(''); if (!r.ok) setErr(r.error); void load(); }} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>{busy === 'sign' ? 'Signing…' : 'Sign agreement'}</button>
-              {!docsIn && <p className="text-[12px] text-stone-500">Upload your documents first.</p>}
-              <p className="text-[11px] text-stone-500">Your typed name is your electronic signature. We record the exact text, the time, and your device.</p>
+              {!docsIn && <p className="text-[12px] text-muted-foreground">Upload your documents first.</p>}
+              <p className="text-[11px] text-muted-foreground">Your typed name is your electronic signature. We record the exact text, the time, and your device.</p>
             </>
           )}
         </AppStep>
         <AppStep color={color} n={3} title={d.payment?.installmentsTotal ? 'Make your down payment' : 'Pay your tuition'} done={!!d.payment?.paid} locked={!d.canSign} lockedText="Opens after you sign your agreement.">
-          {!d.payment ? <p className="text-sm text-stone-600">Available once you’ve signed.</p> : d.payment.paid ? (
+          {!d.payment ? <p className="text-sm text-foreground/80">Available once you’ve signed.</p> : d.payment.paid ? (
             <p className="text-sm">✓ Paid. {d.payment.installmentsTotal ? `Your remaining ${d.payment.installmentsTotal} payments of about ${usd(d.payment.installmentCents)} are on autopay${d.payment.nextDueAt ? ` — next on ${new Date(d.payment.nextDueAt).toLocaleDateString()}` : ''}.` : ''} Balance: {usd(d.payment.balanceCents || 0)}.</p>
           ) : (
             <>
@@ -1249,7 +1249,7 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
           )}
         </AppStep>
         <AppStep color={color} n={4} title="You’re enrolled" done={d.applicant.stage === 'enrolled'}>
-          {d.applicant.stage === 'enrolled' ? <p className="text-sm">Welcome! Sign in to <Link href={`/learn/${tenantId}/my`} className="underline">My courses</Link> with {d.applicant.email} to start your theory lessons and track your hours.</p> : <p className="text-sm text-stone-600">Happens automatically when your payment goes through.</p>}
+          {d.applicant.stage === 'enrolled' ? <p className="text-sm">Welcome! Sign in to <Link href={`/learn/${tenantId}/my`} className="underline">My courses</Link> with {d.applicant.email} to start your theory lessons and track your hours.</p> : <p className="text-sm text-foreground/80">Happens automatically when your payment goes through.</p>}
         </AppStep>
       </div>}
     </Shell>
@@ -1261,8 +1261,8 @@ export function Application({ tenantId, appToken }: { tenantId: string; appToken
 function AppStep({ n, title, done, color, locked, lockedText, children }: { n: number; title: string; done: boolean; color: string; locked?: boolean; lockedText?: string; children: React.ReactNode }) {
   return (
     <Glass className={`space-y-3 ${locked && !done ? 'opacity-70' : ''}`}>
-      <div className="flex items-center gap-3"><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${done ? 'text-white' : 'bg-white/80'}`} style={done ? { background: color } : undefined}>{done ? '✓' : locked ? '🔒' : n}</span><p className="text-lg font-semibold">{title}</p></div>
-      {locked && !done ? <p className="text-sm text-stone-600">{lockedText}</p> : children}
+      <div className="flex items-center gap-3"><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${done ? 'text-white' : 'bg-card/80'}`} style={done ? { background: color } : undefined}>{done ? '✓' : locked ? '🔒' : n}</span><p className="text-lg font-semibold">{title}</p></div>
+      {locked && !done ? <p className="text-sm text-foreground/80">{lockedText}</p> : children}
     </Glass>
   );
 }
@@ -1285,13 +1285,13 @@ function StatusTracker({ d, color }: { d: any; color: string }) {
       <ol className="flex items-start gap-1" aria-label="Your application status">
         {TRACK.map(([k, l], i) => (
           <li key={k} className="flex min-w-0 flex-1 flex-col items-center gap-1 text-center" aria-current={i === at ? 'step' : undefined}>
-            <span className="flex w-full items-center"><span className={`h-0.5 flex-1 ${i === 0 ? 'opacity-0' : ''}`} style={{ background: i <= at ? color : '#e7e5e4' }} /><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${i === at ? 'cf-pulse' : ''}`} style={i <= at ? { background: color, color: '#fff' } : { background: '#f5f5f4', color: '#a8a29e' }}>{i < at ? '✓' : i + 1}</span><span className={`h-0.5 flex-1 ${i === TRACK.length - 1 ? 'opacity-0' : ''}`} style={{ background: i < at ? color : '#e7e5e4' }} /></span>
-            <span className={`whitespace-nowrap text-[11px] leading-tight ${i === at ? 'font-semibold text-stone-900' : 'sr-only text-stone-500 sm:not-sr-only'}`}>{l}</span>
+            <span className="flex w-full items-center"><span className={`h-0.5 flex-1 ${i === 0 ? 'opacity-0' : ''}`} style={{ background: i <= at ? color : '#e7e5e4' }} /><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${i === at ? 'cf-pulse' : ''}`} style={i <= at ? { background: color, color: '#fff' } : { background: '#f5f5f4', color: 'hsl(var(--muted-foreground))' }}>{i < at ? '✓' : i + 1}</span><span className={`h-0.5 flex-1 ${i === TRACK.length - 1 ? 'opacity-0' : ''}`} style={{ background: i < at ? color : '#e7e5e4' }} /></span>
+            <span className={`whitespace-nowrap text-[11px] leading-tight ${i === at ? 'font-semibold text-foreground' : 'sr-only text-muted-foreground sm:not-sr-only'}`}>{l}</span>
           </li>
         ))}
       </ol>
       <p className="text-sm"><b>What’s next:</b> {NEXT[stage === 'documents' ? 'review' : stage] || ''}</p>
-      {['inquiry', 'tour', 'applied', 'review', 'documents'].includes(stage) && <p className="text-[12px] text-stone-500">Applying doesn’t guarantee a place. Every application is reviewed by the school’s admissions team.</p>}
+      {['inquiry', 'tour', 'applied', 'review', 'documents'].includes(stage) && <p className="text-[12px] text-muted-foreground">Applying doesn’t guarantee a place. Every application is reviewed by the school’s admissions team.</p>}
     </Glass>
   );
 }
@@ -1301,22 +1301,22 @@ function OfferCard({ d, color, busy, onAnswer }: { d: any; color: string; busy: 
   return (
     <div className="cf-land rounded-[1.75rem]" style={{ boxShadow: `0 0 0 2px ${color}` }}><Glass className="space-y-3">
       <p className="text-2xl font-light tracking-tight">🎉 {o.fromWaitlist ? 'A place has opened for you' : 'You’ve been offered a place'}</p>
-      <p className="text-sm text-stone-700">in <b>{d.program.name}</b>{d.applicant.startDate ? `, starting ${new Date(d.applicant.startDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}. Please answer by <b>{until}</b>.</p>
-      {d.outcome?.message && <p className="rounded-2xl bg-white/70 p-3 text-sm">{d.outcome.message}</p>}
-      {o.conditions?.length > 0 && <div className="space-y-1 rounded-2xl bg-white/70 p-3 text-sm"><p className="font-semibold">Your offer has conditions:</p>{o.conditions.map((c: any, i: number) => <p key={i}>{c.met ? '✓' : '•'} {c.text}</p>)}</div>}
+      <p className="text-sm text-foreground/80">in <b>{d.program.name}</b>{d.applicant.startDate ? `, starting ${new Date(d.applicant.startDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}. Please answer by <b>{until}</b>.</p>
+      {d.outcome?.message && <p className="rounded-2xl bg-card/70 p-3 text-sm">{d.outcome.message}</p>}
+      {o.conditions?.length > 0 && <div className="space-y-1 rounded-2xl bg-card/70 p-3 text-sm"><p className="font-semibold">Your offer has conditions:</p>{o.conditions.map((c: any, i: number) => <p key={i}>{c.met ? '✓' : '•'} {c.text}</p>)}</div>}
       {!declining ? (
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={!!busy} onClick={() => onAnswer(true)} className="h-12 flex-1 rounded-full px-6 text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>{busy === 'offer' ? 'Saving…' : 'Accept my place'}</button>
-          <button type="button" disabled={!!busy} onClick={() => setDeclining(true)} className="h-12 rounded-full bg-white/80 px-5 text-sm">I won’t be joining</button>
+          <button type="button" disabled={!!busy} onClick={() => setDeclining(true)} className="h-12 rounded-full bg-card/80 px-5 text-sm">I won’t be joining</button>
         </div>
       ) : (
         <div className="space-y-2">
-          <textarea value={why} onChange={(e) => setWhy(e.target.value)} rows={2} placeholder="Would you tell us why? (optional)" className="w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm" />
-          <div className="flex gap-2"><button type="button" disabled={!!busy} onClick={() => onAnswer(false, why)} className="h-11 rounded-full bg-stone-900 px-5 text-sm text-white">Decline the offer</button><button type="button" onClick={() => setDeclining(false)} className="h-11 rounded-full px-4 text-sm">Go back</button></div>
-          <p className="text-[12px] text-stone-500">Declining releases your place to someone on the waitlist.</p>
+          <textarea value={why} onChange={(e) => setWhy(e.target.value)} rows={2} placeholder="Would you tell us why? (optional)" className="w-full rounded-2xl border border-white/80 bg-card/80 p-3 text-sm" />
+          <div className="flex gap-2"><button type="button" disabled={!!busy} onClick={() => onAnswer(false, why)} className="h-11 rounded-full bg-foreground px-5 text-sm text-background">Decline the offer</button><button type="button" onClick={() => setDeclining(false)} className="h-11 rounded-full px-4 text-sm">Go back</button></div>
+          <p className="text-[12px] text-muted-foreground">Declining releases your place to someone on the waitlist.</p>
         </div>
       )}
-      <p className="text-[12px] text-stone-500">After you accept, you’ll sign your enrolment agreement and make your down payment below.</p>
+      <p className="text-[12px] text-muted-foreground">After you accept, you’ll sign your enrolment agreement and make your down payment below.</p>
     </Glass></div>
   );
 }
@@ -1326,11 +1326,11 @@ function ClosedCard({ d, color }: { d: any; color: string }) {
     <Glass className="mt-6 space-y-3">
       <p className="text-2xl font-light tracking-tight">{notAccepted ? 'Thank you for applying' : 'This application is closed'}</p>
       {notAccepted ? <>
-        <p className="text-sm text-stone-700">After careful review, the school isn’t able to offer you a place at this time.</p>
-        {o?.reason && <p className="rounded-2xl bg-white/70 p-3 text-sm">{o.reason}</p>}
+        <p className="text-sm text-foreground/80">After careful review, the school isn’t able to offer you a place at this time.</p>
+        {o?.reason && <p className="rounded-2xl bg-card/70 p-3 text-sm">{o.reason}</p>}
         {o?.reapplyAfter && <p className="text-sm">You’re welcome to apply again from <b>{new Date(o.reapplyAfter).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</b>.</p>}
-        {o?.message && <p className="text-sm text-stone-700">{o.message}</p>}
-      </> : <p className="text-sm text-stone-700">If you’d like to join after all, please contact the school — they’ll be glad to help.</p>}
+        {o?.message && <p className="text-sm text-foreground/80">{o.message}</p>}
+      </> : <p className="text-sm text-foreground/80">If you’d like to join after all, please contact the school — they’ll be glad to help.</p>}
       <span className="block h-1 w-16 rounded-full" style={{ background: color }} />
     </Glass>
   );
@@ -1343,13 +1343,13 @@ function ApplyQuestions({ prog, answers, setAnswers, color }: { prog: any; answe
   return (
     <div className="space-y-3">
       {qs.map((q) => (
-        <label key={q.id} className="block space-y-1 text-[14px] text-stone-800"><span>{q.label}{q.required ? <span className="text-red-600"> *</span> : null}</span>
-          {q.type === 'paragraph' ? <textarea rows={3} value={answers[q.id] || ''} onChange={(e) => set(q.id, e.target.value)} className="w-full rounded-2xl border border-white/80 bg-white/75 p-3 text-[15px]" />
-            : q.type === 'short' ? <input value={answers[q.id] || ''} onChange={(e) => set(q.id, e.target.value)} className="h-12 w-full rounded-2xl border border-white/80 bg-white/75 px-4 text-[15px]" />
-            : <span className="flex flex-wrap gap-2">{(q.type === 'yesno' ? [['yes', 'Yes'], ['no', 'No']] : (q.options || []).map((o: string) => [o, o])).map(([v, l]: string[]) => <button key={v} type="button" aria-pressed={answers[q.id] === v} onClick={() => set(q.id, v)} className={`h-10 rounded-full px-4 text-sm ${answers[q.id] === v ? 'text-white' : 'bg-white/80'}`} style={answers[q.id] === v ? { background: color } : undefined}>{l}</button>)}</span>}
+        <label key={q.id} className="block space-y-1 text-[14px] text-foreground"><span>{q.label}{q.required ? <span className="text-red-600"> *</span> : null}</span>
+          {q.type === 'paragraph' ? <textarea rows={3} value={answers[q.id] || ''} onChange={(e) => set(q.id, e.target.value)} className="w-full rounded-2xl border border-white/80 bg-card/75 p-3 text-[15px]" />
+            : q.type === 'short' ? <input value={answers[q.id] || ''} onChange={(e) => set(q.id, e.target.value)} className="h-12 w-full rounded-2xl border border-white/80 bg-card/75 px-4 text-[15px]" />
+            : <span className="flex flex-wrap gap-2">{(q.type === 'yesno' ? [['yes', 'Yes'], ['no', 'No']] : (q.options || []).map((o: string) => [o, o])).map(([v, l]: string[]) => <button key={v} type="button" aria-pressed={answers[q.id] === v} onClick={() => set(q.id, v)} className={`h-10 rounded-full px-4 text-sm ${answers[q.id] === v ? 'text-white' : 'bg-card/80'}`} style={answers[q.id] === v ? { background: color } : undefined}>{l}</button>)}</span>}
         </label>
       ))}
-      {docs.length > 0 && <div className="rounded-2xl bg-white/60 p-3 text-[13px] text-stone-700"><p className="font-semibold">You’ll upload after applying:</p><ul className="mt-1 space-y-0.5">{docs.map((x: any) => <li key={x.name}>• {x.name}{x.note ? <span className="text-stone-500"> — {x.note}</span> : null}</li>)}</ul></div>}
+      {docs.length > 0 && <div className="rounded-2xl bg-card/60 p-3 text-[13px] text-foreground/80"><p className="font-semibold">You’ll upload after applying:</p><ul className="mt-1 space-y-0.5">{docs.map((x: any) => <li key={x.name}>• {x.name}{x.note ? <span className="text-muted-foreground"> — {x.note}</span> : null}</li>)}</ul></div>}
     </div>
   );
 }
@@ -1360,12 +1360,12 @@ function InterviewCard({ iv, color, busy, onPick, onChange }: { iv: any; color: 
   const fmtT = (x: string) => new Date(x).toLocaleString(undefined, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const ask = (
     <div className="space-y-2 pt-1">
-      <p className="text-sm text-stone-700">Suggest up to three times that work for you:</p>
-      {times.map((t, i) => <input key={i} type="datetime-local" value={t} onChange={(e) => setTimes(times.map((x, j) => (j === i ? e.target.value : x)))} className="h-11 w-full rounded-2xl border border-white/80 bg-white/80 px-3 text-sm" aria-label={`Time ${i + 1}`} />)}
-      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="A note for the school (optional)" className="w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm" />
+      <p className="text-sm text-foreground/80">Suggest up to three times that work for you:</p>
+      {times.map((t, i) => <input key={i} type="datetime-local" value={t} onChange={(e) => setTimes(times.map((x, j) => (j === i ? e.target.value : x)))} className="h-11 w-full rounded-2xl border border-white/80 bg-card/80 px-3 text-sm" aria-label={`Time ${i + 1}`} />)}
+      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="A note for the school (optional)" className="w-full rounded-2xl border border-white/80 bg-card/80 p-3 text-sm" />
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={!!busy || !times.some(Boolean)} onClick={async () => { if (await onChange({ proposals: times.filter(Boolean).map((x) => new Date(x).toISOString()), note })) setAsking(false); }} className="h-11 rounded-full px-5 text-sm font-medium text-white disabled:opacity-50" style={{ background: color }}>Send my times</button>
-        <button type="button" disabled={!!busy} onClick={async () => { if (window.confirm('Let the school know you can’t attend right now?')) { if (await onChange({ cantAttend: true, note })) setAsking(false); } }} className="h-11 rounded-full bg-white/80 px-4 text-sm">I can’t attend right now</button>
+        <button type="button" disabled={!!busy} onClick={async () => { if (window.confirm('Let the school know you can’t attend right now?')) { if (await onChange({ cantAttend: true, note })) setAsking(false); } }} className="h-11 rounded-full bg-card/80 px-4 text-sm">I can’t attend right now</button>
         <button type="button" onClick={() => setAsking(false)} className="h-11 rounded-full px-3 text-sm">Back</button>
       </div>
     </div>
@@ -1374,16 +1374,16 @@ function InterviewCard({ iv, color, busy, onPick, onChange }: { iv: any; color: 
     <Glass className="space-y-2">
       <p className="text-lg font-semibold">🗓 Your interview</p>
       {iv.status === 'offered' && (!asking ? <>
-        <p className="text-sm text-stone-700">Please choose a time{iv.where ? ` (${iv.where})` : ''}:</p>
-        <div className="grid gap-2">{(iv.offers || []).map((x: string) => <button key={x} type="button" disabled={!!busy} onClick={() => onPick(x)} className="h-12 rounded-2xl bg-white/85 px-4 text-left text-[15px] shadow-sm disabled:opacity-50">{fmtT(x)}</button>)}</div>
-        {(iv.offers || []).length === 0 && <p className="text-sm text-stone-600">These times have passed — please suggest new ones.</p>}
+        <p className="text-sm text-foreground/80">Please choose a time{iv.where ? ` (${iv.where})` : ''}:</p>
+        <div className="grid gap-2">{(iv.offers || []).map((x: string) => <button key={x} type="button" disabled={!!busy} onClick={() => onPick(x)} className="h-12 rounded-2xl bg-card/85 px-4 text-left text-[15px] shadow-sm disabled:opacity-50">{fmtT(x)}</button>)}</div>
+        {(iv.offers || []).length === 0 && <p className="text-sm text-foreground/80">These times have passed — please suggest new ones.</p>}
         <button type="button" onClick={() => setAsking(true)} className="text-sm underline">None of these work</button>
       </> : ask)}
       {iv.status === 'scheduled' && (!asking ? <>
         <p className="text-[15px]"><b>{fmtT(iv.at)}</b>{iv.where ? ` · ${iv.where}` : ''}{iv.with ? ` · with ${iv.with}` : ''}</p>
         <button type="button" onClick={() => setAsking(true)} className="text-sm underline">Need a different time?</button>
       </> : ask)}
-      {iv.status === 'reschedule_requested' && <p className="text-sm text-stone-700">Thanks — we’ve asked the school for a new time{(iv.proposals || []).length ? ` (you suggested ${iv.proposals.map(fmtT).join('; ')})` : ''}. You’ll hear back by email.</p>}
+      {iv.status === 'reschedule_requested' && <p className="text-sm text-foreground/80">Thanks — we’ve asked the school for a new time{(iv.proposals || []).length ? ` (you suggested ${iv.proposals.map(fmtT).join('; ')})` : ''}. You’ll hear back by email.</p>}
     </Glass>
   );
 }
@@ -1396,36 +1396,36 @@ function Journey({ d, tenantId, slug, color }: any) {
   const lessonsById = new Map((d.lessons || []).map((l: any) => [l.id, l]));
   return (
     <Glass className="space-y-1">
-      <p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">Your journey</p>
+      <p className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground">Your journey</p>
       <div className="cf-stagger relative mt-3">
         {mods.map((m, i) => {
           const here = i === current; const expanded = openKey === m.key && m.open;
           const icon = m.complete ? '✓' : !m.open ? '🔒' : here ? '★' : '○';
           return (
             <div key={m.key} className="relative pb-5 pl-[4.5rem]">
-              {i < mods.length - 1 && <span className="absolute left-[1.95rem] top-16 h-[calc(100%-3.5rem)] w-0 border-l-[3px] border-dotted border-stone-300" aria-hidden />}
+              {i < mods.length - 1 && <span className="absolute left-[1.95rem] top-16 h-[calc(100%-3.5rem)] w-0 border-l-[3px] border-dotted border-border" aria-hidden />}
               <button type="button" disabled={!m.open} onClick={() => setOpenKey(expanded ? null : m.key)} aria-expanded={expanded} className="absolute left-0 top-0 flex h-16 w-16 items-center justify-center rounded-full text-2xl font-semibold disabled:cursor-default"
-                style={m.complete ? { background: '#d1fae5', color: '#047857' } : here ? { background: `${color}1f`, color, border: `3px solid ${color}` } : m.open ? { background: 'white', color } : { background: 'rgba(255,255,255,.6)', color: '#a8a29e' }}>
+                style={m.complete ? { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: 'var(--ok-ink)' } : here ? { background: `${color}1f`, color, border: `3px solid ${color}` } : m.open ? { background: 'hsl(var(--card))', color } : { background: 'rgba(255,255,255,.6)', color: 'hsl(var(--muted-foreground))' }}>
                 {here && <span className="cf-pulse absolute inset-0 rounded-full" style={{ boxShadow: `0 0 0 3px ${color}40` }} aria-hidden />}{icon}</button>
               <button type="button" disabled={!m.open} onClick={() => setOpenKey(expanded ? null : m.key)} className="block min-h-16 w-full text-left disabled:cursor-default">
                 <span className="flex items-center gap-2"><span className="text-lg font-semibold leading-tight">{m.title}</span>{here && <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ background: color }}>You’re here</span>}{m.complete && d.game && m.badge && <span title={m.badge.name}>{m.badge.emoji}</span>}</span>
-                <span className="block text-[13px] text-stone-500">{m.open ? `${m.done} of ${m.total} lessons${m.minutes ? ` · about ${m.minutes} min` : ''}` : m.reason}</span>
-                {m.open && m.total > 0 && <span className="mt-1.5 block h-1.5 max-w-xs rounded-full bg-white/80"><span className="block h-1.5 rounded-full transition-all duration-700" style={{ width: `${(m.done / m.total) * 100}%`, background: m.complete ? '#10b981' : color }} /></span>}
+                <span className="block text-[13px] text-muted-foreground">{m.open ? `${m.done} of ${m.total} lessons${m.minutes ? ` · about ${m.minutes} min` : ''}` : m.reason}</span>
+                {m.open && m.total > 0 && <span className="mt-1.5 block h-1.5 max-w-xs rounded-full bg-card/80"><span className="block h-1.5 rounded-full transition-all duration-700" style={{ width: `${(m.done / m.total) * 100}%`, background: m.complete ? '#10b981' : color }} /></span>}
               </button>
               {expanded && (
                 <div className="cf-rise mt-3 space-y-2">
                   {m.done === 0 && (m.intro || m.lessonTitles.length > 1) && (
-                    <div className="rounded-2xl bg-white/85 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Welcome to this module</p>
+                    <div className="rounded-2xl bg-card/85 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Welcome to this module</p>
                       {m.intro && <p className="mt-1 text-[15px]">{m.intro}</p>}
-                      <p className="mt-2 text-[13px] text-stone-600">You’ll cover: {m.lessonTitles.join(' · ')}</p>
+                      <p className="mt-2 text-[13px] text-foreground/80">You’ll cover: {m.lessonTitles.join(' · ')}</p>
                       {d.game && m.badge && <p className="mt-1 text-[13px]">Finish it to earn <b>{m.badge.emoji} {m.badge.name}</b></p>}
                     </div>
                   )}
                   {m.lessonIds.map((id: string) => { const l: any = lessonsById.get(id); if (!l) return null; const fin = !!d.progress?.[id]; return (
-                    <Link key={id} href={`/learn/${tenantId}/${slug}/${id}`} className="flex items-center gap-3 rounded-2xl bg-white/70 px-3 py-2.5 text-[15px] transition active:scale-[0.99]">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px]" style={fin ? { background: '#d1fae5', color: '#047857' } : { background: `${color}1a`, color }}>{fin ? '✓' : l.kind === 'video' ? '▶' : l.kind === 'assignment' ? '✎' : '≡'}</span>
-                      <span className="min-w-0 flex-1 truncate">{l.title}</span><span className="text-stone-400">›</span>
+                    <Link key={id} href={`/learn/${tenantId}/${slug}/${id}`} className="flex items-center gap-3 rounded-2xl bg-card/70 px-3 py-2.5 text-[15px] transition active:scale-[0.99]">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px]" style={fin ? { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: 'var(--ok-ink)' } : { background: `${color}1a`, color }}>{fin ? '✓' : l.kind === 'video' ? '▶' : l.kind === 'assignment' ? '✎' : '≡'}</span>
+                      <span className="min-w-0 flex-1 truncate">{l.title}</span><span className="text-muted-foreground">›</span>
                     </Link>
                   ); })}
                 </div>
@@ -1443,13 +1443,13 @@ function UnlockMoment({ items, color, onClose }: { items: any[]; color: string; 
   const m = items[0];
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-label="New module unlocked">
-      <div className="cf-land w-full max-w-sm space-y-4 rounded-[2rem] bg-white p-6 text-center shadow-2xl">
+      <div className="cf-land w-full max-w-sm space-y-4 rounded-[2rem] bg-card p-6 text-center shadow-2xl">
         <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
           <span className="cf-ripple absolute inset-0 rounded-full" style={{ border: `3px solid ${color}` }} aria-hidden />
           <span className="cf-pop flex h-20 w-20 items-center justify-center rounded-full text-4xl text-white" style={{ background: color }}>🔓</span>
         </div>
-        <div><p className="text-[11px] uppercase tracking-[0.25em] text-stone-500">New module unlocked</p><p className="mt-1 text-2xl font-semibold">{m.title}</p>{m.intro && <p className="mt-2 text-[15px] text-stone-600">{m.intro}</p>}
-          {items.length > 1 && <p className="mt-1 text-[13px] text-stone-500">and {items.length - 1} more</p>}</div>
+        <div><p className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground">New module unlocked</p><p className="mt-1 text-2xl font-semibold">{m.title}</p>{m.intro && <p className="mt-2 text-[15px] text-foreground/80">{m.intro}</p>}
+          {items.length > 1 && <p className="mt-1 text-[13px] text-muted-foreground">and {items.length - 1} more</p>}</div>
         <button type="button" onClick={onClose} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>Let’s go</button>
       </div>
     </div>
@@ -1460,13 +1460,13 @@ function UnlockMoment({ items, color, onClose }: { items: any[]; color: string; 
 function ModuleRecap({ r, color, onDone }: { r: any; color: string; onDone: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-label="Module complete">
-      <div className="cf-land w-full max-w-sm space-y-4 rounded-[2rem] bg-white p-6 shadow-2xl">
-        <div className="text-center"><span className="cf-pop inline-flex h-20 w-20 items-center justify-center rounded-full text-4xl" style={{ background: '#d1fae5' }}>{r.courseDone ? '🎓' : r.badge?.emoji || '✓'}</span>
-          <p className="mt-3 text-[11px] uppercase tracking-[0.25em] text-stone-500">{r.courseDone ? 'Course complete' : 'Module complete'}</p>
+      <div className="cf-land w-full max-w-sm space-y-4 rounded-[2rem] bg-card p-6 shadow-2xl">
+        <div className="text-center"><span className="cf-pop inline-flex h-20 w-20 items-center justify-center rounded-full text-4xl" style={{ background: 'color-mix(in srgb, #1f7a4d 11%, transparent)' }}>{r.courseDone ? '🎓' : r.badge?.emoji || '✓'}</span>
+          <p className="mt-3 text-[11px] uppercase tracking-[0.25em] text-muted-foreground">{r.courseDone ? 'Course complete' : 'Module complete'}</p>
           <p className="text-2xl font-semibold">{r.courseDone ? 'You did it!' : r.title}</p></div>
-        {!r.courseDone && r.lessonTitles?.length > 0 && <div className="rounded-2xl bg-stone-50 p-3"><p className="text-[12px] font-semibold text-stone-500">What you covered</p><ul className="cf-stagger mt-1 space-y-1">{r.lessonTitles.map((t: string) => <li key={t} className="text-[14px]">✓ {t}</li>)}</ul></div>}
+        {!r.courseDone && r.lessonTitles?.length > 0 && <div className="rounded-2xl bg-muted/60 p-3"><p className="text-[12px] font-semibold text-muted-foreground">What you covered</p><ul className="cf-stagger mt-1 space-y-1">{r.lessonTitles.map((t: string) => <li key={t} className="text-[14px]">✓ {t}</li>)}</ul></div>}
         {r.game && <div className="flex justify-center gap-2">{r.badge && <span className="cf-pop rounded-full px-3 py-1 text-sm font-semibold" style={{ background: `${color}1a`, color }}>{r.badge.emoji} {r.badge.name}</span>}<span className="cf-pop rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-800">⭐ {r.game.points} points</span>{r.game.streak > 1 && <span className="cf-pop rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700">🔥 {r.game.streak}-day streak</span>}</div>}
-        {r.nextModule && <p className="text-center text-[14px] text-stone-600">Up next: <b>{r.nextModule.title}</b></p>}
+        {r.nextModule && <p className="text-center text-[14px] text-foreground/80">Up next: <b>{r.nextModule.title}</b></p>}
         <button type="button" onClick={onDone} className="h-12 w-full rounded-full text-sm font-medium text-white" style={{ background: color }}>{r.nextModule ? 'See what’s unlocked' : 'Back to my course'}</button>
       </div>
     </div>
@@ -1521,25 +1521,25 @@ function StudyLayer({ tenantId, token, courseId, lessonId, containerRef, color }
   const mine = notes.filter((n) => n.kind !== 'card' || n.lessonId === lessonId);
   return (<>
     <style>{HL_CSS}</style>
-    {sel && !sheet && <div className="cf-rise fixed inset-x-3 bottom-4 z-40 mx-auto flex max-w-md items-center gap-1.5 rounded-full bg-stone-900 p-1.5 text-white shadow-2xl" onMouseDown={(e) => e.preventDefault()}>
+    {sel && !sheet && <div className="cf-rise fixed inset-x-3 bottom-4 z-40 mx-auto flex max-w-md items-center gap-1.5 rounded-full bg-foreground p-1.5 text-background shadow-2xl" onMouseDown={(e) => e.preventDefault()}>
       {COLORS_UI.map(([k, bg]) => <button key={k} type="button" aria-label={`Highlight ${k}`} onClick={() => save({ kind: 'highlight', text: sel, color: k })} className="h-10 w-10 shrink-0 rounded-full ring-2 ring-white/30" style={{ background: bg }} />)}
-      <button type="button" onClick={() => setSheet('note')} className="h-10 flex-1 rounded-full bg-white/10 text-sm">📝 Note</button>
-      <button type="button" onClick={() => { setFront(sel); setSheet('card'); }} className="h-10 flex-1 rounded-full bg-white/10 text-sm">🃏 Card</button></div>}
+      <button type="button" onClick={() => setSheet('note')} className="h-10 flex-1 rounded-full bg-card/10 text-sm">📝 Note</button>
+      <button type="button" onClick={() => { setFront(sel); setSheet('card'); }} className="h-10 flex-1 rounded-full bg-card/10 text-sm">🃏 Card</button></div>}
     {sheet && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-3 sm:items-center" onClick={() => setSheet(null)}>
-      <div onClick={(e) => e.stopPropagation()} className="cf-land w-full max-w-md space-y-3 rounded-3xl bg-white p-5">
+      <div onClick={(e) => e.stopPropagation()} className="cf-land w-full max-w-md space-y-3 rounded-3xl bg-card p-5">
         {sheet === 'note' ? <><p className="rounded-2xl bg-violet-50 p-3 text-sm italic">“{sel}”</p><textarea autoFocus rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Your note — in your own words" className="w-full rounded-2xl border p-3 text-[16px]" />
           <button type="button" disabled={!note.trim()} onClick={() => save({ kind: 'note', text: sel, note })} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Save note</button></>
-        : <><label className="block text-[12px] font-semibold text-stone-500">Front<textarea rows={2} value={front} onChange={(e) => setFront(e.target.value)} className="mt-1 w-full rounded-2xl border p-3 text-[16px] text-stone-900" /></label>
-          <label className="block text-[12px] font-semibold text-stone-500">Back (the answer)<textarea autoFocus rows={2} value={back} onChange={(e) => setBack(e.target.value)} className="mt-1 w-full rounded-2xl border p-3 text-[16px] text-stone-900" /></label>
+        : <><label className="block text-[12px] font-semibold text-muted-foreground">Front<textarea rows={2} value={front} onChange={(e) => setFront(e.target.value)} className="mt-1 w-full rounded-2xl border p-3 text-[16px] text-foreground" /></label>
+          <label className="block text-[12px] font-semibold text-muted-foreground">Back (the answer)<textarea autoFocus rows={2} value={back} onChange={(e) => setBack(e.target.value)} className="mt-1 w-full rounded-2xl border p-3 text-[16px] text-foreground" /></label>
           <button type="button" disabled={!front.trim() || !back.trim()} onClick={() => save({ kind: 'card', text: sel, front, back })} className="h-12 w-full rounded-full text-sm font-medium text-white disabled:opacity-40" style={{ background: color }}>Add to my flashcards</button></>}
       </div></div>}
-    {msg && <p className="cf-pop fixed left-1/2 top-20 z-50 -translate-x-1/2 rounded-full bg-stone-900 px-4 py-2 text-sm text-white shadow-lg">{msg}</p>}
-    {mine.length === 0 && <p className="text-center text-[12px] text-stone-400">✨ Tip: select any text to highlight it, add a note, or make a flashcard.</p>}
-    {mine.length > 0 && <Glass className="space-y-2"><p className="text-[11px] uppercase tracking-[0.25em] text-stone-400">My notes · this lesson</p>
-      {mine.map((n) => <div key={n.id} className="flex items-start gap-2 rounded-2xl bg-white/70 p-3 text-[14px]"><span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ background: n.kind === 'card' ? '#c4b5fd' : n.kind === 'note' ? '#e9d5ff' : (COLORS_UI.find(([k]) => k === n.color)?.[1] || '#fde68a') }} />
-        <div className="min-w-0 flex-1">{n.kind === 'card' ? <p>🃏 <b>{n.front}</b> — {n.back}</p> : <p className="italic">“{n.text}”</p>}{n.note && <p className="mt-1 text-stone-700">{n.note}</p>}</div>
-        <button type="button" onClick={async () => { await api({ action: 'note-delete', tenantId, token, id: n.id }); await load(); }} aria-label="Delete" className="text-stone-400">✕</button></div>)}
-      <p className="text-[11px] text-stone-400">Select any text in this lesson to highlight it, add a note, or make a flashcard.</p></Glass>}
+    {msg && <p className="cf-pop fixed left-1/2 top-20 z-50 -translate-x-1/2 rounded-full bg-foreground px-4 py-2 text-sm text-background shadow-lg">{msg}</p>}
+    {mine.length === 0 && <p className="text-center text-[12px] text-muted-foreground">✨ Tip: select any text to highlight it, add a note, or make a flashcard.</p>}
+    {mine.length > 0 && <Glass className="space-y-2"><p className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground">My notes · this lesson</p>
+      {mine.map((n) => <div key={n.id} className="flex items-start gap-2 rounded-2xl bg-card/70 p-3 text-[14px]"><span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ background: n.kind === 'card' ? '#c4b5fd' : n.kind === 'note' ? '#e9d5ff' : (COLORS_UI.find(([k]) => k === n.color)?.[1] || '#fde68a') }} />
+        <div className="min-w-0 flex-1">{n.kind === 'card' ? <p>🃏 <b>{n.front}</b> — {n.back}</p> : <p className="italic">“{n.text}”</p>}{n.note && <p className="mt-1 text-foreground/80">{n.note}</p>}</div>
+        <button type="button" onClick={async () => { await api({ action: 'note-delete', tenantId, token, id: n.id }); await load(); }} aria-label="Delete" className="text-muted-foreground">✕</button></div>)}
+      <p className="text-[11px] text-muted-foreground">Select any text in this lesson to highlight it, add a note, or make a flashcard.</p></Glass>}
   </>);
 }
 const COLORS_UI: [string, string][] = [['yellow', '#fde68a'], ['green', '#bbf7d0'], ['pink', '#fbcfe8']];
@@ -1583,14 +1583,14 @@ function SectionedNotes({ sections, layout, color }: { sections: any[]; layout: 
   if (!sections.length) return null;
   if (layout === 'cards') return (
     <div ref={wrap} className="space-y-3">
-      <p className="text-[12px] text-stone-500">{read.size} of {sections.length} read · tap a card to open it</p>
+      <p className="text-[12px] text-muted-foreground">{read.size} of {sections.length} read · tap a card to open it</p>
       <div className="grid gap-3 sm:grid-cols-2">{sections.map((sec, i) => open === i ? (
-        <Glass key={i} className="cf-land space-y-3 sm:col-span-2"><div className="flex items-baseline justify-between gap-2"><h2 className="text-2xl font-light tracking-tight">{sec.title || 'Notes'}</h2><span className="text-[12px] text-stone-500">{sec.minutes} min</span></div><Prose text={sec.text} />
+        <Glass key={i} className="cf-land space-y-3 sm:col-span-2"><div className="flex items-baseline justify-between gap-2"><h2 className="text-2xl font-light tracking-tight">{sec.title || 'Notes'}</h2><span className="text-[12px] text-muted-foreground">{sec.minutes} min</span></div><Prose text={sec.text} />
           <button type="button" onClick={() => { setRead((r) => new Set(r).add(i)); setOpen(null); }} className="h-11 rounded-full px-5 text-sm font-medium text-white" style={{ background: color }}>Done ✓</button></Glass>
       ) : (
         <button key={i} type="button" onClick={() => setOpen(i)} className="glass cf-rise flex min-h-32 flex-col justify-between rounded-[1.5rem] border border-white/70 p-4 text-left transition active:scale-[0.99]">
           <span className="flex items-start justify-between gap-2"><span className="text-lg font-semibold leading-tight">{sec.title || 'Notes'}</span>{read.has(i) && <span className="rounded-full bg-emerald-100 px-2 text-[12px] text-emerald-800">✓</span>}</span>
-          <span className="line-clamp-2 text-[13px] text-stone-600">{sec.text.replace(/[#*_-]/g, '').slice(0, 160)}</span><span className="text-[11px] text-stone-400">{sec.minutes} min read</span></button>
+          <span className="line-clamp-2 text-[13px] text-foreground/80">{sec.text.replace(/[#*_-]/g, '').slice(0, 160)}</span><span className="text-[11px] text-muted-foreground">{sec.minutes} min read</span></button>
       ))}</div>
     </div>
   );
@@ -1599,10 +1599,10 @@ function SectionedNotes({ sections, layout, color }: { sections: any[]; layout: 
     <div ref={wrap} className={`space-y-4 ${focus ? 'cf-focus' : ''}`}>
       {focus && <style>{FOCUS_CSS}</style>}
       <div className="pointer-events-none fixed inset-x-0 top-0 z-40 h-1"><div className="h-1 transition-[width] duration-150" style={{ width: `${prog * 100}%`, background: color }} /></div>
-      {many && <div className="sticky top-2 z-20"><button type="button" onClick={() => setToc(!toc)} className="flex h-10 items-center gap-2 rounded-full bg-white/90 px-4 text-sm shadow-sm backdrop-blur">☰ Contents <span className="text-stone-500">· {read.size}/{sections.length} read</span></button>
-        {toc && <div className="cf-rise mt-2 max-w-sm space-y-1 rounded-2xl bg-white p-2 shadow-lg">{sections.map((sec, i) => <button key={i} type="button" onClick={() => go(i)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-stone-50"><span className={read.has(i) ? 'text-emerald-600' : 'text-stone-300'}>{read.has(i) ? '✓' : '○'}</span><span className="min-w-0 flex-1 truncate">{sec.title || 'Introduction'}</span><span className="text-[11px] text-stone-400">{sec.minutes}m</span></button>)}</div>}</div>}
+      {many && <div className="sticky top-2 z-20"><button type="button" onClick={() => setToc(!toc)} className="flex h-10 items-center gap-2 rounded-full bg-card/90 px-4 text-sm shadow-sm backdrop-blur">☰ Contents <span className="text-muted-foreground">· {read.size}/{sections.length} read</span></button>
+        {toc && <div className="cf-rise mt-2 max-w-sm space-y-1 rounded-2xl bg-card p-2 shadow-lg">{sections.map((sec, i) => <button key={i} type="button" onClick={() => go(i)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-muted/60"><span className={read.has(i) ? 'text-emerald-600' : 'text-muted-foreground/70'}>{read.has(i) ? '✓' : '○'}</span><span className="min-w-0 flex-1 truncate">{sec.title || 'Introduction'}</span><span className="text-[11px] text-muted-foreground">{sec.minutes}m</span></button>)}</div>}</div>}
       {sections.map((sec, i) => {
-        const inner = <><div className="flex items-baseline justify-between gap-2">{sec.title ? <h2 className="text-2xl font-light tracking-tight">{sec.title}</h2> : <span />}{many && <span className="shrink-0 text-[12px] text-stone-500">{sec.minutes} min</span>}</div><div className="flex justify-end"><Listen text={sec.text} /></div><Prose text={sec.text} /><span data-end={i} className="block h-px" /></>;
+        const inner = <><div className="flex items-baseline justify-between gap-2">{sec.title ? <h2 className="text-2xl font-light tracking-tight">{sec.title}</h2> : <span />}{many && <span className="shrink-0 text-[12px] text-muted-foreground">{sec.minutes} min</span>}</div><div className="flex justify-end"><Listen text={sec.text} /></div><Prose text={sec.text} /><span data-end={i} className="block h-px" /></>;
         return focus ? <section key={i} ref={(el) => { refs.current[i] = el; }} className="scroll-mt-16 space-y-3 py-2">{inner}</section>
           : <Glass key={i} className="scroll-mt-16 space-y-3"><div ref={(el) => { refs.current[i] = el; }} />{inner}</Glass>;
       })}
@@ -1628,14 +1628,14 @@ function TimelineBlock({ b, color }: { b: any; color: string }) {
     <Glass className="space-y-4">
       <div className="flex items-center justify-between gap-2"><p className="text-lg font-semibold">🕰 {b.title || 'Timeline'}</p><button type="button" onClick={() => setPlaying(!playing)} className="rounded-full px-4 py-2 text-sm font-medium text-white" style={{ background: color }}>{playing ? '■ Stop' : '▶ Play'}</button></div>
       <ol className="relative ml-3">
-        <span className="absolute left-0 top-2 w-0.5 bg-stone-200" style={{ height: 'calc(100% - 1rem)' }} aria-hidden />
+        <span className="absolute left-0 top-2 w-0.5 bg-border" style={{ height: 'calc(100% - 1rem)' }} aria-hidden />
         <span className="absolute left-0 top-2 w-0.5 transition-[height] duration-700 ease-out" style={{ height: `calc(${(shown / evs.length) * 100}% - 1rem)`, background: color }} aria-hidden />
         {evs.map((e, i) => { const on = i < shown; return (
           <li key={i} ref={(el) => { refs.current[i] = el; }} data-i={i} className={`relative pb-6 pl-7 transition-all duration-500 ${on ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`}>
             <span className={`absolute -left-[7px] top-1.5 h-4 w-4 rounded-full ring-4 ring-white transition-transform duration-300 ${active === i ? 'scale-150' : ''}`} style={{ background: on ? color : '#d6d3d1' }} aria-hidden />
             <p className="text-[12px] font-semibold uppercase tracking-widest" style={{ color }}>{e.when}</p>
             <p className="text-lg font-semibold leading-snug">{e.title}</p>
-            {e.text && <p className="text-[15px] text-stone-700">{e.text}</p>}
+            {e.text && <p className="text-[15px] text-foreground/80">{e.text}</p>}
             {e.media?.url && <img src={e.media.url} alt={e.title} className="mt-2 max-h-60 rounded-2xl object-cover" />}
           </li>
         ); })}

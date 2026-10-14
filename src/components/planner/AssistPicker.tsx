@@ -28,7 +28,7 @@ export function AssistPicker({ tenantId, appointment, staff = [], defaultPct = 2
     catch { setErr('Couldn’t save — try again.'); }
     setBusy(false);
   };
-  const line = 'var(--line, #e7e2dc)';
+  const line = 'hsl(var(--border))';
   if (!open) return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-[14px]" style={{ borderColor: line }}>
       <span>{cur?.staffId ? <><b className="font-[700]">Assisted by {name(cur.staffId)}</b> · {shares(cur.staffId) ? `${cur.pct}% of the service’s commission` : 'paid by the hour — the provider keeps the full commission'}</> : <span className="text-muted-foreground">Did someone help with this service?</span>}</span>
@@ -38,7 +38,7 @@ export function AssistPicker({ tenantId, appointment, staff = [], defaultPct = 2
     <div className="space-y-2 rounded-2xl border p-4 text-[14px]" style={{ borderColor: line }}>
       <p className="font-[700]">Assisted by</p>
       <div className="flex flex-wrap items-center gap-2">
-        <select aria-label="Who helped" value={who} onChange={(e) => setWho(e.target.value)} className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3" style={{ borderColor: line }}>
+        <select aria-label="Who helped" value={who} onChange={(e) => setWho(e.target.value)} className="h-10 min-w-0 flex-1 rounded-xl border bg-card px-3" style={{ borderColor: line }}>
           <option value="">Choose…</option>{team.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         {(!who || shares(who)) && <><input aria-label="Their share" inputMode="numeric" value={pct} onChange={(e) => setPct(e.target.value.replace(/[^\d]/g, '').slice(0, 2))} className="h-10 w-16 rounded-xl border px-3 text-right" style={{ borderColor: line }} /><span>%</span></>}
@@ -46,7 +46,7 @@ export function AssistPicker({ tenantId, appointment, staff = [], defaultPct = 2
       <p className="text-[12px] text-muted-foreground">{who && !shares(who) ? `${name(who)} is paid by the hour, so they’re already paid for this time — the provider keeps the full commission. It’s still noted that they helped.` : 'Their share of the service’s commission; the provider keeps the rest. Their hourly pay (if any) carries on as usual.'}</p>
       {err && <p role="alert" className="text-[13px] font-[600] text-[#B42318]">{err}</p>}
       <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={busy} onClick={() => save(false)} className="h-10 rounded-full bg-[#17181A] px-4 text-[13px] font-[700] text-white">Save</button>
+        <button type="button" disabled={busy} onClick={() => save(false)} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-[700] text-background">Save</button>
         {cur?.staffId && <button type="button" disabled={busy} onClick={() => save(true)} className="h-10 rounded-full border px-4 text-[13px] font-[600]" style={{ borderColor: line }}>No assistant</button>}
         <button type="button" onClick={() => setOpen(false)} className="h-10 rounded-full px-4 text-[13px] font-[600]">Cancel</button>
       </div>

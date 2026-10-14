@@ -15,7 +15,7 @@ export default function MirReportPage() {
   const { data: cases, isLoading } = useCollection<any>(cQ);
   const aQ = useMemoFirebase(() => (firestore && tenantId && isManager ? query(collection(firestore as Firestore, `tenants/${tenantId}/payAdjustments`), where('by', '==', 'making_it_right')) : null), [firestore, tenantId, isManager]);
   const { data: adj } = useCollection<any>(aQ);
-  if (!isManager) return <div className="p-6"><AppHeader title="Making it right report" /><p className="mt-6" style={{ color: '#6d7075' }}>The report is for managers.</p></div>;
+  if (!isManager) return <div className="p-6"><AppHeader title="Making it right report" /><p className="mt-6" style={{ color: 'hsl(var(--muted-foreground))' }}>The report is for managers.</p></div>;
   return <>
     <div className="no-print"><AppHeader title="Making it right report" /></div>
     <MirReportView cases={cases} adj={adj} isLoading={isLoading} tz={tz} tenantName={selectedTenant?.name || ''} />

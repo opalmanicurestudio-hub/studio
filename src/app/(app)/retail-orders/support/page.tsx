@@ -329,7 +329,7 @@ export default function RetailSupportPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -349,7 +349,7 @@ export default function RetailSupportPage() {
                 placeholder={(capCents / 100).toFixed(2)}
                 value={capDraft}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCapDraft(e.target.value.replace(/[^0-9.]/g, ''))}
-                className="h-8 w-16 rounded-lg border-2 bg-white px-1.5 text-center font-mono text-[11px] font-bold outline-none focus:border-foreground/60"
+                className="h-8 w-16 rounded-lg border-2 bg-card px-1.5 text-center font-mono text-[11px] font-bold outline-none focus:border-foreground/60"
               />
               <button type="button" onClick={() => void saveCap()} disabled={!capDraft}
                 className="h-8 rounded-lg border-2 px-2 text-[8px] font-black uppercase tracking-widest transition-all hover:border-primary/40 disabled:opacity-40">
@@ -359,7 +359,7 @@ export default function RetailSupportPage() {
           )}
           <button type="button" onClick={() => setShowResolved(!showResolved)}
             className={cn('h-9 px-4 rounded-full border-2 text-[9px] font-black uppercase tracking-widest transition-all',
-              showResolved ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+              showResolved ? 'bg-foreground text-background border-foreground' : 'bg-card hover:border-primary/40')}>
             {showResolved ? 'Showing resolved' : 'Show resolved'}
           </button>
         </div>
@@ -376,7 +376,7 @@ export default function RetailSupportPage() {
           </div>
         )}
         {tickets.map((t) => (
-          <Card key={t.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', t.priority === 'urgent' && t.status === 'open' && 'border-destructive/50')}>
+          <Card key={t.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-card', t.priority === 'urgent' && t.status === 'open' && 'border-destructive/50')}>
             <CardContent className="p-5 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -458,7 +458,7 @@ export default function RetailSupportPage() {
                     <div key={i} className="space-y-1">
                       <p className="text-sm font-bold text-muted-foreground leading-snug">
                         <span className={cn('mr-1.5 rounded-full border px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest align-middle',
-                          f.kind === 'evidence' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-slate-50 text-slate-500')}>
+                          f.kind === 'evidence' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-border bg-muted/60 text-muted-foreground')}>
                           {f.kind === 'evidence' ? 'New info' : 'Follow-up'}
                         </span>
                         {f.message}
@@ -499,7 +499,7 @@ export default function RetailSupportPage() {
                     </button>
                     {([['ready', 'It\u2019s ready'], ['sorry', 'Apology'], ['refund', 'Refund info']] as const).map(([k, label]) => (
                       <button key={k} type="button" onClick={() => template(t, k)}
-                        className="h-7 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest bg-white hover:border-primary/40 transition-all">
+                        className="h-7 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest bg-card hover:border-primary/40 transition-all">
                         {label}
                       </button>
                     ))}
@@ -535,7 +535,7 @@ export default function RetailSupportPage() {
                     placeholder="10.00"
                     value={creditDraft[t.id] || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCreditDraft({ ...creditDraft, [t.id]: e.target.value.replace(/[^0-9.]/g, '') })}
-                    className="h-9 w-24 rounded-xl border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60"
+                    className="h-9 w-24 rounded-xl border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60"
                   />
                   <Button size="sm" disabled={busy === `credit-${t.id}` || !(Number(creditDraft[t.id]) > 0)}
                     onClick={() => issueCredit(t)}
@@ -558,7 +558,7 @@ export default function RetailSupportPage() {
                       <button key={k} type="button" aria-pressed={flagKind === k}
                         onClick={() => setFlagKind(k)}
                         className={cn('h-7 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest transition-all',
-                          flagKind === k ? 'bg-foreground text-background border-foreground' : 'bg-white')}>
+                          flagKind === k ? 'bg-foreground text-background border-foreground' : 'bg-card')}>
                         {k}
                       </button>
                     ))}
@@ -567,7 +567,7 @@ export default function RetailSupportPage() {
                     placeholder="What happened, and how was it handled? e.g. Claimed package never arrived; tracking shows delivered + signed. Second attempt this month."
                     value={flagNote}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFlagNote(e.target.value)}
-                    className="rounded-2xl border-2 min-h-[60px] font-bold text-sm bg-white"
+                    className="rounded-2xl border-2 min-h-[60px] font-bold text-sm bg-card"
                   />
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" disabled={busy === `flag-${t.id}` || !flagNote.trim()}
@@ -625,7 +625,7 @@ export default function RetailSupportPage() {
           </Card>
         ))}
         {visibleClaims.map((c) => (
-          <Card key={c.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', c.status === 'in_review' && 'border-amber-400/60')}>
+          <Card key={c.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-card', c.status === 'in_review' && 'border-amber-400/60')}>
             <CardContent className="p-5 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">

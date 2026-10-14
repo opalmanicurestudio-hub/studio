@@ -23,7 +23,7 @@ export function CourseShare({ url, title, price, school, onClose }: { url: strin
           <a href={`mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(`${text}\n\n${url}`)}`} className={btn}>✉️ Email</a>
           <button type="button" onClick={() => copy(`${text} ${url}`, 'Post text copied — paste it into Instagram, Facebook or TikTok.')} className={`${btn} col-span-2`}>📋 Copy a ready-made post</button>
         </div>
-        {qr && <div className="flex items-center gap-3 rounded-2xl bg-muted/40 p-3"><img src={qr} alt={`QR code for ${title}`} className="h-24 w-24 rounded-lg bg-white" /><div className="space-y-1"><p className="text-sm font-bold">QR code</p><p className="text-[12px] text-muted-foreground">For flyers, business cards or your front desk.</p><a href={qr} download={`${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-qr.png`} className="text-[12px] font-bold underline">Download</a></div></div>}
+        {qr && <div className="flex items-center gap-3 rounded-2xl bg-muted/40 p-3"><img src={qr} alt={`QR code for ${title}`} className="h-24 w-24 rounded-lg bg-card" /><div className="space-y-1"><p className="text-sm font-bold">QR code</p><p className="text-[12px] text-muted-foreground">For flyers, business cards or your front desk.</p><a href={qr} download={`${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-qr.png`} className="text-[12px] font-bold underline">Download</a></div></div>}
         {msg && <p className="text-sm text-emerald-800" role="status">{msg}</p>}
       </div>
     </div>

@@ -81,9 +81,9 @@ export function BoothAutomationSettings({
 
   const Toggle = ({ label, hint, k }: { label: string; hint?: string; k: keyof Rules }) => (
     <button type="button" onClick={() => set(k, !rules[k] as any)}
-      className={`w-full rounded-2xl border-2 p-3.5 flex items-center gap-3 text-left transition-colors ${rules[k] ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
-      <span className={`w-11 h-6 rounded-full shrink-0 relative transition-colors ${rules[k] ? 'bg-slate-900' : 'bg-slate-200'}`}>
-        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${rules[k] ? 'left-[22px]' : 'left-0.5'}`} />
+      className={`w-full rounded-2xl border-2 p-3.5 flex items-center gap-3 text-left transition-colors ${rules[k] ? 'border-slate-900 bg-muted/60' : 'border-border'}`}>
+      <span className={`w-11 h-6 rounded-full shrink-0 relative transition-colors ${rules[k] ? 'bg-foreground' : 'bg-border'}`}>
+        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-card transition-all ${rules[k] ? 'left-[22px]' : 'left-0.5'}`} />
       </span>
       <span className="min-w-0">
         <span className="block text-xs font-black uppercase tracking-tight">{label}</span>
@@ -94,7 +94,7 @@ export function BoothAutomationSettings({
 
   const NumField = ({ label, k, suffix }: { label: string; k: keyof Rules; suffix?: string }) => (
     <div className="space-y-1">
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</p>
+      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
       <div className="flex items-center gap-2">
         <input type="number" value={rules[k] as any} onChange={e => set(k, Number(e.target.value) as any)}
           className="w-24 h-10 rounded-xl border-2 px-3 text-sm font-bold" />
@@ -104,8 +104,8 @@ export function BoothAutomationSettings({
   );
 
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="rounded-2xl border-2 bg-white p-4 space-y-3">
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{title}</p>
+    <div className="rounded-2xl border-2 bg-card p-4 space-y-3">
+      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{title}</p>
       {children}
     </div>
   );
@@ -139,12 +139,12 @@ export function BoothAutomationSettings({
               <NumField label="Tour length" k="tourDurationMins" suffix="minutes" />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Tour days</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Tour days</p>
               <div className="flex flex-wrap gap-1.5">
                 {WEEKDAYS.map(([lbl, val]) => (
                   <button key={val} type="button"
                     onClick={() => set('tourDays', (rules.tourDays.includes(val) ? rules.tourDays.filter((d: number) => d !== val) : [...rules.tourDays, val]) as any)}
-                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase transition-colors ${rules.tourDays.includes(val) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-400'}`}>
+                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase transition-colors ${rules.tourDays.includes(val) ? 'bg-foreground text-background border-slate-900' : 'border-border text-muted-foreground'}`}>
                     {lbl}
                   </button>
                 ))}
@@ -152,11 +152,11 @@ export function BoothAutomationSettings({
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tours from</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tours from</p>
                 <input type="time" value={rules.tourWindowStart} onChange={e => set('tourWindowStart', e.target.value)} className="w-full h-10 rounded-xl border-2 px-3 text-sm font-bold" />
               </div>
               <div className="space-y-1">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tours until</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tours until</p>
                 <input type="time" value={rules.tourWindowEnd} onChange={e => set('tourWindowEnd', e.target.value)} className="w-full h-10 rounded-xl border-2 px-3 text-sm font-bold" />
               </div>
             </div>
@@ -173,7 +173,7 @@ export function BoothAutomationSettings({
         <Toggle label="Allow self-service cancellation" hint="Guests can request a cancel from their booking page" k="cancellationEnabled" />
         {rules.cancellationEnabled && <NumField label="Free-cancel window" k="cancellationWindowHours" suffix="hours before" />}
         <div className="space-y-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">No-show fee</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">No-show fee</p>
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold">$</span>
             <input type="number" value={(rules.noShowFeeCents / 100) || 0} onChange={e => set('noShowFeeCents', Math.round(Number(e.target.value) * 100) as any)}
@@ -198,7 +198,7 @@ export function BoothAutomationSettings({
       </Section>
 
       <button onClick={save} disabled={saving}
-        className="w-full h-13 py-3.5 rounded-2xl bg-slate-900 text-white font-black uppercase text-[11px] tracking-widest disabled:opacity-40 transition-opacity">
+        className="w-full h-13 py-3.5 rounded-2xl bg-foreground text-background font-black uppercase text-[11px] tracking-widest disabled:opacity-40 transition-opacity">
         {saving ? 'Saving…' : saved ? '✓ Saved — automations updated' : 'Save automation rules'}
       </button>
     </div>

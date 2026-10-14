@@ -200,7 +200,7 @@ function NavItem({
         'rounded-xl h-10 text-[14px] font-medium normal-case tracking-normal',
         'transition-colors duration-150',
         'data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=true]:font-semibold',
-        'hover:bg-[#f3eee8] dark:hover:bg-[#2a2521]',
+        'hover:bg-secondary',
         isCollapsed && 'justify-center',
       )}
     >
@@ -298,13 +298,13 @@ function CollapseToggle() {
   );
 }
 
-// The floating card (Studio look): white on warm paper, soft shadow, generous radius; the business in a tinted card.
+// The floating card: a white (or near-black) panel with a soft shadow and generous radius; the business in a tinted card.
 const SIDE_CSS = `
 .cf-side{padding:12px!important}
-.cf-side [data-sidebar="sidebar"]{background:#fff!important;border:0!important;border-radius:26px!important;box-shadow:0 1px 2px rgba(28,25,23,.05),0 10px 32px rgba(28,25,23,.07)!important}
-.dark .cf-side [data-sidebar="sidebar"]{background:#211d1a!important}
+.cf-side [data-sidebar="sidebar"]{background:hsl(var(--card))!important;border:0!important;border-radius:26px!important;box-shadow:0 1px 2px rgba(16,17,20,.05),0 10px 32px rgba(16,17,20,.07)!important}
+.dark .cf-side [data-sidebar="sidebar"]{box-shadow:0 0 0 1px hsl(var(--border))!important}
 .cf-biz{background:color-mix(in srgb, hsl(var(--primary)) 9%, transparent)}
-.dark{--cf-search-bg:#211d1a}
+:root{--cf-search-bg:hsl(var(--secondary))}
 `;
 export function AppSidebar() {
   const { selectedTenant, role } = useTenant();
@@ -539,7 +539,7 @@ export function AppSidebar() {
           )}
         </SidebarContent>
 
-        <SidebarFooter className="border-t border-[#efeae4] py-2 px-1.5 dark:border-[#342e29]">
+        <SidebarFooter className="border-t border-[#efeae4] py-2 px-1.5">
           <SidebarMenu className="gap-px px-0">
 
             <SidebarMenuItem className="group-data-[state=expanded]:hidden">

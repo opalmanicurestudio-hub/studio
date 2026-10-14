@@ -10,9 +10,9 @@ export function RestockingFundCard({ tenantId }: { tenantId: string }) {
   React.useEffect(() => { if (!tenantId) return; let on = true; (async () => { const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
     const r = await fetch('/api/funds/restocking', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId }) }).then((x) => x.json()).catch(() => null); if (on) setD(r?.ok ? r : null); })(); return () => { on = false; }; }, [tenantId]);
   if (!d) return null;
-  const muted = { color: 'var(--muted, #78716c)' };
+  const muted = { color: 'hsl(var(--muted-foreground))' };
   return (
-    <section className="space-y-2 rounded-3xl p-5" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' }} aria-label="Restocking fund">
+    <section className="space-y-2 rounded-3xl p-5" style={{ background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' }} aria-label="Restocking fund">
       <div className="flex items-baseline justify-between gap-3"><h2 className="text-[15px] font-semibold">Restocking fund</h2><Link href="/settings?tab=policies" className="text-[13px] font-semibold underline underline-offset-2">Settings</Link></div>
       {!d.enabled ? <p className="text-[14px]" style={muted}>Off. Switch it on in Settings → Fees & credit, and every finished service will set aside its product cost plus a markup, so stock never eats into profit.</p> : (<>
         <p className="text-[28px] font-light leading-none">{d.balanceCents < 0 ? '−' : ''}{money(d.balanceCents)} <span className="text-[14px]" style={muted}>{d.balanceCents < 0 ? 'short — stock spend has outrun the fund' : 'in the fund'}</span></p>

@@ -95,7 +95,7 @@ export default function RetailPoliciesPage() {
           <input inputMode="decimal" aria-label={label} value={val(k)}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVal(k, e.target.value)}
             disabled={!isMgr}
-            className="h-9 w-20 rounded-xl border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60 disabled:opacity-50" />
+            className="h-9 w-20 rounded-xl border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60 disabled:opacity-50" />
           {unit !== '$' && <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{unit}</span>}
           <Button size="sm" variant="outline" disabled={!isMgr || busy === k || val(k) === initial[k]}
             onClick={() => onSave(Number(val(k)) || 0)}
@@ -110,7 +110,7 @@ export default function RetailPoliciesPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -126,7 +126,7 @@ export default function RetailPoliciesPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cancellation</p>
             <Toggle k="cancelAllowed" field="retailSettings.policies.cancelAllowed"
@@ -140,7 +140,7 @@ export default function RetailPoliciesPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Returns</p>
             <Toggle k="returnsEnabled" field="retailSettings.returnsEnabled"
@@ -158,7 +158,7 @@ export default function RetailPoliciesPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Claims</p>
             <NumRow k="deliveryIssueWindowDays" unit="days" label="Problem-report window"
@@ -180,7 +180,7 @@ export default function RetailPoliciesPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refunds &amp; credit</p>
             <NumRow k="refundAutoBelow" unit="$" label="Auto-refund via Stripe below"

@@ -186,7 +186,7 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
             <PackageX className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Adjustment</span>
           </div>
-          <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Log Loss Entry</DialogTitle>
+          <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Log Loss Entry</DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
             Recording spoilage or damage for: <strong className="text-foreground">{product.name}</strong>
           </DialogDescription>
@@ -201,7 +201,7 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <div className="flex flex-col gap-3 w-full">
             <Button type="submit" form="log-loss-strategic-form" className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all" disabled={!!quantityError || !selectedBatchId || !watch('reason')}>Authorize Write-off</Button>
-            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Cancel Protocol</Button>
+            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-muted-foreground">Cancel Protocol</Button>
           </div>
         </DialogFooter>
       </DialogContentContainer>

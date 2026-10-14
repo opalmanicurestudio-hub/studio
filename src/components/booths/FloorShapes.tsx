@@ -110,10 +110,10 @@ const DECOR_CHROME: Record<string, { background: string; border: string }> = {
   column: { background: '#cbd5e1', border: '2px solid #94a3b8' },
   stairs: { background: 'repeating-linear-gradient(0deg,#e2e8f0,#e2e8f0 6px,#f8fafc 6px,#f8fafc 12px)', border: '2px solid #94a3b8' },
   rug: { background: '#faf5ff', border: '2px dashed #d8b4fe' },
-  shelf: { background: '#fef3c7', border: '2px solid #fcd34d' },
+  shelf: { background: 'color-mix(in srgb, #b45309 10%, transparent)', border: '2px solid #fcd34d' },
   locker: { background: '#f1f5f9', border: '2px solid #cbd5e1' },
-  screen: { background: '#1e293b', border: '2px solid #0f172a' },
-  plant: { background: '#ecfdf5', border: '2px solid #a7f3d0' },
+  screen: { background: '#1e293b', border: '2px solid hsl(var(--foreground))' },
+  plant: { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', border: '2px solid #a7f3d0' },
 };
 export function decorChrome(shape: string) {
   return DECOR_CHROME[shape];

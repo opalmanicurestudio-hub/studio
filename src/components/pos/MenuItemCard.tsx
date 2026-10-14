@@ -20,7 +20,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({ item, onAddToCart })
 
   return (
     <Card 
-        className="overflow-hidden border-2 border-border/50 hover:border-primary/50 transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 cursor-pointer h-full flex flex-col rounded-[2rem] group bg-white shadow-sm" 
+        className="overflow-hidden border-2 border-border/50 hover:border-primary/50 transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 cursor-pointer h-full flex flex-col rounded-[2rem] group bg-card shadow-sm" 
         onClick={() => onAddToCart(item)}
     >
       <CardContent className="p-0 flex-1 flex flex-col">
@@ -35,7 +35,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({ item, onAddToCart })
           <div className="absolute top-3 right-3">
             <Button 
                 size="icon" 
-                className="h-10 w-10 bg-white/90 hover:bg-primary backdrop-blur-md text-slate-900 hover:text-white rounded-2xl shadow-xl transition-all border-2 border-white/50"
+                className="h-10 w-10 bg-card/90 hover:bg-primary backdrop-blur-md text-foreground hover:text-white rounded-2xl shadow-xl transition-all border-2 border-white/50"
             >
                 <Plus className="w-5 h-5" />
             </Button>
@@ -48,7 +48,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({ item, onAddToCart })
         </div>
         <div className="p-4 md:p-5 flex flex-col flex-1 justify-between gap-3 text-left">
           <div className="space-y-1">
-            <h4 className="font-black text-xs md:text-sm leading-tight uppercase tracking-tight text-slate-900 line-clamp-2">{item.name}</h4>
+            <h4 className="font-black text-xs md:text-sm leading-tight uppercase tracking-tight text-foreground line-clamp-2">{item.name}</h4>
             <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{'category' in item ? item.category : 'Service'}</p>
           </div>
           <div className="flex items-center justify-between pt-3 border-t border-dashed">

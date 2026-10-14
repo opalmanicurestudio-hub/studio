@@ -417,7 +417,7 @@ export default function HostScreen() {
     <div className="max-w-3xl mx-auto p-4 md:p-6 space-y-4 text-left">
       <div>
         <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Operational</p>
-        <h1 className="text-base font-black uppercase tracking-tighter text-slate-900">
+        <h1 className="text-base font-black uppercase tracking-tighter text-foreground">
           Host {session ? `· ${session.businessDay}` : ''}
         </h1>
       </div>
@@ -432,19 +432,19 @@ export default function HostScreen() {
         </div>
       )}
 
-      <div className="p-4 rounded-[2rem] border-2 bg-slate-50 border-slate-200 flex flex-wrap gap-2 items-end">
-        <div className="flex-1 min-w-[8rem]"><Input placeholder="Name" value={name} onChange={(e: any) => setName(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white" /></div>
-        <div className="w-16"><Input inputMode="numeric" value={size} onChange={(e: any) => setSize(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white text-center" /></div>
-        <div className="w-24"><Input placeholder="19:30?" value={at} onChange={(e: any) => setAt(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white text-center" /></div>
-        <div className="w-32"><Input type="tel" inputMode="tel" placeholder="Phone?" value={phone} onChange={(e: any) => setPhone(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-white text-center" /></div>
+      <div className="p-4 rounded-[2rem] border-2 bg-muted/60 border-border flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[8rem]"><Input placeholder="Name" value={name} onChange={(e: any) => setName(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-card" /></div>
+        <div className="w-16"><Input inputMode="numeric" value={size} onChange={(e: any) => setSize(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-card text-center" /></div>
+        <div className="w-24"><Input placeholder="19:30?" value={at} onChange={(e: any) => setAt(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-card text-center" /></div>
+        <div className="w-32"><Input type="tel" inputMode="tel" placeholder="Phone?" value={phone} onChange={(e: any) => setPhone(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-card text-center" /></div>
         <Button onClick={addParty} disabled={!name.trim() || !session} className={CHIP}><Plus className="w-4 h-4 mr-1" />{at.trim() ? 'Book' : 'Add'}</Button>
-        <Button variant="outline" className={`${CHIP} border-2 bg-white`} onClick={importBookings} disabled={!session}>
+        <Button variant="outline" className={`${CHIP} border-2 bg-card`} onClick={importBookings} disabled={!session}>
           Import bookings
         </Button>
         <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground self-center">
           Booths{activeEvent ? ` + ${activeEvent.name || activeEvent.title || 'event'}` : ''} mirror in live
         </span>
-        <Button variant="outline" className={`${CHIP} border-2 bg-white`}
+        <Button variant="outline" className={`${CHIP} border-2 bg-card`}
           onClick={() => setProposals(autoSeatPlan(units, waiting.map((p) => ({ id: p.id, size: p.size, needs: p.needs })), seatedGuests, { held, vocabulary: hs.vocabulary }))}>
           <Sparkles className="w-4 h-4 mr-1" />Auto-seat
         </Button>
@@ -456,7 +456,7 @@ export default function HostScreen() {
             const party = parties.find((x) => x.id === p.partyId);
             return (
               <div key={p.partyId} className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-800 min-w-0 truncate">
+                <p className="text-[10px] font-black uppercase tracking-widest text-foreground min-w-0 truncate">
                   {party?.name} ({p.partySize}) → {p.tableId ? p.tableName : '—'} <span className="opacity-60 normal-case font-bold">{p.rationale}</span>
                 </p>
                 {p.tableId && party && (
@@ -478,7 +478,7 @@ export default function HostScreen() {
             const late = lateVerdict(p, now, holdOpts);
             return (
               <button key={p.id} onClick={() => setSelected(selected === p.id ? null : p.id)}
-                className={`w-full p-3 rounded-2xl border-2 bg-white text-left ${selected === p.id ? 'border-primary' : 'border-slate-200'}`}>
+                className={`w-full p-3 rounded-2xl border-2 bg-card text-left ${selected === p.id ? 'border-primary' : 'border-border'}`}>
                 <p className="text-sm font-black uppercase tracking-tight">{p.name} · {p.size}</p>
                 <p className={`text-[9px] font-black uppercase tracking-widest ${late.holdReleased ? 'text-red-600' : late.late ? 'text-amber-600' : 'text-muted-foreground'}`}>
                   {p.arrivesAt ? new Date(p.arrivesAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }) : ''}
@@ -495,7 +495,7 @@ export default function HostScreen() {
           {waiting.map((p) => {
             const q = quoteWait(units, seatedGuests, seatedRows, { id: p.id, size: p.size, needs: p.needs }, { now, held, vocabulary: hs.vocabulary });
             return (
-              <div key={p.id} className={`p-3 rounded-2xl border-2 bg-white ${selected === p.id ? 'border-primary' : 'border-slate-200'}`}>
+              <div key={p.id} className={`p-3 rounded-2xl border-2 bg-card ${selected === p.id ? 'border-primary' : 'border-border'}`}>
                 <button onClick={() => setSelected(selected === p.id ? null : p.id)} className="w-full text-left">
                   <p className="text-sm font-black uppercase tracking-tight flex items-center gap-1.5">
                     <UserRound className="w-3.5 h-3.5" />{p.name} · {p.size}{p.status === 'notified' ? ' · notified' : ''}
@@ -523,14 +523,14 @@ export default function HostScreen() {
           const holder = hold ? parties.find((p) => p.id === hold.partyId) : null;
           const tone = t.overfilled ? 'border-red-400 bg-red-50'
             : hold ? 'border-blue-300 bg-blue-50'
-            : t.seated > 0 ? 'border-slate-300 bg-slate-100'
+            : t.seated > 0 ? 'border-border bg-muted'
             : 'border-green-300 bg-green-50';
           return (
             <button key={t.tableId} disabled={!sel}
               onClick={() => sel && seatAt(sel, t.tableId, forceFor === `${sel.id}:${t.tableId}`)}
               className={`p-3 rounded-2xl border-2 text-left ${tone} ${sel ? 'active:scale-95' : ''}`}>
               <p className="text-sm font-black uppercase tracking-tight truncate">{t.name}</p>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">
+              <p className="text-[9px] font-black uppercase tracking-widest text-foreground/80">
                 {t.seated}/{t.capacity}{hold ? ` · held${holder ? ` · ${holder.name}` : ''}` : ''}
               </p>
             </button>
@@ -541,7 +541,7 @@ export default function HostScreen() {
       <div className="space-y-2">
         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Seated</p>
         {parties.filter((p) => p.status === 'seated').map((p) => (
-          <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl border-2 border-slate-200 bg-white">
+          <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl border-2 border-border bg-card">
             <p className="text-sm font-black uppercase tracking-tight">{p.name} · {p.size} · {p.unitIds?.map((u) => state.byTable[u]?.name || u).join(' + ')}</p>
             <div className="flex gap-2">
               <Button size="sm" className="rounded-xl font-black uppercase text-[9px]" onClick={() => setTabFor(p)}>Tab</Button>

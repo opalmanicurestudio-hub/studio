@@ -9,8 +9,8 @@ import { collectionsOf, collectionFor, reviewDue, assignedPeople } from '@/lib/d
 import { Acks } from '@/components/documents/DocsLibrary';
 import { Ico, IC } from '@/components/documents/DocBlocks';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#3d5a99';
-const card = 'rounded-[18px] border bg-white';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#3d5a99';
+const card = 'rounded-[18px] border bg-card';
 type Cell = 'signed' | 'older' | 'soon' | 'overdue' | 'todo' | 'none';
 const CELL: Record<Cell, { bg: string; fg: string; label: string }> = { signed: { bg: '#e9f3ed', fg: GREEN, label: 'Signed this version' }, older: { bg: '#e6ecf7', fg: BLUE, label: 'Signed an older version' }, soon: { bg: '#fdf3e6', fg: AMBER, label: 'Due soon' }, overdue: { bg: '#fdecec', fg: RED, label: 'Overdue' }, todo: { bg: '#fff', fg: MUTED, label: 'Not signed yet' }, none: { bg: SOFT, fg: MUTED, label: 'Not theirs' } };
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
@@ -51,9 +51,9 @@ export function TrainingRecord({ tenantId, tenant, docs, staff, today, onOpenDoc
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>training record</p><h2 className="text-[26px] font-normal tracking-[-0.03em]">Who has signed what</h2></div>
         <div className="flex flex-wrap items-center gap-2">
-          <select value={proofDoc} onChange={(e) => setProofDoc(e.target.value)} aria-label="Document for the proof of training" className="h-11 max-w-[240px] rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }}><option value="">Proof of training for…</option>{live.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}</select>
-          <button type="button" disabled={!proofDoc || busy === 'proof'} onClick={proof} className="inline-flex h-11 items-center gap-2 rounded-full px-5 text-[14px] font-semibold text-white disabled:opacity-40" style={{ background: INK }}><Ico d='<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>' s={16} c="#fff" />{busy === 'proof' ? 'Making it…' : 'Open the PDF page'}</button>
-          <button type="button" onClick={() => setInspOpen((v) => !v)} aria-expanded={inspOpen} className="h-11 rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: LINE }}>Share with an inspector</button>
+          <select value={proofDoc} onChange={(e) => setProofDoc(e.target.value)} aria-label="Document for the proof of training" className="h-11 max-w-[240px] rounded-full border bg-card px-4 text-[14px]" style={{ borderColor: LINE }}><option value="">Proof of training for…</option>{live.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}</select>
+          <button type="button" disabled={!proofDoc || busy === 'proof'} onClick={proof} className="inline-flex h-11 items-center gap-2 rounded-full px-5 text-[14px] font-semibold text-background disabled:opacity-40" style={{ background: INK }}><Ico d='<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>' s={16} c="#fff" />{busy === 'proof' ? 'Making it…' : 'Open the PDF page'}</button>
+          <button type="button" onClick={() => setInspOpen((v) => !v)} aria-expanded={inspOpen} className="h-11 rounded-full border bg-card px-5 text-[14px] font-medium" style={{ borderColor: LINE }}>Share with an inspector</button>
         </div>
       </div>
       {msg && <p className="text-[13.5px]" style={{ color: RED }}>{msg}</p>}
@@ -65,10 +65,10 @@ export function TrainingRecord({ tenantId, tenant, docs, staff, today, onOpenDoc
       {!live.length || !people.length ? <p className={`${card} p-6 text-[14.5px]`} style={{ borderColor: LINE, color: MUTED }}>Publish a document and it shows here with everyone it’s for.</p> :
         <div className={`${card} overflow-x-auto`} style={{ borderColor: LINE }}>
           <table className="w-full border-collapse text-[14px]">
-            <thead><tr><th className="sticky left-0 z-10 bg-white px-4 py-3 text-left text-[12.5px] font-normal" style={{ color: MUTED }}>Document</th>{people.map((p: any) => <th key={p.id} className="min-w-[72px] px-1 py-3 text-center text-[12px] font-normal" style={{ color: MUTED }}>{String(p.name || '').split(' ')[0]}{String(p.name || '').split(' ')[1] ? ` ${String(p.name).split(' ')[1][0]}.` : ''}</th>)}</tr></thead>
+            <thead><tr><th className="sticky left-0 z-10 bg-card px-4 py-3 text-left text-[12.5px] font-normal" style={{ color: MUTED }}>Document</th>{people.map((p: any) => <th key={p.id} className="min-w-[72px] px-1 py-3 text-center text-[12px] font-normal" style={{ color: MUTED }}>{String(p.name || '').split(' ')[0]}{String(p.name || '').split(' ')[1] ? ` ${String(p.name).split(' ')[1][0]}.` : ''}</th>)}</tr></thead>
             <tbody>{live.map((d) => { const c = collectionFor(d, cols);
               return <tr key={d.id} className="border-t" style={{ borderColor: LINE }}>
-                <th scope="row" className="sticky left-0 z-10 max-w-[260px] bg-white px-4 py-2.5 text-left font-normal"><button type="button" onClick={() => onOpenDoc(d.id)} className="text-left"><span className="block truncate text-[14px] font-semibold">{d.title}</span><span className="block text-[12px]" style={{ color: c.color }}>{c.name} · v{d.version || 1}</span></button></th>
+                <th scope="row" className="sticky left-0 z-10 max-w-[260px] bg-card px-4 py-2.5 text-left font-normal"><button type="button" onClick={() => onOpenDoc(d.id)} className="text-left"><span className="block truncate text-[14px] font-semibold">{d.title}</span><span className="block text-[12px]" style={{ color: c.color }}>{c.name} · v{d.version || 1}</span></button></th>
                 {people.map((p: any) => { const x = cell(d, p); const on = pick?.doc === d.id && pick?.person === p.id;
                   return <td key={p.id} className="px-1 py-2 text-center"><button type="button" disabled={x.s === 'none'} aria-label={`${p.name}: ${CELL[x.s].label}`} onClick={() => setPick(on ? null : { doc: d.id, person: p.id })} className="rounded-[10px] p-0.5" style={{ outline: on ? `2px solid ${INK}` : undefined }}><Square s={x.s} older={x.a?.version} /></button></td>; })}
               </tr>; })}</tbody>
@@ -98,12 +98,12 @@ function InspectorLinks({ tenantId, cols }: { tenantId: string; cols: Array<{ id
   return (
     <div className={`${card} space-y-3 p-4`} style={{ borderColor: LINE }}>
       <div><p className="text-[15px] font-bold">A read-only link for an inspector</p><p className="text-[13.5px]" style={{ color: MUTED }}>They see your current procedures in the collections you pick, and how many of the team are trained on each. Nothing else, and only until it expires.</p></div>
-      <div className="flex flex-wrap gap-1.5">{cols.map((c) => { const on = chosen.includes(c.id); return <button key={c.id} type="button" aria-pressed={on} onClick={() => setChosen((p) => (on ? p.filter((x) => x !== c.id) : [...p, c.id]))} className="h-9 rounded-full px-3.5 text-[13.5px] font-medium" style={on ? { background: INK, color: '#fff' } : { background: SOFT }}>{c.name}</button>; })}</div>
+      <div className="flex flex-wrap gap-1.5">{cols.map((c) => { const on = chosen.includes(c.id); return <button key={c.id} type="button" aria-pressed={on} onClick={() => setChosen((p) => (on ? p.filter((x) => x !== c.id) : [...p, c.id]))} className="h-9 rounded-full px-3.5 text-[13.5px] font-medium" style={on ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>{c.name}</button>; })}</div>
       <div className="flex flex-wrap items-center gap-2">
-        <select value={hours} onChange={(e) => setHours(Number(e.target.value))} aria-label="How long the link works" className="h-11 rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }}>{[[4, 'Works for 4 hours'], [8, 'Works for 8 hours'], [24, 'Works for a day'], [72, 'Works for 3 days'], [168, 'Works for a week']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={140} placeholder="Who it’s for (optional) — e.g. State board, Oct visit" aria-label="Who it’s for" className="h-11 min-w-[220px] flex-1 rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }} />
-        {keepsLog && <button type="button" aria-pressed={withLog} onClick={() => setWithLog((v) => !v)} className="h-11 rounded-full px-4 text-[14px]" style={withLog ? { background: '#e9f3ed', color: '#1f7a4d', fontWeight: 600 } : { background: SOFT }}>{withLog ? '✓ ' : '+ '}This month’s sterilization log</button>}
-        <button type="button" disabled={busy || !chosen.length} onClick={make} className="h-11 rounded-full px-5 text-[14px] font-semibold text-white disabled:opacity-40" style={{ background: INK }}>{busy ? 'Making it…' : 'Make the link'}</button>
+        <select value={hours} onChange={(e) => setHours(Number(e.target.value))} aria-label="How long the link works" className="h-11 rounded-full border bg-card px-4 text-[14px]" style={{ borderColor: LINE }}>{[[4, 'Works for 4 hours'], [8, 'Works for 8 hours'], [24, 'Works for a day'], [72, 'Works for 3 days'], [168, 'Works for a week']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+        <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={140} placeholder="Who it’s for (optional) — e.g. State board, Oct visit" aria-label="Who it’s for" className="h-11 min-w-[220px] flex-1 rounded-full border bg-card px-4 text-[14px]" style={{ borderColor: LINE }} />
+        {keepsLog && <button type="button" aria-pressed={withLog} onClick={() => setWithLog((v) => !v)} className="h-11 rounded-full px-4 text-[14px]" style={withLog ? { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: 'var(--ok-ink)', fontWeight: 600 } : { background: SOFT }}>{withLog ? '✓ ' : '+ '}This month’s sterilization log</button>}
+        <button type="button" disabled={busy || !chosen.length} onClick={make} className="h-11 rounded-full px-5 text-[14px] font-semibold text-background disabled:opacity-40" style={{ background: INK }}>{busy ? 'Making it…' : 'Make the link'}</button>
       </div>
       {err && <p className="text-[13.5px]" style={{ color: RED }}>{err}</p>}
       {links && links.length > 0 && <div className="border-t pt-2" style={{ borderColor: LINE }}>{links.map((l) => { const expired = Date.parse(l.expiresAt) < now; const state = l.revokedAt ? 'Turned off' : expired ? 'Expired' : `Open until ${new Date(l.expiresAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`;

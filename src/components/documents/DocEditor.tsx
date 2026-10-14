@@ -18,9 +18,9 @@ import { DocBlocks, Ico, IC } from '@/components/documents/DocBlocks';
 import { DocLinksEditor } from '@/components/documents/DocLinksEditor';
 import { cleanLinks } from '@/lib/doc-links';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', BLUE = '#3d5a99', RED = '#b42318';
-const input = 'h-11 w-full rounded-[12px] border bg-white px-3 text-[14.5px] outline-none focus:border-[#16171a]';
-const area = 'w-full rounded-[12px] border bg-white px-3 py-2.5 text-[14.5px] leading-relaxed outline-none focus:border-[#16171a]';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', BLUE = '#3d5a99', RED = '#b42318';
+const input = 'h-11 w-full rounded-[12px] border bg-card px-3 text-[14.5px] outline-none focus:border-[#16171a]';
+const area = 'w-full rounded-[12px] border bg-card px-3 py-2.5 text-[14.5px] leading-relaxed outline-none focus:border-[#16171a]';
 const PH: Record<string, [string, string]> = {
   text: ['Heading', 'Write it the way you’d explain it to a new person.'], step: ['What to do', 'How to do it, in a sentence or two.'],
   checklist: ['Checklist name', 'One item per line\nLights off\nAutoclave ran'], warning: ['What must not happen', 'Why, and what to do instead.'],
@@ -32,7 +32,7 @@ function Side({ title, children }: { title: string; children: React.ReactNode })
   return <div className="space-y-2 border-t py-3.5" style={{ borderColor: LINE }}><p className="text-[12.5px]" style={{ color: MUTED }}>{title}</p>{children}</div>;
 }
 function Chip({ on, children, onClick }: { on: boolean; children: React.ReactNode; onClick: () => void }) {
-  return <button type="button" aria-pressed={on} onClick={onClick} className="h-9 rounded-full px-3.5 text-[13.5px] font-medium" style={on ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{children}</button>;
+  return <button type="button" aria-pressed={on} onClick={onClick} className="h-9 rounded-full px-3.5 text-[13.5px] font-medium" style={on ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT, color: INK }}>{children}</button>;
 }
 
 export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublish, onDelete, onClose }: { tenantId: string; docItem: any; staff: any[]; onSave: (d: any) => void; onPublish: (d: any) => void; onDelete: () => void; onClose: () => void }) {
@@ -88,15 +88,15 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
   const people = staff.filter((m: any) => !m.archived && m.role !== 'renter' && !m.isRenter);
   const renters = staff.filter((m: any) => !m.archived && m.isActive !== false && (m.role === 'renter' || m.isRenter));
   return (
-    <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE, color: INK }}>
+    <div className="overflow-hidden rounded-[18px] border bg-card" style={{ borderColor: LINE, color: INK }}>
       <div className="flex flex-wrap items-center gap-2.5 border-b px-4 py-3 md:px-5" style={{ borderColor: LINE, background: 'rgba(255,255,255,.8)' }}>
         <button type="button" onClick={onClose} aria-label="Close the editor" className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: SOFT }}><Ico d={IC.back} s={16} /></button>
         <span className="text-[13.5px]" style={{ color: MUTED }}>{col.name}</span>
-        <span className="inline-flex h-7 items-center rounded-full px-2.5 text-[12px] font-semibold" style={isLive ? { background: '#e6ecf7', color: BLUE } : { background: SOFT }}>{isLive ? `v${(Number(liveItem.version) || 1) + 1} draft · the team sees v${liveItem.version || 1}` : 'Draft'}</span>
+        <span className="inline-flex h-7 items-center rounded-full px-2.5 text-[12px] font-semibold" style={isLive ? { background: 'color-mix(in srgb, #3d5a99 12%, transparent)', color: BLUE } : { background: SOFT }}>{isLive ? `v${(Number(liveItem.version) || 1) + 1} draft · the team sees v${liveItem.version || 1}` : 'Draft'}</span>
         <span className="flex-1" />
-        <button type="button" onClick={() => setPreview((v) => !v)} className="h-10 rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }}>{preview ? 'Back to editing' : 'Preview'}</button>
-        <button type="button" onClick={() => { const d = collect(); if (d) onSave(d); }} className="h-10 rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }}>Save draft</button>
-        <button type="button" onClick={() => { const d = collect(); if (d) onPublish(d); }} className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: INK }}>{isLive ? `Publish v${(Number(liveItem.version) || 1) + 1}` : 'Publish'}</button>
+        <button type="button" onClick={() => setPreview((v) => !v)} className="h-10 rounded-full border bg-card px-4 text-[14px]" style={{ borderColor: LINE }}>{preview ? 'Back to editing' : 'Preview'}</button>
+        <button type="button" onClick={() => { const d = collect(); if (d) onSave(d); }} className="h-10 rounded-full border bg-card px-4 text-[14px]" style={{ borderColor: LINE }}>Save draft</button>
+        <button type="button" onClick={() => { const d = collect(); if (d) onPublish(d); }} className="h-10 rounded-full px-5 text-[14px] font-semibold text-background" style={{ background: INK }}>{isLive ? `Publish v${(Number(liveItem.version) || 1) + 1}` : 'Publish'}</button>
       </div>
       {err && <p className="px-5 pt-3 text-[13.5px] font-medium" style={{ color: RED }}>{err}</p>}
       <div className="grid md:grid-cols-[1fr_320px]">
@@ -105,7 +105,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
             <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140} aria-label="Title" placeholder="Title — e.g. Opening the studio" className="min-w-0 flex-1 bg-transparent text-[26px] font-normal tracking-[-0.03em] outline-none md:text-[30px]" /></div>
           {preview ? <div className="mx-auto max-w-[560px] py-2"><DocBlocks sections={blocks.map(cleanBlock).filter(blockHasContent)} /></div> : <>
             {blocks.map((b, i) => { const on = selected === b.id; const ph = PH[b.type] || PH.text; const lines = checklistLines(b);
-              return <div key={b.id} onClick={() => setSelected(b.id)} className="rounded-[16px] border bg-white p-3.5" style={{ borderColor: on ? INK : LINE, boxShadow: on ? '0 0 0 3px rgba(22,23,26,.07)' : undefined }}>
+              return <div key={b.id} onClick={() => setSelected(b.id)} className="rounded-[16px] border bg-card p-3.5" style={{ borderColor: on ? INK : LINE, boxShadow: on ? '0 0 0 3px rgba(22,23,26,.07)' : undefined }}>
                 <div className="mb-2 flex items-center gap-1.5">
                   <select value={b.type} onChange={(e) => patch(b.id, { type: e.target.value })} aria-label="Block type" className="h-8 rounded-full px-2.5 text-[12px] font-semibold tracking-[0.04em]" style={{ background: SOFT }}>{(blocksFor(category).some((x) => x.type === b.type) ? blocksFor(category) : BLOCKS).map((x) => <option key={x.type} value={x.type}>{x.label.toUpperCase()}</option>)}</select>
                   <span className="flex-1" />
@@ -118,12 +118,12 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
                   {b.type === 'video' && <input value={b.url || ''} onChange={(e) => patch(b.id, { url: e.target.value.trim() })} placeholder="Paste a YouTube, Vimeo or video link (https://…)" aria-label="Video link" className={input} style={{ borderColor: LINE }} />}
                   <textarea value={b.body || ''} onChange={(e) => patch(b.id, { body: e.target.value })} placeholder={ph[1]} aria-label={`${blockLabel(b.type)} text`} rows={b.type === 'checklist' ? Math.max(4, lines.length + 1) : b.type === 'photo' || b.type === 'video' ? 2 : 3} className={area} style={{ borderColor: LINE }} />
                   {(b.type === 'step' || b.type === 'photo') && <div className="flex flex-wrap items-center gap-2">
-                    {(b.images || []).map((u: string) => <span key={u} className="relative"><img src={u} alt="" className="h-16 w-20 rounded-[10px] object-cover" /><button type="button" onClick={() => patch(b.id, { images: (b.images || []).filter((x: string) => x !== u) })} aria-label="Remove this photo" className="absolute -right-1.5 -top-1.5 h-6 w-6 rounded-full bg-white text-[12px] shadow">✕</button></span>)}
+                    {(b.images || []).map((u: string) => <span key={u} className="relative"><img src={u} alt="" className="h-16 w-20 rounded-[10px] object-cover" /><button type="button" onClick={() => patch(b.id, { images: (b.images || []).filter((x: string) => x !== u) })} aria-label="Remove this photo" className="absolute -right-1.5 -top-1.5 h-6 w-6 rounded-full bg-card text-[12px] shadow">✕</button></span>)}
                     {(b.type === 'step' ? (b.images || []).length < MAX_IMAGES : !(b.images || []).length) && <label className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-[13px]" style={{ background: SOFT }}><Ico d={IC.cam} s={15} />{uploading === b.id ? 'Uploading…' : 'Add a photo'}<input type="file" accept="image/*" className="sr-only" onChange={(e) => { addPhoto(b, e.target.files?.[0]); e.target.value = ''; }} /></label>}
                     {b.type === 'step' && <label className="inline-flex h-10 items-center gap-1.5 rounded-full px-3.5 text-[13px]" style={{ background: SOFT }}><Ico d={IC.clock} s={15} />Timer<input type="number" min={0} max={240} value={b.timerMin || ''} onChange={(e) => patch(b.id, { timerMin: Number(e.target.value) || undefined })} placeholder="0" aria-label="Timer in minutes" className="w-12 bg-transparent text-center outline-none" />min</label>}
                   </div>}
                   {b.type === 'checklist' && lines.length > 0 && <div className="space-y-1"><p className="text-[12px]" style={{ color: MUTED }}>Lines that need a photo when they’re ticked:</p><div className="flex flex-wrap gap-1.5">{lines.map((t, li) => { const p = Array.isArray(b.photoLines) && b.photoLines.includes(li);
-                    return <button key={li} type="button" aria-pressed={p} onClick={() => patch(b.id, { photoLines: p ? (b.photoLines || []).filter((x: number) => x !== li) : [...(b.photoLines || []), li] })} className="inline-flex h-8 max-w-full items-center gap-1 rounded-full px-3 text-[12.5px]" style={p ? { background: '#e6ecf7', color: BLUE, fontWeight: 600 } : { background: SOFT }}>{p && <Ico d={IC.cam} s={12} c={BLUE} />}<span className="truncate">{t}</span></button>; })}</div></div>}
+                    return <button key={li} type="button" aria-pressed={p} onClick={() => patch(b.id, { photoLines: p ? (b.photoLines || []).filter((x: number) => x !== li) : [...(b.photoLines || []), li] })} className="inline-flex h-8 max-w-full items-center gap-1 rounded-full px-3 text-[12.5px]" style={p ? { background: 'color-mix(in srgb, #3d5a99 12%, transparent)', color: BLUE, fontWeight: 600 } : { background: SOFT }}>{p && <Ico d={IC.cam} s={12} c={BLUE} />}<span className="truncate">{t}</span></button>; })}</div></div>}
                 </div>
               </div>; })}
             <div className="flex flex-wrap gap-2 pt-1">{blocksFor(category).map((x) => <button key={x.type} type="button" onClick={() => add(x.type)} title={x.hint} className="inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px]" style={{ background: SOFT }}><Ico d={ADD_ICON[x.type]} s={14} />{x.label}</button>)}</div>
@@ -139,7 +139,7 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
           {isCare ? <Side title="Which services it’s for"><DocLinksEditor tenantId={tenantId} value={links} onChange={setLinks} kinds={['service']} steps={false} />
             <label className="flex items-center justify-between gap-2 text-[14px]"><span>Use it for every other service too</span><input type="checkbox" checked={careDefault} onChange={(e) => setCareDefault(e.target.checked)} className="h-5 w-5" style={{ accentColor: INK }} /></label>
             <p className="text-[12px]" style={{ color: MUTED }}>Sent after the visit (Settings → Aftercare says when) and shown on the visit’s page. A service’s own aftercare wins over the one for every service.</p>
-            <label className="flex items-center justify-between gap-2 text-[14px]"><span>Check in after</span><select value={checkIn} onChange={(e) => setCheckIn(e.target.value)} aria-label="Check in after" className="h-10 rounded-[10px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}>
+            <label className="flex items-center justify-between gap-2 text-[14px]"><span>Check in after</span><select value={checkIn} onChange={(e) => setCheckIn(e.target.value)} aria-label="Check in after" className="h-10 rounded-[10px] border bg-card px-2 text-[14px]" style={{ borderColor: LINE }}>
               <option value="">The business’s choice</option><option value="0">No check-in</option><option value="2">2 days</option><option value="3">3 days</option><option value="7">7 days</option></select></label></Side> : <>
           <Side title="Shows up during work"><DocLinksEditor tenantId={tenantId} value={links} onChange={setLinks} />
             {isLive && <p className="text-[12px]" style={{ color: MUTED }}>Changes here apply when you save the draft. Nobody has to sign again.</p>}</Side>
@@ -148,12 +148,12 @@ export function DocEditor({ tenantId, docItem: liveItem, staff, onSave, onPublis
             <details><summary className="cursor-pointer text-[13px] underline underline-offset-2" style={{ color: MUTED }}>Or pick people{assignedStaffIds.length ? ` (${assignedStaffIds.length})` : ''}</summary>
               <div className="mt-2 flex flex-wrap gap-1.5">{[...people, ...renters].map((m: any) => <Chip key={m.id} on={assignedStaffIds.includes(m.id)} onClick={() => setAssignedStaffIds((p) => (p.includes(m.id) ? p.filter((x) => x !== m.id) : [...p, m.id]))}>{m.name}{m.role === 'renter' || m.isRenter ? ' (renter)' : ''}</Chip>)}</div></details></Side>
           <Side title="Signing">
-            <label className="flex items-center justify-between gap-2 text-[14px]"><span>Sign by</span><input type="date" value={signBy} onChange={(e) => setSignBy(e.target.value)} className="h-10 rounded-[10px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }} /></label>
+            <label className="flex items-center justify-between gap-2 text-[14px]"><span>Sign by</span><input type="date" value={signBy} onChange={(e) => setSignBy(e.target.value)} className="h-10 rounded-[10px] border bg-card px-2 text-[14px]" style={{ borderColor: LINE }} /></label>
             {signBy && <label className="flex items-center justify-between gap-2 text-[14px]"><span>Remind them the day before</span><input type="checkbox" checked={remindBefore} onChange={(e) => setRemindBefore(e.target.checked)} className="h-5 w-5" /></label>}
             <label className="flex items-center justify-between gap-2 text-[14px]"><span>Draw a signature</span><input type="checkbox" checked={requireSignature} onChange={(e) => setRequireSignature(e.target.checked)} className="h-5 w-5" /></label>
           </Side>
           <Side title={`Quick check before signing${quiz.length ? ` · ${quiz.length}` : ''}`}>
-            {quiz.map((q, qi) => <div key={q.id || qi} className="space-y-1.5 rounded-[12px] border bg-white p-2.5" style={{ borderColor: LINE }}>
+            {quiz.map((q, qi) => <div key={q.id || qi} className="space-y-1.5 rounded-[12px] border bg-card p-2.5" style={{ borderColor: LINE }}>
               <div className="flex gap-1.5"><input value={q.q || ''} onChange={(e) => setQuiz((p) => p.map((x, j) => (j === qi ? { ...x, q: e.target.value } : x)))} placeholder="Question" aria-label="Question" className="h-9 min-w-0 flex-1 rounded-[10px] border px-2.5 text-[13.5px]" style={{ borderColor: LINE }} /><button type="button" onClick={() => setQuiz((p) => p.filter((_, j) => j !== qi))} aria-label="Remove question" className="h-9 w-9 rounded-full text-[12px]" style={{ background: SOFT }}>✕</button></div>
               {[0, 1, 2, 3].map((oi) => <label key={oi} className="flex items-center gap-1.5"><input type="radio" name={`ans-${qi}`} checked={(q.answer || 0) === oi} onChange={() => setQuiz((p) => p.map((x, j) => (j === qi ? { ...x, answer: oi } : x)))} aria-label={`Answer ${oi + 1} is right`} />
                 <input value={(q.options || [])[oi] || ''} onChange={(e) => setQuiz((p) => p.map((x, j) => { if (j !== qi) return x; const o = [...(x.options || ['', '', '', ''])]; o[oi] = e.target.value; return { ...x, options: o }; }))} placeholder={oi < 2 ? `Answer ${oi + 1}` : `Answer ${oi + 1} (optional)`} className="h-9 min-w-0 flex-1 rounded-[10px] border px-2.5 text-[13.5px]" style={{ borderColor: LINE }} /></label>)}

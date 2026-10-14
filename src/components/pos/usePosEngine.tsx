@@ -131,13 +131,13 @@ export const computeServiceCost = (service: any, apt: any, staffMember: any, inv
 };
 
 export const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
-  <Card className="border-2 shadow-sm overflow-hidden bg-white/50 backdrop-blur-sm">
+  <Card className="border-2 shadow-sm overflow-hidden bg-card/50 backdrop-blur-sm">
     <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
       <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{title}</CardTitle>
       <div className={cn("p-1.5 md:p-2 rounded-xl", iconBgColor)}>{React.cloneElement(icon as React.ReactElement, { className: 'w-3.5 h-3.5 md:w-4 md:h-4' })}</div>
     </CardHeader>
     <CardContent className="p-3 md:p-4 pt-0 text-left">
-      <div className="text-xl md:text-3xl font-black tracking-tighter text-slate-900">{value}</div>
+      <div className="text-xl md:text-3xl font-black tracking-tighter text-foreground">{value}</div>
       <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-60 truncate">{description}</p>
     </CardContent>
   </Card>
@@ -163,27 +163,27 @@ export const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm, t
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', pointerEvents: 'all' }}>
       <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 0 }} onClick={() => handleOpenChange(false)} />
-      <div style={{ position: 'relative', zIndex: 1, backgroundColor: 'white', borderRadius: '2rem', border: '4px solid #e2e8f0', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ position: 'relative', zIndex: 1, backgroundColor: 'hsl(var(--card))', borderRadius: '2rem', border: '4px solid hsl(var(--border))', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: '1.5rem 1.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
             <ShieldCheck style={{ width: '1.5rem', height: '1.5rem', color: 'var(--primary, #6366f1)' }} />
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-0.05em', color: '#0f172a', margin: 0 }}>Recovery Override</h2>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-0.05em', color: 'hsl(var(--foreground))', margin: 0 }}>Recovery Override</h2>
           </div>
-          <p style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8', marginBottom: '1rem' }}>Manager PIN required to authorize this adjustment.</p>
+          <p style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'hsl(var(--muted-foreground))', marginBottom: '1rem' }}>Manager PIN required to authorize this adjustment.</p>
         </div>
         <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '12rem' }}>
-            <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em', color: '#94a3b8' }}>Manager PIN</label>
-            <input ref={pinInputRef} aria-label="Manager PIN, four digits" type="number" inputMode="numeric" pattern="[0-9]*" placeholder="0000" maxLength={4} value={pin} onChange={e => setPin(e.target.value.slice(0, 4).replace(/\D/g, ''))} style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, height: '5rem', letterSpacing: '0.4em', backgroundColor: '#f8fafc', border: '4px solid #e2e8f0', borderRadius: '1.5rem', outline: 'none', padding: '0 1rem' }} />
+            <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em', color: 'hsl(var(--muted-foreground))' }}>Manager PIN</label>
+            <input ref={pinInputRef} aria-label="Manager PIN, four digits" type="number" inputMode="numeric" pattern="[0-9]*" placeholder="0000" maxLength={4} value={pin} onChange={e => setPin(e.target.value.slice(0, 4).replace(/\D/g, ''))} style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, height: '5rem', letterSpacing: '0.4em', backgroundColor: 'hsl(var(--secondary))', border: '4px solid hsl(var(--border))', borderRadius: '1.5rem', outline: 'none', padding: '0 1rem' }} />
           </div>
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Override Reason</label>
-            <textarea aria-label="Override reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Detail the justification..." rows={3} style={{ width: '100%', borderRadius: '1rem', border: '2px solid #e2e8f0', padding: '0.75rem', fontSize: '0.875rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }} />
+            <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'hsl(var(--muted-foreground))' }}>Override Reason</label>
+            <textarea aria-label="Override reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Detail the justification..." rows={3} style={{ width: '100%', borderRadius: '1rem', border: '2px solid hsl(var(--border))', padding: '0.75rem', fontSize: '0.875rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }} />
           </div>
         </div>
         <div style={{ padding: '0 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <button onClick={handleConfirm} disabled={pin.length < 4 || !reason.trim()} style={{ width: '100%', height: '4rem', borderRadius: '1rem', border: 'none', backgroundColor: pin.length < 4 || !reason.trim() ? '#cbd5e1' : '#6366f1', color: 'white', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: pin.length < 4 || !reason.trim() ? 'not-allowed' : 'pointer' }}>Authorize Override</button>
-          <button onClick={() => handleOpenChange(false)} style={{ width: '100%', height: '2.5rem', borderRadius: '1rem', border: 'none', backgroundColor: 'transparent', color: '#94a3b8', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer' }}>Cancel</button>
+          <button onClick={() => handleOpenChange(false)} style={{ width: '100%', height: '2.5rem', borderRadius: '1rem', border: 'none', backgroundColor: 'transparent', color: 'hsl(var(--muted-foreground))', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer' }}>Cancel</button>
         </div>
       </div>
     </div>
@@ -198,36 +198,36 @@ export const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient,
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background">
         <DialogHeader className="p-6 pb-0 text-left">
-          <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-slate-900"><Fingerprint className="w-6 h-6 text-primary" />Identity Match Found</DialogTitle>
+          <DialogTitle className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-foreground"><Fingerprint className="w-6 h-6 text-primary" />Identity Match Found</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">This walk-in shares contact info with an existing client record.</DialogDescription>
         </DialogHeader>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-2">
               <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Existing Record</p>
-              <p className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{matchedClient?.name}</p>
-              {matchedClient?.phone && <p className="text-[9px] font-bold text-slate-500 uppercase truncate">{matchedClient.phone}</p>}
-              {matchedClient?.email && <p className="text-[9px] font-bold text-slate-500 uppercase truncate">{matchedClient.email}</p>}
+              <p className="text-sm font-black uppercase tracking-tight text-foreground leading-tight">{matchedClient?.name}</p>
+              {matchedClient?.phone && <p className="text-[9px] font-bold text-muted-foreground uppercase truncate">{matchedClient.phone}</p>}
+              {matchedClient?.email && <p className="text-[9px] font-bold text-muted-foreground uppercase truncate">{matchedClient.email}</p>}
               {matchedClient?.lifetimeValue > 0 && <p className="text-[8px] font-black text-primary uppercase">LTV: ${matchedClient.lifetimeValue.toFixed(0)}</p>}
             </div>
             <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-200 space-y-2">
               <p className="text-[8px] font-black uppercase tracking-widest text-amber-600">Walk-in Guest</p>
-              <p className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{walkIn?.customerName}</p>
-              {walkInPhone && <p className={`text-[9px] font-bold uppercase truncate ${walkInPhone !== matchedClient?.phone ? 'text-amber-600' : 'text-slate-500'}`}>{walkInPhone}</p>}
-              {walkInEmail && <p className={`text-[9px] font-bold uppercase truncate ${walkInEmail !== matchedClient?.email ? 'text-amber-600' : 'text-slate-500'}`}>{walkInEmail}</p>}
+              <p className="text-sm font-black uppercase tracking-tight text-foreground leading-tight">{walkIn?.customerName}</p>
+              {walkInPhone && <p className={`text-[9px] font-bold uppercase truncate ${walkInPhone !== matchedClient?.phone ? 'text-amber-600' : 'text-muted-foreground'}`}>{walkInPhone}</p>}
+              {walkInEmail && <p className={`text-[9px] font-bold uppercase truncate ${walkInEmail !== matchedClient?.email ? 'text-amber-600' : 'text-muted-foreground'}`}>{walkInEmail}</p>}
               {hasNewContact && <p className="text-[8px] font-black text-amber-600 uppercase">New contact info detected</p>}
             </div>
           </div>
         </div>
         <div className="px-6 pb-6 space-y-3">
           <button onClick={() => onLinkSession(matchedClient)} className="w-full p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 hover:border-primary/40 transition-all text-left group">
-            <div className="flex items-center justify-between"><div className="space-y-0.5"><p className="text-[11px] font-black uppercase tracking-widest text-primary">Link This Session Only</p><p className="text-[9px] font-bold text-slate-500 uppercase">Connect today's visit to existing profile. No other changes.</p></div><ArrowRight className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100 transition-opacity shrink-0 ml-3" /></div>
+            <div className="flex items-center justify-between"><div className="space-y-0.5"><p className="text-[11px] font-black uppercase tracking-widest text-primary">Link This Session Only</p><p className="text-[9px] font-bold text-muted-foreground uppercase">Connect today's visit to existing profile. No other changes.</p></div><ArrowRight className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100 transition-opacity shrink-0 ml-3" /></div>
           </button>
           <button onClick={() => onMerge(matchedClient)} className="w-full p-4 rounded-2xl border-2 border-green-500/20 bg-green-50/50 hover:bg-green-50 hover:border-green-500/40 transition-all text-left group">
-            <div className="flex items-center justify-between"><div className="space-y-0.5"><p className="text-[11px] font-black uppercase tracking-widest text-green-700">Merge & Update Profile</p><p className="text-[9px] font-bold text-slate-500 uppercase">{hasNewContact ? 'Link session and update profile with new contact info.' : 'Link session and confirm this is the same person.'}</p></div><ShieldCheck className="w-4 h-4 text-green-600 opacity-40 group-hover:opacity-100 transition-opacity shrink-0 ml-3" /></div>
+            <div className="flex items-center justify-between"><div className="space-y-0.5"><p className="text-[11px] font-black uppercase tracking-widest text-green-700">Merge & Update Profile</p><p className="text-[9px] font-bold text-muted-foreground uppercase">{hasNewContact ? 'Link session and update profile with new contact info.' : 'Link session and confirm this is the same person.'}</p></div><ShieldCheck className="w-4 h-4 text-green-600 opacity-40 group-hover:opacity-100 transition-opacity shrink-0 ml-3" /></div>
           </button>
           <button onClick={() => onKeepSeparate()} className="w-full p-3 rounded-2xl border-2 border-transparent hover:border-muted hover:bg-muted/20 transition-all text-left group">
-            <div className="flex items-center justify-between"><div className="space-y-0.5"><p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Keep as New Guest</p><p className="text-[9px] font-bold text-slate-400 uppercase">Different person with similar contact info. No changes.</p></div><XCircle className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-60 transition-opacity shrink-0 ml-3" /></div>
+            <div className="flex items-center justify-between"><div className="space-y-0.5"><p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Keep as New Guest</p><p className="text-[9px] font-bold text-muted-foreground uppercase">Different person with similar contact info. No changes.</p></div><XCircle className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-60 transition-opacity shrink-0 ml-3" /></div>
           </button>
         </div>
       </DialogContent>
@@ -238,7 +238,7 @@ export const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient,
 export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string, reason: string) => void; onCancel: () => void }) {
   const [pin, setPin] = React.useState('');
   const [reason, setReason] = React.useState('');
-  const field = { background: 'var(--paper, #fff)', border: '1px solid var(--line, #ececee)', color: 'var(--ink, #16171a)' } as React.CSSProperties;
+  const field = { background: 'var(--paper, #fff)', border: '1px solid var(--line, hsl(var(--border)))', color: 'var(--ink, #16171a)' } as React.CSSProperties;
   return (
     <div className="space-y-3 rounded-2xl p-4" style={{ background: 'var(--soft, #f5f5f7)' }}>
       <p className="text-[14px] font-semibold">A manager approves the void</p>

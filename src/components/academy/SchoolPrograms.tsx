@@ -20,7 +20,7 @@ async function api(body: any) {
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
 const field = 'h-10 w-full rounded-xl border-2 border-border/60 bg-background px-3 text-sm';
-const STATUS: Record<string, string> = { active: 'bg-emerald-100 text-emerald-800', loa: 'bg-amber-100 text-amber-800', withdrawn: 'bg-stone-200 text-stone-600', graduated: 'bg-violet-100 text-violet-800' };
+const STATUS: Record<string, string> = { active: 'bg-emerald-100 text-emerald-800', loa: 'bg-amber-100 text-amber-800', withdrawn: 'bg-border text-foreground/80', graduated: 'bg-violet-100 text-violet-800' };
 
 export function SchoolPrograms({ tenantId, courses, brand }: { tenantId: string; courses: any[]; brand: { name: string; logoUrl?: string | null; color?: string | null } }) {
   const [fileFor, setFileFor] = useState<string | null>(null);

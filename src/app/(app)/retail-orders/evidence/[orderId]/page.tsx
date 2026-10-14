@@ -203,7 +203,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
         </Button>
       </div>
 
-      <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+      <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
         <CardContent className="p-5 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-lg font-black uppercase tracking-tight">Order {num}</p>
@@ -239,7 +239,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
                 key={v.label}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-xl border-2 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest',
-                  v.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-500'
+                  v.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-border bg-muted/60 text-muted-foreground'
                 )}
               >
                 {v.ok ? <Check className="h-3 w-3" aria-hidden="true" /> : <X className="h-3 w-3" aria-hidden="true" />}
@@ -251,7 +251,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
       </Card>
 
       {(order?.lines || []).some((l: any) => l.digital === true) && (
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-5 space-y-3">
             <div className="flex items-center gap-2">
               <ScanLine className="h-4 w-4 text-primary" aria-hidden="true" />
@@ -288,7 +288,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
         </Card>
       )}
 
-      <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+      <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
         <CardContent className="p-5 space-y-3">
           <div className="flex items-center gap-2">
             <ScanLine className="h-4 w-4 text-primary" aria-hidden="true" />
@@ -316,7 +316,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
       </Card>
 
       {(photos.length > 0 || order.method === 'ship') && (
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-5 space-y-3">
             <div className="flex items-center gap-2">
               <Camera className="h-4 w-4 text-primary" aria-hidden="true" />
@@ -358,7 +358,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
         </Card>
       )}
 
-      <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+      <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
         <CardContent className="p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Package className="h-4 w-4 text-primary" aria-hidden="true" />
@@ -368,7 +368,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
             {timeline.map((e) => {
               const detail = metaLine(e);
               return (
-                <li key={e.id} className="relative border-l-2 border-slate-200 pb-4 pl-4 last:pb-0">
+                <li key={e.id} className="relative border-l-2 border-border pb-4 pl-4 last:pb-0">
                   <span className={cn('absolute -left-[5px] top-1.5 h-2 w-2 rounded-full', e.type === 'scan_mismatch' || e.type === 'override' || e.type === 'cancelled' ? 'bg-amber-500' : 'bg-primary')} aria-hidden="true" />
                   <p className="text-xs font-black uppercase tracking-tight">
                     {EVENT_LABELS[e.type] || e.type}

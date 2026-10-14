@@ -37,20 +37,20 @@ import {
   ArrowLeft, CalendarClock, CheckCircle2, LayoutGrid, MessageSquareText, Users,
 } from 'lucide-react';
 
-const FIELD = 'h-12 rounded-2xl border-2 font-bold bg-white focus:border-primary/50';
+const FIELD = 'h-12 rounded-2xl border-2 font-bold bg-card focus:border-primary/50';
 const FIELD_LABEL = 'text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1';
 
 const Panel = ({ icon: Icon, title, hint, children }: {
   icon: any; title: string; hint: string; children: React.ReactNode;
 }) => (
-  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
     <CardHeader className="bg-muted/5 border-b p-6">
       <div className="flex items-start gap-3">
-        <div className="p-2.5 rounded-xl bg-white border-2 shadow-sm shrink-0">
+        <div className="p-2.5 rounded-xl bg-card border-2 shadow-sm shrink-0">
           <Icon className="w-4 h-4 text-primary" />
         </div>
         <div className="space-y-1 text-left">
-          <p className="text-sm font-black uppercase tracking-tight text-slate-900">{title}</p>
+          <p className="text-sm font-black uppercase tracking-tight text-foreground">{title}</p>
           <CardDescription className="text-[9px] font-bold uppercase tracking-widest opacity-60 leading-relaxed">{hint}</CardDescription>
         </div>
       </div>
@@ -262,13 +262,13 @@ export default function HostingSettingsPage() {
             <div className="flex flex-col gap-2">
               {events.map((e) => (
                 <Button key={e.id} variant="outline" onClick={() => importPlan(e.id)}
-                  className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white justify-between">
+                  className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-card justify-between">
                   <span className="truncate">Import from “{e.name}”</span>
                   <span className="opacity-60">{e.count} units</span>
                 </Button>
               ))}
               <Button variant="outline" onClick={() => importPlan('starter')}
-                className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">
+                className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-card">
                 Start with a blank four-unit floor
               </Button>
             </div>

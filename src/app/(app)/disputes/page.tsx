@@ -239,7 +239,7 @@ function EvidenceBuilderDialog({
                 <Shield className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <DialogTitle className="text-lg font-black uppercase tracking-tighter text-slate-900 text-left">
+                <DialogTitle className="text-lg font-black uppercase tracking-tighter text-foreground text-left">
                   Evidence Package
                 </DialogTitle>
                 <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mt-0.5">
@@ -361,7 +361,7 @@ function EvidenceBuilderDialog({
                   </span>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-50 border-2 border-dashed border-slate-200 text-[10px] font-bold text-muted-foreground">
+                <div className="p-3 rounded-xl bg-muted/60 border-2 border-dashed border-border text-[10px] font-bold text-muted-foreground">
                   Screenshots of texts, emails, before/after photos, signed documents — anything that supports your case.
                 </div>
 
@@ -370,10 +370,10 @@ function EvidenceBuilderDialog({
                   {FILE_PURPOSES.map(p => (
                     <label key={p.value} className={cn(
                       'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all',
-                      'border-slate-200 bg-white hover:border-primary/30 hover:bg-primary/5'
+                      'border-border bg-card hover:border-primary/30 hover:bg-primary/5'
                     )}>
                       <Upload className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex-1">{p.label}</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-foreground/80 flex-1">{p.label}</span>
                       {isUploading
                         ? <Loader className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
                         : <span className="text-[9px] font-bold text-muted-foreground opacity-60">Tap to select</span>}
@@ -417,7 +417,7 @@ function EvidenceBuilderDialog({
               {/* Evidence preview */}
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Evidence Preview</p>
-                <pre className="text-[10px] font-mono bg-slate-50 border-2 rounded-xl p-4 whitespace-pre-wrap text-slate-600">
+                <pre className="text-[10px] font-mono bg-muted/60 border-2 rounded-xl p-4 whitespace-pre-wrap text-foreground/80">
                   {buildEvidenceText()}
                 </pre>
               </div>
@@ -456,17 +456,17 @@ function EvidenceItem({ icon, label, available, description, tip }: {
   return (
     <div className={cn(
       'p-4 rounded-2xl border-2 flex items-start gap-3',
-      available ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-slate-50 opacity-60'
+      available ? 'border-green-200 bg-green-50' : 'border-border bg-muted/60 opacity-60'
     )}>
-      <div className={cn('p-2 rounded-xl shrink-0', available ? 'bg-green-100 text-green-600' : 'bg-slate-200 text-slate-400')}>
+      <div className={cn('p-2 rounded-xl shrink-0', available ? 'bg-green-100 text-green-600' : 'bg-border text-muted-foreground')}>
         {icon}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">{label}</p>
+          <p className="text-[11px] font-black uppercase tracking-tight text-foreground">{label}</p>
           {available
             ? <Badge className="bg-green-100 text-green-700 border-none font-black text-[8px] h-4 px-1.5">Attached</Badge>
-            : <Badge className="bg-slate-100 text-slate-500 border-none font-black text-[8px] h-4 px-1.5">Missing</Badge>}
+            : <Badge className="bg-muted text-muted-foreground border-none font-black text-[8px] h-4 px-1.5">Missing</Badge>}
         </div>
         <p className="text-[10px] font-bold text-muted-foreground mt-0.5">{description}</p>
         {tip && <p className="text-[10px] font-bold text-green-700 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{tip}</p>}
@@ -488,14 +488,14 @@ function DisputeCard({ dispute, onOpenEvidence, retailOrder }: {
     <Card className={cn(
       'border-2 rounded-[1.5rem] overflow-hidden transition-all',
       isUrgent ? 'border-red-200 shadow-lg shadow-red-500/10' : 'border-border/50',
-      isOpen    ? 'bg-white' : 'bg-muted/5 opacity-75'
+      isOpen    ? 'bg-card' : 'bg-muted/5 opacity-75'
     )}>
       <CardContent className="p-5 space-y-4">
         {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-black text-sm uppercase tracking-tight text-slate-900">{dispute.clientName}</p>
+              <p className="font-black text-sm uppercase tracking-tight text-foreground">{dispute.clientName}</p>
               {isUrgent && (
                 <Badge className="bg-red-100 text-red-700 border-none font-black text-[8px] uppercase animate-pulse">
                   {daysLeft === 0 ? 'Due today!' : `${daysLeft}d left!`}
@@ -507,7 +507,7 @@ function DisputeCard({ dispute, onOpenEvidence, retailOrder }: {
             </p>
           </div>
           <div className="text-right shrink-0">
-            <p className="font-black text-lg font-mono text-slate-900">${dispute.amount.toFixed(2)}</p>
+            <p className="font-black text-lg font-mono text-foreground">${dispute.amount.toFixed(2)}</p>
             <div className="flex items-center justify-end gap-1 mt-1"
               style={{ color: cfg.color }}>
               {cfg.icon}
@@ -523,7 +523,7 @@ function DisputeCard({ dispute, onOpenEvidence, retailOrder }: {
               <span>Response deadline</span>
               <span>{format(safeDate(dispute.deadline), 'MMM d, yyyy')}</span>
             </div>
-            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
               <div
                 className={cn('h-full rounded-full transition-all', isUrgent ? 'bg-red-500' : 'bg-amber-500')}
                 style={{ width: `${Math.min(100, Math.max(5, 100 - ((daysLeft || 0) / 7) * 100))}%` }}
@@ -598,7 +598,7 @@ function EvidencePill({ label, has }: { label: string; has: boolean }) {
   return (
     <span className={cn(
       'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border',
-      has ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-400 border-slate-200'
+      has ? 'bg-green-50 text-green-700 border-green-200' : 'bg-muted/60 text-muted-foreground border-border'
     )}>
       {has ? <Check className="w-2.5 h-2.5" /> : <XCircle className="w-2.5 h-2.5" />}
       {label}
@@ -739,14 +739,14 @@ function DisputeCenterContent() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Dispute Center" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-5xl mx-auto space-y-8">
 
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">
               Dispute Center
             </h1>
             <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
@@ -767,19 +767,19 @@ function DisputeCenterContent() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Open Disputes"    value={openDisputes.length}      color={openDisputes.length > 0 ? 'text-red-600' : 'text-slate-900'} />
-          <StatCard label="At Risk"          value={`$${totalExposure.toFixed(2)}`} color={totalExposure > 0 ? 'text-amber-600' : 'text-slate-900'} />
+          <StatCard label="Open Disputes"    value={openDisputes.length}      color={openDisputes.length > 0 ? 'text-red-600' : 'text-foreground'} />
+          <StatCard label="At Risk"          value={`$${totalExposure.toFixed(2)}`} color={totalExposure > 0 ? 'text-amber-600' : 'text-foreground'} />
           <StatCard label="Disputes Won"     value={wonCount}                 color="text-green-600" />
-          <StatCard label="Total Lost"       value={`$${totalLost.toFixed(2)}`}    color={totalLost > 0 ? 'text-red-600' : 'text-slate-900'} />
+          <StatCard label="Total Lost"       value={`$${totalLost.toFixed(2)}`}    color={totalLost > 0 ? 'text-red-600' : 'text-foreground'} />
         </div>
 
         {/* Main content */}
         <Tabs defaultValue="open">
           <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5">
-            <TabsTrigger value="open"   className="px-6 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md">
+            <TabsTrigger value="open"   className="px-6 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-card data-[state=active]:shadow-md">
               Open ({openDisputes.length})
             </TabsTrigger>
-            <TabsTrigger value="closed" className="px-6 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md">
+            <TabsTrigger value="closed" className="px-6 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-card data-[state=active]:shadow-md">
               Closed ({closedDisputes.length})
             </TabsTrigger>
           </TabsList>
@@ -868,7 +868,7 @@ export default function DisputeCenterPage() {
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color: string }) {
   return (
-    <Card className="border-2 rounded-[1.5rem] bg-white">
+    <Card className="border-2 rounded-[1.5rem] bg-card">
       <CardContent className="p-4">
         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">{label}</p>
         <p className={cn('text-2xl font-black font-mono tracking-tighter', color)}>{value}</p>

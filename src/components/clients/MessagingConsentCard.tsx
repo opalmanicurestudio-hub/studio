@@ -92,23 +92,23 @@ export function MessagingConsentCard({ firestore, tenantId, client, staffName, s
       </h3>
 
       {/* Reminders — the client's own consent, read-only. */}
-      <div className={cn('p-5 rounded-[2rem] border-2 flex items-start justify-between gap-3', reminder?.agreed ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200')}>
+      <div className={cn('p-5 rounded-[2rem] border-2 flex items-start justify-between gap-3', reminder?.agreed ? 'bg-green-50 border-green-200' : 'bg-muted/60 border-border')}>
         <div className="min-w-0">
-          <p className={cn('font-black text-xs uppercase tracking-tight', reminder?.agreed ? 'text-green-700' : 'text-slate-600')}>
+          <p className={cn('font-black text-xs uppercase tracking-tight', reminder?.agreed ? 'text-green-700' : 'text-foreground/80')}>
             Reminder texts: {reminder?.agreed ? 'Agreed' : 'Not recorded'}
           </p>
           <p className="text-[10px] font-bold text-muted-foreground mt-1">
             {reminder?.agreed ? `On the booking sheet · ${when(reminder.at)}` : 'Given by the client when they book online. Appointment confirmations and reminders only.'}
           </p>
         </div>
-        {reminder?.agreed ? <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" /> : <Ban className="w-5 h-5 text-slate-400 shrink-0" />}
+        {reminder?.agreed ? <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" /> : <Ban className="w-5 h-5 text-muted-foreground shrink-0" />}
       </div>
 
       {/* Marketing — what Campaigns and Reconnect need to text them. */}
-      <div className={cn('p-5 rounded-[2rem] border-2 space-y-3', marketingYes ? 'bg-green-50 border-green-200' : unsubscribed ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200')}>
+      <div className={cn('p-5 rounded-[2rem] border-2 space-y-3', marketingYes ? 'bg-green-50 border-green-200' : unsubscribed ? 'bg-amber-50 border-amber-200' : 'bg-muted/60 border-border')}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className={cn('font-black text-xs uppercase tracking-tight', marketingYes ? 'text-green-700' : unsubscribed ? 'text-amber-800' : 'text-slate-600')}>
+            <p className={cn('font-black text-xs uppercase tracking-tight', marketingYes ? 'text-green-700' : unsubscribed ? 'text-amber-800' : 'text-foreground/80')}>
               Offers &amp; check-ins by text: {marketingYes ? 'Yes' : unsubscribed ? 'Unsubscribed' : 'No'}
             </p>
             <p className="text-[10px] font-bold text-muted-foreground mt-1">
@@ -118,7 +118,7 @@ export function MessagingConsentCard({ firestore, tenantId, client, staffName, s
                 : 'Campaign and Reconnect texts skip them. Emails still go to them unless they unsubscribe.'}
             </p>
           </div>
-          {marketingYes ? <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" /> : <Ban className="w-5 h-5 text-slate-400 shrink-0" />}
+          {marketingYes ? <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" /> : <Ban className="w-5 h-5 text-muted-foreground shrink-0" />}
         </div>
         <div className="flex flex-wrap gap-2">
           {!marketingYes && <Button size="sm" variant="outline" className="rounded-xl" onClick={() => open('yes')}><ShieldCheck className="w-3.5 h-3.5 mr-1.5" />Record their yes</Button>}
@@ -157,7 +157,7 @@ export function MessagingConsentCard({ firestore, tenantId, client, staffName, s
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How did they agree?</Label>
                 <div className="grid grid-cols-2 gap-2">
                   {METHODS.map(([k, l]) => (
-                    <button key={k} type="button" aria-pressed={method === k} onClick={() => setMethod(k)} className={cn('h-10 rounded-xl border-2 px-2 text-[11px] font-bold', method === k ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-600')}>{l}</button>
+                    <button key={k} type="button" aria-pressed={method === k} onClick={() => setMethod(k)} className={cn('h-10 rounded-xl border-2 px-2 text-[11px] font-bold', method === k ? 'border-slate-900 bg-foreground text-background' : 'border-border text-foreground/80')}>{l}</button>
                   ))}
                 </div>
               </div>

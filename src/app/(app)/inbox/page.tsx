@@ -11,10 +11,10 @@ import { useFirebase } from '@/firebase';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
 
-const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
-const card = { background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' } as React.CSSProperties;
-const ink = { background: 'var(--ink, #1c1917)', color: '#fff' } as React.CSSProperties;
-const soft = { background: 'var(--soft, #efebe6)' } as React.CSSProperties;
+const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
+const card = { background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' } as React.CSSProperties;
+const ink = { background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' } as React.CSSProperties;
+const soft = { background: 'hsl(var(--secondary))' } as React.CSSProperties;
 const warn = { color: 'var(--warn, #b45309)' } as React.CSSProperties;
 const okc = { color: 'var(--ok, #15803d)' } as React.CSSProperties;
 const chip = (label: string, style: React.CSSProperties = soft) => <span className="inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold" style={style}>{label}</span>;
@@ -46,10 +46,10 @@ function ClientFinder({ tenantId, onPick, onCancel }: { tenantId: string; onPick
   return (
     <div className="space-y-2 rounded-2xl p-3" style={soft}>
       <div className="flex items-center gap-2">
-        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search clients by name" aria-label="Search clients by name" className="h-10 min-w-0 flex-1 rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search clients by name" aria-label="Search clients by name" className="h-10 min-w-0 flex-1 rounded-full border bg-card px-4 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }} />
         <button type="button" onClick={onCancel} className="text-[13px] underline underline-offset-2" style={muted}>Cancel</button></div>
       {res && (res.length === 0 ? <p className="px-1 text-[13px]" style={muted}>No clients found with that name.</p> : <ul className="space-y-1">{res.map((c) => (
-        <li key={c.id}><button type="button" onClick={() => onPick(c)} className="flex w-full items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 text-left text-[14px] hover:opacity-90">
+        <li key={c.id}><button type="button" onClick={() => onPick(c)} className="flex w-full items-center justify-between gap-2 rounded-xl bg-card px-3 py-2 text-left text-[14px] hover:opacity-90">
           <b className="truncate">{c.name}</b><span className="truncate text-[12px]" style={muted}>{c.phone || c.email}</span></button></li>))}</ul>)}
     </div>);
 }
@@ -81,14 +81,14 @@ function InboxItem({ m, tenantId, open, onToggle, onChanged }: { m: any; tenantI
     if (!r?.ok) { setNote({ ok: false, t: r?.error || 'We could not link this message.' }); return; }
     setLinking(false); setNote({ ok: true, t: `Linked to ${c.name}. It’s now on their record.` }); onChanged(); };
   return (
-    <li className="rounded-3xl p-4" style={{ ...card, ...(unread ? { borderColor: 'var(--ink, #1c1917)' } : {}) }}>
+    <li className="rounded-3xl p-4" style={{ ...card, ...(unread ? { borderColor: 'hsl(var(--foreground))' } : {}) }}>
       <div className="flex items-start gap-3">
         <span className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: unread ? 'var(--accent, #2e6f6a)' : 'transparent' }} aria-hidden />
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {name ? <Link href={`/clients/${m.clientId}`} className="text-[15px] font-semibold underline-offset-2 hover:underline">{name}</Link> : <span className="break-all text-[15px] font-semibold">{fromLabel}</span>}
             {chip(email ? 'Email' : app ? 'App' : 'Text')}
-            {m.complaint?.match && chip(m.complaint.safety ? 'Possible safety concern' : 'Possible complaint', m.complaint.safety ? { background: '#fdecec', color: '#b42318' } : { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' })}
+            {m.complaint?.match && chip(m.complaint.safety ? 'Possible safety concern' : 'Possible complaint', m.complaint.safety ? { background: 'color-mix(in srgb, #b42318 10%, transparent)', color: 'var(--bad-ink)' } : { background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' })}
             <span className="ml-auto whitespace-nowrap text-[12px]" style={muted}>{when(m.at)}</span>
           </div>
           <button type="button" onClick={onToggle} aria-expanded={open} className="block w-full text-left">
@@ -99,12 +99,12 @@ function InboxItem({ m, tenantId, open, onToggle, onChanged }: { m: any; tenantI
           {(m.readBy?.name || m.repliedBy?.name || m.actionTaken) && <p className="text-[12px]" style={muted}>
             {[m.repliedBy?.name ? `Replied by ${m.repliedBy.name}${m.repliedAt ? ` · ${when(m.repliedAt)}` : ''}` : m.readBy?.name ? `Read by ${m.readBy.name}` : null, m.actionTaken ? ACTION[m.actionTaken] || null : null].filter(Boolean).join(' · ')}</p>}
           {open && <div className="space-y-2.5 pt-1">
-            {m.complaint?.match && <a href={`/cases?start=text&inbox=${encodeURIComponent(m.id)}`} className="inline-flex h-9 items-center rounded-full px-4 text-[13px] font-semibold" style={m.complaint.safety ? { background: '#fdecec', color: '#b42318' } : ink}>Start a case</a>}
+            {m.complaint?.match && <a href={`/cases?start=text&inbox=${encodeURIComponent(m.id)}`} className="inline-flex h-9 items-center rounded-full px-4 text-[13px] font-semibold" style={m.complaint.safety ? { background: 'color-mix(in srgb, #b42318 10%, transparent)', color: 'var(--bad-ink)' } : ink}>Start a case</a>}
             {!m.clientId && (linking ? <ClientFinder tenantId={tenantId} onPick={link} onCancel={() => setLinking(false)} />
               : <button type="button" onClick={() => setLinking(true)} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={soft}>Link to a client</button>)}
-            <div className="space-y-2 border-t pt-2.5" style={{ borderColor: 'var(--line, #efebe6)' }}>
-              {email && <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={m.subject ? (/^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`) : 'Subject'} aria-label="Subject" className="h-10 w-full rounded-full border px-4 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />}
-              <textarea ref={boxRef} value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`Write ${email ? 'an email' : app ? 'a' : 'a text'} reply${name ? ` to ${String(name).split(' ')[0]}` : ''}…`} aria-label="Reply" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
+            <div className="space-y-2 border-t pt-2.5" style={{ borderColor: 'hsl(var(--border))' }}>
+              {email && <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={m.subject ? (/^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`) : 'Subject'} aria-label="Subject" className="h-10 w-full rounded-full border px-4 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }} />}
+              <textarea ref={boxRef} value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`Write ${email ? 'an email' : app ? 'a' : 'a text'} reply${name ? ` to ${String(name).split(' ')[0]}` : ''}…`} aria-label="Reply" className="w-full rounded-2xl border p-3 text-[15px]" style={{ borderColor: 'hsl(var(--border))' }} />
               <div className="flex flex-wrap items-center gap-3">
                 <button type="button" onClick={reply} disabled={busy || !text.trim()} className="h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-50" style={ink}>{busy ? 'Sending…' : 'Send reply'}</button>
                 <span className="text-[12px]" style={muted}>{app ? 'Shows on their visit page. If they haven’t seen it in 10 minutes, it’s sent by text.' : `Sent from the business’s ${email ? 'email' : 'number'}.`}</span></div>

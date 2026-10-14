@@ -30,7 +30,7 @@ export function DeskOwedCard({ tenantId, firestore, renters }: { tenantId: strin
       <div><h2 className="text-[17px] font-semibold text-amber-950">Owed to renters</h2>
         <p className="text-[13px] text-amber-900">Their clients paid at your front desk. That money is theirs — pay it out, or take it off their next rent.</p></div>
       {byRenter.map(([rid, v]) => (
-        <div key={rid} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white/70 px-3 py-2.5">
+        <div key={rid} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card/70 px-3 py-2.5">
           <p className="text-[14px]"><span className="font-semibold">{name(rid)}</span> · {money(v.cents)} <span className="text-amber-800">({v.count} {v.count === 1 ? 'payment' : 'payments'})</span></p>
           <div className="flex gap-2">
             <button type="button" disabled={!!busy} onClick={() => void settle(rid, 'rent')} className="h-9 rounded-full bg-amber-900 px-3 text-[13px] font-semibold text-white disabled:opacity-50">Take off next rent</button>

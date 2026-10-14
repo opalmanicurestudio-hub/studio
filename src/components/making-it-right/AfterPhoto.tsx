@@ -27,9 +27,9 @@ export function AfterPhoto({ firestore, tenantId, appointment, serviceIds, onReq
   return (
     <div className="space-y-2 rounded-2xl border-2 p-3" style={{ borderColor: rule.required && !urls.length ? '#e7b04f' : '#ececee' }}>
       <p className="text-[14px] font-bold">After photo{rule.required ? '' : ' (optional)'}</p>
-      <p className="text-[12.5px] text-slate-500">The work as it leaves — it protects you and the client if there’s a question later.</p>
+      <p className="text-[12.5px] text-muted-foreground">The work as it leaves — it protects you and the client if there’s a question later.</p>
       <div className="flex flex-wrap gap-2">{urls.map((u) => <img key={u} src={u} alt="After" className="h-16 w-16 rounded-xl object-cover" />)}
-        <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed text-[22px] text-slate-400">{busy ? '…' : '+'}<input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => add(e.target.files)} /></label></div>
+        <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed text-[22px] text-muted-foreground">{busy ? '…' : '+'}<input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => add(e.target.files)} /></label></div>
       {err && <p className="text-[12.5px] font-semibold text-rose-700">{err}</p>}
     </div>);
 }

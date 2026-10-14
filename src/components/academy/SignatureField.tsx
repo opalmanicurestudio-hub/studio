@@ -20,8 +20,8 @@ export function SignatureField({ onChange, label = 'Sign here', clearLabel = 'Cl
   };
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between"><span className="text-[13px] font-medium text-stone-700">{label}</span>{inked && <button type="button" onClick={() => { const c = ref.current!; c.getContext('2d')!.clearRect(0, 0, c.width, c.height); setInked(false); onChange(null); }} className="text-[13px] underline">{clearLabel}</button>}</div>
-      <canvas ref={ref} className="h-36 w-full touch-none rounded-2xl border-2 border-dashed bg-white" style={{ borderColor: inked ? color : '#d6d3d1' }} aria-label={label}
+      <div className="flex items-center justify-between"><span className="text-[13px] font-medium text-foreground/80">{label}</span>{inked && <button type="button" onClick={() => { const c = ref.current!; c.getContext('2d')!.clearRect(0, 0, c.width, c.height); setInked(false); onChange(null); }} className="text-[13px] underline">{clearLabel}</button>}</div>
+      <canvas ref={ref} className="h-36 w-full touch-none rounded-2xl border-2 border-dashed bg-card" style={{ borderColor: inked ? color : '#d6d3d1' }} aria-label={label}
         onPointerDown={(e) => { (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId); last.current = pt(e); }}
         onPointerMove={(e) => { if (!last.current) return; const p = pt(e); line(last.current, p); last.current = p; if (!inked) setInked(true); }}
         onPointerUp={() => { last.current = null; if (ref.current) onChange(exportPng()); }} onPointerCancel={() => { last.current = null; }} />

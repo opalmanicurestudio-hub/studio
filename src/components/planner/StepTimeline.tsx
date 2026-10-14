@@ -55,9 +55,9 @@ export function StepTimeline({ service, appointment, extraMinutes = 0, tenantId,
         {next && nextLate > 0 && <><br />Next: {next.clientName || 'the next client'} at {clock(next.startMs)} would start about {nextLate} min late.</>}
       </p>}
       <div className="relative">
-        <div className="flex h-5 w-full overflow-hidden rounded-full" style={{ background: 'var(--soft, #efebe6)' }}>
+        <div className="flex h-5 w-full overflow-hidden rounded-full" style={{ background: 'hsl(var(--secondary))' }}>
           {lt.steps.map((s, i) => { const w = Math.max(0, s.toMs - s.fromMs); const planned = (s.minutes + s.extra) * 60000; const overW = s.over ? Math.max(0, w - planned) : 0;
-            return <div key={i} title={`${s.label} · ${s.minutes} min${s.extra ? ` + ${s.extra}` : ''}`} className={`flex ${cur === s ? 'cf-step-now' : ''}`} style={{ width: `${(w / total) * 100}%`, opacity: showMarker && i < lt.index ? 0.35 : 1, borderRight: i < lt.steps.length - 1 ? '2px solid var(--card, #fff)' : undefined, animation: cur === s ? 'cfStepPulse 2.4s ease-in-out infinite' : undefined }}>
+            return <div key={i} title={`${s.label} · ${s.minutes} min${s.extra ? ` + ${s.extra}` : ''}`} className={`flex ${cur === s ? 'cf-step-now' : ''}`} style={{ width: `${(w / total) * 100}%`, opacity: showMarker && i < lt.index ? 0.35 : 1, borderRight: i < lt.steps.length - 1 ? '2px solid hsl(var(--card))' : undefined, animation: cur === s ? 'cfStepPulse 2.4s ease-in-out infinite' : undefined }}>
               <div style={{ flex: `${w - overW} 0 0`, background: bg(s) }} />{overW > 0 && <div style={{ flex: `${overW} 0 0`, background: stripes(red) }} />}</div>; })}
         </div>
         {showMarker && <div aria-hidden className="cf-step-marker absolute -top-1 h-7 w-[3px] rounded-full bg-foreground" style={{ left: `calc(${lt.pct}% - 1px)`, transition: 'left 15s linear' }} />}

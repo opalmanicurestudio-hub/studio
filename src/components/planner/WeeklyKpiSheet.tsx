@@ -42,13 +42,13 @@ export const WeeklyKpiSheet: React.FC<WeeklyKpiSheetProps> = ({ open, onOpenChan
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6 sm:p-8 pt-0">
-            <p className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-widest mb-1">Weekly Gross</p>
+            <p className="text-[10px] sm:text-xs font-bold text-foreground/80 uppercase tracking-widest mb-1">Weekly Gross</p>
             <p className="text-4xl sm:text-6xl font-black text-primary tracking-tighter font-mono leading-none">${kpis.weeklyRevenue.toFixed(2)}</p>
-            <div className="mt-6 flex items-center gap-3 p-3 rounded-2xl bg-white/50 border border-primary/10">
+            <div className="mt-6 flex items-center gap-3 p-3 rounded-2xl bg-card/50 border border-primary/10">
                 <div className="p-2 bg-primary/10 rounded-xl"><Target className="w-4 h-4 text-primary" /></div>
                 <div className="space-y-0.5">
                     <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Projected Pipeline</p>
-                    <p className="text-xs sm:text-sm font-black uppercase text-slate-900">${kpis.projectedRevenue.toFixed(2)} Remaining</p>
+                    <p className="text-xs sm:text-sm font-black uppercase text-foreground">${kpis.projectedRevenue.toFixed(2)} Remaining</p>
                 </div>
             </div>
         </CardContent>
@@ -62,7 +62,7 @@ export const WeeklyKpiSheet: React.FC<WeeklyKpiSheetProps> = ({ open, onOpenChan
                     <div className="flex justify-between items-center">
                         <div className="space-y-1">
                             <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Overhead Threshold</p>
-                            <p className="text-xl sm:text-2xl font-black font-mono tracking-tighter text-slate-900">${kpis.weeklyBreakEven.toFixed(2)}</p>
+                            <p className="text-xl sm:text-2xl font-black font-mono tracking-tighter text-foreground">${kpis.weeklyBreakEven.toFixed(2)}</p>
                         </div>
                         <div className="p-3 bg-muted rounded-2xl shadow-inner"><Landmark className="w-5 h-5 sm:w-6 sm:h-6 text-muted-foreground" /></div>
                     </div>
@@ -114,7 +114,7 @@ export const WeeklyKpiSheet: React.FC<WeeklyKpiSheetProps> = ({ open, onOpenChan
             <Sparkles className="w-5 h-5 text-primary" />
             <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Studio Intelligence</span>
           </div>
-          <SheetTitle className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Weekly Performance</SheetTitle>
+          <SheetTitle className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Weekly Performance</SheetTitle>
           <SheetDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Live yield and overhead recovery tracking.</SheetDescription>
         </SheetHeader>
         

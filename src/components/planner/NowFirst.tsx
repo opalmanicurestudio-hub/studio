@@ -30,11 +30,11 @@ export function NowFirst({ appointments, clients, services, staff, providerFilte
   const prov = (a: any) => staff.find((s) => s.id === a.staffId);
   const nextAfter = (a: any) => upNext.find((x) => x.staffId === a.staffId && safe(x.startTime) >= safe(a.startTime));
   const booked = mine.reduce((n, a) => n + (Number(a.price ?? svc(a)?.price) || 0), 0);
-  const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
+  const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
   const row = (a: any) => { const st = stateOf(a, svc(a)); return (
     <button key={a.id} type="button" onClick={() => onOpen(a)} className="grid min-h-[60px] w-full grid-cols-[52px_5px_minmax(0,1fr)] items-center gap-3 border-t px-4 py-3 text-left text-[14px]" style={{ borderColor: 'var(--line)' }}>
       <span style={muted}>{format(safe(a.startTime), 'h:mm')}</span><span className="h-9 w-[5px] rounded-full" style={{ background: st.color }} />
-      <span className="min-w-0"><b>{name(a)}</b> · {svc(a)?.name || a.serviceName || 'Service'}<br /><span className="text-[12px]" style={{ color: st.over || /late|due|unpaid/i.test(st.word) ? 'var(--warn, #b45309)' : 'var(--muted, #6b635c)', fontWeight: st.over ? 600 : 400 }}>{prov(a)?.name ? `${prov(a).name} · ` : ''}{st.word}</span>
+      <span className="min-w-0"><b>{name(a)}</b> · {svc(a)?.name || a.serviceName || 'Service'}<br /><span className="text-[12px]" style={{ color: st.over || /late|due|unpaid/i.test(st.word) ? 'var(--warn, #b45309)' : 'hsl(var(--muted-foreground))', fontWeight: st.over ? 600 : 400 }}>{prov(a)?.name ? `${prov(a).name} · ` : ''}{st.word}</span>
       {(() => { const mk = visitMarks(a, clients.find((c) => c.id === a.clientId), svc(a)).filter((m) => !/Needs an answer|^Here$/.test(m.label)).slice(0, 3); return mk.length ? <span className="mt-1 flex flex-wrap gap-1">{mk.map((m) => <span key={m.label} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: `color-mix(in srgb, ${MARK_COLOR[m.tone]} 12%, transparent)`, color: MARK_COLOR[m.tone] }}>{m.label}</span>)}</span> : null; })()}</span>
     </button>); };
   const card = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties;

@@ -202,7 +202,7 @@ const ChargeCardDialog = ({
               Card on File
             </span>
           </div>
-          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-foreground leading-none">
             Charge saved card
           </DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-50 mt-1">
@@ -219,7 +219,7 @@ const ChargeCardDialog = ({
             <p className="text-4xl font-black font-mono tracking-tighter text-primary">
               {fmt(item.amount)}
             </p>
-            <p className="text-[11px] font-bold uppercase text-slate-500">
+            <p className="text-[11px] font-bold uppercase text-muted-foreground">
               {item.clientName}
             </p>
           </div>
@@ -229,7 +229,7 @@ const ChargeCardDialog = ({
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
               Reason
             </p>
-            <p className="text-sm font-bold text-slate-800">{item.reason}</p>
+            <p className="text-sm font-bold text-foreground">{item.reason}</p>
             <p className="text-[10px] font-bold text-amber-600 uppercase">
               {item.days} days outstanding
             </p>
@@ -274,7 +274,7 @@ const ChargeCardDialog = ({
             variant="ghost"
             onClick={() => onOpenChange(false)}
             disabled={loading}
-            className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400"
+            className="w-full font-black uppercase text-[10px] tracking-widest text-muted-foreground"
           >
             Cancel
           </Button>
@@ -560,7 +560,7 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
 
                       {/* Client + reason */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black uppercase tracking-tight text-slate-900 truncate">
+                        <p className="text-xs font-black uppercase tracking-tight text-foreground truncate">
                           {item.clientName}
                         </p>
                         <p className="text-[10px] text-muted-foreground font-bold truncate opacity-60">

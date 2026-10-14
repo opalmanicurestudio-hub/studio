@@ -66,7 +66,7 @@ export const BrowseConsentFormsDialog: React.FC<BrowseConsentFormsDialogProps> =
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 shadow-3xl overflow-hidden">
         <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Browse Consent Forms</DialogTitle>
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">Browse Consent Forms</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Select the forms required for this service.</DialogDescription>
         </DialogHeader>
         <div className="p-8 space-y-6">
@@ -88,7 +88,7 @@ export const BrowseConsentFormsDialog: React.FC<BrowseConsentFormsDialogProps> =
                             key={form.id}
                             className={cn(
                                 "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer",
-                                isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-white"
+                                isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-card"
                             )}
                             onClick={() => handleToggle(form.id)}
                         >
@@ -104,7 +104,7 @@ export const BrowseConsentFormsDialog: React.FC<BrowseConsentFormsDialogProps> =
                             </div>
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                                  <p className="text-sm font-black uppercase tracking-tight text-foreground truncate">
                                       {form.title}
                                   </p>
                                   {(form as any).requiresSignature && (
@@ -132,7 +132,7 @@ export const BrowseConsentFormsDialog: React.FC<BrowseConsentFormsDialogProps> =
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
           <div className="flex flex-col gap-3 w-full">
             <Button onClick={handleSave} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Add Selected</Button>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Cancel</Button>
           </div>
         </DialogFooter>
       </DialogContent>

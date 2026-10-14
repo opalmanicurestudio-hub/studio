@@ -320,7 +320,7 @@ export function RenterProfileDrawer({
   return (
     <div className="fixed inset-0 z-[70] flex justify-end">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative w-full sm:w-[420px] h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+      <div className="relative w-full sm:w-[420px] h-full bg-card shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
         {/* Header — identity banner: who they are + the three numbers that
             matter, readable in one glance. Dark gradient so the profile feels
             like a card, not a form. */}
@@ -330,7 +330,7 @@ export function RenterProfileDrawer({
               {(renter as any).avatarUrl ? (
                 <img src={(renter as any).avatarUrl} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0 ring-2 ring-white/30" />
               ) : (
-                <div className="w-14 h-14 rounded-2xl bg-white/10 ring-2 ring-white/20 text-white flex items-center justify-center font-black text-xl shrink-0">
+                <div className="w-14 h-14 rounded-2xl bg-card/10 ring-2 ring-white/20 text-white flex items-center justify-center font-black text-xl shrink-0">
                   {(renter.firstName || '?').charAt(0).toUpperCase()}
                 </div>
               )}
@@ -339,14 +339,14 @@ export function RenterProfileDrawer({
                 {renter.businessName && <p className="text-[10px] font-bold text-white/50 truncate">{renter.businessName}{renter.specialty ? ` · ${renter.specialty}` : ''}</p>}
                 {!renter.businessName && renter.specialty && <p className="text-[10px] font-bold text-white/50 truncate">{renter.specialty}</p>}
                 <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${renter.status === 'active' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-white/10 text-white/60'}`}>{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</span>
+                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${renter.status === 'active' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-card/10 text-white/60'}`}>{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</span>
                   {(renter as any).linkedStaffId && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-400/20 text-violet-300">Hybrid</span>}
                   {w9 ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">✓ W-9</span> : w9 === null ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-400/20 text-amber-300">⚠ W-9</span> : null}
                   {(renter as any).cardOnFile && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-400/20 text-sky-300">Card on file</span>}
                 </div>
               </div>
             </div>
-            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
+            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-card/10 hover:bg-card/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
           </div>
 
           {/* The three numbers: station · rent · YTD value */}
@@ -366,16 +366,16 @@ export function RenterProfileDrawer({
           </div>
 
           <div className="flex gap-2 mt-3">
-            <button onClick={onEdit} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 transition-colors">Edit</button>
-            {renter.phone && <a href={`tel:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Call</a>}
-            {renter.phone && <a href={`sms:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Text</a>}
-            {renter.email && <a href={`mailto:${renter.email}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Email</a>}
+            <button onClick={onEdit} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 transition-colors">Edit</button>
+            {renter.phone && <a href={`tel:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Call</a>}
+            {renter.phone && <a href={`sms:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Text</a>}
+            {renter.email && <a href={`mailto:${renter.email}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Email</a>}
           </div>
 
           <div className="flex gap-0 mt-3">
             {PTABS.map(t => (
               <button key={t.id} onClick={() => setPtab(t.id)}
-                className={`px-3.5 py-2.5 text-[10px] font-black uppercase tracking-widest transition-colors rounded-t-xl ${ptab === t.id ? 'bg-white text-slate-900' : 'text-white/50 hover:text-white/80'}`}>
+                className={`px-3.5 py-2.5 text-[10px] font-black uppercase tracking-widest transition-colors rounded-t-xl ${ptab === t.id ? 'bg-card text-foreground' : 'text-white/50 hover:text-white/80'}`}>
                 {t.label}
               </button>
             ))}
@@ -396,7 +396,7 @@ export function RenterProfileDrawer({
 
               {(() => {
                 const comp = complianceOf(renter as any);
-                const STYLE: Record<string, string> = { ok: 'text-emerald-600', expiring: 'text-amber-600', expired: 'text-red-600', missing: 'text-slate-400' };
+                const STYLE: Record<string, string> = { ok: 'text-emerald-600', expiring: 'text-amber-600', expired: 'text-red-600', missing: 'text-muted-foreground' };
                 const WORD: Record<string, (d: string) => string> = {
                   ok: d => `valid · exp ${d}`, expiring: d => `expires ${d}`, expired: d => `EXPIRED ${d}`, missing: () => 'no expiry on file',
                 };
@@ -404,7 +404,7 @@ export function RenterProfileDrawer({
                   <div className={`rounded-2xl border-2 p-4 space-y-1.5 ${comp.worst === 'ok' || comp.worst === 'none' ? '' : comp.worst === 'expiring' ? 'border-amber-200 bg-amber-50/50' : 'border-red-200 bg-red-50/50'}`}>
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Credentials & compliance</p>
                     {comp.items.length === 0 ? (
-                      <p className="text-xs font-bold text-slate-400">Nothing tracked yet — add credentials via Edit.</p>
+                      <p className="text-xs font-bold text-muted-foreground">Nothing tracked yet — add credentials via Edit.</p>
                     ) : comp.items.map((it, i) => (
                       <p key={i} className="text-xs font-bold flex items-center gap-1.5 flex-wrap">
                         <span>{it.label}{it.number ? ` #${it.number}` : ''}: <span className={STYLE[it.state]}>{WORD[it.state](it.expiry)}</span></span>
@@ -415,7 +415,7 @@ export function RenterProfileDrawer({
                 );
               })()}
               {lease && booth ? (
-                <div className="rounded-2xl border-2 border-slate-800 bg-slate-900 text-white p-4 space-y-2">
+                <div className="rounded-2xl border-2 border-slate-800 bg-foreground text-background p-4 space-y-2">
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Current lease</p>
                   <p className="font-black text-sm uppercase">{booth.name}</p>
                   <p className="text-xs font-bold text-white/80">{formatCents(lease.rentAmountCents)}/{lease.frequency} · {lease.endDate ? `ends ${lease.endDate}` : 'month-to-month'}</p>
@@ -439,7 +439,7 @@ export function RenterProfileDrawer({
                         <p className="text-xs text-white/80">{on ? 'Rent is charged to their card automatically on each due date.' : 'Charge rent to their card automatically'}</p>
                         <button type="button" role="switch" aria-checked={on} aria-label="Charge rent to their card automatically" onClick={() => void flip()}
                           className="relative h-6 w-11 shrink-0 rounded-full transition-colors" style={{ background: on ? 'hsl(var(--primary))' : 'rgba(255,255,255,.25)' }}>
-                          <span className="absolute top-0.5 h-5 w-5 rounded-full shadow" style={{ left: on ? 22 : 2, background: '#fff', transition: 'left .15s' }} />
+                          <span className="absolute top-0.5 h-5 w-5 rounded-full shadow" style={{ left: on ? 22 : 2, background: 'hsl(var(--card))', transition: 'left .15s' }} />
                         </button>
                       </div>);
                   })()}
@@ -457,8 +457,8 @@ export function RenterProfileDrawer({
                     <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5"><Coffee className="h-3 w-3" /> Client concierge</p>
                     <p className="text-[10px] font-medium text-muted-foreground">Their clients scan or open this to order amenities to {booth?.name || 'their booth'}. {(renter as any).amenityPayer === 'client' ? 'Client pays for anything over the free allowance.' : 'Extras charge this renter’s card.'}</p>
                     <div className="flex items-center gap-2">
-                      <input readOnly value={link} className="flex-1 h-8 rounded-lg border-2 px-2 text-[10px] font-mono bg-white truncate" onFocus={(e) => e.currentTarget.select()} />
-                      <button onClick={() => { navigator.clipboard?.writeText(link).catch(() => {}); }} className="h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Copy</button>
+                      <input readOnly value={link} className="flex-1 h-8 rounded-lg border-2 px-2 text-[10px] font-mono bg-card truncate" onFocus={(e) => e.currentTarget.select()} />
+                      <button onClick={() => { navigator.clipboard?.writeText(link).catch(() => {}); }} className="h-8 px-3 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest shrink-0">Copy</button>
                     </div>
                   </div>
                 );
@@ -488,7 +488,7 @@ export function RenterProfileDrawer({
                   <select
                     value={chargeCat}
                     onChange={e => { setChargeCat(e.target.value); const c = chargePolicy.find((x: any) => x.label === e.target.value); if (c && c.capCents > 0 && chargeCents > c.capCents) setChargeAmt((c.capCents / 100).toFixed(0)); }}
-                    className="w-full h-10 rounded-xl border-2 px-3 text-sm font-bold bg-white"
+                    className="w-full h-10 rounded-xl border-2 px-3 text-sm font-bold bg-card"
                   >
                     <option value="">Select charge type…</option>
                     {chargePolicy.map((c: any) => (
@@ -509,7 +509,7 @@ export function RenterProfileDrawer({
                   <button
                     onClick={() => chargeRenterCard(renter)}
                     disabled={!(chargeCents >= 50) || !chargeCat || chargeOverCap || renterChargingId === renter.id}
-                    className="w-full h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40"
+                    className="w-full h-10 rounded-xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest disabled:opacity-40"
                   >
                     {renterChargingId === renter.id ? 'Charging…' : `Charge Card${chargeCents >= 50 ? ` $${(chargeCents / 100).toFixed(2)}` : ''}`}
                   </button>
@@ -525,7 +525,7 @@ export function RenterProfileDrawer({
 
           {ptab === 'money' && (
             <>
-              <div className="rounded-2xl bg-slate-900 text-white px-4 py-3 flex items-end justify-between gap-3">
+              <div className="rounded-2xl bg-foreground text-background px-4 py-3 flex items-end justify-between gap-3">
                 <div>
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{thisYear} total paid</p>
                   <p className="text-2xl font-black tracking-tighter">${ytdTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
@@ -544,13 +544,13 @@ export function RenterProfileDrawer({
                     ['Move-out statement', '&mode=final', 'What is owed, the deposit, and which way the money goes'],
                   ] as const).map(([label, q, note]) => (
                     <a key={label} href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}${q}`}
-                      target="_blank" rel="noopener" className="rounded-xl border-2 bg-white px-3 py-2.5">
+                      target="_blank" rel="noopener" className="rounded-xl border-2 bg-card px-3 py-2.5">
                       <span className="block text-[10px] font-black uppercase tracking-widest">{label}</span>
                       <span className="block text-[9px] font-bold text-muted-foreground leading-snug">{note}</span>
                     </a>
                   ))}
                   <a href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${thisYear}`}
-                    target="_blank" rel="noopener" className="rounded-xl border-2 bg-white px-3 py-2.5 col-span-2">
+                    target="_blank" rel="noopener" className="rounded-xl border-2 bg-card px-3 py-2.5 col-span-2">
                     <span className="block text-[10px] font-black uppercase tracking-widest">{thisYear} annual statement</span>
                     <span className="block text-[9px] font-bold text-muted-foreground leading-snug">Total rent paid this year — for their bookkeeping</span>
                   </a>
@@ -615,14 +615,14 @@ export function RenterProfileDrawer({
                     </div>
                     {dep.status === 'not_collected' && (
                       <button type="button" onClick={() => write('deposit_charge', dep.agreedCents, 'Deposit collected')}
-                        className="h-10 w-full rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">
+                        className="h-10 w-full rounded-xl bg-foreground text-[10px] font-black uppercase tracking-widest text-background">
                         Record deposit received · {formatCents(dep.agreedCents)}
                       </button>
                     )}
                     {dep.deductions.length > 0 && (
                       <div className="space-y-1">
                         {dep.deductions.map((d) => (
-                          <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
+                          <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5">
                             <p className="text-[11px] font-bold truncate">
                               {d.reason}<span className="text-muted-foreground font-medium"> · {d.at}</span>
                               {(d.evidenceUrls || []).length > 0 && (
@@ -711,7 +711,7 @@ export function RenterProfileDrawer({
                 return (
                   <button type="button" onClick={toggle} aria-pressed={on}
                     className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors',
-                      on ? 'border-emerald-300 bg-emerald-50' : 'bg-white')}>
+                      on ? 'border-emerald-300 bg-emerald-50' : 'bg-card')}>
                     <span className="min-w-0">
                       <span className="block text-[11px] font-black uppercase tracking-widest">Autopay</span>
                       <span className="block text-[10px] font-bold text-muted-foreground">
@@ -722,7 +722,7 @@ export function RenterProfileDrawer({
                       </span>
                     </span>
                     <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
-                      on ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500')}>
+                      on ? 'bg-emerald-600 text-white' : 'bg-muted text-muted-foreground')}>
                       {on ? 'On' : 'Off'}
                     </span>
                   </button>
@@ -762,7 +762,7 @@ export function RenterProfileDrawer({
                   {myAmenity.slice(0, 20).map((a: any) => {
                     const when = (() => { try { return new Date(a.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } })();
                     const tag = a.compedByRenter ? { t: 'Comped', c: 'bg-green-100 text-green-700' }
-                      : a.chargedToStation ? { t: 'Charged to card', c: 'bg-slate-900 text-white' }
+                      : a.chargedToStation ? { t: 'Charged to card', c: 'bg-foreground text-background' }
                       : (Number(a.priceAtRequest) > 0 ? { t: 'Client paid', c: 'bg-emerald-100 text-emerald-700' } : { t: 'Complimentary', c: 'bg-sky-100 text-sky-700' });
                     const statusTag = a.status === 'delivered' ? 'Delivered' : a.status === 'cancelled' ? 'Cancelled' : 'Pending';
                     return (
@@ -837,7 +837,7 @@ export function RenterProfileDrawer({
                 {thread === null ? <p className="text-xs text-muted-foreground text-center py-4">Loading…</p>
                   : thread.length === 0 ? <p className="text-xs text-muted-foreground text-center py-4">No messages yet. Start the conversation below.</p>
                   : thread.map((m) => (
-                    <div key={m.id} className={cn('max-w-[88%] rounded-2xl px-3.5 py-2.5', m.direction === 'inbound' ? 'mr-auto bg-slate-100' : 'ml-auto bg-slate-900 text-white')}>
+                    <div key={m.id} className={cn('max-w-[88%] rounded-2xl px-3.5 py-2.5', m.direction === 'inbound' ? 'mr-auto bg-muted' : 'ml-auto bg-foreground text-background')}>
                       <p className="text-xs font-medium whitespace-pre-wrap leading-snug">{m.text}</p>
                       <p className={cn('mt-1 text-[9px] font-bold', m.direction === 'inbound' ? 'text-muted-foreground' : 'text-white/60')}>
                         {m.byName || (m.direction === 'inbound' ? 'Renter' : 'You')} · {fmtStamp(m.createdAt)}
@@ -852,7 +852,7 @@ export function RenterProfileDrawer({
                   placeholder="Write to them…" aria-label="Message to renter"
                   className="flex-1 rounded-2xl border-2 px-3.5 py-2.5 text-sm outline-none focus:border-slate-900" />
                 <button type="button" onClick={sendMessage} disabled={sending || !draft.trim()}
-                  className="h-11 self-end rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">
+                  className="h-11 self-end rounded-2xl bg-foreground px-4 text-[10px] font-black uppercase tracking-widest text-background disabled:opacity-40">
                   {sending ? '…' : 'Send'}
                 </button>
               </div>
@@ -866,32 +866,32 @@ export function RenterProfileDrawer({
                 <div className="flex items-center justify-between pb-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{timeline.length} events · money, notices, tickets, changes</p>
                   <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&mode=full`}
-                    target="_blank" rel="noopener" className="text-[9px] font-black uppercase tracking-widest text-slate-900 underline">Print full record</a>
+                    target="_blank" rel="noopener" className="text-[9px] font-black uppercase tracking-widest text-foreground underline">Print full record</a>
                 </div>
                 {timeline.map((e, i) => {
                   const tone = ({
-                    late_fee: 'bg-red-500', autopay_failed: 'bg-red-500', barred: 'bg-slate-900', notice: 'bg-amber-500',
+                    late_fee: 'bg-red-500', autopay_failed: 'bg-red-500', barred: 'bg-foreground', notice: 'bg-amber-500',
                     payment: 'bg-emerald-500', part_payment: 'bg-emerald-400', autopay_ok: 'bg-emerald-500', credit: 'bg-emerald-400',
                     write_off: 'bg-slate-400', ticket_opened: 'bg-orange-500', ticket_resolved: 'bg-emerald-500',
                     message_in: 'bg-sky-500', message_out: 'bg-sky-300',
-                  } as Record<string, string>)[e.kind] || 'bg-slate-900';
+                  } as Record<string, string>)[e.kind] || 'bg-foreground';
                   const money = typeof e.amountCents === 'number' && e.kind !== 'booking';
                   return (
                     <div key={`${e.at}-${i}`} className="flex gap-3 pb-4 relative">
                       <div className="flex flex-col items-center">
                         <div className={cn('h-2.5 w-2.5 rounded-full mt-1 shrink-0', tone)} />
-                        {i < timeline.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-1" />}
+                        {i < timeline.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
                       </div>
                       <div className="min-w-0 flex-1 -mt-0.5">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-xs font-bold leading-snug">{e.title}</p>
                           {money && (
-                            <p className={cn('text-xs font-black tabular-nums shrink-0', (e.amountCents as number) < 0 ? 'text-emerald-700' : 'text-slate-900')}>
+                            <p className={cn('text-xs font-black tabular-nums shrink-0', (e.amountCents as number) < 0 ? 'text-emerald-700' : 'text-foreground')}>
                               {(e.amountCents as number) < 0 ? '−' : '+'}{formatCents(Math.abs(e.amountCents as number))}
                             </p>
                           )}
                         </div>
-                        {e.detail && <p className="text-[10px] font-medium text-slate-600 leading-snug">{e.detail}</p>}
+                        {e.detail && <p className="text-[10px] font-medium text-foreground/80 leading-snug">{e.detail}</p>}
                         <p className="text-[10px] font-bold text-muted-foreground">
                           {fmtStamp(e.at)}
                           {e.actor ? ` · ${TIMELINE_ACTOR_LABEL[e.actor] || e.actor}` : ''}
@@ -934,7 +934,7 @@ function RenterSignedDocs({ tenantId, firestore, renterId }: { tenantId: string;
   if (sentSorted.length === 0 && otherSigned.length === 0) {
     return <p className="text-[11px] font-bold text-muted-foreground px-1">No documents sent or signed yet. Send one from Renters → Documents.</p>;
   }
-  const tone = (st: string) => st === 'signed' ? 'text-emerald-700' : st === 'sent' ? 'text-amber-700' : st === 'declined' ? 'text-red-700' : 'text-slate-500';
+  const tone = (st: string) => st === 'signed' ? 'text-emerald-700' : st === 'sent' ? 'text-amber-700' : st === 'declined' ? 'text-red-700' : 'text-muted-foreground';
   const label = (d: any) => d.status === 'sent' ? `Waiting · sent ${String(d.sentAt).slice(0, 10)}` : d.status === 'signed' ? `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} ${String(d.signedAt).slice(0, 10)} as ${d.signedName}` : d.status === 'declined' ? `Declined ${String(d.declinedAt).slice(0, 10)}${d.declineNote ? ` — “${d.declineNote}”` : ''}` : 'Withdrawn';
   return (
     <div className="space-y-2">
@@ -943,7 +943,7 @@ function RenterSignedDocs({ tenantId, firestore, renterId }: { tenantId: string;
         <a key={d.id} href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noreferrer"
           className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between gap-2 hover:border-slate-400 transition-colors">
           <span className="min-w-0"><span className="block text-xs font-black truncate flex items-center gap-1.5"><FileText className="h-3 w-3 shrink-0" /> {d.title}</span><span className={cn('block text-[10px] font-bold', tone(d.status))}>{label(d)}</span></span>
-          <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-500">Open</span>
+          <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Open</span>
         </a>
       ))}
       {otherSigned.map((x) => (

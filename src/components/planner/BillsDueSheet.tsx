@@ -45,7 +45,7 @@ export const BillsDueSheet: React.FC<BillsDueSheetProps> = ({
             <Sparkles className="w-4 h-4 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Planning Studio</span>
           </div>
-          <SheetTitle className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Bills & Obligations</SheetTitle>
+          <SheetTitle className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Bills & Obligations</SheetTitle>
           <SheetDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
             Reconcile recurring expenses due in the next 7 days.
           </SheetDescription>

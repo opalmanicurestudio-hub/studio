@@ -155,7 +155,7 @@ export const StoreCreditHistory: React.FC<Props> = ({ client, isOwnerOrAdmin }) 
                         value={issueAmount}
                         onChange={e => setIssueAmount(e.target.value)}
                         placeholder="0.00"
-                        className="h-10 pl-6 rounded-xl border-2 font-black text-center bg-white"
+                        className="h-10 pl-6 rounded-xl border-2 font-black text-center bg-card"
                       />
                     </div>
                   </div>
@@ -165,7 +165,7 @@ export const StoreCreditHistory: React.FC<Props> = ({ client, isOwnerOrAdmin }) 
                       value={issueReason}
                       onChange={e => setIssueReason(e.target.value)}
                       placeholder="e.g. Service recovery"
-                      className="h-10 rounded-xl border-2 bg-white"
+                      className="h-10 rounded-xl border-2 bg-card"
                     />
                   </div>
                 </div>
@@ -213,7 +213,7 @@ export const StoreCreditHistory: React.FC<Props> = ({ client, isOwnerOrAdmin }) 
                 key={credit.id}
                 className={cn(
                   'p-4 rounded-2xl border-2 space-y-2 transition-all',
-                  status === 'available' && !expiringSoon ? 'bg-white border-border'         : '',
+                  status === 'available' && !expiringSoon ? 'bg-card border-border'         : '',
                   status === 'available' && expiringSoon   ? 'bg-amber-50 border-amber-200'  : '',
                   status === 'used'                        ? 'bg-muted/20 border-muted/30 opacity-60' : '',
                   status === 'expired'                     ? 'bg-red-50/30 border-red-100 opacity-40' : '',
@@ -221,7 +221,7 @@ export const StoreCreditHistory: React.FC<Props> = ({ client, isOwnerOrAdmin }) 
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-0.5 min-w-0">
-                    <p className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">
+                    <p className="text-[10px] font-black uppercase tracking-tight text-foreground truncate">
                       {credit.reason}
                     </p>
                     <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">

@@ -34,6 +34,33 @@ export const DESK_CSS = `
 .desk .d-row:hover{background:var(--soft)}
 .desk .d-row:active{transform:scale(.995)}
 .desk input::placeholder{color:var(--muted)}
+/* theme classes inside this scope: its own --card/--muted are plain colours */
+.desk .bg-card{background-color:var(--card)}
+.desk .bg-muted{background-color:var(--soft)}
+.desk .bg-card\\/5{background-color:color-mix(in srgb,var(--card) 5%,transparent)}
+.desk .bg-card\\/10{background-color:color-mix(in srgb,var(--card) 10%,transparent)}
+.desk .bg-card\\/20{background-color:color-mix(in srgb,var(--card) 20%,transparent)}
+.desk .bg-card\\/30{background-color:color-mix(in srgb,var(--card) 30%,transparent)}
+.desk .bg-card\\/40{background-color:color-mix(in srgb,var(--card) 40%,transparent)}
+.desk .bg-card\\/50{background-color:color-mix(in srgb,var(--card) 50%,transparent)}
+.desk .bg-card\\/60{background-color:color-mix(in srgb,var(--card) 60%,transparent)}
+.desk .bg-card\\/70{background-color:color-mix(in srgb,var(--card) 70%,transparent)}
+.desk .bg-card\\/80{background-color:color-mix(in srgb,var(--card) 80%,transparent)}
+.desk .bg-card\\/90{background-color:color-mix(in srgb,var(--card) 90%,transparent)}
+.desk .bg-card\\/95{background-color:color-mix(in srgb,var(--card) 95%,transparent)}
+.desk .bg-muted\\/5{background-color:color-mix(in srgb,var(--soft) 5%,transparent)}
+.desk .bg-muted\\/10{background-color:color-mix(in srgb,var(--soft) 10%,transparent)}
+.desk .bg-muted\\/20{background-color:color-mix(in srgb,var(--soft) 20%,transparent)}
+.desk .bg-muted\\/30{background-color:color-mix(in srgb,var(--soft) 30%,transparent)}
+.desk .bg-muted\\/40{background-color:color-mix(in srgb,var(--soft) 40%,transparent)}
+.desk .bg-muted\\/50{background-color:color-mix(in srgb,var(--soft) 50%,transparent)}
+.desk .bg-muted\\/60{background-color:color-mix(in srgb,var(--soft) 60%,transparent)}
+.desk .bg-muted\\/70{background-color:color-mix(in srgb,var(--soft) 70%,transparent)}
+.desk .bg-muted\\/80{background-color:color-mix(in srgb,var(--soft) 80%,transparent)}
+.desk .bg-muted\\/90{background-color:color-mix(in srgb,var(--soft) 90%,transparent)}
+.desk .bg-muted\\/95{background-color:color-mix(in srgb,var(--soft) 95%,transparent)}
+.desk .hover\\:bg-muted:hover{background-color:var(--soft)}
+.desk .text-muted{color:var(--muted)}
 @media (prefers-reduced-motion:reduce){.desk *,.desk *::after{transition:none!important;animation:none!important}}
 `;
 export const DESK_FONT = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap';

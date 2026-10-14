@@ -135,7 +135,7 @@ export default function FulfilmentKpisPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 border-b-2 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b-2 bg-card/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-4">
           <Button asChild variant="ghost" size="icon" aria-label="Back to orders" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -155,7 +155,7 @@ export default function FulfilmentKpisPage() {
               aria-pressed={rangeId === r.id}
               onClick={() => setRangeId(r.id)}
               className={cn('h-9 rounded-full border-2 px-3.5 text-[11px] font-black uppercase tracking-widest',
-                rangeId === r.id ? 'border-foreground bg-foreground text-background' : 'bg-white')}
+                rangeId === r.id ? 'border-foreground bg-foreground text-background' : 'bg-card')}
             >
               {r.label}
             </button>
@@ -171,7 +171,7 @@ export default function FulfilmentKpisPage() {
         )}
 
         {!loading && mine && (
-          <Card className="border-2 border-primary/40 rounded-[2rem] overflow-hidden bg-white">
+          <Card className="border-2 border-primary/40 rounded-[2rem] overflow-hidden bg-card">
             <CardContent className="p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <Target className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
@@ -195,7 +195,7 @@ export default function FulfilmentKpisPage() {
         )}
 
         {!loading && perms.canSeeTeam && (
-          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
             <CardContent className="p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <Gauge className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
@@ -213,7 +213,7 @@ export default function FulfilmentKpisPage() {
         )}
 
         {!loading && perms.canSeeTeam && waves.length > 0 && (
-          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
             <CardContent className="p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <Gauge className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
@@ -267,7 +267,7 @@ export default function FulfilmentKpisPage() {
               {perms.canSeeTeam ? 'By person' : 'Your detail'}
             </p>
             {visible.map((r) => (
-              <div key={r.actorId} className="rounded-[1.5rem] border-2 bg-white p-4">
+              <div key={r.actorId} className="rounded-[1.5rem] border-2 bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <p className="truncate text-sm font-black uppercase tracking-tight">{r.name}</p>
                   <p className="shrink-0 font-mono text-base font-bold">

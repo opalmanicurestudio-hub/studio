@@ -88,29 +88,29 @@ export default function HelpDeskPage() {
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
             {/* The queue */}
             <div className="space-y-2">
-              {shown.length === 0 && <Glass><p className="py-6 text-center text-stone-500">{q === 'overdue' ? 'Nothing overdue. ✨' : 'All clear here. ✨'}</p></Glass>}
+              {shown.length === 0 && <Glass><p className="py-6 text-center text-muted-foreground">{q === 'overdue' ? 'Nothing overdue. ✨' : 'All clear here. ✨'}</p></Glass>}
               {shown.map((t) => { const d = due(t); const st = STATUS[t.status] || STATUS.open; return (
-                <button key={t.id} type="button" onClick={() => open(t.id)} className={`glass block w-full rounded-3xl border p-4 text-left transition ${openId === t.id ? 'border-stone-900/50 shadow-lg' : 'border-white/70 hover:border-stone-300'}`}>
+                <button key={t.id} type="button" onClick={() => open(t.id)} className={`glass block w-full rounded-3xl border p-4 text-left transition ${openId === t.id ? 'border-stone-900/50 shadow-lg' : 'border-white/70 hover:border-border'}`}>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_TONE[t.priority || 'normal']}`}>{t.priority || 'normal'}</span>
-                    <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] text-stone-600">{CATS[t.category] || t.category || '—'}</span>
+                    <span className="rounded-full bg-card/80 px-2 py-0.5 text-[10px] text-foreground/80">{CATS[t.category] || t.category || '—'}</span>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] ${st[1]}`}>{st[0]}</span>
                     {t.devStatus && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] text-violet-800">dev · {t.devStatus}</span>}
-                    {d && <span className={`ml-auto text-[11px] ${d.late ? 'font-semibold text-red-600' : 'text-stone-500'}`}>{d.text}</span>}
+                    {d && <span className={`ml-auto text-[11px] ${d.late ? 'font-semibold text-red-600' : 'text-muted-foreground'}`}>{d.text}</span>}
                   </div>
                   <p className="mt-2 truncate font-semibold">{t.ai?.summary || t.subject}</p>
-                  <p className="truncate text-[12px] text-stone-500">{t.tenantName || t.tenantId} · {t.contactName || ''} · {ago(t.createdAt)}{t.assignee ? ` · ${t.assignee.split('@')[0]}` : ' · unassigned'}</p>
+                  <p className="truncate text-[12px] text-muted-foreground">{t.tenantName || t.tenantId} · {t.contactName || ''} · {ago(t.createdAt)}{t.assignee ? ` · ${t.assignee.split('@')[0]}` : ' · unassigned'}</p>
                 </button>
               ); })}
             </div>
 
             {/* The working panel */}
             <div id="hq-ticket" className="scroll-mt-20 lg:sticky lg:top-20 lg:self-start">
-              {!k ? <Glass><p className="py-10 text-center text-stone-500">Pick a request to work on it.</p></Glass> : (
+              {!k ? <Glass><p className="py-10 text-center text-muted-foreground">Pick a request to work on it.</p></Glass> : (
                 <Glass className="space-y-4">
                   <div>
                     <p className="text-xl font-light tracking-tight">{k.subject}</p>
-                    <p className="text-[13px] text-stone-500"><Link href={`/admin/tenants/${k.tenantId}`} className="underline">{k.tenantName || k.tenantId}</Link> · {k.contactName} · {k.contactEmail} · {ago(k.createdAt)}</p>
+                    <p className="text-[13px] text-muted-foreground"><Link href={`/admin/tenants/${k.tenantId}`} className="underline">{k.tenantName || k.tenantId}</Link> · {k.contactName} · {k.contactEmail} · {ago(k.createdAt)}</p>
                   </div>
                   {flash && <p className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-900">{flash}</p>}
 
@@ -124,59 +124,59 @@ export default function HelpDeskPage() {
                   )}
 
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <select value={k.assignee || ''} onChange={(e) => act({ action: 'ticket-update', ticketId: k.id, assignee: e.target.value || null })} className="h-10 rounded-xl border border-white/80 bg-white/70 px-2 text-[13px]" aria-label="Assignee">
+                    <select value={k.assignee || ''} onChange={(e) => act({ action: 'ticket-update', ticketId: k.id, assignee: e.target.value || null })} className="h-10 rounded-xl border border-white/80 bg-card/70 px-2 text-[13px]" aria-label="Assignee">
                       <option value="">Unassigned</option>{team.map((e) => <option key={e} value={e}>{e.split('@')[0]}</option>)}
                     </select>
-                    <select value={k.priority || 'normal'} onChange={(e) => act({ action: 'ticket-update', ticketId: k.id, priority: e.target.value })} className="h-10 rounded-xl border border-white/80 bg-white/70 px-2 text-[13px]" aria-label="Priority">
+                    <select value={k.priority || 'normal'} onChange={(e) => act({ action: 'ticket-update', ticketId: k.id, priority: e.target.value })} className="h-10 rounded-xl border border-white/80 bg-card/70 px-2 text-[13px]" aria-label="Priority">
                       {['urgent', 'high', 'normal', 'low'].map((p) => <option key={p} value={p}>{p}</option>)}
                     </select>
-                    <select value={k.category || 'question'} onChange={(e) => act({ action: 'ticket-update', ticketId: k.id, category: e.target.value })} className="h-10 rounded-xl border border-white/80 bg-white/70 px-2 text-[13px]" aria-label="Category">
+                    <select value={k.category || 'question'} onChange={(e) => act({ action: 'ticket-update', ticketId: k.id, category: e.target.value })} className="h-10 rounded-xl border border-white/80 bg-card/70 px-2 text-[13px]" aria-label="Category">
                       {Object.entries(CATS).map(([c, l]) => <option key={c} value={c}>{l}</option>)}
                     </select>
                     {k.devStatus
                       ? <select value={k.devStatus} onChange={(e) => act({ action: 'ticket-update', ticketId: k.id, devStatus: e.target.value })} className="h-10 rounded-xl border border-violet-200 bg-violet-50 px-2 text-[13px]" aria-label="Developer status">{['new', 'investigating', 'fixed', 'wont_fix'].map((x) => <option key={x} value={x}>dev · {x.replace('_', ' ')}</option>)}</select>
                       : <button type="button" onClick={() => act({ action: 'ticket-update', ticketId: k.id, escalate: true }, 'Escalated to developers.')} className="h-10 rounded-xl border border-violet-200 bg-violet-50 px-2 text-[13px] text-violet-900">Escalate to dev</button>}
-                    <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(ticketBrief(k)); window.alert('Developer brief copied.'); } catch { window.prompt('Developer brief:', ticketBrief(k)); } }} className="h-10 rounded-xl border border-stone-300 bg-white px-3 text-[13px] font-semibold">Copy developer brief</button>
+                    <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(ticketBrief(k)); window.alert('Developer brief copied.'); } catch { window.prompt('Developer brief:', ticketBrief(k)); } }} className="h-10 rounded-xl border border-border bg-card px-3 text-[13px] font-semibold">Copy developer brief</button>
                   </div>
 
                   <div className="space-y-2">
-                    <p className="whitespace-pre-wrap rounded-2xl bg-white/70 p-3 text-sm"><span className="font-semibold">{k.contactName || 'Owner'}:</span> {k.message}</p>
-                    {(k.thread || []).map((m: any, i: number) => <p key={i} className={`whitespace-pre-wrap rounded-2xl p-3 text-sm ${m.from === 'hq' ? 'bg-emerald-50/80' : 'bg-white/70'}`}><span className="font-semibold">{m.from === 'hq' ? (m.by || '').split('@')[0] : k.contactName || 'Owner'}</span> · {ago(m.at)}<br />{m.message}</p>)}
+                    <p className="whitespace-pre-wrap rounded-2xl bg-card/70 p-3 text-sm"><span className="font-semibold">{k.contactName || 'Owner'}:</span> {k.message}</p>
+                    {(k.thread || []).map((m: any, i: number) => <p key={i} className={`whitespace-pre-wrap rounded-2xl p-3 text-sm ${m.from === 'hq' ? 'bg-emerald-50/80' : 'bg-card/70'}`}><span className="font-semibold">{m.from === 'hq' ? (m.by || '').split('@')[0] : k.contactName || 'Owner'}</span> · {ago(m.at)}<br />{m.message}</p>)}
                     {(k.internalNotes || []).map((n: any, i: number) => <p key={i} className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/80 p-3 text-[13px] text-amber-950">🔒 {n.text} <span className="text-[11px] text-amber-700">— {n.by?.split('@')[0]} · {ago(n.at)}</span></p>)}
                   </div>
 
-                  <details className="rounded-2xl bg-white/60 p-3 text-[12px] text-stone-600">
+                  <details className="rounded-2xl bg-card/60 p-3 text-[12px] text-foreground/80">
                     <summary className="cursor-pointer font-medium">What they were looking at {(k.context?.errors || []).length ? <span className="text-red-600">· {k.context.errors.length} error{k.context.errors.length === 1 ? '' : 's'}</span> : ''}</summary>
                     <p className="mt-2"><span className="font-semibold">Page:</span> {k.context?.page || '—'}</p>
                     <p><span className="font-semibold">Version:</span> {k.context?.appVersion || '—'} on {k.context?.host || '—'} · {k.context?.screen || ''}</p>
                     <p className="break-all"><span className="font-semibold">Device:</span> {k.context?.userAgent || '—'}</p>
                     {(k.context?.errors || []).map((e: any, i: number) => <p key={i} className="text-red-700">• {e.message} ({e.page})</p>)}
                   </details>
-                  {k.context?.health && <details open className="rounded-2xl bg-white/60 p-3 text-[12px] text-stone-700">
+                  {k.context?.health && <details open className="rounded-2xl bg-card/60 p-3 text-[12px] text-foreground/80">
                     <summary className="cursor-pointer font-medium">Account check · {k.context.health.summary}</summary>
-                    <div className="mt-2 space-y-1">{(k.context.health.findings || []).map((f: any, i: number) => <p key={i}><span className={f.level === 'warn' ? 'text-amber-700' : f.level === 'ok' ? 'text-emerald-700' : 'text-stone-600'}>{f.level === 'warn' ? '!' : f.level === 'ok' ? '✓' : 'i'}</span> {f.text}</p>)}</div>
+                    <div className="mt-2 space-y-1">{(k.context.health.findings || []).map((f: any, i: number) => <p key={i}><span className={f.level === 'warn' ? 'text-amber-700' : f.level === 'ok' ? 'text-emerald-700' : 'text-foreground/80'}>{f.level === 'warn' ? '!' : f.level === 'ok' ? '✓' : 'i'}</span> {f.text}</p>)}</div>
                     <p className="mt-2"><span className="font-semibold">Business:</span> {k.context.health.business?.tenantId || '—'} · role {k.context.health.business?.role || '—'} · server says owns {(k.context.health.business?.serverOwned || []).join(', ') || 'nothing'}</p>
                     <p><span className="font-semibold">Reads:</span> {Object.entries(k.context.health.reads || {}).map(([a, r]: any) => `${a} ${r.ok ? `✓${r.count}` : `✗ ${r.code || ''}`}`).join(' · ')}</p>
                     <p><span className="font-semibold">Locations:</span> {k.context.health.locations?.count} ({k.context.health.locations?.duplicates} duplicate) · device remembers {k.context.health.locations?.storedOnDevice || '—'} · orders waiting {k.context.health.waitingOrders || 0}</p>
-                    {(k.context.health.timeline || []).length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-[11px] text-stone-500">{(k.context.health.timeline || []).join('\n')}</pre>}
+                    {(k.context.health.timeline || []).length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-[11px] text-muted-foreground">{(k.context.health.timeline || []).join('\n')}</pre>}
                   </details>}
 
                   {k.status !== 'solved' && (
                     <div className="space-y-2">
                       <div className="flex flex-wrap gap-1.5">
-                        {macros.slice(0, 8).map((m) => <button key={m.id} type="button" onClick={() => setDraft((x) => (x ? `${x}\n\n${m.body}` : m.body))} className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] text-stone-700">+ {m.title}</button>)}
-                        <button type="button" onClick={async () => { const title = window.prompt('Save this reply as… (title)'); if (title && draft.trim()) await act({ action: 'macro-save', title, body: draft, category: k.category }, 'Saved reply added.'); hq({ action: 'macros' }).then((d) => d.ok && setMacros(d.macros)); }} className="rounded-full px-2.5 py-1 text-[11px] text-stone-500 underline">Save as reply</button>
+                        {macros.slice(0, 8).map((m) => <button key={m.id} type="button" onClick={() => setDraft((x) => (x ? `${x}\n\n${m.body}` : m.body))} className="rounded-full bg-card/80 px-2.5 py-1 text-[11px] text-foreground/80">+ {m.title}</button>)}
+                        <button type="button" onClick={async () => { const title = window.prompt('Save this reply as… (title)'); if (title && draft.trim()) await act({ action: 'macro-save', title, body: draft, category: k.category }, 'Saved reply added.'); hq({ action: 'macros' }).then((d) => d.ok && setMacros(d.macros)); }} className="rounded-full px-2.5 py-1 text-[11px] text-muted-foreground underline">Save as reply</button>
                       </div>
-                      <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={6} placeholder={`Reply to ${k.contactName || 'them'} — emailed, and shown in their Help sheet`} className="w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm outline-none focus:ring-2 focus:ring-stone-300" />
+                      <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={6} placeholder={`Reply to ${k.contactName || 'them'} — emailed, and shown in their Help sheet`} className="w-full rounded-2xl border border-white/80 bg-card/80 p-3 text-sm outline-none focus:ring-2 focus:ring-stone-300" />
                       {me?.ai && (
                         <div className="flex gap-2">
-                          <input value={instr} onChange={(e) => setInstr(e.target.value)} placeholder="Tell AI what to say (optional) — e.g. apologise, explain deposits" className="h-9 min-w-0 flex-1 rounded-xl border border-white/80 bg-white/70 px-3 text-[13px]" />
+                          <input value={instr} onChange={(e) => setInstr(e.target.value)} placeholder="Tell AI what to say (optional) — e.g. apologise, explain deposits" className="h-9 min-w-0 flex-1 rounded-xl border border-white/80 bg-card/70 px-3 text-[13px]" />
                           <button type="button" disabled={!!busy} onClick={async () => { const d = await act({ action: 'ticket-draft', ticketId: k.id, instructions: instr }); if (d?.ok && d.draft) { setDraft(d.draft); setFlash('Draft ready — read it before sending.'); } }} className="h-9 shrink-0 rounded-xl bg-violet-600 px-3 text-[12px] font-medium text-white disabled:opacity-50">{busy === 'ticket-draft' ? '…' : '✦ Draft with AI'}</button>
                         </div>
                       )}
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" disabled={!!busy || !draft.trim()} onClick={async () => { await act({ action: 'ticket-reply', ticketId: k.id, message: draft }, 'Reply sent.'); setDraft(''); }} className="h-10 rounded-full bg-stone-900 px-5 text-sm text-white disabled:opacity-40">Send reply</button>
-                        <button type="button" disabled={!!busy} onClick={async () => { await act(draft.trim() ? { action: 'ticket-reply', ticketId: k.id, message: draft, status: 'solved' } : { action: 'ticket-status', ticketId: k.id, status: 'solved' }, 'Solved.'); setDraft(''); }} className="h-10 rounded-full border border-stone-300 bg-white/70 px-5 text-sm">{draft.trim() ? 'Send & solve' : 'Mark solved'}</button>
+                        <button type="button" disabled={!!busy || !draft.trim()} onClick={async () => { await act({ action: 'ticket-reply', ticketId: k.id, message: draft }, 'Reply sent.'); setDraft(''); }} className="h-10 rounded-full bg-foreground px-5 text-sm text-background disabled:opacity-40">Send reply</button>
+                        <button type="button" disabled={!!busy} onClick={async () => { await act(draft.trim() ? { action: 'ticket-reply', ticketId: k.id, message: draft, status: 'solved' } : { action: 'ticket-status', ticketId: k.id, status: 'solved' }, 'Solved.'); setDraft(''); }} className="h-10 rounded-full border border-border bg-card/70 px-5 text-sm">{draft.trim() ? 'Send & solve' : 'Mark solved'}</button>
                       </div>
                       <div className="flex gap-2 pt-1">
                         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="🔒 Internal note — never sent" className="h-9 min-w-0 flex-1 rounded-xl border border-dashed border-amber-300 bg-amber-50/70 px-3 text-[13px]" />

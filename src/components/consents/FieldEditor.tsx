@@ -72,16 +72,16 @@ export const FieldEditor: React.FC<FieldEditorProps> = ({ field, onUpdate, onDel
             case 'long-text':
             case 'paragraph':
             case 'heading':
-                return <Textarea placeholder="ENTER PROTOCOL LABEL OR QUERY..." value={field.label} onChange={(e) => handleFieldChange('label', e.target.value)} rows={field.type === 'long-text' ? 4 : 1} className="rounded-xl border-2 bg-white shadow-inner font-bold uppercase text-[10px] tracking-tight" />;
+                return <Textarea placeholder="ENTER PROTOCOL LABEL OR QUERY..." value={field.label} onChange={(e) => handleFieldChange('label', e.target.value)} rows={field.type === 'long-text' ? 4 : 1} className="rounded-xl border-2 bg-card shadow-inner font-bold uppercase text-[10px] tracking-tight" />;
             case 'multiple-choice':
             case 'checkboxes':
                 return (
                     <div className="space-y-4">
-                        <Textarea placeholder="ENTER LOGIC QUERY..." value={field.label} onChange={(e) => handleFieldChange('label', e.target.value)} rows={1} className="rounded-xl border-2 bg-white shadow-inner font-bold uppercase text-[10px] tracking-tight" />
+                        <Textarea placeholder="ENTER LOGIC QUERY..." value={field.label} onChange={(e) => handleFieldChange('label', e.target.value)} rows={1} className="rounded-xl border-2 bg-card shadow-inner font-bold uppercase text-[10px] tracking-tight" />
                         <div className="space-y-2 pl-4 border-l-2 border-dashed border-border/50">
                             {(field.options || []).map((option, index) => (
                                 <div key={index} className="flex items-center gap-2">
-                                    <Input value={option} onChange={(e) => handleOptionChange(index, e.target.value)} className="h-9 rounded-lg border-2 font-bold uppercase text-[10px] bg-white" />
+                                    <Input value={option} onChange={(e) => handleOptionChange(index, e.target.value)} className="h-9 rounded-lg border-2 font-bold uppercase text-[10px] bg-card" />
                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => handleRemoveOption(index)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                 </div>
                             ))}
@@ -125,7 +125,7 @@ export const FieldEditor: React.FC<FieldEditorProps> = ({ field, onUpdate, onDel
         <div className="flex-1 space-y-6 min-w-0">
            <div className="flex justify-between items-center">
              <Select value={field.type} onValueChange={(v: any) => handleFieldChange('type', v)}>
-                <SelectTrigger className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest w-48 bg-white shadow-sm">
+                <SelectTrigger className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest w-48 bg-card shadow-sm">
                     <SelectValue>
                          <div className="flex items-center gap-2">
                             {React.createElement(fieldTypeIcons[field.type] || CaseSensitive, { className: "w-3 h-3 text-primary" })}

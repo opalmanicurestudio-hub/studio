@@ -30,7 +30,7 @@ export function TeamDiscountsCard({ tenantId, tenant, canEdit }: { tenantId: str
   const num = (v: number, on: (n: number) => void) => <input type="number" inputMode="numeric" min={0} max={100} value={v} disabled={!canEdit} onChange={(e) => on(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} className="h-10 w-20 rounded-xl border px-3 text-right" />;
   const programme = (k: 'team' | 'family', title: string, note: string) => {
     const p: any = (s as any)[k];
-    return <div className="space-y-2 rounded-2xl bg-slate-50 p-4 text-sm">
+    return <div className="space-y-2 rounded-2xl bg-muted/60 p-4 text-sm">
       <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={p.on} disabled={!canEdit} onChange={(e) => save({ ...s, [k]: { ...p, on: e.target.checked } })} /> {title}</label>
       <p className="text-xs text-muted-foreground">{note}</p>
       {p.on && <div className="flex flex-wrap items-center gap-3">
@@ -42,7 +42,7 @@ export function TeamDiscountsCard({ tenantId, tenant, canEdit }: { tenantId: str
   };
   const link = async () => { if (!pick || !staffId) return; const r = await post({ tenantId, action: 'link', clientId: pick.id, type, staffId }); setMsg(r?.ok ? `${pick.name} added.` : r?.error || 'That didn’t save.'); if (r?.ok) { setPick(null); setQ(''); } };
   return (
-    <div className="space-y-4 rounded-[2rem] border-2 bg-white p-6">
+    <div className="space-y-4 rounded-[2rem] border-2 bg-card p-6">
       <div><p className="text-lg font-semibold">Team and family discounts</p>
         <p className="text-sm text-muted-foreground">Applied automatically at checkout for people on the list — never on memberships, packages, deposits, rentals, fees or tips. Staff can skip it for a sale.</p></div>
       {programme('team', 'Team members', 'When someone on the team is the client.')}
@@ -57,10 +57,10 @@ export function TeamDiscountsCard({ tenantId, tenant, canEdit }: { tenantId: str
           <span><b>{c.name}</b> <span className="text-muted-foreground">— {c.discountGroup?.type === 'team' ? 'team member' : `family & friends of ${String(c.discountGroup?.staffName || 'a team member').split(' ')[0]}`}</span></span>
           {canEdit && <button type="button" onClick={async () => { const r = await post({ tenantId, action: 'unlink', clientId: c.id }); setMsg(r?.ok ? `${c.name} removed.` : r?.error || 'That didn’t save.'); }} className="text-xs font-semibold underline">Remove</button>}
         </div>)}
-        {canEdit && <div className="space-y-2 rounded-2xl bg-slate-50 p-3">
+        {canEdit && <div className="space-y-2 rounded-2xl bg-muted/60 p-3">
           {pick ? <p>Adding <b>{pick.name}</b> <button type="button" className="text-xs underline" onClick={() => setPick(null)}>change</button></p>
             : <><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a client to add" aria-label="Find a client to add" className="h-10 w-full rounded-xl border px-3" />
-              {matches.map((c: any) => <button key={c.id} type="button" onClick={() => setPick(c)} className="block w-full rounded-lg px-2 py-1.5 text-left hover:bg-white">{c.name} <span className="text-muted-foreground">{c.phone || c.email || ''}</span></button>)}</>}
+              {matches.map((c: any) => <button key={c.id} type="button" onClick={() => setPick(c)} className="block w-full rounded-lg px-2 py-1.5 text-left hover:bg-card">{c.name} <span className="text-muted-foreground">{c.phone || c.email || ''}</span></button>)}</>}
           {pick && <div className="flex flex-wrap items-center gap-2">
             <select value={type} onChange={(e) => setType(e.target.value as any)} className="h-10 rounded-xl border px-2" aria-label="Programme"><option value="family">Family & friends of</option><option value="team">Team member —</option></select>
             <select value={staffId} onChange={(e) => setStaffId(e.target.value)} className="h-10 rounded-xl border px-2" aria-label="Team member"><option value="">Choose…</option>{team.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>

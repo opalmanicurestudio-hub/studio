@@ -78,7 +78,7 @@ const SEED_TEMPLATE = {
 
 // ─── STATUS CONFIG ────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
-  draft:              { label: 'Draft',         color: 'bg-slate-100 border-slate-200 text-slate-600',   dot: 'bg-slate-400' },
+  draft:              { label: 'Draft',         color: 'bg-muted border-border text-foreground/80',   dot: 'bg-slate-400' },
   sent:               { label: 'Sent',           color: 'bg-blue-50 border-blue-100 text-blue-700',       dot: 'bg-blue-400' },
   viewed:             { label: 'Viewed',         color: 'bg-violet-50 border-violet-100 text-violet-700', dot: 'bg-violet-500 animate-pulse' },
   accepted:           { label: 'Accepted',       color: 'bg-green-50 border-green-100 text-green-700',    dot: 'bg-green-500' },
@@ -143,7 +143,7 @@ const QuoteCard = ({
   return (
     <Card
       className={cn(
-        'border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:shadow-md transition-all cursor-pointer group',
+        'border-2 shadow-sm rounded-[2rem] overflow-hidden bg-card hover:shadow-md transition-all cursor-pointer group',
         hasRevision && 'border-orange-200 ring-2 ring-orange-100',
         needsFollowUp && 'border-red-100',
         expiryInfo?.urgent && 'border-red-200',
@@ -155,7 +155,7 @@ const QuoteCard = ({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-0.5">
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">
+              <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">
                 {quote.eventName || 'Untitled'}
               </p>
               {hasRevision   && <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shrink-0" />}
@@ -249,7 +249,7 @@ const QuoteCard = ({
                 'text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border',
                 quote.depositPaid
                   ? 'bg-green-50 border-green-200 text-green-700'
-                  : 'bg-slate-50 border-slate-200 text-slate-400',
+                  : 'bg-muted/60 border-border text-muted-foreground',
               )}>
                 {quote.depositPaid ? 'Dep. ✓' : 'No deposit'}
               </span>
@@ -385,11 +385,11 @@ const QuoteDetailSheet = ({
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: 'Total',   value: formatCurrency(total),     color: 'text-slate-900' },
+                    { label: 'Total',   value: formatCurrency(total),     color: 'text-foreground' },
                     { label: 'Paid',    value: formatCurrency(totalPaid), color: 'text-green-700' },
                     { label: 'Balance', value: formatCurrency(balance),   color: balance > 0 ? 'text-amber-700' : 'text-green-700' },
                   ].map(s => (
-                    <div key={s.label} className={cn('text-center p-3 rounded-xl bg-white border', balance > 0 && s.label === 'Balance' ? 'border-amber-200 bg-amber-50' : 'border-green-200')}>
+                    <div key={s.label} className={cn('text-center p-3 rounded-xl bg-card border', balance > 0 && s.label === 'Balance' ? 'border-amber-200 bg-amber-50' : 'border-green-200')}>
                       <p className="text-[8px] font-black uppercase tracking-widest text-green-600 opacity-60">{s.label}</p>
                       <p className={cn('font-black font-mono text-sm', s.color)}>{s.value}</p>
                     </div>
@@ -398,7 +398,7 @@ const QuoteDetailSheet = ({
                 {showDepositForm && (
                   <div className="flex gap-2 pt-1">
                     <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-muted-foreground">$</span>
                       <Input
                         type="number" min="0" step="0.01"
                         value={depositAmount} onChange={e => setDepositAmount(e.target.value)}
@@ -442,7 +442,7 @@ const QuoteDetailSheet = ({
                   return (
                     <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-muted/5 border">
                       <Icon className="w-4 h-4 text-primary/40 shrink-0" />
-                      <p className="flex-1 font-black text-xs uppercase tracking-widest text-slate-700">{event.label}</p>
+                      <p className="flex-1 font-black text-xs uppercase tracking-widest text-foreground/80">{event.label}</p>
                       <p className="text-[10px] font-bold text-muted-foreground">
                         {format(parseISO(event.date), 'MMM d, yyyy · h:mm a')}
                       </p>
@@ -481,7 +481,7 @@ const QuoteDetailSheet = ({
                   </div>
                 ))}
                 {quote.status === 'revision_requested' && (
-                  <div className="space-y-2 p-4 rounded-2xl border-2 border-orange-200 bg-white">
+                  <div className="space-y-2 p-4 rounded-2xl border-2 border-orange-200 bg-card">
                     <p className="text-[9px] font-black uppercase tracking-widest text-orange-600">Reply & Re-send Quote</p>
                     <Textarea
                       value={replyText} onChange={e => setReplyText(e.target.value)}
@@ -507,7 +507,7 @@ const QuoteDetailSheet = ({
                 {quote.lineItems?.map((item: any, i: number) => (
                   <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-muted/5 border">
                     <div>
-                      <p className="font-black text-sm uppercase text-slate-900">{item.name}</p>
+                      <p className="font-black text-sm uppercase text-foreground">{item.name}</p>
                       <p className="text-[10px] font-bold text-muted-foreground">{item.quantity} × {formatCurrency(item.price)}</p>
                     </div>
                     <p className="font-black font-mono text-sm">{formatCurrency(item.price * item.quantity)}</p>
@@ -515,19 +515,19 @@ const QuoteDetailSheet = ({
                 ))}
                 {quote.travelExpenses > 0 && (
                   <div className="flex justify-between items-center p-3 rounded-xl bg-muted/5 border">
-                    <p className="font-black text-sm uppercase text-slate-900">Travel Expenses</p>
+                    <p className="font-black text-sm uppercase text-foreground">Travel Expenses</p>
                     <p className="font-black font-mono text-sm">{formatCurrency(quote.travelExpenses)}</p>
                   </div>
                 )}
                 {quote.projectFee > 0 && (
                   <div className="flex justify-between items-center p-3 rounded-xl bg-muted/5 border">
-                    <p className="font-black text-sm uppercase text-slate-900">Service Fee ({quote.projectFee}%)</p>
+                    <p className="font-black text-sm uppercase text-foreground">Service Fee ({quote.projectFee}%)</p>
                     <p className="font-black font-mono text-sm">
                       {formatCurrency((quote.lineItems?.reduce((a: number, i: any) => a + (i.price * i.quantity), 0) || 0) * (quote.projectFee / 100))}
                     </p>
                   </div>
                 )}
-                <div className="flex justify-between items-center p-4 rounded-xl bg-slate-900 text-white">
+                <div className="flex justify-between items-center p-4 rounded-xl bg-foreground text-background">
                   <span className="font-black text-[10px] uppercase tracking-widest opacity-40">Total</span>
                   <span className="font-black font-mono text-xl">{formatCurrency(total)}</span>
                 </div>
@@ -541,13 +541,13 @@ const QuoteDetailSheet = ({
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Client</p>
                   <div className="space-y-2">
                     {client.email && (
-                      <a href={`mailto:${client.email}`} className="flex items-center gap-3 p-3 rounded-xl border bg-white hover:border-primary/20 transition-all">
+                      <a href={`mailto:${client.email}`} className="flex items-center gap-3 p-3 rounded-xl border bg-card hover:border-primary/20 transition-all">
                         <Mail className="w-4 h-4 text-primary/40" />
                         <span className="font-bold text-sm">{client.email}</span>
                       </a>
                     )}
                     {client.phone && (
-                      <a href={`tel:${client.phone}`} className="flex items-center gap-3 p-3 rounded-xl border bg-white hover:border-primary/20 transition-all">
+                      <a href={`tel:${client.phone}`} className="flex items-center gap-3 p-3 rounded-xl border bg-card hover:border-primary/20 transition-all">
                         <Phone className="w-4 h-4 text-primary/40" />
                         <span className="font-bold text-sm">{client.phone}</span>
                       </a>
@@ -609,7 +609,7 @@ const SendQuoteDialog = ({ open, onOpenChange, quote, onConfirm }: {
       <DialogContent className="rounded-[3rem] border-4 shadow-3xl max-w-md">
         <DialogHeader className="p-8 pb-4 text-left">
           <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Send Proposal</DialogTitle>
-          <DialogDescription className="font-bold text-sm text-slate-600 uppercase tracking-widest opacity-60">
+          <DialogDescription className="font-bold text-sm text-foreground/80 uppercase tracking-widest opacity-60">
             Configure expiry and share the link with {quote?.eventName || 'the client'}.
           </DialogDescription>
         </DialogHeader>
@@ -699,7 +699,7 @@ const ConvertToEventDialog = ({ open, onOpenChange, quote, clients, tenantId, fi
           <DialogTitle className="text-2xl font-black uppercase tracking-tighter flex items-center gap-2">
             <CalendarCheck className="w-6 h-6 text-emerald-600" /> Convert to Event
           </DialogTitle>
-          <DialogDescription className="font-bold text-sm text-slate-600 uppercase tracking-widest opacity-60">
+          <DialogDescription className="font-bold text-sm text-foreground/80 uppercase tracking-widest opacity-60">
             Creates a new event pre-filled from this accepted quote.
           </DialogDescription>
         </DialogHeader>
@@ -814,7 +814,7 @@ const TemplateEditor = ({
               className="h-9 rounded-lg border-2 text-sm font-bold text-center"
             />
             <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">$</span>
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
               <Input
                 type="number" min="0" step="0.01"
                 value={li.price}
@@ -825,7 +825,7 @@ const TemplateEditor = ({
             <button
               onClick={() => removeItem(i)}
               disabled={lineItems.length === 1}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-20"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-20"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -862,7 +862,7 @@ const TemplateEditor = ({
       </div>
 
       {/* Total preview */}
-      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 text-white">
+      <div className="flex items-center justify-between p-3 rounded-xl bg-foreground text-background">
         <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Estimated Total</span>
         <span className="font-black font-mono">{formatCurrency(total)}</span>
       </div>
@@ -1004,7 +1004,7 @@ const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients 
 
             {/* Client assignment */}
             <div className="space-y-1.5">
-              <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Assign to Client (optional)</Label>
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Assign to Client (optional)</Label>
               <Select value={clientId || '**none**'} onValueChange={v => setClientId(v === '**none**' ? '' : v)}>
                 <SelectTrigger className="h-11 rounded-xl border-2 font-bold text-sm">
                   <SelectValue placeholder="Select client…" />
@@ -1064,27 +1064,27 @@ const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients 
                   }
 
                   return (
-                    <div key={t.id} className="rounded-2xl border-2 border-slate-200 bg-white overflow-hidden hover:border-primary/30 transition-all">
+                    <div key={t.id} className="rounded-2xl border-2 border-border bg-card overflow-hidden hover:border-primary/30 transition-all">
                       <div className="p-4">
                         <div className="flex items-start justify-between gap-3 mb-2">
                           <div className="min-w-0">
-                            <p className="font-black text-sm text-slate-900 truncate">{t.name}</p>
+                            <p className="font-black text-sm text-foreground truncate">{t.name}</p>
                             {t.description && (
-                              <p className="text-[10px] font-bold text-slate-400 mt-0.5 truncate">{t.description}</p>
+                              <p className="text-[10px] font-bold text-muted-foreground mt-0.5 truncate">{t.description}</p>
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
                             <p className="font-black font-mono text-primary text-sm">{formatCurrency(total)}</p>
                             <button
                               onClick={() => setEditingId(t.id)}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-primary hover:bg-primary/10 transition-colors"
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => handleDeleteTemplate(t.id)}
                               disabled={deletingId === t.id}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
                             >
                               {deletingId === t.id ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                             </button>
@@ -1092,7 +1092,7 @@ const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients 
                         </div>
                         <div className="space-y-1 mb-3">
                           {t.lineItems?.map((li: any, i: number) => (
-                            <div key={i} className="flex justify-between text-[10px] font-bold text-slate-500">
+                            <div key={i} className="flex justify-between text-[10px] font-bold text-muted-foreground">
                               <span className="truncate">{li.name} ×{li.quantity}</span>
                               <span className="font-mono ml-2 shrink-0">{formatCurrency(li.price * li.quantity)}</span>
                             </div>
@@ -1164,15 +1164,15 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
           { label: 'Avg Quote Value', value: `$${stats.avgValue.toFixed(0)}`,    color: 'text-primary' },
           { label: 'Total Revenue',   value: `$${stats.totalRevenue.toFixed(0)}`,color: 'text-green-600' },
         ].map(s => (
-          <div key={s.label} className="p-5 rounded-[2rem] border-2 bg-white shadow-sm text-left">
+          <div key={s.label} className="p-5 rounded-[2rem] border-2 bg-card shadow-sm text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{s.label}</p>
-            <p className={cn('text-2xl font-black mt-1', s.color || 'text-slate-900')}>{s.value}</p>
+            <p className={cn('text-2xl font-black mt-1', s.color || 'text-foreground')}>{s.value}</p>
           </div>
         ))}
       </div>
 
       {monthlyData.length > 0 && (
-        <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4">
+        <div className="p-6 rounded-[2rem] border-2 bg-card shadow-sm space-y-4">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-primary" />
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Monthly Revenue Trend</p>
@@ -1180,8 +1180,8 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
           <div className="flex items-end gap-3 h-28">
             {monthlyData.map((m, i) => (
               <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
-                <p className="text-[8px] font-black text-slate-400 font-mono">${(m.revenue / 1000).toFixed(1)}k</p>
-                <div className="w-full relative rounded-t-lg overflow-hidden bg-slate-100" style={{ height: '60px' }}>
+                <p className="text-[8px] font-black text-muted-foreground font-mono">${(m.revenue / 1000).toFixed(1)}k</p>
+                <div className="w-full relative rounded-t-lg overflow-hidden bg-muted" style={{ height: '60px' }}>
                   <div
                     className="absolute bottom-0 w-full bg-primary/80 rounded-t-lg transition-all"
                     style={{ height: `${(m.revenue / maxRevenue) * 100}%` }}
@@ -1192,7 +1192,7 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
                     </div>
                   )}
                 </div>
-                <p className="text-[9px] font-black uppercase text-slate-500">{m.label}</p>
+                <p className="text-[9px] font-black uppercase text-muted-foreground">{m.label}</p>
               </div>
             ))}
           </div>
@@ -1200,7 +1200,7 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4">
+        <div className="p-6 rounded-[2rem] border-2 bg-card shadow-sm space-y-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Proposal Funnel</p>
           <div className="space-y-3">
             {[
@@ -1210,10 +1210,10 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
               { label: 'Declined',   value: stats.declinedCount,                               color: 'bg-red-300',   pct: quotes.filter(q => q.status !== 'draft').length > 0 ? (stats.declinedCount / quotes.filter(q => q.status !== 'draft').length) * 100 : 0 },
             ].map(row => (
               <div key={row.label} className="space-y-1">
-                <div className="flex justify-between text-[10px] font-black uppercase text-slate-600">
+                <div className="flex justify-between text-[10px] font-black uppercase text-foreground/80">
                   <span>{row.label}</span><span className="font-mono">{row.value}</span>
                 </div>
-                <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
                   <div className={cn('h-full rounded-full transition-all', row.color)} style={{ width: `${Math.min(row.pct, 100)}%` }} />
                 </div>
               </div>
@@ -1221,7 +1221,7 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
           </div>
         </div>
 
-        <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4">
+        <div className="p-6 rounded-[2rem] border-2 bg-card shadow-sm space-y-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Why Clients Decline</p>
           {Object.keys(stats.reasons).length === 0 ? (
             <p className="text-sm font-bold text-muted-foreground opacity-40 text-center py-6">No declines yet</p>
@@ -1229,7 +1229,7 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
             <div className="space-y-2">
               {Object.entries(stats.reasons).sort((a, b) => b[1] - a[1]).map(([reason, count]) => (
                 <div key={reason} className="flex justify-between items-center p-3 rounded-xl bg-muted/5 border">
-                  <p className="font-bold text-sm text-slate-700 truncate">{reason}</p>
+                  <p className="font-bold text-sm text-foreground/80 truncate">{reason}</p>
                   <Badge variant="outline" className="font-black font-mono shrink-0 ml-2">{count}</Badge>
                 </div>
               ))}
@@ -1237,12 +1237,12 @@ const AnalyticsTab = ({ quotes, clients }: { quotes: any[]; clients: any[] }) =>
           )}
         </div>
 
-        <div className="p-6 rounded-[2rem] border-2 bg-white shadow-sm space-y-4 md:col-span-2">
+        <div className="p-6 rounded-[2rem] border-2 bg-card shadow-sm space-y-4 md:col-span-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Response Timing</p>
           <div className="grid grid-cols-3 gap-4">
             {[
               { label: 'View Rate',         value: `${stats.viewedRate.toFixed(0)}%`,       color: 'text-primary' },
-              { label: 'Avg Days to Accept',value: stats.avgDaysToAccept.toFixed(1),        color: 'text-slate-900' },
+              { label: 'Avg Days to Accept',value: stats.avgDaysToAccept.toFixed(1),        color: 'text-foreground' },
               { label: 'Close Rate',        value: `${stats.acceptRate.toFixed(0)}%`,       color: 'text-green-600' },
             ].map(s => (
               <div key={s.label} className="text-center p-4 rounded-2xl bg-muted/5 border">
@@ -1384,13 +1384,13 @@ export default function QuotesPage() {
   );
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Quotes" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto">
 
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Proposals</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Proposals</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Client quotes & event contracts</p>
           </div>
           <div className="flex items-center gap-3 w-full md:w-auto">
@@ -1420,11 +1420,11 @@ export default function QuotesPage() {
             { label: 'Action Needed', value: stats.needsAttention,         color: stats.needsAttention > 0 ? 'text-orange-600' : '' },
           ].map(s => (
             <div key={s.label} className={cn(
-              'p-4 rounded-[2rem] border-2 bg-white shadow-sm text-left',
+              'p-4 rounded-[2rem] border-2 bg-card shadow-sm text-left',
               s.label === 'Action Needed' && stats.needsAttention > 0 && 'border-orange-200 bg-orange-50'
             )}>
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{s.label}</p>
-              <p className={cn('text-2xl font-black mt-0.5', s.color || 'text-slate-900')}>{s.value}</p>
+              <p className={cn('text-2xl font-black mt-0.5', s.color || 'text-foreground')}>{s.value}</p>
             </div>
           ))}
         </div>
@@ -1440,7 +1440,7 @@ export default function QuotesPage() {
               <TabsTrigger
                 key={tab.value}
                 value={tab.value}
-                className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md relative"
+                className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md relative"
               >
                 {tab.label}
                 {tab.badge && tab.badge > 0 && (
@@ -1461,11 +1461,11 @@ export default function QuotesPage() {
                   placeholder="Search by event or client..."
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  className="pl-12 h-12 rounded-2xl border-2 font-bold bg-white"
+                  className="pl-12 h-12 rounded-2xl border-2 font-bold bg-card"
                 />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full sm:w-52 bg-white">
+                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full sm:w-52 bg-card">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-xl">
@@ -1548,7 +1548,7 @@ export default function QuotesPage() {
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
           <AlertDialogHeader className="p-8 pb-4">
             <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Delete Proposal</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-slate-600">
+            <AlertDialogDescription className="font-bold text-sm text-foreground/80">
               Permanently delete "{quoteToDelete?.eventName}"? This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

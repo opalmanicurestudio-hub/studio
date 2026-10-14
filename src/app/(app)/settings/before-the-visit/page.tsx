@@ -13,7 +13,7 @@ import { SettingsPage, Section, Row, Toggle, Choice, cfInput, cfInputStyle } fro
 import { prepSettingsOf, type OnDay, type PrepSettings } from '@/lib/prep-check';
 import { CheckEditor } from '@/components/prep/CheckEditor';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', RED = '#b42318', AMBER = '#b45309';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', RED = '#b42318', AMBER = '#b45309';
 const rid = () => Math.random().toString(36).slice(2, 9);
 
 export default function BeforeTheVisitSettings() {
@@ -30,7 +30,7 @@ export default function BeforeTheVisitSettings() {
   const all = (services || []) as any[]; const main = all.filter((x) => x.type !== 'addon' && x.status !== 'archived' && x.archived !== true).sort((a, b) => String(a.name).localeCompare(String(b.name)));
   return (
     <SettingsPage title="Before the visit" help="A few quick questions before maintenance visits — fills, rebalances, touch-ups — so the right time is saved. Clients see the time and price change before they agree; nothing changes on the booking until your team approves."
-      actions={isOwner ? <button type="button" disabled={!dirty || saving} onClick={save} className="h-11 rounded-full px-5 text-[14.5px] font-semibold text-white disabled:opacity-40" style={{ background: INK }}>{saving ? 'Saving…' : 'Save'}</button> : null}>
+      actions={isOwner ? <button type="button" disabled={!dirty || saving} onClick={save} className="h-11 rounded-full px-5 text-[14.5px] font-semibold text-background disabled:opacity-40" style={{ background: INK }}>{saving ? 'Saving…' : 'Save'}</button> : null}>
       <a href="/before-the-visit" className="cf-sheet flex items-center justify-between gap-3 px-5 py-4"><span className="min-w-0"><span className="block text-[15px] font-medium">Visits that need a decision</span><span className="block text-[13.5px] cf-muted">The next 8 days: changes that don’t fit, clients’ questions, safety answers.</span></span><span className="shrink-0 text-[14px] font-medium">Open →</span></a>
       <Section title="Your rules" help="Shown to clients in “Good to know”, so nothing is a surprise.">
         <div className="cf-sheet">
@@ -53,7 +53,7 @@ export default function BeforeTheVisitSettings() {
           return <div key={s.id} className="[&+&]:border-t" style={{ borderColor: 'var(--line)' }}>
             <button type="button" onClick={() => setOpen(open === s.id ? '' : s.id)} aria-expanded={open === s.id} className="flex w-full items-center gap-3 px-5 py-4 text-left">
               <span className="min-w-0 flex-1"><span className="block text-[15px] font-medium">{s.name}</span><span className="block text-[13px] cf-muted">{on ? `${n} question${n === 1 ? '' : 's'} before the visit` : 'No questions'}</span></span>
-              <span className="inline-flex h-7 items-center rounded-full px-2.5 text-[12px] font-semibold" style={on ? { background: '#e9f3ed', color: '#1f7a4d' } : { background: SOFT, color: MUTED }}>{on ? 'On' : 'Off'}</span><span className="text-[16px] cf-muted">{open === s.id ? '–' : '+'}</span></button>
+              <span className="inline-flex h-7 items-center rounded-full px-2.5 text-[12px] font-semibold" style={on ? { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: 'var(--ok-ink)' } : { background: SOFT, color: MUTED }}>{on ? 'On' : 'Off'}</span><span className="text-[16px] cf-muted">{open === s.id ? '–' : '+'}</span></button>
             {open === s.id && <CheckEditor key={s.id} service={s} services={all} tenant={selectedTenant} S={S} canEdit={canServices} onSave={async (check) => { await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/services/${s.id}`), { prepCheck: check }); toast({ title: `${s.name} saved` }); }} />}
           </div>; })}</div>
       </Section>

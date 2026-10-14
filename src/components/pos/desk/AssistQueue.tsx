@@ -40,14 +40,14 @@ export function AskForHelp({ tenantId, context, onDone }: { tenantId: string; co
       {context?.stationName && <p className="text-[13px] text-muted-foreground">For {context.stationName}{context.clientName ? ` · ${context.clientName}` : ''}</p>}
       <div className="flex flex-wrap gap-2">{ASSIST_PRESETS.map((p) => (
         <button key={p.kind} type="button" onClick={() => { setKind(p.kind); setLabel(p.kind === 'other' ? '' : p.label); }} aria-pressed={kind === p.kind}
-          className={`h-11 rounded-full border px-4 text-[14px] font-medium ${kind === p.kind ? 'bg-stone-900 text-white' : 'bg-white'}`}>{p.label}</button>))}</div>
+          className={`h-11 rounded-full border px-4 text-[14px] font-medium ${kind === p.kind ? 'bg-foreground text-background' : 'bg-card'}`}>{p.label}</button>))}</div>
       {kind && <>
         {kind === 'other' && <input value={label} onChange={(e) => setLabel(e.target.value.slice(0, 60))} placeholder="What do you need?" className="h-11 w-full rounded-xl border px-3 text-[15px]" />}
         <div className="flex flex-wrap gap-2">{(Object.keys(URGENCY_LABEL) as AssistUrgency[]).map((u) => (
-          <button key={u} type="button" onClick={() => setUrgency(u)} aria-pressed={urgency === u} className={`h-10 rounded-full border px-3 text-[13px] ${urgency === u ? 'bg-stone-900 text-white' : 'bg-white'}`}>{URGENCY_LABEL[u]}</button>))}
+          <button key={u} type="button" onClick={() => setUrgency(u)} aria-pressed={urgency === u} className={`h-10 rounded-full border px-3 text-[13px] ${urgency === u ? 'bg-foreground text-background' : 'bg-card'}`}>{URGENCY_LABEL[u]}</button>))}
           {urgency === 'by' && <input type="time" value={by} onChange={(e) => setBy(e.target.value)} className="h-10 rounded-xl border px-2 text-[14px]" aria-label="Needed by" />}</div>
         <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="Details (optional) — e.g. 2 hand towels" className="h-11 w-full rounded-xl border px-3 text-[14px]" />
-        <button type="button" disabled={busy || (kind === 'other' && !label.trim()) || (urgency === 'by' && !by)} onClick={send} className="h-11 w-full rounded-full bg-stone-900 text-[14px] font-semibold text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send request'}</button>
+        <button type="button" disabled={busy || (kind === 'other' && !label.trim()) || (urgency === 'by' && !by)} onClick={send} className="h-11 w-full rounded-full bg-foreground text-[14px] font-semibold text-background disabled:opacity-40">{busy ? 'Sending…' : 'Send request'}</button>
       </>}
       {msg && <p role="status" className="text-[13px] font-medium">{msg}</p>}
     </div>
@@ -69,11 +69,11 @@ export function AssistQueue({ firestore, tenantId, inventory, user }: { firestor
   return (
     <div className="space-y-3">
       <button type="button" onClick={() => setAsking((v) => !v)} className="h-11 w-full rounded-full border-2 text-[14px] font-semibold">{asking ? 'Close' : 'Ask for help'}</button>
-      {asking && <div className="rounded-2xl border bg-white p-3"><AskForHelp tenantId={tenantId} onDone={() => setAsking(false)} /></div>}
+      {asking && <div className="rounded-2xl border bg-card p-3"><AskForHelp tenantId={tenantId} onDone={() => setAsking(false)} /></div>}
       {err && <p role="alert" className="text-[13px] font-medium text-red-700">{err}</p>}
       {!items.length && <p className="text-[14px] text-muted-foreground">Nothing waiting — all caught up.</p>}
       {items.map((q) => (
-        <div key={q.source + q.id} className={`space-y-2 rounded-2xl border p-3 ${q.escalated ? 'border-red-300 bg-red-50' : 'bg-white'}`}>
+        <div key={q.source + q.id} className={`space-y-2 rounded-2xl border p-3 ${q.escalated ? 'border-red-300 bg-red-50' : 'bg-card'}`}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[15px] font-semibold">{q.title}{q.where ? ` · ${q.where}` : ''}</p>
@@ -84,11 +84,11 @@ export function AssistQueue({ firestore, tenantId, inventory, user }: { firestor
               {q.sub && !q.sub.decision && <p className="text-[13px] text-amber-800">{q.sub.by} suggests “{q.sub.text}” instead — waiting for {q.requester || 'the requester'}</p>}
               {q.sub?.decision && <p className="text-[12px] text-muted-foreground">Swap {q.sub.decision}: “{q.sub.text}”</p>}
             </div>
-            <span className="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-[11px]">{q.source === 'lounge' ? 'Lounge' : q.source === 'restock' ? 'Restock' : 'Station'}</span>
+            <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-[11px]">{q.source === 'lounge' ? 'Lounge' : q.source === 'restock' ? 'Restock' : 'Station'}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {q.source === 'assist' && <>
-              {q.status === 'open' && <button type="button" disabled={!!busy} onClick={() => act(q, 'accept')} className="h-9 rounded-full bg-stone-900 px-3 text-[13px] font-semibold text-white">I’ll get it</button>}
+              {q.status === 'open' && <button type="button" disabled={!!busy} onClick={() => act(q, 'accept')} className="h-9 rounded-full bg-foreground px-3 text-[13px] font-semibold text-background">I’ll get it</button>}
               <button type="button" disabled={!!busy} onClick={() => act(q, 'deliver')} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white">Delivered</button>
               {!q.sub || q.sub.decision ? <button type="button" onClick={() => setSwap({ id: q.id, text: '' })} className="h-9 rounded-full border px-3 text-[13px]">Suggest a swap</button>
                 : <><button type="button" disabled={!!busy} onClick={() => act(q, 'decide-sub', { approve: true })} className="h-9 rounded-full border px-3 text-[13px]">Approve swap</button>
@@ -96,14 +96,14 @@ export function AssistQueue({ firestore, tenantId, inventory, user }: { firestor
               <button type="button" disabled={!!busy} onClick={() => act(q, 'cancel')} className="h-9 rounded-full px-3 text-[13px] text-muted-foreground">Cancel</button>
             </>}
             {q.source === 'lounge' && <>
-              {q.status === 'open' && <button type="button" disabled={!!busy} onClick={() => lounge.bringing(q)} className="h-9 rounded-full bg-stone-900 px-3 text-[13px] font-semibold text-white">Bringing it</button>}
+              {q.status === 'open' && <button type="button" disabled={!!busy} onClick={() => lounge.bringing(q)} className="h-9 rounded-full bg-foreground px-3 text-[13px] font-semibold text-background">Bringing it</button>}
               <button type="button" disabled={!!busy} onClick={() => lounge.delivered(q)} className="h-9 rounded-full bg-emerald-600 px-3 text-[13px] font-semibold text-white">Delivered</button>
             </>}
             {q.source === 'restock' && <a href="/inventory" className="flex h-9 items-center rounded-full border px-3 text-[13px]">Review in Inventory</a>}
           </div>
           {swap?.id === q.id && <div className="flex gap-2">
             <input value={swap.text} onChange={(e) => setSwap({ id: q.id, text: e.target.value.slice(0, 120) })} placeholder="What can you bring instead?" className="h-10 min-w-0 flex-1 rounded-xl border px-3 text-[14px]" />
-            <button type="button" disabled={!swap.text.trim() || !!busy} onClick={async () => { await act(q, 'propose-sub', { text: swap.text }); setSwap(null); }} className="h-10 rounded-xl bg-stone-900 px-3 text-[13px] font-semibold text-white">Offer</button>
+            <button type="button" disabled={!swap.text.trim() || !!busy} onClick={async () => { await act(q, 'propose-sub', { text: swap.text }); setSwap(null); }} className="h-10 rounded-xl bg-foreground px-3 text-[13px] font-semibold text-background">Offer</button>
           </div>}
         </div>))}
     </div>

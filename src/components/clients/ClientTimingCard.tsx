@@ -5,8 +5,8 @@
 import * as React from 'react';
 import { extraChargeCents, extraTimePolicy, minutesLabel, type ClientTiming } from '@/lib/client-timing';
 
-const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
-const card = { background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' } as React.CSSProperties;
+const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
+const card = { background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' } as React.CSSProperties;
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 
 export function ClientTimingCard({ tenant, client, services, canEdit, onSave, onDecide }: { tenant: any; client: any; services: any[]; canEdit: boolean; onSave: (t: ClientTiming) => void;
@@ -35,7 +35,7 @@ export function ClientTimingCard({ tenant, client, services, canEdit, onSave, on
       {Object.entries((client?.timingSuggestions || {}) as Record<string, any>).filter(([, x]) => x && !x.dismissedAt && Number(x.extra)).map(([sid2, x]) => (
         <div key={`sg-${sid2}`} className="space-y-2 rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--accent, #2e6f6a) 9%, transparent)' }} role="note">
           <p><b>{nameOf(sid2)}</b> usually takes about <b>{Math.abs(Number(x.extra))} min {Number(x.extra) > 0 ? 'longer' : 'less'}</b> than booked for {first} <span style={muted}>(last {x.visits} timed visits)</span>.{Number(x.extra) > 0 ? ` Reserve it for ${first === 'they' ? 'them' : first}?` : ' Book them shorter?'}</p>
-          {canEdit && onDecide ? <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onDecide(sid2, true, Number(x.extra), Number(x.visits) || 0)} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Use {minutesLabel(Number(x.extra))}</button>
+          {canEdit && onDecide ? <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onDecide(sid2, true, Number(x.extra), Number(x.visits) || 0)} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}>Use {minutesLabel(Number(x.extra))}</button>
             <button type="button" onClick={() => onDecide(sid2, false, Number(x.extra), Number(x.visits) || 0)} className="h-9 rounded-full px-3 text-[13px]" style={muted}>Not now</button></div>
             : <p className="text-[12px]" style={muted}>A manager can apply this.</p>}
         </div>))}
@@ -45,20 +45,20 @@ export function ClientTimingCard({ tenant, client, services, canEdit, onSave, on
           <span className="min-w-0"><b>{label}</b> · {minutesLabel(m)}{why ? <span className="block text-[12px]" style={muted}>{why} · only the team sees this</span> : null}</span>
           {canEdit && <button type="button" onClick={() => open(key)} className="shrink-0 text-[13px] font-semibold underline underline-offset-2">Change</button>}
         </div>))}
-      {canEdit && !editing && <button type="button" onClick={() => open('new')} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>+ Add usual time</button>}
-      {editing && <div className="space-y-2 rounded-2xl p-3" style={{ background: 'var(--soft, #efebe6)' }}>
-        <select value={sid} onChange={(e) => setSid(e.target.value)} disabled={editing !== 'new'} aria-label="Which service" className="h-10 w-full rounded-xl border px-2 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)', background: 'var(--card, #fff)' }}>
+      {canEdit && !editing && <button type="button" onClick={() => open('new')} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>+ Add usual time</button>}
+      {editing && <div className="space-y-2 rounded-2xl p-3" style={{ background: 'hsl(var(--secondary))' }}>
+        <select value={sid} onChange={(e) => setSid(e.target.value)} disabled={editing !== 'new'} aria-label="Which service" className="h-10 w-full rounded-xl border px-2 text-[14px]" style={{ borderColor: 'hsl(var(--border))', background: 'hsl(var(--card))' }}>
           <option value="all">Every service</option>{bookable.map((s) => <option key={s.id} value={s.id}>{s.name}{s.duration ? ` · ${s.duration} min` : ''}</option>)}</select>
         <div className="flex items-center gap-2 text-[14px]">
-          <button type="button" onClick={() => setMins((m) => Math.max(-60, m - 5))} aria-label="5 minutes less" className="h-9 w-9 rounded-full" style={{ background: 'var(--card, #fff)' }}>−</button>
+          <button type="button" onClick={() => setMins((m) => Math.max(-60, m - 5))} aria-label="5 minutes less" className="h-9 w-9 rounded-full" style={{ background: 'hsl(var(--card))' }}>−</button>
           <b className="w-20 text-center">{minutesLabel(mins)}</b>
-          <button type="button" onClick={() => setMins((m) => Math.min(240, m + 5))} aria-label="5 minutes more" className="h-9 w-9 rounded-full" style={{ background: 'var(--card, #fff)' }}>+</button>
+          <button type="button" onClick={() => setMins((m) => Math.min(240, m + 5))} aria-label="5 minutes more" className="h-9 w-9 rounded-full" style={{ background: 'hsl(var(--card))' }}>+</button>
           {previewSvc && <span style={muted}>→ {(Number(previewSvc.duration) || 60) + mins} min</span>}
         </div>
-        {sid !== 'all' && <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (for the team, e.g. longer, thicker hair)" aria-label="Why" className="h-10 w-full rounded-xl border px-3 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />}
-        {sid !== 'all' && mins > 0 && <label className="flex flex-wrap items-center gap-2 text-[13px]">Charge for the extra time: $<input value={fixed} onChange={(e) => setFixed(e.target.value.replace(/[^\d.]/g, ''))} placeholder={pol.mode === 'per15' ? 'business rate' : 'no charge'} aria-label="Fixed charge" className="h-9 w-28 rounded-xl border px-2" style={{ borderColor: 'var(--line, #e7e2dc)' }} /><span style={muted}>leave empty for the business rate</span></label>}
+        {sid !== 'all' && <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (for the team, e.g. longer, thicker hair)" aria-label="Why" className="h-10 w-full rounded-xl border px-3 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }} />}
+        {sid !== 'all' && mins > 0 && <label className="flex flex-wrap items-center gap-2 text-[13px]">Charge for the extra time: $<input value={fixed} onChange={(e) => setFixed(e.target.value.replace(/[^\d.]/g, ''))} placeholder={pol.mode === 'per15' ? 'business rate' : 'no charge'} aria-label="Fixed charge" className="h-9 w-28 rounded-xl border px-2" style={{ borderColor: 'hsl(var(--border))' }} /><span style={muted}>leave empty for the business rate</span></label>}
         <p className="text-[12px]" style={muted}>{mins > 0 ? (preview > 0 ? `${first} pays ${money(preview)} more for this time — shown to them before they confirm.` : `No extra charge${pol.mode === 'none' ? ' (Settings → Extra time is set to no charge)' : ''}.`) : mins < 0 ? `${first} is usually quicker; the price doesn’t change.` : ''} Base it on time taken, never on a personal label.</p>
-        <div className="flex gap-2"><button type="button" onClick={save} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Save</button>
+        <div className="flex gap-2"><button type="button" onClick={save} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}>Save</button>
           {editing !== 'new' && <button type="button" onClick={() => remove(editing)} className="h-9 rounded-full px-3 text-[13px]" style={muted}>Remove</button>}
           <button type="button" onClick={() => setEditing(null)} className="h-9 rounded-full px-3 text-[13px]" style={muted}>Cancel</button></div>
       </div>}

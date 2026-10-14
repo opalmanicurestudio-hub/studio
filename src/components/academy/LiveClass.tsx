@@ -138,7 +138,7 @@ export function LiveClass({ tenantId }: { tenantId: string }) {
         </div>
 
         <div className="space-y-3">
-          <div className="rounded-3xl bg-foreground p-5 text-center text-background"><p className="text-[11px] uppercase tracking-widest opacity-70">Join on your phone</p><p className="font-mono text-5xl font-black tracking-widest">{s.code}</p>{qr && <img src={qr} alt="Scan to join" className="mx-auto mt-3 w-44 rounded-xl bg-white p-2" />}<p className="mt-2 text-[12px] opacity-70">{st.here} here now</p></div>
+          <div className="rounded-3xl bg-foreground p-5 text-center text-background"><p className="text-[11px] uppercase tracking-widest opacity-70">Join on your phone</p><p className="font-mono text-5xl font-black tracking-widest">{s.code}</p>{qr && <img src={qr} alt="Scan to join" className="mx-auto mt-3 w-44 rounded-xl bg-card p-2" />}<p className="mt-2 text-[12px] opacity-70">{st.here} here now</p></div>
           <div className="rounded-3xl bg-muted/40 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">The room’s pulse</p>
             <div className="mt-2 flex h-5 overflow-hidden rounded-full bg-background">{(['green', 'yellow', 'red'] as const).map((k) => { const n = st.pulse[k]; const t = Math.max(1, st.pulse.green + st.pulse.yellow + st.pulse.red); return n ? <div key={k} className={k === 'green' ? 'bg-emerald-500' : k === 'yellow' ? 'bg-amber-400' : 'bg-red-500'} style={{ width: `${(n / t) * 100}%` }} /> : null; })}</div>
             <p className="mt-1 text-sm">🟢 {st.pulse.green} · 🟡 {st.pulse.yellow} · 🔴 {st.pulse.red}{st.pulse.fast ? <b className="ml-2 text-red-700">· {st.pulse.fast} say “too fast”</b> : ''}</p></div>

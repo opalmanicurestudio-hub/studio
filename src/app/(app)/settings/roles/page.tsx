@@ -56,7 +56,7 @@ function RoleEditor({ id, def, count, canEdit, onDone, others }: { id: string | 
             <select value={moveTo} onChange={(e) => setMoveTo(e.target.value)} className="h-10 rounded-xl border px-3 text-[14px]" style={cfInputStyle} aria-label="Role to move people to">
               {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select></label>}
-          <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Remove ${def.name}?`)) run({ action: 'delete', roleId: id, moveTo }, 'Role removed.'); }} className="h-10 rounded-full px-4 text-[14px] font-medium" style={{ color: '#B42318', border: '1px solid #F1C9C4' }}>Remove role</button>
+          <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Remove ${def.name}?`)) run({ action: 'delete', roleId: id, moveTo }, 'Role removed.'); }} className="h-10 rounded-full px-4 text-[14px] font-medium" style={{ color: 'var(--bad-ink)', border: '1px solid #F1C9C4' }}>Remove role</button>
         </div>)}
     </div>);
 }

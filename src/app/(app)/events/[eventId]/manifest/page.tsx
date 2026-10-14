@@ -61,7 +61,7 @@ const AllergyPill = ({ allergy }: { allergy: any }) => {
     </span>
   );
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-slate-100 border-slate-200 text-slate-600">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide border bg-muted border-border text-foreground/80">
       <Leaf className="w-2 h-2" /> {label}
     </span>
   );
@@ -89,8 +89,8 @@ const CapacityRing = ({ checkedIn, total, capacity }: {
           className="transition-all duration-700" />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <p className="text-lg font-black text-slate-900 leading-none">{checkedIn}</p>
-        <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest">in</p>
+        <p className="text-lg font-black text-foreground leading-none">{checkedIn}</p>
+        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest">in</p>
       </div>
     </div>
   );
@@ -179,7 +179,7 @@ const QuoteLinkBadge = ({ quoteId, tenantId, firestore }: {
       onClick={() => router.push('/quotes')}
       className={cn(
         'flex items-center gap-2 h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all hover:shadow-md',
-        STATUS_COLORS[quote.status] || 'bg-slate-50 border-slate-200 text-slate-600',
+        STATUS_COLORS[quote.status] || 'bg-muted/60 border-border text-foreground/80',
       )}>
       <CalendarCheck className="w-3.5 h-3.5" />
       Quote · ${total.toFixed(0)}
@@ -252,22 +252,22 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
               <p className="text-xl font-black text-primary">{eligible.length}</p>
               <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Tickets</p>
             </div>
-            <div className={cn('text-center p-3 rounded-xl border', notIn.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200')}>
-              <p className={cn('text-xl font-black', notIn.length > 0 ? 'text-amber-700' : 'text-slate-400')}>{notIn.length}</p>
-              <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Not checked in</p>
+            <div className={cn('text-center p-3 rounded-xl border', notIn.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-muted/60 border-border')}>
+              <p className={cn('text-xl font-black', notIn.length > 0 ? 'text-amber-700' : 'text-muted-foreground')}>{notIn.length}</p>
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Not checked in</p>
             </div>
-            <div className={cn('text-center p-3 rounded-xl border', criticalGuests.length > 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200')}>
-              <p className={cn('text-xl font-black', criticalGuests.length > 0 ? 'text-red-600' : 'text-slate-400')}>{criticalGuests.length}</p>
-              <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Critical allergy</p>
+            <div className={cn('text-center p-3 rounded-xl border', criticalGuests.length > 0 ? 'bg-red-50 border-red-200' : 'bg-muted/60 border-border')}>
+              <p className={cn('text-xl font-black', criticalGuests.length > 0 ? 'text-red-600' : 'text-muted-foreground')}>{criticalGuests.length}</p>
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Critical allergy</p>
             </div>
           </div>
 
           {/* Order breakdown */}
           <div className="space-y-2">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Ticket Breakdown</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ticket Breakdown</p>
             {Object.entries(itemCounts).map(([id, data]) => (
-              <div key={id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <p className="font-black text-sm text-slate-900">{data.name}</p>
+              <div key={id} className="flex items-center justify-between p-3 rounded-xl bg-muted/60 border border-border">
+                <p className="font-black text-sm text-foreground">{data.name}</p>
                 <div className="flex items-center gap-2">
                   {data.criticalCount > 0 && (
                     <span className="flex items-center gap-1 text-[8px] font-black uppercase text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
@@ -497,26 +497,26 @@ const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, cours
         </DialogHeader>
         <div className="p-6 space-y-3">
           <button onClick={handlePrint}
-            className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-slate-200 bg-white hover:border-primary/30 hover:bg-primary/5 transition-all text-left group">
-            <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-primary/10 flex items-center justify-center shrink-0 transition-colors">
-              <FileText className="w-5 h-5 text-slate-500 group-hover:text-primary transition-colors" />
+            className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-border bg-card hover:border-primary/30 hover:bg-primary/5 transition-all text-left group">
+            <div className="w-10 h-10 rounded-xl bg-muted group-hover:bg-primary/10 flex items-center justify-center shrink-0 transition-colors">
+              <FileText className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
             </div>
             <div>
-              <p className="font-black text-sm text-slate-900 uppercase tracking-tight">Kitchen Run Sheet</p>
-              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Full guest list · course counts · allergy summary</p>
+              <p className="font-black text-sm text-foreground uppercase tracking-tight">Kitchen Run Sheet</p>
+              <p className="text-[10px] font-bold text-muted-foreground mt-0.5">Full guest list · course counts · allergy summary</p>
             </div>
           </button>
           <button onClick={handlePrintAllergenCards} disabled={allergenGuestCount === 0}
-            className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-slate-200 bg-white hover:border-red-200 hover:bg-red-50 transition-all text-left group disabled:opacity-40 disabled:cursor-not-allowed">
-            <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0 transition-colors">
-              <AlertTriangle className="w-5 h-5 text-slate-500 group-hover:text-red-500 transition-colors" />
+            className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-border bg-card hover:border-red-200 hover:bg-red-50 transition-all text-left group disabled:opacity-40 disabled:cursor-not-allowed">
+            <div className="w-10 h-10 rounded-xl bg-muted group-hover:bg-red-100 flex items-center justify-center shrink-0 transition-colors">
+              <AlertTriangle className="w-5 h-5 text-muted-foreground group-hover:text-red-500 transition-colors" />
             </div>
             <div>
-              <p className="font-black text-sm text-slate-900 uppercase tracking-tight">
+              <p className="font-black text-sm text-foreground uppercase tracking-tight">
                 Allergen Cards
                 {allergenGuestCount > 0 && <span className="ml-2 text-[9px] font-black text-red-500 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">{allergenGuestCount}</span>}
               </p>
-              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Per-guest cards for kitchen · 3-up grid layout</p>
+              <p className="text-[10px] font-bold text-muted-foreground mt-0.5">Per-guest cards for kitchen · 3-up grid layout</p>
             </div>
           </button>
           <Button variant="outline" onClick={() => onOpenChange(false)}
@@ -557,23 +557,23 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
         const checkedInCount = tableGuests.filter(g => g.checkedIn).length;
         const hasCritical    = tableGuests.some(g => (g.allergies || []).some((a: any) => a.severity === 'critical'));
         return (
-          <div key={table} className={cn('rounded-2xl border-2 overflow-hidden', hasCritical ? 'border-red-200' : 'border-slate-200')}>
-            <div className={cn('px-5 py-3 flex items-center justify-between', hasCritical ? 'bg-red-50' : 'bg-slate-50')}>
+          <div key={table} className={cn('rounded-2xl border-2 overflow-hidden', hasCritical ? 'border-red-200' : 'border-border')}>
+            <div className={cn('px-5 py-3 flex items-center justify-between', hasCritical ? 'bg-red-50' : 'bg-muted/60')}>
               <div className="flex items-center gap-3">
-                <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm', hasCritical ? 'bg-red-100 text-red-700' : 'bg-white text-slate-700 border border-slate-200')}>
+                <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm', hasCritical ? 'bg-red-100 text-red-700' : 'bg-card text-foreground/80 border border-border')}>
                   {table === '__unassigned__' ? '?' : table}
                 </div>
                 <div>
-                  <p className="font-black text-sm text-slate-900 uppercase tracking-tight">
+                  <p className="font-black text-sm text-foreground uppercase tracking-tight">
                     {table === '__unassigned__' ? 'No Table Assigned' : `Table ${table}`}
                   </p>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
                     {checkedInCount} / {tableGuests.length} in
                     {hasCritical && <span className="ml-2 text-red-500">⚠ Critical allergy</span>}
                   </p>
                 </div>
               </div>
-              <div className="w-6 h-6 rounded-full border-2 border-slate-200 overflow-hidden shrink-0" title={`${checkedInCount}/${tableGuests.length} checked in`}>
+              <div className="w-6 h-6 rounded-full border-2 border-border overflow-hidden shrink-0" title={`${checkedInCount}/${tableGuests.length} checked in`}>
                 <div className="bg-emerald-400 h-full transition-all" style={{ width: `${(checkedInCount / tableGuests.length) * 100}%` }} />
               </div>
             </div>
@@ -581,24 +581,24 @@ const TableGroupedView = ({ guests, menuItems, onCheckIn, onEdit, onDelete, onOv
               {tableGuests.map(g => {
                 const mealName = menuItems.find(m => m.id === g.mealChoiceId)?.name || g.mealChoiceName;
                 return (
-                  <div key={g.id} className={cn('flex items-center gap-3 px-5 py-3 hover:bg-slate-50/50 transition-colors', !g.checkedIn && 'opacity-60')}>
+                  <div key={g.id} className={cn('flex items-center gap-3 px-5 py-3 hover:bg-muted/50 transition-colors', !g.checkedIn && 'opacity-60')}>
                     <button onClick={() => onCheckIn(g.id, g.checkedIn)}
                       className={cn('w-7 h-7 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all',
-                        g.checkedIn ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 text-transparent hover:border-emerald-300')}>
+                        g.checkedIn ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-border text-transparent hover:border-emerald-300')}>
                       <Check className="w-3.5 h-3.5" />
                     </button>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-black text-sm text-slate-900">{g.name}</p>
-                        {g.seatNumber && <span className="text-[9px] font-bold text-slate-400 uppercase">S{g.seatNumber}</span>}
+                        <p className="font-black text-sm text-foreground">{g.name}</p>
+                        {g.seatNumber && <span className="text-[9px] font-bold text-muted-foreground uppercase">S{g.seatNumber}</span>}
                         {(g.allergies || []).map((a: any, i: number) => <AllergyPill key={i} allergy={a} />)}
                       </div>
-                      {mealName && <p className="text-[10px] font-bold text-slate-500 mt-0.5">{mealName}</p>}
+                      {mealName && <p className="text-[10px] font-bold text-muted-foreground mt-0.5">{mealName}</p>}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => onOverride(g)} className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors"><Utensils className="w-3 h-3" /></button>
-                      <button onClick={() => onEdit(g)}     className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"><Pencil className="w-3 h-3" /></button>
-                      <button onClick={() => onDelete(g.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-3 h-3" /></button>
+                      <button onClick={() => onOverride(g)} className="p-1.5 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"><Utensils className="w-3 h-3" /></button>
+                      <button onClick={() => onEdit(g)}     className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground/80 transition-colors"><Pencil className="w-3 h-3" /></button>
+                      <button onClick={() => onDelete(g.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"><Trash2 className="w-3 h-3" /></button>
                     </div>
                   </div>
                 );
@@ -616,7 +616,7 @@ const StatCard = ({ label, value, sub, color = 'slate' }: {
   label: string; value: string | number; sub?: string; color?: string;
 }) => {
   const colors: Record<string, string> = {
-    slate:   'bg-white border-slate-200',
+    slate:   'bg-card border-border',
     amber:   'bg-amber-50 border-amber-200',
     emerald: 'bg-emerald-50 border-emerald-200',
     blue:    'bg-blue-50 border-blue-200',
@@ -624,9 +624,9 @@ const StatCard = ({ label, value, sub, color = 'slate' }: {
   };
   return (
     <div className={cn('p-5 rounded-2xl border-2', colors[color] || colors.slate)}>
-      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">{label}</p>
-      <p className="text-3xl font-black tracking-tighter text-slate-900 leading-none">{value}</p>
-      {sub && <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-wide">{sub}</p>}
+      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
+      <p className="text-3xl font-black tracking-tighter text-foreground leading-none">{value}</p>
+      {sub && <p className="text-[10px] font-bold text-muted-foreground mt-1 uppercase tracking-wide">{sub}</p>}
     </div>
   );
 };
@@ -726,11 +726,11 @@ const FormulaBreakdown = ({ formula }: {
       <p className="text-[8px] font-black uppercase tracking-[0.2em] text-primary/50 mb-1.5">Unit Decomposition</p>
       {formula.map((f, i) => (
         <div key={f.id || i} className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-bold text-slate-500 truncate">{f.name}</span>
+          <span className="text-[10px] font-bold text-muted-foreground truncate">{f.name}</span>
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[10px] font-black text-slate-700">{f.quantityUsed} {f.unit}</span>
+            <span className="text-[10px] font-black text-foreground/80">{f.quantityUsed} {f.unit}</span>
             {f.costPerUnit != null && f.costPerUnit > 0 && (
-              <span className="text-[9px] font-bold text-slate-400">(${(f.quantityUsed * f.costPerUnit).toFixed(3)})</span>
+              <span className="text-[9px] font-bold text-muted-foreground">(${(f.quantityUsed * f.costPerUnit).toFixed(3)})</span>
             )}
           </div>
         </div>
@@ -765,7 +765,7 @@ const CourseIngredientsPreview = ({ courseNumber, menuItems, guests, inventory }
   const hasShortage = deductionSummary.some(d => d.isShort);
   return (
     <div className="mt-2">
-      <button onClick={() => setOpen(o => !o)} className={cn('flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-colors', hasShortage ? 'text-red-500' : 'text-slate-400 hover:text-slate-600')}>
+      <button onClick={() => setOpen(o => !o)} className={cn('flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-colors', hasShortage ? 'text-red-500' : 'text-muted-foreground hover:text-foreground/80')}>
         <FlaskConical className="w-2.5 h-2.5" />
         {hasShortage ? '⚠ Stock shortage' : `${deductionSummary.length} supply item${deductionSummary.length !== 1 ? 's' : ''}`}
         {open ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
@@ -773,12 +773,12 @@ const CourseIngredientsPreview = ({ courseNumber, menuItems, guests, inventory }
       <AnimatePresence>
         {open && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mt-2">
-            <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
+            <div className="space-y-1.5 p-3 rounded-xl bg-muted/60 border border-border">
               {deductionSummary.map(d => (
                 <div key={d.id} className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-black text-slate-800 truncate">{d.name}</span>
+                  <span className="text-[11px] font-black text-foreground truncate">{d.name}</span>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[11px] font-black text-slate-900">−{d.qty.toFixed(1)} {d.unit}</span>
+                    <span className="text-[11px] font-black text-foreground">−{d.qty.toFixed(1)} {d.unit}</span>
                     <span className={cn('text-[9px] font-black uppercase px-1.5 py-0.5 rounded-lg', d.isShort ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700')}>
                       {d.isShort ? `Short ${Math.abs(d.remaining).toFixed(1)}` : `${d.remaining.toFixed(1)} left`}
                     </span>
@@ -1289,8 +1289,8 @@ export default function EventManifestPage() {
   };
 
   // ── Guards ─────────────────────────────────────────────────────────────────
-  if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin w-8 h-8 text-slate-400" /></div>;
-  if (!event)  return <div className="flex h-screen items-center justify-center text-slate-400 font-bold">Event not found</div>;
+  if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin w-8 h-8 text-muted-foreground" /></div>;
+  if (!event)  return <div className="flex h-screen items-center justify-center text-muted-foreground font-bold">Event not found</div>;
 
   const eventDisplayName   = event.title || event.name || 'Untitled Event';
   const assignedStaffCount = (event?.assignedStaffIds || []).length;
@@ -1300,7 +1300,7 @@ export default function EventManifestPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-slate-50">
+    <div className="flex flex-col h-full overflow-hidden bg-muted/60">
       <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
 
@@ -1316,16 +1316,16 @@ export default function EventManifestPage() {
                 capacity={event.capacity || null}
               />
               <div>
-                <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{eventDisplayName}</h1>
-                {event.date  && <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
-                {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">{event.venue}</p>}
+                <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground leading-none">{eventDisplayName}</h1>
+                {event.date  && <p className="text-sm text-muted-foreground mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
+                {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mt-0.5">{event.venue}</p>}
                 {/* Capacity bar */}
                 {event.capacity && (
                   <div className="flex items-center gap-2 mt-2">
-                    <div className="w-32 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                    <div className="w-32 h-1.5 rounded-full bg-border overflow-hidden">
                       <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min((stats.total / event.capacity) * 100, 100)}%` }} />
                     </div>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{stats.total}/{event.capacity} capacity</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{stats.total}/{event.capacity} capacity</span>
                   </div>
                 )}
               </div>
@@ -1350,11 +1350,11 @@ export default function EventManifestPage() {
                   </Button>
                 </div>
               ) : event?.status === 'completed' ? (
-                <span className="px-3 py-1.5 rounded-xl bg-slate-100 border-2 border-slate-200 text-slate-500 font-black uppercase text-[9px] tracking-widest">Completed</span>
+                <span className="px-3 py-1.5 rounded-xl bg-muted border-2 border-border text-muted-foreground font-black uppercase text-[9px] tracking-widest">Completed</span>
               ) : (
                 <Button onClick={() => setIsConfirmActivateOpen(true)}
                   className="h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200">
-                  <span className="w-2 h-2 rounded-full bg-white" /> Go Live
+                  <span className="w-2 h-2 rounded-full bg-card" /> Go Live
                 </Button>
               )}
               <Button variant="outline" onClick={() => setPrintModalOpen(true)}
@@ -1381,9 +1381,9 @@ export default function EventManifestPage() {
             <div className="flex items-center gap-4">
               <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
               <div className="min-w-0">
-                <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-tight">{eventDisplayName}</h1>
-                {event.date  && <p className="text-xs text-slate-500 mt-0.5">{format(new Date(event.date), 'EEE, MMM d')}</p>}
-                {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{event.venue}</p>}
+                <h1 className="text-2xl font-black uppercase tracking-tighter text-foreground leading-tight">{eventDisplayName}</h1>
+                {event.date  && <p className="text-xs text-muted-foreground mt-0.5">{format(new Date(event.date), 'EEE, MMM d')}</p>}
+                {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{event.venue}</p>}
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1395,7 +1395,7 @@ export default function EventManifestPage() {
               ) : event?.status !== 'completed' && (
                 <Button onClick={() => setIsConfirmActivateOpen(true)} size="sm"
                   className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest gap-1.5 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 shrink-0">
-                  <span className="w-2 h-2 rounded-full bg-white" /> Go Live
+                  <span className="w-2 h-2 rounded-full bg-card" /> Go Live
                 </Button>
               )}
               {event?.status === 'active' && (
@@ -1405,7 +1405,7 @@ export default function EventManifestPage() {
                 </Button>
               )}
               <button onClick={() => setPrintModalOpen(true)}
-                className="flex items-center gap-1 h-9 px-3 rounded-xl border-2 border-slate-200 font-black uppercase text-[9px] tracking-widest text-slate-600 hover:border-slate-300 shrink-0">
+                className="flex items-center gap-1 h-9 px-3 rounded-xl border-2 border-border font-black uppercase text-[9px] tracking-widest text-foreground/80 hover:border-border shrink-0">
                 <Printer className="w-3.5 h-3.5" />
               </button>
               <DropdownMenu>
@@ -1503,14 +1503,14 @@ export default function EventManifestPage() {
         {crossContaminationWarnings.length > 0 && (
           <div className="bg-red-50 rounded-2xl border-2 border-red-300 p-5 space-y-3">
             <div className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-600" /><h2 className="text-sm font-black uppercase tracking-[0.2em] text-red-800">Cross-Contamination Risk — {crossContaminationWarnings.length} Table{crossContaminationWarnings.length !== 1 ? 's' : ''}</h2></div>
-            <div className="space-y-2">{crossContaminationWarnings.map((w, i) => (<div key={i} className="flex items-start gap-2 p-3 rounded-xl bg-white border border-red-200"><span className="text-red-500 font-black text-sm shrink-0">T{w.table}</span><p className="text-[11px] font-bold text-red-700">{w.reason}</p></div>))}</div>
+            <div className="space-y-2">{crossContaminationWarnings.map((w, i) => (<div key={i} className="flex items-start gap-2 p-3 rounded-xl bg-card border border-red-200"><span className="text-red-500 font-black text-sm shrink-0">T{w.table}</span><p className="text-[11px] font-bold text-red-700">{w.reason}</p></div>))}</div>
           </div>
         )}
 
         {/* ── COURSE FIRING ───────────────────────────────────────────────── */}
         {courseNumbers.length > 0 && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-            <div className="p-5 border-b border-slate-100"><h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2"><Utensils className="w-4 h-4 text-primary" /> Course Firing</h2></div>
+          <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
+            <div className="p-5 border-b border-border"><h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2"><Utensils className="w-4 h-4 text-primary" /> Course Firing</h2></div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
                 const fired     = firedCourses.has(n);
@@ -1519,12 +1519,12 @@ export default function EventManifestPage() {
                 const inCount   = guests.filter(g => g.checkedIn && (g.courseSelections?.[n] || (n === 1 && g.mealChoiceId))).length;
                 const deltaCount = deltaGuestsByCourse[n]?.length || 0;
                 return (
-                  <div key={n} className={cn('p-4 rounded-2xl border-2', fired ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50')}>
+                  <div key={n} className={cn('p-4 rounded-2xl border-2', fired ? 'border-emerald-200 bg-emerald-50' : 'border-border bg-muted/60')}>
                     <div className="flex items-center justify-between mb-2">
                       <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Course {n}</p>
-                        <p className="font-black text-slate-900 text-sm">{courseLabels[n] || `Course ${n}`}</p>
-                        <p className="text-[10px] text-slate-500">{inCount} checked in · {count} total</p>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Course {n}</p>
+                        <p className="font-black text-foreground text-sm">{courseLabels[n] || `Course ${n}`}</p>
+                        <p className="text-[10px] text-muted-foreground">{inCount} checked in · {count} total</p>
                         {fired && deltaCount > 0 && <p className="text-[9px] font-black text-indigo-600 mt-0.5">+{deltaCount} new arrival{deltaCount !== 1 ? 's' : ''}</p>}
                       </div>
                       {fired && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
@@ -1546,7 +1546,7 @@ export default function EventManifestPage() {
         {/* ── MAIN TABS ───────────────────────────────────────────────────── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-            <TabsList className="h-11 rounded-2xl border-2 bg-slate-100 p-1 gap-1 w-max md:w-full">
+            <TabsList className="h-11 rounded-2xl border-2 bg-muted p-1 gap-1 w-max md:w-full">
               {[
                 { value: 'guests',   label: `Guests (${guests.length})` },
                 { value: 'menu',     label: `Menu (${menuItems.length})` },
@@ -1554,7 +1554,7 @@ export default function EventManifestPage() {
                 { value: 'staff',    label: 'Staff' },
                 { value: 'requests', label: floorRequests.filter(r => r.status === 'new' || r.status === 'acknowledged').length > 0 ? `Requests (${floorRequests.filter(r => r.status === 'new' || r.status === 'acknowledged').length})` : 'Requests' },
               ].map(t => (
-                <TabsTrigger key={t.value} value={t.value} className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm px-4 whitespace-nowrap">
+                <TabsTrigger key={t.value} value={t.value} className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-card data-[state=active]:shadow-sm px-4 whitespace-nowrap">
                   {t.label}
                 </TabsTrigger>
               ))}
@@ -1569,7 +1569,7 @@ export default function EventManifestPage() {
                 <UserPlus className="w-4 h-4" /> Add Guest
               </Button>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                 <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="pl-8 h-10 w-40 rounded-xl border-2 text-xs font-bold" />
               </div>
               <Select value={filterMeal} onValueChange={setFilterMeal}>
@@ -1587,13 +1587,13 @@ export default function EventManifestPage() {
                 </SelectContent>
               </Select>
               {/* View toggle */}
-              <div className="flex items-center rounded-xl border-2 border-slate-200 overflow-hidden h-10 ml-auto">
+              <div className="flex items-center rounded-xl border-2 border-border overflow-hidden h-10 ml-auto">
                 <button onClick={() => setGuestViewMode('list')}
-                  className={cn('flex items-center justify-center w-10 h-full transition-colors', guestViewMode === 'list' ? 'bg-primary text-white' : 'hover:bg-slate-50 text-slate-400')}>
+                  className={cn('flex items-center justify-center w-10 h-full transition-colors', guestViewMode === 'list' ? 'bg-primary text-white' : 'hover:bg-muted/60 text-muted-foreground')}>
                   <List className="w-4 h-4" />
                 </button>
                 <button onClick={() => setGuestViewMode('table')}
-                  className={cn('flex items-center justify-center w-10 h-full transition-colors border-l border-slate-200', guestViewMode === 'table' ? 'bg-primary text-white' : 'hover:bg-slate-50 text-slate-400')}>
+                  className={cn('flex items-center justify-center w-10 h-full transition-colors border-l border-border', guestViewMode === 'table' ? 'bg-primary text-white' : 'hover:bg-muted/60 text-muted-foreground')}>
                   <LayoutGrid className="w-4 h-4" />
                 </button>
               </div>
@@ -1605,14 +1605,14 @@ export default function EventManifestPage() {
                 className="flex items-center justify-between p-3 rounded-2xl bg-primary/5 border-2 border-primary/20">
                 <div className="flex items-center gap-3">
                   <span className="w-7 h-7 rounded-xl bg-primary text-white text-xs font-black flex items-center justify-center">{selectedGuests.size}</span>
-                  <p className="font-black text-sm text-slate-900 uppercase tracking-tight">Guest{selectedGuests.size !== 1 ? 's' : ''} selected</p>
+                  <p className="font-black text-sm text-foreground uppercase tracking-tight">Guest{selectedGuests.size !== 1 ? 's' : ''} selected</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button onClick={handleBulkCheckIn} size="sm"
                     className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest gap-1.5">
                     <UserCheck className="w-3.5 h-3.5" /> Check In All
                   </Button>
-                  <button onClick={deselectAll} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
+                  <button onClick={deselectAll} className="p-2 rounded-xl hover:bg-muted text-muted-foreground">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -1623,10 +1623,10 @@ export default function EventManifestPage() {
             <AnimatePresence>
               {(isAddingGuest || editingGuest) && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                  className="bg-white rounded-2xl border-2 border-primary/20 overflow-hidden">
+                  className="bg-card rounded-2xl border-2 border-primary/20 overflow-hidden">
                   <div className="p-6 space-y-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-black uppercase tracking-tight text-slate-900">{editingGuest ? 'Edit Guest' : 'Add Guest'}</h3>
+                      <h3 className="font-black uppercase tracking-tight text-foreground">{editingGuest ? 'Edit Guest' : 'Add Guest'}</h3>
                       {!editingGuest && <Input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Import from client log…" className="h-9 w-52 rounded-xl border-2 text-xs font-bold" />}
                     </div>
                     {!editingGuest && clientSearch && filteredClients.length > 0 && (
@@ -1634,25 +1634,25 @@ export default function EventManifestPage() {
                         {filteredClients.map((c: any) => (
                           <button key={c.id} onClick={() => { handleImportClient(c); setClientSearch(''); }}
                             className="w-full flex items-center justify-between p-3 hover:bg-primary/5 transition-colors text-left gap-3">
-                            <div><p className="font-black text-sm text-slate-900">{c.name}</p><p className="text-[10px] text-slate-400">{c.email}</p></div>
+                            <div><p className="font-black text-sm text-foreground">{c.name}</p><p className="text-[10px] text-muted-foreground">{c.email}</p></div>
                             <Badge className="bg-primary/10 text-primary border-primary/20 font-black text-[9px] shrink-0">Import</Badge>
                           </button>
                         ))}
                       </div>
                     )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Name *</Label><Input value={guestForm.name} onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className="h-11 rounded-xl border-2" /></div>
-                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Email</Label><Input value={guestForm.email} onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" className="h-11 rounded-xl border-2" /></div>
-                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Phone</Label><Input value={guestForm.phone} onChange={e => setGuestForm(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 000-0000" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Name *</Label><Input value={guestForm.name} onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Email</Label><Input value={guestForm.email} onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Phone</Label><Input value={guestForm.phone} onChange={e => setGuestForm(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 000-0000" className="h-11 rounded-xl border-2" /></div>
                       <div className="space-y-1.5">
-                        <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Meal Choice</Label>
+                        <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Meal Choice</Label>
                         <Select value={guestForm.mealChoiceId || NO_SELECTION} onValueChange={v => setGuestForm(p => ({ ...p, mealChoiceId: v === NO_SELECTION ? '' : v }))}>
                           <SelectTrigger className="h-11 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue placeholder="Select meal…" /></SelectTrigger>
                           <SelectContent><SelectItem value={NO_SELECTION}>No selection</SelectItem>{menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label><Input value={guestForm.tableNumber} onChange={e => setGuestForm(p => ({ ...p, tableNumber: e.target.value }))} placeholder="Table #" className="h-11 rounded-xl border-2" /></div>
-                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</Label><Input value={guestForm.seatNumber} onChange={e => setGuestForm(p => ({ ...p, seatNumber: e.target.value }))} placeholder="Seat #" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Table</Label><Input value={guestForm.tableNumber} onChange={e => setGuestForm(p => ({ ...p, tableNumber: e.target.value }))} placeholder="Table #" className="h-11 rounded-xl border-2" /></div>
+                      <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Seat</Label><Input value={guestForm.seatNumber} onChange={e => setGuestForm(p => ({ ...p, seatNumber: e.target.value }))} placeholder="Seat #" className="h-11 rounded-xl border-2" /></div>
                     </div>
                     <div className="flex gap-3">
                       <Button onClick={() => { setIsAddingGuest(false); setEditingGuest(null); }} variant="outline" className="flex-1 h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
@@ -1676,45 +1676,45 @@ export default function EventManifestPage() {
               />
             ) : (
               /* Flat list view */
-              <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
+              <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/50">
+                      <tr className="border-b border-border bg-muted/50">
                         <th className="px-4 py-3 w-10">
                           <button onClick={selectedGuests.size === filtered.length ? deselectAll : selectAll}
                             className={cn('w-5 h-5 rounded border-2 flex items-center justify-center transition-colors',
-                              selectedGuests.size === filtered.length && filtered.length > 0 ? 'bg-primary border-primary text-white' : 'border-slate-300 hover:border-primary')}>
+                              selectedGuests.size === filtered.length && filtered.length > 0 ? 'bg-primary border-primary text-white' : 'border-border hover:border-primary')}>
                             {selectedGuests.size === filtered.length && filtered.length > 0 && <Check className="w-3 h-3" />}
                           </button>
                         </th>
                         {['Guest', 'Seat', 'Meal', 'Flags', 'Status', ''].map(h => (
-                          <th key={h} className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">{h}</th>
+                          <th key={h} className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-muted-foreground">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {filtered.map(guest => (
-                        <tr key={guest.id} className={cn('hover:bg-slate-50/50 transition-colors', !guest.checkedIn && filterFlag === 'not-checked-in' && 'bg-amber-50/30')}>
+                        <tr key={guest.id} className={cn('hover:bg-muted/50 transition-colors', !guest.checkedIn && filterFlag === 'not-checked-in' && 'bg-amber-50/30')}>
                           <td className="px-4 py-3">
                             <button onClick={() => toggleSelectGuest(guest.id)}
                               className={cn('w-5 h-5 rounded border-2 flex items-center justify-center transition-colors',
-                                selectedGuests.has(guest.id) ? 'bg-primary border-primary text-white' : 'border-slate-200 hover:border-primary')}>
+                                selectedGuests.has(guest.id) ? 'bg-primary border-primary text-white' : 'border-border hover:border-primary')}>
                               {selectedGuests.has(guest.id) && <Check className="w-3 h-3" />}
                             </button>
                           </td>
                           <td className="px-4 py-3">
-                            <p className="font-black text-sm text-slate-900">{guest.name}</p>
-                            <p className="text-[10px] text-slate-400">{guest.email || ''}{guest.phone ? ` · ${guest.phone}` : ''}</p>
+                            <p className="font-black text-sm text-foreground">{guest.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{guest.email || ''}{guest.phone ? ` · ${guest.phone}` : ''}</p>
                             {guest.hasCriticalAllergy && <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-red-600 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5 mt-0.5"><AlertTriangle className="w-2.5 h-2.5" /> Critical Allergy</span>}
                             {guest.mealClearedReason && <span className="text-[8px] font-bold text-amber-600 block mt-0.5">⚠ Meal cleared</span>}
                           </td>
                           <td className="px-4 py-3">
-                            {guest.tableNumber && <span className="text-[10px] font-black uppercase text-slate-500">T{guest.tableNumber}</span>}
-                            {guest.seatNumber  && <span className="text-[10px] font-black uppercase text-slate-400"> · {guest.seatNumber}</span>}
+                            {guest.tableNumber && <span className="text-[10px] font-black uppercase text-muted-foreground">T{guest.tableNumber}</span>}
+                            {guest.seatNumber  && <span className="text-[10px] font-black uppercase text-muted-foreground"> · {guest.seatNumber}</span>}
                           </td>
                           <td className="px-4 py-3">
-                            <p className="text-sm font-bold text-slate-700">{guest.mealChoiceName || <span className="text-slate-300 italic text-xs">—</span>}</p>
+                            <p className="text-sm font-bold text-foreground/80">{guest.mealChoiceName || <span className="text-muted-foreground/70 italic text-xs">—</span>}</p>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-1">
@@ -1727,21 +1727,21 @@ export default function EventManifestPage() {
                           <td className="px-4 py-3">
                             <button onClick={() => handleCheckInGuest(guest.id, guest.checkedIn)}
                               className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all',
-                                guest.checkedIn ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-primary/30 hover:text-primary')}>
+                                guest.checkedIn ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-border bg-muted/60 text-muted-foreground hover:border-primary/30 hover:text-primary')}>
                               {guest.checkedIn ? <><UserCheck className="w-3 h-3" /> In</> : <><UserPlus className="w-3 h-3" /> Check In</>}
                             </button>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
-                              <button onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || NO_SELECTION); }} className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors"><Utensils className="w-3.5 h-3.5" /></button>
-                              <button onClick={() => { setEditingGuest(guest); setIsAddingGuest(false); setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' }); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
-                              <button onClick={() => handleDeleteGuest(guest.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => { setMealOverrideGuest(guest); setMealOverrideId(guest.mealChoiceId || NO_SELECTION); }} className="p-1.5 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"><Utensils className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => { setEditingGuest(guest); setIsAddingGuest(false); setGuestForm({ name: guest.name, email: guest.email || '', phone: guest.phone || '', tableNumber: guest.tableNumber || '', seatNumber: guest.seatNumber || '', mealChoiceId: guest.mealChoiceId || '', notes: guest.notes || '' }); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground/80 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => handleDeleteGuest(guest.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                           </td>
                         </tr>
                       ))}
                       {filtered.length === 0 && (
-                        <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400 font-bold uppercase tracking-widest">
+                        <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground font-bold uppercase tracking-widest">
                           {guests.length === 0 ? 'No guests yet — add manually or share the guest link' : 'No guests match your filters'}
                         </td></tr>
                       )}
@@ -1759,50 +1759,50 @@ export default function EventManifestPage() {
                 {menuItems.map(item => {
                   const selectionCount = guests.filter(g => g.mealChoiceId === item.id || Object.values(g.courseSelections || {}).includes(item.id)).length;
                   return (
-                    <div key={item.id} className="bg-white rounded-2xl border-2 border-slate-200 p-4 flex items-start justify-between gap-4">
+                    <div key={item.id} className="bg-card rounded-2xl border-2 border-border p-4 flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-black text-slate-900">{item.name}</p>
-                          <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[8px]">Course {item.courseNumber}</Badge>
+                          <p className="font-black text-foreground">{item.name}</p>
+                          <Badge className="bg-muted text-muted-foreground border-border font-black text-[8px]">Course {item.courseNumber}</Badge>
                           {item.isVegan      && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-black text-[8px]">Vegan</Badge>}
                           {item.isGlutenFree && <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-black text-[8px]">GF</Badge>}
                         </div>
-                        {item.description && <p className="text-[10px] text-slate-500 mt-0.5">{item.description}</p>}
+                        {item.description && <p className="text-[10px] text-muted-foreground mt-0.5">{item.description}</p>}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <Badge className={cn('font-black text-[9px]', selectionCount > 0 ? 'bg-primary/10 text-primary border-primary/20' : 'bg-slate-50 text-slate-400 border-slate-200')}>
+                        <Badge className={cn('font-black text-[9px]', selectionCount > 0 ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted/60 text-muted-foreground border-border')}>
                           {selectionCount} selected
                         </Badge>
-                        <button onClick={() => handleDeleteMenuItem(item)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => handleDeleteMenuItem(item)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground/70 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
-            <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-              <button onClick={() => setIsAddingMenu(!isAddingMenu)} className="w-full p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-2"><Plus className="w-4 h-4 text-primary" /><span className="font-black uppercase text-sm tracking-tight text-slate-900">Add Menu Item</span></div>
-                {isAddingMenu ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+            <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
+              <button onClick={() => setIsAddingMenu(!isAddingMenu)} className="w-full p-5 flex items-center justify-between hover:bg-muted/60 transition-colors">
+                <div className="flex items-center gap-2"><Plus className="w-4 h-4 text-primary" /><span className="font-black uppercase text-sm tracking-tight text-foreground">Add Menu Item</span></div>
+                {isAddingMenu ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
               </button>
               <AnimatePresence>
                 {isAddingMenu && (
-                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-slate-100">
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-border">
                     <div className="p-5 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="space-y-1.5 sm:col-span-2"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Item Name *</Label><Input value={newMenuName} onChange={e => setNewMenuName(e.target.value)} placeholder="e.g. Pan-Seared Salmon" className="h-12 rounded-xl border-2" /></div>
-                        <div className="space-y-1.5 sm:col-span-2"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Description</Label><Input value={newMenuDesc} onChange={e => setNewMenuDesc(e.target.value)} placeholder="Shown to guests on order form" className="h-12 rounded-xl border-2" /></div>
+                        <div className="space-y-1.5 sm:col-span-2"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Item Name *</Label><Input value={newMenuName} onChange={e => setNewMenuName(e.target.value)} placeholder="e.g. Pan-Seared Salmon" className="h-12 rounded-xl border-2" /></div>
+                        <div className="space-y-1.5 sm:col-span-2"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Description</Label><Input value={newMenuDesc} onChange={e => setNewMenuDesc(e.target.value)} placeholder="Shown to guests on order form" className="h-12 rounded-xl border-2" /></div>
                         <div className="space-y-1.5">
-                          <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Course</Label>
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Course</Label>
                           <Select value={String(newMenuCourse)} onValueChange={v => setNewMenuCourse(Number(v))}>
                             <SelectTrigger className="h-12 rounded-xl border-2 font-bold uppercase text-[10px]"><SelectValue /></SelectTrigger>
                             <SelectContent><SelectItem value="1">Starter</SelectItem><SelectItem value="2">Main</SelectItem><SelectItem value="3">Dessert</SelectItem></SelectContent>
                           </Select>
                         </div>
-                        <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Price per guest ($)</Label><Input type="number" min="0" step="0.01" value={newMenuPrice} onChange={e => setNewMenuPrice(parseFloat(e.target.value) || 0)} className="h-12 rounded-xl border-2 font-bold text-center" /></div>
+                        <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Price per guest ($)</Label><Input type="number" min="0" step="0.01" value={newMenuPrice} onChange={e => setNewMenuPrice(parseFloat(e.target.value) || 0)} className="h-12 rounded-xl border-2 font-bold text-center" /></div>
                         <div className="flex items-center gap-4 sm:col-span-2">
-                          <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={newMenuVegan} onChange={e => setNewMenuVegan(e.target.checked)} className="rounded" /><span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Vegan</span></label>
-                          <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={newMenuGF}    onChange={e => setNewMenuGF(e.target.checked)}    className="rounded" /><span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Gluten-Free</span></label>
+                          <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={newMenuVegan} onChange={e => setNewMenuVegan(e.target.checked)} className="rounded" /><span className="text-[10px] font-black uppercase tracking-widest text-foreground/80">Vegan</span></label>
+                          <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={newMenuGF}    onChange={e => setNewMenuGF(e.target.checked)}    className="rounded" /><span className="text-[10px] font-black uppercase tracking-widest text-foreground/80">Gluten-Free</span></label>
                         </div>
                       </div>
                       <div className="flex gap-3 pt-1">
@@ -1816,8 +1816,8 @@ export default function EventManifestPage() {
             </div>
             {menuItems.length === 0 && !isAddingMenu && (
               <div className="text-center py-10 border-2 border-dashed rounded-3xl">
-                <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No menu items yet</p>
+                <Utensils className="w-8 h-8 text-muted-foreground/70 mx-auto mb-3" />
+                <p className="font-black uppercase text-[10px] tracking-widest text-muted-foreground">No menu items yet</p>
               </div>
             )}
           </TabsContent>
@@ -1829,17 +1829,17 @@ export default function EventManifestPage() {
 
           {/* ── STAFF TAB ─────────────────────────────────────────────────── */}
           <TabsContent value="staff" className="mt-4 space-y-4">
-            <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-              <div className="p-5 border-b border-slate-100">
-                <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+            <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
+              <div className="p-5 border-b border-border">
+                <h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2">
                   <Users className="w-4 h-4 text-primary" /> Assigned Staff
                 </h2>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Assign table zones so staff know their section</p>
+                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Assign table zones so staff know their section</p>
               </div>
               <div className="p-5 space-y-3">
                 {(event?.assignedStaffIds || []).length === 0 && (
                   <div className="text-center py-8 border-2 border-dashed rounded-2xl">
-                    <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No staff assigned yet</p>
+                    <p className="font-black uppercase text-[10px] tracking-widest text-muted-foreground">No staff assigned yet</p>
                   </div>
                 )}
                 {(event?.assignedStaffIds || []).map((staffId: string) => {
@@ -1847,14 +1847,14 @@ export default function EventManifestPage() {
                   if (!member) return null;
                   const currentZone = event?.staffZones?.[staffId] || '';
                   return (
-                    <div key={staffId} className="flex items-center justify-between gap-3 p-3 rounded-2xl border-2 border-slate-200">
+                    <div key={staffId} className="flex items-center justify-between gap-3 p-3 rounded-2xl border-2 border-border">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center font-black text-primary text-sm shrink-0">
                           {(member as any).name?.charAt(0)}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-black text-sm text-slate-900">{(member as any).name}</p>
-                          <p className="text-[9px] font-bold uppercase text-slate-400">{(member as any).role}</p>
+                          <p className="font-black text-sm text-foreground">{(member as any).name}</p>
+                          <p className="text-[9px] font-bold uppercase text-muted-foreground">{(member as any).role}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -1869,7 +1869,7 @@ export default function EventManifestPage() {
                           <Check className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => handleRemoveStaff(staffId)}
-                          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors">
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -1877,7 +1877,7 @@ export default function EventManifestPage() {
                   );
                 })}
                 <div className="pt-2 space-y-2">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Add Staff Member</Label>
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Add Staff Member</Label>
                   <div className="flex gap-2">
                     <Select value={staffToAdd || NO_SELECTION} onValueChange={v => setStaffToAdd(v === NO_SELECTION ? '' : v)}>
                       <SelectTrigger className="flex-1 h-11 rounded-xl border-2 font-bold text-sm"><SelectValue placeholder="Select staff member…" /></SelectTrigger>
@@ -1900,30 +1900,30 @@ export default function EventManifestPage() {
 
           {/* ── REQUESTS TAB ──────────────────────────────────────────────── */}
           <TabsContent value="requests" className="mt-4 space-y-4">
-            <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
+            <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
               <button onClick={() => { setLocalRequestTypes(requestTypes); setEditingRequestTypes(s => !s); }}
-                className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                className="w-full p-4 flex items-center justify-between hover:bg-muted/60 transition-colors">
                 <div className="flex items-center gap-2">
                   <Bell className="w-4 h-4 text-primary" />
-                  <p className="font-black text-sm uppercase tracking-tight text-slate-900">Request Menu Config</p>
-                  <Badge className="bg-slate-100 text-slate-500 border-slate-200 font-black text-[9px]">
+                  <p className="font-black text-sm uppercase tracking-tight text-foreground">Request Menu Config</p>
+                  <Badge className="bg-muted text-muted-foreground border-border font-black text-[9px]">
                     {requestTypes.filter((t: any) => t.enabled).length} active
                   </Badge>
                 </div>
-                {editingRequestTypes ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                {editingRequestTypes ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
               </button>
               <AnimatePresence>
                 {editingRequestTypes && (
-                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-slate-100">
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-border">
                     <div className="p-4 space-y-3">
                       <div className="space-y-2">
                         {localRequestTypes.map((type, idx) => (
-                          <div key={type.id} className={cn('flex items-center gap-3 p-3 rounded-xl border-2 transition-all', type.enabled ? 'border-primary/20 bg-primary/5' : 'border-slate-200 bg-white opacity-50')}>
+                          <div key={type.id} className={cn('flex items-center gap-3 p-3 rounded-xl border-2 transition-all', type.enabled ? 'border-primary/20 bg-primary/5' : 'border-border bg-card opacity-50')}>
                             <span className="text-xl leading-none w-6 shrink-0">{type.emoji}</span>
-                            <p className="flex-1 font-black text-sm text-slate-900">{type.label}</p>
+                            <p className="flex-1 font-black text-sm text-foreground">{type.label}</p>
                             <button onClick={() => { const next = [...localRequestTypes]; next[idx] = { ...next[idx], enabled: !next[idx].enabled }; setLocalRequestTypes(next); }}
-                              className={cn('w-9 h-5 rounded-full transition-all relative', type.enabled ? 'bg-primary' : 'bg-slate-200')}>
-                              <span className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', type.enabled ? 'left-4' : 'left-0.5')} />
+                              className={cn('w-9 h-5 rounded-full transition-all relative', type.enabled ? 'bg-primary' : 'bg-border')}>
+                              <span className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-card shadow transition-all', type.enabled ? 'left-4' : 'left-0.5')} />
                             </button>
                           </div>
                         ))}
@@ -1947,8 +1947,8 @@ export default function EventManifestPage() {
             />
             {floorRequests.filter(r => r.status === 'new' || r.status === 'acknowledged').length === 0 && (
               <div className="text-center py-12 border-2 border-dashed rounded-3xl">
-                <CheckCircle2 className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">No active floor requests</p>
+                <CheckCircle2 className="w-8 h-8 text-muted-foreground/70 mx-auto mb-3" />
+                <p className="font-black uppercase text-[10px] tracking-widest text-muted-foreground">No active floor requests</p>
               </div>
             )}
           </TabsContent>
@@ -1958,17 +1958,17 @@ export default function EventManifestPage() {
         <AnimatePresence>
           {showLink && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-              className="bg-white rounded-2xl border-2 border-primary/20 p-5 space-y-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Guest Order Link</p>
-              <div className="w-full bg-slate-50 rounded-xl px-4 py-3 border-2 border-slate-200">
-                <p className="text-xs font-bold text-slate-700 break-all">{shareableLink}</p>
+              className="bg-card rounded-2xl border-2 border-primary/20 p-5 space-y-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Guest Order Link</p>
+              <div className="w-full bg-muted/60 rounded-xl px-4 py-3 border-2 border-border">
+                <p className="text-xs font-bold text-foreground/80 break-all">{shareableLink}</p>
               </div>
               <Button onClick={() => { navigator.clipboard.writeText(shareableLink); toast({ title: 'Link Copied' }); }}
                 className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2">
                 <Copy className="w-4 h-4" /> Copy Link
               </Button>
               <div className="space-y-3 pt-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Generate Per-Seat QR Codes</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Generate Per-Seat QR Codes</p>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <Input placeholder="Tables (e.g. 1,2,3)" value={qrTables} onChange={e => setQrTables(e.target.value)} className="h-10 rounded-xl border-2 flex-1" />
                   <Input placeholder="Seats per table" value={qrSeatsPerTable} onChange={e => setQrSeatsPerTable(e.target.value)} className="h-10 rounded-xl border-2 sm:w-36" />
@@ -1977,9 +1977,9 @@ export default function EventManifestPage() {
                 {qrCodes.length > 0 && (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-64 overflow-y-auto" id="qr-print-area">
                     {qrCodes.map(qr => (
-                      <div key={qr.label} className="flex flex-col items-center gap-1 p-3 border-2 rounded-xl bg-white">
+                      <div key={qr.label} className="flex flex-col items-center gap-1 p-3 border-2 rounded-xl bg-card">
                         <img src={qr.dataUrl} alt={qr.label} className="w-16 h-16" />
-                        <p className="text-[8px] font-black uppercase text-slate-600 text-center">{qr.label}</p>
+                        <p className="text-[8px] font-black uppercase text-foreground/80 text-center">{qr.label}</p>
                       </div>
                     ))}
                   </div>
@@ -1999,27 +1999,27 @@ export default function EventManifestPage() {
               onClick={() => setMealOverrideGuest(null)}>
               <motion.div initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
                 onClick={e => e.stopPropagation()}
-                className="w-full max-w-md bg-white rounded-3xl border-2 border-slate-200 shadow-2xl overflow-hidden">
-                <div className="p-5 border-b border-slate-100">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Override Meal Choice</p>
-                  <p className="font-black text-lg text-slate-900 mt-0.5">{mealOverrideGuest.name}</p>
-                  <p className="text-[10px] text-slate-400 font-bold">Current: {mealOverrideGuest.mealChoiceName || 'No selection'}</p>
+                className="w-full max-w-md bg-card rounded-3xl border-2 border-border shadow-2xl overflow-hidden">
+                <div className="p-5 border-b border-border">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Override Meal Choice</p>
+                  <p className="font-black text-lg text-foreground mt-0.5">{mealOverrideGuest.name}</p>
+                  <p className="text-[10px] text-muted-foreground font-bold">Current: {mealOverrideGuest.mealChoiceName || 'No selection'}</p>
                 </div>
                 <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
                   <button onClick={() => setMealOverrideId(NO_SELECTION)}
-                    className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left', mealOverrideId === NO_SELECTION ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300')}>
-                    <div><p className="font-black text-sm text-slate-500">No Selection / Clear</p><p className="text-[10px] text-slate-400">Remove guest's meal choice</p></div>
-                    {mealOverrideId === NO_SELECTION && <Check className="w-4 h-4 text-slate-500 shrink-0" />}
+                    className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left', mealOverrideId === NO_SELECTION ? 'border-slate-400 bg-muted/60' : 'border-border hover:border-border')}>
+                    <div><p className="font-black text-sm text-muted-foreground">No Selection / Clear</p><p className="text-[10px] text-muted-foreground">Remove guest's meal choice</p></div>
+                    {mealOverrideId === NO_SELECTION && <Check className="w-4 h-4 text-muted-foreground shrink-0" />}
                   </button>
                   {menuItems.map(item => (
                     <button key={item.id} onClick={() => setMealOverrideId(item.id)}
-                      className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left', mealOverrideId === item.id ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300')}>
-                      <div><p className="font-black text-sm text-slate-900">{item.name}</p>{item.description && <p className="text-[10px] text-slate-400">{item.description}</p>}</div>
+                      className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left', mealOverrideId === item.id ? 'border-primary bg-primary/5' : 'border-border hover:border-border')}>
+                      <div><p className="font-black text-sm text-foreground">{item.name}</p>{item.description && <p className="text-[10px] text-muted-foreground">{item.description}</p>}</div>
                       {mealOverrideId === item.id && <Check className="w-4 h-4 text-primary shrink-0" />}
                     </button>
                   ))}
                 </div>
-                <div className="p-4 flex gap-3 border-t border-slate-100">
+                <div className="p-4 flex gap-3 border-t border-border">
                   <Button variant="outline" onClick={() => { setMealOverrideGuest(null); setMealOverrideId(''); }}
                     className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
                   <Button onClick={handleMealOverride} disabled={savingOverride || !mealOverrideId}
@@ -2074,10 +2074,10 @@ export default function EventManifestPage() {
                   <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{floorRequests.length} unresolved floor request{floorRequests.length !== 1 ? 's' : ''}</p>
                 </div>
               )}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Event Summary</p>
-                <p className="font-black text-slate-900">{eventDisplayName}</p>
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{stats.checkedIn} of {stats.total} guests · {fires.filter(f => f.status === 'fired' && !f.isDelta).length} of {courseNumbers.length} courses fired</p>
+              <div className="p-4 rounded-2xl bg-muted/60 border border-border space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Event Summary</p>
+                <p className="font-black text-foreground">{eventDisplayName}</p>
+                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">{stats.checkedIn} of {stats.total} guests · {fires.filter(f => f.status === 'fired' && !f.isDelta).length} of {courseNumbers.length} courses fired</p>
               </div>
               <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setIsEndEventOpen(false)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>

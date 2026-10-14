@@ -85,53 +85,53 @@ export default function YourClarityFlowPage() {
   };
 
   return (
-    <div className="relative min-h-dvh overflow-x-hidden text-stone-900">
+    <div className="relative min-h-dvh overflow-x-hidden text-foreground">
       <AuthBackdrop />
       <div className="relative z-10 px-5 py-6">
         <header className="mx-auto flex max-w-6xl items-center justify-between">
           <Wordmark className="text-lg" />
-          {!isNew && tenant && <Link href="/dashboard" className="text-sm text-stone-600">Back to the app</Link>}
+          {!isNew && tenant && <Link href="/dashboard" className="text-sm text-foreground/80">Back to the app</Link>}
         </header>
 
         {isLoading || !tools ? (
-          <div className="flex min-h-[60dvh] items-center justify-center"><Loader className="h-6 w-6 animate-spin text-stone-400" /></div>
+          <div className="flex min-h-[60dvh] items-center justify-center"><Loader className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : (
           <main className="mx-auto max-w-6xl pb-32 pt-10">
-            <p className="text-center text-xs uppercase tracking-[0.3em] text-stone-400">{isNew ? 'You’re in' : 'Your tools'}</p>
+            <p className="text-center text-xs uppercase tracking-[0.3em] text-muted-foreground">{isNew ? 'You’re in' : 'Your tools'}</p>
             <h1 className="mt-3 text-center text-balance text-4xl font-light tracking-tight sm:text-6xl">
               {isNew ? <>Welcome to <span className="font-semibold">{tenant?.name || 'ClarityFlow'}.</span></> : <>Your <span className="font-semibold">ClarityFlow.</span></>}
             </h1>
-            <p className="mx-auto mt-4 max-w-xl text-center text-lg text-stone-600">
+            <p className="mx-auto mt-4 max-w-xl text-center text-lg text-foreground/80">
               {isNew ? 'Here’s what we’ve switched on for you. Change anything — your app will show only what you use.' : 'Turn tools on or off. Your sidebar updates to match.'}
             </p>
 
             {notice && <p className="mx-auto mt-6 max-w-2xl rounded-2xl bg-emerald-50 p-4 text-center text-emerald-900">{notice}</p>}
             {!bill?.enabled ? (
               <div className="glass mx-auto mt-8 max-w-2xl rounded-[2rem] p-5 text-center sm:p-6">
-                <p className="text-xs uppercase tracking-[0.25em] text-stone-400">Early access</p>
+                <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Early access</p>
                 <p className="mt-2 text-2xl font-light tracking-tight">Every tool included — <span className="font-semibold">on us, for now.</span></p>
-                <p className="mt-2 text-stone-600">When plans launch, you’ll pay only for the tools you keep on — and you’ll hear first, with pricing before anything changes.</p>
+                <p className="mt-2 text-foreground/80">When plans launch, you’ll pay only for the tools you keep on — and you’ll hear first, with pricing before anything changes.</p>
               </div>
             ) : (
               <div className="glass mx-auto mt-8 max-w-2xl rounded-[2rem] p-5 sm:p-6">
                 <div className="flex items-baseline justify-between gap-3">
-                  <p className="text-xs uppercase tracking-[0.25em] text-stone-400">Your plan</p>
-                  <p className="text-3xl font-light tracking-tight">${bill.quote.total}<span className="text-base text-stone-500">/month</span></p>
+                  <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Your plan</p>
+                  <p className="text-3xl font-light tracking-tight">${bill.quote.total}<span className="text-base text-muted-foreground">/month</span></p>
                 </div>
                 {bill.foundingPct > 0 && <p className="mt-1 text-right text-sm font-medium text-emerald-700">Founding member: {bill.foundingPct}% off, forever → ${Math.round(bill.quote.total * (100 - bill.foundingPct)) / 100}/month</p>}
                 <div className="mt-3 space-y-1">
-                  {bill.quote.lines.map((l: any) => <p key={l.key} className="flex justify-between text-sm"><span className="text-stone-600">{l.name}{l.qty > 1 ? ` × ${l.qty}` : ''}</span><span>${l.total}</span></p>)}
+                  {bill.quote.lines.map((l: any) => <p key={l.key} className="flex justify-between text-sm"><span className="text-foreground/80">{l.name}{l.qty > 1 ? ` × ${l.qty}` : ''}</span><span>${l.total}</span></p>)}
                 </div>
-                <div className="mt-3 rounded-2xl bg-white/60 p-3">
+                <div className="mt-3 rounded-2xl bg-card/60 p-3">
                   <div className="flex justify-between text-sm"><span>Texts this month</span><span className="font-semibold">{(bill.textsThisMonth || 0).toLocaleString()} of {bill.quote.textsIncluded.toLocaleString()} included</span></div>
-                  <div className="mt-1.5 h-1.5 rounded-full bg-white"><div className={`h-1.5 rounded-full ${(bill.textsThisMonth || 0) > bill.quote.textsIncluded ? 'bg-amber-500' : 'bg-stone-900'}`} style={{ width: `${Math.min(100, ((bill.textsThisMonth || 0) / Math.max(1, bill.quote.textsIncluded)) * 100)}%` }} /></div>
-                  <p className="mt-1 text-[11px] text-stone-500">Beyond that, 3¢ per text — added to next month’s invoice. Emails are always included.</p>
+                  <div className="mt-1.5 h-1.5 rounded-full bg-card"><div className={`h-1.5 rounded-full ${(bill.textsThisMonth || 0) > bill.quote.textsIncluded ? 'bg-amber-500' : 'bg-foreground'}`} style={{ width: `${Math.min(100, ((bill.textsThisMonth || 0) / Math.max(1, bill.quote.textsIncluded)) * 100)}%` }} /></div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Beyond that, 3¢ per text — added to next month’s invoice. Emails are always included.</p>
                 </div>
-                <p className="mt-3 text-[12px] text-stone-500">Priced for {bill.quote.size.staff} team member{bill.quote.size.staff === 1 ? '' : 's'}{bill.quote.tools.includes('renters') ? ` and ${bill.quote.size.renters} renter${bill.quote.size.renters === 1 ? '' : 's'}` : ''}. Change tools any time — the difference is prorated.{bill.freeUntil && new Date(bill.freeUntil) > new Date() ? ` Free until ${new Date(bill.freeUntil).toLocaleDateString()}.` : ''}</p>
+                <p className="mt-3 text-[12px] text-muted-foreground">Priced for {bill.quote.size.staff} team member{bill.quote.size.staff === 1 ? '' : 's'}{bill.quote.tools.includes('renters') ? ` and ${bill.quote.size.renters} renter${bill.quote.size.renters === 1 ? '' : 's'}` : ''}. Change tools any time — the difference is prorated.{bill.freeUntil && new Date(bill.freeUntil) > new Date() ? ` Free until ${new Date(bill.freeUntil).toLocaleDateString()}.` : ''}</p>
                 {bill.subscription && (
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/70 p-3 text-sm">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card/70 p-3 text-sm">
                     <span>{bill.subscription.status === 'past_due' ? <span className="font-semibold text-red-700">Payment failed — update your card</span> : bill.subscription.status === 'trialing' ? 'Free period — billing starts automatically' : 'Subscribed'}{bill.subscription.currentPeriodEnd ? ` · renews ${new Date(bill.subscription.currentPeriodEnd).toLocaleDateString()}` : ''}{bill.subscription.cancelAtPeriodEnd ? ' · ends then' : ''}</span>
-                    <button type="button" onClick={openPortal} className="rounded-full bg-stone-900 px-4 py-2 text-[13px] text-white">Manage billing</button>
+                    <button type="button" onClick={openPortal} className="rounded-full bg-foreground px-4 py-2 text-[13px] text-background">Manage billing</button>
                   </div>
                 )}
               </div>
@@ -145,11 +145,11 @@ export default function YourClarityFlowPage() {
       </div>
 
       {tools && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-white/80 px-5 pt-3 backdrop-blur-xl" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-card/80 px-5 pt-3 backdrop-blur-xl" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
           <div className="mx-auto flex max-w-3xl items-center gap-3">
-            <p className="hidden min-w-0 flex-1 text-sm text-stone-600 sm:block"><span className="font-semibold text-stone-900">{new Set(['booking', 'guest', ...tools]).size} tools</span> · gives back about {hoursFor(Array.from(new Set(['booking', 'guest', ...tools])) as ToolId[])} hrs a week</p>
+            <p className="hidden min-w-0 flex-1 text-sm text-foreground/80 sm:block"><span className="font-semibold text-foreground">{new Set(['booking', 'guest', ...tools]).size} tools</span> · gives back about {hoursFor(Array.from(new Set(['booking', 'guest', ...tools])) as ToolId[])} hrs a week</p>
             {err && <p className="text-[12px] text-red-700">{err}</p>}
-            <button type="button" disabled={busy || !tenant} onClick={needsCheckout ? startCheckout : save} className="flex h-12 flex-1 items-center justify-center rounded-full bg-stone-900 px-6 text-sm font-medium text-white shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)] disabled:opacity-50 sm:flex-none">
+            <button type="button" disabled={busy || !tenant} onClick={needsCheckout ? startCheckout : save} className="flex h-12 flex-1 items-center justify-center rounded-full bg-foreground px-6 text-sm font-medium text-background shadow-[0_12px_30px_-12px_rgba(28,25,23,0.6)] disabled:opacity-50 sm:flex-none">
               {busy ? <Loader className="h-4 w-4 animate-spin" /> : needsCheckout ? `Start subscription · $${bill.quote.total}/mo` : isNew ? 'Enter ClarityFlow' : 'Save my tools'}
             </button>
           </div>

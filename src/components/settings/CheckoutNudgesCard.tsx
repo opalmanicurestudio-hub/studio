@@ -13,9 +13,9 @@ export function CheckoutNudgesCard({ tenantId, tenant, canEdit }: { tenantId: st
     try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { checkoutNudges: next }); setMsg('Saved.'); } catch (e: any) { setMsg(e?.message || 'Couldn’t save.'); }
   };
   const Pill = ({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) =>
-    <button type="button" disabled={!canEdit} aria-pressed={on} onClick={onClick} className={`rounded-full border px-4 py-1.5 text-sm ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}>{children}</button>;
+    <button type="button" disabled={!canEdit} aria-pressed={on} onClick={onClick} className={`rounded-full border px-4 py-1.5 text-sm ${on ? 'bg-foreground text-background' : 'bg-card'}`}>{children}</button>;
   return (
-    <div className="space-y-4 rounded-[2rem] border-2 bg-white p-6">
+    <div className="space-y-4 rounded-[2rem] border-2 bg-card p-6">
       <div><p className="text-lg font-semibold">Suggestions at checkout</p>
         <p className="text-sm text-muted-foreground">One honest suggestion when it genuinely suits the client, with the maths shown. A membership is only suggested if, on their last 3 months of visits, it would have cost them less.</p></div>
       {([['membership', 'Memberships', 'when it would have saved them money'], ['package', 'Packages', 'when they keep booking the same service'], ['rebook', 'Book the next visit', 'when nothing is booked yet, using their usual gap']] as const).map(([k, l, note]) =>

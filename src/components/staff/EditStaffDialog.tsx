@@ -132,7 +132,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
     </div>
     <div className="space-y-0.5 text-left">
       <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-      <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+      <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
     </div>
   </div>
 );
@@ -238,7 +238,7 @@ const EditStaffFormInternal = ({
                   id="name-edit"
                   placeholder="ALEXANDER SMITH"
                   {...register('name')}
-                  className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base shadow-inner bg-white"
+                  className="h-12 rounded-xl border-2 font-black uppercase tracking-tight text-base shadow-inner bg-card"
                 />
                 {errors.name && (
                   <p className="text-[9px] font-bold text-destructive uppercase ml-1">{errors.name.message}</p>
@@ -278,7 +278,7 @@ const EditStaffFormInternal = ({
             <div className="flex flex-col items-center gap-2">
               <Input
                 {...register('pin')}
-                className="text-center text-5xl h-20 font-black tracking-[0.5em] bg-white border-primary/20 rounded-3xl shadow-xl"
+                className="text-center text-5xl h-20 font-black tracking-[0.5em] bg-card border-primary/20 rounded-3xl shadow-xl"
                 maxLength={4}
                 readOnly
                 placeholder="••••"
@@ -367,7 +367,7 @@ const EditStaffFormInternal = ({
               id="specialties-edit"
               placeholder="e.g., BALAYAGE, PRECISION CUTS"
               {...register('specialties')}
-              className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner bg-white"
+              className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner bg-card"
             />
           </div>
 
@@ -394,7 +394,7 @@ const EditStaffFormInternal = ({
                   onChange={(e) => setServiceQuery(e.target.value)}
                   aria-label="Search services"
                   placeholder="Search services"
-                  className="h-11 rounded-xl border-2 bg-white font-bold text-sm"
+                  className="h-11 rounded-xl border-2 bg-card font-bold text-sm"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto overscroll-contain pr-1">
                   {filteredServices.map(service => {
@@ -407,7 +407,7 @@ const EditStaffFormInternal = ({
                         onClick={() => toggleService(service.id)}
                         className={cn(
                           "rounded-xl border-2 p-2.5 text-left text-[10px] font-black uppercase tracking-tight truncate",
-                          on ? "bg-primary text-primary-foreground border-primary" : "bg-white text-slate-900"
+                          on ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground"
                         )}
                       >
                         {service.name}
@@ -423,8 +423,8 @@ const EditStaffFormInternal = ({
             {selectedServices.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
                 {selectedServices.map(service => (
-                  <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
-                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">
+                  <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-card shadow-sm group">
+                    <span className="text-[10px] font-black uppercase tracking-tight text-foreground truncate flex-1 text-left">
                       {service.name}
                     </span>
                     <Button
@@ -475,7 +475,7 @@ const EditStaffFormInternal = ({
                   onChange={(e) => setFormQuery(e.target.value)}
                   aria-label="Search forms"
                   placeholder="Search forms"
-                  className="h-11 rounded-xl border-2 bg-white font-bold text-sm"
+                  className="h-11 rounded-xl border-2 bg-card font-bold text-sm"
                 />
                 <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto overscroll-contain pr-1">
                   {filteredForms.map(form => {
@@ -488,7 +488,7 @@ const EditStaffFormInternal = ({
                         onClick={() => toggleForm(form.id)}
                         className={cn(
                           "rounded-xl border-2 p-2.5 text-left text-[10px] font-black uppercase tracking-tight truncate",
-                          on ? "bg-primary text-primary-foreground border-primary" : "bg-white text-slate-900"
+                          on ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground"
                         )}
                       >
                         {form.title}
@@ -504,8 +504,8 @@ const EditStaffFormInternal = ({
             {assignedForms.length > 0 ? (
               <div className="grid grid-cols-1 gap-2 text-left">
                 {assignedForms.map(form => (
-                  <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
-                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate text-left">
+                  <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-card shadow-sm group">
+                    <span className="text-[10px] font-black uppercase tracking-tight text-foreground truncate text-left">
                       {form.title}
                     </span>
                     <Button
@@ -743,7 +743,7 @@ const EditStaffFormInternal = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5 text-left">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Emergency contact</Label>
-                <Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-white" />
+                <Input placeholder="FULL LEGAL NAME" {...register('emergencyContact.name')} className="h-11 rounded-xl border-2 font-bold text-xs uppercase bg-card" />
               </div>
               <div className="space-y-1.5 text-left">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Relationship</Label>
@@ -774,7 +774,7 @@ const EditStaffFormInternal = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5 text-left">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Licence number</Label>
-                <Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-white shadow-inner" />
+                <Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-card shadow-inner" />
               </div>
               <div className="space-y-1.5 text-left">
                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Licence expires</Label>
@@ -895,7 +895,7 @@ export const EditStaffDialog: React.FC<any> = ({
   if (inline) {
     return (
       <div className="w-full max-w-2xl mx-auto">
-        <div className="rounded-[2rem] border-2 bg-white overflow-hidden">
+        <div className="rounded-[2rem] border-2 bg-card overflow-hidden">
           <div className="border-b bg-muted/5 px-5 py-4 text-left">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -974,7 +974,7 @@ export const EditStaffDialog: React.FC<any> = ({
                   Strategic Refinement
                 </span>
               </div>
-              <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+              <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">
                 Modify Provider
               </DialogTitle>
               <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
@@ -1002,7 +1002,7 @@ export const EditStaffDialog: React.FC<any> = ({
                   variant="ghost"
                   onClick={() => onOpenChange(false)}
                   type="button"
-                  className="h-14 font-black uppercase tracking-tighter text-[11px] text-slate-500"
+                  className="h-14 font-black uppercase tracking-tighter text-[11px] text-muted-foreground"
                 >
                   Cancel
                 </Button>

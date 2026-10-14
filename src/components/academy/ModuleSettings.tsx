@@ -57,7 +57,7 @@ export function GamifySetting({ tenantId }: { tenantId: string }) {
   return (
     <section className="flex items-start justify-between gap-3 rounded-2xl bg-muted/40 p-4">
       <div><p className="font-black">⭐ Points, streaks and badges</p><p className="text-[12px] text-muted-foreground">Students earn points for lessons, a badge for each module, and a streak for learning on consecutive days. Great for motivation — switch off for a more formal feel.</p></div>
-      {d.canChange && <button type="button" role="switch" aria-checked={d.gamify} onClick={async () => { const on = !d.gamify; setD({ ...d, gamify: on }); await call('/api/academy/school', { action: 'gamify-setting', tenantId, on }); }} className={`relative h-8 w-14 shrink-0 rounded-full ${d.gamify ? 'bg-emerald-600' : 'bg-stone-300'}`}><span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${d.gamify ? 'left-7' : 'left-1'}`} /></button>}
+      {d.canChange && <button type="button" role="switch" aria-checked={d.gamify} onClick={async () => { const on = !d.gamify; setD({ ...d, gamify: on }); await call('/api/academy/school', { action: 'gamify-setting', tenantId, on }); }} className={`relative h-8 w-14 shrink-0 rounded-full ${d.gamify ? 'bg-emerald-600' : 'bg-stone-300'}`}><span className={`absolute top-1 h-6 w-6 rounded-full bg-card shadow transition-all ${d.gamify ? 'left-7' : 'left-1'}`} /></button>}
     </section>
   );
 }

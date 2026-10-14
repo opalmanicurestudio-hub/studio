@@ -148,7 +148,7 @@ export function CallsPanel({ tenantId, uid, role, staff }: { tenantId: string; u
             <button type="button" disabled={!!busy || !passTo || !note.trim()} onClick={() => act(c, { action: 'reassign', toId: passTo, reason: note }, 'Passed on.')} className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-50">Pass it on</button>
           </div>}
           {openFor?.id === c.id && openFor?.kind === 'done' && <div className="space-y-2 rounded-xl bg-secondary p-2">
-            <div className="flex flex-wrap gap-1.5">{RES.map(([k, l]) => <button key={k} type="button" aria-pressed={res === k} onClick={() => setRes(k)} className={`rounded-full border px-3 py-1 text-xs ${res === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+            <div className="flex flex-wrap gap-1.5">{RES.map(([k, l]) => <button key={k} type="button" aria-pressed={res === k} onClick={() => setRes(k)} className={`rounded-full border px-3 py-1 text-xs ${res === k ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={res === 'other' ? 'What happened (needed)' : 'Note (optional)'} className="h-8 w-full rounded-lg border px-2 text-xs" />
             <button type="button" disabled={!!busy || (res === 'other' && !note.trim())} onClick={() => act(c, { action: 'resolve', outcome: res, note }, 'Closed.')} className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-50">Close it</button>
           </div>}

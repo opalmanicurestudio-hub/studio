@@ -77,7 +77,7 @@ export default function AccountCheckPage() {
     setBusy(null); setSent(r?.ok ? 'Sent — our team has everything they need. You’ll see our reply under Help.' : (r?.error || 'That didn’t send — check your connection and try again.'));
   };
   const icon = (lv: Level) => (lv === 'ok' ? '✓' : lv === 'warn' ? '!' : 'i');
-  const tone = (lv: Level) => (lv === 'ok' ? 'bg-emerald-100 text-emerald-800' : lv === 'warn' ? 'bg-amber-100 text-amber-900' : 'bg-stone-200 text-stone-700');
+  const tone = (lv: Level) => (lv === 'ok' ? 'bg-emerald-100 text-emerald-800' : lv === 'warn' ? 'bg-amber-100 text-amber-900' : 'bg-border text-foreground/80');
   const fixLabel: Record<string, string> = { restore_location: 'Fix it', reset_location: 'Fix it', locations: 'Review locations', support: 'Tell support' };
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 md:p-8">

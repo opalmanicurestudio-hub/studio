@@ -257,8 +257,8 @@ const STATUS_CONFIG: Record <
   vacant: { label: 'Vacant', badgeClass: 'bg-amber-100 text-amber-800' },
   occupied: { label: 'Occupied', badgeClass: 'bg-emerald-100 text-emerald-800' },
   partial: { label: 'Partial', badgeClass: 'bg-orange-100 text-orange-800' },
-  maintenance: { label: 'Maintenance', badgeClass: 'bg-slate-200 text-slate-700' },
-  inactive: { label: 'Inactive', badgeClass: 'bg-slate-100 text-slate-500' },
+  maintenance: { label: 'Maintenance', badgeClass: 'bg-border text-foreground/80' },
+  inactive: { label: 'Inactive', badgeClass: 'bg-muted text-muted-foreground' },
 };
 
 const RENTER_STATUS_CONFIG: Record<RenterStatus, { label: string; badgeClass: string }> = {
@@ -267,8 +267,8 @@ const RENTER_STATUS_CONFIG: Record<RenterStatus, { label: string; badgeClass: st
   on_leave:        { label: 'On leave',        badgeClass: 'bg-amber-100 text-amber-800' },
   maternity_leave: { label: 'Maternity leave', badgeClass: 'bg-pink-100 text-pink-800' },
   subletting:      { label: 'Subletting',      badgeClass: 'bg-violet-100 text-violet-800' },
-  past:            { label: 'Past',            badgeClass: 'bg-slate-200 text-slate-700' },
-  archived:        { label: 'Archived',        badgeClass: 'bg-slate-100 text-slate-500' },
+  past:            { label: 'Past',            badgeClass: 'bg-border text-foreground/80' },
+  archived:        { label: 'Archived',        badgeClass: 'bg-muted text-muted-foreground' },
 };
 
 const AMENITY_OPTIONS = [
@@ -427,21 +427,21 @@ function OverflowMenu({ items, align = 'right', label = 'More' }: { items: Overf
         type="button"
         aria-label={label}
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="h-8 w-8 rounded-lg border-2 flex items-center justify-center text-slate-500 hover:bg-slate-50 active:scale-95 transition"
+        className="h-8 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:bg-muted/60 active:scale-95 transition"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
-          <div className={`absolute z-50 mt-1 min-w-[11rem] rounded-2xl border-2 bg-white shadow-xl p-1.5 ${align === 'right' ? 'right-0' : 'left-0'}`}>
+          <div className={`absolute z-50 mt-1 min-w-[11rem] rounded-2xl border-2 bg-card shadow-xl p-1.5 ${align === 'right' ? 'right-0' : 'left-0'}`}>
             {usable.map((it, i) => (
               <button
                 key={i}
                 type="button"
                 disabled={it.disabled}
                 onClick={(e) => { e.stopPropagation(); setOpen(false); it.onClick(); }}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition disabled:opacity-40 ${it.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'}`}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition disabled:opacity-40 ${it.danger ? 'text-red-600 hover:bg-red-50' : 'text-foreground/80 hover:bg-muted/60'}`}
               >{it.label}</button>
             ))}
           </div>
@@ -629,7 +629,7 @@ function PricingAdvisor(props: {
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
-            <Calculator className="h-5 w-5 text-slate-500" />
+            <Calculator className="h-5 w-5 text-muted-foreground" />
             Pricing Advisor
           </DialogTitle>
           <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
@@ -1028,7 +1028,7 @@ function CommandCenterPanel({
       <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
-            <ActivityIcon className="h-5 w-5 text-slate-500" />
+            <ActivityIcon className="h-5 w-5 text-muted-foreground" />
             Command Center
           </DialogTitle>
           <DialogDescription>
@@ -1321,7 +1321,7 @@ function BoothCanvasCard({
 
       {/* True size in feet while designing (needs scale calibration) */}
       {!locked && pxPerFt > 0 && (
-        <span className="absolute -bottom-4 left-0 text-[9px] font-black text-slate-500 bg-white/85 rounded px-1 pointer-events-none whitespace-nowrap z-10">
+        <span className="absolute -bottom-4 left-0 text-[9px] font-black text-muted-foreground bg-card/85 rounded px-1 pointer-events-none whitespace-nowrap z-10">
           {(booth.canvasW / pxPerFt).toFixed(1)} × {(booth.canvasH / pxPerFt).toFixed(1)} ft
         </span>
       )}
@@ -1372,7 +1372,7 @@ function DetailPanel({
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-x-auto sm:right-4 sm:top-4 sm:bottom-auto w-full sm:w-72 max-h-[75vh] sm:max-h-none overflow-y-auto bg-white border-2 rounded-t-3xl sm:rounded-2xl shadow-xl z-50 overflow-hidden"
+      className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-x-auto sm:right-4 sm:top-4 sm:bottom-auto w-full sm:w-72 max-h-[75vh] sm:max-h-none overflow-y-auto bg-card border-2 rounded-t-3xl sm:rounded-2xl shadow-xl z-50 overflow-hidden"
       style={{ paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
     >
       {/* Status-tinted identity band — the station's color IS the header */}
@@ -1390,7 +1390,7 @@ function DetailPanel({
           </div>
           <button
             onClick={onClose}
-            className="h-8 w-8 rounded-xl bg-white/60 hover:bg-white flex items-center justify-center shrink-0 transition-colors"
+            className="h-8 w-8 rounded-xl bg-card/60 hover:bg-card flex items-center justify-center shrink-0 transition-colors"
             style={{ color: sc.text }}
             aria-label="Close"
           >
@@ -1410,7 +1410,7 @@ function DetailPanel({
             {(renter as any).avatarUrl ? (
               <img src={(renter as any).avatarUrl} alt="" className="w-10 h-10 rounded-xl object-cover shrink-0" />
             ) : (
-              <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-foreground text-background flex items-center justify-center font-black text-sm shrink-0">
                 {(renter.firstName || '?').charAt(0).toUpperCase()}
               </div>
             )}
@@ -1420,7 +1420,7 @@ function DetailPanel({
                 {[renter.businessName, renter.specialty].filter(Boolean).join(' · ') || renter.email}
               </p>
             </div>
-            <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-slate-100 text-slate-600 shrink-0">
+            <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-muted text-foreground/80 shrink-0">
               {RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? '—'}
             </span>
           </div>
@@ -1435,7 +1435,7 @@ function DetailPanel({
         {lease && (
           <div className="rounded-2xl border-2 p-3 space-y-1">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Lease</p>
-            <p className="text-xs font-bold text-slate-700">
+            <p className="text-xs font-bold text-foreground/80">
               {formatCents(lease.rentAmountCents)} / {(FREQUENCY_LABELS[lease.frequency] ?? lease.frequency ?? 'period').toLowerCase()}
               <span className="text-muted-foreground font-semibold"> · {lease.endDate ? `ends ${lease.endDate}` : 'month-to-month'}</span>
             </p>
@@ -1451,7 +1451,7 @@ function DetailPanel({
         {(booth.amenities?.length ?? 0) > 0 && (
           <div className="flex flex-wrap gap-1">
             {booth.amenities.map((a) => (
-              <span key={a} className="text-[9px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+              <span key={a} className="text-[9px] font-bold px-2 py-1 rounded-full bg-muted text-foreground/80">
                 {a}
               </span>
             ))}
@@ -1471,7 +1471,7 @@ function DetailPanel({
         <div className="space-y-2 pt-1">
           <button
             onClick={() => onEdit(booth)}
-            className="w-full h-10 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
+            className="w-full h-10 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 hover:bg-muted/60 transition-colors flex items-center justify-center gap-1.5"
           >
             <Pencil className="h-3.5 w-3.5" /> Edit space
           </button>
@@ -1565,7 +1565,7 @@ function ContactProfileDrawer({
   return (
     <div className="fixed inset-0 z-[70] flex justify-end">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative w-full sm:w-[420px] h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+      <div className="relative w-full sm:w-[420px] h-full bg-card shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
         {/* Header — same identity-banner language as the renter profile, in a
             lighter tone: this is a lead/guest, not a resident (yet). */}
         <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 text-white px-5 pt-5 pb-4">
@@ -1576,7 +1576,7 @@ function ContactProfileDrawer({
                 {contact.photoUrl ? (
                   <img src={contact.photoUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="w-full h-full bg-white/10 text-white flex items-center justify-center font-black text-xl">
+                  <span className="w-full h-full bg-card/10 text-white flex items-center justify-center font-black text-xl">
                     {(contact.name || '?').charAt(0).toUpperCase()}
                   </span>
                 )}
@@ -1592,16 +1592,16 @@ function ContactProfileDrawer({
                 <p className="font-black text-lg leading-tight truncate">{contact.name}</p>
                 <div className="flex gap-1.5 mt-1.5 flex-wrap">
                   {(() => {
-                    const S: Record<string, string> = { inquiry: 'bg-white/10 text-white/60', tour: 'bg-sky-400/20 text-sky-300', applicant: 'bg-violet-400/20 text-violet-300', guest: 'bg-emerald-400/20 text-emerald-300', repeat: 'bg-amber-400/20 text-amber-300' };
+                    const S: Record<string, string> = { inquiry: 'bg-card/10 text-white/60', tour: 'bg-sky-400/20 text-sky-300', applicant: 'bg-violet-400/20 text-violet-300', guest: 'bg-emerald-400/20 text-emerald-300', repeat: 'bg-amber-400/20 text-amber-300' };
                     const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Toured', applicant: 'Applicant', guest: 'Guest', repeat: 'Regular' };
-                    return <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${S[contact.stage] || 'bg-white/10 text-white/60'}`}>{L[contact.stage] || 'Contact'}</span>;
+                    return <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${S[contact.stage] || 'bg-card/10 text-white/60'}`}>{L[contact.stage] || 'Contact'}</span>;
                   })()}
                   {contact.tier === 'regular' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">Lease-ready</span>}
                   {contact.lastRating && <span className="text-amber-300 text-[10px]">{'★'.repeat(contact.lastRating)}</span>}
                 </div>
               </div>
             </div>
-            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
+            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-card/10 hover:bg-card/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
           </div>
 
           {/* The three numbers, up in the banner where they read instantly */}
@@ -1621,9 +1621,9 @@ function ContactProfileDrawer({
           </div>
 
           <div className="flex gap-2 mt-3">
-            {contact.phone && <a href={`tel:${contact.phone}`} onClick={() => onTouch?.(contact, 'call')} title="Call" className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 flex items-center justify-center transition-colors"><Phone className="h-4 w-4" /></a>}
-            {contact.phone && <a href={`sms:${contact.phone}`} onClick={() => onTouch?.(contact, 'text')} title="Text" className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 flex items-center justify-center transition-colors"><MessageCircle className="h-4 w-4" /></a>}
-            {contact.email && <a href={`mailto:${contact.email}`} onClick={() => onTouch?.(contact, 'email')} title="Email" className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 flex items-center justify-center transition-colors"><Mail className="h-4 w-4" /></a>}
+            {contact.phone && <a href={`tel:${contact.phone}`} onClick={() => onTouch?.(contact, 'call')} title="Call" className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 text-white/90 flex items-center justify-center transition-colors"><Phone className="h-4 w-4" /></a>}
+            {contact.phone && <a href={`sms:${contact.phone}`} onClick={() => onTouch?.(contact, 'text')} title="Text" className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 text-white/90 flex items-center justify-center transition-colors"><MessageCircle className="h-4 w-4" /></a>}
+            {contact.email && <a href={`mailto:${contact.email}`} onClick={() => onTouch?.(contact, 'email')} title="Email" className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 text-white/90 flex items-center justify-center transition-colors"><Mail className="h-4 w-4" /></a>}
           </div>
         </div>
 
@@ -1678,7 +1678,7 @@ function ContactProfileDrawer({
                         key={s.value}
                         onClick={() => s.value === 'lost' ? undefined : onSetPipeline?.(contact, s.value)}
                         disabled={s.value === 'lost'}
-                        className={`h-7 px-2.5 rounded-full border-2 text-[9px] font-black uppercase tracking-wide ${stage === s.value ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'} ${s.value === 'lost' ? 'opacity-40 cursor-default' : ''}`}
+                        className={`h-7 px-2.5 rounded-full border-2 text-[9px] font-black uppercase tracking-wide ${stage === s.value ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80'} ${s.value === 'lost' ? 'opacity-40 cursor-default' : ''}`}
                       >{s.label}</button>
                     ))}
                   </div>
@@ -1689,16 +1689,16 @@ function ContactProfileDrawer({
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Follow up on</p>
                   <div className="flex gap-2">
                     <input type="date" value={followDraft} onChange={e => setFollowDraft(e.target.value)} className="flex-1 h-9 rounded-xl border-2 px-3 text-sm font-medium" />
-                    <button onClick={() => onFollowUp?.(contact, followDraft || null)} className="h-9 px-3 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Set</button>
-                    {contact.nextFollowUpAt && <button onClick={() => { setFollowDraft(''); onFollowUp?.(contact, null); }} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Clear</button>}
+                    <button onClick={() => onFollowUp?.(contact, followDraft || null)} className="h-9 px-3 rounded-xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest">Set</button>
+                    {contact.nextFollowUpAt && <button onClick={() => { setFollowDraft(''); onFollowUp?.(contact, null); }} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-muted-foreground">Clear</button>}
                   </div>
                   {contact.nextFollowUpAt && <p className="text-[10px] font-bold text-amber-600 mt-1">Reminder set for {contact.nextFollowUpAt}</p>}
                 </div>
 
                 {/* Lost / re-engage */}
                 {stage === 'lost' ? (
-                  <div className="rounded-xl bg-slate-50 border-2 px-3 py-2.5 space-y-2">
-                    <p className="text-[10px] font-bold text-slate-600">Lost{contact.lostReason ? ` · ${contact.lostReason}` : ''} — kept on file.</p>
+                  <div className="rounded-xl bg-muted/60 border-2 px-3 py-2.5 space-y-2">
+                    <p className="text-[10px] font-bold text-foreground/80">Lost{contact.lostReason ? ` · ${contact.lostReason}` : ''} — kept on file.</p>
                     <button onClick={() => onReengage?.(contact)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-indigo-600">Re-engage</button>
                   </div>
                 ) : (
@@ -1706,7 +1706,7 @@ function ContactProfileDrawer({
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Not moving forward?</p>
                     <div className="flex gap-2">
                       <input value={lostReasonDraft} onChange={e => setLostReasonDraft(e.target.value)} placeholder="Reason (optional)" className="flex-1 h-9 rounded-xl border-2 px-3 text-sm font-medium" />
-                      <button onClick={() => onMarkLost?.(contact, lostReasonDraft.trim())} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 hover:text-red-600 hover:border-red-200">Mark lost</button>
+                      <button onClick={() => onMarkLost?.(contact, lostReasonDraft.trim())} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-muted-foreground hover:text-red-600 hover:border-red-200">Mark lost</button>
                     </div>
                   </div>
                 )}
@@ -1741,7 +1741,7 @@ function ContactProfileDrawer({
               <div key={i} className="flex gap-3 pb-4 relative">
                 <div className="flex flex-col items-center">
                   <div className={`h-2.5 w-2.5 rounded-full mt-1 shrink-0 ${TONE[t.tone] || 'bg-slate-400'}`} />
-                  {i < timeline.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-1" />}
+                  {i < timeline.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
                 </div>
                 <div className="min-w-0 -mt-0.5">
                   <p className="text-xs font-bold leading-snug">{t.label}</p>
@@ -1856,8 +1856,8 @@ function PerkRow({
 function ZoneLabel({ children }: { children: any }) {
   return (
     <div className="flex items-center gap-3 pt-3">
-      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 shrink-0">{children}</p>
-      <div className="h-px flex-1 bg-slate-200" />
+      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground shrink-0">{children}</p>
+      <div className="h-px flex-1 bg-border" />
     </div>
   );
 }
@@ -1885,12 +1885,12 @@ function RenterPerksSetting({ firestore, tenantId, initial }: { firestore: any; 
   return (
     <div className="rounded-2xl border-2 p-4 space-y-2 mt-4">
       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Renter booking perks</p>
-      <p className="text-xs font-medium text-slate-600">When one of your renters books extra time through your booking page, they're recognized automatically — no re-uploading documents, and their signed lease covers the agreement. Optionally give them member pricing:</p>
+      <p className="text-xs font-medium text-foreground/80">When one of your renters books extra time through your booking page, they're recognized automatically — no re-uploading documents, and their signed lease covers the agreement. Optionally give them member pricing:</p>
       <div className="flex items-center gap-2">
         <input type="number" inputMode="numeric" min={0} max={99} value={pct} onChange={e => setPct(e.target.value)} placeholder="0"
           className="w-20 h-10 rounded-xl border-2 px-3 text-sm font-bold" />
-        <span className="text-xs font-black uppercase tracking-widest text-slate-500">% off day & hourly bookings</span>
-        <button onClick={save} disabled={saving} className="ml-auto h-10 px-4 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">{saving ? 'Saving…' : 'Save'}</button>
+        <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">% off day & hourly bookings</span>
+        <button onClick={save} disabled={saving} className="ml-auto h-10 px-4 rounded-xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest disabled:opacity-40">{saving ? 'Saving…' : 'Save'}</button>
       </div>
       <p className="text-[10px] font-bold text-muted-foreground">0 = no discount. Recognition still works either way.</p>
     </div>
@@ -1924,7 +1924,7 @@ function DayPassPacksSetting({ firestore, tenantId, initial }: { firestore: any;
   return (
     <div className="rounded-2xl border-2 p-4 space-y-2 mt-4">
       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Day-pass packs</p>
-      <p className="text-xs font-medium text-slate-600">Prepaid bundles you sell in person (Money tab → Sell pass). Bookings redeem days automatically — cash up front, loyalty built in.</p>
+      <p className="text-xs font-medium text-foreground/80">Prepaid bundles you sell in person (Money tab → Sell pass). Bookings redeem days automatically — cash up front, loyalty built in.</p>
       {rows.map((r, i) => (
         <div key={i} className="flex gap-2 items-center">
           <input value={r.label} onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={`e.g. ${r.days || 10}-day pack`} className="flex-1 min-w-0 h-10 rounded-xl border-2 px-3 text-sm font-medium" />
@@ -1935,7 +1935,7 @@ function DayPassPacksSetting({ firestore, tenantId, initial }: { firestore: any;
       ))}
       <div className="flex items-center gap-2">
         <button onClick={() => setRows(rs => [...rs, { label: '', days: '10', dollars: '' }])} className="h-9 px-3 rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-slate-400">+ Add pack</button>
-        <button onClick={save} disabled={saving} className="ml-auto h-9 px-4 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">{saving ? 'Saving…' : 'Save packs'}</button>
+        <button onClick={save} disabled={saving} className="ml-auto h-9 px-4 rounded-xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest disabled:opacity-40">{saving ? 'Saving…' : 'Save packs'}</button>
       </div>
     </div>
   );
@@ -5031,16 +5031,16 @@ export default function BoothsPage() {
   const opsBadge = weeklyDigest.length;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Booths" />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
       {/* ── KPI HEADER STRIP ─────────────────────────────────────────── */}
-      <div className="bg-white border-b px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
+      <div className="bg-card border-b px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="min-w-0">
-            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 flex items-center gap-2.5 leading-none">
-              <span className="h-9 w-9 rounded-2xl bg-slate-900 flex items-center justify-center shadow-md shadow-slate-900/10 shrink-0">
+            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground flex items-center gap-2.5 leading-none">
+              <span className="h-9 w-9 rounded-2xl bg-foreground flex items-center justify-center shadow-md shadow-slate-900/10 shrink-0">
                 <Armchair className="h-5 w-5 text-white" />
               </span>
               Spaces
@@ -5069,11 +5069,11 @@ export default function BoothsPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: 'Monthly revenue', value: formatCents(metrics.monthlyRevenue), sub: `${metrics.occupancyPct}% occupancy`, color: 'text-emerald-700' },
-            { label: 'Occupied', value: `${metrics.occupied} / ${metrics.total}`, sub: 'spaces', color: 'text-slate-900' },
-            { label: 'Vacant', value: String(metrics.vacant), sub: metrics.vacancyCost > 0 ? `${formatCents(metrics.vacancyCost)}/mo uncollected` : 'all leased', color: metrics.vacant > 0 ? 'text-amber-600' : 'text-slate-900' },
-            { label: 'Potential', value: formatCents(metrics.potentialMonthly), sub: 'if fully leased', color: 'text-slate-500' },
+            { label: 'Occupied', value: `${metrics.occupied} / ${metrics.total}`, sub: 'spaces', color: 'text-foreground' },
+            { label: 'Vacant', value: String(metrics.vacant), sub: metrics.vacancyCost > 0 ? `${formatCents(metrics.vacancyCost)}/mo uncollected` : 'all leased', color: metrics.vacant > 0 ? 'text-amber-600' : 'text-foreground' },
+            { label: 'Potential', value: formatCents(metrics.potentialMonthly), sub: 'if fully leased', color: 'text-muted-foreground' },
           ].map(k => (
-            <div key={k.label} className="rounded-xl border bg-white px-3.5 py-2.5 space-y-0.5">
+            <div key={k.label} className="rounded-xl border bg-card px-3.5 py-2.5 space-y-0.5">
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
               <p className={`text-xl font-black tracking-tighter ${k.color}`}>{k.value}</p>
               <p className="text-[9px] font-bold text-muted-foreground">{k.sub}</p>
@@ -5096,7 +5096,7 @@ export default function BoothsPage() {
               key={t.id}
               onClick={() => selectTab(t.id)}
               className={`relative px-4 py-2 text-xs font-black uppercase tracking-widest transition-colors flex items-center gap-1.5
-                ${tab === t.id ? 'text-slate-900 border-b-2 border-slate-900 -mb-px' : 'text-muted-foreground hover:text-slate-700'}`}
+                ${tab === t.id ? 'text-foreground border-b-2 border-slate-900 -mb-px' : 'text-muted-foreground hover:text-foreground/80'}`}
             >
               {t.label}
               {t.badge && (
@@ -5112,37 +5112,37 @@ export default function BoothsPage() {
         <div className="px-4 sm:px-6 md:px-8 pt-5 space-y-4"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex gap-1 p-1 bg-white rounded-xl border">
-              <button onClick={() => setSpaceView('floor')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'floor' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
+            <div className="flex gap-1 p-1 bg-card rounded-xl border">
+              <button onClick={() => setSpaceView('floor')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'floor' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground/80'}`}>
                 <LayoutGrid className="h-3 w-3 inline mr-1" />Floor
               </button>
-              <button onClick={() => setSpaceView('list')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'list' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
+              <button onClick={() => setSpaceView('list')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'list' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground/80'}`}>
                 <List className="h-3 w-3 inline mr-1" />List
               </button>
             </div>
             <div className="flex gap-2 items-center">
               {spaceView === 'floor' && locked && (
-                <div className="flex gap-1 p-1 bg-white rounded-xl border" title="What should the floor show? Now = live status · Money = earnings & vacancy cost · Next = upcoming arrivals">
+                <div className="flex gap-1 p-1 bg-card rounded-xl border" title="What should the floor show? Now = live status · Money = earnings & vacancy cost · Next = upcoming arrivals">
                   {([['now', 'Now'], ['money', 'Money'], ['schedule', 'Next']] as const).map(([id, label]) => (
                     <button key={id} onClick={() => setLens(id)}
-                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${lens === id ? 'bg-indigo-600 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${lens === id ? 'bg-indigo-600 text-white' : 'text-muted-foreground hover:text-foreground/80'}`}>
                       {label}
                     </button>
                   ))}
                 </div>
               )}
               {spaceView === 'floor' && (
-                <div className="flex gap-1 p-1 bg-white rounded-xl border" title="Live = watch the floor · Design = arrange it">
+                <div className="flex gap-1 p-1 bg-card rounded-xl border" title="Live = watch the floor · Design = arrange it">
                   <button
                     onClick={() => setLocked(true)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${locked ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${locked ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground/80'}`}
                   >
                     <span className={`relative flex h-1.5 w-1.5 ${locked ? '' : 'opacity-40'}`}><span className={`${locked ? 'animate-ping' : ''} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70`} /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" /></span>
                     Live
                   </button>
                   <button
                     onClick={() => setLocked(false)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${!locked ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${!locked ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground/80'}`}
                   >
                     <Pencil className="h-3 w-3" /> Design
                   </button>
@@ -5165,10 +5165,10 @@ export default function BoothsPage() {
             {[
               { key: 'in', label: 'Checked in', value: floorNow.checkedIn, sub: 'now', cls: 'border-emerald-200 bg-emerald-50', val: 'text-emerald-700', live: floorNow.checkedIn > 0 },
               { key: 'arr', label: 'Arriving', value: floorNow.arriving, sub: 'today', cls: 'border-indigo-200 bg-indigo-50', val: 'text-indigo-700' },
-              { key: 'over', label: 'Running over', value: floorNow.overdue, sub: floorNow.overdueCents > 0 ? `~$${(floorNow.overdueCents / 100).toFixed(0)} owed` : 'on time', cls: floorNow.overdue > 0 ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white', val: floorNow.overdue > 0 ? 'text-red-600' : 'text-slate-300' },
-              { key: 'odue', label: 'Overage due', value: floorNow.overageDue, sub: floorNow.overageDueCents > 0 ? `$${(floorNow.overageDueCents / 100).toFixed(0)} unpaid` : 'none', cls: floorNow.overageDue > 0 ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white', val: floorNow.overageDue > 0 ? 'text-amber-600' : 'text-slate-300' },
-              { key: 'res', label: 'Residents', value: floorNow.residents, sub: 'leased', cls: 'border-slate-200 bg-white', val: 'text-slate-900' },
-              { key: 'vac', label: 'Vacant', value: floorNow.vacant, sub: 'open now', cls: 'border-slate-200 bg-white', val: 'text-slate-900' },
+              { key: 'over', label: 'Running over', value: floorNow.overdue, sub: floorNow.overdueCents > 0 ? `~$${(floorNow.overdueCents / 100).toFixed(0)} owed` : 'on time', cls: floorNow.overdue > 0 ? 'border-red-300 bg-red-50' : 'border-border bg-card', val: floorNow.overdue > 0 ? 'text-red-600' : 'text-muted-foreground/70' },
+              { key: 'odue', label: 'Overage due', value: floorNow.overageDue, sub: floorNow.overageDueCents > 0 ? `$${(floorNow.overageDueCents / 100).toFixed(0)} unpaid` : 'none', cls: floorNow.overageDue > 0 ? 'border-amber-300 bg-amber-50' : 'border-border bg-card', val: floorNow.overageDue > 0 ? 'text-amber-600' : 'text-muted-foreground/70' },
+              { key: 'res', label: 'Residents', value: floorNow.residents, sub: 'leased', cls: 'border-border bg-card', val: 'text-foreground' },
+              { key: 'vac', label: 'Vacant', value: floorNow.vacant, sub: 'open now', cls: 'border-border bg-card', val: 'text-foreground' },
             ].map((t) => (
               <div key={t.key} className={`rounded-2xl border-2 px-3 py-2.5 ${t.cls}`}>
                 <div className="flex items-center gap-1.5">
@@ -5187,7 +5187,7 @@ export default function BoothsPage() {
                 <AlertTriangle className="h-3.5 w-3.5" /> Needs attention now · {floorNow.attention.length}
               </p>
               {floorNow.attention.slice(0, 6).map((a: any) => (
-                <div key={`${a.r.id}-${a.kind}`} className="rounded-xl border-2 bg-white px-3 py-2 flex items-center gap-2">
+                <div key={`${a.r.id}-${a.kind}`} className="rounded-xl border-2 bg-card px-3 py-2 flex items-center gap-2">
                   <span className={`h-2 w-2 rounded-full shrink-0 ${a.kind === 'overdue' ? 'bg-red-500' : a.kind === 'overage' ? 'bg-amber-500' : 'bg-indigo-500'}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-black truncate">{a.r.name || 'Guest'} · {a.r.boothName || 'Space'}</p>
@@ -5197,11 +5197,11 @@ export default function BoothsPage() {
                         : `Arriving${a.r.startTime ? ` ${t12tour(a.r.startTime)}` : ' today'} · not checked in`}
                     </p>
                   </div>
-                  {a.kind === 'overdue' && <button onClick={() => checkOutRes(a.r)} className="h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Check out</button>}
+                  {a.kind === 'overdue' && <button onClick={() => checkOutRes(a.r)} className="h-8 px-3 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest shrink-0">Check out</button>}
                   {a.kind === 'arriving' && <button onClick={() => checkInRes(a.r)} className="h-8 px-3 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Check in</button>}
                   {a.kind === 'overage' && (a.r.cardOnFile
-                    ? <button onClick={() => chargeOverageToCard(a.r)} className="h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Charge card</button>
-                    : <button onClick={() => markOverageCollected(a.r)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0">Collected</button>)}
+                    ? <button onClick={() => chargeOverageToCard(a.r)} className="h-8 px-3 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest shrink-0">Charge card</button>
+                    : <button onClick={() => markOverageCollected(a.r)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 shrink-0">Collected</button>)}
                 </div>
               ))}
             </div>
@@ -5241,7 +5241,7 @@ export default function BoothsPage() {
                 const lease = activeLeaseByBooth.get(booth.id);
                 const renter = lease ? renterById.get(lease.renterId) : undefined;
                 return (
-                  <button key={booth.id} onClick={() => openEdit(booth)} className="w-full text-left rounded-2xl border-2 bg-white p-4 hover:shadow-md transition-shadow">
+                  <button key={booth.id} onClick={() => openEdit(booth)} className="w-full text-left rounded-2xl border-2 bg-card p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-center gap-3">
                       <div className="self-stretch rounded-full shrink-0" style={{ background: sc.bg, border: `2px solid ${sc.border}`, minHeight: 40, width: 6 }} />
                       <div className="flex-1 min-w-0">
@@ -5269,27 +5269,27 @@ export default function BoothsPage() {
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 flex items-center gap-2 flex-wrap">
                     <Unlock className="h-3 w-3 shrink-0" /> Drag to move, corner to resize, arrow keys to nudge — edges snap and align. Tap anything to rotate, copy or remove it.
                     <span className="ml-auto flex items-center gap-2">
-                      <span className="text-slate-500">Floor image:</span>
+                      <span className="text-muted-foreground">Floor image:</span>
                       <ImageUpload enableMarkup={false} clearOnUpload storageFolder="floorplans" onImageUploaded={(url) => { if (url) saveFloorBg(url); }} />
                       {floorBgUrl && <button onClick={() => saveFloorBg(null)} className="text-red-500 font-black uppercase tracking-widest">Remove</button>}
                     </span>
                   </div>
-                  <div className="rounded-xl border-2 bg-white px-3 py-2 flex items-center gap-2 flex-wrap">
+                  <div className="rounded-xl border-2 bg-card px-3 py-2 flex items-center gap-2 flex-wrap">
                     <details className="group/add w-full">
                       <summary className="flex items-center gap-2 cursor-pointer list-none">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Add to floor</span>
-                        <ChevronDown className="h-3.5 w-3.5 text-slate-400 transition-transform group-open/add:rotate-180" />
-                        <span className="text-[9px] font-bold text-slate-400">{FLOOR_SHAPES.length} elements</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Add to floor</span>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open/add:rotate-180" />
+                        <span className="text-[9px] font-bold text-muted-foreground">{FLOOR_SHAPES.length} elements</span>
                       </summary>
                       <div className="pt-2 space-y-2">
                         {FLOOR_SHAPE_GROUPS.map((grp) => (
                           <div key={grp}>
-                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">{grp}</p>
+                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-1">{grp}</p>
                             <div className="flex flex-wrap gap-1.5">
                               {FLOOR_SHAPES.filter((sh) => sh.group === grp).map((sh) => (
                                 <button key={sh.value} type="button" onClick={() => quickAddElement(sh.value)}
                                   title={sh.hint}
-                                  className="h-11 px-2.5 rounded-lg border-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-600 hover:border-slate-400 active:scale-95 transition-all">
+                                  className="h-11 px-2.5 rounded-lg border-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-foreground/80 hover:border-slate-400 active:scale-95 transition-all">
                                   <FloorGlyph shape={sh.value} className="h-4 w-4 shrink-0" />
                                   {sh.label}
                                 </button>
@@ -5300,46 +5300,46 @@ export default function BoothsPage() {
                       </div>
                     </details>
                     <span className="ml-auto flex items-center gap-1.5">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Room width</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Room width</span>
                       <input type="number" inputMode="numeric" min={0} value={scaleDraft} onChange={e => setScaleDraft(e.target.value)}
                         placeholder="ft" className="w-16 h-8 rounded-lg border-2 px-2 text-xs font-bold" />
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">ft</span>
-                      <button onClick={saveFloorScale} className="h-8 px-2.5 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">Set</button>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">ft</span>
+                      <button onClick={saveFloorScale} className="h-8 px-2.5 rounded-lg bg-foreground text-background text-[9px] font-black uppercase tracking-widest">Set</button>
                     </span>
                   </div>
                   {selectedBooth && (
-                    <div className="rounded-xl border-2 bg-white px-3 py-2 space-y-1.5">
+                    <div className="rounded-xl border-2 bg-card px-3 py-2 space-y-1.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mr-auto">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mr-auto">
                           {selectedBooth.name}
                         </p>
                         <button type="button" onClick={() => rotateElement(selectedBooth, -15)}
                           aria-label="Rotate left 15 degrees"
-                          className="h-9 px-2.5 rounded-lg border-2 text-[11px] font-black text-slate-600 active:scale-95">↺</button>
-                        <span className="min-w-[2.75rem] text-center text-[10px] font-black tabular-nums text-slate-500">
+                          className="h-9 px-2.5 rounded-lg border-2 text-[11px] font-black text-foreground/80 active:scale-95">↺</button>
+                        <span className="min-w-[2.75rem] text-center text-[10px] font-black tabular-nums text-muted-foreground">
                           {(selectedBooth as any).rotation || 0}°
                         </span>
                         <button type="button" onClick={() => rotateElement(selectedBooth, 15)}
                           aria-label="Rotate right 15 degrees"
-                          className="h-9 px-2.5 rounded-lg border-2 text-[11px] font-black text-slate-600 active:scale-95">↻</button>
+                          className="h-9 px-2.5 rounded-lg border-2 text-[11px] font-black text-foreground/80 active:scale-95">↻</button>
                         <button type="button" onClick={() => rotateElement(selectedBooth, 90)}
-                          className="h-9 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 active:scale-95">90°</button>
+                          className="h-9 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-foreground/80 active:scale-95">90°</button>
                         <button type="button" onClick={() => duplicateElement(selectedBooth)}
-                          className="h-9 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 active:scale-95">Copy</button>
+                          className="h-9 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-foreground/80 active:scale-95">Copy</button>
                         <button type="button" onClick={() => removeFromFloor(selectedBooth)}
                           className="h-9 px-2.5 rounded-lg border-2 border-red-200 text-[9px] font-black uppercase tracking-widest text-red-600 active:scale-95">Remove</button>
                       </div>
                       <div className="space-y-2 max-h-[45vh] overflow-y-auto overscroll-contain">
                         {FLOOR_SHAPE_GROUPS.map((grp) => (
                           <div key={grp}>
-                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">{grp}</p>
+                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-1">{grp}</p>
                             <div className="flex flex-wrap gap-1.5">
                               {FLOOR_SHAPES.filter((sh) => sh.group === grp).map((sh) => {
                                 const on = ((selectedBooth as any).shape || 'rect') === sh.value;
                                 return (
                                   <button key={sh.value} type="button" onClick={() => applyShape(selectedBooth, sh.value)}
                                     aria-pressed={on} title={sh.hint}
-                                    className={`h-11 px-2.5 rounded-lg border-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide transition-colors active:scale-95 ${on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                    className={`h-11 px-2.5 rounded-lg border-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide transition-colors active:scale-95 ${on ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80 hover:border-slate-400'}`}>
                                     <FloorGlyph shape={sh.value} className="h-4 w-4 shrink-0" />
                                     {sh.label}
                                   </button>
@@ -5355,15 +5355,15 @@ export default function BoothsPage() {
               )}
               {floorEvents.length > 0 && (
                 <div className="mb-2">
-                  <button onClick={() => setHistoryOpen(o => !o)} className="w-full flex items-center gap-2 rounded-xl border-2 bg-white px-3 py-2 text-left hover:bg-slate-50">
+                  <button onClick={() => setHistoryOpen(o => !o)} className="w-full flex items-center gap-2 rounded-xl border-2 bg-card px-3 py-2 text-left hover:bg-muted/60">
                     <span className="relative flex h-2 w-2 shrink-0"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" /></span>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 flex-1">Today's activity · {floorEvents.length}</span>
-                    <ChevronRight className={`h-3.5 w-3.5 text-slate-400 transition-transform ${historyOpen ? 'rotate-90' : ''}`} />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-foreground/80 flex-1">Today's activity · {floorEvents.length}</span>
+                    <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${historyOpen ? 'rotate-90' : ''}`} />
                   </button>
                   {historyOpen && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {floorEvents.map((e, i) => (
-                        <span key={i} className={`text-[10px] font-bold rounded-full px-2.5 py-1 border ${e.tone === 'in' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : e.tone === 'money' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                        <span key={i} className={`text-[10px] font-bold rounded-full px-2.5 py-1 border ${e.tone === 'in' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : e.tone === 'money' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-muted/60 border-border text-foreground/80'}`}>
                           {new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · {e.text}
                         </span>
                       ))}
@@ -5372,14 +5372,14 @@ export default function BoothsPage() {
                 </div>
               )}
               <div className="mb-2 flex items-center gap-1.5">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Zoom</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Zoom</span>
                 <button type="button" onClick={() => setFloorZoom(z => Math.max(0.2, Math.round((z - 0.1) * 100) / 100))}
-                  aria-label="Zoom out" className="h-9 w-9 rounded-lg border-2 text-sm font-black text-slate-600 active:scale-95">–</button>
+                  aria-label="Zoom out" className="h-9 w-9 rounded-lg border-2 text-sm font-black text-foreground/80 active:scale-95">–</button>
                 <span className="min-w-[3.5rem] text-center text-[11px] font-black tabular-nums">{Math.round(floorZoom * 100)}%</span>
                 <button type="button" onClick={() => setFloorZoom(z => Math.min(1, Math.round((z + 0.1) * 100) / 100))}
-                  aria-label="Zoom in" className="h-9 w-9 rounded-lg border-2 text-sm font-black text-slate-600 active:scale-95">+</button>
+                  aria-label="Zoom in" className="h-9 w-9 rounded-lg border-2 text-sm font-black text-foreground/80 active:scale-95">+</button>
                 <button type="button" onClick={fitFloor}
-                  className="h-9 px-3 rounded-lg border-2 text-[10px] font-black uppercase tracking-widest text-slate-600 active:scale-95">Fit</button>
+                  className="h-9 px-3 rounded-lg border-2 text-[10px] font-black uppercase tracking-widest text-foreground/80 active:scale-95">Fit</button>
               </div>
               <div ref={floorViewportRef} className="h-[60vh] min-h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
                 <div
@@ -5466,8 +5466,8 @@ export default function BoothsPage() {
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
           {/* ── NEEDS ATTENTION THIS WEEK — the one digest ── */}
           {weeklyDigest.length > 0 && (
-            <div className="rounded-2xl border-2 border-slate-300 bg-white p-4 space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5">
+            <div className="rounded-2xl border-2 border-border bg-card p-4 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-foreground/80 flex items-center gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> Needs attention this week · {weeklyDigest.length}
               </p>
               {weeklyDigest.map((it, i) => (
@@ -5477,9 +5477,9 @@ export default function BoothsPage() {
                     : it.kind === 'due' || it.kind === 'unsigned' || it.kind === 'expiring' || it.kind === 'maint' || it.kind === 'nocard' ? 'bg-amber-500'
                     : it.kind === 'renewal' ? 'bg-indigo-500'
                     : 'bg-emerald-500'}`} />
-                  <p className="flex-1 min-w-0 text-xs font-bold text-slate-800 truncate">{it.text}</p>
+                  <p className="flex-1 min-w-0 text-xs font-bold text-foreground truncate">{it.text}</p>
                   {it.run && (
-                    <button onClick={it.run} className="h-7 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 hover:bg-slate-50 shrink-0">
+                    <button onClick={it.run} className="h-7 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 hover:bg-muted/60 shrink-0">
                       {it.actionLabel || 'Open'}
                     </button>
                   )}
@@ -5491,9 +5491,9 @@ export default function BoothsPage() {
           {/* ── QUICK LINKS — every shareable door into the system, one tap
               to copy. No more hunting through profiles and dialogs when a
               renter asks "where do I log in?" ── */}
-          <div className="rounded-2xl border-2 bg-white p-4 space-y-2.5">
+          <div className="rounded-2xl border-2 bg-card p-4 space-y-2.5">
             <div className="flex items-center gap-2">
-              <p className="flex-1 text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5">
+              <p className="flex-1 text-[10px] font-black uppercase tracking-widest text-foreground/80 flex items-center gap-1.5">
                 <Link2 className="h-3.5 w-3.5" /> Quick links
               </p>
               {/* The domain is AUTOMATIC (Vercel injects the production
@@ -5511,13 +5511,13 @@ export default function BoothsPage() {
                     toast({ title: cleaned ? 'Domain override saved' : 'Back to automatic', description: cleaned ? `All shared links now use ${cleaned}.` : 'Links use your production domain automatically.' });
                   } catch { toast({ variant: 'destructive', title: 'Could not save' }); }
                 }}
-                className="h-7 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 shrink-0"
+                className="h-7 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-muted-foreground shrink-0"
                 title={`Links use ${shareOrigin.replace(/^https?:\/\//, '')}`}>
                 {(selectedTenant as any)?.publicOrigin ? 'Custom domain ✓' : process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL ? 'Domain: auto ✓' : 'Set domain'}
               </button>
             </div>
             <p className="text-[10px] font-bold text-muted-foreground -mt-1">
-              Links are built on <span className="font-black text-slate-600">{shareOrigin.replace(/^https?:\/\//, '') || '—'}</span>
+              Links are built on <span className="font-black text-foreground/80">{shareOrigin.replace(/^https?:\/\//, '') || '—'}</span>
               {(selectedTenant as any)?.publicOrigin ? ' (your override)' : process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL ? ' — set automatically' : ''}
             </p>
             {!(selectedTenant as any)?.publicOrigin && !process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL && shareOrigin && /-[a-z0-9]{2,}-.*vercel\.app$/i.test(shareOrigin.replace(/^https?:\/\//, '')) && (
@@ -5537,7 +5537,7 @@ export default function BoothsPage() {
                   <p className="text-[10px] font-bold text-muted-foreground truncate">{l.desc}</p>
                 </div>
                 <button onClick={() => { try { navigator.clipboard.writeText(l.url); toast({ title: `${l.label} link copied` }); } catch { window.prompt('Copy this link', l.url); } }}
-                  className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0">Copy</button>
+                  className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 shrink-0">Copy</button>
               </div>
             ))}
             <div className="flex items-center gap-2">
@@ -5546,7 +5546,7 @@ export default function BoothsPage() {
                 <p className="text-[10px] font-bold text-muted-foreground truncate">Each worker has their own secure link — on the Maintenance page.</p>
               </div>
               <a href="/maintenance"
-                className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0 flex items-center">Workers</a>
+                className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 shrink-0 flex items-center">Workers</a>
             </div>
           </div>
 
@@ -5578,14 +5578,14 @@ export default function BoothsPage() {
                     const left = Math.max(0, (Number(p.daysTotal) || 0) - (Number(p.daysUsed) || 0));
                     const pct = (Number(p.daysTotal) || 1) > 0 ? Math.min(100, Math.round(((Number(p.daysUsed) || 0) / (Number(p.daysTotal) || 1)) * 100)) : 0;
                     return (
-                      <div key={p.id} className={`rounded-2xl border-2 bg-white px-3.5 py-2.5 space-y-1.5 ${p.status !== 'active' ? 'opacity-60' : ''}`}>
+                      <div key={p.id} className={`rounded-2xl border-2 bg-card px-3.5 py-2.5 space-y-1.5 ${p.status !== 'active' ? 'opacity-60' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-xs font-black truncate flex items-center gap-1"><Ticket className="h-3 w-3 text-violet-500 shrink-0" /> {p.name || 'Guest'}</p>
-                          <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${p.status === 'active' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500'}`}>
+                          <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${p.status === 'active' ? 'bg-violet-100 text-violet-700' : 'bg-muted text-muted-foreground'}`}>
                             {p.status === 'active' ? `${left} left` : 'Used up'}
                           </span>
                         </div>
-                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                           <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${pct}%` }} />
                         </div>
                         <p className="text-[10px] font-bold text-muted-foreground">
@@ -5611,20 +5611,20 @@ export default function BoothsPage() {
               </div>
               <div className="grid gap-2 md:grid-cols-2">
                 {reviews.slice(0, 6).map((r: any) => (
-                  <div key={r.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 space-y-1">
+                  <div key={r.id} className="rounded-xl border-2 bg-card px-3.5 py-2.5 space-y-1">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-amber-500 text-xs">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
                       <span className="text-[9px] font-bold text-muted-foreground uppercase">{r.boothName} · {String(r.reviewedAt || '').slice(0, 10)}</span>
                     </div>
                     <p className="text-xs font-black truncate">{(r.name || 'Guest').split(' ')[0]}</p>
-                    {r.reviewText && <p className="text-[11px] text-slate-600 italic leading-relaxed">"{r.reviewText}"</p>}
+                    {r.reviewText && <p className="text-[11px] text-foreground/80 italic leading-relaxed">"{r.reviewText}"</p>}
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          <div className="rounded-2xl border-2 bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+          <div className="rounded-2xl border-2 bg-foreground text-background px-5 py-4 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Booth income · all time</p>
               <p className="text-3xl font-black tracking-tighter mt-0.5">${(txnTotalCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
@@ -5634,16 +5634,16 @@ export default function BoothsPage() {
 
           {/* Year-end W-9 compliance */}
           {sortedRenters.length > 0 && (
-            <div className="rounded-2xl border-2 bg-white p-4 space-y-3">
+            <div className="rounded-2xl border-2 bg-card p-4 space-y-3">
               <p className="text-xs font-black uppercase tracking-widest">Year-end compliance</p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-center">
                   <p className="text-2xl font-black text-emerald-700">{Object.values(w9Map).filter(Boolean).length}</p>
                   <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">W-9 on file</p>
                 </div>
-                <div className={`rounded-xl px-3 py-2 text-center border ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
-                  <p className={`text-2xl font-black ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'text-amber-700' : 'text-slate-400'}`}>{Object.values(w9Map).filter(v => v === null).length}</p>
-                  <p className={`text-[9px] font-black uppercase tracking-widest ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>W-9 missing</p>
+                <div className={`rounded-xl px-3 py-2 text-center border ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-muted/60 border-border'}`}>
+                  <p className={`text-2xl font-black ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'text-amber-700' : 'text-muted-foreground'}`}>{Object.values(w9Map).filter(v => v === null).length}</p>
+                  <p className={`text-[9px] font-black uppercase tracking-widest ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>W-9 missing</p>
                 </div>
               </div>
               {Object.values(w9Map).filter(v => v === null).length > 0 && (
@@ -5657,13 +5657,13 @@ export default function BoothsPage() {
           ) : (
             <div className="space-y-2">
               {sortedTxns.map((t: any) => (
-                <div key={t.id} className="rounded-xl border-2 bg-white px-4 py-3 flex items-center gap-3">
+                <div key={t.id} className="rounded-xl border-2 bg-card px-4 py-3 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-black truncate">{txnDesc(t)}</p>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase">{txnDateStr(t)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
                   </div>
                   <p className="font-black text-emerald-700 shrink-0 mr-2">${txnDollars(t).toFixed(2)}</p>
-                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=ledger&id=${encodeURIComponent(t.id)}`} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 underline underline-offset-2 shrink-0">PDF</a>
+                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=ledger&id=${encodeURIComponent(t.id)}`} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground/80 underline underline-offset-2 shrink-0">PDF</a>
                 </div>
               ))}
             </div>
@@ -5677,9 +5677,9 @@ export default function BoothsPage() {
           sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:-translate-x-1/2 sm:-translate-y-1/2
           sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-[min(96vw,44rem)] sm:rounded-2xl">
           <div className="shrink-0 px-5 pt-5 pb-3 border-b">
-            <span aria-hidden className="sm:hidden mx-auto mb-3 block h-1 w-10 rounded-full bg-slate-200" />
+            <span aria-hidden className="sm:hidden mx-auto mb-3 block h-1 w-10 rounded-full bg-border" />
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
-              <Armchair className="h-5 w-5 text-slate-500" />
+              <Armchair className="h-5 w-5 text-muted-foreground" />
               {editingId ? form.name.trim() || 'Edit space' : 'Add space'}
             </DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
@@ -5780,12 +5780,12 @@ export default function BoothsPage() {
             ) : (
               <>
             <details className="rounded-2xl border-2 group" open>
-              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-muted/60">
                 <span className="min-w-0">
                   <span className="block text-[11px] font-black uppercase tracking-widest">Basics</span>
                   <span className="block text-[10px] font-bold text-muted-foreground truncate">{form.name.trim() || 'Unnamed'}{form.typeValue ? ` · ${form.typeValue}` : ''} · {form.status}</span>
                 </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="space-y-1">
@@ -5878,12 +5878,12 @@ export default function BoothsPage() {
             </details>
 
             <details className="rounded-2xl border-2 group">
-              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-muted/60">
                 <span className="min-w-0">
                   <span className="block text-[11px] font-black uppercase tracking-widest">Money</span>
                   <span className="block text-[10px] font-bold text-muted-foreground truncate">{form.baseRentDollars ? `$${form.baseRentDollars}/${form.baseRentFrequency}` : 'No rent set'}{form.extraRates.length ? ` · +${form.extraRates.length} rate${form.extraRates.length > 1 ? 's' : ''}` : ''}</span>
                 </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -5938,7 +5938,7 @@ export default function BoothsPage() {
             <div className="space-y-2">
               <Label>Deposit</Label>
               <p className="text-[10px] font-bold text-muted-foreground -mt-0.5">Collect part of the total up front; the rest becomes a balance. Choose how the deposit is calculated.</p>
-              <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+              <div className="flex gap-1 p-1 bg-muted rounded-xl">
                 {([['none', 'Full payment'], ['flat', 'Flat $'], ['percent', 'Percent'], ['breakeven', 'Break-even']] as const).map(([v, l]) => (
                   <button key={v} type="button" onClick={() => setForm(prev => {
                     const next = { ...prev, depositType: v };
@@ -5949,7 +5949,7 @@ export default function BoothsPage() {
                     }
                     return next;
                   })}
-                    className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.depositType === v ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                    className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.depositType === v ? 'bg-foreground text-background' : 'text-muted-foreground'}`}>
                     {l}
                   </button>
                 ))}
@@ -5973,7 +5973,7 @@ export default function BoothsPage() {
                 const val = Number(form.depositValue) || 0;
                 const differs = tmhr > 0 && Math.abs(val - tmhr) > 0.005;
                 return (
-                <div className="rounded-xl border-2 border-slate-100 p-3 space-y-1.5">
+                <div className="rounded-xl border-2 border-border p-3 space-y-1.5">
                   <p className="text-[10px] font-bold text-muted-foreground">The deposit covers your cost to hold this space — your break-even for the booked time, so a cancellation never leaves you out of pocket.</p>
                   {tmhr > 0 ? (
                     <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">✓ Pulled from your Foundation · TMHR ${tmhr.toFixed(2)}/hr</p>
@@ -6029,12 +6029,12 @@ export default function BoothsPage() {
             </details>
 
             <details className="rounded-2xl border-2 group">
-              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-muted/60">
                 <span className="min-w-0">
                   <span className="block text-[11px] font-black uppercase tracking-widest">Public listing</span>
                   <span className="block text-[10px] font-bold text-muted-foreground truncate">{form.listed ? 'Listed' : 'Hidden'}{form.photoUrls.length ? ` · ${form.photoUrls.length} photo${form.photoUrls.length > 1 ? 's' : ''}` : ' · no photos'}</span>
                 </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="flex items-center justify-between rounded-lg border p-3">
@@ -6091,12 +6091,12 @@ export default function BoothsPage() {
             </details>
 
             <details className="rounded-2xl border-2 group">
-              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-muted/60">
                 <span className="min-w-0">
                   <span className="block text-[11px] font-black uppercase tracking-widest">Day rentals</span>
                   <span className="block text-[10px] font-bold text-muted-foreground truncate">{form.dayRentalDays.length ? `${form.dayRentalDays.length} day${form.dayRentalDays.length > 1 ? 's' : ''} open` : 'Not offered'}</span>
                 </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="space-y-2">
@@ -6113,7 +6113,7 @@ export default function BoothsPage() {
                         ? prev.dayRentalDays.filter(d => d !== value)
                         : [...prev.dayRentalDays, value],
                     }))}
-                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.dayRentalDays.includes(value) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-400'}`}
+                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.dayRentalDays.includes(value) ? 'bg-foreground text-background border-slate-900' : 'border-border text-muted-foreground'}`}
                   >
                     {label}
                   </button>
@@ -6183,11 +6183,11 @@ export default function BoothsPage() {
                 </div>
               </div>
               <div className="pt-1">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Offer start times every</p>
-                <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Offer start times every</p>
+                <div className="flex gap-1 p-1 bg-muted rounded-xl">
                   {(['15', '30', '60'] as const).map(m => (
                     <button key={m} type="button" onClick={() => setForm(prev => ({ ...prev, startIncrementMins: m }))}
-                      className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.startIncrementMins === m ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                      className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.startIncrementMins === m ? 'bg-foreground text-background' : 'text-muted-foreground'}`}>
                       {m === '60' ? '1 hour' : `${m} min`}
                     </button>
                   ))}
@@ -6198,12 +6198,12 @@ export default function BoothsPage() {
             </details>
 
             <details className="rounded-2xl border-2 group">
-              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-slate-50">
+              <summary className="cursor-pointer select-none list-none p-4 min-h-[3.5rem] flex items-center justify-between gap-3 active:bg-muted/60">
                 <span className="min-w-0">
                   <span className="block text-[11px] font-black uppercase tracking-widest">Floor plan</span>
                   <span className="block text-[10px] font-bold text-muted-foreground truncate">{FLOOR_SHAPES.find((sh) => sh.value === (form.shape || 'rect'))?.label || 'Rectangle'}</span>
                 </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
               </summary>
               <div className="p-4 pt-1 space-y-4">
             <div className="space-y-1.5">
@@ -6211,18 +6211,18 @@ export default function BoothsPage() {
               <div className="space-y-2.5">
                 {FLOOR_SHAPE_GROUPS.map((grp) => (
                   <div key={grp}>
-                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">{grp}</p>
+                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-1">{grp}</p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                       {FLOOR_SHAPES.filter((sh) => sh.group === grp).map((sh) => {
                         const on = form.shape === sh.value;
                         return (
                           <button key={sh.value} type="button" onClick={() => setForm(prev => ({ ...prev, shape: sh.value }))}
                             aria-pressed={on}
-                            className={`min-h-[3rem] px-2.5 py-1.5 rounded-xl border-2 flex items-center gap-2 text-left transition-colors ${on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>
+                            className={`min-h-[3rem] px-2.5 py-1.5 rounded-xl border-2 flex items-center gap-2 text-left transition-colors ${on ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80'}`}>
                             <FloorGlyph shape={sh.value} className="h-5 w-5 shrink-0" />
                             <span className="min-w-0">
                               <span className="block text-[10px] font-black uppercase tracking-wide truncate">{sh.label}</span>
-                              <span className={`block text-[9px] font-bold truncate ${on ? 'text-white/60' : 'text-slate-400'}`}>{sh.hint}</span>
+                              <span className={`block text-[9px] font-bold truncate ${on ? 'text-white/60' : 'text-muted-foreground'}`}>{sh.hint}</span>
                             </span>
                           </button>
                         );
@@ -6239,7 +6239,7 @@ export default function BoothsPage() {
             )}
           </div>
 
-          <div className="shrink-0 border-t bg-white px-5 py-3 flex gap-2 sm:justify-end"
+          <div className="shrink-0 border-t bg-card px-5 py-3 flex gap-2 sm:justify-end"
             style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
             <Button variant="outline" className="h-12 flex-1 sm:flex-none sm:h-10" onClick={() => setDialogOpen(false)}>
               Cancel
@@ -6256,7 +6256,7 @@ export default function BoothsPage() {
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
-              <UserPlus className="h-5 w-5 text-slate-500" />
+              <UserPlus className="h-5 w-5 text-muted-foreground" />
               {editingRenterId ? 'Edit renter' : 'Add renter'}
             </DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Their independent business · your records</DialogDescription>
@@ -6267,7 +6267,7 @@ export default function BoothsPage() {
                 <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">Convert a team member (hybrid)</p>
                 <p className="text-[11px] text-violet-700/80 leading-relaxed">Someone on your team also renting a space? Pick them — one identity, one PIN, two financial relationships.</p>
                 <Select value={renterForm.linkedStaffId || 'none'} onValueChange={(v) => pickStaffToConvert(v === 'none' ? '' : v)}>
-                  <SelectTrigger className="bg-white"><SelectValue placeholder="Start fresh — not a team member" /></SelectTrigger>
+                  <SelectTrigger className="bg-card"><SelectValue placeholder="Start fresh — not a team member" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Start fresh — not a team member</SelectItem>
                     {convertibleStaff.map((s: any) => (
@@ -6283,7 +6283,7 @@ export default function BoothsPage() {
               {renterForm.avatarUrl ? (
                 <img src={renterForm.avatarUrl} alt="" className="h-16 w-16 rounded-2xl object-cover border-2 shrink-0" />
               ) : (
-                <div className="h-16 w-16 rounded-2xl bg-slate-100 border-2 flex items-center justify-center text-slate-400 font-black text-lg shrink-0">
+                <div className="h-16 w-16 rounded-2xl bg-muted border-2 flex items-center justify-center text-muted-foreground font-black text-lg shrink-0">
                   {(renterForm.firstName || '?').charAt(0).toUpperCase()}
                 </div>
               )}
@@ -6311,14 +6311,14 @@ export default function BoothsPage() {
             </div>
             <div className="space-y-1"><Label htmlFor="r-business">Business name (optional)</Label>
               <Input id="r-business" value={renterForm.businessName} onChange={(e) => setRenterForm((p) => ({ ...p, businessName: e.target.value }))} /></div>
-            <div className="space-y-2 rounded-2xl border-2 border-slate-100 p-3.5">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Credentials & compliance</p>
+            <div className="space-y-2 rounded-2xl border-2 border-border p-3.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Credentials & compliance</p>
               <p className="text-[10px] font-bold text-muted-foreground -mt-1">Track whatever their trade requires — licenses, permits, certifications, insurance. You'll be nagged 30 and 7 days before anything lapses.</p>
               <div className="flex flex-wrap gap-1.5">
                 {['Professional license', 'Liability insurance', 'Health permit', 'Certification', 'Business registration'].map(ql => (
                   <button key={ql} type="button"
                     onClick={() => setRenterForm(p => ({ ...p, credentials: [...p.credentials, { label: ql, number: '', expiry: '' }] }))}
-                    className="h-8 px-3 rounded-full border-2 border-slate-200 text-[9px] font-black uppercase tracking-wide text-slate-500 hover:border-slate-400">
+                    className="h-8 px-3 rounded-full border-2 border-border text-[9px] font-black uppercase tracking-wide text-muted-foreground hover:border-slate-400">
                     + {ql}
                   </button>
                 ))}
@@ -6341,7 +6341,7 @@ export default function BoothsPage() {
                         <button type="button" onClick={() => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, fileUrl: '', fileName: '' } : x) }))} className="text-[10px] font-black uppercase tracking-widest text-red-500">Remove</button>
                       </>
                     ) : (
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-700 cursor-pointer flex items-center gap-1">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground/80 cursor-pointer flex items-center gap-1">
                         <Upload className="h-3 w-3" /> {credUploadingIdx === i ? 'Uploading…' : 'Attach file'}
                         <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCredentialFile(f, i); e.currentTarget.value = ''; }} />
                       </label>
@@ -6356,11 +6356,11 @@ export default function BoothsPage() {
             </div>
 
             {/* Client amenities / concierge */}
-            <div className="space-y-2 rounded-2xl border-2 border-slate-100 p-3.5">
+            <div className="space-y-2 rounded-2xl border-2 border-border p-3.5">
               <label className="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" checked={renterForm.amenitiesEnabled} onChange={(e) => setRenterForm(p => ({ ...p, amenitiesEnabled: e.target.checked }))} className="h-4 w-4 mt-0.5" />
                 <span>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 block">Let their clients use the concierge</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-foreground/80 block">Let their clients use the concierge</span>
                   <span className="text-[10px] font-medium text-muted-foreground">A client sitting at their booth can order amenities from your menu. Orders land in your Command Hub queue like any other.</span>
                 </span>
               </label>
@@ -6377,7 +6377,7 @@ export default function BoothsPage() {
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Beyond the allowance</Label>
                     <div className="flex gap-1.5">
                       {([['renter', 'Charge renter'], ['client', 'Client pays']] as const).map(([v, lbl]) => (
-                        <button key={v} type="button" onClick={() => setRenterForm(p => ({ ...p, amenityPayer: v }))} className={`flex-1 h-10 rounded-xl border-2 text-[9px] font-black uppercase tracking-wide ${renterForm.amenityPayer === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>{lbl}</button>
+                        <button key={v} type="button" onClick={() => setRenterForm(p => ({ ...p, amenityPayer: v }))} className={`flex-1 h-10 rounded-xl border-2 text-[9px] font-black uppercase tracking-wide ${renterForm.amenityPayer === v ? 'bg-foreground text-background border-slate-900' : 'border-border text-muted-foreground'}`}>{lbl}</button>
                       ))}
                     </div>
                   </div>
@@ -6412,7 +6412,7 @@ export default function BoothsPage() {
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
-              <FileSignature className="h-5 w-5 text-slate-500" />
+              <FileSignature className="h-5 w-5 text-muted-foreground" />
               Set up lease
             </DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{WIZARD_STEPS[leaseStep]}</DialogDescription>
@@ -6422,10 +6422,10 @@ export default function BoothsPage() {
           <div className="flex items-center gap-2 pb-1">
             {WIZARD_STEPS.map((s, i) => (
               <div key={s} className="flex items-center gap-2">
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-black transition-colors ${i === leaseStep ? 'bg-slate-900 text-white' : i < leaseStep ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-black transition-colors ${i === leaseStep ? 'bg-foreground text-background' : i < leaseStep ? 'bg-emerald-500 text-white' : 'bg-muted text-muted-foreground'}`}>
                   {i < leaseStep ? '✓' : i + 1}
                 </div>
-                {i < WIZARD_STEPS.length - 1 && <div className={`h-0.5 w-5 rounded ${i < leaseStep ? 'bg-emerald-500' : 'bg-slate-200'}`} />}
+                {i < WIZARD_STEPS.length - 1 && <div className={`h-0.5 w-5 rounded ${i < leaseStep ? 'bg-emerald-500' : 'bg-border'}`} />}
               </div>
             ))}
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">{leaseStep + 1} / {WIZARD_STEPS.length}</p>
@@ -6616,8 +6616,8 @@ export default function BoothsPage() {
                 <p className="text-[10px] font-medium text-muted-foreground">With e-signature on, no PDF upload is needed — the renter reads these terms and types to sign in their portal.</p>
               </div>
               <button type="button" onClick={() => setLeaseForm(prev => ({ ...prev, requireSignature: !prev.requireSignature }))}
-                className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${leaseForm.requireSignature ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
-                <span className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 ${leaseForm.requireSignature ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300'}`}>{leaseForm.requireSignature ? '✓' : ''}</span>
+                className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${leaseForm.requireSignature ? 'border-slate-900 bg-muted/60' : 'border-border'}`}>
+                <span className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 ${leaseForm.requireSignature ? 'border-slate-900 bg-foreground text-background' : 'border-border'}`}>{leaseForm.requireSignature ? '✓' : ''}</span>
                 <span className="min-w-0">
                   <span className="block text-xs font-black uppercase tracking-tight">Require e-signature before activation</span>
                   <span className="block text-[10px] font-bold text-muted-foreground">The lease starts as "awaiting signature" — the renter reviews the terms and signs in their portal (Documents tab). Rent auto-collection begins only after they sign.</span>
@@ -6800,7 +6800,7 @@ export default function BoothsPage() {
                       .filter((p: any) => `${p.name} ${p.phone} ${p.email}`.toLowerCase().includes(sellQuery.trim().toLowerCase()))
                       .slice(0, 6)
                       .map((p: any) => (
-                        <button key={p.key} onClick={() => setSellPerson(p)} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2">
+                        <button key={p.key} onClick={() => setSellPerson(p)} className="w-full text-left px-3 py-2 hover:bg-muted/60 flex items-center gap-2">
                           <span className="text-sm font-bold flex-1 truncate">{p.name}</span>
                           <span className="text-[10px] font-bold text-muted-foreground truncate">{p.phone || p.email}</span>
                         </button>
@@ -6814,7 +6814,7 @@ export default function BoothsPage() {
               <div className="flex flex-wrap gap-1.5">
                 {dayPassPacks.map((p: any, i: number) => (
                   <button key={i} onClick={() => { setSellDays(String(p.days)); setSellPrice(String((p.amountCents / 100).toFixed(0))); }}
-                    className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${String(p.days) === sellDays && String((p.amountCents / 100).toFixed(0)) === sellPrice ? 'bg-violet-600 text-white border-violet-600' : 'text-slate-600 hover:border-slate-400'}`}>
+                    className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${String(p.days) === sellDays && String((p.amountCents / 100).toFixed(0)) === sellPrice ? 'bg-violet-600 text-white border-violet-600' : 'text-foreground/80 hover:border-slate-400'}`}>
                     {p.label || `${p.days} days`} · ${(p.amountCents / 100).toFixed(0)}
                   </button>
                 ))}
@@ -6833,7 +6833,7 @@ export default function BoothsPage() {
             <div className="flex flex-wrap gap-1.5">
               {['Cash', 'Check', 'Zelle / Venmo', 'Card (in person)', 'Other'].map((m) => (
                 <button key={m} onClick={() => setSellMethod(m)}
-                  className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${sellMethod === m ? 'bg-slate-900 text-white border-slate-900' : 'text-slate-600 hover:border-slate-400'}`}>
+                  className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${sellMethod === m ? 'bg-foreground text-background border-slate-900' : 'text-foreground/80 hover:border-slate-400'}`}>
                   {m}
                 </button>
               ))}
@@ -6859,27 +6859,27 @@ export default function BoothsPage() {
           {cardLink && (
             <div className="space-y-2.5">
               <input readOnly value={cardLink.url} onFocus={(e) => e.currentTarget.select()}
-                className="w-full h-10 rounded-xl border-2 px-3 text-[11px] font-mono bg-slate-50 truncate" />
+                className="w-full h-10 rounded-xl border-2 px-3 text-[11px] font-mono bg-muted/60 truncate" />
               <div className="grid grid-cols-2 gap-2">
                 {cardLink.renter.phone && (
                   <a href={`sms:${cardLink.renter.phone}?&body=${encodeURIComponent(cardLinkMessage)}`}
-                    className="h-11 rounded-2xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center justify-center gap-1.5">
+                    className="h-11 rounded-2xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest flex items-center justify-center gap-1.5">
                     <MessageCircle className="h-3.5 w-3.5" /> Text it
                   </a>
                 )}
                 {cardLink.renter.email && (
                   <a href={`mailto:${cardLink.renter.email}?subject=${encodeURIComponent('Add a card on file')}&body=${encodeURIComponent(cardLinkMessage)}`}
-                    className="h-11 rounded-2xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center justify-center gap-1.5">
+                    className="h-11 rounded-2xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest flex items-center justify-center gap-1.5">
                     <Mail className="h-3.5 w-3.5" /> Email it
                   </a>
                 )}
                 <button
                   onClick={() => { try { navigator.clipboard.writeText(cardLink.url); setCardLink(c => c ? { ...c, copied: true } : c); } catch { /* select the field instead */ } }}
-                  className="h-11 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">
+                  className="h-11 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80">
                   {cardLink.copied ? 'Copied' : 'Copy link'}
                 </button>
                 <button onClick={() => window.open(cardLink.url, '_blank')}
-                  className="h-11 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">
+                  className="h-11 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80">
                   Open here
                 </button>
               </div>
@@ -6966,7 +6966,7 @@ export default function BoothsPage() {
                 {viewingApp.message && (
                   <div className="rounded-xl border-2 p-3.5 space-y-1.5">
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Their message</p>
-                    <p className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">{viewingApp.message}</p>
+                    <p className="text-xs leading-relaxed text-foreground/80 whitespace-pre-wrap">{viewingApp.message}</p>
                   </div>
                 )}
                 {Array.isArray(viewingApp.attachments) && viewingApp.attachments.length > 0 && (
@@ -6995,7 +6995,7 @@ export default function BoothsPage() {
         <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
-              <MonitorSmartphone className="h-5 w-5 text-slate-500" />
+              <MonitorSmartphone className="h-5 w-5 text-muted-foreground" />
               Check-in kiosk
             </DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
@@ -7003,7 +7003,7 @@ export default function BoothsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="rounded-xl border-2 bg-slate-50 px-3 py-2.5 font-mono text-[11px] font-bold break-all select-all">
+            <div className="rounded-xl border-2 bg-muted/60 px-3 py-2.5 font-mono text-[11px] font-bold break-all select-all">
               {typeof window !== 'undefined' ? `${window.location.origin}/kiosk/${tenantId}` : `/kiosk/${tenantId}`}
             </div>
             <div className="rounded-xl border-2 border-sky-200 bg-sky-50/60 px-3 py-2.5 space-y-1">
@@ -7028,8 +7028,8 @@ export default function BoothsPage() {
                 Open kiosk →
               </Button>
             </div>
-            <div className="rounded-xl border bg-white p-3 space-y-1">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">iPad setup (once)</p>
+            <div className="rounded-xl border bg-card p-3 space-y-1">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">iPad setup (once)</p>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 Open the link in Safari on the iPad → tap the Share icon → <strong>Add to Home Screen</strong>. It launches full-screen like an app. Enable Guided Access (Settings → Accessibility) to lock the iPad to the kiosk.
               </p>
@@ -7139,7 +7139,7 @@ export default function BoothsPage() {
             ))}
             <button
               onClick={() => setPolicyDraft(d => [...d, { label: '', cap: '' }])}
-              className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"
+              className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-muted/60 flex items-center justify-center gap-1.5"
             >
               <Plus className="h-3.5 w-3.5" /> Add charge type
             </button>
@@ -7188,7 +7188,7 @@ export default function BoothsPage() {
                       <button onClick={() => setSheetDraft((s: any) => ({ ...s, whatToBring: s.whatToBring.filter((_: string, j: number) => j !== i) }))} className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
                     </div>
                   ))}
-                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, whatToBring: [...s.whatToBring, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add item</button>
+                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, whatToBring: [...s.whatToBring, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-muted/60 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add item</button>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
@@ -7227,7 +7227,7 @@ export default function BoothsPage() {
                       <button onClick={() => setSheetDraft((s: any) => ({ ...s, checklist: s.checklist.filter((_: string, j: number) => j !== i) }))} className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
                     </div>
                   ))}
-                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, checklist: [...s.checklist, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add step</button>
+                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, checklist: [...s.checklist, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-muted/60 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add step</button>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">"Capture" section heading</Label>
@@ -7243,7 +7243,7 @@ export default function BoothsPage() {
                       <button onClick={() => setSheetDraft((s: any) => ({ ...s, interestLevels: s.interestLevels.filter((_: string, j: number) => j !== i) }))} className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
                     </div>
                   ))}
-                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, interestLevels: [...s.interestLevels, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add level</button>
+                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, interestLevels: [...s.interestLevels, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-muted/60 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add level</button>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Next-step options</Label>
@@ -7253,7 +7253,7 @@ export default function BoothsPage() {
                       <button onClick={() => setSheetDraft((s: any) => ({ ...s, nextSteps: s.nextSteps.filter((_: string, j: number) => j !== i) }))} className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
                     </div>
                   ))}
-                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, nextSteps: [...s.nextSteps, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add option</button>
+                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, nextSteps: [...s.nextSteps, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-muted/60 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add option</button>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Notes section heading</Label>
@@ -7269,7 +7269,7 @@ export default function BoothsPage() {
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={!!sheetDraft.hideBranding} onChange={(e) => setSheetDraft((s: any) => ({ ...s, hideBranding: e.target.checked }))} className="h-4 w-4" />
-                  <span className="text-xs font-bold text-slate-700">Hide "Powered by ClarityFlow" on printed sheets</span>
+                  <span className="text-xs font-bold text-foreground/80">Hide "Powered by ClarityFlow" on printed sheets</span>
                 </label>
               </div>
             </div>

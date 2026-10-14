@@ -35,7 +35,7 @@ export function Voice({ onDone, lang }: { onDone: (v: { blob: Blob; mime: string
   return (
     <div className="space-y-2">
       {state === 'idle' && <button type="button" onClick={start} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-[15px] font-semibold" style={{ borderColor: LINE }}><span className="inline-block h-3 w-3 rounded-full" style={{ background: RED }} />Or record a voice note</button>}
-      {state === 'rec' && <button type="button" onClick={stop} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-semibold text-white" style={{ background: RED }}><span className="inline-block h-3 w-3 animate-pulse rounded-sm bg-white" />Recording {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')} — tap to stop</button>}
+      {state === 'rec' && <button type="button" onClick={stop} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-semibold text-white" style={{ background: RED }}><span className="inline-block h-3 w-3 animate-pulse rounded-sm bg-card" />Recording {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')} — tap to stop</button>}
       {state === 'done' && <div className="space-y-2 rounded-2xl p-3" style={{ background: SOFT }}><audio controls src={url} className="w-full" />{heard && <p className="text-[13.5px]" style={{ color: MUTED }}>“{heard}”</p>}<button type="button" className="text-[14px] underline" onClick={() => { setState('idle'); setUrl(''); onDone(null); }}>Record again</button></div>}
       <p className="text-[12.5px]" style={{ color: MUTED }}>Any language is fine — we’ll translate it for the team.</p>
     </div>);

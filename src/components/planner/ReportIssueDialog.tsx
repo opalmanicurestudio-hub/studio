@@ -95,7 +95,7 @@ export function ReportIssueDialog({
                       'w-full rounded-xl border-2 px-3 py-2.5 text-left text-[12px] font-bold leading-snug transition-colors active:scale-[0.99]',
                       code === r.code
                         ? 'border-primary bg-primary/[0.06] text-foreground'
-                        : 'border-border bg-white text-muted-foreground hover:bg-muted/40',
+                        : 'border-border bg-card text-muted-foreground hover:bg-muted/40',
                     )}
                   >
                     {r.label}

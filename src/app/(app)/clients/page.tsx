@@ -48,7 +48,7 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
             <Users className='w-12 h-12 text-muted-foreground' />
         </div>
         <div className="space-y-2">
-            <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Rolodex is Empty</h3>
+            <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">Your Rolodex is Empty</h3>
             <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
                 Start building your client base to unlock automated loyalty tracking and custom formulas.
             </p>
@@ -262,10 +262,10 @@ export default function ClientsPage() {
                 <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Sparkles className="w-24 h-24 text-primary" /></div>
                 <CardHeader className="p-8 pb-4"><CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2"><BadgeInfo className="w-3 h-3" />Intelligence Hub</CardTitle></CardHeader>
                 <CardContent className="p-8 pt-0 text-left">
-                    <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Active Portfolio</p>
+                    <p className="text-[10px] font-bold text-foreground/80 uppercase tracking-widest mb-1">Active Portfolio</p>
                     <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">{stats.totalActiveClients}</p>
                     <div className="mt-6 space-y-4">
-                        <div className="p-4 rounded-2xl bg-white/50 border border-primary/10 shadow-sm">
+                        <div className="p-4 rounded-2xl bg-card/50 border border-primary/10 shadow-sm">
                             <div className="flex justify-between items-center mb-1">
                                 <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Retention</span>
                                 <span className="text-sm font-black text-primary">{stats.retentionRate.toFixed(0)}%</span>
@@ -287,7 +287,7 @@ export default function ClientsPage() {
                         <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Retail</span><span className="font-mono">{showFinancials ? `$${stats.retailRevenue.toFixed(2)}` : '••••'}</span></div>
                         <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Tips</span><span className="font-mono">{showFinancials ? `$${stats.tipRevenue.toFixed(2)}` : '••••'}</span></div>
                         <Separator className="bg-muted/50" />
-                        <div className="flex justify-between items-center font-black"><span className="text-[10px] uppercase tracking-widest text-slate-900">Avg. Ticket</span><span className="text-lg tracking-tighter font-mono text-primary">{showFinancials ? `$${stats.avgSpend.toFixed(2)}` : '••••'}</span></div>
+                        <div className="flex justify-between items-center font-black"><span className="text-[10px] uppercase tracking-widest text-foreground">Avg. Ticket</span><span className="text-lg tracking-tighter font-mono text-primary">{showFinancials ? `$${stats.avgSpend.toFixed(2)}` : '••••'}</span></div>
                     </div>
                 </CardContent>
             </Card>
@@ -300,7 +300,7 @@ export default function ClientsPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Client Log" />
       <ClientOnly>
         <main className="cf-settings cf-legacy flex-1 w-full max-w-7xl mx-auto min-w-0 p-4 pb-28 md:p-8">
@@ -322,7 +322,7 @@ export default function ClientsPage() {
               <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
                   <AlertDialogHeader className="p-6 pb-0 text-left">
                       <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">Delete for good?</AlertDialogTitle>
-                      <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">You are about to permanently delete {selectedItems.size} client records. <strong>This action is non-reversible.</strong></AlertDialogDescription>
+                      <AlertDialogDescription className="font-bold text-sm text-foreground/80 leading-relaxed uppercase text-left">You are about to permanently delete {selectedItems.size} client records. <strong>This action is non-reversible.</strong></AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
                       <Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Records</Button>

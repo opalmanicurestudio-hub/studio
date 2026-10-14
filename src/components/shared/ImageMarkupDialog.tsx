@@ -708,7 +708,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="p-0 border-0 overflow-hidden shadow-2xl bg-background flex flex-col w-screen h-[100dvh] max-w-none rounded-none sm:w-[96vw] sm:h-[94dvh] sm:max-w-[1200px] sm:rounded-3xl">
         <DialogHeader className="px-4 py-2.5 border-b bg-muted/5 flex-shrink-0 text-left">
-          <DialogTitle className="text-sm md:text-base font-semibold tracking-tight text-slate-900 flex items-center gap-2">
+          <DialogTitle className="text-sm md:text-base font-semibold tracking-tight text-foreground flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary shrink-0" />
             <span className="truncate">{title}</span>
           </DialogTitle>
@@ -734,11 +734,11 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                 the 6 presets. Works everywhere, unlike the
                                 eyedropper next to it. */}
                             <label
-                                className="relative w-7 h-7 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer overflow-hidden shrink-0"
+                                className="relative w-7 h-7 rounded-full border-2 border-dashed border-border flex items-center justify-center cursor-pointer overflow-hidden shrink-0"
                                 title="Custom color"
                                 style={!colors.some(c => c.value === color) ? { backgroundColor: color, borderStyle: 'solid', borderColor: 'var(--primary)' } : undefined}
                             >
-                                {colors.some(c => c.value === color) && <Palette className="w-3 h-3 text-slate-400" />}
+                                {colors.some(c => c.value === color) && <Palette className="w-3 h-3 text-muted-foreground" />}
                                 <input
                                     type="color"
                                     value={color}
@@ -752,8 +752,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <button onClick={handleEyedropper} className="w-7 h-7 rounded-full border-2 border-slate-200 bg-white flex items-center justify-center shrink-0 hover:border-primary/40 transition-colors active:scale-90">
-                                            <Pipette className="w-3.5 h-3.5 text-slate-500" />
+                                        <button onClick={handleEyedropper} className="w-7 h-7 rounded-full border-2 border-border bg-card flex items-center justify-center shrink-0 hover:border-primary/40 transition-colors active:scale-90">
+                                            <Pipette className="w-3.5 h-3.5 text-muted-foreground" />
                                         </button>
                                     </TooltipTrigger>
                                     <TooltipContent className="font-black uppercase text-[9px] border-2">Sample from photo</TooltipContent>
@@ -802,7 +802,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                         )}
                         <div className="flex gap-2 ml-auto">
                             {selectedId && <Button variant="ghost" size="icon" onClick={() => { setAnnotations(prev => prev.filter(a => a.id !== selectedId)); setSelectedId(null); }} className="h-10 w-10 rounded-xl text-destructive hover:bg-destructive/10"><Trash2 className="w-4 h-4" /></Button>}
-                            <Button variant="ghost" size="icon" onClick={handleUndo} className="h-10 w-10 rounded-xl text-slate-400 hover:bg-muted"><Undo2 className="w-5 h-5" /></Button>
+                            <Button variant="ghost" size="icon" onClick={handleUndo} className="h-10 w-10 rounded-xl text-muted-foreground hover:bg-muted"><Undo2 className="w-5 h-5" /></Button>
                         </div>
                     </div>
                     <ScrollBar orientation="horizontal" />
@@ -826,11 +826,11 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                     onTouchMove={handleMouseMove}
                     onTouchEnd={handleMouseUp}
                     onWheel={handleWheel}
-                    className={cn("shadow-2xl rounded-2xl bg-white border-2 cursor-crosshair", isLoading ? "opacity-0" : "opacity-100")}
+                    className={cn("shadow-2xl rounded-2xl bg-card border-2 cursor-crosshair", isLoading ? "opacity-0" : "opacity-100")}
                 />
                 {textInput && (
                     <form onSubmit={handleTextSubmit} className="absolute z-[100]" style={{ left: textInput.x * viewTransform.scale + viewTransform.x, top: textInput.y * viewTransform.scale + viewTransform.y - 40 }}>
-                        <input autoFocus value={textInput.value} onChange={e => setTextInput(prev => prev ? {...prev, value: e.target.value} : null)} onBlur={handleTextSubmit} className="h-10 min-w-[160px] bg-white border-primary border-4 shadow-3xl font-black uppercase text-xs rounded-xl px-4 focus:outline-none ring-4 ring-primary/10" placeholder="ENTER NOTE..." />
+                        <input autoFocus value={textInput.value} onChange={e => setTextInput(prev => prev ? {...prev, value: e.target.value} : null)} onBlur={handleTextSubmit} className="h-10 min-w-[160px] bg-card border-primary border-4 shadow-3xl font-black uppercase text-xs rounded-xl px-4 focus:outline-none ring-4 ring-primary/10" placeholder="ENTER NOTE..." />
                     </form>
                 )}
             </div>
@@ -838,8 +838,8 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
         <DialogFooter className="px-3 py-2.5 border-t bg-muted/5 flex-shrink-0">
             <div className="flex w-full gap-2">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-11 px-4 font-medium text-sm text-slate-500">Cancel</Button>
-                <Button variant="outline" onClick={() => setViewTransform({ scale: 1, x: 0, y: 0 })} className="h-11 px-4 rounded-xl font-medium text-sm border bg-white">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-11 px-4 font-medium text-sm text-muted-foreground">Cancel</Button>
+                <Button variant="outline" onClick={() => setViewTransform({ scale: 1, x: 0, y: 0 })} className="h-11 px-4 rounded-xl font-medium text-sm border bg-card">
                     <Navigation className="w-4 h-4 mr-1.5 opacity-40" />
                     Reset view
                 </Button>

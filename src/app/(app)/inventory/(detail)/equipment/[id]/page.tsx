@@ -255,18 +255,18 @@ export default function EquipmentDetailPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Asset Dossier" />
       <main className="flex-1 p-4 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4 text-left w-full sm:w-auto">
-                <Button variant="outline" size="sm" asChild className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                <Button variant="outline" size="sm" asChild className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-card shadow-sm">
                     <Link href="/inventory">
                         <ArrowLeft className="h-4 w-4 mr-2" />
                         Return
                     </Link>
                 </Button>
-                <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate">Asset Record</h1>
+                <h1 className="text-2xl font-black uppercase tracking-tighter text-foreground leading-none truncate">Asset Record</h1>
             </div>
             <Button size="sm" className="h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20 w-full sm:w-auto" onClick={() => setIsEditDialogOpen(true)}>
                 <Edit className="h-4 w-4 mr-2"/>
@@ -274,7 +274,7 @@ export default function EquipmentDetailPage() {
             </Button>
         </div>
 
-        <Card className="border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white/80 backdrop-blur-xl transition-all text-left">
+        <Card className="border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-card/80 backdrop-blur-xl transition-all text-left">
             <CardContent className="p-6 md:p-12 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 md:gap-12">
                 <div className="relative shrink-0">
                     <div className="w-32 h-32 md:w-48 md:h-48 rounded-[2rem] md:rounded-[3rem] overflow-hidden border-4 border-white shadow-2xl bg-muted/20 relative flex items-center justify-center">
@@ -287,7 +287,7 @@ export default function EquipmentDetailPage() {
                 </div>
                 <div className="space-y-4 flex-1 min-w-0 text-left">
                     <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4 text-left">
-                        <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 truncate leading-none">{equipment.name}</h2>
+                        <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-foreground truncate leading-none">{equipment.name}</h2>
                         <div className="flex gap-2">
                             <Badge variant="outline" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase tracking-widest border-2">{equipment.category}</Badge>
                             {equipment.isExperimentActive && (
@@ -301,7 +301,7 @@ export default function EquipmentDetailPage() {
                     <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2 text-left">
                         <div className="space-y-1">
                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Vendor Origin</p>
-                            <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700">{equipment.supplier || 'Private Registry'}</p>
+                            <p className="text-base md:text-xl font-black uppercase tracking-tight text-foreground/80">{equipment.supplier || 'Private Registry'}</p>
                         </div>
                         <div className="space-y-1">
                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Asset Identifier (SKU)</p>
@@ -312,7 +312,7 @@ export default function EquipmentDetailPage() {
                     {equipment.description && (
                         <div className="pt-4 space-y-1 text-left">
                             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Operational Context</p>
-                            <p className="text-xs md:text-sm font-medium text-slate-600 leading-relaxed italic border-l-4 border-primary/20 pl-4 text-left">
+                            <p className="text-xs md:text-sm font-medium text-foreground/80 leading-relaxed italic border-l-4 border-primary/20 pl-4 text-left">
                                 "{equipment.description}"
                             </p>
                         </div>
@@ -322,7 +322,7 @@ export default function EquipmentDetailPage() {
         </Card>
         
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-             <Card className="lg:col-span-2 border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
+             <Card className="lg:col-span-2 border-2 shadow-sm rounded-3xl overflow-hidden bg-card text-left">
                 <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Financial Matrix</CardTitle></CardHeader>
                 <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="p-5 rounded-2xl bg-muted/20 border-2 shadow-inner text-left">
@@ -343,11 +343,11 @@ export default function EquipmentDetailPage() {
                     </div>
                 </CardContent>
              </Card>
-             <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
+             <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card text-left">
                 <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Lifespan Audit</CardTitle></CardHeader>
                 <CardContent className="p-6 space-y-6 text-left">
                      <div className="flex justify-between items-center p-4 bg-muted/20 rounded-xl border-2">
-                        <span className="text-[10px] font-black uppercase text-slate-600">Operational Window</span>
+                        <span className="text-[10px] font-black uppercase text-foreground/80">Operational Window</span>
                         <span className="font-mono font-black text-sm">{serviceMonths} MONTHS</span>
                     </div>
                      {equipment.lastTestResult && !equipment.isExperimentActive && (
@@ -361,7 +361,7 @@ export default function EquipmentDetailPage() {
                             </div>
                         </div>
                      )}
-                    <Button variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white" onClick={handleToggleExperiment}>
+                    <Button variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-card" onClick={handleToggleExperiment}>
                         {equipment.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4"/>Conclude Yield Test</> : <><Rocket className="mr-2 h-4 w-4"/>Trigger Performance Test</>}
                     </Button>
                 </CardContent>
@@ -369,13 +369,13 @@ export default function EquipmentDetailPage() {
         </div>
 
         <div className="grid gap-10 md:grid-cols-2">
-            <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
+            <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card text-left">
                 <CardHeader className="bg-muted/5 border-b p-6 flex flex-row items-center justify-between">
                     <div className="space-y-1">
                         <CardTitle className="text-sm font-black uppercase tracking-widest">Maintenance Archive</CardTitle>
                         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Audit trail of all technical interventions.</CardDescription>
                     </div>
-                    <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white" onClick={() => setIsLogMaintenanceOpen(true)}><PlusCircle className="mr-2 h-3.5 w-3.5"/>Append Log</Button>
+                    <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card" onClick={() => setIsLogMaintenanceOpen(true)}><PlusCircle className="mr-2 h-3.5 w-3.5"/>Append Log</Button>
                 </CardHeader>
                 <CardContent className="p-0">
                      <Table>
@@ -390,8 +390,8 @@ export default function EquipmentDetailPage() {
                             {equipment.maintenanceHistory && equipment.maintenanceHistory.length > 0 ? (
                                 [...equipment.maintenanceHistory].sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()).map(log => (
                                     <TableRow key={log.id} className="group hover:bg-muted/5">
-                                        <TableCell className="p-4 text-[10px] font-black uppercase text-slate-600">{format(parseISO(log.date), 'MMM d, yyyy')}</TableCell>
-                                        <TableCell className="text-[10px] font-medium text-slate-500 uppercase">{log.description}</TableCell>
+                                        <TableCell className="p-4 text-[10px] font-black uppercase text-foreground/80">{format(parseISO(log.date), 'MMM d, yyyy')}</TableCell>
+                                        <TableCell className="text-[10px] font-medium text-muted-foreground uppercase">{log.description}</TableCell>
                                         <TableCell className="text-right pr-6 font-black font-mono text-xs text-destructive">-${log.cost.toFixed(2)}</TableCell>
                                     </TableRow>
                                 ))
@@ -406,7 +406,7 @@ export default function EquipmentDetailPage() {
                     </Table>
                 </CardContent>
             </Card>
-            <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white text-left">
+            <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card text-left">
                 <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Operational Usage History</CardTitle><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Registry of technical deployment events.</CardDescription></CardHeader>
                 <CardContent className="p-0">
                       <Table>
@@ -421,8 +421,8 @@ export default function EquipmentDetailPage() {
                             {usageHistory.length > 0 ? (
                                 usageHistory.map(apt => (
                                     <TableRow key={apt.id} className="group hover:bg-muted/5">
-                                        <TableCell className="p-4 text-[10px] font-black uppercase text-slate-600">{format(parseISO(apt.endTime), 'MMM d, p')}</TableCell>
-                                        <TableCell className="text-[10px] font-black uppercase tracking-tight text-slate-900">{apt.client?.name || 'Walk-in'}</TableCell>
+                                        <TableCell className="p-4 text-[10px] font-black uppercase text-foreground/80">{format(parseISO(apt.endTime), 'MMM d, p')}</TableCell>
+                                        <TableCell className="text-[10px] font-black uppercase tracking-tight text-foreground">{apt.client?.name || 'Walk-in'}</TableCell>
                                         <TableCell className="text-[10px] font-bold text-primary uppercase truncate max-w-[150px]">{apt.service?.name || 'Service'}</TableCell>
                                     </TableRow>
                                 ))
@@ -467,7 +467,7 @@ export default function EquipmentDetailPage() {
                     <DialogTitle className="text-2xl font-black uppercase tracking-tighter">{qrModalContent.title}</DialogTitle>
                 </DialogHeader>
                 <div className="flex flex-col items-center justify-center p-12 space-y-8">
-                    <div className="p-6 bg-white rounded-[2.5rem] shadow-2xl border-4 border-primary/10">
+                    <div className="p-6 bg-card rounded-[2.5rem] shadow-2xl border-4 border-primary/10">
                         <Image
                             src={qrModalContent.url}
                             alt={qrModalContent.alt}

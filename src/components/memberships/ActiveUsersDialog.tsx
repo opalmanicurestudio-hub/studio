@@ -48,7 +48,7 @@ export const ActiveUsersDialog: React.FC<ActiveUsersDialogProps> = ({ open, onOp
             <Users className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">
             Active Portfolio
           </DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
@@ -67,13 +67,13 @@ export const ActiveUsersDialog: React.FC<ActiveUsersDialogProps> = ({ open, onOp
                                 onClick={() => onOpenChange(false)}
                                 className="block group"
                             >
-                                <div className="flex items-center gap-4 p-4 rounded-2xl border-2 border-transparent hover:border-primary/10 hover:bg-primary/[0.02] transition-all bg-white shadow-sm">
+                                <div className="flex items-center gap-4 p-4 rounded-2xl border-2 border-transparent hover:border-primary/10 hover:bg-primary/[0.02] transition-all bg-card shadow-sm">
                                     <Avatar className="h-12 w-12 border-2 border-background shadow-lg rounded-xl shrink-0 transition-transform group-hover:scale-105">
                                         <AvatarImage src={client.avatarUrl} className="object-cover" />
                                         <AvatarFallback className="font-black text-sm bg-primary/10 text-primary">{(client.name || 'G').charAt(0)}</AvatarFallback>
                                     </Avatar>
                                     <div className="flex-1 min-w-0 text-left">
-                                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{client.name}</p>
+                                        <p className="font-black text-sm uppercase tracking-tight text-foreground truncate">{client.name}</p>
                                         {client.lastAppointment && (
                                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 flex items-center gap-1.5 mt-0.5">
                                             <Calendar className="w-2.5 h-2.5" />

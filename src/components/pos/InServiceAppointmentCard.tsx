@@ -85,7 +85,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
             <div className="h-full">
                 <Card className={cn(
                     "transition-all border-2 rounded-2xl overflow-hidden shadow-sm h-full flex flex-col",
-                    isReady ? "border-green-500 bg-green-500/[0.03]" : "border-blue-500/20 bg-white",
+                    isReady ? "border-green-500 bg-green-500/[0.03]" : "border-blue-500/20 bg-card",
                     (isRunningOver || appointment.isEscalated) && "border-destructive ring-4 ring-destructive/10 shadow-destructive/10"
                 )}>
                     {appointment.isEscalated && (
@@ -100,7 +100,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                         <div className="flex justify-between items-start gap-3">
                             <div className="space-y-4 flex-1 min-w-0 text-left">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{appointment.clientName}</p>
+                                    <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">{appointment.clientName}</p>
                                     {isMember && (
                                         <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
                                             <Award className="w-2 h-2 mr-0.5" /> MEM
@@ -181,7 +181,7 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                 {allServices?.slice(0, 2).map((s, idx) => (
                                     <div key={`svc-lbl-${s.id}-${idx}`} className="flex items-center justify-end gap-1">
                                         {completedIds.includes(s.id) && <Check className="w-2.5 h-2.5 text-green-500" />}
-                                        <p className={cn("text-[9px] font-black uppercase tracking-widest", completedIds.includes(s.id) ? "text-muted-foreground line-through opacity-40" : "text-slate-900")}>{s.name}</p>
+                                        <p className={cn("text-[9px] font-black uppercase tracking-widest", completedIds.includes(s.id) ? "text-muted-foreground line-through opacity-40" : "text-foreground")}>{s.name}</p>
                                     </div>
                                 ))}
                                 {elapsedTime && <p className={cn("text-2xl font-black font-mono tracking-tighter mt-3", isRunningOver ? "text-destructive" : "text-primary")}>{elapsedTime}</p>}

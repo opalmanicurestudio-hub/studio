@@ -56,7 +56,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Technical Module</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -158,7 +158,7 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
                 {formulaToEdit ? <Edit className="w-5 h-5 text-primary" /> : <Sparkles className="w-5 h-5 text-primary" />}
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
             </div>
-            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">{title}</DialogTitle>
+            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none text-left">{title}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">{description}</DialogDescription>
         </DialogHeader>
         
@@ -192,9 +192,9 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
                         {items.length > 0 ? (
                             <div className="grid gap-4">
                                 {items.map(item => (
-                                    <div key={item.id} className="p-5 rounded-2xl border-2 bg-white shadow-sm space-y-4 transition-all hover:border-primary/20 group">
+                                    <div key={item.id} className="p-5 rounded-2xl border-2 bg-card shadow-sm space-y-4 transition-all hover:border-primary/20 group">
                                         <div className="flex items-center justify-between gap-4">
-                                            <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1 text-left">{item.name}</span>
+                                            <span className="text-[11px] font-black uppercase tracking-tight text-foreground truncate flex-1 text-left">{item.name}</span>
                                             <div className="flex items-center gap-3">
                                                 <div className="flex items-center gap-2">
                                                     <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
@@ -251,7 +251,7 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
 
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-6 sm:p-10 pt-4")}>
             <div className="grid grid-cols-2 gap-3 w-full">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-14 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Cancel</Button>
                 <Button onClick={handleSaveClick} className="h-14 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
                     {formulaToEdit ? 'Save Protocol' : 'Archive Formula'} <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/>
                 </Button>

@@ -41,8 +41,8 @@ const STATUS_TONE: Record<AppStatus, string> = {
   reviewing: 'bg-amber-100 text-amber-900 border-amber-300',
   interview: 'bg-violet-100 text-violet-900 border-violet-300',
   offer: 'bg-emerald-100 text-emerald-900 border-emerald-300',
-  hired: 'bg-slate-900 text-white border-slate-900',
-  declined: 'bg-slate-100 text-slate-500 border-slate-300',
+  hired: 'bg-foreground text-background border-slate-900',
+  declined: 'bg-muted text-muted-foreground border-border',
 };
 
 const DECLINE_REASONS = ['Position filled', 'Not a fit right now', 'Experience level', 'Availability mismatch', 'Other'] as const;
@@ -183,7 +183,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
   };
 
   return (
-    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+    <Card className="rounded-[2rem] border-2 bg-card overflow-hidden">
       <CardContent className="p-5 space-y-3">
         <button
           type="button"
@@ -192,7 +192,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
           className="flex w-full items-start justify-between gap-3 text-left"
         >
           <div className="min-w-0">
-            <p className="truncate text-[15px] font-black tracking-tight text-slate-900">{app.name || 'No name'}</p>
+            <p className="truncate text-[15px] font-black tracking-tight text-foreground">{app.name || 'No name'}</p>
             <p className="truncate text-[12px] font-bold text-muted-foreground">
               {app.position || 'No role given'}{applied ? ` · applied ${format(applied, 'MMM d')}` : ''}
             </p>
@@ -210,27 +210,27 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
             <span className="rounded-lg border-2 border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-emerald-900">Talent pool</span>
           )}
           {app.listingTitle && (
-            <span className="flex items-center gap-1 rounded-lg border-2 bg-slate-900 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-white"><Briefcase className="h-3 w-3" aria-hidden="true" /> {app.listingTitle}</span>
+            <span className="flex items-center gap-1 rounded-lg border-2 bg-foreground px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-background"><Briefcase className="h-3 w-3" aria-hidden="true" /> {app.listingTitle}</span>
           )}
           {app.experienceLevel && (
-            <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">{app.experienceLevel}</span>
+            <span className="rounded-lg border-2 bg-muted/60 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-foreground/80">{app.experienceLevel}</span>
           )}
           {(app.availability || []).map((a: string) => (
-            <span key={a} className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">{a}</span>
+            <span key={a} className="rounded-lg border-2 bg-muted/60 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-foreground/80">{a}</span>
           ))}
           {app.startWhen && (
-            <span className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">{app.startWhen}</span>
+            <span className="rounded-lg border-2 bg-muted/60 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-foreground/80">{app.startWhen}</span>
           )}
         </div>
 
         <div className="flex flex-wrap gap-2">
           {app.phone && (
-            <a href={`tel:${app.phone}`} className="flex h-10 items-center gap-1.5 rounded-xl border-2 bg-white px-3 text-[11px] font-black uppercase tracking-widest text-slate-900">
+            <a href={`tel:${app.phone}`} className="flex h-10 items-center gap-1.5 rounded-xl border-2 bg-card px-3 text-[11px] font-black uppercase tracking-widest text-foreground">
               <Phone className="h-3.5 w-3.5" aria-hidden="true" /> Call
             </a>
           )}
           {app.email && (
-            <a href={`mailto:${app.email}`} className="flex h-10 items-center gap-1.5 rounded-xl border-2 bg-white px-3 text-[11px] font-black uppercase tracking-widest text-slate-900">
+            <a href={`mailto:${app.email}`} className="flex h-10 items-center gap-1.5 rounded-xl border-2 bg-card px-3 text-[11px] font-black uppercase tracking-widest text-foreground">
               <Mail className="h-3.5 w-3.5" aria-hidden="true" /> Email
             </a>
           )}
@@ -241,19 +241,19 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
             {app.license && (
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">License / certification</p>
-                <p className="mt-0.5 text-[13px] font-bold text-slate-800">{app.license}</p>
+                <p className="mt-0.5 text-[13px] font-bold text-foreground">{app.license}</p>
               </div>
             )}
             {app.experience && (
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Experience</p>
-                <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-800">{app.experience}</p>
+                <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-foreground">{app.experience}</p>
               </div>
             )}
             {app.message && (
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Anything else</p>
-                <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-800">{app.message}</p>
+                <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-foreground">{app.message}</p>
               </div>
             )}
             {app.availabilityGrid && Object.keys(app.availabilityGrid).length > 0 && (
@@ -261,7 +261,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Can work</p>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {GRID_DAYS.filter(([k]) => (app.availabilityGrid[k] || []).length > 0).map(([k, label]) => (
-                    <span key={k} className="rounded-lg border-2 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-700">
+                    <span key={k} className="rounded-lg border-2 bg-muted/60 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-foreground/80">
                       {label} {(app.availabilityGrid[k] || []).map((sl: string) => GRID_SLOT_LABEL[sl] || sl).join('·')}
                     </span>
                   ))}
@@ -275,7 +275,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                   {app.answers.map((a: any, i: number) => (
                     <div key={a.id || i}>
                       <p className="text-[11px] font-bold text-muted-foreground">{a.label}</p>
-                      <p className="whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-slate-800">{a.value}</p>
+                      <p className="whitespace-pre-wrap text-[13px] font-bold leading-relaxed text-foreground">{a.value}</p>
                     </div>
                   ))}
                 </div>
@@ -284,7 +284,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
             {(app.email || app.phone) && (
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Contact</p>
-                <p className="mt-0.5 text-[13px] font-bold text-slate-800">{[app.email, app.phone].filter(Boolean).join(' · ')}</p>
+                <p className="mt-0.5 text-[13px] font-bold text-foreground">{[app.email, app.phone].filter(Boolean).join(' · ')}</p>
               </div>
             )}
             {app.email && !alreadyOnTeam && (
@@ -299,26 +299,26 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                     <p className="text-[11px] font-bold text-emerald-900/70">To move it instead, cancel, then propose new times below.</p>
                   </div>
                 ) : invite && invite.status === 'canceled' ? (
-                  <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3">
-                    <p className="text-[11px] font-bold text-slate-600">Interview canceled — they&apos;ve been emailed. Propose new times below whenever you&apos;re ready.</p>
+                  <div className="rounded-2xl border-2 border-dashed bg-muted/60 p-3">
+                    <p className="text-[11px] font-bold text-foreground/80">Interview canceled — they&apos;ve been emailed. Propose new times below whenever you&apos;re ready.</p>
                   </div>
                 ) : invite && invite.status === 'needs_new_times' ? (
                   <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3">
                     <p className="text-[11px] font-bold text-amber-900">None of the offered times worked — propose new ones below.</p>
                   </div>
                 ) : invite && invite.status === 'countered' ? (
-                  <div className="rounded-2xl border-2 border-slate-900 bg-white p-3 space-y-2">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">They sent their availability</p>
-                    {invite.applicantNote && <p className="text-[12px] font-bold text-slate-600">\u201c{invite.applicantNote}\u201d</p>}
+                  <div className="rounded-2xl border-2 border-slate-900 bg-card p-3 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-foreground">They sent their availability</p>
+                    {invite.applicantNote && <p className="text-[12px] font-bold text-foreground/80">\u201c{invite.applicantNote}\u201d</p>}
                     <div className="space-y-1.5">
                       {(invite.proposedSlots || []).map((sl: string, i: number) => (
                         <button
                           key={i}
                           type="button"
                           onClick={() => onAcceptProposed(invite.id, sl)}
-                          className="flex h-11 w-full items-center justify-between rounded-xl border-2 bg-white px-3 text-left hover:border-slate-900"
+                          className="flex h-11 w-full items-center justify-between rounded-xl border-2 bg-card px-3 text-left hover:border-slate-900"
                         >
-                          <span className="text-[12px] font-black text-slate-900">{format(new Date(sl), 'EEE, MMM d \u00b7 h:mm a')}</span>
+                          <span className="text-[12px] font-black text-foreground">{format(new Date(sl), 'EEE, MMM d \u00b7 h:mm a')}</span>
                           <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Accept ✓</span>
                         </button>
                       ))}
@@ -326,8 +326,8 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                     <p className="text-[11px] font-bold text-muted-foreground">Accepting emails them the confirmation automatically. If none work, schedule fresh times below — the new invite supersedes this one.</p>
                   </div>
                 ) : invite && invite.status === 'pending' ? (
-                  <div className="rounded-2xl border-2 border-dashed bg-slate-50 p-3 space-y-2">
-                    <p className="text-[11px] font-bold text-slate-600">Interview invite sent — waiting on their pick.</p>
+                  <div className="rounded-2xl border-2 border-dashed bg-muted/60 p-3 space-y-2">
+                    <p className="text-[11px] font-bold text-foreground/80">Interview invite sent — waiting on their pick.</p>
                     <Button type="button" variant="outline" onClick={() => { onCopyInviteLink(invite.id); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); }} className={cn('h-auto min-h-11 w-full whitespace-normal rounded-xl border-2 px-3 py-2 text-[10px] font-black uppercase leading-tight tracking-widest sm:w-auto', linkCopied && 'border-emerald-400 bg-emerald-50 text-emerald-800')}>
                       {linkCopied ? 'Link copied ✓ — paste it in a text' : 'Copy their scheduling link'}
                     </Button>
@@ -349,7 +349,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                           type="datetime-local"
                           value={slot}
                           onChange={e => setSlots(prev => prev.map((x, xi) => xi === i ? e.target.value : x))}
-                          className="h-12 flex-1 rounded-xl border-2 bg-white px-3 font-bold text-sm"
+                          className="h-12 flex-1 rounded-xl border-2 bg-card px-3 font-bold text-sm"
                         />
                         {slots.length > 1 && (
                           <Button type="button" variant="outline" aria-label={`Remove time option ${i + 1}`} onClick={() => setSlots(prev => prev.filter((_, xi) => xi !== i))} className="h-12 w-12 rounded-xl border-2 p-0 font-black">✕</Button>
@@ -369,7 +369,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                         try { await onScheduleInterview(app, clean); setInviteOpen(false); setSlots(['']); }
                         catch { setInviteError('Couldn\u2019t send the invite — try again.'); }
                         finally { setInviting(false); }
-                      }} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-60">
+                      }} className="h-11 flex-[2] rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background disabled:opacity-60">
                         {inviting ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : 'Send invite'}
                       </Button>
                     </div>
@@ -388,19 +388,19 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                   <div className="space-y-2 rounded-2xl border-2 bg-muted/10 p-3">
                     <div className="flex flex-wrap gap-1.5">
                       {MESSAGE_TEMPLATES.map(t => (
-                        <button key={t.key} type="button" onClick={() => applyTemplate(t.key)} className="h-9 rounded-lg border-2 bg-white px-2.5 text-[10px] font-black uppercase tracking-widest text-slate-700">
+                        <button key={t.key} type="button" onClick={() => applyTemplate(t.key)} className="h-9 rounded-lg border-2 bg-card px-2.5 text-[10px] font-black uppercase tracking-widest text-foreground/80">
                           {t.label}
                         </button>
                       ))}
                     </div>
                     <label htmlFor={`msg-subj-${app.id}`} className="sr-only">Subject</label>
-                    <Input id={`msg-subj-${app.id}`} value={msgSubject} onChange={e => setMsgSubject(e.target.value)} maxLength={200} placeholder="Subject" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+                    <Input id={`msg-subj-${app.id}`} value={msgSubject} onChange={e => setMsgSubject(e.target.value)} maxLength={200} placeholder="Subject" className="h-11 rounded-xl border-2 bg-card font-bold text-sm" />
                     <label htmlFor={`msg-body-${app.id}`} className="sr-only">Message</label>
-                    <textarea id={`msg-body-${app.id}`} value={msgBody} onChange={e => setMsgBody(e.target.value)} maxLength={5000} rows={6} placeholder="Pick a template above or write your own" className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" />
+                    <textarea id={`msg-body-${app.id}`} value={msgBody} onChange={e => setMsgBody(e.target.value)} maxLength={5000} rows={6} placeholder="Pick a template above or write your own" className="w-full rounded-xl border-2 bg-card p-3 font-bold text-sm" />
                     {sendState === 'error' && <p className="text-[11px] font-bold text-destructive">Couldn&apos;t queue the message — try again.</p>}
                     <div className="flex gap-2">
                       <Button type="button" variant="outline" onClick={() => setComposeOpen(false)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
-                      <Button type="button" disabled={sending || !msgBody.trim()} onClick={handleSend} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-60">
+                      <Button type="button" disabled={sending || !msgBody.trim()} onClick={handleSend} className="h-11 flex-[2] rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background disabled:opacity-60">
                         {sending ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : 'Send email'}
                       </Button>
                     </div>
@@ -418,8 +418,8 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                   {timeline.map((ev: any) => {
                     const when = safeDate(ev.createdAt);
                     return (
-                      <div key={ev.id} className="flex items-start justify-between gap-2 rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
-                        <p className="min-w-0 text-[12px] font-bold text-slate-700">
+                      <div key={ev.id} className="flex items-start justify-between gap-2 rounded-xl border-2 border-dashed bg-muted/60 px-3 py-2">
+                        <p className="min-w-0 text-[12px] font-bold text-foreground/80">
                           {ev.type === 'status'
                             ? `${ev.note ? ev.note : `Moved to ${STATUS_LABEL[(ev.toStatus as AppStatus)] || ev.toStatus}`}`
                             : `Email: ${ev.subject || '(no subject)'}${ev.status === 'failed' ? ' — failed to send' : ev.status === 'queued' ? ' — sending…' : ''}`}
@@ -452,15 +452,15 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Why? (kept private)</p>
                   <div className="flex flex-wrap gap-1.5">
                     {DECLINE_REASONS.map(r => (
-                      <button key={r} type="button" aria-pressed={declineReason === r} onClick={() => setDeclineReason(r)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', declineReason === r ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                      <button key={r} type="button" aria-pressed={declineReason === r} onClick={() => setDeclineReason(r)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', declineReason === r ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                         {r}
                       </button>
                     ))}
                   </div>
-                  <button type="button" aria-pressed={keepInPool} onClick={() => setKeepInPool(v => !v)} className={cn('h-10 w-full rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', keepInPool ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-white text-muted-foreground')}>
+                  <button type="button" aria-pressed={keepInPool} onClick={() => setKeepInPool(v => !v)} className={cn('h-10 w-full rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', keepInPool ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-card text-muted-foreground')}>
                     {keepInPool ? 'Keep in talent pool for future openings ✓' : 'Don\u2019t keep on file'}
                   </button>
-                  <Button type="button" onClick={() => { onDecline(app, declineReason, keepInPool); setDeclineOpen(false); }} className="h-11 w-full rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">
+                  <Button type="button" onClick={() => { onDecline(app, declineReason, keepInPool); setDeclineOpen(false); }} className="h-11 w-full rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background">
                     Confirm decline
                   </Button>
                 </div>
@@ -470,15 +470,15 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
             </div>
 
             {alreadyOnTeam ? (
-              <div className="rounded-2xl border-2 bg-slate-900 p-4">
+              <div className="rounded-2xl border-2 bg-foreground p-4">
                 <p className="text-[11px] font-black uppercase tracking-widest text-white">On the team</p>
-                <p className="mt-1 text-[12px] font-bold text-slate-300">Finish their setup from the Pro Team page — their card has a finish-onboarding button.</p>
-                <a href="/staff" className="mt-3 inline-flex h-10 items-center gap-1.5 rounded-xl bg-white px-4 text-[11px] font-black uppercase tracking-widest text-slate-900">
+                <p className="mt-1 text-[12px] font-bold text-muted-foreground/70">Finish their setup from the Pro Team page — their card has a finish-onboarding button.</p>
+                <a href="/staff" className="mt-3 inline-flex h-10 items-center gap-1.5 rounded-xl bg-card px-4 text-[11px] font-black uppercase tracking-widest text-foreground">
                   Go to Pro Team <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </a>
               </div>
             ) : !hireOpen ? (
-              <Button onClick={() => setHireOpen(true)} className="h-12 w-full rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">
+              <Button onClick={() => setHireOpen(true)} className="h-12 w-full rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background">
                 <UserPlus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Hire — add to the team
               </Button>
             ) : (
@@ -493,7 +493,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                   <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Access level</p>
                   <div className="flex flex-wrap gap-1.5">
                     {(['staff', 'admin'] as const).map(r => (
-                      <button key={r} type="button" aria-pressed={hireRole === r} onClick={() => setHireRole(r)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', hireRole === r ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                      <button key={r} type="button" aria-pressed={hireRole === r} onClick={() => setHireRole(r)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', hireRole === r ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                         {r === 'staff' ? 'Team member' : 'Admin'}
                       </button>
                     ))}
@@ -503,7 +503,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                   <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pay structure</p>
                   <div className="flex flex-wrap gap-1.5">
                     {[['commission', 'Commission'], ['hourly', 'Hourly'], ['salary', 'Salary'], ['hourly_plus_commission', 'Hourly + commission'], ['per_service', 'Per service']].map(([v, l]) => (
-                      <button key={v} type="button" aria-pressed={payStructure === v} onClick={() => setPayStructure(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', payStructure === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                      <button key={v} type="button" aria-pressed={payStructure === v} onClick={() => setPayStructure(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', payStructure === v ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                         {l}
                       </button>
                     ))}
@@ -513,7 +513,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                 <div>
                   <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Their clock-in PIN</p>
                   <div className="flex items-center gap-2">
-                    <span className="rounded-xl border-2 bg-white px-4 py-2 font-mono text-lg font-black tracking-[0.3em] text-slate-900">{pin}</span>
+                    <span className="rounded-xl border-2 bg-card px-4 py-2 font-mono text-lg font-black tracking-[0.3em] text-foreground">{pin}</span>
                     <Button type="button" variant="outline" aria-label="New PIN" onClick={() => setPin(makePin())} className="h-11 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest">
                       <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
@@ -526,7 +526,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                       {consentForms.map((f: any) => {
                         const on = formIds.includes(f.id);
                         return (
-                          <button key={f.id} type="button" aria-pressed={on} onClick={() => setFormIds(prev => on ? prev.filter(x => x !== f.id) : [...prev, f.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                          <button key={f.id} type="button" aria-pressed={on} onClick={() => setFormIds(prev => on ? prev.filter(x => x !== f.id) : [...prev, f.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                             {f.title || 'Untitled form'}
                           </button>
                         );
@@ -542,7 +542,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                       {publishedDocs.map((dd: any) => {
                         const on = docIds.includes(dd.id);
                         return (
-                          <button key={dd.id} type="button" aria-pressed={on} onClick={() => setDocIds(prev => on ? prev.filter(x => x !== dd.id) : [...prev, dd.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                          <button key={dd.id} type="button" aria-pressed={on} onClick={() => setDocIds(prev => on ? prev.filter(x => x !== dd.id) : [...prev, dd.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                             {dd.title || 'Untitled'}
                           </button>
                         );
@@ -560,7 +560,7 @@ const ApplicantCard = ({ app, onStatus, onHire, teamEmails, consentForms, busine
                   <Button type="button" variant="outline" onClick={() => setHireOpen(false)} className="h-12 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">
                     Cancel
                   </Button>
-                  <Button type="button" disabled={hiring} onClick={handleHire} className="h-12 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-60">
+                  <Button type="button" disabled={hiring} onClick={handleHire} className="h-12 flex-[2] rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background disabled:opacity-60">
                     {hiring ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : <>Confirm hire</>}
                   </Button>
                 </div>
@@ -613,40 +613,40 @@ const ListingsManager = ({ listings, applyBase, onCreate, onUpdate, onDelete }: 
     <div className="space-y-3">
       <div className="space-y-1.5">
         <label htmlFor="jl-title" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Role title</label>
-        <Input id="jl-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={120} placeholder="e.g. Front desk, weekend technician" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+        <Input id="jl-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={120} placeholder="e.g. Front desk, weekend technician" className="h-11 rounded-xl border-2 bg-card font-bold text-sm" />
       </div>
       <div className="space-y-1.5">
         <label htmlFor="jl-desc" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Description</label>
-        <textarea id="jl-desc" value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} rows={3} className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" placeholder="What the job is, day to day" />
+        <textarea id="jl-desc" value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} rows={3} className="w-full rounded-xl border-2 bg-card p-3 font-bold text-sm" placeholder="What the job is, day to day" />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1.5">
           <label htmlFor="jl-pay" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pay</label>
-          <Input id="jl-pay" value={payRange} onChange={e => setPayRange(e.target.value)} maxLength={80} placeholder="e.g. $18–22/hr" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+          <Input id="jl-pay" value={payRange} onChange={e => setPayRange(e.target.value)} maxLength={80} placeholder="e.g. $18–22/hr" className="h-11 rounded-xl border-2 bg-card font-bold text-sm" />
         </div>
         <div className="space-y-1.5">
           <label htmlFor="jl-sched" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</label>
-          <Input id="jl-sched" value={scheduleNote} onChange={e => setScheduleNote(e.target.value)} maxLength={80} placeholder="e.g. Part-time, weekends" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+          <Input id="jl-sched" value={scheduleNote} onChange={e => setScheduleNote(e.target.value)} maxLength={80} placeholder="e.g. Part-time, weekends" className="h-11 rounded-xl border-2 bg-card font-bold text-sm" />
         </div>
       </div>
       <div className="space-y-1.5">
         <label htmlFor="jl-req" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What you&apos;re looking for</label>
-        <textarea id="jl-req" value={requirements} onChange={e => setRequirements(e.target.value)} maxLength={2000} rows={2} className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" placeholder="Experience, certifications, must-haves" />
+        <textarea id="jl-req" value={requirements} onChange={e => setRequirements(e.target.value)} maxLength={2000} rows={2} className="w-full rounded-xl border-2 bg-card p-3 font-bold text-sm" placeholder="Experience, certifications, must-haves" />
       </div>
       {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
       <div className="flex gap-2">
         <Button type="button" variant="outline" onClick={() => setEditing(null)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
-        <Button type="button" onClick={save} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">Save role</Button>
+        <Button type="button" onClick={save} className="h-11 flex-[2] rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background">Save role</Button>
       </div>
     </div>
   );
 
   return (
-    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+    <Card className="rounded-[2rem] border-2 bg-card overflow-hidden">
       <CardContent className="p-5 space-y-3">
         <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Open roles</p>
+            <p className="text-[11px] font-black uppercase tracking-widest text-foreground">Open roles</p>
             <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
               {listings.length > 0 ? `${listings.filter((l: any) => l.status === 'open').length} open · ${listings.length} total` : 'Post the roles you\u2019re hiring for'}
             </p>
@@ -665,12 +665,12 @@ const ListingsManager = ({ listings, applyBase, onCreate, onUpdate, onDelete }: 
                   <>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-[13px] font-black tracking-tight text-slate-900">{l.title}</p>
+                        <p className="truncate text-[13px] font-black tracking-tight text-foreground">{l.title}</p>
                         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                           {l.status === 'open' ? 'Open' : 'Closed'}{l.payRange ? ` · ${l.payRange}` : ''}{l.scheduleNote ? ` · ${l.scheduleNote}` : ''}
                         </p>
                       </div>
-                      <button type="button" aria-pressed={l.status === 'open'} onClick={() => onUpdate(l.id, { status: l.status === 'open' ? 'closed' : 'open' })} className={cn('h-9 shrink-0 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', l.status === 'open' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-slate-100 text-slate-500')}>
+                      <button type="button" aria-pressed={l.status === 'open'} onClick={() => onUpdate(l.id, { status: l.status === 'open' ? 'closed' : 'open' })} className={cn('h-9 shrink-0 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', l.status === 'open' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-muted text-muted-foreground')}>
                         {l.status === 'open' ? 'Open' : 'Closed'}
                       </button>
                     </div>
@@ -767,11 +767,11 @@ const QuestionBuilder = ({ questions, onSave }: { questions: any[]; onSave: (lis
   const remove = (i: number) => onSave(questions.filter((_, x) => x !== i));
 
   return (
-    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+    <Card className="rounded-[2rem] border-2 bg-card overflow-hidden">
       <CardContent className="p-5 space-y-3">
         <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Application questions</p>
+            <p className="text-[11px] font-black uppercase tracking-widest text-foreground">Application questions</p>
             <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
               {questions.length > 0 ? `${questions.length} custom question${questions.length === 1 ? '' : 's'} added` : 'Add your own questions to the application'}
             </p>
@@ -790,7 +790,7 @@ const QuestionBuilder = ({ questions, onSave }: { questions: any[]; onSave: (lis
                 {editing === i ? null : (
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-[13px] font-black tracking-tight text-slate-900">{q.label}</p>
+                      <p className="text-[13px] font-black tracking-tight text-foreground">{q.label}</p>
                       <p className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                         {(QUESTION_TYPES.find(t => t[0] === q.type)?.[1]) || 'Short answer'}{q.required ? ' · required' : ''}
                       </p>
@@ -831,13 +831,13 @@ const QuestionEditorFields = ({ label, setLabel, qType, setQType, required, setR
   <div className="space-y-3">
     <div className="space-y-1.5">
       <label htmlFor="qb-label" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Question</label>
-      <Input id="qb-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={140} placeholder="e.g. Do you have weekend availability?" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+      <Input id="qb-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={140} placeholder="e.g. Do you have weekend availability?" className="h-11 rounded-xl border-2 bg-card font-bold text-sm" />
     </div>
     <div className="space-y-1.5">
       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Answer type</p>
       <div className="flex flex-wrap gap-1.5">
         {QUESTION_TYPES.map(([v, l]) => (
-          <button key={v} type="button" aria-pressed={qType === v} onClick={() => setQType(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', qType === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+          <button key={v} type="button" aria-pressed={qType === v} onClick={() => setQType(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', qType === v ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
             {l}
           </button>
         ))}
@@ -846,16 +846,16 @@ const QuestionEditorFields = ({ label, setLabel, qType, setQType, required, setR
     {qType === 'choice' && (
       <div className="space-y-1.5">
         <label htmlFor="qb-options" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Options — one per line</label>
-        <textarea id="qb-options" value={optionsText} onChange={(e) => setOptionsText(e.target.value)} rows={3} className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" placeholder={'Morning\nAfternoon\nEvening'} />
+        <textarea id="qb-options" value={optionsText} onChange={(e) => setOptionsText(e.target.value)} rows={3} className="w-full rounded-xl border-2 bg-card p-3 font-bold text-sm" placeholder={'Morning\nAfternoon\nEvening'} />
       </div>
     )}
-    <button type="button" aria-pressed={required} onClick={() => setRequired((r: boolean) => !r)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', required ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+    <button type="button" aria-pressed={required} onClick={() => setRequired((r: boolean) => !r)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', required ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
       {required ? 'Required ✓' : 'Optional'}
     </button>
     {editError && <p className="text-[11px] font-bold text-destructive">{editError}</p>}
     <div className="flex gap-2">
       <Button type="button" variant="outline" onClick={cancel} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
-      <Button type="button" onClick={saveDraft} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">Save question</Button>
+      <Button type="button" onClick={saveDraft} className="h-11 flex-[2] rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background">Save question</Button>
     </div>
   </div>
 );
@@ -1200,13 +1200,13 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
   }, [applications, lane, q, focusAppId]);
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Applicants" />
       <main className="flex-1 space-y-6 p-4 md:p-8 mx-auto w-full max-w-3xl">
         {!canManage ? (
-          <Card className="rounded-[2rem] border-2 bg-white">
+          <Card className="rounded-[2rem] border-2 bg-card">
             <CardContent className="p-8 text-center">
-              <p className="text-sm font-black uppercase tracking-widest text-slate-900">Managers only</p>
+              <p className="text-sm font-black uppercase tracking-widest text-foreground">Managers only</p>
               <p className="mt-2 text-[12px] font-bold text-muted-foreground">Applications hold personal details, so only owners, admins, and managers can see them.</p>
             </CardContent>
           </Card>
@@ -1215,19 +1215,19 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
         <Card className="rounded-[2rem] border-2 bg-slate-950 text-white overflow-hidden">
           <CardContent className="p-5 space-y-3">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Your application link</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">Your application link</p>
               <p className="mt-1 break-all text-[13px] font-bold text-slate-200">{applyUrl || '…'}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={handleCopy} disabled={!applyUrl} className="h-11 rounded-xl bg-white text-slate-900 hover:bg-slate-200 px-4 text-[11px] font-black uppercase tracking-widest">
+              <Button onClick={handleCopy} disabled={!applyUrl} className="h-11 rounded-xl bg-card text-foreground hover:bg-border px-4 text-[11px] font-black uppercase tracking-widest">
                 {copied ? <Check className="mr-1.5 h-4 w-4" aria-hidden="true" /> : <Copy className="mr-1.5 h-4 w-4" aria-hidden="true" />}
                 {copied ? 'Copied' : 'Copy link'}
               </Button>
-              <Button onClick={handleShare} disabled={!applyUrl} variant="outline" className="h-11 rounded-xl border-2 border-white/30 bg-transparent text-white hover:bg-white/10 px-4 text-[11px] font-black uppercase tracking-widest">
+              <Button onClick={handleShare} disabled={!applyUrl} variant="outline" className="h-11 rounded-xl border-2 border-white/30 bg-transparent text-white hover:bg-card/10 px-4 text-[11px] font-black uppercase tracking-widest">
                 <Share2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> Share
               </Button>
             </div>
-            <p className="text-[11px] font-bold text-slate-400">Put it in your bio, a job post, or a QR by the register — applications land here.</p>
+            <p className="text-[11px] font-bold text-muted-foreground">Put it in your bio, a job post, or a QR by the register — applications land here.</p>
           </CardContent>
         </Card>
 
@@ -1250,9 +1250,9 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
         />
 
         {role === 'owner' && (
-          <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+          <Card className="rounded-[2rem] border-2 bg-card overflow-hidden">
             <CardContent className="p-5 space-y-2">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Confirmation email note</p>
+              <p className="text-[11px] font-black uppercase tracking-widest text-foreground">Confirmation email note</p>
               <p className="text-[12px] font-bold text-muted-foreground">Every applicant gets an instant "we got it" email. This note rides along — introduce the business, the vibe, what working here is like. The role's own description is included automatically.</p>
               <textarea
                 aria-label="Confirmation email note"
@@ -1265,7 +1265,7 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
                   if (v === ((selectedTenant as any)?.applicationWelcome || '')) return;
                   updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}`), { applicationWelcome: v });
                 }}
-                className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm"
+                className="w-full rounded-xl border-2 bg-card p-3 font-bold text-sm"
                 placeholder="e.g. We're a small team that cares about craft and kindness. Most of us started exactly where you are…"
               />
               <p className="text-[11px] font-bold text-muted-foreground">Saves when you tap away.</p>
@@ -1289,14 +1289,14 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
             onChange={e => setQ(e.target.value)}
             aria-label="Search applicants"
             placeholder="Search by name, role, or contact"
-            className="h-12 rounded-2xl border-2 bg-white px-4 font-bold text-sm"
+            className="h-12 rounded-2xl border-2 bg-card px-4 font-bold text-sm"
           />
           <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
               aria-pressed={lane === 'active'}
               onClick={() => setLane('active')}
-              className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', lane === 'active' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}
+              className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', lane === 'active' ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}
             >
               Active ({counts.active})
             </button>
@@ -1306,7 +1306,7 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
                 type="button"
                 aria-pressed={lane === s}
                 onClick={() => setLane(s)}
-                className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', lane === s ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}
+                className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', lane === s ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}
               >
                 {STATUS_LABEL[s]} ({counts[s]})
               </button>
@@ -1315,7 +1315,7 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
               type="button"
               aria-pressed={lane === 'pool'}
               onClick={() => setLane('pool' as any)}
-              className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', lane === ('pool' as any) ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}
+              className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', lane === ('pool' as any) ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}
             >
               Talent pool ({counts.pool})
             </button>
@@ -1324,7 +1324,7 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
 
         {isLoading ? (
           <div className="flex min-h-[200px] items-center justify-center">
-            <Loader className="h-7 w-7 animate-spin text-slate-900" aria-label="Loading applications" />
+            <Loader className="h-7 w-7 animate-spin text-foreground" aria-label="Loading applications" />
           </div>
         ) : visible.length > 0 ? (
           <div className="space-y-4">
@@ -1335,9 +1335,9 @@ ${selectedTenant?.name || ''}`, { skipAutoAdvance: true });
             ))}
           </div>
         ) : (
-          <div className="rounded-[2rem] border-2 border-dashed bg-white/60 py-14 text-center">
-            <Send className="mx-auto h-8 w-8 text-slate-300" aria-hidden="true" />
-            <p className="mt-3 text-sm font-black uppercase tracking-widest text-slate-900">
+          <div className="rounded-[2rem] border-2 border-dashed bg-card/60 py-14 text-center">
+            <Send className="mx-auto h-8 w-8 text-muted-foreground/70" aria-hidden="true" />
+            <p className="mt-3 text-sm font-black uppercase tracking-widest text-foreground">
               {(applications || []).length === 0 ? 'No applications yet' : 'Nothing in this lane'}
             </p>
             <p className="mt-1 text-[12px] font-bold text-muted-foreground">

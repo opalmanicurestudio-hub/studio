@@ -36,7 +36,7 @@ const safeDate = (v: any) => {
 
 const StatCard = ({ label, value, sub, color = 'slate', icon }: any) => {
   const colors: Record<string, string> = {
-    slate: 'bg-white border-slate-200',
+    slate: 'bg-card border-border',
     emerald: 'bg-emerald-50 border-emerald-200',
     amber: 'bg-amber-50 border-amber-200',
     red: 'bg-red-50 border-red-200',
@@ -46,9 +46,9 @@ const StatCard = ({ label, value, sub, color = 'slate', icon }: any) => {
     <div className={cn('p-5 rounded-2xl border-2', colors[color])}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">{label}</p>
-          <p className="text-3xl font-black tracking-tighter text-slate-900 leading-none">{value}</p>
-          {sub && <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-wide">{sub}</p>}
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
+          <p className="text-3xl font-black tracking-tighter text-foreground leading-none">{value}</p>
+          {sub && <p className="text-[10px] font-bold text-muted-foreground mt-1 uppercase tracking-wide">{sub}</p>}
         </div>
         {icon && <div className="opacity-30">{icon}</div>}
       </div>
@@ -199,12 +199,12 @@ export default function EventReconciliationPage() {
 
   if (loading) return (
     <div className="flex h-screen items-center justify-center">
-      <Loader className="animate-spin w-8 h-8 text-slate-400" />
+      <Loader className="animate-spin w-8 h-8 text-muted-foreground" />
     </div>
   );
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-slate-50">
+    <div className="flex flex-col h-full overflow-hidden bg-muted/60">
       <AppHeader title={`${event?.title || event?.name || 'Event'} — Reconciliation`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-24">
 
@@ -212,14 +212,14 @@ export default function EventReconciliationPage() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <button onClick={() => router.push(`/events/${eventId}/manifest`)}
-              className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 transition-colors mb-3">
+              className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground/80 transition-colors mb-3">
               <ArrowLeft className="w-3 h-3" /> Back to Manifest
             </button>
-            <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+            <h1 className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">
               Post-Event Report
             </h1>
             {event?.date && (
-              <p className="text-sm text-slate-500 mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>
+              <p className="text-sm text-muted-foreground mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>
             )}
           </div>
           <Button onClick={handleExport} variant="outline"
@@ -244,18 +244,18 @@ export default function EventReconciliationPage() {
 
         {/* Meal breakdown */}
         {Object.keys(stats.mealBreakdown).length > 0 && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-            <div className="p-5 border-b border-slate-100">
-              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+          <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
+            <div className="p-5 border-b border-border">
+              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2">
                 <Utensils className="w-4 h-4 text-primary" /> Meal Summary
               </h2>
             </div>
             <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-3">
               {Object.entries(stats.mealBreakdown).map(([meal, count]) => (
-                <div key={meal} className="p-4 rounded-2xl border-2 border-slate-100 bg-slate-50">
-                  <p className="text-2xl font-black text-slate-900">{count}</p>
-                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 mt-0.5">{meal}</p>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                <div key={meal} className="p-4 rounded-2xl border-2 border-border bg-muted/60">
+                  <p className="text-2xl font-black text-foreground">{count}</p>
+                  <p className="text-[10px] font-black uppercase tracking-wide text-muted-foreground mt-0.5">{meal}</p>
+                  <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-widest mt-0.5">
                     {Math.round((count / Math.max(stats.checkedIn, 1)) * 100)}% of guests
                   </p>
                 </div>
@@ -265,9 +265,9 @@ export default function EventReconciliationPage() {
         )}
 
         {/* Inventory reconciliation */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+        <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
+          <div className="p-5 border-b border-border flex items-center justify-between">
+            <h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2">
               <Package className="w-4 h-4 text-primary" /> Inventory Reconciliation
             </h2>
             <div className="flex items-center gap-2">
@@ -283,7 +283,7 @@ export default function EventReconciliationPage() {
           {inventoryReport.length === 0 ? (
             <div className="p-8 text-center">
               <Package className="w-8 h-8 text-slate-200 mx-auto mb-3" />
-              <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">
+              <p className="font-black uppercase text-[10px] tracking-widest text-muted-foreground">
                 No inventory data — link supplies to menu items to see reconciliation
               </p>
             </div>
@@ -291,26 +291,26 @@ export default function EventReconciliationPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Item</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Expected</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Actual Used</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Variance</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Remaining Stock</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Status</th>
+                  <tr className="border-b border-border bg-muted/50">
+                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Item</th>
+                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Expected</th>
+                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Actual Used</th>
+                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Variance</th>
+                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Remaining Stock</th>
+                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {inventoryReport.map(item => (
-                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={item.id} className="hover:bg-muted/50 transition-colors">
                       <td className="px-4 py-3">
-                        <p className="font-black text-sm text-slate-900">{item.name}</p>
+                        <p className="font-black text-sm text-foreground">{item.name}</p>
                       </td>
                       <td className="px-4 py-3">
-                        <p className="font-bold text-slate-700">{item.expected} {item.unit}</p>
+                        <p className="font-bold text-foreground/80">{item.expected} {item.unit}</p>
                       </td>
                       <td className="px-4 py-3">
-                        <p className="font-bold text-slate-700">{item.actual} {item.unit}</p>
+                        <p className="font-bold text-foreground/80">{item.actual} {item.unit}</p>
                       </td>
                       <td className="px-4 py-3">
                         <p className={cn('font-black text-sm',
@@ -321,7 +321,7 @@ export default function EventReconciliationPage() {
                         </p>
                       </td>
                       <td className="px-4 py-3">
-                        <p className="font-bold text-slate-700">{item.currentStock} {item.unit}</p>
+                        <p className="font-bold text-foreground/80">{item.currentStock} {item.unit}</p>
                       </td>
                       <td className="px-4 py-3">
                         {item.status === 'match' && (
@@ -350,9 +350,9 @@ export default function EventReconciliationPage() {
 
         {/* Course fire log */}
         {fires.length > 0 && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
-            <div className="p-5 border-b border-slate-100">
-              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+          <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
+            <div className="p-5 border-b border-border">
+              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2">
                 <BarChart2 className="w-4 h-4 text-primary" /> Course Fire Log
               </h2>
             </div>
@@ -360,8 +360,8 @@ export default function EventReconciliationPage() {
               {fires.sort((a, b) => a.courseNumber - b.courseNumber).map(fire => (
                 <div key={fire.id} className="px-5 py-4 flex items-center justify-between">
                   <div>
-                    <p className="font-black text-sm text-slate-900">Course {fire.courseNumber} — {fire.courseName}</p>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                    <p className="font-black text-sm text-foreground">Course {fire.courseNumber} — {fire.courseName}</p>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mt-0.5">
                       Fired at {fire.firedAt ? format(safeDate(fire.firedAt), 'h:mm a') : '—'} · {fire.guestCount} tickets
                     </p>
                   </div>

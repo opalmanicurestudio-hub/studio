@@ -304,8 +304,8 @@ const AddEventForm = ({
             <Label className="text-[10px] font-black uppercase text-muted-foreground ml-1">Action Items Checklist</Label>
             <div className="space-y-2">
               {checklist.map((item, i) => (
-                <div key={i} className="flex items-center gap-3 p-4 bg-white rounded-2xl border-2 border-transparent hover:border-primary/10 group shadow-sm">
-                  <p className="flex-1 text-sm font-bold uppercase tracking-tight text-slate-700 truncate">{item.text}</p>
+                <div key={i} className="flex items-center gap-3 p-4 bg-card rounded-2xl border-2 border-transparent hover:border-primary/10 group shadow-sm">
+                  <p className="flex-1 text-sm font-bold uppercase tracking-tight text-foreground/80 truncate">{item.text}</p>
                   <Button variant="ghost" size="icon" type="button" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100" onClick={() => setChecklist(checklist.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4" /></Button>
                 </div>
               ))}
@@ -326,7 +326,7 @@ const AddEventForm = ({
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
           <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
             <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Double Booking</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">
+            <AlertDialogDescription className="font-bold text-sm text-foreground/80 leading-relaxed uppercase">
               This event overlaps with {clashingItem?.details || 'an existing item'}. Proceed anyway?
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -521,7 +521,7 @@ const EditEventForm = ({
               {checklist.map(item => (
                 <div key={item.id} className="flex items-center gap-3 p-3 bg-muted/20 rounded-2xl border-2 border-transparent hover:border-primary/10 group">
                   <Checkbox checked={item.completed} onCheckedChange={checked => setChecklist(checklist.map(c => c.id === item.id ? { ...c, completed: !!checked } : c))} className="h-5 w-5" />
-                  <p className={cn('flex-1 text-sm font-bold uppercase tracking-tight text-slate-700', item.completed && 'line-through opacity-40')}>{item.text}</p>
+                  <p className={cn('flex-1 text-sm font-bold uppercase tracking-tight text-foreground/80', item.completed && 'line-through opacity-40')}>{item.text}</p>
                   <Button variant="ghost" size="icon" type="button" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100" onClick={() => setChecklist(checklist.filter(c => c.id !== item.id))}><Trash2 className="w-4 h-4" /></Button>
                 </div>
               ))}
@@ -567,7 +567,7 @@ export const AddEventDialog = ({
 
   const Footer = (
     <div className="flex w-full gap-3">
-      <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Cancel</Button>
+      <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-xs text-muted-foreground flex-1">Cancel</Button>
       <Button type="submit" form="add-event-form" className="h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl flex-[2]">
         Save
       </Button>
@@ -596,7 +596,7 @@ export const AddEventDialog = ({
           <AddEventForm key={JSON.stringify(preset || {})} preset={preset} onConfirm={data => { onConfirm(data); onOpenChange(false); }} staff={staff} />
         </div></ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-muted-foreground">Cancel</Button>
           <Button onClick={() => {
             const form = document.getElementById('add-event-form') as HTMLFormElement;
             if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));
@@ -629,7 +629,7 @@ export const EditEventDialog = ({
         <Sparkles className="w-4 h-4 text-primary" />
         <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Refinement</span>
       </div>
-      <div className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</div>
+      <div className="text-2xl font-black uppercase tracking-tighter text-foreground leading-none">{title}</div>
       <div className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{desc}</div>
     </>
   );
@@ -644,7 +644,7 @@ export const EditEventDialog = ({
           </div></div>
           <SheetFooter className="p-6 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
             <div className="flex w-full gap-3">
-              <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-xs text-slate-400 flex-1">Cancel</Button>
+              <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 font-black uppercase tracking-tighter text-xs text-muted-foreground flex-1">Cancel</Button>
               <Button type="submit" form="edit-event-form" className="h-14 font-black uppercase tracking-widest shadow-xl shadow-primary/20 rounded-2xl flex-[2]">Save Changes</Button>
             </div>
           </SheetFooter>
@@ -661,7 +661,7 @@ export const EditEventDialog = ({
           <EditEventForm event={event} onConfirm={evt => { onConfirm(evt); onOpenChange(false); }} staff={staff} />
         </div></ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400">Cancel</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-xs text-muted-foreground">Cancel</Button>
           <Button onClick={() => {
             const form = document.getElementById('edit-event-form') as HTMLFormElement;
             if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));

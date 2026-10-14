@@ -364,7 +364,7 @@ export default function WavesPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 border-b-2 bg-white/90 backdrop-blur print:hidden">
+      <header className="sticky top-0 z-30 border-b-2 bg-card/90 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-4">
           <Button asChild variant="ghost" size="icon" aria-label="Back to orders" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -400,7 +400,7 @@ export default function WavesPage() {
 
       <main className="mx-auto max-w-4xl space-y-4 px-4 py-6">
         {!active && (
-          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white print:hidden">
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-card print:hidden">
             <CardContent className="space-y-4 p-5">
               <div className="flex items-center gap-2">
                 <WavesIcon className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
@@ -454,7 +454,7 @@ export default function WavesPage() {
 
         {active && summary && (
           <>
-            <div className="rounded-[1.5rem] border-2 bg-white p-4">
+            <div className="rounded-[1.5rem] border-2 bg-card p-4">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                 {[
                   ['orders', summary.orders], ['products', summary.products],
@@ -495,7 +495,7 @@ export default function WavesPage() {
                           onClick={() => setDealPickerIds((cur) =>
                             cur.includes(p.id) ? cur.filter((x) => x !== p.id) : [...cur, p.id])}
                           className={cn('h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all active:scale-95',
-                            dealPickerIds.includes(p.id) ? 'bg-foreground text-background border-foreground' : 'bg-white')}
+                            dealPickerIds.includes(p.id) ? 'bg-foreground text-background border-foreground' : 'bg-card')}
                         >
                           {p.name.split(' ')[0]}
                         </button>
@@ -532,7 +532,7 @@ export default function WavesPage() {
                           activeTote === w.tote ? 'border-primary bg-primary text-primary-foreground shadow-md'
                             : full ? 'border-green-600/40 bg-green-500/10'
                             : claim && !mine ? 'border-amber-500/50 bg-amber-500/5'
-                            : 'bg-white hover:border-primary/40'
+                            : 'bg-card hover:border-primary/40'
                         )}
                       >
                         <span className="block font-mono text-base font-bold leading-none">T{w.tote}</span>
@@ -627,7 +627,7 @@ export default function WavesPage() {
                     type="button"
                     onClick={() => onRowTap(r, done)}
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-2xl border-2 bg-white p-4 text-left',
+                      'flex w-full items-center gap-3 rounded-2xl border-2 bg-card p-4 text-left',
                       done && 'opacity-45'
                     )}
                   >
@@ -664,7 +664,7 @@ export default function WavesPage() {
                 </Button>
               </div>
               {packQueue(active, ordersById).map((w) => (
-                <div key={w.orderId} className="flex items-center gap-3 rounded-2xl border-2 bg-white p-3">
+                <div key={w.orderId} className="flex items-center gap-3 rounded-2xl border-2 bg-card p-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 font-mono text-lg font-bold">
                     {w.tote}
                   </span>

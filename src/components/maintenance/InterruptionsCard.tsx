@@ -190,20 +190,20 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
       ? 'Whole studio'
       : rec.affectedBoothIds.map((id) => boothById.get(id)?.name || 'Space').join(', ');
     return (
-      <div className={cn('rounded-2xl border-2 px-4 py-3 space-y-3', isOpen ? 'border-red-300 bg-red-50/60' : 'bg-white')}>
+      <div className={cn('rounded-2xl border-2 px-4 py-3 space-y-3', isOpen ? 'border-red-300 bg-red-50/60' : 'bg-card')}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-black truncate">{rec.title}</p>
-            <p className="text-[11px] font-bold text-slate-600">{INTERRUPTION_TYPE_LABEL[rec.type] || rec.type} · {rec.startDate}{rec.endDate ? ` → ${rec.endDate}` : ' → ongoing'} · {days} day{days === 1 ? '' : 's'} · {scope}</p>
+            <p className="text-[11px] font-bold text-foreground/80">{INTERRUPTION_TYPE_LABEL[rec.type] || rec.type} · {rec.startDate}{rec.endDate ? ` → ${rec.endDate}` : ' → ongoing'} · {days} day{days === 1 ? '' : 's'} · {scope}</p>
           </div>
-          <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', isOpen ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600')}>{isOpen ? 'Open' : 'Resolved'}</span>
+          <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', isOpen ? 'bg-red-600 text-white' : 'bg-muted text-foreground/80')}>{isOpen ? 'Open' : 'Resolved'}</span>
         </div>
-        {rec.note && <p className="text-[11px] font-medium text-slate-700">{rec.note}</p>}
+        {rec.note && <p className="text-[11px] font-medium text-foreground/80">{rec.note}</p>}
 
         {props.length > 0 && (
-          <div className="rounded-xl bg-white border-2 px-3 py-2.5 space-y-2">
+          <div className="rounded-xl bg-card border-2 px-3 py-2.5 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Rent owed back · a day's rent per unusable day</p>
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Rent owed back · a day's rent per unusable day</p>
               <p className="text-[11px] font-black tabular-nums">{money(exp.owedCents)} to approve{exp.paidCents > 0 ? ` · ${money(exp.paidCents)} given` : ''}</p>
             </div>
             {props.map((p) => {
@@ -211,7 +211,7 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
               const armed = approveArm === key;
               return (
                 <div key={key} className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-bold truncate">{p.renterName}<span className="text-slate-500 font-medium"> · {p.boothName} · {money(p.dailyCents)}/day</span></p>
+                  <p className="text-[11px] font-bold truncate">{p.renterName}<span className="text-muted-foreground font-medium"> · {p.boothName} · {money(p.dailyCents)}/day</span></p>
                   {p.owedCents > 0 ? (
                     <button type="button" disabled={busy === `ab-${key}`}
                       onClick={() => { if (armed) void approve(rec, p); else setApproveArm(key); }}
@@ -224,7 +224,7 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
                 </div>
               );
             })}
-            <p className="text-[9px] font-bold text-slate-400">Renters already on leave are left out — their rent is already paused or reduced, and crediting it again pays twice for one empty chair.</p>
+            <p className="text-[9px] font-bold text-muted-foreground">Renters already on leave are left out — their rent is already paused or reduced, and crediting it again pays twice for one empty chair.</p>
           </div>
         )}
 
@@ -241,22 +241,22 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
           return (
             <>
             {isOpen && <InterruptionClients tenantId={tenantId} firestore={firestore} rec={rec} />}
-            <div className="rounded-xl bg-white border-2 px-3 py-2.5 space-y-1.5">
+            <div className="rounded-xl bg-card border-2 px-3 py-2.5 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Studio bookings inside the closure</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Studio bookings inside the closure</p>
                 <p className="text-[11px] font-black tabular-nums">{studioAp.length} · {money(bookedValueCents(studioAp))} booked</p>
               </div>
-              {byStaff.size > 0 && <p className="text-[10px] font-bold text-slate-600">{[...byStaff.entries()].map(([n, c]) => `${n} ${c}`).join(' · ')}</p>}
-              {alreadyCut.length > 0 && <p className="text-[10px] font-bold text-slate-500">{alreadyCut.length} already cancelled by this closure.</p>}
+              {byStaff.size > 0 && <p className="text-[10px] font-bold text-foreground/80">{[...byStaff.entries()].map(([n, c]) => `${n} ${c}`).join(' · ')}</p>}
+              {alreadyCut.length > 0 && <p className="text-[10px] font-bold text-muted-foreground">{alreadyCut.length} already cancelled by this closure.</p>}
               {isOpen && live.length > 0 && (
                 <button type="button" disabled={busy === `cx-${rec.id}`} onClick={() => { if (armed) void cancelStudioBookings(rec, live); else setCancelArm(rec.id); }}
-                  className={cn('h-9 w-full rounded-lg px-3 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', armed ? 'bg-red-700 text-white' : 'border-2 border-red-300 text-red-800 bg-white')}>
+                  className={cn('h-9 w-full rounded-lg px-3 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', armed ? 'bg-red-700 text-white' : 'border-2 border-red-300 text-red-800 bg-card')}>
                   {busy === `cx-${rec.id}` ? 'Cancelling…' : armed ? `Tap again · cancel ${live.length} and tell each client` : `Cancel ${live.length} still-live booking${live.length === 1 ? '' : 's'} & tell the clients`}
                 </button>
               )}
               {cancelResult[rec.id] && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{cancelResult[rec.id]}</p>}
-              {renterAp.length > 0 && <p className="text-[10px] font-bold text-slate-500">{renterAp.length} renter booking{renterAp.length === 1 ? '' : 's'} also fall inside — their renters see and handle those from their portals; not touched here.</p>}
-              <p className="text-[9px] font-bold text-slate-400">This is the studio's own line for its insurer, beside the renters' lines below. Deposits already paid are flagged for refund on cancel.</p>
+              {renterAp.length > 0 && <p className="text-[10px] font-bold text-muted-foreground">{renterAp.length} renter booking{renterAp.length === 1 ? '' : 's'} also fall inside — their renters see and handle those from their portals; not touched here.</p>}
+              <p className="text-[9px] font-bold text-muted-foreground">This is the studio's own line for its insurer, beside the renters' lines below. Deposits already paid are flagged for refund on cancel.</p>
             </div>
             </>
           );
@@ -266,30 +266,30 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
           const groups = lossesByRenter(losses.filter((l) => l.interruptionId === rec.id));
           if (groups.length === 0) return null;
           return (
-            <div className="rounded-xl bg-white border-2 px-3 py-2.5 space-y-1">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">What renters say it cost them · their own logs, read-only</p>
+            <div className="rounded-xl bg-card border-2 px-3 py-2.5 space-y-1">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What renters say it cost them · their own logs, read-only</p>
               {groups.map((g) => (
-                <p key={g.renterId} className="text-[11px] font-bold flex justify-between gap-2"><span className="truncate">{g.renterName}<span className="font-medium text-slate-500"> · {g.totals.days} day{g.totals.days === 1 ? '' : 's'} · {g.totals.appointmentsLost} appt{g.totals.appointmentsLost === 1 ? '' : 's'}</span></span><span className="tabular-nums">{money(g.totals.lostCents)}</span></p>
+                <p key={g.renterId} className="text-[11px] font-bold flex justify-between gap-2"><span className="truncate">{g.renterName}<span className="font-medium text-muted-foreground"> · {g.totals.days} day{g.totals.days === 1 ? '' : 's'} · {g.totals.appointmentsLost} appt{g.totals.appointmentsLost === 1 ? '' : 's'}</span></span><span className="tabular-nums">{money(g.totals.lostCents)}</span></p>
               ))}
-              <p className="text-[9px] font-bold text-slate-400">Their figures for their own insurer — separate from rent, not owed by you.</p>
+              <p className="text-[9px] font-bold text-muted-foreground">Their figures for their own insurer — separate from rent, not owed by you.</p>
             </div>
           );
         })()}
 
         <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">What's being done</p>
-          {(rec.remedy || []).length === 0 && <p className="text-[11px] font-medium text-slate-500">Nothing logged yet.</p>}
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What's being done</p>
+          {(rec.remedy || []).length === 0 && <p className="text-[11px] font-medium text-muted-foreground">Nothing logged yet.</p>}
           {(rec.remedy || []).map((r, i) => (
-            <p key={i} className="text-[11px] font-medium text-slate-700"><span className="font-black">{String(r.at).slice(0, 10)}</span> · {r.text}{r.sharedWithRenters && <span className="text-emerald-700 font-black"> · sent to renters</span>}</p>
+            <p key={i} className="text-[11px] font-medium text-foreground/80"><span className="font-black">{String(r.at).slice(0, 10)}</span> · {r.text}{r.sharedWithRenters && <span className="text-emerald-700 font-black"> · sent to renters</span>}</p>
           ))}
           {isOpen && (
             <div className="space-y-1.5">
               <textarea value={remedyDraft[rec.id] || ''} onChange={(e) => setRemedyDraft((m) => ({ ...m, [rec.id]: e.target.value }))} rows={2}
                 aria-label="Update on the remedy" placeholder="Plumber booked for Tuesday. Dryers back Thursday."
-                className="w-full rounded-xl border-2 bg-white px-3 py-2 text-sm" />
+                className="w-full rounded-xl border-2 bg-card px-3 py-2 text-sm" />
               <div className="flex items-center gap-2">
                 <button type="button" aria-pressed={!!shareDraft[rec.id]} onClick={() => setShareDraft((m) => ({ ...m, [rec.id]: !m[rec.id] }))}
-                  className={cn('h-9 rounded-lg border-2 px-3 text-[9px] font-black uppercase tracking-widest', shareDraft[rec.id] ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600')}>
+                  className={cn('h-9 rounded-lg border-2 px-3 text-[9px] font-black uppercase tracking-widest', shareDraft[rec.id] ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80')}>
                   {shareDraft[rec.id] ? 'Will message affected renters' : 'Keep internal'}
                 </button>
                 <Button onClick={() => addRemedy(rec)} disabled={busy === `rem-${rec.id}` || !(remedyDraft[rec.id] || '').trim()} className="h-9 flex-1 rounded-lg font-black uppercase text-[9px] tracking-widest">{busy === `rem-${rec.id}` ? '…' : 'Log it'}</Button>
@@ -300,7 +300,7 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
 
         <div className="flex gap-2">
           <a href={`/api/booths/interruption-packet?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(rec.id)}`} target="_blank" rel="noopener"
-            className="h-9 inline-flex flex-1 items-center justify-center rounded-lg border-2 bg-white text-[9px] font-black uppercase tracking-widest text-slate-700">Print packet</a>
+            className="h-9 inline-flex flex-1 items-center justify-center rounded-lg border-2 bg-card text-[9px] font-black uppercase tracking-widest text-foreground/80">Print packet</a>
           {isOpen && (
             <Button variant="outline" onClick={() => resolve(rec)} disabled={busy === `res-${rec.id}`} className="h-9 flex-1 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest">{busy === `res-${rec.id}` ? '…' : 'Mark resolved · ends today'}</Button>
           )}
@@ -315,37 +315,37 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
         <div className="flex items-center justify-between gap-3">
           <div>
             <CardTitle className="text-[11px] font-black uppercase tracking-widest">Business interruption</CardTitle>
-            <p className="text-[11px] font-bold text-slate-500">Flood, fire, power, weather, a forced closure. Record it while it happens: the days, the spaces, what renters are owed, what was done, what they were told. The packet your insurer asks for later is written now.</p>
+            <p className="text-[11px] font-bold text-muted-foreground">Flood, fire, power, weather, a forced closure. Record it while it happens: the days, the spaces, what renters are owed, what was done, what they were told. The packet your insurer asks for later is written now.</p>
           </div>
           {!open && <Button onClick={() => setOpen(true)} className="h-9 shrink-0 rounded-xl bg-red-700 hover:bg-red-800 font-black uppercase text-[9px] tracking-widest">Report one</Button>}
         </div>
       </CardHeader>
       <CardContent className="p-5 pt-2 space-y-3">
         {open && (
-          <div className="rounded-2xl border-2 border-red-300 bg-white px-4 py-3 space-y-2">
+          <div className="rounded-2xl border-2 border-red-300 bg-card px-4 py-3 space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as InterruptionType }))} aria-label="What happened"
-                className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold">
+                className="h-10 rounded-xl border-2 bg-card px-3 text-sm font-bold">
                 {(Object.keys(INTERRUPTION_TYPE_LABEL) as InterruptionType[]).map((t) => <option key={t} value={t}>{INTERRUPTION_TYPE_LABEL[t]}</option>)}
               </select>
-              <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} aria-label="First day affected" className="h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold" />
+              <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} aria-label="First day affected" className="h-10 rounded-xl border-2 bg-card px-3 text-sm font-bold" />
               <input type="date" value={form.endDate} min={form.startDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} aria-label="Last day affected (optional)" title="Last day affected — leave empty if you don’t know yet" className="h-10 rounded-xl border-2 px-3 text-sm" />
             </div>
-            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value.slice(0, 120) }))} aria-label="Short title" placeholder="Burst pipe in the back room" className="h-10 w-full rounded-xl border-2 bg-white px-3 text-sm font-bold" />
+            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value.slice(0, 120) }))} aria-label="Short title" placeholder="Burst pipe in the back room" className="h-10 w-full rounded-xl border-2 bg-card px-3 text-sm font-bold" />
             <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Spaces affected · none ticked means the whole studio</p>
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Spaces affected · none ticked means the whole studio</p>
               <div className="flex flex-wrap gap-1.5">
                 {leasedBooths.map((b) => {
                   const on = form.boothIds.includes(b.id);
                   return (
                     <button key={b.id} type="button" aria-pressed={on} onClick={() => setForm((f) => ({ ...f, boothIds: on ? f.boothIds.filter((x) => x !== b.id) : [...f.boothIds, b.id] }))}
-                      className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600')}>{b.name}</button>
+                      className={cn('h-9 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80')}>{b.name}</button>
                   );
                 })}
-                {leasedBooths.length === 0 && <p className="text-[11px] font-medium text-slate-500">No leased spaces right now — the record still keeps the dates and the remedy log.</p>}
+                {leasedBooths.length === 0 && <p className="text-[11px] font-medium text-muted-foreground">No leased spaces right now — the record still keeps the dates and the remedy log.</p>}
               </div>
             </div>
-            <textarea value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 1200) }))} rows={2} aria-label="What happened, in your words" placeholder="What happened, who found it, who has been called." className="w-full rounded-xl border-2 bg-white px-3 py-2 text-sm" />
+            <textarea value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 1200) }))} rows={2} aria-label="What happened, in your words" placeholder="What happened, who found it, who has been called." className="w-full rounded-xl border-2 bg-card px-3 py-2 text-sm" />
             <div className="flex gap-2">
               <Button onClick={create} disabled={busy === 'new' || !form.startDate} className="h-10 flex-1 rounded-xl font-black uppercase text-[10px] tracking-widest">{busy === 'new' ? '…' : 'Open the record'}</Button>
               <Button variant="outline" onClick={() => setOpen(false)} className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Cancel</Button>
@@ -353,10 +353,10 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
           </div>
         )}
         {openRecords.map((r) => <Rec key={r.id} rec={r} />)}
-        {openRecords.length === 0 && !open && <p className="text-[11px] font-medium text-slate-500">Nothing open. Good.</p>}
+        {openRecords.length === 0 && !open && <p className="text-[11px] font-medium text-muted-foreground">Nothing open. Good.</p>}
         {doneRecords.length > 0 && (
           <div className="space-y-2">
-            <button type="button" onClick={() => setShowResolved((v) => !v)} aria-expanded={showResolved} className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+            <button type="button" onClick={() => setShowResolved((v) => !v)} aria-expanded={showResolved} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
               {showResolved ? 'Hide' : 'Show'} {doneRecords.length} resolved
             </button>
             {showResolved && doneRecords.map((r) => <Rec key={r.id} rec={r} />)}

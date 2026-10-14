@@ -93,7 +93,7 @@ function SentimentChip({ sentiment }: { sentiment?: string }) {
     );
   }
   return (
-    <span className="text-[10px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+    <span className="text-[10px] font-medium text-muted-foreground bg-muted border border-border px-2 py-0.5 rounded-full flex items-center gap-1">
       <Meh className="w-2.5 h-2.5" /> Neutral
     </span>
   );
@@ -135,19 +135,19 @@ export function VoiceCallLog({
   }, [firestore, tenantId, maxCalls]);
 
   return (
-    <div className={cn('rounded-2xl border bg-white overflow-hidden shadow-sm', className)}>
+    <div className={cn('rounded-2xl border bg-card overflow-hidden shadow-sm', className)}>
       <div className="p-4 border-b flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
           <Bot className="w-4 h-4 text-indigo-600" />
         </div>
         <div className="flex-1">
-          <p className="text-sm font-semibold text-slate-900">AI receptionist calls</p>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-sm font-semibold text-foreground">AI receptionist calls</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
             Recordings, transcripts, and summaries of every answered call.
           </p>
         </div>
         {calls.length > 0 && (
-          <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+          <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full shrink-0">
             {calls.length} recent
           </span>
         )}
@@ -156,7 +156,7 @@ export function VoiceCallLog({
       {loaded && calls.length === 0 && (
         <div className="p-8 text-center">
           <Phone className="w-7 h-7 text-slate-200 mx-auto mb-2" />
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-muted-foreground">
             No calls yet — they'll appear here as soon as the assistant answers its first one.
           </p>
         </div>
@@ -191,19 +191,19 @@ export function VoiceCallLog({
                         <SentimentChip sentiment={call.sentiment} />
                       )}
                       {call.durationSeconds ? (
-                        <span className="text-[10px] text-slate-400">
+                        <span className="text-[10px] text-muted-foreground">
                           {formatDuration(call.durationSeconds)}
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-xs text-slate-700 mt-1.5 line-clamp-2">
+                    <p className="text-xs text-foreground/80 mt-1.5 line-clamp-2">
                       {call.status === 'live' ? 'Call in progress…' : call.summary || 'Summary processing…'}
                     </p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
                       {safeFormat(call.startedAt, 'EEE MMM d · h:mm a')} · {safeRelativeTime(call.startedAt)}
                     </p>
                   </div>
-                  <span className="shrink-0 text-slate-300 group-hover:text-slate-500 mt-1">
+                  <span className="shrink-0 text-muted-foreground/70 group-hover:text-muted-foreground mt-1">
                     {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </span>
                 </div>
@@ -220,19 +220,19 @@ export function VoiceCallLog({
                     />
                   )}
                   {call.transcript ? (
-                    <div className="rounded-lg bg-slate-50 border p-3">
-                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                    <div className="rounded-lg bg-muted/60 border p-3">
+                      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2">
                         <FileText className="w-3 h-3" /> Transcript
                       </p>
-                      <p className="text-xs text-slate-600 whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto">
+                      <p className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto">
                         {call.transcript}
                       </p>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-slate-400">Transcript not available for this call.</p>
+                    <p className="text-[11px] text-muted-foreground">Transcript not available for this call.</p>
                   )}
                   {call.disconnectionReason && (
-                    <p className="text-[10px] text-slate-400">
+                    <p className="text-[10px] text-muted-foreground">
                       Ended: {call.disconnectionReason.replace(/_/g, ' ')}
                     </p>
                   )}

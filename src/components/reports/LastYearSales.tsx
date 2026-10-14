@@ -14,9 +14,9 @@ export function LastYearSales({ tenantId, from, to, current }: { tenantId: strin
   const pct = Math.round(((current - d.total) / d.total) * 100); const up = pct >= 0;
   const part = Object.keys(d.months).length < (Number(to.getFullYear()) * 12 + to.getMonth() - (Number(from.getFullYear()) * 12 + from.getMonth()) + 1);
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] border bg-white p-5" style={{ borderColor: '#ececee', color: '#16171a' }}>
-      <div><p className="text-[13px]" style={{ color: '#6d7075' }}>Same time last year{part ? ' (the months we have)' : ''} · from your old app</p>
-        <p className="mt-0.5 text-[26px] font-normal tracking-[-0.02em]">{$(d.total)} <span className="text-[15px]" style={{ color: '#6d7075' }}>then · {$(current)} now</span></p></div>
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] border bg-card p-5" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+      <div><p className="text-[13px]" style={{ color: 'hsl(var(--muted-foreground))' }}>Same time last year{part ? ' (the months we have)' : ''} · from your old app</p>
+        <p className="mt-0.5 text-[26px] font-normal tracking-[-0.02em]">{$(d.total)} <span className="text-[15px]" style={{ color: 'hsl(var(--muted-foreground))' }}>then · {$(current)} now</span></p></div>
       <span className="rounded-full px-3 py-1 text-[14px] font-semibold" style={{ background: up ? '#e9f3ed' : '#fdecea', color: up ? '#1f7a4d' : '#b42318' }}>{up ? '+' : ''}{pct}%</span>
     </div>);
 }

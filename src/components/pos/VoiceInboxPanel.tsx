@@ -148,7 +148,7 @@ const INTENT_CONFIG: Record<
   message: {
     label: 'Message',
     icon: MessageSquare,
-    chipClass: 'bg-slate-100 text-slate-600 border-slate-200',
+    chipClass: 'bg-muted text-foreground/80 border-border',
   },
   package_interest: {
     label: 'Package interest',
@@ -439,15 +439,15 @@ export function VoiceInboxPanel({
                       </span>
                     )}
                   </div>
-                  <p className="text-xs font-medium text-slate-900 truncate mt-1.5">
+                  <p className="text-xs font-medium text-foreground truncate mt-1.5">
                     {item.callerName}
                     {item.callerPhone && (
-                      <span className="font-normal text-slate-400 ml-1.5 inline-flex items-center gap-1">
+                      <span className="font-normal text-muted-foreground ml-1.5 inline-flex items-center gap-1">
                         <Phone className="w-2.5 h-2.5" /> {item.callerPhone}
                       </span>
                     )}
                   </p>
-                  <p className="text-[11px] text-slate-600 mt-0.5">{detailLine(item)}</p>
+                  <p className="text-[11px] text-foreground/80 mt-0.5">{detailLine(item)}</p>
                   {isExpanded && (
                     <div className="mt-1.5 space-y-1.5">
                       {linkedCall?.recordingUrl && (
@@ -459,8 +459,8 @@ export function VoiceInboxPanel({
                         />
                       )}
                       {item.consultation?.answers?.map((qa, i) => (
-                        <p key={i} className="text-[11px] text-slate-500">
-                          <span className="text-slate-400">{qa.question}</span> — {qa.answer}
+                        <p key={i} className="text-[11px] text-muted-foreground">
+                          <span className="text-muted-foreground">{qa.question}</span> — {qa.answer}
                         </p>
                       ))}
                       {item.consultation?.recommendedServices && (
@@ -469,17 +469,17 @@ export function VoiceInboxPanel({
                         </p>
                       )}
                       {item.eventInquiry?.servicesOfInterest && (
-                        <p className="text-[11px] text-slate-500">
+                        <p className="text-[11px] text-muted-foreground">
                           Interested in: {item.eventInquiry.servicesOfInterest}
                         </p>
                       )}
                       {item.eventInquiry?.contactEmail && (
-                        <p className="text-[11px] text-slate-500">
+                        <p className="text-[11px] text-muted-foreground">
                           Email: {item.eventInquiry.contactEmail}
                         </p>
                       )}
                       {item.callSummary && (
-                        <p className="text-[11px] text-slate-500 italic">
+                        <p className="text-[11px] text-muted-foreground italic">
                           "{item.callSummary}"
                         </p>
                       )}
@@ -493,7 +493,7 @@ export function VoiceInboxPanel({
                       <button
                         type="button"
                         onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                        className="text-[10px] text-slate-400 hover:text-slate-600"
+                        className="text-[10px] text-muted-foreground hover:text-foreground/80"
                       >
                         {isExpanded ? 'Less' : 'More'}
                       </button>
@@ -564,7 +564,7 @@ export function VoiceInboxPanel({
                     type="button"
                     onClick={() => setStatus(item.id, 'dismissed')}
                     disabled={isBusy}
-                    className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
                     title="Dismiss"
                   >
                     <Trash2 className="w-3.5 h-3.5" />

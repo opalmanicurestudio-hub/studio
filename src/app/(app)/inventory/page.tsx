@@ -136,7 +136,7 @@ const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSe
                 return { icon: <Check className="h-3 w-3" />, className: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' };
             case 'Cancelled':
                 return { icon: <X className="h-3 w-3" />, className: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300' };
-            default: return { icon: <Package className="h-3 w-3" />, className: 'bg-gray-100 text-gray-700' };
+            default: return { icon: <Package className="h-3 w-3" />, className: 'bg-muted text-foreground/80' };
         }
     };
     const statusInfo = getStatusVariant(order.status);
@@ -1606,7 +1606,7 @@ export default function InventoryPage() {
                                         aria-label="Filter by type"
                                         value={activeFilter}
                                         onChange={(e) => setActiveFilter(e.target.value)}
-                                        className="h-9 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
+                                        className="h-9 rounded-xl border-2 bg-card px-2 text-[11px] font-black uppercase tracking-widest"
                                     >
                                         {FILTER_CHIPS.map((chip) => (
                                             <option key={chip.id} value={chip.id}>
@@ -1619,7 +1619,7 @@ export default function InventoryPage() {
                                         aria-label="Sort products"
                                         value={sortBy}
                                         onChange={(e) => setSortBy(e.target.value as SortKey)}
-                                        className="h-9 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
+                                        className="h-9 rounded-xl border-2 bg-card px-2 text-[11px] font-black uppercase tracking-widest"
                                     >
                                         <option value="name">A – Z</option>
                                         <option value="stock_low">Least stock first</option>
@@ -1653,7 +1653,7 @@ export default function InventoryPage() {
                                         onClick={() => setShowArchived(!showArchived)}
                                         aria-pressed={showArchived}
                                         className={cn('ml-auto h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest transition-colors',
-                                            showArchived ? 'border-slate-800 bg-slate-800 text-white' : 'bg-white text-muted-foreground hover:border-primary/30')}
+                                            showArchived ? 'border-slate-800 bg-slate-800 text-white' : 'bg-card text-muted-foreground hover:border-primary/30')}
                                     >
                                         Archived
                                     </button>

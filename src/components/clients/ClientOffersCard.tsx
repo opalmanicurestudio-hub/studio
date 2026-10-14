@@ -29,10 +29,10 @@ export function ClientOffersCard({ firestore, tenantId, clientId }: { firestore:
         {rows.map((w) => {
           const st = walletStatus(w);
           return (
-            <div key={w.id} className={cn('rounded-2xl border-2 px-4 py-3', st === 'available' ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50')}>
+            <div key={w.id} className={cn('rounded-2xl border-2 px-4 py-3', st === 'available' ? 'border-emerald-200 bg-emerald-50' : 'border-border bg-muted/60')}>
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-black">{w.line}</p>
-                <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest', st === 'available' ? 'bg-emerald-600 text-white' : st === 'redeemed' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-600')}>{st === 'available' ? 'Available' : st === 'redeemed' ? 'Used' : 'Expired'}</span>
+                <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest', st === 'available' ? 'bg-emerald-600 text-white' : st === 'redeemed' ? 'bg-slate-700 text-white' : 'bg-border text-foreground/80')}>{st === 'available' ? 'Available' : st === 'redeemed' ? 'Used' : 'Expired'}</span>
               </div>
               <p className="text-[10px] font-bold text-muted-foreground mt-1">
                 Sent {fmt(w.sentAt)}{w.campaignName ? ` in “${w.campaignName}”` : ''}{st === 'redeemed' ? ` · used ${fmt(w.redeemedAt)}${w.saleTotal ? ` on a $${Number(w.saleTotal).toFixed(0)} visit` : ''}` : w.expiresAt ? ` · ${st === 'expired' ? 'ended' : 'ends'} ${fmt(w.expiresAt)}` : ''}

@@ -25,7 +25,7 @@ export const MembershipPOSCard: React.FC<MembershipPOSCardProps> = ({ membership
           <Award className="w-16 h-16 text-indigo-500 group-hover:scale-110 transition-transform duration-700" />
           
           <div className="absolute top-3 right-3">
-            <Button size="icon" className="h-10 w-10 bg-white/90 hover:bg-indigo-600 backdrop-blur-md text-indigo-600 hover:text-white rounded-2xl shadow-xl transition-all border-2 border-white/50">
+            <Button size="icon" className="h-10 w-10 bg-card/90 hover:bg-indigo-600 backdrop-blur-md text-indigo-600 hover:text-white rounded-2xl shadow-xl transition-all border-2 border-white/50">
               <Plus className="w-5 h-5" />
             </Button>
           </div>
@@ -35,7 +35,7 @@ export const MembershipPOSCard: React.FC<MembershipPOSCardProps> = ({ membership
         </div>
         <div className="p-4 md:p-5 flex flex-col flex-1 justify-between gap-3 text-left">
           <div className="space-y-1">
-            <h4 className="font-black text-xs md:text-sm leading-tight uppercase tracking-tight text-slate-900 line-clamp-2">{membership.name}</h4>
+            <h4 className="font-black text-xs md:text-sm leading-tight uppercase tracking-tight text-foreground line-clamp-2">{membership.name}</h4>
             <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Recurring Membership</p>
           </div>
           <div className="flex items-center justify-between pt-3 border-t border-dashed border-indigo-500/10">

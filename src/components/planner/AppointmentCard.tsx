@@ -217,7 +217,7 @@ export function AppointmentCard({
      *   dashed    nobody has answered it yet
      *
      * Five meanings, four hues, scannable down a column at arm's length. */
-    confirmed: { text: 'Booked', className: 'border-border border-l-primary text-foreground bg-white', bgClassName: 'bg-white', dotColor: 'bg-primary' },
+    confirmed: { text: 'Booked', className: 'border-border border-l-primary text-foreground bg-card', bgClassName: 'bg-card', dotColor: 'bg-primary' },
     servicing: { text: 'In the chair', className: 'border-primary/30 border-l-primary ring-2 sm:ring-4 ring-primary/10 text-primary bg-primary/[0.04]', bgClassName: 'bg-primary/5', dotColor: 'bg-primary' },
     completed: { text: 'Finished', className: 'border-border border-l-foreground/25 text-muted-foreground bg-muted/30', bgClassName: 'bg-muted/30', dotColor: 'bg-emerald-600' },
     cancelled: { text: 'Cancelled', className: 'border-border border-l-foreground/20 text-muted-foreground bg-muted/20 grayscale opacity-70', bgClassName: 'bg-muted/20', dotColor: 'bg-foreground/30' },
@@ -289,7 +289,7 @@ export function AppointmentCard({
   // Soft pills (step-ribbon card): tone by meaning, never shouting.
   const CHIP_TONES: Record<string, string> = {
     alert: 'bg-[#FBEAE8] text-[#B42318]',
-    live: 'bg-[#17181A] text-white',
+    live: 'bg-foreground text-background',
     good: 'bg-[#E3F3E7] text-[#1F6B3A]',
     info: 'bg-[#F1ECE5] text-[#4A453E]',
   };
@@ -415,7 +415,7 @@ export function AppointmentCard({
       <div style={{ height: `${(safeDuration / totalDuration) * 100}%` }} className="flex-1 min-h-0 overflow-hidden">
         <Card 
           className={cn(
-            'px-2 py-1.5 sm:px-3 sm:py-2.5 border w-full h-full flex flex-col gap-1 sm:gap-1.5 transition-shadow duration-300 relative rounded-[16px] overflow-hidden bg-white border-[#ECE6DD] shadow-[0_10px_24px_-18px_rgba(23,24,26,0.45)] hover:shadow-[0_16px_32px_-16px_rgba(23,24,26,0.5)]',
+            'px-2 py-1.5 sm:px-3 sm:py-2.5 border w-full h-full flex flex-col gap-1 sm:gap-1.5 transition-shadow duration-300 relative rounded-[16px] overflow-hidden bg-card border-border shadow-[0_10px_24px_-18px_rgba(23,24,26,0.45)] hover:shadow-[0_16px_32px_-16px_rgba(23,24,26,0.5)]',
             (isRunningOver || appointment.isEscalated) && 'border-[#F0C9C4] shadow-[0_12px_28px_-16px_rgba(180,35,24,0.65)]',
             pushedMin > 0 && 'border-dashed border-[#D9A39C]',
             ['completed', 'cancelled', 'no_show', 'declined'].includes(String(appointment.status)) && 'opacity-70',
@@ -432,7 +432,7 @@ export function AppointmentCard({
           }}
         >
           {tier !== 'compact' && (
-            <div className="flex min-w-0 items-center gap-2 text-[11px] sm:text-[12px] font-[700] tabular-nums leading-none text-[#6A655D]">
+            <div className="flex min-w-0 items-center gap-2 text-[11px] sm:text-[12px] font-[700] tabular-nums leading-none text-muted-foreground">
               <span className="flex shrink-0 items-center gap-1.5">{edgeColor && <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: edgeColor }} />}{pushedMin > 0 ? <><s className="text-[#A39D93]">{format(safeDate(appointment.startTime), 'h:mm')}</s><span className="text-[#B42318]">~{format(new Date(expMs0), 'h:mm')}</span></> : format(safeDate(appointment.startTime), 'h:mm')}</span>
               <span className="min-w-0 flex-1 truncate text-center" style={{ color: head.color }}>{head.text}</span>
               <span className="shrink-0">{format(addMinutes(pushedMin > 0 ? new Date(expMs0) : safeDate(appointment.startTime), safeDuration), 'h:mm')}</span>
@@ -467,10 +467,10 @@ export function AppointmentCard({
                     )}
                 </div>
                 <div className="flex items-baseline gap-2 mb-1">
-                  {tier === 'compact' && <span className="shrink-0 tabular-nums font-[700] leading-none text-[11px] sm:text-[12px] text-[#6A655D]">
+                  {tier === 'compact' && <span className="shrink-0 tabular-nums font-[700] leading-none text-[11px] sm:text-[12px] text-muted-foreground">
                     {format(safeDate(appointment.startTime), 'h:mm')}
                   </span>}
-                  <p className="font-[800] tracking-[-0.01em] text-[14px] sm:text-[15px] text-[#17181A] truncate leading-none flex-1 min-w-0">{client.name}</p>
+                  <p className="font-[800] tracking-[-0.01em] text-[14px] sm:text-[15px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
                   {ticket !== null && tier !== 'compact' && appointment.status !== 'servicing' && (
                     <span className={cn(
                       'shrink-0 tabular-nums font-semibold tracking-tight leading-none text-[12px] sm:text-[13px]',
@@ -481,7 +481,7 @@ export function AppointmentCard({
                   )}
                 </div>
                 {tier !== 'compact' && (
-                  <p className="text-[12px] sm:text-[13px] font-[500] text-[#6A655D] truncate leading-snug">{service?.name || appointment.serviceName || 'Service'}</p>
+                  <p className="text-[12px] sm:text-[13px] font-[500] text-muted-foreground truncate leading-snug">{service?.name || appointment.serviceName || 'Service'}</p>
                 )}
                 {holdReason && tier === 'full' && (
                   <p className="text-[12px] font-bold text-foreground/70 truncate">{holdReason}</p>
@@ -501,7 +501,7 @@ export function AppointmentCard({
                     size="icon"
                     title="Appointment actions"
                     aria-label={`Actions for ${client.name}`}
-                    className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-white/70 border shadow-sm hover:bg-white active:scale-95"
+                    className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-card/70 border shadow-sm hover:bg-card active:scale-95"
                     onClick={e => e.stopPropagation()}
                     onKeyDown={e => e.stopPropagation()}
                   >
@@ -572,7 +572,7 @@ export function AppointmentCard({
 
           {appointment.status === 'servicing' && elapsedTime && tier === 'full' && !stepStatus && (
             <div className="flex-1 flex items-center justify-center py-0.5">
-                <p className={cn("text-lg sm:text-xl font-[800] tabular-nums leading-none", isRunningOver ? "text-[#B42318]" : "text-[#17181A]")}>{elapsedTime}</p>
+                <p className={cn("text-lg sm:text-xl font-[800] tabular-nums leading-none", isRunningOver ? "text-[#B42318]" : "text-foreground")}>{elapsedTime}</p>
             </div>
           )}
 

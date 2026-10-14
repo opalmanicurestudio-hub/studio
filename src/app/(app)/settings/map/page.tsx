@@ -85,7 +85,7 @@ export default function SettingsSetupPage() {
           const entries = summariseGroup(selectedTenant, g.id);
           if (entries.length === 0) return null;
           return (
-            <Card key={g.id} className="border-2 rounded-[2rem] bg-white overflow-hidden">
+            <Card key={g.id} className="border-2 rounded-[2rem] bg-card overflow-hidden">
               <CardContent className="p-0">
                 <div className="border-b-2 bg-muted/20 px-5 py-3.5">
                   <p className="text-base font-black tracking-tight">{g.question}</p>
@@ -136,7 +136,7 @@ export default function SettingsSetupPage() {
                                 <button key={o.value} type="button" disabled={!isMgr || busy === key}
                                   onClick={() => void save(key, c.field, o.value)}
                                   className={cn('h-9 flex-1 min-w-[7rem] rounded-xl border-2 px-2 text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-50',
-                                    active ? 'border-foreground bg-foreground text-background' : 'bg-white hover:border-primary/40')}>
+                                    active ? 'border-foreground bg-foreground text-background' : 'bg-card hover:border-primary/40')}>
                                   {o.label}
                                 </button>
                               );
@@ -150,7 +150,7 @@ export default function SettingsSetupPage() {
                               value={draft[key] !== undefined ? draft[key] : String(c.value(selectedTenant))}
                               onChange={(ev: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, [key]: ev.target.value.replace(/[^0-9]/g, '') }))}
                               disabled={!isMgr}
-                              className="h-9 w-20 rounded-xl border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                              className="h-9 w-20 rounded-xl border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
                             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{c.unit}</span>
                             <Button size="sm" variant="outline"
                               disabled={!isMgr || busy === key || (draft[key] ?? String(c.value(selectedTenant))) === String(c.value(selectedTenant))}

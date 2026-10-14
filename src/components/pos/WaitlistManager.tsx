@@ -101,19 +101,19 @@ function WaitlistRow({
           ? 'border-primary/30 bg-primary/5'
           : holdExpired
           ? 'border-amber-200 bg-amber-50'
-          : 'border-muted bg-white',
+          : 'border-muted bg-card',
       )}
     >
       <div className="flex items-center gap-3 px-4 py-3">
         {/* Avatar */}
-        <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-[13px] font-black text-slate-500">
+        <div className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center shrink-0 text-[13px] font-black text-muted-foreground">
           {entry.clientName.charAt(0).toUpperCase()}
         </div>
 
         {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-[13px] font-black text-slate-900 truncate">
+            <p className="text-[13px] font-black text-foreground truncate">
               {entry.clientName}
             </p>
             {isNotified && !holdExpired && (
@@ -147,7 +147,7 @@ function WaitlistRow({
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => onNotify(entry)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-muted bg-white hover:bg-primary/5 hover:border-primary/30 transition-all text-[10px] font-black uppercase text-muted-foreground"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-muted bg-card hover:bg-primary/5 hover:border-primary/30 transition-all text-[10px] font-black uppercase text-muted-foreground"
             title="Notify client"
           >
             <Bell className="w-3 h-3" />
@@ -162,7 +162,7 @@ function WaitlistRow({
           </button>
           <button
             onClick={() => onRemove(entry)}
-            className="flex items-center justify-center w-7 h-7 rounded-lg border border-muted bg-white hover:bg-red-50 hover:border-red-200 transition-all text-muted-foreground hover:text-red-400"
+            className="flex items-center justify-center w-7 h-7 rounded-lg border border-muted bg-card hover:bg-red-50 hover:border-red-200 transition-all text-muted-foreground hover:text-red-400"
             title="Remove from waitlist"
           >
             <XCircle className="w-3.5 h-3.5" />
@@ -399,7 +399,7 @@ export function WaitlistManager({
                   type="date"
                   value={notifyDate}
                   onChange={(e) => setNotifyDate(e.target.value)}
-                  className="w-full h-11 rounded-xl border-2 px-3 font-bold text-sm bg-white"
+                  className="w-full h-11 rounded-xl border-2 px-3 font-bold text-sm bg-card"
                 />
               </div>
               <div className="space-y-1.5">
@@ -409,7 +409,7 @@ export function WaitlistManager({
                   type="time"
                   value={notifyTime}
                   onChange={(e) => setNotifyTime(e.target.value)}
-                  className="w-full h-11 rounded-xl border-2 px-3 font-bold text-sm bg-white"
+                  className="w-full h-11 rounded-xl border-2 px-3 font-bold text-sm bg-card"
                 />
               </div>
             </div>
@@ -469,7 +469,7 @@ export function WaitlistManager({
                   type="date"
                   value={bookDate}
                   onChange={(e) => setBookDate(e.target.value)}
-                  className="w-full h-11 rounded-xl border-2 px-3 font-bold text-sm bg-white"
+                  className="w-full h-11 rounded-xl border-2 px-3 font-bold text-sm bg-card"
                 />
               </div>
               <div className="space-y-1.5">
@@ -479,7 +479,7 @@ export function WaitlistManager({
                   type="time"
                   value={bookTime}
                   onChange={(e) => setBookTime(e.target.value)}
-                  className="w-full h-11 rounded-xl border-2 px-3 font-bold text-sm bg-white"
+                  className="w-full h-11 rounded-xl border-2 px-3 font-bold text-sm bg-card"
                 />
               </div>
             </div>

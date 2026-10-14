@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useInventory } from '@/context/InventoryContext';
 
 const statusOptions = [
-    { value: 'pending', label: 'Reset to Pending', icon: Clock, color: 'text-slate-400' },
+    { value: 'pending', label: 'Reset to Pending', icon: Clock, color: 'text-muted-foreground' },
     { value: 'on_my_way', label: 'Mark as On My Way', icon: Car, color: 'text-blue-500' },
     { value: 'arrived', label: 'Mark as Arrived', icon: MapPin, color: 'text-green-500' },
     { value: 'running_late', label: 'Mark as Running Late', icon: AlertTriangle, color: 'text-amber-500' },
@@ -128,7 +128,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
             checkInStatus === 'running_late' ? "border-amber-500/20 bg-amber-500/5" : 
             checkInStatus === 'on_my_way' ? "border-blue-500/20 bg-blue-500/5" :
             (isAutoCancelled || item.isEscalated) ? "border-destructive ring-4 ring-destructive/10 bg-destructive/5" :
-            isPotentialAlias ? "border-destructive/40 ring-4 ring-destructive/10" : "border-border/50 bg-white"
+            isPotentialAlias ? "border-destructive/40 ring-4 ring-destructive/10" : "border-border/50 bg-card"
         )}>
             {item.isEscalated && (
                 <div className="bg-destructive px-4 py-1 flex items-center justify-center gap-2 animate-pulse">
@@ -141,7 +141,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                     <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                             {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-bounce shrink-0" />}
-                            <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{customerName}</p>
+                            <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">{customerName}</p>
                             {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm"><Award className="w-2 h-2 mr-0.5" /> MEM</Badge>}
                             {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm"><Repeat className="w-2 h-2 mr-0.5" /> PKG</Badge>}
                             {setupPending && (
@@ -208,7 +208,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                             <ShieldAlert className="w-4 h-4" />
                             <span className="text-[10px] font-black uppercase tracking-widest">Protocol Intervention Required</span>
                         </div>
-                        <p className="text-[10px] font-bold uppercase text-slate-600 leading-tight">Session auto-cancelled due to critical delay (+{lateTimeMinutes}m).</p>
+                        <p className="text-[10px] font-bold uppercase text-foreground/80 leading-tight">Session auto-cancelled due to critical delay (+{lateTimeMinutes}m).</p>
                         <Button variant="destructive" size="sm" className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl" onClick={handleResolve}>
                             Resolve Resolution
                         </Button>
@@ -262,7 +262,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                 <DialogContent className="sm:max-w-[380px] rounded-[2.5rem] border-4 shadow-2xl p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
                     <div className="bg-amber-500 px-7 pt-7 pb-5">
                         <div className="flex items-center gap-2 mb-1">
-                            <div className="h-8 w-8 rounded-xl bg-white/25 flex items-center justify-center shrink-0">
+                            <div className="h-8 w-8 rounded-xl bg-card/25 flex items-center justify-center shrink-0">
                                 <AlertTriangle className="h-4 w-4 text-white" />
                             </div>
                             <DialogTitle className="text-xl font-black uppercase tracking-tighter text-white">Running Late</DialogTitle>
@@ -280,7 +280,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                 onClick={() => setLateEntryMode('minutes')}
                                 className={cn(
                                     "flex items-center justify-center gap-1.5 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all",
-                                    lateEntryMode === 'minutes' ? "bg-white shadow-md text-slate-900" : "text-muted-foreground/50"
+                                    lateEntryMode === 'minutes' ? "bg-card shadow-md text-foreground" : "text-muted-foreground/50"
                                 )}
                             >
                                 <Timer className="h-3.5 w-3.5" /> Minutes
@@ -290,7 +290,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                 onClick={() => setLateEntryMode('time')}
                                 className={cn(
                                     "flex items-center justify-center gap-1.5 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all",
-                                    lateEntryMode === 'time' ? "bg-white shadow-md text-slate-900" : "text-muted-foreground/50"
+                                    lateEntryMode === 'time' ? "bg-card shadow-md text-foreground" : "text-muted-foreground/50"
                                 )}
                             >
                                 <CalendarClock className="h-3.5 w-3.5" /> Arrival Time
@@ -354,7 +354,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                             </div>
                             <div className="min-w-0">
                                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">Will Show As</p>
-                                <p className="text-sm font-black uppercase text-slate-900 truncate">
+                                <p className="text-sm font-black uppercase text-foreground truncate">
                                     {resolvedMinutes !== null ? `+${resolvedMinutes}m Late` : 'Enter a time to preview'}
                                 </p>
                             </div>

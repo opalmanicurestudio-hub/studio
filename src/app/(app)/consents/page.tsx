@@ -54,7 +54,7 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: Con
   const progress = (signedCount / totalCount) * 100;
 
   return (
-    <Card className="transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col border-border/50 bg-white hover:border-primary/20 shadow-sm hover:shadow-2xl hover:shadow-primary/5">
+    <Card className="transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col border-border/50 bg-card hover:border-primary/20 shadow-sm hover:shadow-2xl hover:shadow-primary/5">
       <CardContent className="p-6 md:p-8 space-y-6 flex-1 text-left">
         <div className="flex justify-between items-start gap-4">
           <div className="flex items-center gap-4 min-w-0">
@@ -62,7 +62,7 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: Con
                 <FileSignature className="w-6 h-6 text-primary group-hover:text-white transition-colors" />
             </div>
             <div className="min-w-0">
-                <CardTitle className="text-sm md:text-base font-black uppercase tracking-tight text-slate-900 truncate mb-1">{form.title}</CardTitle>
+                <CardTitle className="text-sm md:text-base font-black uppercase tracking-tight text-foreground truncate mb-1">{form.title}</CardTitle>
                 <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest">{form.category}</p>
             </div>
           </div>
@@ -83,10 +83,10 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: Con
             <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all flex justify-between items-center">
                 <div className="space-y-0.5">
                     <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none">Execution Load</p>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Authenticated Signatures</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Authenticated Signatures</p>
                 </div>
                 <div className="flex items-baseline gap-1">
-                    <p className="text-2xl font-black font-mono tracking-tighter text-slate-900">{signedCount}</p>
+                    <p className="text-2xl font-black font-mono tracking-tighter text-foreground">{signedCount}</p>
                     <span className="text-[10px] font-bold text-muted-foreground">/ {totalCount}</span>
                 </div>
             </div>
@@ -125,13 +125,13 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: Con
 
 const AddConsentCard = ({ onClick }: { onClick: () => void }) => (
     <button onClick={onClick} className="w-full h-full text-left transition-all duration-500 group">
-        <Card className="border-4 border-dashed rounded-[2rem] h-full flex items-center justify-center bg-white/50 backdrop-blur-sm opacity-40 hover:opacity-100 hover:border-primary hover:bg-primary/[0.02] transition-all">
+        <Card className="border-4 border-dashed rounded-[2rem] h-full flex items-center justify-center bg-card/50 backdrop-blur-sm opacity-40 hover:opacity-100 hover:border-primary hover:bg-primary/[0.02] transition-all">
             <CardContent className="p-6 sm:p-10 flex flex-col items-center gap-4">
                 <div className="p-6 bg-muted rounded-full group-hover:bg-primary group-hover:text-white transition-all duration-500 shadow-inner">
                     <PlusCircle className="w-10 h-10 sm:w-12 sm:h-12" />
                 </div>
                 <div className="space-y-1 text-center">
-                    <p className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-900">Establish Protocol</p>
+                    <p className="text-xs sm:text-sm font-black uppercase tracking-widest text-foreground">Establish Protocol</p>
                     <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-tight text-muted-foreground">Register New Agreement</p>
                 </div>
             </CardContent>
@@ -234,12 +234,12 @@ export default function ConsentsPage() {
   }, [forms, searchTerm, activeTab]);
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
+    <div className="flex min-h-screen w-full flex-col bg-background overflow-x-hidden">
       <AppHeader title="Agreement Library" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-6 md:space-y-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
           <div className="space-y-1">
-            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Form Library</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Form Library</h1>
             <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
               Create, manage, and track all your client-facing forms.
             </p>
@@ -253,9 +253,9 @@ export default function ConsentsPage() {
             <div className="flex flex-col space-y-6 md:space-y-8">
                 <div className="w-full overflow-x-auto pb-2 scrollbar-hide">
                     <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5 mb-2">
-                        <TabsTrigger value="all" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">All Protocols</TabsTrigger>
+                        <TabsTrigger value="all" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">All Protocols</TabsTrigger>
                         {categories.map(cat => (
-                            <TabsTrigger key={cat} value={cat.toLowerCase()} className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">{cat}</TabsTrigger>
+                            <TabsTrigger key={cat} value={cat.toLowerCase()} className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">{cat}</TabsTrigger>
                         ))}
                     </TabsList>
                 </div>
@@ -264,7 +264,7 @@ export default function ConsentsPage() {
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                     <Input 
                         placeholder="SEARCH PROTOCOLS & SCRIPTS..." 
-                        className="pl-12 h-12 sm:h-14 rounded-2xl border-2 font-black uppercase text-[10px] sm:text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner"
+                        className="pl-12 h-12 sm:h-14 rounded-2xl border-2 font-black uppercase text-[10px] sm:text-xs tracking-widest focus-visible:ring-primary/20 bg-card shadow-inner"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />

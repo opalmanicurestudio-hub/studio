@@ -180,7 +180,7 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
 
   return (
     // Full-screen overlay — important on mobile so the viewfinder is usable
-    <div className="fixed inset-0 z-[200] flex flex-col bg-black">
+    <div className="fixed inset-0 z-[200] flex flex-col bg-foreground">
       {/* Close */}
       <div className="absolute top-4 right-4 z-10">
         <button
@@ -192,7 +192,7 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
       </div>
 
       {/* Camera viewfinder */}
-      <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black">
+      <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-foreground">
         <video
           ref={videoRef}
           className={cn(
@@ -270,7 +270,7 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
               onChange={e => setManualCode(e.target.value.toUpperCase())}
               onKeyDown={e => { if (e.key === 'Enter') handleManualSubmit(); }}
               placeholder="7QX2K9LM"
-              className="flex-1 h-12 bg-white/10 border-white/20 text-white placeholder:text-white/30 text-center font-mono font-black text-lg tracking-[0.2em] focus:border-emerald-400 focus:ring-emerald-400"
+              className="flex-1 h-12 bg-card/10 border-white/20 text-white placeholder:text-white/30 text-center font-mono font-black text-lg tracking-[0.2em] focus:border-emerald-400 focus:ring-emerald-400"
               maxLength={21}
               autoCapitalize="characters"
               autoCorrect="off"

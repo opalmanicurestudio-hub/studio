@@ -108,7 +108,7 @@ const ClientReportPage = () => {
                 <AppHeader title="Client Report" />
                 <main className="flex-1 p-4 md:p-8 flex justify-center items-center">
                     <div className="text-center space-y-2">
-                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Financial reports are visible to admins only</p>
+                        <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Financial reports are visible to admins only</p>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">Ask the owner to change this in Settings → Staff Data Visibility</p>
                     </div>
                 </main>
@@ -128,7 +128,7 @@ const ClientReportPage = () => {
     };
 
     return (
-        <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white">
+        <div className="flex min-h-screen w-full flex-col bg-background print:bg-card">
             <AppHeader title="Client Report" />
             <main className="flex-1 p-4 md:p-8 space-y-6 print:p-4">
                 <div className="flex items-center justify-between print:hidden">
@@ -263,7 +263,7 @@ const ClientReportPage = () => {
                                                     variant="secondary"
                                                     className={cn(
                                                         'capitalize',
-                                                        statusConfig[apt.status as keyof typeof statusConfig] || 'bg-gray-100 text-gray-800'
+                                                        statusConfig[apt.status as keyof typeof statusConfig] || 'bg-muted text-foreground'
                                                     )}
                                                     >
                                                     {apt.status.replace('_', ' ')}
@@ -287,7 +287,7 @@ const ClientReportPage = () => {
                                         </CardHeader>
                                         <CardContent className="space-y-2">
                                             {formula.items.map((item, itemIndex) => (
-                                                <div key={itemIndex} className="text-sm p-2 bg-white border rounded-md shadow-sm flex justify-between">
+                                                <div key={itemIndex} className="text-sm p-2 bg-card border rounded-md shadow-sm flex justify-between">
                                                     <p className="font-bold">{item.name}</p>
                                                     <p className="font-mono">{item.quantity}{item.unit}</p>
                                                 </div>

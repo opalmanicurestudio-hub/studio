@@ -12,9 +12,9 @@ const BG = { backgroundColor: '#f7f7f8', backgroundImage: 'radial-gradient(120% 
 export default function RefundsPage() {
   const { firestore } = useFirebase() as any; const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id || '';
   const allowed = ['owner', 'admin', 'manager', 'front_desk'].includes(String(role || '').toLowerCase());
-  if (!allowed) return <div className="p-6"><AppHeader title="Refunds to give" /><p className="mt-6" style={{ color: '#6d7075' }}>Refunds are handled by the front desk and managers.</p></div>;
+  if (!allowed) return <div className="p-6"><AppHeader title="Refunds to give" /><p className="mt-6" style={{ color: 'hsl(var(--muted-foreground))' }}>Refunds are handled by the front desk and managers.</p></div>;
   return (
-    <div className="flex min-h-screen flex-col" style={{ ...BG, color: '#16171a', letterSpacing: '-0.01em' }}>
+    <div className="flex min-h-screen flex-col" style={{ ...BG, color: 'hsl(var(--foreground))', letterSpacing: '-0.01em' }}>
       <AppHeader title="Refunds to give" />
       <RefundsDesk firestore={firestore} tenantId={tenantId} tenant={selectedTenant} />
     </div>);

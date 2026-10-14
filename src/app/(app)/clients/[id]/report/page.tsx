@@ -115,7 +115,7 @@ const ClientReportPage = () => {
 
     if (isPageLoading && !client) {
       return (
-        <div className="flex min-h-screen w-full flex-col bg-muted/40">
+        <div className="flex min-h-screen w-full flex-col bg-background">
           <AppHeader title="Client Report" />
           <main className="flex-1 p-4 md:p-8 flex justify-center items-center">
             <Loader className="h-8 w-8 animate-spin" />
@@ -140,7 +140,7 @@ const ClientReportPage = () => {
     };
 
     return (
-        <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white">
+        <div className="flex min-h-screen w-full flex-col bg-background print:bg-card">
             <AppHeader title="Client Report" />
             <main className="flex-1 p-4 md:p-8 space-y-6">
                 <div className="flex items-center justify-between print:hidden">
@@ -280,7 +280,7 @@ const ClientReportPage = () => {
                                                         variant="secondary"
                                                         className={cn(
                                                             'capitalize text-[10px]',
-                                                            statusConfig[apt.status as keyof typeof statusConfig] || 'bg-gray-100 text-gray-800'
+                                                            statusConfig[apt.status as keyof typeof statusConfig] || 'bg-muted text-foreground'
                                                         )}
                                                         >
                                                         {apt.status.replace('_', ' ')}
@@ -323,7 +323,7 @@ const ClientReportPage = () => {
                                                         return (
                                                             <div key={idx} className="mt-6 pt-4 border-t border-dashed">
                                                                 <p className="text-[10px] uppercase font-bold text-muted-foreground mb-2">Digital Signature</p>
-                                                                <div className="relative w-40 h-20 bg-white border rounded p-1">
+                                                                <div className="relative w-40 h-20 bg-card border rounded p-1">
                                                                     <Image src={value} alt="Signature" fill className="object-contain" />
                                                                 </div>
                                                             </div>
@@ -349,15 +349,15 @@ const ClientReportPage = () => {
                                         </CardHeader>
                                         <CardContent className="space-y-3">
                                             {formula.items.map((item, itemIndex) => (
-                                                <div key={itemIndex} className="text-sm p-3 bg-white border rounded-lg shadow-sm space-y-1.5">
+                                                <div key={itemIndex} className="text-sm p-3 bg-card border rounded-lg shadow-sm space-y-1.5">
                                                     <div className="flex justify-between items-center">
                                                         <p className="font-bold uppercase text-[11px]">{item.name}</p>
                                                         <p className="font-mono text-xs font-black">{item.quantity}{item.unit}</p>
                                                     </div>
                                                     {item.note && (
-                                                        <div className="flex items-start gap-2 pt-1 border-t border-slate-100">
+                                                        <div className="flex items-start gap-2 pt-1 border-t border-border">
                                                             <MessageSquare className="w-2.5 h-2.5 text-primary opacity-40 mt-0.5" />
-                                                            <p className="text-[10px] font-medium text-slate-500 italic leading-tight">"{item.note}"</p>
+                                                            <p className="text-[10px] font-medium text-muted-foreground italic leading-tight">"{item.note}"</p>
                                                         </div>
                                                     )}
                                                 </div>

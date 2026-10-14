@@ -33,8 +33,8 @@ const localISO = (d: Date = new Date()) =>
 function ZoneLabel({ children }: { children: any }) {
   return (
     <div className="flex items-center gap-3 pt-3">
-      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 shrink-0">{children}</p>
-      <div className="h-px flex-1 bg-slate-200" />
+      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground shrink-0">{children}</p>
+      <div className="h-px flex-1 bg-border" />
     </div>
   );
 }
@@ -49,21 +49,21 @@ function OverflowMenu({ items, align = 'right', label = 'More' }: { items: Overf
         type="button"
         aria-label={label}
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="h-8 w-8 rounded-lg border-2 flex items-center justify-center text-slate-500 hover:bg-slate-50 active:scale-95 transition"
+        className="h-8 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:bg-muted/60 active:scale-95 transition"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
-          <div className={`absolute z-50 mt-1 min-w-[11rem] rounded-2xl border-2 bg-white shadow-xl p-1.5 ${align === 'right' ? 'right-0' : 'left-0'}`}>
+          <div className={`absolute z-50 mt-1 min-w-[11rem] rounded-2xl border-2 bg-card shadow-xl p-1.5 ${align === 'right' ? 'right-0' : 'left-0'}`}>
             {usable.map((it, i) => (
               <button
                 key={i}
                 type="button"
                 disabled={it.disabled}
                 onClick={(e) => { e.stopPropagation(); setOpen(false); it.onClick(); }}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition disabled:opacity-40 ${it.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'}`}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition disabled:opacity-40 ${it.danger ? 'text-red-600 hover:bg-red-50' : 'text-foreground/80 hover:bg-muted/60'}`}
               >{it.label}</button>
             ))}
           </div>
@@ -416,7 +416,7 @@ const openReschedule = (r: any) => {
                             <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-indigo-50 text-indigo-600">−${(r.renterDiscountCents / 100).toFixed(0)}</span>
                           )}
                         </p>
-                        <p className="text-[10px] font-bold text-slate-600 uppercase">{r.bookingType === 'hourly' ? `${r.startDate} · ${r.startTime}–${r.endTime}` : `${r.startDate} → ${r.endDate}`} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓' : ''}</p>
+                        <p className="text-[10px] font-bold text-foreground/80 uppercase">{r.bookingType === 'hourly' ? `${r.startDate} · ${r.startTime}–${r.endTime}` : `${r.startDate} → ${r.endDate}`} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓' : ''}</p>
                       </div>
                       <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${r.status === 'checked_in' ? 'bg-indigo-200 text-indigo-800' : r.status === 'confirmed' ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
                         {r.status === 'checked_in' ? 'In' : r.status === 'confirmed' ? 'Upcoming' : 'Issue'}
@@ -433,7 +433,7 @@ const openReschedule = (r: any) => {
                       <p className="text-[10px] font-black uppercase text-red-600">No-show — never checked in</p>
                     )}
                     {(r.licenseNumber || r.insuranceConfirmed || r.idAcknowledged || r.doingServices || r.licenseDocUrl || r.insuranceDocUrl || r.idDocUrl) && (
-                      <div className="text-[10px] font-black uppercase text-slate-500 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                      <div className="text-[10px] font-black uppercase text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1">
                         {r.doingServices && <span className="inline-flex items-center gap-1"><Scissors className="h-3 w-3" /> Services</span>}
                         {r.licenseNumber && <span>· Lic {r.licenseNumber}</span>}
                         {r.licenseDocUrl && <a href={r.licenseDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline inline-flex items-center gap-1">· <FileText className="h-3 w-3" /> License</a>}
@@ -469,7 +469,7 @@ const openReschedule = (r: any) => {
                         <p className="text-[10px] font-black uppercase text-emerald-700">Left {r.unusedMinutes} min early — issue ${(r.potentialCreditCents / 100).toFixed(2)} credit toward their next booking?</p>
                         <div className="flex gap-2">
                           <button onClick={() => issueCredit(r)} className="flex-1 h-7 rounded-lg bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Issue Credit</button>
-                          <button onClick={() => declineCredit(r)} className="h-7 px-3 rounded-lg border font-black uppercase text-[9px] tracking-widest text-slate-500">No Credit</button>
+                          <button onClick={() => declineCredit(r)} className="h-7 px-3 rounded-lg border font-black uppercase text-[9px] tracking-widest text-muted-foreground">No Credit</button>
                         </div>
                       </div>
                     )}
@@ -484,7 +484,7 @@ const openReschedule = (r: any) => {
                       {r.status === 'confirmed' ? (
                         <button onClick={() => checkInRes(r)} className="flex-1 h-9 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>
                       ) : r.status === 'checked_in' ? (
-                        <button onClick={() => checkOutRes(r)} className="flex-1 h-9 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Check Out</button>
+                        <button onClick={() => checkOutRes(r)} className="flex-1 h-9 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest">Check Out</button>
                       ) : (r.overageStatus === 'due' && r.cardOnFile) ? (
                         <button onClick={() => chargeOverageToCard(r)} disabled={chargingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{chargingId === r.id ? 'Charging…' : `Charge Card $${((r.overageDueCents || 0) / 100).toFixed(2)}`}</button>
                       ) : (r.overageStatus === 'due') ? (
@@ -494,7 +494,7 @@ const openReschedule = (r: any) => {
                       ) : (r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') ? (
                         <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>
                       ) : (
-                        <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center justify-center gap-1"><FileText className="h-3 w-3" /> Receipt</a>
+                        <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1"><FileText className="h-3 w-3" /> Receipt</a>
                       )}
                       {/* Secondary actions tucked into one tidy menu */}
                       <OverflowMenu
@@ -519,8 +519,8 @@ const openReschedule = (r: any) => {
                       const capCents = sel ? Math.round(Number(sel.capCents) || 0) : 0;
                       const overCap = capCents > 0 && Math.round(parseFloat(incidentalAmt) * 100) > capCents;
                       return (
-                        <div className="mt-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-2.5 space-y-2">
-                          <select value={incidentalCat} onChange={e => setIncidentalCat(e.target.value)} className="w-full h-9 rounded-lg border-2 px-2 text-xs font-black uppercase bg-white">
+                        <div className="mt-2 rounded-xl border-2 border-border bg-muted/60 p-2.5 space-y-2">
+                          <select value={incidentalCat} onChange={e => setIncidentalCat(e.target.value)} className="w-full h-9 rounded-lg border-2 px-2 text-xs font-black uppercase bg-card">
                             <option value="">Select a charge type…</option>
                             {incidentalPolicy.map((c: any) => <option key={c.label} value={c.label}>{c.label}{c.capCents ? ` — up to $${(c.capCents / 100).toFixed(0)}` : ''}</option>)}
                           </select>
@@ -529,7 +529,7 @@ const openReschedule = (r: any) => {
                             <input type="text" placeholder="Note (optional)" value={incidentalDesc} onChange={e => setIncidentalDesc(e.target.value)} className="flex-1 h-9 rounded-lg border-2 px-3 text-sm font-medium" />
                           </div>
                           {overCap && sel && <p className="text-[9px] font-black uppercase tracking-widest text-red-600">Over the ${(capCents / 100).toFixed(0)} cap for {sel.label}</p>}
-                          <button onClick={() => chargeIncidentalToCard(r)} disabled={!incidentalCat || !(parseFloat(incidentalAmt) > 0) || overCap || incidentalBusyId === r.id} className="w-full h-9 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                          <button onClick={() => chargeIncidentalToCard(r)} disabled={!incidentalCat || !(parseFloat(incidentalAmt) > 0) || overCap || incidentalBusyId === r.id} className="w-full h-9 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
                             {incidentalBusyId === r.id ? 'Charging…' : `Charge card${parseFloat(incidentalAmt) > 0 ? ` $${parseFloat(incidentalAmt).toFixed(2)}` : ''}`}
                           </button>
                           <p className="text-[9px] font-bold text-muted-foreground">Only your policy's charge types, each capped — no made-up charges. Records under “Renter Incidental” in the ledger.</p>

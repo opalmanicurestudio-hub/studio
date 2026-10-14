@@ -41,16 +41,16 @@ export default function InsightsPage() {
       </div>}>
       {err && <p className="mb-4 rounded-2xl bg-red-50 p-4 text-sm text-red-800">{err}</p>}
       {!d && !err && <Loading />}
-      {d && !L && <Glass><p className="py-6 text-center text-stone-600">No numbers yet. Press <span className="font-semibold">Refresh now</span> — after that they update every day on their own.</p></Glass>}
+      {d && !L && <Glass><p className="py-6 text-center text-foreground/80">No numbers yet. Press <span className="font-semibold">Refresh now</span> — after that they update every day on their own.</p></Glass>}
       {d && L && (
         <div className="space-y-5">
-          {brief && <Glass className="border-violet-200/80"><Label>✦ This week</Label><div className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-stone-800">{brief.replace(/\*\*/g, '')}</div></Glass>}
+          {brief && <Glass className="border-violet-200/80"><Label>✦ This week</Label><div className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-foreground">{brief.replace(/\*\*/g, '')}</div></Glass>}
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <Stat label="Active businesses" value={L.activeBusinesses} sub={<>of {L.businesses} · <Spark values={series('activeBusinesses')} className="inline text-stone-500" /></>} />
-            <Stat label="Bookings · 30 days" value={L.bookings30.toLocaleString()} sub={<Spark values={series('bookings30')} className="text-stone-500" />} />
+            <Stat label="Active businesses" value={L.activeBusinesses} sub={<>of {L.businesses} · <Spark values={series('activeBusinesses')} className="inline text-muted-foreground" /></>} />
+            <Stat label="Bookings · 30 days" value={L.bookings30.toLocaleString()} sub={<Spark values={series('bookings30')} className="text-muted-foreground" />} />
             <Stat label="Processed · 30 days" value={money(L.revenue30)} sub={<>{pctText(L.revenuePrev30 ? Math.round(((L.revenue30 - L.revenuePrev30) / L.revenuePrev30) * 1000) / 10 : null)} vs prior 30 days</>} />
-            <Stat label="Cost to serve · 30 days" value={money(L.cost30.total, 2)} sub={<Spark values={series('cost')} className="text-stone-500" />} />
+            <Stat label="Cost to serve · 30 days" value={money(L.cost30.total, 2)} sub={<Spark values={series('cost')} className="text-muted-foreground" />} />
             <Stat label="Cost per active business" value={money(L.costPerActiveBusiness, 2)} sub="per month" />
           </div>
 
@@ -60,23 +60,23 @@ export default function InsightsPage() {
               {[['Texts', L.cost30.texts], ['Emails', L.cost30.emails], ['AI', L.cost30.ai], ['Hosting & database', L.cost30.infra]].map(([l, v]) => (
                 <div key={String(l)} className="mt-3">
                   <div className="flex justify-between text-sm"><span>{l}</span><span className="font-semibold">{money(Number(v), 2)}</span></div>
-                  <div className="mt-1 h-1.5 rounded-full bg-white/70"><div className="h-1.5 rounded-full bg-stone-900" style={{ width: `${L.cost30.total ? Math.min(100, (Number(v) / L.cost30.total) * 100) : 0}%` }} /></div>
+                  <div className="mt-1 h-1.5 rounded-full bg-card/70"><div className="h-1.5 rounded-full bg-foreground" style={{ width: `${L.cost30.total ? Math.min(100, (Number(v) / L.cost30.total) * 100) : 0}%` }} /></div>
                 </div>
               ))}
-              <p className="mt-3 text-[11px] text-stone-500">Texts and emails use your rates (SMS_COST_CENTS, EMAIL_COST_CENTS); hosting is INFRA_MONTHLY_USD. AI is measured.</p>
+              <p className="mt-3 text-[11px] text-muted-foreground">Texts and emails use your rates (SMS_COST_CENTS, EMAIL_COST_CENTS); hosting is INFRA_MONTHLY_USD. AI is measured.</p>
             </Glass>
             <Glass>
               <Label>Since joining ClarityFlow</Label>
               <p className="mt-2 text-4xl font-light tracking-tight">{L.sinceJoiningMedianRevenueChange == null ? '—' : pctText(L.sinceJoiningMedianRevenueChange)}</p>
-              <p className="text-sm text-stone-600">typical change in monthly revenue, first month vs latest (businesses 45+ days in)</p>
+              <p className="text-sm text-foreground/80">typical change in monthly revenue, first month vs latest (businesses 45+ days in)</p>
               <p className="mt-3 text-sm"><span className="font-semibold">{L.growingBusinesses}</span> of {L.businesses} businesses grew revenue in the last 30 days.</p>
             </Glass>
             <Glass>
               <Label>Support · 30 days</Label>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-                <div><p className="text-2xl font-semibold">{L.support.opened30}</p><p className="text-[11px] text-stone-500">requests</p></div>
-                <div><p className="text-2xl font-semibold">{L.support.solved30}</p><p className="text-[11px] text-stone-500">solved</p></div>
-                <div><p className="text-2xl font-semibold">{L.support.medianFirstResponseHours == null ? '—' : `${Math.round(L.support.medianFirstResponseHours * 10) / 10}h`}</p><p className="text-[11px] text-stone-500">first reply</p></div>
+                <div><p className="text-2xl font-semibold">{L.support.opened30}</p><p className="text-[11px] text-muted-foreground">requests</p></div>
+                <div><p className="text-2xl font-semibold">{L.support.solved30}</p><p className="text-[11px] text-muted-foreground">solved</p></div>
+                <div><p className="text-2xl font-semibold">{L.support.medianFirstResponseHours == null ? '—' : `${Math.round(L.support.medianFirstResponseHours * 10) / 10}h`}</p><p className="text-[11px] text-muted-foreground">first reply</p></div>
               </div>
             </Glass>
           </div>
@@ -88,14 +88,14 @@ export default function InsightsPage() {
             </div>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[720px] text-sm">
-                <thead><tr className="text-left text-[11px] uppercase tracking-widest text-stone-400"><th className="py-2 font-medium">Business</th><th className="font-medium">Revenue 30d</th><th className="font-medium">vs prior</th><th className="font-medium">Since joining</th><th className="font-medium">No-shows</th><th className="font-medium">Rebook</th><th className="font-medium">Online</th><th className="font-medium">Cost 30d</th></tr></thead>
+                <thead><tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground"><th className="py-2 font-medium">Business</th><th className="font-medium">Revenue 30d</th><th className="font-medium">vs prior</th><th className="font-medium">Since joining</th><th className="font-medium">No-shows</th><th className="font-medium">Rebook</th><th className="font-medium">Online</th><th className="font-medium">Cost 30d</th></tr></thead>
                 <tbody>
                   {tenants.map((t: any) => (
                     <tr key={t.tenantId} className="border-t border-white/70">
-                      <td className="py-2.5"><Link href={`/admin/tenants/${t.tenantId}`} className="font-medium underline-offset-2 hover:underline">{t.name}</Link><span className="block text-[11px] text-stone-500">{t.businessType} · {t.ageDays}d</span></td>
+                      <td className="py-2.5"><Link href={`/admin/tenants/${t.tenantId}`} className="font-medium underline-offset-2 hover:underline">{t.name}</Link><span className="block text-[11px] text-muted-foreground">{t.businessType} · {t.ageDays}d</span></td>
                       <td>{money(t.revenue30)}</td>
                       <td className={(t.revenueChangePct || 0) >= 0 ? 'text-emerald-700' : 'text-red-600'}>{pctText(t.revenueChangePct)}</td>
-                      <td className="font-semibold">{t.sinceJoining ? <span className={(t.sinceJoining.revenueChangePct || 0) >= 0 ? 'text-emerald-700' : 'text-red-600'}>{pctText(t.sinceJoining.revenueChangePct)}</span> : <span className="text-stone-400">too new</span>}</td>
+                      <td className="font-semibold">{t.sinceJoining ? <span className={(t.sinceJoining.revenueChangePct || 0) >= 0 ? 'text-emerald-700' : 'text-red-600'}>{pctText(t.sinceJoining.revenueChangePct)}</span> : <span className="text-muted-foreground">too new</span>}</td>
                       <td>{rate(t.noShowRate)}</td><td>{rate(t.rebookRate)}</td><td>{rate(t.onlineShare)}</td>
                       <td>{money(t.cost30?.total, 2)}</td>
                     </tr>
@@ -107,25 +107,25 @@ export default function InsightsPage() {
 
           <Glass>
             <Label>Industry benchmarks · by niche</Label>
-            {(L.benchmarks || []).length === 0 ? <p className="mt-2 text-sm text-stone-600">Benchmarks appear once a niche has 3 or more active businesses — so no single business can ever be identified.</p> : (
+            {(L.benchmarks || []).length === 0 ? <p className="mt-2 text-sm text-foreground/80">Benchmarks appear once a niche has 3 or more active businesses — so no single business can ever be identified.</p> : (
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 {L.benchmarks.map((b: any) => (
-                  <div key={b.niche} className="rounded-3xl bg-white/60 p-4">
-                    <p className="font-semibold"><span className="capitalize">{b.niche}</span> <span className="font-normal text-stone-500">· {b.businesses} businesses</span></p>
+                  <div key={b.niche} className="rounded-3xl bg-card/60 p-4">
+                    <p className="font-semibold"><span className="capitalize">{b.niche}</span> <span className="font-normal text-muted-foreground">· {b.businesses} businesses</span></p>
                     <div className="mt-2 grid grid-cols-3 gap-2 text-center text-sm">
-                      <div><p className="font-semibold">{money(b.avgTicket)}</p><p className="text-[11px] text-stone-500">avg visit</p></div>
-                      <div><p className="font-semibold">{b.bookingsPerWeek == null ? '—' : Math.round(b.bookingsPerWeek)}</p><p className="text-[11px] text-stone-500">bookings/wk</p></div>
-                      <div><p className="font-semibold">{rate(b.noShowRate)}</p><p className="text-[11px] text-stone-500">no-shows</p></div>
-                      <div><p className="font-semibold">{rate(b.rebookRate)}</p><p className="text-[11px] text-stone-500">rebook</p></div>
-                      <div><p className="font-semibold">{rate(b.onlineShare)}</p><p className="text-[11px] text-stone-500">book online</p></div>
-                      <div><p className="font-semibold">{rate(b.noShowWithDeposits)} / {rate(b.noShowWithoutDeposits)}</p><p className="text-[11px] text-stone-500">no-shows with / without deposits</p></div>
+                      <div><p className="font-semibold">{money(b.avgTicket)}</p><p className="text-[11px] text-muted-foreground">avg visit</p></div>
+                      <div><p className="font-semibold">{b.bookingsPerWeek == null ? '—' : Math.round(b.bookingsPerWeek)}</p><p className="text-[11px] text-muted-foreground">bookings/wk</p></div>
+                      <div><p className="font-semibold">{rate(b.noShowRate)}</p><p className="text-[11px] text-muted-foreground">no-shows</p></div>
+                      <div><p className="font-semibold">{rate(b.rebookRate)}</p><p className="text-[11px] text-muted-foreground">rebook</p></div>
+                      <div><p className="font-semibold">{rate(b.onlineShare)}</p><p className="text-[11px] text-muted-foreground">book online</p></div>
+                      <div><p className="font-semibold">{rate(b.noShowWithDeposits)} / {rate(b.noShowWithoutDeposits)}</p><p className="text-[11px] text-muted-foreground">no-shows with / without deposits</p></div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </Glass>
-          <p className="text-center text-[11px] text-stone-500">Revenue = booked value of completed visits. Measured {L.computedAt ? new Date(L.computedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}.</p>
+          <p className="text-center text-[11px] text-muted-foreground">Revenue = booked value of completed visits. Measured {L.computedAt ? new Date(L.computedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}.</p>
         </div>
       )}
     </HqShell>

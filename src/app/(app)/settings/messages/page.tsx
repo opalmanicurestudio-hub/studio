@@ -123,7 +123,7 @@ export default function MessageSettingsPage() {
       <div className="space-y-3">
         {/* Quiet hours protect every kind at once — one setting instead of a
             per-message rule nobody would keep consistent. */}
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-4 space-y-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -150,7 +150,7 @@ export default function MessageSettingsPage() {
                       value={qhDraft[f] !== undefined ? qhDraft[f] : String(qh[f])}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQhDraft((d) => ({ ...d, [f]: e.target.value.replace(/[^0-9]/g, '') }))}
                       disabled={!isMgr}
-                      className="h-8 w-14 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                      className="h-8 w-14 rounded-lg border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
                     <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">:00</span>
                   </span>
                 ))}
@@ -173,7 +173,7 @@ export default function MessageSettingsPage() {
 
         {/* Where you are is not the same class of information as when. One
             setting governs every message that carries {{address}}. */}
-        <Card className="border-2 rounded-[2rem] bg-white">
+        <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-4 space-y-3">
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-sm font-black"><MapPin className="h-3.5 w-3.5" /> Sharing your address</p>
@@ -192,7 +192,7 @@ export default function MessageSettingsPage() {
                   aria-pressed={addr.mode === mode}
                   onClick={() => void save('addr', 'addressPolicy', { ...addr, mode }, 'Address sharing')}
                   className={cn('rounded-2xl border-2 px-3 py-2.5 text-left transition-colors disabled:opacity-40',
-                    addr.mode === mode ? 'border-foreground bg-foreground text-background' : 'bg-white hover:border-primary/40')}>
+                    addr.mode === mode ? 'border-foreground bg-foreground text-background' : 'bg-card hover:border-primary/40')}>
                   <span className="block text-[11px] font-black uppercase tracking-widest">{label}</span>
                   <span className={cn('block text-[10px] font-bold', addr.mode === mode ? 'opacity-70' : 'text-muted-foreground')}>{note}</span>
                 </button>
@@ -206,7 +206,7 @@ export default function MessageSettingsPage() {
                   value={addrDraft.offsetHours !== undefined ? addrDraft.offsetHours : String(addr.offsetHours)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddrDraft((d) => ({ ...d, offsetHours: e.target.value.replace(/[^0-9]/g, '') }))}
                   disabled={!isMgr}
-                  className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                  className="h-8 w-16 rounded-lg border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
                 <Button size="sm" variant="outline" disabled={!isMgr || busy === 'addr-offset'}
                   onClick={() => {
                     const n = Number(addrDraft.offsetHours ?? String(addr.offsetHours));
@@ -229,7 +229,7 @@ export default function MessageSettingsPage() {
                     value={addrDraft.areaLabel !== undefined ? addrDraft.areaLabel : addr.areaLabel}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddrDraft((d) => ({ ...d, areaLabel: e.target.value }))}
                     disabled={!isMgr}
-                    className="h-9 flex-1 rounded-lg border-2 bg-white px-2.5 text-sm font-bold outline-none focus:border-foreground/60" />
+                    className="h-9 flex-1 rounded-lg border-2 bg-card px-2.5 text-sm font-bold outline-none focus:border-foreground/60" />
                   <Button size="sm" variant="outline" disabled={!isMgr || busy === 'addr-area'}
                     onClick={() => void save('addr-area', 'addressPolicy',
                       { ...addr, areaLabel: String(addrDraft.areaLabel ?? addr.areaLabel).slice(0, 80) }, 'Address sharing')}
@@ -250,7 +250,7 @@ export default function MessageSettingsPage() {
           const isEditing = editing === k.id;
 
           return (
-            <Card key={k.id} className="border-2 rounded-[2rem] bg-white">
+            <Card key={k.id} className="border-2 rounded-[2rem] bg-card">
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -301,7 +301,7 @@ export default function MessageSettingsPage() {
                         value={offsetDraft[k.id] !== undefined ? offsetDraft[k.id] : String(cfg.offsetHours ?? k.defaultOffsetHours ?? 0)}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOffsetDraft((d) => ({ ...d, [k.id]: e.target.value.replace(/[^0-9]/g, '') }))}
                         disabled={!isMgr}
-                        className="h-8 w-16 rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                        className="h-8 w-16 rounded-lg border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
                       <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                         hrs before {k.offsetAnchor}
                       </span>
@@ -326,7 +326,7 @@ export default function MessageSettingsPage() {
                       <input value={draftSubject} disabled={!isMgr}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDraftSubject(e.target.value)}
                         placeholder="Subject line (optional — leave blank for the built-in)"
-                        className="h-10 w-full rounded-xl border-2 bg-white px-3 text-sm font-bold outline-none focus:border-foreground/60" />
+                        className="h-10 w-full rounded-xl border-2 bg-card px-3 text-sm font-bold outline-none focus:border-foreground/60" />
                     )}
                     <Textarea value={draftBody} rows={4} disabled={!isMgr}
                       onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDraftBody(e.target.value)}
@@ -336,7 +336,7 @@ export default function MessageSettingsPage() {
                       {k.tokens.map((t) => (
                         <button key={t} type="button"
                           onClick={() => setDraftBody((b) => `${b}${b && !b.endsWith(' ') ? ' ' : ''}${t}`)}
-                          className="rounded-full border-2 bg-white px-2 py-1 font-mono text-[9px] font-bold transition-all hover:border-primary/40 active:scale-95">
+                          className="rounded-full border-2 bg-card px-2 py-1 font-mono text-[9px] font-bold transition-all hover:border-primary/40 active:scale-95">
                           {t}
                         </button>
                       ))}

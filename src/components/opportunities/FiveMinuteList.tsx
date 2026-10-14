@@ -8,7 +8,7 @@ import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 import { PLAYBOOKS, type OppKind } from '@/lib/opportunities';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', RED = '#b42318';
 
 export function FiveMinuteList({ tenantId, items, hour, reload, accent = INK, post, note }: { tenantId: string; items: any[]; hour: number; reload: () => void; accent?: string; post?: (body: any) => Promise<any>; note?: string }) {
   const ready = React.useMemo(() => items.filter((o) => o.status === 'open' && o.message && (Date.parse(o.dueAt || '') || 0) <= Date.now()), [items]);
@@ -30,7 +30,7 @@ export function FiveMinuteList({ tenantId, items, hour, reload, accent = INK, po
   if (!list) {
     if (!ready.length && !later) return null;
     return (
-      <section className="space-y-3 rounded-[20px] border bg-white p-4" style={{ borderColor: LINE, color: INK }} aria-label="Your 5-minute list">
+      <section className="space-y-3 rounded-[20px] border bg-card p-4" style={{ borderColor: LINE, color: INK }} aria-label="Your 5-minute list">
         <div><p className="text-[22px] font-light tracking-[-0.02em]">Your 5-minute list</p>
           <p className="text-[13px]" style={{ color: MUTED }}>{ready.length ? `${ready.length} message${ready.length === 1 ? '' : 's'} ready · about ${Math.max(2, ready.length + 1)} minutes` : `${later} message${later === 1 ? '' : 's'} ready at ${atLabel}`}</p></div>
         {ready.slice(0, 4).map((o) => <div key={o.id} className="rounded-[14px] p-3" style={{ background: SOFT }}>
@@ -42,7 +42,7 @@ export function FiveMinuteList({ tenantId, items, hour, reload, accent = INK, po
   const tel = String(cur?.phone || '').replace(/[^\d+]/g, '');
   const many = (PLAYBOOKS[cur?.kind as OppKind]?.versions?.length || 0) > 1;
   return (
-    <section className="space-y-3 rounded-[20px] border bg-white p-4" style={{ borderColor: LINE, color: INK }} aria-label="Your 5-minute list">
+    <section className="space-y-3 rounded-[20px] border bg-card p-4" style={{ borderColor: LINE, color: INK }} aria-label="Your 5-minute list">
       <div className="flex items-center gap-3"><span className="text-[13px]" style={{ color: MUTED }}>{i + 1} of {list.length}</span>
         <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: SOFT }}><div className="h-full rounded-full" style={{ width: `${((i + 1) / list.length) * 100}%`, background: INK }} /></div>
         <button type="button" onClick={() => { setList(null); setI(0); reload(); }} className="text-[13px] font-semibold" style={{ color: MUTED }}>Stop</button></div>

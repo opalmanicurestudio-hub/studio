@@ -55,7 +55,7 @@ const safeDate = (val: any): Date => {
 };
 
 const KpiStat = ({ label, value, subLabel, icon: Icon, colorClass, trend }: any) => (
-    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white/50 backdrop-blur-sm group hover:border-primary/20 transition-all text-left">
+    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card/50 backdrop-blur-sm group hover:border-primary/20 transition-all text-left">
         <CardContent className="p-5 space-y-4">
             <div className="flex justify-between items-start">
                 <div className={cn("p-2 rounded-xl bg-muted/50 group-hover:bg-primary transition-all duration-500", colorClass)}>
@@ -70,7 +70,7 @@ const KpiStat = ({ label, value, subLabel, icon: Icon, colorClass, trend }: any)
             </div>
             <div className="space-y-1">
                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none">{label}</p>
-                <p className="text-2xl font-black tracking-tighter text-slate-900 font-mono leading-none">{value}</p>
+                <p className="text-2xl font-black tracking-tighter text-foreground font-mono leading-none">{value}</p>
                 <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40 truncate">{subLabel}</p>
             </div>
         </CardContent>
@@ -263,16 +263,16 @@ export default function ReportsPage() {
   if (isLoading) return <div className="h-screen flex flex-col items-center justify-center gap-4"><Loader className="animate-spin text-primary h-10 w-10" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Synthesizing Dossier...</p></div>;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
+    <div className="flex min-h-screen w-full flex-col bg-background overflow-x-hidden">
       <AppHeader title="Intelligence Dossier" />
       <main className="relative z-10 flex-1 p-4 md:p-10 space-y-10 w-full max-w-7xl mx-auto min-w-0">
 
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Studio Pulse</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Studio Pulse</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Strategic Performance Audit</p>
           </div>
-          <Button variant="outline" className="h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50" onClick={() => window.print()}>
+          <Button variant="outline" className="h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-card/50" onClick={() => window.print()}>
             <Printer className="mr-2 h-4 w-4" /> Export Report
           </Button>
         </div>
@@ -286,7 +286,7 @@ export default function ReportsPage() {
             <div className="flex-1 w-full space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Analyze Period</Label>
               <Select value={periodPreset} onValueChange={setPeriodPreset}>
-                <SelectTrigger className="h-14 rounded-2xl border-2 bg-white font-black uppercase text-[10px] tracking-widest shadow-sm"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-14 rounded-2xl border-2 bg-card font-black uppercase text-[10px] tracking-widest shadow-sm"><SelectValue /></SelectTrigger>
                 <SelectContent className="rounded-xl border-2 shadow-2xl">
                   <SelectItem value="today" className="font-bold">TODAY</SelectItem>
                   <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
@@ -301,11 +301,11 @@ export default function ReportsPage() {
               <div className="flex-[2] grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">Start Date</Label>
-                  <input type="date" value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''} onChange={(e) => { const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined; setDateRange(prev => ({ from: d || prev?.from, to: prev?.to })); }} className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm outline-none" />
+                  <input type="date" value={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : ''} onChange={(e) => { const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined; setDateRange(prev => ({ from: d || prev?.from, to: prev?.to })); }} className="w-full h-14 rounded-2xl border-2 bg-card px-4 font-bold text-sm outline-none" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-2">End Date</Label>
-                  <input type="date" value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''} onChange={(e) => { const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined; setDateRange(prev => ({ from: prev?.from, to: d || prev?.to })); }} className="w-full h-14 rounded-2xl border-2 bg-white px-4 font-bold text-sm outline-none" />
+                  <input type="date" value={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : ''} onChange={(e) => { const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined; setDateRange(prev => ({ from: prev?.from, to: d || prev?.to })); }} className="w-full h-14 rounded-2xl border-2 bg-card px-4 font-bold text-sm outline-none" />
                 </div>
               </div>
             )}
@@ -338,7 +338,7 @@ export default function ReportsPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {analyticsData.channelStats.map(channel => (
-              <Card key={channel.id} className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white hover:border-primary/20 transition-all group">
+              <Card key={channel.id} className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-card hover:border-primary/20 transition-all group">
                 <CardHeader className="p-6 pb-2 border-b bg-muted/5">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
@@ -354,7 +354,7 @@ export default function ReportsPage() {
                 <CardContent className="p-6 pt-4 grid grid-cols-2 gap-4">
                   <div className="space-y-1 p-3 rounded-xl bg-muted/20 border shadow-inner">
                     <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Volume</p>
-                    <p className="text-lg font-black font-mono tracking-tighter text-slate-900">{channel.count} <span className="text-[8px]">Sessions</span></p>
+                    <p className="text-lg font-black font-mono tracking-tighter text-foreground">{channel.count} <span className="text-[8px]">Sessions</span></p>
                   </div>
                   <div className="space-y-1 text-right p-3 rounded-xl bg-primary/5 border border-primary/10">
                     <p className="text-[8px] font-black uppercase text-primary tracking-widest text-right">Yield</p>
@@ -376,11 +376,11 @@ export default function ReportsPage() {
             <Scale className="w-4 h-4 text-primary" />
             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Certified Profit & Loss Statement</h3>
           </div>
-          <Card className="border-4 rounded-[3rem] shadow-2xl bg-white overflow-hidden">
+          <Card className="border-4 rounded-[3rem] shadow-2xl bg-card overflow-hidden">
             <CardContent className="p-5 sm:p-8 md:p-12 space-y-8">
               {/* Line items */}
               <div className="space-y-5">
-                <div className="flex justify-between items-center border-b-2 border-slate-100 pb-3">
+                <div className="flex justify-between items-center border-b-2 border-border pb-3">
                   <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground">Category</h4>
                   <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground">Amount</h4>
                 </div>
@@ -392,7 +392,7 @@ export default function ReportsPage() {
                   ...(analyticsData.overall.totalRecoveryLoss > 0 ? [{ label: 'Service Recovery (Comped)', value: -analyticsData.overall.totalRecoveryLoss, positive: false, amber: true }] : []),
                 ].map((row: any, i) => (
                   <div key={i} className="flex justify-between items-center">
-                    <span className={cn("text-xs sm:text-sm font-bold uppercase leading-tight pr-4", row.amber ? "text-amber-600" : "text-slate-600")}>{row.label}</span>
+                    <span className={cn("text-xs sm:text-sm font-bold uppercase leading-tight pr-4", row.amber ? "text-amber-600" : "text-foreground/80")}>{row.label}</span>
                     <span className={cn("font-black font-mono text-base sm:text-lg shrink-0", row.positive ? "text-green-600" : row.amber ? "text-amber-600" : "text-destructive")}>
                       {row.positive ? '+' : ''}{(row.value || 0) < 0 ? '-' : ''}${Math.abs(row.value || 0).toFixed(2)}
                     </span>
@@ -401,13 +401,13 @@ export default function ReportsPage() {
               </div>
 
               {/* Net yield -- mobile-friendly dark box */}
-              <div className="rounded-[2rem] sm:rounded-[3rem] bg-slate-900 text-white overflow-hidden relative">
+              <div className="rounded-[2rem] sm:rounded-[3rem] bg-foreground text-background overflow-hidden relative">
                 <div className="absolute inset-0 opacity-5 flex items-center justify-end p-8"><DollarSign className="w-40 h-40" /></div>
                 <div className="relative z-10 p-6 sm:p-10 flex flex-col gap-6">
                   <div className="space-y-2">
                     <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Certified Performance Audit</p>
                     <h3 className="text-2xl sm:text-4xl font-black uppercase tracking-tighter leading-none">Net Period Yield</h3>
-                    <p className="text-xs font-medium text-slate-400 uppercase tracking-tight max-w-sm">Studio cash remaining post burdened labor, overhead, and direct material costs.</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-tight max-w-sm">Studio cash remaining post burdened labor, overhead, and direct material costs.</p>
                   </div>
                   <div className="flex items-baseline gap-3">
                     <span className={cn("text-5xl sm:text-7xl md:text-9xl font-black tracking-tighter font-mono", (analyticsData.overall.netIncome || 0) >= 0 ? "text-primary" : "text-destructive")}>
@@ -427,14 +427,14 @@ export default function ReportsPage() {
             <HeartHandshake className="w-4 h-4 text-primary" />
             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Service Recovery Ledger</h3>
           </div>
-          <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+          <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader className="bg-muted/10 border-b-2">
                     <TableRow>
-                      <TableHead className="p-4 md:p-6 font-black text-[9px] uppercase tracking-widest text-slate-900">Guest</TableHead>
-                      <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900">Recovery Reason</TableHead>
+                      <TableHead className="p-4 md:p-6 font-black text-[9px] uppercase tracking-widest text-foreground">Guest</TableHead>
+                      <TableHead className="font-black text-[9px] uppercase tracking-widest text-foreground">Recovery Reason</TableHead>
                       <TableHead className="font-black text-[9px] uppercase tracking-widest text-primary hidden sm:table-cell">Authorized By</TableHead>
                       <TableHead className="text-right font-black text-[9px] uppercase tracking-widest text-amber-600 pr-6 md:pr-10">Value Comped</TableHead>
                     </TableRow>
@@ -443,11 +443,11 @@ export default function ReportsPage() {
                     {analyticsData.recoveryLedger.length > 0 ? analyticsData.recoveryLedger.map(entry => (
                       <TableRow key={entry.id} className="hover:bg-amber-50/50">
                         <TableCell className="p-4 md:p-6">
-                          <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
+                          <p className="font-bold uppercase text-[10px] text-foreground">{entry.clientName}</p>
                           <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">{format(safeDate(entry.date), 'MMM d, p')}</p>
                         </TableCell>
                         <TableCell>
-                          <p className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[160px]">{entry.reason}</p>
+                          <p className="text-[10px] font-medium text-muted-foreground uppercase truncate max-w-[160px]">{entry.reason}</p>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
                           <div className="flex items-center gap-2">
@@ -483,15 +483,15 @@ export default function ReportsPage() {
             <ShieldAlert className="w-4 h-4 text-destructive" />
             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground">Absorption Audit (Fee Waivers)</h3>
           </div>
-          <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+          <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader className="bg-muted/10 border-b-2">
                     <TableRow>
-                      <TableHead className="p-4 md:p-6 font-black text-[9px] uppercase tracking-widest text-slate-900">Guest</TableHead>
-                      <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900 hidden sm:table-cell">Authorized By</TableHead>
-                      <TableHead className="font-black text-[9px] uppercase tracking-widest text-slate-900">Reason</TableHead>
+                      <TableHead className="p-4 md:p-6 font-black text-[9px] uppercase tracking-widest text-foreground">Guest</TableHead>
+                      <TableHead className="font-black text-[9px] uppercase tracking-widest text-foreground hidden sm:table-cell">Authorized By</TableHead>
+                      <TableHead className="font-black text-[9px] uppercase tracking-widest text-foreground">Reason</TableHead>
                       <TableHead className="text-right font-black text-[9px] uppercase tracking-widest text-destructive pr-6 md:pr-10">Value Abs.</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -499,7 +499,7 @@ export default function ReportsPage() {
                     {analyticsData.absorbedLedger.length > 0 ? analyticsData.absorbedLedger.map(entry => (
                       <TableRow key={entry.id} className="hover:bg-destructive/[0.01]">
                         <TableCell className="p-4 md:p-6">
-                          <p className="font-bold uppercase text-[10px] text-slate-900">{entry.clientName}</p>
+                          <p className="font-bold uppercase text-[10px] text-foreground">{entry.clientName}</p>
                           <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">{format(safeDate(entry.date), 'MMM d, p')}</p>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
@@ -511,7 +511,7 @@ export default function ReportsPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <p className="text-[10px] font-medium text-slate-500 uppercase truncate max-w-[120px]">{entry.reason}</p>
+                          <p className="text-[10px] font-medium text-muted-foreground uppercase truncate max-w-[120px]">{entry.reason}</p>
                         </TableCell>
                         <TableCell className="text-right pr-6 md:pr-10 font-black font-mono text-destructive">-${entry.amount.toFixed(2)}</TableCell>
                       </TableRow>

@@ -8,8 +8,8 @@ import { collection } from 'firebase/firestore';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collectionsOf, collectionFor, reviewDue, docStats, assignedPeople, docMatches, type DocCollection } from '@/lib/doc-collections';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', BLUE = '#3d5a99';
-const card = 'rounded-[18px] border bg-white';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', AMBER = '#b45309', BLUE = '#3d5a99';
+const card = 'rounded-[18px] border bg-card';
 const nice = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 export function Cover({ c, w, h, r = 16, label = true }: { c: DocCollection; w: number | string; h: number; r?: number; label?: boolean }) {
@@ -46,7 +46,7 @@ export function DocsLibrary({ tenantId, tenant, docs, staff, canManage, myStaffI
   const tiles = cols.map((c) => { const mine = rows.filter((r) => r.c.id === c.id); const rev = mine.filter((r) => r.status === 'review').length;
     return { c, n: mine.length, sub: `${mine.length} document${mine.length === 1 ? '' : 's'}${rev ? ` · ${rev} review due` : ''}` }; }).filter((t) => t.n > 0 || canManage);
   const ownerName = (id?: string) => (staff || []).find((m: any) => m.id === id)?.name || '';
-  const chip = (k: Filter, label: string) => <button key={k} type="button" aria-pressed={f === k} onClick={() => setF(k)} className="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-medium" style={f === k ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{label}</button>;
+  const chip = (k: Filter, label: string) => <button key={k} type="button" aria-pressed={f === k} onClick={() => setF(k)} className="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-medium" style={f === k ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT, color: INK }}>{label}</button>;
 
   return (
     <div className="space-y-4" style={{ color: INK }}>
@@ -56,8 +56,8 @@ export function DocsLibrary({ tenantId, tenant, docs, staff, canManage, myStaffI
           <Cover c={t.c} w="100%" h={84} r={0} label={false} /><div className="px-3 py-2.5"><p className="truncate text-[14px] font-semibold">{t.c.name}</p><p className="truncate text-[12px]" style={{ color: MUTED }}>{t.sub}</p></div></button>)}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex h-11 min-w-[220px] flex-1 items-center gap-2 rounded-full border bg-white px-4" style={{ borderColor: LINE }}>
-          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
+        <label className="flex h-11 min-w-[220px] flex-1 items-center gap-2 rounded-full border bg-card px-4" style={{ borderColor: LINE }}>
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: MUTED }} strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
           <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search documents" placeholder="Search titles and what’s inside" className="h-full min-w-0 flex-1 bg-transparent text-[14.5px] outline-none" /></label>
         {canManage && <div className="flex gap-1.5 overflow-x-auto">{chip('all', 'All')}{chip('review', 'Needs review')}{chip('unsigned', 'Not signed by everyone')}{chip('drafts', 'Drafts')}</div>}
       </div>
@@ -67,7 +67,7 @@ export function DocsLibrary({ tenantId, tenant, docs, staff, canManage, myStaffI
           {shown.map((r, i) => { const s = docStats(r.d); const pct = r.total ? Math.round((r.signed / r.total) * 100) : 0;
             const meta = [`v${r.d.version || 1}`, s.steps ? `${s.steps} step${s.steps === 1 ? '' : 's'}` : '', s.items ? `${s.items} item${s.items === 1 ? '' : 's'}` : '', `${s.minutes} min`].filter(Boolean).join(' · ');
             const owner = ownerName(r.d.ownerId);
-            return <button key={r.d.id} type="button" onClick={() => onOpen(r.d.id)} className="grid w-full grid-cols-[48px_1fr_auto] items-center gap-3.5 px-4 py-3 text-left hover:bg-[#fafafa] md:grid-cols-[56px_1.6fr_1fr_160px_130px] md:gap-4 md:px-[18px]" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}>
+            return <button key={r.d.id} type="button" onClick={() => onOpen(r.d.id)} className="grid w-full grid-cols-[48px_1fr_auto] items-center gap-3.5 px-4 py-3 text-left hover:bg-secondary md:grid-cols-[56px_1.6fr_1fr_160px_130px] md:gap-4 md:px-[18px]" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}>
               <Cover c={r.c} w={56} h={42} r={10} label={false} />
               <span className="min-w-0"><span className="block truncate text-[15px] font-semibold">{r.d.title || 'Untitled document'}</span><span className="block truncate text-[12.5px]" style={{ color: MUTED }}>{r.c.name} · {meta}</span></span>
               {canManage && r.d.status === 'published' && r.d.category === 'aftercare' ? <span className="hidden text-[12.5px] md:block" style={{ color: MUTED }}>For clients</span> : canManage && r.d.status === 'published' ? <span className="hidden flex-col gap-1.5 md:flex"><span className="flex justify-between text-[12.5px]"><span style={{ color: MUTED }}>Signed</span><b className="font-semibold">{r.signed} of {r.total}</b></span><span className="h-1.5 rounded-full" style={{ background: SOFT }}><span className="block h-1.5 rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? GREEN : INK }} /></span></span> : <span className="hidden md:block" />}

@@ -38,7 +38,7 @@ type ReviewDoc = {
 const STATUS_META: Record<string, { label: string; cls: string }> = {
   pending:   { label: 'Pending',   cls: 'bg-amber-100 text-amber-900 border-amber-200' },
   published: { label: 'Published', cls: 'bg-emerald-100 text-emerald-900 border-emerald-200' },
-  hidden:    { label: 'Hidden',    cls: 'bg-slate-100 text-slate-700 border-slate-200' },
+  hidden:    { label: 'Hidden',    cls: 'bg-muted text-foreground/80 border-border' },
 };
 
 export default function RetailReviewsPage() {

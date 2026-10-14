@@ -257,7 +257,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
             fontSize:        '16px',
             color:           (mountRef.current && getComputedStyle(mountRef.current).color) || '#16171a',
             fontFamily:      'inherit',
-            '::placeholder': { color: '#8a8d93' },
+            '::placeholder': { color: 'hsl(var(--muted-foreground))' },
           },
           invalid: { color: '#ef4444' },
         },

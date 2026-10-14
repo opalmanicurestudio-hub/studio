@@ -51,7 +51,7 @@ export function CommissionByService({ tenantId, staffMember, services = [] }: { 
   const ownIds = Object.keys(own).filter((id) => numOf(own[id], max) !== null);
   const serviceWide = services.filter((s: any) => s?.id && !ownIds.includes(s.id) && wideOf(s) !== null && (perService || wideOf(s) !== usual));
   const addable = services.filter((s: any) => s?.id && !ownIds.includes(s.id));
-  const line = 'var(--line, #e7e2dc)'; const muted = { color: 'var(--muted, #78716c)' };
+  const line = 'hsl(var(--border))'; const muted = { color: 'hsl(var(--muted-foreground))' };
   const title = perService ? 'Pay by service' : 'Commission by service';
   const intro = perService
     ? `${first} is paid $${hourRate.toFixed(2)} for each hour of service — so a 60-minute service pays $${hourRate.toFixed(2)} — unless a service below says otherwise. The same for members’ visits. Changes apply to new sales.`
@@ -69,7 +69,7 @@ export function CommissionByService({ tenantId, staffMember, services = [] }: { 
           <input aria-label={`${svc(id)?.name || 'Service'} ${perService ? 'pay' : 'commission'} for ${first}`} inputMode="decimal" value={v} onChange={(e) => setDraft((x) => ({ ...x, [id]: e.target.value.replace(/[^\d.]/g, '').slice(0, 8) }))}
             className="h-10 w-24 rounded-xl border px-3 text-right tabular-nums" style={{ borderColor: line }} />
           {!perService && <span>%</span>}
-          {draft[id] != null && draft[id] !== String(own[id]) && <button type="button" disabled={busy === id} onClick={() => save(id, Number(draft[id]))} className="h-10 rounded-full bg-[#17181A] px-4 text-[13px] font-[700] text-white">Save</button>}
+          {draft[id] != null && draft[id] !== String(own[id]) && <button type="button" disabled={busy === id} onClick={() => save(id, Number(draft[id]))} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-[700] text-background">Save</button>}
           <button type="button" disabled={busy === id} onClick={() => save(id, null)} className="h-10 rounded-full border px-3 text-[13px] font-[600]" style={{ borderColor: line }}>{sw !== null ? 'Use the service’s' : perService ? 'Pay by the hour' : 'Use the usual rate'}</button>
         </div>); })}
       {serviceWide.map((s: any) => (
@@ -79,7 +79,7 @@ export function CommissionByService({ tenantId, staffMember, services = [] }: { 
         </div>))}
       {addable.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <select aria-label="Choose a service" value={adding} onChange={(e) => setAdding(e.target.value)} className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3 text-[14px]" style={{ borderColor: line }}>
+          <select aria-label="Choose a service" value={adding} onChange={(e) => setAdding(e.target.value)} className="h-10 min-w-0 flex-1 rounded-xl border bg-card px-3 text-[14px]" style={{ borderColor: line }}>
             <option value="">Set {first}’s {perService ? 'amount' : 'rate'} for a service…</option>
             {addable.map((s: any) => <option key={s.id} value={s.id}>{s.name}{wideOf(s) !== null ? ` (${show(wideOf(s)!)} for everyone)` : perService ? ` (${show(payForService(staffMember, s))} by the hour)` : ''}</option>)}
           </select>
@@ -94,7 +94,7 @@ export function CommissionByService({ tenantId, staffMember, services = [] }: { 
 function TierEditor({ tenantId, staffMember, usual, first }: { tenantId: string; staffMember: any; usual: number; first: string }) {
   const { firestore } = useFirebase();
   const [rows, setRows] = React.useState<{ over: string; rate: string }[]>(() => (Array.isArray(staffMember?.commissionTiers) ? staffMember.commissionTiers : []).map((t: any) => ({ over: String(t.over ?? ''), rate: String(t.rate ?? '') })));
-  const [saved, setSaved] = React.useState(''); const line = 'var(--line, #e7e2dc)'; const muted = { color: 'var(--muted, #78716c)' };
+  const [saved, setSaved] = React.useState(''); const line = 'hsl(var(--border))'; const muted = { color: 'hsl(var(--muted-foreground))' };
   const save = async () => {
     if (!firestore) return;
     const tiers = rows.map((r) => ({ over: Math.round(Number(r.over) || 0), rate: Math.round((Number(r.rate) || 0) * 10) / 10 })).filter((r) => r.over > 0 && r.rate > 0 && r.rate <= 100).sort((a, b) => a.over - b.over);
@@ -114,7 +114,7 @@ function TierEditor({ tenantId, staffMember, usual, first }: { tenantId: string;
         </div>))}
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => setRows((x) => [...x, { over: x.length ? String((Number(x[x.length - 1].over) || 0) + 2000) : '3000', rate: String(Math.min(100, (x.length ? Number(x[x.length - 1].rate) || usual : usual) + 5)) }])} className="h-10 rounded-full border px-4 text-[13px] font-[600]" style={{ borderColor: line }}>Add a tier</button>
-        <button type="button" onClick={save} className="h-10 rounded-full bg-[#17181A] px-4 text-[13px] font-[700] text-white">Save tiers</button>
+        <button type="button" onClick={save} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-[700] text-background">Save tiers</button>
         {saved && <span className="self-center text-[13px]" style={muted}>{saved}</span>}
       </div>
     </div>);

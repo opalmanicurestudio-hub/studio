@@ -122,7 +122,7 @@ export default function BookingRequestsPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/schedule"><ArrowLeft className="h-4 w-4" /></Link>
@@ -159,7 +159,7 @@ export default function BookingRequestsPage() {
             : 'Time not set';
           const soon = r.startTime ? Date.parse(r.startTime) - Date.now() < 48 * 3600000 : false;
           return (
-            <Card key={r.id} className={cn('border-2 rounded-[2rem] bg-white overflow-hidden', exp.urgent && 'border-amber-400')}>
+            <Card key={r.id} className={cn('border-2 rounded-[2rem] bg-card overflow-hidden', exp.urgent && 'border-amber-400')}>
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">

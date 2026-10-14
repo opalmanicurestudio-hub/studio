@@ -90,7 +90,7 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, ta
         {msg && <p className="text-[13px] font-semibold" role="status">{msg}</p>}
       </section>
       {tabs && <div className="flex gap-1 border-b" style={{ borderColor: 'var(--line)' }} role="tablist" aria-label="Visit details">
-        {([['visit', 'Visit'], ['payment', 'Payment'], ['timeline', 'Timeline'], ['more', 'More']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="px-3 py-2 text-[14px] font-semibold" style={tab === k ? { borderBottom: '2px solid var(--ink, #16171a)' } : { color: 'var(--muted)' }}>{l}</button>)}
+        {([['visit', 'Visit'], ['payment', 'Payment'], ['timeline', 'Timeline'], ['more', 'More']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="px-3 py-2 text-[14px] font-semibold" style={tab === k ? { borderBottom: '2px solid hsl(var(--foreground))' } : { color: 'var(--muted)' }}>{l}</button>)}
       </div>}
       {tabs && tab === 'payment' && !(v.receipts || []).length && <section className={card} style={cardStyle}><p className="text-[15px] font-semibold">{v.paymentLabel || 'Not paid yet'}</p><p className="text-[14px]" style={muted}>Payments show here once the visit is checked out.</p></section>}
       {/* Paid: receipts + book next */}

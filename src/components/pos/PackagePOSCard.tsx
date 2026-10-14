@@ -26,7 +26,7 @@ export const PackagePOSCard: React.FC<PackagePOSCardProps> = ({ pack, service, o
           <Repeat className="w-16 h-16 text-teal-500 group-hover:scale-110 transition-transform duration-700" />
           
           <div className="absolute top-3 right-3">
-            <Button size="icon" className="h-10 w-10 bg-white/90 hover:bg-teal-600 backdrop-blur-md text-teal-600 hover:text-white rounded-2xl shadow-xl transition-all border-2 border-white/50">
+            <Button size="icon" className="h-10 w-10 bg-card/90 hover:bg-teal-600 backdrop-blur-md text-teal-600 hover:text-white rounded-2xl shadow-xl transition-all border-2 border-white/50">
                 <Plus className="w-5 h-5" />
             </Button>
           </div>
@@ -36,7 +36,7 @@ export const PackagePOSCard: React.FC<PackagePOSCardProps> = ({ pack, service, o
         </div>
         <div className="p-4 md:p-5 flex flex-col flex-1 justify-between gap-3 text-left">
           <div className="space-y-1">
-            <h4 className="font-black text-xs md:text-sm leading-tight uppercase tracking-tight text-slate-900 line-clamp-2">{pack.name}</h4>
+            <h4 className="font-black text-xs md:text-sm leading-tight uppercase tracking-tight text-foreground line-clamp-2">{pack.name}</h4>
             <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{service?.name || 'Prepaid Bundle'}</p>
           </div>
           <div className="flex items-center justify-between pt-3 border-t border-dashed border-teal-500/10">

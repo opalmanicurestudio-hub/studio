@@ -62,7 +62,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -255,7 +255,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
               </div>
-              <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Unit</SheetTitle>
+              <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Register Unit</SheetTitle>
               <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Integrate a physical unit into the studio planner.</SheetDescription>
             </SheetHeader>
 
@@ -267,7 +267,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
 
             <SheetFooter className="flex-shrink-0 p-8 pt-4 border-t bg-background">
               <div className="grid grid-cols-2 gap-3 w-full">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Cancel</Button>
                 <Button type="submit" className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
                   Commit Record <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </Button>

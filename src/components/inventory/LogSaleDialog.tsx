@@ -139,7 +139,7 @@ export const LogSaleDialog: React.FC<LogSaleDialogProps> = ({
             <ShoppingCart className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Liquidation</span>
           </div>
-          <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Log Manual Sale</DialogTitle>
+          <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Log Manual Sale</DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Attribute retail revenue for: <strong className="text-foreground">{product.name}</strong></DialogDescription>
         </DialogHeader>
         
@@ -152,7 +152,7 @@ export const LogSaleDialog: React.FC<LogSaleDialogProps> = ({
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <div className="flex flex-col gap-3 w-full">
             <Button type="submit" form="log-sale-strategic-form" className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all" disabled={!!quantityError}>Acknowledge Sale</Button>
-            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Terminal</Button>
+            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-muted-foreground">Abort Terminal</Button>
           </div>
         </DialogFooter>
       </DialogContentContainer>

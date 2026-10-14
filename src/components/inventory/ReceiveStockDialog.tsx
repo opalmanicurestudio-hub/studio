@@ -152,9 +152,9 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   const innerContent = (
     <div className="space-y-8">
         {receivedItems.map(item => (
-            <div key={item.productId} className="p-6 rounded-[2.5rem] border-2 bg-white shadow-xl space-y-6 text-left">
+            <div key={item.productId} className="p-6 rounded-[2.5rem] border-2 bg-card shadow-xl space-y-6 text-left">
                 <div className="space-y-1">
-                    <p className="font-black text-lg uppercase tracking-tight text-slate-900 leading-tight">{item.productName}</p>
+                    <p className="font-black text-lg uppercase tracking-tight text-foreground leading-tight">{item.productName}</p>
                     <div className="flex items-center gap-2">
                         <Badge variant="outline" className="bg-muted/50 border-none font-black text-[8px] uppercase h-5 px-2">Ordered: {item.quantityOrdered} Units</Badge>
                         {(() => {
@@ -226,7 +226,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
             <PackageOpen className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics intake</span>
           </div>
-          <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Receive Manifest</SheetTitle>
+          <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Receive Manifest</SheetTitle>
           <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verifying shipment from: {order.supplier}</SheetDescription>
         </SheetHeader>
         
@@ -256,7 +256,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
         <SheetFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>
           <div className="flex flex-col gap-3 w-full">
             <Button onClick={handleConfirmClick} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Commit to Inventory <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-1" /></Button>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Intake</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-muted-foreground">Abort Intake</Button>
           </div>
         </SheetFooter>
       </DialogContentContainer>

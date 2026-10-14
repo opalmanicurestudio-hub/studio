@@ -506,7 +506,7 @@ export function ScanCheckInDialog({
         ) : null}
 
         {camOn ? (
-          <div className="relative overflow-hidden rounded-[1.5rem] border-2 bg-black">
+          <div className="relative overflow-hidden rounded-[1.5rem] border-2 bg-foreground">
             {/* playsInline keeps iOS from taking the video full-screen. */}
             <video ref={videoRef} playsInline muted autoPlay className="block h-48 w-full object-cover sm:h-56" />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

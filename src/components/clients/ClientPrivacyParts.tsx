@@ -8,11 +8,11 @@ import * as React from 'react';
 import { format } from 'date-fns';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
-const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
+const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
 const pill = 'inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold';
 const btn = 'h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-50';
-const ink = { background: 'var(--ink, #1c1917)', color: '#fff' } as React.CSSProperties;
-const soft = { background: 'var(--soft, #efebe6)' } as React.CSSProperties;
+const ink = { background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' } as React.CSSProperties;
+const soft = { background: 'hsl(var(--secondary))' } as React.CSSProperties;
 
 async function call(body: any) {
   return fetch('/api/clients/verify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify(body) })
@@ -55,7 +55,7 @@ function ConfirmSheet({ tenantId, client, onClose }: { tenantId: string; client:
   };
   return (
     <div role="dialog" aria-label="Confirm number" className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" style={{ background: 'rgba(28,25,23,.38)' }} onClick={() => !busy && onClose()}>
-      <div className="w-full max-w-md space-y-3 rounded-t-[28px] p-5 sm:rounded-[26px]" style={{ background: 'var(--card, #fff)' }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md space-y-3 rounded-t-[28px] p-5 sm:rounded-[26px]" style={{ background: 'hsl(var(--card))' }} onClick={(e) => e.stopPropagation()}>
         <h2 className="text-[20px] font-light">Confirm {first}’s number</h2>
         {step === 'send' && <>
           <p className="text-[14px]" style={muted}>We’ll text a 6-digit code to the number on their record. It expires in 10 minutes.</p>
@@ -64,7 +64,7 @@ function ConfirmSheet({ tenantId, client, onClose }: { tenantId: string; client:
         {step === 'code' && <>
           <p className="text-[14px]">We sent a code to {sentTo}. Ask {first} to read you the code.</p>
           <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" aria-label="6-digit code" placeholder="123456" autoFocus
-            className="h-12 w-full rounded-2xl border px-4 text-center text-[22px] tracking-[0.4em]" style={{ borderColor: 'var(--line, #e7e2dc)' }} onKeyDown={(e) => { if (e.key === 'Enter' && code.length === 6) void check(); }} />
+            className="h-12 w-full rounded-2xl border px-4 text-center text-[22px] tracking-[0.4em]" style={{ borderColor: 'hsl(var(--border))' }} onKeyDown={(e) => { if (e.key === 'Enter' && code.length === 6) void check(); }} />
           <div className="flex flex-wrap gap-2"><button type="button" disabled={busy || code.length !== 6} onClick={check} className={btn} style={ink}>{busy ? 'Checking…' : 'Confirm'}</button>
             <button type="button" disabled={busy} onClick={send} className={btn} style={soft}>Send a new code</button></div>
         </>}
@@ -84,7 +84,7 @@ export function HealthViewLog({ tenantId, clientId }: { tenantId: string; client
       if (off) return; if (r?.ok) setRows(r.rows || []); else setErr(r?.error || 'We couldn’t load this.'); })();
     return () => { off = true; }; }, [tenantId, clientId]);
   return (
-    <section className="space-y-2 rounded-[2rem] border-2 bg-white p-5 text-left">
+    <section className="space-y-2 rounded-[2rem] border-2 bg-card p-5 text-left">
       <h3 className="text-[15px] font-semibold">Who viewed health information</h3>
       <p className="text-[12px]" style={muted}>Each time someone opens this client’s health or consent answers, it’s recorded here. Only managers can see this list.</p>
       {err ? <p className="text-[13px]" style={muted}>{err}</p> : rows === null ? <p className="text-[13px]" style={muted}>Loading…</p>

@@ -42,7 +42,7 @@ const SH = ({ icon: Icon, title, step }: { icon: any; title: string; step: numbe
     </div>
     <div>
       <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-      <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+      <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
     </div>
   </div>
 );
@@ -272,7 +272,7 @@ export const EditEquipmentDialog = ({
     setStep(s => s - 1);
   };
 
-  const backBtnClass = "flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400";
+  const backBtnClass = "flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-muted-foreground";
   const innerDivClass = step === 1 ? "flex gap-3 w-full" : "flex gap-3 flex-[2.5]";
 
   return (
@@ -285,7 +285,7 @@ export const EditEquipmentDialog = ({
               <Sparkles className="w-5 h-5 text-primary" />
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Asset Editor</span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Edit Capital Asset</h2>
+            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Edit Capital Asset</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{equipment?.name}</p>
             <div className="mt-5">
               <Progress value={(step / STEPS) * 100} className="h-1 rounded-full bg-muted" />

@@ -228,7 +228,7 @@ export default function ScheduleRequestsPage() {
   const swapTarget = selected?.swapWithStaffId ? getStaff(selected.swapWithStaffId) : null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50/50">
+    <div className="flex min-h-screen flex-col bg-background">
       <AppHeader title="Schedule Requests" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-4xl mx-auto space-y-8">
 
@@ -236,7 +236,7 @@ export default function ScheduleRequestsPage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Requests</h1>
+              <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Requests</h1>
               {pendingCount > 0 && (
                 <Badge variant="destructive" className="h-8 px-4 rounded-2xl font-black uppercase text-[10px] animate-pulse">
                   {pendingCount} Pending
@@ -261,7 +261,7 @@ export default function ScheduleRequestsPage() {
         )}
 
         {/* Filter tabs */}
-        <div className="flex gap-2 p-1 bg-white rounded-2xl border-2 w-fit shadow-sm">
+        <div className="flex gap-2 p-1 bg-card rounded-2xl border-2 w-fit shadow-sm">
           {(['pending', 'all', 'resolved'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={cn("h-9 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all",
@@ -286,7 +286,7 @@ export default function ScheduleRequestsPage() {
             const swapWith = req.swapWithStaffId ? getStaff(req.swapWithStaffId) : null;
             const isSwap = req.type === 'swap';
             return (
-              <Card key={req.id} className={cn("border-2 rounded-[2rem] shadow-sm bg-white overflow-hidden",
+              <Card key={req.id} className={cn("border-2 rounded-[2rem] shadow-sm bg-card overflow-hidden",
                 (req.status === 'pending' || req.status === 'swap_consent_given') && "border-amber-200",
                 req.status === 'pending_swap_consent' && "border-purple-200",
               )}>
@@ -299,7 +299,7 @@ export default function ScheduleRequestsPage() {
                     <div className="flex-1 min-w-0 space-y-2">
                       <div className="flex items-start justify-between gap-3 flex-wrap">
                         <div>
-                          <p className="font-black uppercase text-sm text-slate-900">{member?.name || 'Unknown'}</p>
+                          <p className="font-black uppercase text-sm text-foreground">{member?.name || 'Unknown'}</p>
                           <div className="flex items-center gap-2 mt-0.5">
                             <meta.icon className={cn("w-3.5 h-3.5", meta.color)} />
                             <p className={cn("text-[10px] font-black uppercase", meta.color)}>{meta.label}</p>
@@ -314,7 +314,7 @@ export default function ScheduleRequestsPage() {
                       </div>
 
                       {req.date && (
-                        <p className="text-[10px] font-black uppercase text-slate-600">
+                        <p className="text-[10px] font-black uppercase text-foreground/80">
                           <span className="opacity-50">Date: </span>
                           {format(safeDate(req.date), 'EEEE, MMMM d, yyyy')}
                         </p>
@@ -355,7 +355,7 @@ export default function ScheduleRequestsPage() {
                         </div>
                       )}
 
-                      <p className="text-sm font-medium text-slate-600 leading-relaxed">{req.reason}</p>
+                      <p className="text-sm font-medium text-foreground/80 leading-relaxed">{req.reason}</p>
                       {req.managerNote && (
                         <p className="text-[10px] font-bold text-primary/70 italic border-l-2 border-primary/20 pl-3">{req.managerNote}</p>
                       )}
@@ -399,7 +399,7 @@ export default function ScheduleRequestsPage() {
       <Dialog open={!!selected} onOpenChange={v => { if (!v) { setSelected(null); setManagerNote(''); } }}>
         <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background">
           <DialogHeader className="p-6 pb-0 text-left">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">
+            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">
               {isSwapReadyForApproval ? 'Execute Shift Swap' :
                selected?.type === 'day_off' ? 'Day Off Request' :
                selected?.type === 'early_release' ? 'Early Release Request' :
@@ -417,7 +417,7 @@ export default function ScheduleRequestsPage() {
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Shift Exchange Details</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className={cn("p-4 rounded-2xl border-2 space-y-2",
-                    isSwapReadyForApproval ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"
+                    isSwapReadyForApproval ? "bg-green-50 border-green-200" : "bg-muted/60 border-border"
                   )}>
                     <div className="flex items-center gap-2">
                       <Avatar className="w-7 h-7 rounded-xl border shrink-0">
@@ -433,7 +433,7 @@ export default function ScheduleRequestsPage() {
                     ) : <p className="text-[9px] text-muted-foreground opacity-60 font-bold uppercase">Shift not found</p>}
                   </div>
                   <div className={cn("p-4 rounded-2xl border-2 space-y-2",
-                    isSwapReadyForApproval ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"
+                    isSwapReadyForApproval ? "bg-green-50 border-green-200" : "bg-muted/60 border-border"
                   )}>
                     <div className="flex items-center gap-2">
                       <Avatar className="w-7 h-7 rounded-xl border shrink-0">
@@ -480,7 +480,7 @@ export default function ScheduleRequestsPage() {
             {selected?.type !== 'swap' && (
               <div className="p-4 rounded-2xl bg-muted/20 border-2 border-dashed">
                 <p className="text-[9px] font-black uppercase text-muted-foreground mb-1">Staff Reason</p>
-                <p className="text-sm font-medium text-slate-700 leading-relaxed">{selected?.reason}</p>
+                <p className="text-sm font-medium text-foreground/80 leading-relaxed">{selected?.reason}</p>
               </div>
             )}
 

@@ -48,7 +48,7 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
   in_review:     { label: 'In review',     cls: 'bg-amber-100 text-amber-900 border-amber-200' },
   auto_resolved: { label: 'Auto-approved', cls: 'bg-emerald-100 text-emerald-900 border-emerald-200' },
   resolved:      { label: 'Resolved',      cls: 'bg-emerald-100 text-emerald-900 border-emerald-200' },
-  declined:      { label: 'Declined',      cls: 'bg-slate-100 text-slate-700 border-slate-200' },
+  declined:      { label: 'Declined',      cls: 'bg-muted text-foreground/80 border-border' },
 };
 
 const money = (c?: number | null) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
@@ -379,7 +379,7 @@ export default function RetailClaimsPage() {
                         Scanned {ev.lineScanned}
                       </span>
                     )}
-                    <span className={cn('rounded-lg border-2 px-2 py-1 text-[9px] font-black uppercase tracking-widest', (ev.photoCount || 0) > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-500')}>
+                    <span className={cn('rounded-lg border-2 px-2 py-1 text-[9px] font-black uppercase tracking-widest', (ev.photoCount || 0) > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-border bg-muted/60 text-muted-foreground')}>
                       {(ev.photoCount || 0) > 0 ? `${ev.photoCount} pack photo${ev.photoCount === 1 ? '' : 's'}` : 'No pack photo'}
                     </span>
                     {(c.riskFactors || []).map((r) => (
@@ -407,7 +407,7 @@ export default function RetailClaimsPage() {
                             value={Number.isFinite(approveCents[c.id]) ? String(approveCents[c.id] / 100) : String((Number(c.claimValueCents) || 0) / 100)}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                               setApproveCents({ ...approveCents, [c.id]: Math.max(0, Math.round((Number(e.target.value) || 0) * 100)) })}
-                            className="h-9 w-20 rounded-xl border-2 bg-white px-2 text-center font-mono text-xs font-black"
+                            className="h-9 w-20 rounded-xl border-2 bg-card px-2 text-center font-mono text-xs font-black"
                           />
                           <Button
                             size="sm"

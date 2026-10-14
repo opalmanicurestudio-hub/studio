@@ -66,7 +66,7 @@ const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
     case 'expense':
       return <TrendingDown className="h-5 w-5 text-red-500" />;
     case 'reversal':
-      return <RefreshCw className="h-5 w-5 text-gray-500" />;
+      return <RefreshCw className="h-5 w-5 text-muted-foreground" />;
     default:
       return null;
   }

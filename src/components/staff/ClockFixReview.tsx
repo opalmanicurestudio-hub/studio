@@ -32,7 +32,7 @@ export function ClockFixReview({ firestore, tenantId }: { firestore: any; tenant
     <section aria-label="Forgotten clock-outs" className="space-y-3 rounded-2xl border p-4 md:p-5" style={{ borderColor: '#f3dfb8', background: '#fdf8ef' }}>
       <div><p className="text-[17px] font-semibold">Forgotten clock-outs · {list.length}</p><p className="text-[13.5px] text-muted-foreground">They’ve said when they left. Those hours count once you approve.</p></div>
       {list.map((f: any) => (
-        <div key={f.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3">
+        <div key={f.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
           <div className="min-w-[12rem] flex-1">
             <p className="text-[15px] font-semibold">{f.staffName} · {d(f.inAt)}</p>
             <p className="text-[13.5px] text-muted-foreground">In {t(f.inAt)} · says they left {t(f.outAt)}{f.note ? ` · “${f.note}”` : ''}</p>

@@ -6,9 +6,9 @@
 import * as React from 'react';
 import { monthReport, monthOf, monthLabel, prevMonth, fmtHours, fmtMoney, reportCsv, caseCost, type MirReport } from '@/lib/mir-report';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', GREY = '#c9cacd';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', GREY = '#c9cacd';
 const BG = 'radial-gradient(120% 80% at 8% -5%, #e5e5ec 0%, transparent 55%), radial-gradient(100% 70% at 100% 0%, #e8eaf0 0%, transparent 50%), #f7f7f8';
-const card = 'rounded-[18px] border bg-white';
+const card = 'rounded-[18px] border bg-card';
 
 const nextMonth = (ym: string) => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 15)).toISOString().slice(0, 7); };
 const monthName = (ym: string, short = false) => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, (m || 1) - 1, 15)).toLocaleDateString('en-US', { month: short ? 'short' : 'long', timeZone: 'UTC' }); };
@@ -113,18 +113,18 @@ export function MirReportView({ cases, adj, isLoading, tz, tenantName }: { cases
             <h1 className="mt-1 text-[32px] font-normal tracking-[-0.03em] md:text-[44px]"><span className="md:hidden">{monthName(month)}</span><span className="hidden md:inline">{monthLabel(month)}</span></h1>
           </div>
           <div className="no-print hidden items-center gap-2 md:flex">
-            <div className="flex h-11 items-center overflow-hidden rounded-full border bg-white" style={{ borderColor: LINE }}>
+            <div className="flex h-11 items-center overflow-hidden rounded-full border bg-card" style={{ borderColor: LINE }}>
               <button type="button" aria-label="Previous month" disabled={month <= firstMonth} onClick={() => go(prevMonth(month))} className="h-11 w-11 disabled:opacity-30" style={{ color: MUTED }}>‹</button>
               <span className="min-w-[96px] px-1.5 text-center text-[14px] font-medium">{monthName(month)}</span>
               <button type="button" aria-label="Next month" disabled={month >= thisMonth} onClick={() => go(nextMonth(month))} className="h-11 w-11 disabled:opacity-30" style={{ color: MUTED }}>›</button>
             </div>
-            <button type="button" onClick={() => window.print()} className="h-11 rounded-full border bg-white px-5 text-[14px]" style={{ borderColor: LINE }}>Print</button>
-            <button type="button" onClick={csv} className="h-11 rounded-full px-5 text-[14px] font-medium text-white" style={{ background: INK }}>Download CSV</button>
+            <button type="button" onClick={() => window.print()} className="h-11 rounded-full border bg-card px-5 text-[14px]" style={{ borderColor: LINE }}>Print</button>
+            <button type="button" onClick={csv} className="h-11 rounded-full px-5 text-[14px] font-medium text-background" style={{ background: INK }}>Download CSV</button>
           </div>
         </div>
         <div className="no-print -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 md:hidden">
           {chips.map((m) => <button key={m} type="button" onClick={() => go(m)} className="h-9 shrink-0 rounded-full px-3.5 text-[13.5px]"
-            style={m === month ? { background: INK, color: '#fff', fontWeight: 500 } : { background: '#fff', border: `1px solid ${LINE}` }}>{monthName(m, true)}{m.slice(0, 4) !== thisMonth.slice(0, 4) ? ` ’${m.slice(2, 4)}` : ''}</button>)}
+            style={m === month ? { background: INK, color: 'hsl(var(--background))', fontWeight: 500 } : { background: 'hsl(var(--card))', border: `1px solid ${LINE}` }}>{monthName(m, true)}{m.slice(0, 4) !== thisMonth.slice(0, 4) ? ` ’${m.slice(2, 4)}` : ''}</button>)}
         </div>
 
         {isLoading ? <p style={{ color: MUTED }}>Loading…</p> : <>
@@ -139,7 +139,7 @@ export function MirReportView({ cases, adj, isLoading, tz, tenantName }: { cases
             <Tile n={fmtHours(r.closeMedianH)} label="Typical time to close">{r.open > 0 && <span style={{ color: MUTED }}>{r.open} still open</span>}</Tile>
           </div>
 
-          {flags.length > 0 && <div className="flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-[14px]" style={{ background: '#fdf3e6', borderColor: '#f3dfc2' }}>
+          {flags.length > 0 && <div className="flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-[14px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)', borderColor: '#f3dfc2' }}>
             <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-bold text-white" style={{ background: AMBER }}>!</span>
             <span><b>{flags.join(' · ')}.</b> <a href="/cases" className="no-print" style={{ color: MUTED }}>Open them from Cases.</a></span>
           </div>}
@@ -157,7 +157,7 @@ export function MirReportView({ cases, adj, isLoading, tz, tenantName }: { cases
           <section className={`${card} flex flex-col gap-2.5 p-[18px] md:hidden`} style={{ borderColor: LINE }}>
             <h2 className="text-[15px] font-bold">Last 5 months</h2><Spark rows={trend} h={70} bw={40} gap={22} />
           </section>
-          <button type="button" onClick={csv} className="no-print h-12 rounded-full text-[15px] font-medium text-white md:hidden" style={{ background: INK }}>Download CSV</button>
+          <button type="button" onClick={csv} className="no-print h-12 rounded-full text-[15px] font-medium text-background md:hidden" style={{ background: INK }}>Download CSV</button>
           <div className="flex flex-wrap justify-between gap-2 pt-1 text-[12px]" style={{ color: MUTED }}>
             <span>Cases count in the month they were opened. Renters’ own clients aren’t included.</span><span>Sent to owners and managers on the 1st</span>
           </div>

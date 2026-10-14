@@ -318,7 +318,7 @@ export default function AcademyBuilderPage() {
                 {c.coverUrl ? <img src={c.coverUrl} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" /> : <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-xl font-black text-white" style={{ background: `linear-gradient(135deg, ${docBrand.color || '#1c1917'}, ${docBrand.color || '#1c1917'}99)` }}>{String(c.title || '?').trim()[0]}</span>}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-bold">{c.title}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"><span className={`rounded-full px-2 py-0.5 font-bold ${c.status === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'}`}>{c.status === 'published' ? 'Live' : 'Draft'}</span>{money(c.priceCents || 0)} · {c.lessonCount || 0} lessons · {c.enrolledCount || 0} students</span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"><span className={`rounded-full px-2 py-0.5 font-bold ${c.status === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-border text-foreground/80'}`}>{c.status === 'published' ? 'Live' : 'Draft'}</span>{money(c.priceCents || 0)} · {c.lessonCount || 0} lessons · {c.enrolledCount || 0} students</span>
                 </span>
               </button>
             ))}
@@ -515,7 +515,7 @@ export default function AcademyBuilderPage() {
                       </div>
                       {presenting && <PresentMode tenantId={tenantId} courseId={sel!} lessonId={presenting} color={docBrand.color} onClose={() => setPresenting(null)} />}
                   {addOpen && <AddToLesson lesson={lesson} setLesson={setLesson} draft={draft} drafting={drafting} onClose={() => setAddOpen(false)} />}
-                      {showPrev && <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 p-4" onClick={() => setShowPrev(false)}><div onClick={(e) => e.stopPropagation()}><LessonPreview lesson={lesson} color={docBrand.color} stepMode={layoutOf(lesson) === 'steps'} /></div><button type="button" className="h-10 rounded-full bg-white px-5 text-sm font-bold">Close preview</button></div>}
+                      {showPrev && <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 p-4" onClick={() => setShowPrev(false)}><div onClick={(e) => e.stopPropagation()}><LessonPreview lesson={lesson} color={docBrand.color} stepMode={layoutOf(lesson) === 'steps'} /></div><button type="button" className="h-10 rounded-full bg-card px-5 text-sm font-bold">Close preview</button></div>}
                       {drawer && (
                         <div className="fixed inset-0 z-[60] flex justify-end bg-black/30" onClick={() => setDrawer(false)}>
                           <div onClick={(e) => e.stopPropagation()} className="h-full w-full max-w-md space-y-4 overflow-y-auto bg-background p-5 shadow-2xl">

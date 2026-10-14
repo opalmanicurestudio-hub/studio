@@ -13,7 +13,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { payPost } from '@/components/pay/pay-client';
 import { settingsOf, FIX_LABEL, FIX_HINT, STAGES, stageIndex, WANTS, wantsFor, CAUSES, providerCaseStats, type FixKind } from '@/lib/making-it-right';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f6', RED = '#b42318', PINK = '#fdecec', GREEN = '#1f6b3a';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', RED = '#b42318', PINK = '#fdecec', GREEN = '#1f6b3a';
 const ago = (iso: string) => { const m = Math.max(0, (Date.now() - Date.parse(iso)) / 60000); return m < 60 ? `${Math.round(m)} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
 const left = (iso: string) => { const m = (Date.parse(iso) - Date.now()) / 60000; if (m <= 0) return { text: `Reply overdue by ${ago(iso)}`, late: true }; return { text: m < 60 ? `Reply within ${Math.round(m)} min` : `Reply within ${Math.round(m / 60)} h`, late: false }; };
 const VIA: Record<string, string> = { review: 'Online review', text: 'Text message', call: 'Phone call', staff: 'Provider', desk: 'Front desk', survey: 'Visit rating', link: 'Visit link' };
@@ -39,18 +39,18 @@ function SlotPicker({ tenantId, caseId, onPick, busy, label }: { tenantId: strin
   const P = data?.providers?.find((p: any) => p.staffId === who); const D = P?.days.find((d: any) => d.date === day); const list = (data?.providers || []).filter((p: any) => p.days.length);
   return (
     <div className="space-y-3 rounded-2xl p-3.5" style={{ background: SOFT }}>
-      {adv?.avoidOriginal && <div className="rounded-xl bg-white p-3 text-[13.5px]"><b>Suggesting someone else for the fix.</b> {adv.why}. The client is only offered other providers{adv.override === 'other' ? '' : ' — the person who did the visit isn’t shown'}.
+      {adv?.avoidOriginal && <div className="rounded-xl bg-card p-3 text-[13.5px]"><b>Suggesting someone else for the fix.</b> {adv.why}. The client is only offered other providers{adv.override === 'other' ? '' : ' — the person who did the visit isn’t shown'}.
         <button type="button" onClick={() => choose('original')} className="ml-1 font-semibold underline">Offer the original provider anyway</button></div>}
-      {adv?.onlyOne && <div className="rounded-xl bg-white p-3 text-[13.5px]"><b>No one else does this service.</b> {adv.why ? `${adv.why}, so ` : ''}offer to do it yourself, or choose a refund or credit instead if that would feel better for them.</div>}
+      {adv?.onlyOne && <div className="rounded-xl bg-card p-3 text-[13.5px]"><b>No one else does this service.</b> {adv.why ? `${adv.why}, so ` : ''}offer to do it yourself, or choose a refund or credit instead if that would feel better for them.</div>}
       {!adv?.avoidOriginal && adv?.override === 'original' && <p className="text-[13px]" style={{ color: MUTED }}>Offering the original provider (chosen by the team). <button type="button" onClick={() => choose(null)} className="underline">Undo</button></p>}
       {!adv?.avoidOriginal && !adv?.override && !adv?.onlyOne && data && <button type="button" onClick={() => choose('other')} className="text-[13px] underline" style={{ color: MUTED }}>Only offer other providers for this fix</button>}
       {!data ? <p className="text-[14px]" style={{ color: MUTED }}>Finding open times…</p> : !list.length ? <p className="text-[14px]">{data.error || (others ? 'No one else has an opening soon.' : 'No openings soon with the original provider.')}</p> : <>
-        <div className="flex flex-wrap gap-2">{list.map((p: any) => <button key={p.staffId} type="button" onClick={() => { setWho(p.staffId); setDay(p.days[0].date); setTime(''); }} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={who === p.staffId ? { background: INK, color: '#fff' } : { background: '#fff' }}>{p.name}{p.original ? ' (did the visit)' : ''}</button>)}</div>
-        <div className="flex gap-1.5 overflow-x-auto pb-1">{(P?.days || []).map((d: any) => <button key={d.date} type="button" onClick={() => { setDay(d.date); setTime(''); }} className="h-10 shrink-0 rounded-xl px-3 text-[13.5px] font-semibold" style={day === d.date ? { background: INK, color: '#fff' } : { background: '#fff' }}>{dl(d.date)}</button>)}</div>
-        <div className="flex flex-wrap gap-1.5">{(D?.times || []).map((t: string) => <button key={t} type="button" onClick={() => setTime(t)} className="h-9 rounded-lg px-3 text-[13.5px] font-semibold" style={time === t ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` }}>{tl(t)}</button>)}</div>
+        <div className="flex flex-wrap gap-2">{list.map((p: any) => <button key={p.staffId} type="button" onClick={() => { setWho(p.staffId); setDay(p.days[0].date); setTime(''); }} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={who === p.staffId ? { background: INK, color: 'hsl(var(--background))' } : { background: 'hsl(var(--card))' }}>{p.name}{p.original ? ' (did the visit)' : ''}</button>)}</div>
+        <div className="flex gap-1.5 overflow-x-auto pb-1">{(P?.days || []).map((d: any) => <button key={d.date} type="button" onClick={() => { setDay(d.date); setTime(''); }} className="h-10 shrink-0 rounded-xl px-3 text-[13.5px] font-semibold" style={day === d.date ? { background: INK, color: 'hsl(var(--background))' } : { background: 'hsl(var(--card))' }}>{dl(d.date)}</button>)}</div>
+        <div className="flex flex-wrap gap-1.5">{(D?.times || []).map((t: string) => <button key={t} type="button" onClick={() => setTime(t)} className="h-9 rounded-lg px-3 text-[13.5px] font-semibold" style={time === t ? { background: INK, color: 'hsl(var(--background))' } : { background: 'hsl(var(--card))', border: `1px solid ${LINE}` }}>{tl(t)}</button>)}</div>
         {data.minutes ? <p className="text-[12.5px]" style={{ color: MUTED }}>{data.minutes} min — the same length as the original visit.</p> : null}</>}
       <div className="flex flex-wrap items-center gap-3">
-        {time && <button type="button" disabled={busy} onClick={() => onPick({ staffId: who, date: day, time })} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>{busy ? 'Booking…' : `${label} ${dl(day)} at ${tl(time)}`}</button>}
+        {time && <button type="button" disabled={busy} onClick={() => onPick({ staffId: who, date: day, time })} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: 'hsl(var(--background))' }}>{busy ? 'Booking…' : `${label} ${dl(day)} at ${tl(time)}`}</button>}
         {!adv?.avoidOriginal && <button type="button" onClick={() => setOthers(!others)} className="text-[13.5px] underline" style={{ color: MUTED }}>{others ? 'Back to the original provider' : 'Someone else'}</button>}
       </div>
     </div>);
@@ -69,8 +69,8 @@ function PlanEditor({ v, services, value, onChange }: { v: any; services: any[];
     <div className="space-y-2.5 rounded-2xl border p-3.5" style={{ borderColor: LINE }}>
       <p className="text-[13px] font-bold" style={{ color: MUTED }}>WHAT WE’LL DO</p>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => setDiff(false)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={!diff ? { background: INK, color: '#fff' } : { background: SOFT }}>The same service again{v.serviceName ? ` (${v.serviceName})` : ''}</button>
-        <button type="button" onClick={() => setDiff(true)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={diff ? { background: INK, color: '#fff' } : { background: SOFT }}>Something different</button>
+        <button type="button" onClick={() => setDiff(false)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={!diff ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>The same service again{v.serviceName ? ` (${v.serviceName})` : ''}</button>
+        <button type="button" onClick={() => setDiff(true)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={diff ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>Something different</button>
       </div>
       {diff && <>
         <p className="text-[13px]" style={{ color: MUTED }}>From the photos, what does it need? Add the services in the order they’ll be done — e.g. a removal, then the new service.</p>
@@ -117,7 +117,7 @@ function NewCase({ firestore, tenantId, S, onDone, inboxId = '', reviewId = '' }
     <div className="space-y-5">
       <h2 className="text-[22px] font-bold tracking-tight">Start a case</h2>
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>HOW DID YOU HEAR?</p>
-        <div className="flex flex-wrap gap-2">{(['call', 'desk', 'text', 'review'] as const).map((v) => <button key={v} type="button" onClick={() => setVia(v)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={via === v ? { background: INK, color: '#fff' } : { background: SOFT }}>{v === 'call' ? 'Phone call' : v === 'desk' ? 'At the desk' : v === 'text' ? 'A text' : 'A review'}</button>)}</div>
+        <div className="flex flex-wrap gap-2">{(['call', 'desk', 'text', 'review'] as const).map((v) => <button key={v} type="button" onClick={() => setVia(v)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={via === v ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>{v === 'call' ? 'Phone call' : v === 'desk' ? 'At the desk' : v === 'text' ? 'A text' : 'A review'}</button>)}</div>
         {review && <div className="rounded-2xl p-3.5 text-[14px]" style={{ background: SOFT }}><b>{'★'.repeat(review.rating)}{'☆'.repeat(Math.max(0, 5 - review.rating))}</b> · {review.author} on Google{review.publishedAt ? ` · ${new Date(review.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}{review.url && <> · <a href={review.url} target="_blank" rel="noreferrer" className="underline">See it</a></>}{review.caseId && <p className="mt-1 font-semibold">There’s already a case for this review.</p>}</div>}
         {inbox?.complaint?.safety && <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: PINK, color: RED }}>Their text mentions something that could be a safety concern. If it is, choose the safety reason below so a manager is told now.</p>}</div>
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>WHICH VISIT?</p>
@@ -132,9 +132,9 @@ function NewCase({ firestore, tenantId, S, onDone, inboxId = '', reviewId = '' }
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>IN THEIR WORDS</p>
         <textarea value={words} onChange={(e) => setWords(e.target.value)} rows={3} placeholder="What they said, as close to their words as you can" className="w-full rounded-xl border p-3 text-[15px]" style={{ borderColor: LINE }} /></div>
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>WHAT ARE THEY HOPING FOR?</p>
-        <div className="flex flex-wrap gap-2">{wantsFor(S).map((w) => [w.id, w.client]).map(([k, l]) => <button key={k} type="button" onClick={() => setWants(wants === k ? '' : k)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={wants === k ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div></div>
+        <div className="flex flex-wrap gap-2">{wantsFor(S).map((w) => [w.id, w.client]).map(([k, l]) => <button key={k} type="button" onClick={() => setWants(wants === k ? '' : k)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={wants === k ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>{l}</button>)}</div></div>
       {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
-      <button type="button" disabled={busy || (!reason && !words.trim()) || (!visit && !name.trim())} onClick={go} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Starting…' : 'Start the case'}</button>
+      <button type="button" disabled={busy || (!reason && !words.trim()) || (!visit && !name.trim())} onClick={go} className={btn} style={{ background: INK, color: 'hsl(var(--background))' }}>{busy ? 'Starting…' : 'Start the case'}</button>
     </div>);
 }
 
@@ -173,11 +173,11 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
         <div className="flex flex-wrap gap-2 text-[13.5px]">
           <span className="rounded-full px-3 py-1" style={{ background: SOFT }}>{c.ownerName ? `Owned by ${c.ownerName}` : 'No one owns this yet'}</span>
           {clock && <span className="rounded-full px-3 py-1 font-semibold" style={clock.late ? { background: PINK, color: RED } : { background: SOFT }}>{clock.text}</span>}
-          {c.locked && <span className="rounded-full px-3 py-1 font-semibold" style={{ background: '#e8f3ec', color: GREEN }}>Closed {c.closedAt ? new Date(c.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} · locked</span>}
+          {c.locked && <span className="rounded-full px-3 py-1 font-semibold" style={{ background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: GREEN }}>Closed {c.closedAt ? new Date(c.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} · locked</span>}
         </div>
       </header>
 
-      {!solo && !c.ownerId && !c.locked && (!c.safety || isManager) && <button type="button" disabled={busy} onClick={() => act('own', {}, 'It’s yours.')} className={btn} style={{ background: INK, color: '#fff' }}>I’ll take this</button>}
+      {!solo && !c.ownerId && !c.locked && (!c.safety || isManager) && <button type="button" disabled={busy} onClick={() => act('own', {}, 'It’s yours.')} className={btn} style={{ background: INK, color: 'hsl(var(--background))' }}>I’ll take this</button>}
 
       <div className="grid gap-3 md:grid-cols-2">
         <Card title="WHAT THEY SAID">
@@ -208,7 +208,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
       </div>
 
       {(!solo || c.kind === 'incident' || (c.statements || []).length > 0) && <Card title={c.kind === 'incident' ? 'STATEMENTS' : solo ? 'NOTES' : 'EVERYONE’S SIDE'}>
-        {c.sideWanted && !c.locked && <p className="rounded-xl px-3 py-2 text-[14px] font-semibold" style={{ background: '#fff7e6' }}>Waiting for {v.providerName ? v.providerName.split(' ')[0] : 'the provider'}’s side — they’ve been asked in the staff app.</p>}
+        {c.sideWanted && !c.locked && <p className="rounded-xl px-3 py-2 text-[14px] font-semibold" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)' }}>Waiting for {v.providerName ? v.providerName.split(' ')[0] : 'the provider'}’s side — they’ve been asked in the staff app.</p>}
         {[...(c.statements || []), ...(c.incident?.statements || [])].map((st: any, i: number) => <div key={i} className="space-y-1 border-b pb-2 last:border-0" style={{ borderColor: LINE }}>
           <p className="text-[13px]" style={{ color: MUTED }}><b style={{ color: INK }}>{st.by}</b> · {fmt(st.at)} · signed</p>
           {st.text && <p className="text-[15px]">“{st.text}”</p>}{st.textEn && <p className="text-[14px]" style={{ color: MUTED }}><b>In English:</b> {st.textEn}</p>}
@@ -218,7 +218,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
       </Card>}
 
       {isManager && c.kind !== 'incident' && <Card title={solo ? 'WHAT CAUSED IT (JUST FOR YOU)' : 'WHAT CAUSED IT'}>
-        <div className="flex flex-wrap gap-2">{Object.entries(CAUSES).map(([k, d]) => <button key={k} type="button" disabled={busy} onClick={() => act('cause', { cause: k }, 'Cause saved.')} className="min-h-10 rounded-full px-4 text-[14px] font-semibold" style={c.cause === k ? { background: INK, color: '#fff' } : { background: SOFT }}>{d.label}</button>)}</div>
+        <div className="flex flex-wrap gap-2">{Object.entries(CAUSES).map(([k, d]) => <button key={k} type="button" disabled={busy} onClick={() => act('cause', { cause: k }, 'Cause saved.')} className="min-h-10 rounded-full px-4 text-[14px] font-semibold" style={c.cause === k ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>{d.label}</button>)}</div>
         {!solo && <p className="text-[13px]" style={{ color: MUTED }}>Only “The work itself” counts in {v.providerName ? `${v.providerName.split(' ')[0]}’s` : 'the provider’s'} numbers. {c.sideWanted ? 'Their side isn’t in yet.' : ''}</p>}
       </Card>}
 
@@ -228,23 +228,23 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
         {(c.checks || []).some((k: any) => !k.ok) && <p className="text-[13.5px]" style={{ color: MUTED }}>Not a no — it means a manager decides this one.</p>}
       </Card>
 
-      {c.pending && <div className="space-y-3 rounded-[18px] p-4" style={{ background: '#fff7e6' }}>
+      {c.pending && <div className="space-y-3 rounded-[18px] p-4" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)' }}>
         <p className="text-[15px]"><b>{c.pending.askedBy}</b> wants to give <b>{FIX_LABEL[c.pending.kind as FixKind]}{c.pending.amountCents ? ` $${(c.pending.amountCents / 100).toFixed(2)}` : ''}</b>. {c.pending.why}</p>
-        {isManager ? <button type="button" disabled={busy} onClick={() => act('approve', {}, 'Approved.')} className={btn} style={{ background: INK, color: '#fff' }}>Approve</button> : <p className="text-[14px]" style={{ color: MUTED }}>Waiting for a manager.</p>}
+        {isManager ? <button type="button" disabled={busy} onClick={() => act('approve', {}, 'Approved.')} className={btn} style={{ background: INK, color: 'hsl(var(--background))' }}>Approve</button> : <p className="text-[14px]" style={{ color: MUTED }}>Waiting for a manager.</p>}
       </div>}
 
-      {solo && sensitive && !c.locked && !c.fix && <p className="rounded-xl p-3 text-[14px]" style={{ background: '#fff7e6' }}><b>You’re the only provider.</b> {c.preferOther ? 'They asked for someone else, so a' : 'Another visit might not feel right for either of you. A'} refund or credit is listed first; fixing it yourself is still an option.</p>}
+      {solo && sensitive && !c.locked && !c.fix && <p className="rounded-xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)' }}><b>You’re the only provider.</b> {c.preferOther ? 'They asked for someone else, so a' : 'Another visit might not feel right for either of you. A'} refund or credit is listed first; fixing it yourself is still an option.</p>}
       {!c.locked && !c.fix && !c.pending && <Card title={solo ? 'WHAT WILL YOU DO?' : 'CHOOSE THE FIX'}>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{fixes.map((k) => <button key={k} type="button" onClick={() => setKind(k)} className="rounded-2xl border p-3 text-left" style={kind === k ? { borderColor: INK, background: INK, color: '#fff' } : { borderColor: LINE }}><span className="block text-[15px] font-bold">{fixLabel(k)}</span><span className="block text-[12.5px] opacity-75">{FIX_HINT[k]}</span></button>)}</div>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{fixes.map((k) => <button key={k} type="button" onClick={() => setKind(k)} className="rounded-2xl border p-3 text-left" style={kind === k ? { borderColor: INK, background: INK, color: 'hsl(var(--background))' } : { borderColor: LINE }}><span className="block text-[15px] font-bold">{fixLabel(k)}</span><span className="block text-[12.5px] opacity-75">{FIX_HINT[k]}</span></button>)}</div>
         {(kind === 'refund' || kind === 'credit') && <label className="flex items-center gap-2 text-[15px]">Amount $<input type="number" inputMode="decimal" min={0} value={amt} onChange={(e) => setAmt(e.target.value)} placeholder={v.paid ? Number(v.paid).toFixed(2) : '0.00'} className="h-11 w-32 rounded-xl border px-3" style={{ borderColor: LINE }} />
           {kind === 'refund' && v.paid ? <span className="text-[13px]" style={{ color: MUTED }}>of ${Number(v.paid).toFixed(2)} paid</span> : null}</label>}
         {kind === 'redo' && <div className="space-y-2.5">
           <PlanEditor v={v} services={services} value={null} onChange={setPlan} />
-          <div className="flex flex-wrap gap-2">{([['client', 'Let them pick a time'], ['book', 'Book it now']] as const).map(([m, l]) => <button key={m} type="button" onClick={() => setRedoMode(m)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={redoMode === m ? { background: INK, color: '#fff' } : { background: SOFT }}>{l}</button>)}</div>
+          <div className="flex flex-wrap gap-2">{([['client', 'Let them pick a time'], ['book', 'Book it now']] as const).map(([m, l]) => <button key={m} type="button" onClick={() => setRedoMode(m)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={redoMode === m ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>{l}</button>)}</div>
           <p className="text-[13px]" style={{ color: MUTED }}>{redoMode === 'client' ? `We text them a link to choose from ${v.providerName ? `${v.providerName.split(' ')[0]}’s` : 'the'} open times. If none work, they can see someone else or tell you when suits them.` : 'Already agreed a time with them? Pick it here.'}</p>
           {redoMode === 'book' && (plan ? <p className="text-[13px]" style={{ color: MUTED }}>Save the plan first (Offer the fix), then use “Book it for them” to pick a time that fits it.</p> : <SlotPicker tenantId={tenantId} caseId={c.id} busy={busy} label="Book" onPick={async (pk) => { if (await act('choose_fix', { kind: 'redo', redo: { mode: 'book', ...pk } }, 'Redo booked.')) setKind(''); }} />)}
         </div>}
-        {kind && !(kind === 'redo' && redoMode === 'book' && !plan) && <button type="button" disabled={busy || ((kind === 'refund' || kind === 'credit') && !(Number(amt) > 0))} onClick={async () => { if (await act('choose_fix', { kind, amountCents: Math.round((Number(amt) || 0) * 100), redo: kind === 'redo' ? { mode: redoMode === 'book' ? 'team' : 'client', plan } : null }, kind === 'redo' ? (redoMode === 'book' ? 'Fix saved — now book it for them.' : 'Fix offered — they’ll pick a time.') : 'Fix chosen.')) setKind(''); }} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : kind === 'redo' ? (redoMode === 'book' ? 'Save the fix' : plan ? 'Offer the fix' : 'Offer the free redo') : `Go with ${FIX_LABEL[kind].toLowerCase()}`}</button>}
+        {kind && !(kind === 'redo' && redoMode === 'book' && !plan) && <button type="button" disabled={busy || ((kind === 'refund' || kind === 'credit') && !(Number(amt) > 0))} onClick={async () => { if (await act('choose_fix', { kind, amountCents: Math.round((Number(amt) || 0) * 100), redo: kind === 'redo' ? { mode: redoMode === 'book' ? 'team' : 'client', plan } : null }, kind === 'redo' ? (redoMode === 'book' ? 'Fix saved — now book it for them.' : 'Fix offered — they’ll pick a time.') : 'Fix chosen.')) setKind(''); }} className={btn} style={{ background: INK, color: 'hsl(var(--background))' }}>{busy ? 'Saving…' : kind === 'redo' ? (redoMode === 'book' ? 'Save the fix' : plan ? 'Offer the fix' : 'Offer the free redo') : `Go with ${FIX_LABEL[kind].toLowerCase()}`}</button>}
       </Card>}
 
       {c.fix && <Card title="THE FIX">
@@ -252,16 +252,16 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
         {c.fix.kind === 'redo' && (() => { const r = c.fix.redo || {}; const booked = !!c.fix.redoAppointmentId;
           return <div className="space-y-2">
             {r.plan && <p className="text-[14.5px]"><b>Plan:</b> {(r.plan.names || []).join(' → ')} · {r.plan.priceCents ? `client pays $${(r.plan.priceCents / 100).toFixed(2)}` : 'no charge'}{r.plan.note ? <span style={{ color: MUTED }}> — “{r.plan.note}”</span> : null}</p>}
-            {!booked && !c.locked && (editPlan ? <div className="space-y-2"><PlanEditor v={v} services={services} value={r.plan || null} onChange={setPlan} /><button type="button" disabled={busy} onClick={async () => { if (await act('plan', { plan }, 'Plan updated — we’ve texted them.')) setEditPlan(false); }} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Save the plan</button></div>
+            {!booked && !c.locked && (editPlan ? <div className="space-y-2"><PlanEditor v={v} services={services} value={r.plan || null} onChange={setPlan} /><button type="button" disabled={busy} onClick={async () => { if (await act('plan', { plan }, 'Plan updated — we’ve texted them.')) setEditPlan(false); }} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: 'hsl(var(--background))' }}>Save the plan</button></div>
               : <button type="button" onClick={() => setEditPlan(true)} className="text-[14px] font-semibold underline">Change what we’ll do</button>)}
             <p className="text-[14.5px]">{booked ? <>Booked: <b>{r.startTime ? fmt(r.startTime) : ''}</b>{r.changes ? ` · moved by the client ${r.changes}×` : ''}</> : r.state === 'needs_time' ? <><b style={{ color: RED }}>None of the times work for them.</b>{r.note ? ` They said: “${r.note}”` : ''}</> : 'Waiting for them to pick a time.'}</p>
             {!c.locked && c.status === 'fix_chosen' && (move || (!booked && r.state === 'needs_time') ? <SlotPicker tenantId={tenantId} caseId={c.id} busy={busy} label={booked ? 'Move to' : 'Book'} onPick={async (pk) => { if (await act('redo_book', pk, booked ? 'Redo moved — we’ve texted them.' : 'Redo booked — we’ve texted them.')) setMove(false); }} />
               : <button type="button" onClick={() => setMove(true)} className="text-[14px] font-semibold underline">{booked ? 'Move it' : 'Book it for them'}</button>)}
           </div>; })()}
-        {c.fix.todo && c.status === 'fix_chosen' && <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: '#fff7e6' }}>To do: {c.fix.todo}</p>}
+        {c.fix.todo && c.status === 'fix_chosen' && <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)' }}>To do: {c.fix.todo}</p>}
         {c.fix.kind === 'refund' && c.fix.amountCents > 0 && c.status === 'fix_chosen' && !c.fix.refundedAt && <RefundGiving c={c} tenantId={tenantId} busy={busy} onCard={() => { if (window.confirm(`Send $${(c.fix.amountCents / 100).toFixed(2)} back to their card now?`)) act('refund_card', {}, 'Refunded to their card — we’ve texted them.'); }} />}
         {c.fix.refundedAt && <p className="rounded-xl p-3 text-[14px]" style={{ background: '#eef8f1' }}><b>{c.fix.refundVia === 'Store credit' ? `Gave $${((c.fix.refundedCents || 0) / 100).toFixed(2)} as store credit` : `Refunded $${((c.fix.refundedCents || 0) / 100).toFixed(2)} ${c.fix.refundVia ? (c.fix.refundVia === 'Cash' ? 'in cash' : `by ${c.fix.refundVia}`) : 'to their card'}`}</b> · {new Date(c.fix.refundedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.{c.fix.refundVia === 'Store credit' ? ' It’s on their account.' : ' It’s in Money as a refund.'}</p>}
-        {c.status === 'fix_chosen' && <button type="button" disabled={busy} onClick={() => act('done', {}, S.followUpDays ? 'Marked done. We’ll remind you to check back.' : 'Marked done. Their page now asks if we made it right.')} className={btn} style={{ background: INK, color: '#fff' }}>It’s done</button>}
+        {c.status === 'fix_chosen' && <button type="button" disabled={busy} onClick={() => act('done', {}, S.followUpDays ? 'Marked done. We’ll remind you to check back.' : 'Marked done. Their page now asks if we made it right.')} className={btn} style={{ background: INK, color: 'hsl(var(--background))' }}>It’s done</button>}
         {c.status === 'done' && <div className="space-y-2"><p className="text-[14.5px]">Check back{c.followUpAt ? ` around ${new Date(c.followUpAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : ''}: <b>did we make it right?</b></p>
           <input value={cb} onChange={(e) => setCb(e.target.value)} placeholder="What they said (optional)" className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} />
           <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => act('checked_back', { answer: 'yes', note: cb }, 'Closed. Nice work.')} className={btn} style={{ background: GREEN, color: '#fff' }}>Yes — close the case</button>
@@ -274,18 +274,18 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
             <input defaultValue={c.incident?.[k] || ''} disabled={!isManager || c.locked} onChange={(e) => setInc({ ...inc, [k]: e.target.value })} className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /></label>))}
         <label className="block space-y-1"><span className="text-[13px] font-semibold" style={{ color: MUTED }}>Who was there (comma between names)</span>
           <input defaultValue={(c.incident?.present || []).join(', ')} disabled={!isManager || c.locked} onChange={(e) => setInc({ ...inc, present: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /></label>
-        {isManager && !c.locked && <button type="button" disabled={busy || !Object.keys(inc).length} onClick={async () => { if (await act('incident', { incident: inc }, 'Incident report saved.')) setInc({}); }} className={btn} style={{ background: INK, color: '#fff' }}>Save the report</button>}
+        {isManager && !c.locked && <button type="button" disabled={busy || !Object.keys(inc).length} onClick={async () => { if (await act('incident', { incident: inc }, 'Incident report saved.')) setInc({}); }} className={btn} style={{ background: INK, color: 'hsl(var(--background))' }}>Save the report</button>}
         <div className="flex flex-wrap items-center gap-2 border-t pt-3" style={{ borderColor: LINE }}>
           {c.incident?.checkIn48At ? <p className="text-[14.5px]" style={{ color: GREEN }}><b>Follow-up check-in done</b> {fmt(c.incident.checkIn48At)}{c.incident.checkIn48Note ? ` — ${c.incident.checkIn48Note}` : ''}</p> :
             isManager && !c.locked && <><input placeholder="Follow-up check-in: how are they?" onChange={(e) => setInc({ ...inc, checkIn48Note: e.target.value })} className="h-11 flex-1 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><button type="button" disabled={busy} onClick={() => act('incident', { incident: { checkIn48: true, checkIn48Note: inc.checkIn48Note || '' } }, 'Check-in recorded.')} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: SOFT }}>Record check-in</button></>}
-          {c.incident?.signedOffBy ? <p className="text-[14.5px]">Signed off by <b>{c.incident.signedOffBy}</b></p> : isManager && !c.locked && <button type="button" disabled={busy} onClick={() => act('incident', { incident: { signOff: true } }, 'Signed off.')} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Sign off the report</button>}
+          {c.incident?.signedOffBy ? <p className="text-[14.5px]">Signed off by <b>{c.incident.signedOffBy}</b></p> : isManager && !c.locked && <button type="button" disabled={busy} onClick={() => act('incident', { incident: { signOff: true } }, 'Signed off.')} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: 'hsl(var(--background))' }}>Sign off the report</button>}
         </div>
       </Card>}
 
       {!c.locked && <Card title="MESSAGE THE CLIENT">
         <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={2} placeholder={`e.g. So sorry about this, ${String(c.clientName || '').split(' ')[0]} — we’d love to make it right.`} className="w-full rounded-xl border p-3 text-[15px]" style={{ borderColor: LINE }} />
         <p className="text-[13px]" style={{ color: MUTED }}>We text it to them with a link to their case page, where they’ll see every reply.</p>
-        <button type="button" disabled={busy || !msg.trim()} onClick={async () => { if (await act('message', { text: msg }, 'Sent.')) setMsg(''); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Send reply</button>
+        <button type="button" disabled={busy || !msg.trim()} onClick={async () => { if (await act('message', { text: msg }, 'Sent.')) setMsg(''); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: 'hsl(var(--background))' }}>Send reply</button>
       </Card>}
 
       <Card title="EVERY STEP">
@@ -297,7 +297,7 @@ function CaseView({ c, tenantId, S, me, isManager, tz, services, solo }: { c: an
 
       {!c.locked && (isManager || !c.safety) && c.status !== 'done' && <button type="button" disabled={busy} onClick={() => { const why = window.prompt('Why close it without a check-back?'); if (why != null) act('close', { text: why }, 'Closed.'); }} className="text-[14px] underline" style={{ color: MUTED }}>Close without checking back</button>}
       {err && <p className="sticky bottom-4 rounded-xl p-3 text-[14px] font-semibold" style={{ background: PINK, color: RED }}>{err}</p>}
-      {ok && <p className="sticky bottom-4 rounded-xl p-3 text-[14px] font-semibold" style={{ background: '#e8f3ec', color: GREEN }}>{ok}</p>}
+      {ok && <p className="sticky bottom-4 rounded-xl p-3 text-[14px] font-semibold" style={{ background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: GREEN }}>{ok}</p>}
     </div>);
 }
 
@@ -322,7 +322,7 @@ function Conduct({ firestore, tenantId }: { firestore: any; tenantId: string }) 
   const OPTS: [string, string][] = [['note', 'Add a note to their profile'], ['deposit', 'Ask for a deposit to book'], ['manager_present', 'A manager on site for their visits'], ['not_with_provider', 'Don’t book them with this provider'], ['none', 'No action']];
   return (
     <div className="space-y-2 pt-4"><p className="text-[12px] font-bold tracking-wide" style={{ color: MUTED }}>CLIENT CONDUCT · {list.filter((x: any) => x.status === 'open').length} to look at</p>
-      {list.slice(0, 6).map((x: any) => <button key={x.id} type="button" onClick={() => { setOpen(open === x.id ? '' : x.id); setActs([]); setNote(''); }} className="block w-full rounded-[16px] border bg-white p-3 text-left" style={{ borderColor: x.status === 'open' ? '#e7b04f' : LINE }}>
+      {list.slice(0, 6).map((x: any) => <button key={x.id} type="button" onClick={() => { setOpen(open === x.id ? '' : x.id); setActs([]); setNote(''); }} className="block w-full rounded-[16px] border bg-card p-3 text-left" style={{ borderColor: x.status === 'open' ? '#e7b04f' : LINE }}>
         <p className="text-[14.5px] font-bold">{x.clientName} <span className="font-normal" style={{ color: MUTED }}>· {x.staffName?.split(' ')[0]}</span></p>
         <p className="truncate text-[13px]" style={{ color: MUTED }}>{x.status === 'open' ? (x.stopped ? 'Service stopped · ' : '') + (x.wordsEn || x.words || 'Voice note') : `Decided: ${(x.decision?.actions || []).join(', ').replace(/_/g, ' ')}`}</p></button>)}
       {r && <div className="space-y-2 rounded-[16px] p-3" style={{ background: SOFT }}>
@@ -331,7 +331,7 @@ function Conduct({ firestore, tenantId }: { firestore: any; tenantId: string }) 
         {r.status === 'open' ? <>
           {OPTS.map(([k, l]) => <label key={k} className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={acts.includes(k)} onChange={(e) => setActs(e.target.checked ? [...acts.filter((a) => (k === 'none' ? false : a !== 'none')), k] : acts.filter((a) => a !== k))} />{l}</label>)}
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Note (shows on their profile if you add one)" className="w-full rounded-xl border p-2.5 text-[14px]" style={{ borderColor: LINE }} />
-          <button type="button" disabled={busy || !acts.length} onClick={async () => { setBusy(true); await payPost('/api/cases', { tenantId, action: 'conduct_decide', id: r.id, actions: acts, note }); setBusy(false); setOpen(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold disabled:opacity-40" style={{ background: INK, color: '#fff' }}>Save decision</button>
+          <button type="button" disabled={busy || !acts.length} onClick={async () => { setBusy(true); await payPost('/api/cases', { tenantId, action: 'conduct_decide', id: r.id, actions: acts, note }); setBusy(false); setOpen(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold disabled:opacity-40" style={{ background: INK, color: 'hsl(var(--background))' }}>Save decision</button>
           <p className="text-[12px]" style={{ color: MUTED }}>The provider is told a manager looked at it. The client never sees this.</p></> : <p className="text-[13.5px]">Decided by {r.decision?.by}{r.decision?.note ? ` — “${r.decision.note}”` : ''}</p>}
       </div>}
     </div>);
@@ -352,16 +352,16 @@ function RefundGiving({ c, tenantId, busy, onCard }: { c: any; tenantId: string;
   const tl2 = (t: string) => { const h = Number(t.slice(0, 2)); const mm = t.slice(3, 5); return `${h % 12 || 12}${mm === '00' ? '' : `:${mm}`}${h < 12 ? 'am' : 'pm'}`; };
   const save = async () => { setSaving(true); setErr(''); const r = await payPost('/api/refund-payouts', { tenantId, action: 'create', caseId: c.id, mode, method: m, pickup: w, handle, accountName: name }); setSaving(false); if (r.ok) setDone(mode === 'client' ? (r.sent ? 'Texted them the choices.' : 'Saved — we couldn’t text them, so share the link from Refunds to give.') : 'Set up — follow it in Refunds to give.'); else setErr(r.error || 'That didn’t work.'); };
   if (done) return <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: '#eef8f1' }}>{done}</p>;
-  if (!(info.methods || []).length) return <p className="rounded-xl p-3 text-[14px]" style={{ background: '#fff7e6' }}>{info.kind === 'cash' ? 'They paid in cash.' : 'No card payment was found for this visit.'} Turn on a way to give cash refunds in Settings → Making it right.</p>;
+  if (!(info.methods || []).length) return <p className="rounded-xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)' }}>{info.kind === 'cash' ? 'They paid in cash.' : 'No card payment was found for this visit.'} Turn on a way to give cash refunds in Settings → Making it right.</p>;
   return <div className="space-y-3 rounded-2xl border p-4" style={{ borderColor: LINE }}>
     <p className="text-[14.5px]"><b>{info.kind === 'cash' ? 'They paid in cash' : 'No card payment found for this visit'}</b>, so {amt} can’t go back to a card.</p>
-    <div className="inline-flex rounded-full p-1" style={{ background: SOFT }}>{(['client', 'staff'] as const).map((x) => <button key={x} type="button" onClick={() => setMode(x)} className="h-10 rounded-full px-4 text-[14px]" style={mode === x ? { background: INK, color: '#fff' } : { color: MUTED }}>{x === 'client' ? `Let ${String(c.clientName || 'them').split(' ')[0]} choose` : 'I’ll pick'}</button>)}</div>
+    <div className="inline-flex rounded-full p-1" style={{ background: SOFT }}>{(['client', 'staff'] as const).map((x) => <button key={x} type="button" onClick={() => setMode(x)} className="h-10 rounded-full px-4 text-[14px]" style={mode === x ? { background: INK, color: 'hsl(var(--background))' } : { color: MUTED }}>{x === 'client' ? `Let ${String(c.clientName || 'them').split(' ')[0]} choose` : 'I’ll pick'}</button>)}</div>
     {mode === 'client' ? <p className="text-[13.5px]" style={{ color: MUTED }}>They’ll get a text with: {(info.methods || []).map((x: any) => x.label).join(', ')}.</p> : <>
-      <div className="flex flex-wrap gap-2">{info.methods.map((x: any) => <button key={x.id} type="button" onClick={() => { setM(x.id); setW(null); }} className="h-10 rounded-full border px-4 text-[14px]" style={m === x.id ? { background: INK, color: '#fff', borderColor: INK } : { borderColor: LINE }}>{x.label}</button>)}</div>
-      {m === 'pickup' && (wins === null ? <p className="text-[13.5px]" style={{ color: MUTED }}>Finding times…</p> : <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setW(null)} className="h-10 rounded-full border px-3.5 text-[13.5px]" style={!w ? { background: INK, color: '#fff', borderColor: INK } : { borderColor: LINE }}>Let them pick a time</button>{wins.slice(0, 10).map((x: any) => { const on = w && w.date === x.date && w.start === x.start; return <button key={x.date + x.start} type="button" onClick={() => setW(x)} className="h-10 rounded-full border px-3.5 text-[13.5px]" style={on ? { background: INK, color: '#fff', borderColor: INK } : { borderColor: LINE }}>{x.dayLabel} {tl2(x.start)}–{tl2(x.end)}</button>; })}</div>)}
+      <div className="flex flex-wrap gap-2">{info.methods.map((x: any) => <button key={x.id} type="button" onClick={() => { setM(x.id); setW(null); }} className="h-10 rounded-full border px-4 text-[14px]" style={m === x.id ? { background: INK, color: 'hsl(var(--background))', borderColor: INK } : { borderColor: LINE }}>{x.label}</button>)}</div>
+      {m === 'pickup' && (wins === null ? <p className="text-[13.5px]" style={{ color: MUTED }}>Finding times…</p> : <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setW(null)} className="h-10 rounded-full border px-3.5 text-[13.5px]" style={!w ? { background: INK, color: 'hsl(var(--background))', borderColor: INK } : { borderColor: LINE }}>Let them pick a time</button>{wins.slice(0, 10).map((x: any) => { const on = w && w.date === x.date && w.start === x.start; return <button key={x.date + x.start} type="button" onClick={() => setW(x)} className="h-10 rounded-full border px-3.5 text-[13.5px]" style={on ? { background: INK, color: 'hsl(var(--background))', borderColor: INK } : { borderColor: LINE }}>{x.dayLabel} {tl2(x.start)}–{tl2(x.end)}</button>; })}</div>)}
       {M?.ask && <div className="grid gap-2 sm:grid-cols-2"><input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder={M.placeholder || M.ask} aria-label={M.ask} className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name on the account" aria-label="Name on the account" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: LINE }} /></div>}</>}
     {err && <p className="text-[14px] font-semibold" style={{ color: RED }}>{err}</p>}
-    <button type="button" disabled={saving || (mode === 'staff' && (!m || (!!M?.ask && !handle)))} onClick={save} className={btn} style={{ background: INK, color: '#fff' }}>{saving ? 'Saving…' : mode === 'client' ? 'Text them the choices' : m === 'credit' ? `Add ${amt} as credit` : m === 'pickup' ? (w ? 'Book pickup and text them' : 'Text them to pick a time') : 'Save and text them'}</button>
+    <button type="button" disabled={saving || (mode === 'staff' && (!m || (!!M?.ask && !handle)))} onClick={save} className={btn} style={{ background: INK, color: 'hsl(var(--background))' }}>{saving ? 'Saving…' : mode === 'client' ? 'Text them the choices' : m === 'credit' ? `Add ${amt} as credit` : m === 'pickup' ? (w ? 'Book pickup and text them' : 'Text them to pick a time') : 'Save and text them'}</button>
   </div>;
 }
 
@@ -388,19 +388,19 @@ export default function CasesPage() {
 
   if (!allowed) return <div className="p-6"><AppHeader title="Making it right" /><p className="mt-6" style={{ color: MUTED }}>Cases are handled by the desk and managers.</p></div>;
   const Row = ({ x }: { x: any }) => { const clock = !x.firstReplyAt && !x.locked && x.replyDueAt ? left(x.replyDueAt) : null; return (
-    <button type="button" onClick={() => { setPick(x.id); setStarting(false); }} className="block w-full rounded-[18px] border bg-white p-3.5 text-left" style={{ borderColor: pick === x.id ? INK : LINE, boxShadow: pick === x.id ? `0 0 0 1px ${INK}` : undefined }}>
-      <div className="flex items-start justify-between gap-2"><p className="min-w-0 truncate text-[15.5px] font-bold">{x.clientName}</p>{x.safety ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: PINK, color: RED }}>{x.kind === 'incident' ? 'INCIDENT' : 'SAFETY'}</span> : x.kind === 'incident' ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: '#fff7e6' }}>INCIDENT</span> : x.pending ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: '#fff7e6' }}>NEEDS OK</span> : null}</div>
+    <button type="button" onClick={() => { setPick(x.id); setStarting(false); }} className="block w-full rounded-[18px] border bg-card p-3.5 text-left" style={{ borderColor: pick === x.id ? INK : LINE, boxShadow: pick === x.id ? `0 0 0 1px ${INK}` : undefined }}>
+      <div className="flex items-start justify-between gap-2"><p className="min-w-0 truncate text-[15.5px] font-bold">{x.clientName}</p>{x.safety ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: PINK, color: RED }}>{x.kind === 'incident' ? 'INCIDENT' : 'SAFETY'}</span> : x.kind === 'incident' ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)' }}>INCIDENT</span> : x.pending ? <span className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-bold" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)' }}>NEEDS OK</span> : null}</div>
       <p className="truncate text-[14px]">{x.reasonLabel}{x.visit?.providerName ? ` · ${x.visit.providerName.split(' ')[0]}` : ''}</p>
       <p className="mt-1 text-[12.5px]" style={{ color: clock?.late ? RED : MUTED }}>{x.locked ? `Closed · ${x.fix?.label || 'no fix'}` : clock ? clock.text : STAGES[Math.min(4, stageIndex(x.status))]}{' · '}{x.number}</p>
     </button>); };
 
   return (
-    <div className="flex min-h-screen flex-col bg-white" style={{ color: INK }}>
+    <div className="flex min-h-screen flex-col bg-card" style={{ color: INK }}>
       <AppHeader title="Making it right" />
       <main className="grid flex-1 md:grid-cols-[360px_1fr]">
-        <aside className="space-y-2.5 border-r p-4 md:p-6" style={{ borderColor: LINE, background: '#fafafa' }} aria-label="Cases">
+        <aside className="space-y-2.5 border-r p-4 md:p-6" style={{ borderColor: LINE, background: 'hsl(var(--secondary))' }} aria-label="Cases">
           <div className="flex items-center justify-between gap-2 pb-1"><h1 className="text-[22px] font-bold tracking-tight">{open.length ? `${open.length} open` : 'All caught up'}</h1>
-            <button type="button" onClick={() => { setStarting(true); setInboxId(''); setReviewId(''); setPick(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: '#fff' }}>Start a case</button></div>
+            <button type="button" onClick={() => { setStarting(true); setInboxId(''); setReviewId(''); setPick(''); }} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: INK, color: 'hsl(var(--background))' }}>Start a case</button></div>
           {isLoading && <p className="text-[14px]" style={{ color: MUTED }}>Loading…</p>}
           {!isLoading && !open.length && <p className="text-[14px]" style={{ color: MUTED }}>No open cases. When a client isn’t happy, start one here — or a provider can from the staff app.</p>}
           {open.map((x: any) => <Row key={x.id} x={x} />)}

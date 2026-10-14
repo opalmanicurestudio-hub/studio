@@ -21,7 +21,7 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
   const rb = rebookSettingsOf({ clientScreen: s }); const setRb = (patch: any) => save({ ...s, rebook: { ...rb, ...patch } });
   const pctBox = (v: number, on: (n: number) => void, label: string) => <span className="flex items-center gap-1">{label} <input type="number" inputMode="numeric" min={0} max={100} value={v || ''} placeholder="0" disabled={!canEdit} aria-label={label} onChange={(e) => on(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} className="h-10 w-16 rounded-xl border px-2 text-right" />% off services <span className="text-xs text-muted-foreground">(blank = just a greeting)</span></span>;
   return (
-    <div className="space-y-4 rounded-[2rem] border-2 bg-white p-6">
+    <div className="space-y-4 rounded-[2rem] border-2 bg-card p-6">
       <div><p className="text-lg font-semibold">Client screen</p>
         <p className="text-sm text-muted-foreground">An iPad at the desk facing the client: they see the ticket as you ring it up, choose a tip, approve card-on-file charges (and sign), and get their receipt. Pair it from the POS → Client screen.</p></div>
       <div className="space-y-2 text-sm"><p className="font-semibold">How it runs</p>
@@ -30,14 +30,14 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
           {check('offerKeepChange', 'Cash: show the total, then their change with “Keep it as a tip” / “My change, please”')}</div>}
       </div>
       <div className="space-y-3 text-sm"><p className="font-semibold">Moments</p>
-        <div className="space-y-2 rounded-2xl bg-slate-50 p-3">
+        <div className="space-y-2 rounded-2xl bg-muted/60 p-3">
           <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={m.birthday.on} disabled={!canEdit} onChange={(e) => setM({ birthday: { ...m.birthday, on: e.target.checked } })} /> 🎂 Birthday</label>
           {m.birthday.on && <><div className="flex flex-wrap gap-2">{([['day', 'On the day'], ['week', 'Their birthday week'], ['month', 'Their birthday month']] as const).map(([k, l]) =>
-            <button key={k} type="button" disabled={!canEdit} aria-pressed={m.birthday.window === k} onClick={() => setM({ birthday: { ...m.birthday, window: k } })} className={`rounded-full border px-3 py-1 ${m.birthday.window === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+            <button key={k} type="button" disabled={!canEdit} aria-pressed={m.birthday.window === k} onClick={() => setM({ birthday: { ...m.birthday, window: k } })} className={`rounded-full border px-3 py-1 ${m.birthday.window === k ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
             {pctBox(m.birthday.rewardPct, (n) => setM({ birthday: { ...m.birthday, rewardPct: n } }), 'Birthday treat')}<p className="text-xs text-muted-foreground">Once a year. Needs their birthday on their profile.</p></>}
         </div>
-        <div className="rounded-2xl bg-slate-50 p-3"><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={m.first.on} disabled={!canEdit} onChange={(e) => setM({ first: { on: e.target.checked } })} /> 👋 First visit — a warm welcome</label></div>
-        <div className="space-y-2 rounded-2xl bg-slate-50 p-3">
+        <div className="rounded-2xl bg-muted/60 p-3"><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={m.first.on} disabled={!canEdit} onChange={(e) => setM({ first: { on: e.target.checked } })} /> 👋 First visit — a warm welcome</label></div>
+        <div className="space-y-2 rounded-2xl bg-muted/60 p-3">
           <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={m.milestones.on} disabled={!canEdit} onChange={(e) => setM({ milestones: { ...m.milestones, on: e.target.checked } })} /> ✨ Visit milestones</label>
           {m.milestones.on && <><div className="flex flex-wrap items-center gap-2">On visits <input defaultValue={m.milestones.visits.join(', ')} disabled={!canEdit} aria-label="Milestone visits" onBlur={(e) => setM({ milestones: { ...m.milestones, visits: e.target.value.split(/[ ,]+/).map(Number).filter((n) => Number.isInteger(n) && n > 1) } })} className="h-10 w-48 rounded-xl border px-3" /></div>
             {pctBox(m.milestones.rewardPct, (n) => setM({ milestones: { ...m.milestones, rewardPct: n } }), 'Thank-you')}</>}
@@ -48,9 +48,9 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
         <div className="flex flex-wrap gap-2">{presets.map((v, i) => <input key={i} type="number" inputMode="numeric" min={0} max={100} value={v || ''} placeholder={i < 3 ? '' : 'optional'} disabled={!canEdit} aria-label={`Tip choice ${i + 1}`}
           onChange={(e) => { const next = [...presets]; next[i] = Math.max(0, Math.min(100, Number(e.target.value) || 0)); save({ ...s, tipPresets: next.filter((n) => n > 0) }); }} className="h-10 w-20 rounded-xl border px-3 text-right" />)}</div>
         <div className="flex flex-wrap gap-2 pt-1">{([['before_tax', 'Tip on the amount before tax'], ['after_tax', 'Tip on the total after tax']] as const).map(([k, l]) =>
-          <button key={k} type="button" disabled={!canEdit} aria-pressed={s.tipOn === k} onClick={() => save({ ...s, tipOn: k })} className={`rounded-full border px-4 py-1.5 ${s.tipOn === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+          <button key={k} type="button" disabled={!canEdit} aria-pressed={s.tipOn === k} onClick={() => save({ ...s, tipOn: k })} className={`rounded-full border px-4 py-1.5 ${s.tipOn === k ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
         <div className="flex flex-wrap items-center gap-2 pt-1">Ask for a tip on {([['services', 'services only'], ['services_retail', 'services and retail'], ['everything', 'everything']] as const).map(([k, l]) =>
-          <button key={k} type="button" disabled={!canEdit} aria-pressed={s.tipScope === k} onClick={() => save({ ...s, tipScope: k })} className={`rounded-full border px-3 py-1 ${s.tipScope === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+          <button key={k} type="button" disabled={!canEdit} aria-pressed={s.tipScope === k} onClick={() => save({ ...s, tipScope: k })} className={`rounded-full border px-3 py-1 ${s.tipScope === k ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
         <p className="text-xs text-muted-foreground">Never on fees, balances, deposits, memberships, packages or rent — a sale with only those doesn’t ask.</p>
         {check('allowCustomTip', 'Let them enter another amount')}
         {check('showNoTip', 'Show “No tip”')}
@@ -63,7 +63,7 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
           <label className="flex items-center gap-2"><input type="checkbox" checked={rb.otherProviders} disabled={!canEdit} onChange={(e) => setRb({ otherProviders: e.target.checked })} /> Offer other providers if theirs is booked up</label>
           <p className="font-semibold">Deposits (when the booking needs one)</p>
           <div className="flex flex-wrap gap-2">{([['hold', 'Saved card: hold until the visit'], ['charge', 'Saved card: charge now']] as const).map(([k, l]) =>
-            <button key={k} type="button" disabled={!canEdit} aria-pressed={rb.cardMode === k} onClick={() => setRb({ cardMode: k })} className={`rounded-full border px-3 py-1 ${rb.cardMode === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+            <button key={k} type="button" disabled={!canEdit} aria-pressed={rb.cardMode === k} onClick={() => setRb({ cardMode: k })} className={`rounded-full border px-3 py-1 ${rb.cardMode === k ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
           <label className="flex items-center gap-2"><input type="checkbox" checked={rb.payNow} disabled={!canEdit} onChange={(e) => setRb({ payNow: e.target.checked })} /> Pay the deposit now on their phone (QR code)</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={rb.payLater} disabled={!canEdit} onChange={(e) => setRb({ payLater: e.target.checked })} /> Pay later — send them a link (their time is held)</label>
           <div className="flex flex-wrap items-center gap-2">Pre-book reward <input type="number" min={0} max={50} value={rb.prebookPct || ''} placeholder="0" disabled={!canEdit} onChange={(e) => setRb({ prebookPct: Math.max(0, Math.min(50, Number(e.target.value) || 0)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Pre-book reward percent" />% off services at that visit <span className="text-xs text-muted-foreground">(0 = none; never combines with other discounts)</span></div>
@@ -94,7 +94,7 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
       </div>
       <div className="space-y-2 text-sm"><p className="font-semibold">Look and feel</p>
         <div className="flex flex-wrap gap-2">{([['lively', 'Lively'], ['calm', 'Calm'], ['off', 'No animation']] as const).map(([k, l]) =>
-          <button key={k} type="button" disabled={!canEdit} aria-pressed={s.motion === k} onClick={() => save({ ...s, motion: k })} className={`rounded-full border px-4 py-1.5 ${s.motion === k ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+          <button key={k} type="button" disabled={!canEdit} aria-pressed={s.motion === k} onClick={() => save({ ...s, motion: k })} className={`rounded-full border px-4 py-1.5 ${s.motion === k ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
         <p className="text-xs text-muted-foreground">A slow glow in your brand colour on the welcome screen, steps that glide in, a tick that draws itself when they pay. The iPad’s own “Reduce Motion” setting always wins.</p>
         {check('confetti', 'Confetti for celebrations', 'birthdays, milestones, and when they leave a tip')}
         <div className="flex flex-wrap items-center gap-2">Back to your logo <input type="number" inputMode="numeric" min={5} max={120} value={s.returnAfter} disabled={!canEdit} onChange={(e) => save({ ...s, returnAfter: Math.max(5, Math.min(120, Number(e.target.value) || 20)) })} className="h-10 w-20 rounded-xl border px-3 text-right" aria-label="Seconds before returning to the logo" /> seconds after a sale</div>

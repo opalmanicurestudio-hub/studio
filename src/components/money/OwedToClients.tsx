@@ -4,7 +4,7 @@
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#b45309';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', AMBER = '#b45309';
 const money = (c: number) => { const d = (Number(c) || 0) / 100; return `$${d.toLocaleString('en-US', { minimumFractionDigits: d % 1 ? 2 : 0, maximumFractionDigits: 2 })}`; };
 
 export function OwedToClients({ tenantId }: { tenantId?: string | null }) {
@@ -13,7 +13,7 @@ export function OwedToClients({ tenantId }: { tenantId?: string | null }) {
   if (!d?.ok || (d.totalCents <= 0 && !(d.creatorsCents > 0))) return null;
   const line = (label: string, v: number, sub?: string) => v > 0 ? <div className="flex items-baseline justify-between gap-3 py-1.5 text-[13.5px]" style={{ borderTop: `1px solid ${LINE}` }}><span>{label}{sub && <span className="block text-[12px]" style={{ color: MUTED }}>{sub}</span>}</span><span className="font-semibold">{money(v)}</span></div> : null;
   return (
-    <section className="mb-6 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE, color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }} aria-label="What you still owe clients">
+    <section className="mb-6 rounded-[18px] border bg-card p-4" style={{ borderColor: LINE, color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }} aria-label="What you still owe clients">
       <div className="flex flex-wrap items-end justify-between gap-2 pb-2"><div><p className="text-[12px] font-semibold" style={{ color: MUTED }}>What you still owe clients</p>
         <p className="text-[28px] font-light tracking-[-0.02em]">{money(d.totalCents)}</p></div>
         <p className="max-w-[360px] text-[12.5px]" style={{ color: MUTED }}>Credit and gift card balances clients can still spend. It isn’t income until it’s used.</p></div>

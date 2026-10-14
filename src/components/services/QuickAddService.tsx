@@ -40,7 +40,7 @@ export function QuickAddService({ open, category, categories, onClose, onCreate 
           </div>
           <p className="text-[13px] cf-muted">Timed by the provider, the studio’s deposit and cancellation rules, no products yet — all changeable afterwards.</p>
           <div className="flex flex-wrap gap-2 pt-1">
-            <button type="button" disabled={!ready} onClick={() => submit(false)} className="h-12 rounded-full px-6 text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>Create service</button>
+            <button type="button" disabled={!ready} onClick={() => submit(false)} className="h-12 rounded-full px-6 text-[15px] font-semibold disabled:opacity-40" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}>Create service</button>
             <button type="button" disabled={!ready} onClick={() => submit(true)} className="h-12 rounded-full px-5 text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--soft)' }}>Create and add details</button>
           </div>
         </div>

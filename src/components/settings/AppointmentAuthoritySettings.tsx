@@ -107,7 +107,7 @@ export function AppointmentAuthoritySettings({
 
   return (
     <>
-      <Card className="border-2 rounded-[2rem] bg-white">
+      <Card className="border-2 rounded-[2rem] bg-card">
         <CardContent className="p-5 space-y-4">
           <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
             <Users2 className="h-3 w-3" /> What a provider may decide
@@ -171,7 +171,7 @@ export function AppointmentAuthoritySettings({
                     onClick={() => write({ overdueAction: a.id }, `overdue-${a.id}`, 'Overdue handling')}
                     className={cn(
                       'rounded-xl border-2 px-3 py-2 text-left transition-colors disabled:opacity-40',
-                      active ? 'border-primary bg-primary/[0.05]' : 'border-border bg-white hover:bg-muted/30',
+                      active ? 'border-primary bg-primary/[0.05]' : 'border-border bg-card hover:bg-muted/30',
                     )}
                   >
                     <span className="block text-[12px] font-black tracking-tight text-foreground">{a.label}</span>
@@ -226,7 +226,7 @@ export function AppointmentAuthoritySettings({
                         onClick={() => write({ autoAcceptMinAuthority: fl.id }, `floor-${fl.id}`, 'Auto-accept floor')}
                         className={cn(
                           'rounded-xl border-2 px-3 py-2 text-left text-[12px] font-bold transition-colors disabled:opacity-40',
-                          active ? 'border-primary bg-primary/[0.05] text-foreground' : 'border-border bg-white text-muted-foreground hover:bg-muted/30',
+                          active ? 'border-primary bg-primary/[0.05] text-foreground' : 'border-border bg-card text-muted-foreground hover:bg-muted/30',
                         )}
                       >
                         {fl.label}
@@ -255,7 +255,7 @@ export function AppointmentAuthoritySettings({
                   )}
                   className={cn(
                     'rounded-2xl border-2 px-4 py-3 text-left transition-colors disabled:opacity-40',
-                    active ? 'border-primary bg-primary/[0.05]' : 'border-border bg-white hover:bg-muted/30',
+                    active ? 'border-primary bg-primary/[0.05]' : 'border-border bg-card hover:bg-muted/30',
                   )}
                 >
                   <span className="block text-[12px] font-black tracking-tight text-foreground">{c.label}</span>
@@ -267,7 +267,7 @@ export function AppointmentAuthoritySettings({
         </CardContent>
       </Card>
 
-      <Card className="border-2 rounded-[2rem] bg-white">
+      <Card className="border-2 rounded-[2rem] bg-card">
         <CardContent className="p-5 space-y-4">
           <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
             <ShieldCheck className="h-3 w-3" /> Reasons, and which they can settle themselves
@@ -286,7 +286,7 @@ export function AppointmentAuthoritySettings({
                   key={r.code}
                   className={cn(
                     'flex items-center gap-2 rounded-xl border-2 px-3 py-2',
-                    isHidden ? 'border-dashed border-border bg-muted/20 opacity-60' : 'border-border bg-white',
+                    isHidden ? 'border-dashed border-border bg-muted/20 opacity-60' : 'border-border bg-card',
                   )}
                 >
                   <span className="min-w-0 flex-1">
@@ -330,7 +330,7 @@ export function AppointmentAuthoritySettings({
               Whatever this trade actually says. New reasons come to a manager until you tick them above.
             </p>
             {custom.map(c => (
-              <div key={c.code} className="flex items-center gap-2 rounded-xl border-2 bg-white px-3 py-2">
+              <div key={c.code} className="flex items-center gap-2 rounded-xl border-2 bg-card px-3 py-2">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12px] font-bold text-foreground">{c.label}</span>
                   <span className="block truncate text-[10px] font-black uppercase tracking-widest text-muted-foreground">{c.code}</span>

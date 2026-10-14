@@ -140,7 +140,7 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
         <div className="flex items-center gap-4 px-1 pt-1">
           {intel.lifetimeVisits > 0 && (
             <div>
-              <p className="text-[17px] font-semibold tracking-tight text-slate-900 leading-none">
+              <p className="text-[17px] font-semibold tracking-tight text-foreground leading-none">
                 {intel.lifetimeVisits}
               </p>
               <p className="text-[10px] text-muted-foreground">
@@ -150,7 +150,7 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
           )}
           {intel.weeksSinceLastVisit !== null && (
             <div>
-              <p className="text-[17px] font-semibold tracking-tight text-slate-900 leading-none">
+              <p className="text-[17px] font-semibold tracking-tight text-foreground leading-none">
                 {intel.weeksSinceLastVisit}w
               </p>
               <p className="text-[10px] text-muted-foreground">
@@ -160,7 +160,7 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
           )}
           {intel.lastServiceName && (
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-slate-900 truncate">
+              <p className="text-xs font-semibold text-foreground truncate">
                 {intel.lastServiceName}
               </p>
               <p className="text-[10px] text-muted-foreground">

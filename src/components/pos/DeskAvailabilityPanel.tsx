@@ -133,7 +133,7 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
           <p className="text-[11px] font-bold text-muted-foreground mt-0.5">Tours, hourly and day rentals — bookable from here.</p>
         </div>
         <button onClick={() => load(date)} aria-label="Refresh availability"
-          className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 active:scale-95 transition-all">
+          className="shrink-0 w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground active:scale-95 transition-all">
           <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
         </button>
       </CardHeader>
@@ -146,7 +146,7 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
             return (
               <button key={d} onClick={() => { setDate(d); setForm(null); }}
                 className={cn('rounded-2xl py-2 text-center transition-all active:scale-95',
-                  on ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600')}>
+                  on ? 'bg-foreground text-background' : 'bg-muted text-foreground/80')}>
                 <span className="block text-[9px] font-black uppercase tracking-widest opacity-70">{l.dow}</span>
                 <span className="block text-sm font-black">{l.num}</span>
               </button>
@@ -155,22 +155,22 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
         </div>
 
         {loading && !booths ? (
-          <div className="flex items-center gap-2 py-6 text-slate-400">
+          <div className="flex items-center gap-2 py-6 text-muted-foreground">
             <Loader className="w-4 h-4 animate-spin" />
             <span className="text-[11px] font-black uppercase tracking-widest">Checking the floor…</span>
           </div>
         ) : (
           <>
             <div className="space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 Tour slots{tourSlots && tourSlots.length > 0 ? ` · ${tourMins} min` : ''}
               </p>
               {!tourSlots || tourSlots.length === 0 ? (
-                <p className="text-[11px] font-bold text-slate-500">No tour times open that day.</p>
+                <p className="text-[11px] font-bold text-muted-foreground">No tour times open that day.</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {tourSlots.map((t) => (
-                    <span key={t} className="px-3 py-2 rounded-xl border-2 border-slate-200 text-[11px] font-black text-slate-700">
+                    <span key={t} className="px-3 py-2 rounded-xl border-2 border-border text-[11px] font-black text-foreground/80">
                       {fmt12(t)}
                     </span>
                   ))}
@@ -179,9 +179,9 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
             </div>
 
             <div className="space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Spaces</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Spaces</p>
               {sellable.length === 0 ? (
-                <p className="text-[11px] font-bold text-slate-500">
+                <p className="text-[11px] font-bold text-muted-foreground">
                   Nothing rentable that day. Spaces appear here once day use is on and a rate is set.
                 </p>
               ) : sellable.map((b) => {
@@ -207,31 +207,31 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
                 return (
                   <div key={b.id} className="rounded-2xl border-2 p-3 space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="flex items-center gap-1.5 text-[12px] font-black text-slate-900 truncate">
-                        <Armchair className="w-3.5 h-3.5 text-slate-400 shrink-0" />{b.name}
+                      <span className="flex items-center gap-1.5 text-[12px] font-black text-foreground truncate">
+                        <Armchair className="w-3.5 h-3.5 text-muted-foreground shrink-0" />{b.name}
                       </span>
-                      <span className="text-[11px] font-bold text-slate-500 shrink-0">
+                      <span className="text-[11px] font-bold text-muted-foreground shrink-0">
                         {b.hourlyCents !== null ? `${money(b.hourlyCents)}/hr` : ''}
                         {b.hourlyCents !== null && b.dailyCents !== null ? ' · ' : ''}
                         {b.dailyCents !== null ? `${money(b.dailyCents)}/day` : ''}
                       </span>
                     </div>
 
-                    <div className="relative h-7 rounded-xl overflow-hidden border-2 border-slate-100 bg-emerald-50">
+                    <div className="relative h-7 rounded-xl overflow-hidden border-2 border-border bg-emerald-50">
                       {b.busy.map((x, i) => {
                         const s = Math.max(openM, toMin(x.start)); const e = Math.min(closeM, toMin(x.end));
                         if (e <= s) return null;
                         return (
                           <span key={i} title={`${x.who} · ${fmt12(x.start)}–${fmt12(x.end)}`}
                             className={cn('absolute top-0 bottom-0',
-                              x.kind === 'hold' ? 'bg-amber-200' : x.kind === 'lease' ? 'bg-slate-200' : 'bg-slate-300')}
+                              x.kind === 'hold' ? 'bg-amber-200' : x.kind === 'lease' ? 'bg-border' : 'bg-slate-300')}
                             style={{ left: `${((s - openM) / span) * 100}%`, width: `${((e - s) / span) * 100}%` }} />
                         );
                       })}
                     </div>
 
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-bold text-slate-400">
+                      <span className="text-[10px] font-bold text-muted-foreground">
                         {fmt12(b.openTime)}–{fmt12(b.closeTime)}
                         {b.busy.some((x) => x.kind === 'hold')
                           ? ` · hold expires in ${b.busy.find((x) => x.kind === 'hold')?.expiresInMin}m` : ''}
@@ -239,14 +239,14 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
                       <span className="flex gap-1.5 shrink-0">
                         {b.hourlyCents !== null && (
                           <button onClick={() => openBook(b, 'hourly')}
-                            className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                            className="px-3 py-1.5 rounded-lg bg-foreground text-background text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all">
                             Hourly
                           </button>
                         )}
                         {b.dailyCents !== null && (
                           <button onClick={() => openBook(b, 'daily')} disabled={b.dayTaken}
                             className={cn('px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all',
-                              b.dayTaken ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white active:scale-95')}>
+                              b.dayTaken ? 'bg-muted text-muted-foreground' : 'bg-foreground text-background active:scale-95')}>
                             {b.dayTaken ? 'Day taken' : 'Full day'}
                           </button>
                         )}
@@ -257,28 +257,28 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
               })}
             </div>
 
-            <div className="flex flex-wrap gap-3 text-[10px] font-bold text-slate-400">
+            <div className="flex flex-wrap gap-3 text-[10px] font-bold text-muted-foreground">
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-100" />free</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300" />booked</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-200" />unpaid hold</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-200" />resident renter</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-border" />resident renter</span>
             </div>
           </>
         )}
 
         {form && (
           <div className="rounded-2xl border-2 p-4 space-y-3">
-            <p className="text-[12px] font-black text-slate-900">
+            <p className="text-[12px] font-black text-foreground">
               {form.boothName} · {form.bookingType === 'hourly' ? 'hourly' : 'full day'}
             </p>
             {form.bookingType === 'hourly' && (
               <div className="flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                 <label htmlFor="dk-start" className="sr-only">Start time</label>
                 <input id="dk-start" type="time" value={form.startTime}
                   onChange={(e) => setForm({ ...form, startTime: e.target.value })}
                   className="px-2 py-2 rounded-xl border-2 text-sm font-bold" />
-                <span className="text-[11px] font-bold text-slate-400">to</span>
+                <span className="text-[11px] font-bold text-muted-foreground">to</span>
                 <label htmlFor="dk-end" className="sr-only">End time</label>
                 <input id="dk-end" type="time" value={form.endTime}
                   onChange={(e) => setForm({ ...form, endTime: e.target.value })}
@@ -297,7 +297,7 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
             </div>
             <button onClick={() => setForm({ ...form, paid: form.paid === false })}
               className="w-full flex items-center justify-between gap-3 rounded-xl border-2 p-3 text-left">
-              <span className="text-[12px] font-black text-slate-900">
+              <span className="text-[12px] font-black text-foreground">
                 {form.paid === false ? 'Add to the ticket' : 'Paid now'}
               </span>
               <span className={cn('rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
@@ -313,15 +313,15 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
             )}
             <div className="flex gap-2">
               <button onClick={submit} disabled={busySaving}
-                className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                className="flex-1 py-3 rounded-2xl bg-foreground text-background text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
                 {busySaving ? 'Booking…' : 'Book it'}
               </button>
               <button onClick={() => { setForm(null); setErr(''); }}
-                className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                className="px-5 py-3 rounded-2xl bg-muted text-foreground/80 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
                 Cancel
               </button>
             </div>
-            <p className="text-[10px] font-bold text-slate-400 flex items-start gap-1.5">
+            <p className="text-[10px] font-bold text-muted-foreground flex items-start gap-1.5">
               <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" />
               Checked against live bookings and resident leases when you tap Book it, not when this loaded.
             </p>

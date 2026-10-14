@@ -46,12 +46,12 @@ export function IdleSignOut() {
   if (left === null) return null;
   return (
     <div role="alertdialog" aria-modal="true" aria-labelledby="idle-title" className="fixed inset-0 z-[100] flex items-end justify-center p-0 sm:items-center sm:p-4" style={{ background: 'rgba(28,25,23,.45)' }}>
-      <div className="w-full max-w-sm space-y-3 rounded-t-[28px] p-5 sm:rounded-[26px]" style={{ background: 'var(--card, #fff)', color: 'var(--ink, #1c1917)' }}>
+      <div className="w-full max-w-sm space-y-3 rounded-t-[28px] p-5 sm:rounded-[26px]" style={{ background: 'hsl(var(--card))', color: 'hsl(var(--foreground))' }}>
         <h2 id="idle-title" className="text-[20px] font-light">Still there?</h2>
-        <p className="text-[14px]" style={{ color: 'var(--muted, #6b635c)' }}>To keep client information private, you’ll be signed out in {left} second{left === 1 ? '' : 's'}.</p>
+        <p className="text-[14px]" style={{ color: 'hsl(var(--muted-foreground))' }}>To keep client information private, you’ll be signed out in {left} second{left === 1 ? '' : 's'}.</p>
         <div className="flex flex-wrap gap-2">
-          <button type="button" autoFocus onClick={stay} className="h-10 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--ink, #1c1917)', color: '#fff' }}>I’m still here</button>
-          <button type="button" onClick={() => void doSignOut()} className="h-10 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>Sign out now</button>
+          <button type="button" autoFocus onClick={stay} className="h-10 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' }}>I’m still here</button>
+          <button type="button" onClick={() => void doSignOut()} className="h-10 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>Sign out now</button>
         </div>
       </div>
     </div>);

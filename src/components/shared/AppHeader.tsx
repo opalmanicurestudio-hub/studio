@@ -63,7 +63,7 @@ export function AppHeader({ title }: { title?: string }) {
   const initials = getInitials(displayName);
 
   return (
-    <header className="sticky top-3 z-30 mx-3 mt-3 flex h-14 items-center justify-between gap-3 rounded-[22px] bg-white/95 px-3 shadow-[0_1px_2px_rgba(28,25,23,.05),0_10px_32px_rgba(28,25,23,.07)] backdrop-blur-xl md:h-[60px] md:px-4 print:hidden dark:bg-[#211d1a]/95">
+    <header className="sticky top-3 z-30 mx-3 mt-3 flex h-14 items-center justify-between gap-3 rounded-[22px] bg-card/95 px-3 shadow-[0_1px_2px_rgba(28,25,23,.05),0_10px_32px_rgba(28,25,23,.07)] backdrop-blur-xl md:h-[60px] md:px-4 print:hidden">
       <div className="flex min-w-0 items-center gap-2 md:w-[220px]">
         <SidebarTrigger className="hover:bg-primary/10 transition-colors" />
         {title && (
@@ -89,8 +89,8 @@ export function AppHeader({ title }: { title?: string }) {
                       <span className="sr-only">Toggle notifications</span>
                   </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80 md:w-96 rounded-2xl shadow-lg border border-[#e7e2dc] p-0 overflow-hidden bg-[#faf8f5] dark:border-[#342e29] dark:bg-[#171412]">
-                  <DropdownMenuLabel className="flex justify-between items-center px-5 py-4 border-b border-[#e7e2dc] dark:border-[#342e29]">
+              <DropdownMenuContent align="end" className="w-80 md:w-96 rounded-2xl shadow-lg border border-border p-0 overflow-hidden bg-secondary">
+                  <DropdownMenuLabel className="flex justify-between items-center px-5 py-4 border-b border-border">
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-primary" />
                         <span className="text-[15px] font-semibold">Notifications</span>
@@ -169,7 +169,7 @@ export function AppHeader({ title }: { title?: string }) {
                     </Avatar>
                 </div>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60 rounded-2xl shadow-lg border border-[#e7e2dc] p-1.5 overflow-hidden bg-[#faf8f5] dark:border-[#342e29] dark:bg-[#171412]">
+            <DropdownMenuContent align="end" className="w-60 rounded-2xl shadow-lg border border-border p-1.5 overflow-hidden bg-secondary">
               <DropdownMenuLabel className="px-3 py-2 text-[12px] font-normal text-muted-foreground">Signed in as {displayName || 'Admin'}</DropdownMenuLabel>
               {role === 'owner' && (
                 <div className="space-y-1">

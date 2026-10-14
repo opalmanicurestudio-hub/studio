@@ -130,7 +130,7 @@ export function CoveragePlanSheet({
                           'rounded-lg border-2 px-2.5 py-1 text-[11px] font-black tracking-tight transition-colors',
                           st.pick === c.id && st.outcome === 'reassign'
                             ? 'border-primary bg-primary/[0.06] text-foreground'
-                            : 'border-border bg-white text-muted-foreground',
+                            : 'border-border bg-card text-muted-foreground',
                         )}
                       >
                         {c.name}

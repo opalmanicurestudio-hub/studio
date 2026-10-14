@@ -88,7 +88,7 @@ export default function ServiceReportPage() {
 
     if (isLoading) {
         return (
-            <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+            <div className="flex min-h-screen w-full flex-col bg-background">
                 <AppHeader title="Yield Analysis" />
                 <main className="flex-1 p-10 flex flex-col items-center justify-center gap-4">
                     <Loader className="w-10 h-10 animate-spin text-primary" />
@@ -99,20 +99,20 @@ export default function ServiceReportPage() {
     }
 
     return (
-        <div className="flex min-h-screen w-full flex-col bg-slate-50/50 print:bg-white overflow-x-hidden">
+        <div className="flex min-h-screen w-full flex-col bg-background print:bg-card overflow-x-hidden">
             <AppHeader title="Yield Analysis" />
             <main className="flex-1 p-4 md:p-10 space-y-10 w-full max-w-7xl mx-auto min-w-0">
                 
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 print:hidden">
                     <div className="space-y-1 text-left">
-                        <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Yield Report</h1>
+                        <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Yield Report</h1>
                         <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Treatment velocity & margin audit</p>
                     </div>
                     <div className="flex items-center gap-3 w-full md:w-auto">
-                        <Button variant="outline" size="sm" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm">
+                        <Button variant="outline" size="sm" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-card/50 backdrop-blur-sm shadow-sm">
                             <Link href="/services"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link>
                         </Button>
-                        <Button variant="outline" onClick={handleExport} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
+                        <Button variant="outline" onClick={handleExport} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-card/50 backdrop-blur-sm">
                             <Download className="mr-2 h-4 w-4" /> Export
                         </Button>
                         <Button onClick={handlePrint} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
@@ -141,49 +141,49 @@ export default function ServiceReportPage() {
                             </CardHeader>
                             <CardContent className="p-6 pt-0 text-left">
                                 <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono">${kpiData.totalRevenue.toFixed(0)}</p>
-                                <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mt-1">Total Gross Revenue</p>
+                                <p className="text-[9px] font-bold text-foreground/80 uppercase tracking-widest mt-1">Total Gross Revenue</p>
                             </CardContent>
                         </Card>
 
-                        <Card className="border-2 shadow-sm rounded-[2.5rem] bg-white overflow-hidden">
+                        <Card className="border-2 shadow-sm rounded-[2.5rem] bg-card overflow-hidden">
                             <CardHeader className="p-6 pb-2">
                                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
                                     <Target className="w-3 h-3" /> Alpha Profit
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="p-6 pt-0 text-left">
-                                <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter uppercase truncate leading-none mb-1">{kpiData.mostProfitableService}</p>
+                                <p className="text-xl md:text-2xl font-black text-foreground tracking-tighter uppercase truncate leading-none mb-1">{kpiData.mostProfitableService}</p>
                                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Highest Unit Margin</p>
                             </CardContent>
                         </Card>
 
-                        <Card className="border-2 shadow-sm rounded-[2.5rem] bg-white overflow-hidden">
+                        <Card className="border-2 shadow-sm rounded-[2.5rem] bg-card overflow-hidden">
                             <CardHeader className="p-6 pb-2">
                                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
                                     <Star className="w-3 h-3" /> Most Booked
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="p-6 pt-0 text-left">
-                                <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter uppercase truncate leading-none mb-1">{kpiData.mostBookedService}</p>
+                                <p className="text-xl md:text-2xl font-black text-foreground tracking-tighter uppercase truncate leading-none mb-1">{kpiData.mostBookedService}</p>
                                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Selection Dominance</p>
                             </CardContent>
                         </Card>
 
-                        <Card className="border-2 shadow-sm rounded-[2.5rem] bg-white overflow-hidden">
+                        <Card className="border-2 shadow-sm rounded-[2.5rem] bg-card overflow-hidden">
                             <CardHeader className="p-6 pb-2">
                                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
                                     <BarChart className="w-3 h-3" /> Average Margin
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="p-6 pt-0 text-left">
-                                <p className="text-3xl md:text-4xl font-black text-slate-900 tracking-tighter font-mono">{kpiData.avgMargin.toFixed(0)}%</p>
+                                <p className="text-3xl md:text-4xl font-black text-foreground tracking-tighter font-mono">{kpiData.avgMargin.toFixed(0)}%</p>
                                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Across all catalog tiers</p>
                             </CardContent>
                         </Card>
                     </div>
 
                     {/* Performance Ledger */}
-                    <Card className="border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
+                    <Card className="border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-card">
                         <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-row items-center justify-between">
                             <div className="space-y-1">
                                 <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Performance Ledger</CardTitle>
@@ -198,12 +198,12 @@ export default function ServiceReportPage() {
                             <Table>
                                 <TableHeader className="bg-muted/10 border-b-2">
                                     <TableRow>
-                                        <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-slate-900">Treatment & Category</TableHead>
-                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Base Price</TableHead>
-                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Unit Cost</TableHead>
-                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Net Profit</TableHead>
-                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Margin</TableHead>
-                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-slate-900">Volume</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-foreground">Treatment & Category</TableHead>
+                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-foreground">Base Price</TableHead>
+                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-foreground">Unit Cost</TableHead>
+                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-foreground">Net Profit</TableHead>
+                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-foreground">Margin</TableHead>
+                                        <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-foreground">Volume</TableHead>
                                         <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-primary pr-10">Gross Yield</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -211,10 +211,10 @@ export default function ServiceReportPage() {
                                     {servicePerformance.map(service => (
                                         <TableRow key={service.id} className="group hover:bg-primary/[0.02] transition-colors border-b">
                                             <TableCell className="p-6">
-                                                <p className="font-black uppercase tracking-tight text-xs md:text-sm text-slate-900">{service.name}</p>
+                                                <p className="font-black uppercase tracking-tight text-xs md:text-sm text-foreground">{service.name}</p>
                                                 <Badge variant="outline" className="h-5 px-2 rounded-full font-black text-[8px] uppercase tracking-widest border-2 mt-1.5">{service.category || 'Standard'}</Badge>
                                             </TableCell>
-                                            <TableCell className="text-right font-mono font-bold text-slate-600">${service.price.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right font-mono font-bold text-foreground/80">${service.price.toFixed(2)}</TableCell>
                                             <TableCell className="text-right font-mono font-bold text-destructive/60">${service.cost.toFixed(2)}</TableCell>
                                             <TableCell className={cn("text-right font-mono font-black text-sm", service.profit >= 0 ? "text-primary" : "text-destructive")}>
                                                 {service.profit >= 0 ? '+' : ''}${service.profit.toFixed(2)}
@@ -224,7 +224,7 @@ export default function ServiceReportPage() {
                                                     {service.margin.toFixed(0)}%
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="text-right font-black font-mono text-slate-900">{service.totalBookings}</TableCell>
+                                            <TableCell className="text-right font-black font-mono text-foreground">{service.totalBookings}</TableCell>
                                             <TableCell className="text-right pr-10">
                                                 <span className="font-black font-mono text-base md:text-xl tracking-tighter text-primary">${service.totalRevenue.toFixed(2)}</span>
                                             </TableCell>

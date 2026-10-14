@@ -105,7 +105,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -160,7 +160,7 @@ const YieldEngineCard = ({
             <div className="flex justify-between items-baseline">
                 <div className="flex flex-col">
                     <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Proposal Value</span>
-                    <span className="text-3xl font-black tracking-tighter font-mono text-slate-900">${totalQuotePrice.toFixed(2)}</span>
+                    <span className="text-3xl font-black tracking-tighter font-mono text-foreground">${totalQuotePrice.toFixed(2)}</span>
                 </div>
                 <div className="text-right flex flex-col">
                     <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Net Yield</span>
@@ -170,7 +170,7 @@ const YieldEngineCard = ({
                 </div>
             </div>
             <div className="pt-4 border-t border-primary/10 flex justify-between items-center">
-                <span className="text-[10px] font-black uppercase text-slate-600">Margin Precision</span>
+                <span className="text-[10px] font-black uppercase text-foreground/80">Margin Precision</span>
                 <Badge className={cn("text-white border-none font-black text-xs font-mono", netProfit >= 0 ? "bg-primary" : "bg-destructive")}>
                     {profitMargin.toFixed(1)}%
                 </Badge>
@@ -183,21 +183,21 @@ const YieldEngineCard = ({
                 <div className="p-4 rounded-2xl bg-muted/20 border-2 flex justify-between items-center">
                     <div className="space-y-0.5">
                         <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Services Overhead</p>
-                        <p className="text-sm font-black font-mono text-slate-900">${servicesCost.toFixed(2)}</p>
+                        <p className="text-sm font-black font-mono text-foreground">${servicesCost.toFixed(2)}</p>
                     </div>
                     <Target className="w-4 h-4 text-muted-foreground opacity-20" />
                 </div>
                 <div className="p-4 rounded-2xl bg-muted/20 border-2 flex justify-between items-center">
                     <div className="space-y-0.5">
                         <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Logistics Allocation</p>
-                        <p className="text-sm font-black font-mono text-slate-900">${travelAndExpenses.toFixed(2)}</p>
+                        <p className="text-sm font-black font-mono text-foreground">${travelAndExpenses.toFixed(2)}</p>
                     </div>
                     <Car className="w-4 h-4 text-muted-foreground opacity-20" />
                 </div>
                 <div className="p-4 rounded-2xl bg-muted/20 border-2 flex justify-between items-center">
                     <div className="space-y-0.5">
                         <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Staff Labor Cost</p>
-                        <p className="text-sm font-black font-mono text-slate-900">${totalStaffPayout.toFixed(2)}</p>
+                        <p className="text-sm font-black font-mono text-foreground">${totalStaffPayout.toFixed(2)}</p>
                     </div>
                     <Users className="w-4 h-4 text-muted-foreground opacity-20" />
                 </div>
@@ -428,15 +428,15 @@ function QuoteGeneratorPageInner() {
 
     // ─── Prefill loading overlay ───────────────────────────────────────────────
     if (prefilling) return (
-        <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+        <div className="flex min-h-screen w-full flex-col bg-background">
             <AppHeader title="New Proposal" />
             <div className="flex flex-1 items-center justify-center flex-col gap-6">
-                <div className="p-8 rounded-[3rem] border-4 bg-white shadow-2xl shadow-primary/10 flex flex-col items-center gap-6 text-center max-w-sm w-full mx-4">
+                <div className="p-8 rounded-[3rem] border-4 bg-card shadow-2xl shadow-primary/10 flex flex-col items-center gap-6 text-center max-w-sm w-full mx-4">
                     <div className="p-5 rounded-[2rem] bg-primary/10 border-2 border-primary/20">
                         <Sparkles className="w-10 h-10 text-primary animate-pulse" />
                     </div>
                     <div className="space-y-2">
-                        <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Pre-filling Quote</h2>
+                        <h2 className="text-2xl font-black uppercase tracking-tighter text-foreground">Pre-filling Quote</h2>
                         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                             Loading inquiry details, finding client, mapping services...
                         </p>
@@ -448,17 +448,17 @@ function QuoteGeneratorPageInner() {
     );
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="New Proposal" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="space-y-10">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-1 text-left">
-                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Draft Protocol</h1>
+                <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Draft Protocol</h1>
                 <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Strategic project configuration</p>
             </div>
             <div className="flex items-center gap-3 w-full md:w-auto">
-                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm">
+                <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-card/50 backdrop-blur-sm">
                     <Link href="/quotes"><ArrowLeft className="mr-2 h-4 w-4" />Return</Link>
                 </Button>
                 <Button onClick={handleSaveQuote} className="flex-1 md:flex-none h-14 px-10 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
@@ -473,7 +473,7 @@ function QuoteGeneratorPageInner() {
 
                 {/* ── 1. Engagement Profile ── */}
                 <AccordionItem value="event-details" className="border-none">
-                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
                             <SectionHeader icon={Landmark} title="Engagement Profile" step={1} />
@@ -550,7 +550,7 @@ function QuoteGeneratorPageInner() {
                 
                 {/* ── 2. Protocol Manifest ── */}
                 <AccordionItem value="services-products" className="border-none">
-                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
                             <SectionHeader icon={ShoppingCart} title="Protocol Manifest" step={2} />
@@ -564,7 +564,7 @@ function QuoteGeneratorPageInner() {
                                         {lineItems.map(item => (
                                             <div key={item.id} className="flex justify-between items-center p-5 bg-muted/20 rounded-[1.5rem] border-2 border-transparent hover:border-primary/10 transition-all group">
                                                 <div className="min-w-0 flex-1">
-                                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{item.name}</p>
+                                                    <p className="font-black text-sm uppercase tracking-tight text-foreground truncate">{item.name}</p>
                                                     <p className="text-[10px] font-black text-primary uppercase tracking-widest opacity-60 mt-0.5">${item.price.toFixed(2)} unit value</p>
                                                 </div>
                                                 <div className="flex items-center gap-4">
@@ -604,7 +604,7 @@ function QuoteGeneratorPageInner() {
 
                 {/* ── 3. Logistics & Deployment ── */}
                 <AccordionItem value="travel-expenses" className="border-none">
-                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
                             <SectionHeader icon={Truck} title="Logistics & Deployment" step={3} />
@@ -619,7 +619,7 @@ function QuoteGeneratorPageInner() {
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Strategic Round Trip (Miles)</Label>
                                             <div className="relative">
                                                 <Car className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                                <Input type="number" value={roundTripDistance || ''} onChange={e => setRoundTripDistance(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-white" />
+                                                <Input type="number" value={roundTripDistance || ''} onChange={e => setRoundTripDistance(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-card" />
                                             </div>
                                         </div>
                                         <Button onClick={handleCalculateTravel} disabled={isCalculatingTravel} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg w-full sm:w-auto">
@@ -632,12 +632,12 @@ function QuoteGeneratorPageInner() {
                                             <Label htmlFor="cost-per-mile" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Landed Rate / Mile</Label>
                                             <div className="relative">
                                                 <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
-                                                <Input id="cost-per-mile" type="number" value={costPerMile} onChange={e => setCostPerMile(Number(e.target.value))} className="h-12 pl-10 rounded-xl border-2 font-black font-mono bg-white" />
+                                                <Input id="cost-per-mile" type="number" value={costPerMile} onChange={e => setCostPerMile(Number(e.target.value))} className="h-12 pl-10 rounded-xl border-2 font-black font-mono bg-card" />
                                             </div>
                                         </div>
-                                        <div className="p-4 rounded-xl bg-white border flex justify-between items-center shadow-sm">
+                                        <div className="p-4 rounded-xl bg-card border flex justify-between items-center shadow-sm">
                                             <span className="text-[9px] font-black uppercase text-muted-foreground">Est. Mileage Cost</span>
-                                            <span className="text-lg font-black font-mono text-slate-900">${(roundTripDistance * costPerMile).toFixed(2)}</span>
+                                            <span className="text-lg font-black font-mono text-foreground">${(roundTripDistance * costPerMile).toFixed(2)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -680,7 +680,7 @@ function QuoteGeneratorPageInner() {
 
                 {/* ── 4. Team & Labor Matrix ── */}
                 <AccordionItem value="team-labor" className="border-none">
-                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
                             <SectionHeader icon={Users} title="Team & Labor Matrix" step={4} />
@@ -708,14 +708,14 @@ function QuoteGeneratorPageInner() {
                                         {staffPayouts.map(payout => {
                                             const member = staff.find(s => s.id === payout.staffId);
                                             return (
-                                                <div key={payout.staffId} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group gap-4">
+                                                <div key={payout.staffId} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-card shadow-sm group gap-4">
                                                     <div className="flex items-center gap-3 min-w-0 flex-1">
                                                         <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
                                                             <AvatarImage src={member?.avatarUrl} className="object-cover" />
                                                             <AvatarFallback className="font-black text-[10px] bg-primary/10 text-primary">{(payout.name || 'S')[0]}</AvatarFallback>
                                                         </Avatar>
                                                         <div className="min-w-0">
-                                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-none mb-1">{payout.name}</p>
+                                                            <p className="font-black text-sm uppercase tracking-tight text-foreground truncate leading-none mb-1">{payout.name}</p>
                                                             <Badge variant="outline" className="h-4 px-1.5 text-[7px] font-black uppercase tracking-widest border-none bg-muted/50 text-muted-foreground">
                                                                 {member?.payStructure === 'hourly' ? `Hourly: $${member.hourlyRate}/hr` : `Commission: ${member?.commissionRate}%`}
                                                             </Badge>
@@ -767,7 +767,7 @@ function QuoteGeneratorPageInner() {
 
                 {/* ── 5. Legal & Compliance ── */}
                 <AccordionItem value="legal-compliance" className="border-none">
-                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
                             <SectionHeader icon={FileSignature} title="Legal & Compliance" step={5} />
@@ -787,8 +787,8 @@ function QuoteGeneratorPageInner() {
                                 {assignedForms.length > 0 ? (
                                     <div className="grid grid-cols-1 gap-2">
                                         {assignedForms.map(form => (
-                                            <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
-                                                <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
+                                            <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-card shadow-sm group">
+                                                <span className="text-[10px] font-black uppercase tracking-tight text-foreground truncate">{form.title}</span>
                                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setRequiredFormIds(requiredFormIds.filter(id => id !== form.id))}><Trash2 className="w-4 h-4" /></Button>
                                             </div>
                                         ))}
@@ -807,7 +807,7 @@ function QuoteGeneratorPageInner() {
                 
                 {/* ── 6. Governance & Terms ── */}
                 <AccordionItem value="financial-logic" className="border-none">
-                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                  <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                         <AccordionTrigger className="hover:no-underline">
                             <SectionHeader icon={Shield} title="Governance & Terms" step={6} />
@@ -879,7 +879,7 @@ function QuoteGeneratorPageInner() {
           </div>
           
           <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-4 mt-10 pb-20">
-              <Button variant="ghost" asChild className="w-full sm:w-auto h-14 px-8 font-black uppercase text-[10px] tracking-widest text-slate-400"><Link href="/quotes">Abort Proposal</Link></Button>
+              <Button variant="ghost" asChild className="w-full sm:w-auto h-14 px-8 font-black uppercase text-[10px] tracking-widest text-muted-foreground"><Link href="/quotes">Abort Proposal</Link></Button>
               <Button className="w-full sm:w-auto h-16 px-12 rounded-[2rem] shadow-2xl shadow-primary/30 font-black uppercase tracking-widest text-sm group" onClick={handleSaveQuote}>
                 Commit Record <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" />
               </Button>
@@ -904,7 +904,7 @@ function QuoteGeneratorPageInner() {
 export default function QuoteGeneratorPage() {
     return (
         <Suspense fallback={
-            <div className="flex h-screen w-full items-center justify-center bg-slate-50/50 gap-4">
+            <div className="flex h-screen w-full items-center justify-center bg-muted/50 gap-4">
                 <Loader className="h-8 w-8 animate-spin text-primary" />
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading...</p>
             </div>

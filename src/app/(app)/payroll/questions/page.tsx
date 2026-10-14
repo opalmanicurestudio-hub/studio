@@ -10,7 +10,7 @@ import { useTenant } from '@/context/TenantContext';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { money, dshort, payPost } from '@/components/pay/pay-client';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))';
 const ago = (iso: string) => { const m = Math.max(0, (Date.now() - Date.parse(iso)) / 60000); return m < 60 ? `${Math.round(m)} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} day${Math.round(m / 1440) === 1 ? '' : 's'}`; };
 
 function Records({ firestore, tenantId, q }: { firestore: any; tenantId: string; q: any }) {
@@ -34,8 +34,8 @@ function Records({ firestore, tenantId, q }: { firestore: any; tenantId: string;
       </div>}
       <div className="space-y-1.5 rounded-[18px] border p-3.5" style={{ borderColor: LINE }}>
         <p className="text-[12px] font-bold" style={{ color: MUTED }}>PAYMENTS ON IT</p>
-        {(rec.txns || []).length === 0 ? <p className="text-[14px]" style={{ color: '#b42318' }}>Nothing recorded — it may never have been checked out.</p> :
-          (rec.txns || []).map((t: any) => <p key={t.id} className="flex justify-between gap-2 text-[14px]"><span className="min-w-0 truncate">{t.category || t.description} {t.staffId && t.staffId !== q.staffId ? <span style={{ color: '#b42318' }}>· on someone else</span> : ''}</span><span className="font-bold">{money(typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100)}</span></p>)}
+        {(rec.txns || []).length === 0 ? <p className="text-[14px]" style={{ color: 'var(--bad-ink)' }}>Nothing recorded — it may never have been checked out.</p> :
+          (rec.txns || []).map((t: any) => <p key={t.id} className="flex justify-between gap-2 text-[14px]"><span className="min-w-0 truncate">{t.category || t.description} {t.staffId && t.staffId !== q.staffId ? <span style={{ color: 'var(--bad-ink)' }}>· on someone else</span> : ''}</span><span className="font-bold">{money(typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100)}</span></p>)}
       </div>
     </div>);
 }
@@ -54,14 +54,14 @@ export default function PayQuestionsPage() {
 
   if (!allowed) return <div className="p-6"><AppHeader title="Pay questions" /><p className="mt-6" style={{ color: MUTED }}>Only managers can see pay questions.</p></div>;
   return (
-    <div className="flex min-h-screen flex-col bg-white" style={{ color: INK }}>
+    <div className="flex min-h-screen flex-col bg-card" style={{ color: INK }}>
       <AppHeader title="Pay questions" />
       <main className="grid flex-1 md:grid-cols-[380px_1fr]">
-        <aside className="space-y-2.5 border-r p-4 md:p-6" style={{ borderColor: LINE, background: '#fafafa' }} aria-label="Questions">
-          <div className="flex items-center justify-between"><p className="text-[18px] font-extrabold">Pay questions</p>{openCount > 0 && <span className="rounded-full px-2.5 py-1 text-[12px] font-bold" style={{ background: '#fde8e8', color: '#b42318' }}>{openCount} open</span>}</div>
+        <aside className="space-y-2.5 border-r p-4 md:p-6" style={{ borderColor: LINE, background: 'hsl(var(--secondary))' }} aria-label="Questions">
+          <div className="flex items-center justify-between"><p className="text-[18px] font-extrabold">Pay questions</p>{openCount > 0 && <span className="rounded-full px-2.5 py-1 text-[12px] font-bold" style={{ background: '#fde8e8', color: 'var(--bad-ink)' }}>{openCount} open</span>}</div>
           {list.length === 0 && <p className="text-[14px]" style={{ color: MUTED }}>No pay questions. When someone taps “Something’s off” on a stub it shows up here.</p>}
           {list.map((x: any) => { const live = ['open', 'checking'].includes(x.status); const old = live && Date.now() - Date.parse(x.createdAt) > 2 * 86400000; return (
-            <button key={x.id} type="button" onClick={() => setPick(x.id)} aria-current={pick === x.id ? 'true' : undefined} className="block w-full space-y-1 rounded-[16px] border bg-white p-3 text-left" style={{ borderColor: pick === x.id ? INK : LINE, borderWidth: pick === x.id ? 2 : 1, opacity: live ? 1 : 0.65 }}>
+            <button key={x.id} type="button" onClick={() => setPick(x.id)} aria-current={pick === x.id ? 'true' : undefined} className="block w-full space-y-1 rounded-[16px] border bg-card p-3 text-left" style={{ borderColor: pick === x.id ? INK : LINE, borderWidth: pick === x.id ? 2 : 1, opacity: live ? 1 : 0.65 }}>
               <span className="flex justify-between gap-2 text-[14px]"><span className="font-bold">{String(x.staffName).split(' ')[0]} {x.staffName?.split(' ')[1]?.[0] ? `${x.staffName.split(' ')[1][0]}.` : ''} · {String(x.reasonLabel).toLowerCase()}</span>
                 <span style={{ color: live ? (old ? '#b42318' : MUTED) : '#1f6b3a', fontWeight: 600 }}>{live ? ago(x.createdAt) : x.status === 'sorted' ? 'Sorted' : 'Answered'}</span></span>
               <span className="block truncate text-[13px]" style={{ color: '#55585e' }}>{x.line?.title || x.visitHint || `${dshort(x.period?.from)} – ${dshort(x.period?.to)}`}</span>
@@ -72,38 +72,38 @@ export default function PayQuestionsPage() {
             <div><p className="text-[13px]" style={{ color: MUTED }}>{q.staffName} · stub {dshort(q.period?.from)} – {dshort(q.period?.to)}</p>
               <p className="text-[24px] font-extrabold leading-tight">{q.reasonLabel}{q.line?.title ? ` — ${q.line.title}` : ''}</p>
               {q.line?.ref && <p className="text-[14px]" style={{ color: MUTED }}>On the stub: {money(q.line.amount)}{q.line.date ? ` · ${dshort(q.line.date)}` : ''}</p>}</div>
-            {q.visitHint && <p className="rounded-[14px] px-3.5 py-2.5 text-[15px]" style={{ background: '#f6f6f7' }}>Which visit: {q.visitHint}</p>}
+            {q.visitHint && <p className="rounded-[14px] px-3.5 py-2.5 text-[15px]" style={{ background: 'hsl(var(--secondary))' }}>Which visit: {q.visitHint}</p>}
             <div className="space-y-2">{(q.messages || []).map((m: any, i: number) => <p key={i} className="max-w-[640px] rounded-[16px] px-3.5 py-2.5 text-[15px]" style={{ background: m.by === q.staffId ? '#f6f6f7' : '#eef4f3' }}><span className="font-bold">{String(m.name).split(' ')[0]}: </span>{m.text}</p>)}</div>
             {(q.findings || []).length > 0 && (
               <section aria-label="What the app found" className="space-y-2 rounded-[18px] border p-4" style={{ borderColor: LINE }}>
                 <p className="text-[13px] font-bold" style={{ color: MUTED }}>WHAT THE APP FOUND IN THE RECORDS</p>
                 {(q.findings || []).map((f: any, i: number) => (
                   <div key={i} className="flex items-start gap-2.5 text-[15px]">
-                    <span className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold" style={f.tone === 'likely' ? { background: '#fdf1dc', color: '#9a5b00' } : f.tone === 'explains' ? { background: '#e6f2ec', color: '#1f6b3a' } : { background: '#f1f1f3', color: MUTED }}>{f.tone === 'likely' ? 'Likely cause' : f.tone === 'explains' ? 'It’s right because' : 'Note'}</span>
+                    <span className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold" style={f.tone === 'likely' ? { background: 'color-mix(in srgb, #b45309 10%, transparent)', color: '#9a5b00' } : f.tone === 'explains' ? { background: '#e6f2ec', color: 'var(--ok-ink)' } : { background: 'hsl(var(--secondary))', color: MUTED }}>{f.tone === 'likely' ? 'Likely cause' : f.tone === 'explains' ? 'It’s right because' : 'Note'}</span>
                     <span className="min-w-0 flex-1">{f.text}</span>
-                    {f.suggestAmount && !['sorted', 'explained'].includes(q.status) ? <button type="button" onClick={() => { setMode('adjust'); setAmt(String(f.suggestAmount)); }} className="shrink-0 rounded-full border px-3 py-1 text-[13px] font-bold" style={{ borderColor: '#e6e6e8' }}>Use {money(f.suggestAmount)}</button> : null}
+                    {f.suggestAmount && !['sorted', 'explained'].includes(q.status) ? <button type="button" onClick={() => { setMode('adjust'); setAmt(String(f.suggestAmount)); }} className="shrink-0 rounded-full border px-3 py-1 text-[13px] font-bold" style={{ borderColor: 'hsl(var(--border))' }}>Use {money(f.suggestAmount)}</button> : null}
                   </div>))}
                 {(q.findings || []).every((f: any) => f.tone !== 'likely') && (q.findings || []).some((f: any) => f.tone === 'explains') && !['sorted', 'explained'].includes(q.status) &&
                   <button type="button" onClick={() => { setMode('explain'); setNote((q.findings || []).filter((f: any) => f.tone === 'explains').map((f: any) => f.text).join(' ')); }} className="text-[14px] font-bold" style={{ color: INK }}>Send this as the answer</button>}
               </section>)}
             {firestore && <Records firestore={firestore} tenantId={tenantId} q={q} />}
             {['sorted', 'explained'].includes(q.status) ? (
-              <p className="rounded-[16px] px-4 py-3 text-[15px] font-semibold" style={{ background: '#e6f2ec', color: '#1f6b3a' }}>{q.resolution?.kind === 'adjust' ? `Sorted by ${q.resolution.by}: ${money((q.resolution.amountCents || 0) / 100)} on their current pay.` : q.resolution?.kind === 'fixed' ? `Sorted by ${q.resolution.by}: the record was corrected.` : `Answered by ${q.resolution?.by}: “${q.resolution?.note}”`}</p>
+              <p className="rounded-[16px] px-4 py-3 text-[15px] font-semibold" style={{ background: '#e6f2ec', color: 'var(--ok-ink)' }}>{q.resolution?.kind === 'adjust' ? `Sorted by ${q.resolution.by}: ${money((q.resolution.amountCents || 0) / 100)} on their current pay.` : q.resolution?.kind === 'fixed' ? `Sorted by ${q.resolution.by}: the record was corrected.` : `Answered by ${q.resolution?.by}: “${q.resolution?.note}”`}</p>
             ) : <>
               <p className="text-[15px] font-bold">Sort it</p>
               <div role="radiogroup" aria-label="How to sort it" className="grid gap-3 md:grid-cols-3">
                 {([['adjust', 'Add to their current pay', 'A correction line on this period’s stub and the payroll draft. Use this when the stub was already paid.'], ['fixed', 'I corrected the record', 'You fixed the visit, tip or punch itself — the live stub now shows it (only before payday).'], ['explain', 'It’s right — explain', 'Reply with why; closes the question.']] as const).map(([k, t, d]) =>
-                  <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className="space-y-1 rounded-[18px] p-3.5 text-left" style={mode === k ? { border: `2px solid ${INK}`, background: '#f6f6f7' } : { border: '1px solid #e6e6e8' }}><span className="block text-[15px] font-extrabold">{t}</span><span className="block text-[13px]" style={{ color: '#55585e' }}>{d}</span></button>)}
+                  <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className="space-y-1 rounded-[18px] p-3.5 text-left" style={mode === k ? { border: `2px solid ${INK}`, background: 'hsl(var(--secondary))' } : { border: '1px solid hsl(var(--border))' }}><span className="block text-[15px] font-extrabold">{t}</span><span className="block text-[13px]" style={{ color: '#55585e' }}>{d}</span></button>)}
               </div>
-              {mode === 'adjust' && <label className="block max-w-[260px] text-[13px] font-semibold" style={{ color: MUTED }}>Amount (use – to take off)<input inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} placeholder="20.00" className="mt-1.5 h-12 w-full rounded-[14px] border px-3 text-[16px] font-semibold" style={{ borderColor: '#e6e6e8', color: INK }} /></label>}
-              <label className="block max-w-[640px] text-[13px] font-semibold" style={{ color: MUTED }}>Note to {String(q.staffName).split(' ')[0]} {mode === 'explain' ? '' : '(optional)'}<textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="mt-1.5 w-full rounded-[14px] border px-3 py-2.5 text-[15px]" style={{ borderColor: '#e6e6e8', color: INK }} /></label>
+              {mode === 'adjust' && <label className="block max-w-[260px] text-[13px] font-semibold" style={{ color: MUTED }}>Amount (use – to take off)<input inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} placeholder="20.00" className="mt-1.5 h-12 w-full rounded-[14px] border px-3 text-[16px] font-semibold" style={{ borderColor: 'hsl(var(--border))', color: INK }} /></label>}
+              <label className="block max-w-[640px] text-[13px] font-semibold" style={{ color: MUTED }}>Note to {String(q.staffName).split(' ')[0]} {mode === 'explain' ? '' : '(optional)'}<textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="mt-1.5 w-full rounded-[14px] border px-3 py-2.5 text-[15px]" style={{ borderColor: 'hsl(var(--border))', color: INK }} /></label>
               <div className="flex flex-wrap gap-2.5">
-                <button type="button" disabled={busy} onClick={() => act(mode, mode === 'adjust' ? { amount: Number(String(amt).replace(/[^0-9.\-]/g, '')), note } : { note })} className="h-12 rounded-[16px] px-5 text-[15px] font-bold text-white disabled:opacity-50" style={{ background: INK }}>{mode === 'adjust' ? 'Add it and tell them' : mode === 'fixed' ? 'Mark sorted and tell them' : 'Send the answer'}</button>
-                <button type="button" disabled={busy || !note.trim()} onClick={() => act('reply', { note })} className="h-12 rounded-[16px] border px-5 text-[15px] font-semibold disabled:opacity-40" style={{ borderColor: '#e6e6e8' }}>Just reply</button>
+                <button type="button" disabled={busy} onClick={() => act(mode, mode === 'adjust' ? { amount: Number(String(amt).replace(/[^0-9.\-]/g, '')), note } : { note })} className="h-12 rounded-[16px] px-5 text-[15px] font-bold text-background disabled:opacity-50" style={{ background: INK }}>{mode === 'adjust' ? 'Add it and tell them' : mode === 'fixed' ? 'Mark sorted and tell them' : 'Send the answer'}</button>
+                <button type="button" disabled={busy || !note.trim()} onClick={() => act('reply', { note })} className="h-12 rounded-[16px] border px-5 text-[15px] font-semibold disabled:opacity-40" style={{ borderColor: 'hsl(var(--border))' }}>Just reply</button>
               </div>
             </>}
-            {msg && <p role="status" className="text-[14px] font-semibold" style={{ color: '#1f6b3a' }}>{msg}</p>}
-            {err && <p role="alert" className="text-[14px] font-semibold" style={{ color: '#b42318' }}>{err}</p>}
+            {msg && <p role="status" className="text-[14px] font-semibold" style={{ color: 'var(--ok-ink)' }}>{msg}</p>}
+            {err && <p role="alert" className="text-[14px] font-semibold" style={{ color: 'var(--bad-ink)' }}>{err}</p>}
             <p className="text-[12px]" style={{ color: MUTED }}>Paid stubs never change — a fix to a paid period goes on the current one. Every correction is saved with who approved it.</p>
           </>}
         </section>

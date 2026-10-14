@@ -33,7 +33,7 @@ interface AddPackageDialogProps {
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, step: number | string }) => (
     <div className="flex items-center gap-4 mb-6 text-left">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0"><Icon className="w-5 h-5" /></div>
-        <div className="space-y-0.5 text-left"><p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p><h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3></div>
+        <div className="space-y-0.5 text-left"><p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p><h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3></div>
     </div>
 );
 
@@ -82,24 +82,24 @@ const ProfitabilityAnalysis = ({ service, sessions, price, tmhr, taxBurden, staf
 
     return (
         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden">
-            <CardHeader className="p-8 pb-4 border-b bg-white/50 backdrop-blur-sm text-left">
+            <CardHeader className="p-8 pb-4 border-b bg-card/50 backdrop-blur-sm text-left">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2"><Target className="w-3 h-3" />Individual Payout Matrix</CardTitle>
                 <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60 text-left">Net Analysis per professional @ {taxBurden}% Tax Burden</CardDescription>
             </CardHeader>
             <CardContent className="p-8 pt-6 space-y-6">
                 <div className="space-y-4">
                     {staffAnalysis.map(sa => (
-                        <div key={sa.id} className="p-5 rounded-[2rem] bg-white border-2 border-primary/10 shadow-inner space-y-4">
+                        <div key={sa.id} className="p-5 rounded-[2rem] bg-card border-2 border-primary/10 shadow-inner space-y-4">
                             <div className="flex justify-between items-center px-1 text-left">
                                 <div className="flex items-center gap-3">
                                     <Avatar className="h-8 w-8 border-2 border-background shadow-sm rounded-xl"><AvatarImage src={sa.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-[8px]">{(sa.name || 'S')[0]}</AvatarFallback></Avatar>
-                                    <div className="text-left min-w-0"><p className="text-[10px] font-black uppercase text-slate-900 truncate leading-none mb-0.5">{sa.name.split(' ')[0]}</p><p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p></div>
+                                    <div className="text-left min-w-0"><p className="text-[10px] font-black uppercase text-foreground truncate leading-none mb-0.5">{sa.name.split(' ')[0]}</p><p className="text-[7px] font-bold text-muted-foreground uppercase opacity-60 leading-none">{sa.payStructure.replace('_', ' ')}</p></div>
                                 </div>
                                 <Badge className={cn("text-white border-none font-black text-[8px] h-5 px-2 rounded-lg uppercase", sa.netProfit >= 0 ? "bg-primary" : "bg-destructive animate-pulse")}>{sa.margin.toFixed(0)}% Margin</Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-left">
-                                <div className="space-y-0.5"><p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">House Floor</p><p className="font-mono text-xs font-black text-slate-900">${sa.baseHouseFloor.toFixed(2)}</p></div>
-                                <div className="space-y-0.5 text-right"><p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Labor Load</p><p className="font-mono text-xs font-black text-slate-900">${sa.labor.toFixed(2)}</p></div>
+                                <div className="space-y-0.5"><p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">House Floor</p><p className="font-mono text-xs font-black text-foreground">${sa.baseHouseFloor.toFixed(2)}</p></div>
+                                <div className="space-y-0.5 text-right"><p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Labor Load</p><p className="font-mono text-xs font-black text-foreground">${sa.labor.toFixed(2)}</p></div>
                             </div>
                             <Separator className="border-dashed" />
                             <div className="flex justify-between items-baseline pt-1 text-left"><span className="text-[9px] font-black uppercase text-primary/60">Net Bundle Yield</span><span className={cn("text-2xl font-black tracking-tighter font-mono", sa.netProfit >= 0 ? "text-primary" : "text-destructive")}>${sa.netProfit.toFixed(2)}</span></div>
@@ -108,7 +108,7 @@ const ProfitabilityAnalysis = ({ service, sessions, price, tmhr, taxBurden, staf
                 </div>
                 <div className="flex items-start gap-3 p-4 rounded-xl border-2 border-dashed bg-muted/10 text-left">
                     <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
-                    <p className="text-[9px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">Yield reflects individual technician pay and current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.</p>
+                    <p className="text-[9px] font-bold uppercase text-foreground/80 leading-relaxed tracking-tight">Yield reflects individual technician pay and current <strong>${tmhr.toFixed(2)}/hr</strong> foundation.</p>
                 </div>
             </CardContent>
         </Card>
@@ -174,12 +174,12 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({ open, onOpen
         <div className="space-y-8 text-left">
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 p-6 rounded-[2.5rem] border-2 bg-muted/10 shadow-inner">
-              <div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Priority Discount</Label><div className="relative"><Percent className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /><Input type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="0" className="h-14 rounded-2xl border-2 font-black text-xl font-mono text-primary bg-white shadow-sm" /></div></div>
+              <div className="space-y-2 text-left"><Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Priority Discount</Label><div className="relative"><Percent className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" /><Input type="number" value={retailDiscount || ''} onChange={e => setRetailDiscount(Number(e.target.value))} placeholder="0" className="h-14 rounded-2xl border-2 font-black text-xl font-mono text-primary bg-card shadow-sm" /></div></div>
             </div>
             {retailDiscount > 0 && (
               <div className="space-y-4 pt-2">
                 <div className="flex items-center justify-between px-1"><Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Eligible Inventory</Label><Button variant="ghost" size="sm" onClick={() => setIsApplicableProductsSelectorOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm"><PlusCircle className="w-3 h-3 mr-1.5" /> Select Scope</Button></div>
-                {applicableProductIds.length > 0 ? <div className="grid gap-2">{applicableProductIds.map(pid => { const p = inventory.find(i => i.id === pid); return (<div key={pid} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group"><div className="flex items-center gap-3 truncate flex-1 text-left"><div className="p-2 bg-muted rounded-lg shrink-0">{p?.type === 'refreshment' ? <Coffee className="w-3 h-3 text-muted-foreground" /> : <Box className="w-3 h-3 text-muted-foreground" />}</div><span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{p?.name || 'Unknown Product'}</span></div><Button variant="ghost" size="icon" className="h-7 w-7 text-destructive shrink-0" onClick={() => setApplicableProductIds(prev => prev.filter(id => id !== pid))}><Trash2 className="w-3.5 h-3.5" /></Button></div>); })}</div> : <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-4 border-2 border-dashed rounded-xl">Applied to all retail & refreshment assets</p>}
+                {applicableProductIds.length > 0 ? <div className="grid gap-2">{applicableProductIds.map(pid => { const p = inventory.find(i => i.id === pid); return (<div key={pid} className="flex items-center justify-between p-3 rounded-xl border-2 bg-card shadow-sm group"><div className="flex items-center gap-3 truncate flex-1 text-left"><div className="p-2 bg-muted rounded-lg shrink-0">{p?.type === 'refreshment' ? <Coffee className="w-3 h-3 text-muted-foreground" /> : <Box className="w-3 h-3 text-muted-foreground" />}</div><span className="text-[10px] font-black uppercase tracking-tight text-foreground truncate">{p?.name || 'Unknown Product'}</span></div><Button variant="ghost" size="icon" className="h-7 w-7 text-destructive shrink-0" onClick={() => setApplicableProductIds(prev => prev.filter(id => id !== pid))}><Trash2 className="w-3.5 h-3.5" /></Button></div>); })}</div> : <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-4 border-2 border-dashed rounded-xl">Applied to all retail & refreshment assets</p>}
               </div>
             )}
           </div>
@@ -203,7 +203,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({ open, onOpen
                 <Sparkles className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
               </div>
-              <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</h2>
+              <h2 className="text-2xl font-black uppercase tracking-tighter text-foreground leading-none">{dialogTitle}</h2>
               <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</p>
             </div>
             <ScrollArea className="flex-1 min-h-0">
@@ -211,7 +211,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({ open, onOpen
             </ScrollArea>
             <div className="flex-shrink-0 border-t bg-background shadow-2xl p-4">
               <div className="grid grid-cols-2 gap-3 w-full">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Cancel</Button>
                 <Button onClick={handleSave} className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Establish Bundle <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
               </div>
             </div>
@@ -231,7 +231,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({ open, onOpen
               <Sparkles className="w-5 h-5 text-primary" />
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
             </div>
-            <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</h2>
+            <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">{dialogTitle}</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</p>
           </div>
           <ScrollArea className="flex-1 min-h-0">
@@ -239,7 +239,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({ open, onOpen
           </ScrollArea>
           <div className="flex-shrink-0 border-t bg-background shadow-2xl p-6 sm:p-10 pt-4">
             <div className="grid grid-cols-2 gap-3 w-full">
-              <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
+              <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Cancel</Button>
               <Button onClick={handleSave} className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">Establish Bundle <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1"/></Button>
             </div>
           </div>

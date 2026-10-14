@@ -65,7 +65,7 @@ type FormData = z.infer<typeof schema>;
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; step: number }) => (
   <div className="flex items-center gap-4 mb-8">
     <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0"><Icon className="w-5 h-5" /></div>
-    <div className="text-left"><p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p><h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3></div>
+    <div className="text-left"><p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p><h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3></div>
   </div>
 );
 
@@ -87,7 +87,7 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
           <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-3">
             {[{ v: 'professional', icon: Package, label: 'Professional' }, { v: 'retail', icon: ShoppingCart, label: 'Retail' }].map(opt => (
               <label key={opt.v} htmlFor={opt.v} className="cursor-pointer">
-                <div className={cn('flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all', field.value === opt.v ? 'border-primary bg-primary/5 shadow-lg' : 'border-border bg-white hover:border-primary/20')}>
+                <div className={cn('flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all', field.value === opt.v ? 'border-primary bg-primary/5 shadow-lg' : 'border-border bg-card hover:border-primary/20')}>
                   <opt.icon className={cn('mb-2 h-8 w-8', field.value === opt.v ? 'text-primary' : 'text-muted-foreground opacity-40')} />
                   <span className="text-xs font-black uppercase tracking-widest">{opt.label}</span>
                   <RadioGroupItem value={opt.v} id={opt.v} className="sr-only" />
@@ -275,7 +275,7 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
                       <ShieldCheck className="w-4 h-4 text-primary" />
                     </div>
                     <div className="space-y-0.5">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Track Custody Per Staff Member</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-foreground">Track Custody Per Staff Member</p>
                       <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide leading-relaxed">
                         Staff request a float from main stock; usage draws from their float first, with overflow flagged for manager review.
                       </p>
@@ -376,7 +376,7 @@ export const AddProductDialog: React.FC<{
         <form onSubmit={handleSubmit(onSubmit)} className="h-full flex flex-col">
           <div className="flex-shrink-0 border-b bg-muted/5 px-8 py-6">
             <div className="flex items-center gap-3 mb-2"><PlusCircle className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span></div>
-            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Add New Asset</h2>
+            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Add New Asset</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Register a {initialType} item into your studio manifest.</p>
             <div className="mt-5"><Progress value={(step / STEPS) * 100} className="h-1 rounded-full bg-muted" /></div>
           </div>
@@ -391,7 +391,7 @@ export const AddProductDialog: React.FC<{
 
           <div className="flex-shrink-0 border-t bg-background px-8 py-5 shadow-md">
             <div className="flex w-full gap-3">
-              {step > 1 && <Button variant="ghost" type="button" onClick={goBack} className="flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400">Back</Button>}
+              {step > 1 && <Button variant="ghost" type="button" onClick={goBack} className="flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-muted-foreground">Back</Button>}
               <div className={step === 1 ? 'flex gap-3 w-full' : 'flex gap-3 flex-[2.5]'}>
                 <Button variant="outline" type="button" onClick={() => onOpenChange(false)} className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2">Cancel</Button>
                 {step < STEPS

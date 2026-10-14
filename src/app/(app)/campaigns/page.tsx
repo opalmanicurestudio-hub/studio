@@ -98,32 +98,32 @@ export default function CampaignsPage() {
   };
 
   const Tile = ({ icon: Icon, label, value, sub }: any) => (
-    <div className="min-w-[9.5rem] flex-1 rounded-3xl border-2 border-slate-200 bg-white p-4">
-      <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400"><Icon className="h-3.5 w-3.5" />{label}</p>
-      <p className="mt-1 text-2xl font-black tracking-tight text-slate-900">{value}</p>
-      {sub && <p className="text-[11px] font-bold text-slate-500">{sub}</p>}
+    <div className="min-w-[9.5rem] flex-1 rounded-3xl border-2 border-border bg-card p-4">
+      <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground"><Icon className="h-3.5 w-3.5" />{label}</p>
+      <p className="mt-1 text-2xl font-black tracking-tight text-foreground">{value}</p>
+      {sub && <p className="text-[11px] font-bold text-muted-foreground">{sub}</p>}
     </div>
   );
 
   const statusPill = (c: any) => {
     const s = c.status || 'draft';
     const map: Record<string, [string, string]> = {
-      draft: ['Draft', 'bg-slate-100 text-slate-600'], scheduled: [`Scheduled · ${when(c.scheduledFor)}`, 'bg-sky-100 text-sky-800'],
+      draft: ['Draft', 'bg-muted text-foreground/80'], scheduled: [`Scheduled · ${when(c.scheduledFor)}`, 'bg-sky-100 text-sky-800'],
       sending: ['Sending', 'bg-amber-100 text-amber-800'], sent: [`Sent · ${when(c.sentAt)}`, 'bg-emerald-100 text-emerald-800'],
-      automation: [c.automation?.active ? 'Automation · on' : 'Automation · paused', c.automation?.active ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-600'],
+      automation: [c.automation?.active ? 'Automation · on' : 'Automation · paused', c.automation?.active ? 'bg-violet-100 text-violet-800' : 'bg-muted text-foreground/80'],
     };
-    const [l, cls] = map[s] || [s, 'bg-slate-100 text-slate-600'];
+    const [l, cls] = map[s] || [s, 'bg-muted text-foreground/80'];
     return <span className={cn('rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest', cls)}>{l}</span>;
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       <AppHeader title="Campaigns" />
       <main className="mx-auto max-w-4xl space-y-5 px-4 pb-28 pt-4">
         <div className="flex items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-black tracking-tight text-slate-900">Campaigns</h1>
-            <p className="text-sm text-slate-500">Emails and texts to your clients — and what they brought back.</p>
+            <h1 className="text-2xl font-black tracking-tight text-foreground">Campaigns</h1>
+            <p className="text-sm text-muted-foreground">Emails and texts to your clients — and what they brought back.</p>
           </div>
           <Button asChild className="hidden h-11 rounded-2xl sm:inline-flex"><Link href="/campaigns/new"><Plus className="mr-1.5 h-4 w-4" />New campaign</Link></Button>
         </div>
@@ -131,10 +131,10 @@ export default function CampaignsPage() {
         {/* Results */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Results</p>
-            <div className="flex rounded-xl bg-white p-0.5 border">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Results</p>
+            <div className="flex rounded-xl bg-card p-0.5 border">
               {([['30', 'Last 30 days'], ['all', 'All time']] as const).map(([k, l]) => (
-                <button key={k} type="button" onClick={() => setRange(k)} className={cn('h-8 rounded-lg px-3 text-[11px] font-bold', range === k ? 'bg-slate-900 text-white' : 'text-slate-500')}>{l}</button>
+                <button key={k} type="button" onClick={() => setRange(k)} className={cn('h-8 rounded-lg px-3 text-[11px] font-bold', range === k ? 'bg-foreground text-background' : 'text-muted-foreground')}>{l}</button>
               ))}
             </div>
           </div>
@@ -151,18 +151,18 @@ export default function CampaignsPage() {
         <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           {([['all', 'All'], ['draft', 'Drafts'], ['scheduled', 'Scheduled'], ['automation', 'Automations'], ['sent', 'Sent']] as const).map(([k, l]) => (
             <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k}
-              className={cn('h-9 shrink-0 rounded-full border-2 px-3.5 text-xs font-bold', filter === k ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-600')}>
+              className={cn('h-9 shrink-0 rounded-full border-2 px-3.5 text-xs font-bold', filter === k ? 'border-slate-900 bg-foreground text-background' : 'border-border bg-card text-foreground/80')}>
               {l} <span className="opacity-60">{counts[k]}</span>
             </button>
           ))}
         </div>
 
         {/* Campaigns */}
-        {isLoading ? <p className="py-10 text-center text-sm text-slate-400">Loading…</p>
+        {isLoading ? <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
           : shown.length === 0 ? (
-            <div className="rounded-3xl border-2 border-dashed border-slate-300 bg-white p-8 text-center space-y-3">
-              <p className="text-base font-black text-slate-900">{filter === 'all' ? 'No campaigns yet' : 'Nothing here'}</p>
-              <p className="text-sm text-slate-500">Start from a template — welcome new clients, win back quiet ones, birthday wishes and more.</p>
+            <div className="rounded-3xl border-2 border-dashed border-border bg-card p-8 text-center space-y-3">
+              <p className="text-base font-black text-foreground">{filter === 'all' ? 'No campaigns yet' : 'Nothing here'}</p>
+              <p className="text-sm text-muted-foreground">Start from a template — welcome new clients, win back quiet ones, birthday wishes and more.</p>
               <Button asChild className="rounded-2xl"><Link href="/campaigns/new"><Plus className="mr-1.5 h-4 w-4" />New campaign</Link></Button>
             </div>
           ) : (
@@ -171,31 +171,31 @@ export default function CampaignsPage() {
                 const reached = n(c.recipientCount), booked = n(c.convertedCount);
                 const isSent = c.status === 'sent' || c.status === 'sending' || c.status === 'automation';
                 return (
-                  <article key={c.id} className="rounded-3xl border-2 border-slate-200 bg-white p-4 space-y-3">
+                  <article key={c.id} className="rounded-3xl border-2 border-border bg-card p-4 space-y-3">
                     <button type="button" onClick={() => router.push(`/campaigns/new?id=${encodeURIComponent(c.id)}`)} className="block w-full text-left">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="flex items-center gap-1.5 truncate text-base font-black text-slate-900">
-                            {c.type === 'sms' ? <MessageSquare className="h-4 w-4 shrink-0 text-slate-400" /> : <Mail className="h-4 w-4 shrink-0 text-slate-400" />}{c.name || 'Untitled'}
+                          <p className="flex items-center gap-1.5 truncate text-base font-black text-foreground">
+                            {c.type === 'sms' ? <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" /> : <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />}{c.name || 'Untitled'}
                           </p>
-                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
                             {c.status === 'automation' ? (c.automation?.trigger === 'birthday' ? 'Each client’s birthday month' : `${c.automation?.daysAfter || 7} days after a first visit`) : AUDIENCE_LABEL[c.targetAudience] || c.targetAudience}
                             {c.discountId ? ' · with an offer' : ''}
                           </p>
                         </div>
-                        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-300" />
+                        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/70" />
                       </div>
                       <div className="mt-2">{statusPill(c)}</div>
                     </button>
 
                     {isSent ? (
-                      <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-50 p-3 text-center">
-                        <div><p className="text-lg font-black text-slate-900">{reached}</p><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Reached</p></div>
-                        <div><p className="text-lg font-black text-slate-900">{booked}</p><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{reached ? `Booked · ${Math.round((booked / reached) * 100)}%` : 'Booked'}</p></div>
-                        <div><p className="text-lg font-black text-slate-900">{money(n(c.convertedRevenueCents))}</p><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Revenue</p></div>
+                      <div className="grid grid-cols-3 gap-2 rounded-2xl bg-muted/60 p-3 text-center">
+                        <div><p className="text-lg font-black text-foreground">{reached}</p><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reached</p></div>
+                        <div><p className="text-lg font-black text-foreground">{booked}</p><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{reached ? `Booked · ${Math.round((booked / reached) * 100)}%` : 'Booked'}</p></div>
+                        <div><p className="text-lg font-black text-foreground">{money(n(c.convertedRevenueCents))}</p><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Revenue</p></div>
                       </div>
                     ) : (
-                      <p className="line-clamp-2 rounded-2xl bg-slate-50 p-3 text-xs text-slate-500">{c.subject ? <span className="font-bold text-slate-700">{c.subject} — </span> : null}{String(c.body || '').replace(/\s+/g, ' ')}</p>
+                      <p className="line-clamp-2 rounded-2xl bg-muted/60 p-3 text-xs text-muted-foreground">{c.subject ? <span className="font-bold text-foreground/80">{c.subject} — </span> : null}{String(c.body || '').replace(/\s+/g, ' ')}</p>
                     )}
 
                     {(n(c.offersRedeemed) > 0 || (c.subjectB && isSent) || n(c.failedCount) > 0) && (
@@ -222,7 +222,7 @@ export default function CampaignsPage() {
       </main>
 
       {/* Phone: the main action stays in reach */}
-      <Link href="/campaigns/new" className="fixed bottom-5 right-5 z-30 flex h-14 items-center gap-2 rounded-full bg-slate-900 px-5 text-sm font-black text-white shadow-xl sm:hidden" style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      <Link href="/campaigns/new" className="fixed bottom-5 right-5 z-30 flex h-14 items-center gap-2 rounded-full bg-foreground px-5 text-sm font-black text-background shadow-xl sm:hidden" style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         <Plus className="h-5 w-5" />New
       </Link>
     </div>

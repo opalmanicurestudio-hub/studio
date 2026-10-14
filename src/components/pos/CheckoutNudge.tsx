@@ -23,7 +23,7 @@ export function CheckoutNudge({ tenantId, client, cart, onCartChange }: { tenant
       {shown.map((n) => <div key={n.key} className="space-y-2 rounded-2xl border-2 border-primary/20 bg-primary/5 p-4">
         <p className="text-[10px] font-black uppercase tracking-widest text-primary">Worth mentioning</p>
         <p className="text-sm font-semibold">{n.title}</p>
-        <p className="text-sm text-slate-600">{n.line}</p>
+        <p className="text-sm text-foreground/80">{n.line}</p>
         <div className="flex flex-wrap gap-2">
           {n.item && <button type="button" onClick={() => { onCartChange([...cart, { id: n.item.id, name: n.item.name, quantity: 1, price: n.item.price, type: n.item.type }]); done(n, 'accepted', `${n.item.name} added to this sale — ${client.name?.split(' ')[0] || 'they'}’ll be enrolled when it’s paid.`); }}
             className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground">Add to this sale</button>}
@@ -32,7 +32,7 @@ export function CheckoutNudge({ tenantId, client, cart, onCartChange }: { tenant
           <button type="button" onClick={() => done(n, 'decline', 'Okay — we won’t suggest that to them again for a while.')} className="rounded-full border px-4 py-1.5 text-xs">Not now</button>
         </div>
       </div>)}
-      {note && <p className="text-xs font-semibold text-slate-600">{note}</p>}
+      {note && <p className="text-xs font-semibold text-foreground/80">{note}</p>}
     </div>
   );
 }

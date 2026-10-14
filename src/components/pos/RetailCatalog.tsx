@@ -108,7 +108,7 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
                 <Button 
                     variant="outline" 
                     size="icon" 
-                    className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" 
+                    className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-card/50 backdrop-blur-sm" 
                     onClick={onScanClick}
                 >
                     <QrCode className="h-6 w-6" />
@@ -128,8 +128,8 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
                             className={cn(
                                 "flex-1 min-w-[100px] h-9 md:h-11 rounded-xl md:rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all",
                                 activeDept === dept 
-                                    ? "bg-white text-primary shadow-md" 
-                                    : "text-muted-foreground hover:bg-white/50"
+                                    ? "bg-card text-primary shadow-md" 
+                                    : "text-muted-foreground hover:bg-card/50"
                             )}
                         >
                             {dept === 'SERVICES' && <Sparkles className="w-3 h-3 mr-2 opacity-40" />}

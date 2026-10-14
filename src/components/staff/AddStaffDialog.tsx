@@ -124,7 +124,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
     </div>
     <div className="space-y-0.5 text-left">
       <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Step {step} of 3</p>
-      <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+      <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
     </div>
   </div>
 );
@@ -189,7 +189,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
             <div className="relative w-full">
               <Input
                 {...register('pin')}
-                className="text-center text-5xl h-20 font-black tracking-[0.5em] bg-white border-primary/20 rounded-3xl shadow-xl cursor-not-allowed caret-transparent select-all"
+                className="text-center text-5xl h-20 font-black tracking-[0.5em] bg-card border-primary/20 rounded-3xl shadow-xl cursor-not-allowed caret-transparent select-all"
                 maxLength={4}
                 tabIndex={-1}
                 onKeyDown={(e) => {
@@ -332,8 +332,8 @@ const Step2 = ({ services, consentForms, hoursWeek, onHoursChange }: { services:
           {selectedServices.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {selectedServices.map(service => (
-                <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
-                  <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{service.name}</span>
+                <div key={service.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-card shadow-sm group">
+                  <span className="text-[10px] font-black uppercase tracking-tight text-foreground truncate flex-1">{service.name}</span>
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}>
                     <Trash2 className="w-3.5 h-3.5" />
@@ -362,8 +362,8 @@ const Step2 = ({ services, consentForms, hoursWeek, onHoursChange }: { services:
           {assignedForms.length > 0 ? (
             <div className="grid grid-cols-1 gap-2">
               {assignedForms.map(form => (
-                <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-white shadow-sm group">
-                  <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
+                <div key={form.id} className="flex items-center justify-between p-3 rounded-xl border-2 bg-card shadow-sm group">
+                  <span className="text-[10px] font-black uppercase tracking-tight text-foreground truncate">{form.title}</span>
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive group-hover:opacity-100 transition-opacity"
                     onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}>
                     <Trash2 className="w-3.5 h-3.5" />
@@ -635,7 +635,7 @@ const WizardFormBody = ({
         <Sparkles className="w-5 h-5 text-primary" />
         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
       </div>
-      <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+      <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">
         Register Provider
       </DialogTitle>
       <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
@@ -661,7 +661,7 @@ const WizardFormBody = ({
             variant="ghost"
             onClick={onBack}
             type="button"
-            className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400"
+            className="flex-1 h-12 md:h-16 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-muted-foreground"
           >
             Back
           </Button>
@@ -824,7 +824,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   if (inline) {
     return (
       <div className="w-full max-w-2xl mx-auto">
-        <div className="rounded-[2rem] border-2 bg-white overflow-hidden">
+        <div className="rounded-[2rem] border-2 bg-card overflow-hidden">
           <FormProvider {...methods}>
             <form
               id="add-staff-wizard-form"

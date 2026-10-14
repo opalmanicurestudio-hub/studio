@@ -42,7 +42,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
     </div>
     <div className="space-y-0.5 text-left">
       <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-      <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+      <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
     </div>
   </div>
 );
@@ -139,7 +139,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({ open, onOpenChan
         <Sparkles className="w-5 h-5 text-primary" />
         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Procurement Intake</span>
       </div>
-      <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Order Protocol</h2>
+      <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Register Order Protocol</h2>
       <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Log supplier shipments into the studio ledger.</p>
       <div className="pt-6">
         <Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" />
@@ -157,9 +157,9 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({ open, onOpenChan
             {items.length > 0 ? (
               <div className="grid gap-3">
                 {items.map(item => (
-                  <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border-2 bg-white shadow-sm group" key={item.productId}>
+                  <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border-2 bg-card shadow-sm group" key={item.productId}>
                     <div className="min-w-0 flex-1 text-left w-full">
-                      <p className="font-black text-xs uppercase tracking-tight text-slate-900 truncate">{item.productName}</p>
+                      <p className="font-black text-xs uppercase tracking-tight text-foreground truncate">{item.productName}</p>
                       <p className="text-[9px] font-bold text-primary uppercase tracking-widest opacity-60">SKU Ref: {item.productId.slice(-6).toUpperCase()}</p>
                     </div>
                     <div className="flex items-center gap-3 justify-between w-full sm:w-auto">
@@ -226,12 +226,12 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({ open, onOpenChan
             <p className="text-5xl font-black text-primary tracking-tighter font-mono">${totalLandedCost.toFixed(2)}</p>
             <div className="pt-4 border-t border-primary/10 flex justify-between items-center text-[10px] font-black uppercase">
               <span className="text-muted-foreground opacity-60">Items Base</span>
-              <span className="text-slate-900">${itemsSubtotal.toFixed(2)}</span>
+              <span className="text-foreground">${itemsSubtotal.toFixed(2)}</span>
             </div>
           </div>
           <div className="p-5 rounded-2xl border-2 border-dashed bg-muted/5 flex items-start gap-4">
             <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
-            <p className="text-[10px] font-bold uppercase text-slate-600 leading-relaxed tracking-tight">
+            <p className="text-[10px] font-bold uppercase text-foreground/80 leading-relaxed tracking-tight">
               Landed costs are mathematically distributed across each SKU based on their relative unit values to ensure margin accuracy.
             </p>
           </div>
@@ -283,7 +283,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({ open, onOpenChan
     <div className="flex-shrink-0 border-t bg-background shadow-2xl p-4 md:p-6 md:pb-6">
       <div className="flex w-full gap-4">
         {step > 1 && (
-          <Button variant="ghost" onClick={() => setStep(step - 1)} type="button" className="flex-1 h-14 rounded-2xl font-black uppercase tracking-tighter text-[10px] text-slate-400">
+          <Button variant="ghost" onClick={() => setStep(step - 1)} type="button" className="flex-1 h-14 rounded-2xl font-black uppercase tracking-tighter text-[10px] text-muted-foreground">
             Back
           </Button>
         )}

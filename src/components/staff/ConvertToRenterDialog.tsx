@@ -144,7 +144,7 @@ export function ConvertToRenterDialog({ open, onOpenChange, member, firestore, t
 
   const Choice = ({ on, onClick, title, body, tone }: { on: boolean; onClick: () => void; title: string; body: string; tone?: string }) => (
     <button type="button" onClick={onClick} aria-pressed={on}
-      className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', on ? 'border-slate-900 bg-slate-50' : 'bg-white', tone)}>
+      className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', on ? 'border-slate-900 bg-muted/60' : 'bg-card', tone)}>
       <span className="block text-[11px] font-black uppercase tracking-widest">{title}</span>
       <span className="block text-[10px] font-bold text-muted-foreground">{body}</span>
     </button>
@@ -171,8 +171,8 @@ export function ConvertToRenterDialog({ open, onOpenChange, member, firestore, t
             <>
               <p className="text-[11px] font-bold text-muted-foreground">The date they stop being an employee. It decides their final pay period, their first rent day, and which bookings count as studio work.</p>
               <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} aria-label="Effective date"
-                className="h-11 w-full rounded-xl border-2 bg-white px-3 text-sm font-bold" />
-              <div className="rounded-xl border-2 bg-slate-50 px-3 py-2">
+                className="h-11 w-full rounded-xl border-2 bg-card px-3 text-sm font-bold" />
+              <div className="rounded-xl border-2 bg-muted/60 px-3 py-2">
                 <p className="text-[10px] font-bold text-muted-foreground">
                   Their {preview.pastAppointments} past appointment{preview.pastAppointments === 1 ? '' : 's'} stay studio revenue and stay in your reports — converting never rewrites history.
                 </p>
@@ -192,15 +192,15 @@ export function ConvertToRenterDialog({ open, onOpenChange, member, firestore, t
               <Choice on={clientBook === 'pick'} onClick={() => setClientBook('pick')} title="Choose person by person"
                 body="Move some, keep the rest." />
               {clientBook === 'pick' && (
-                <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border-2 bg-white p-2">
+                <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border-2 bg-card p-2">
                   {served.length === 0 && <p className="py-2 text-center text-[11px] font-bold text-muted-foreground">No clients to choose from.</p>}
                   {served.map((c) => {
                     const on = picked.includes(c.id);
                     return (
                       <button key={c.id} type="button" aria-pressed={on} onClick={() => setPicked((p) => on ? p.filter((x) => x !== c.id) : [...p, c.id])}
-                        className={cn('flex w-full items-center justify-between gap-2 rounded-lg border-2 px-2.5 py-1.5 text-left', on ? 'border-slate-900 bg-slate-900 text-white' : 'bg-white')}>
+                        className={cn('flex w-full items-center justify-between gap-2 rounded-lg border-2 px-2.5 py-1.5 text-left', on ? 'border-slate-900 bg-foreground text-background' : 'bg-card')}>
                         <span className="min-w-0 truncate text-[11px] font-black">{c.name}</span>
-                        <span className={cn('shrink-0 text-[10px] font-bold', on ? 'text-slate-300' : 'text-muted-foreground')}>{c.visits} visit{c.visits === 1 ? '' : 's'} · {shortDate(c.lastVisit)}</span>
+                        <span className={cn('shrink-0 text-[10px] font-bold', on ? 'text-muted-foreground/70' : 'text-muted-foreground')}>{c.visits} visit{c.visits === 1 ? '' : 's'} · {shortDate(c.lastVisit)}</span>
                       </button>
                     );
                   })}
@@ -219,25 +219,25 @@ export function ConvertToRenterDialog({ open, onOpenChange, member, firestore, t
               <Choice on={inFlight === 'transfer'} onClick={() => setInFlight('transfer')} title="Hand them over"
                 body="They become the renter's bookings at the same time and price. Deposits already taken by the studio are not moved." />
               <button type="button" aria-pressed={seedMenu} onClick={() => setSeedMenu((v) => !v)}
-                className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left', seedMenu ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+                className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left', seedMenu ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
                 <span className="min-w-0">
                   <span className="block text-[11px] font-black uppercase tracking-widest">Start their menu from yours</span>
                   <span className="block text-[10px] font-bold text-muted-foreground">Copy the {preview.servicesToSeed.length} service{preview.servicesToSeed.length === 1 ? '' : 's'} they offer, at your prices, for them to change.</span>
                 </span>
-                <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', seedMenu ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{seedMenu ? 'Yes' : 'No'}</span>
+                <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', seedMenu ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}>{seedMenu ? 'Yes' : 'No'}</span>
               </button>
             </>
           )}
 
           {step === 3 && (
             <>
-              <div className="rounded-2xl border-2 bg-slate-50 px-4 py-3 space-y-1">
+              <div className="rounded-2xl border-2 bg-muted/60 px-4 py-3 space-y-1">
                 <p className="text-[11px] font-black uppercase tracking-widest">What happens when you confirm</p>
-                <p className="text-[11px] font-bold text-slate-700">Employee until {effectiveDate}; a booth renter from then.</p>
-                <p className="text-[11px] font-bold text-slate-700">{preview.clientsMoving.length} client{preview.clientsMoving.length === 1 ? '' : 's'} move to their book, {preview.clientsStaying} stay with you.</p>
-                <p className="text-[11px] font-bold text-slate-700">{preview.inFlightCount} outstanding booking{preview.inFlightCount === 1 ? '' : 's'} {inFlight === 'transfer' ? 'become theirs' : 'stay studio work'}.</p>
-                <p className="text-[11px] font-bold text-slate-700">{seedMenu ? `${preview.servicesToSeed.length} services copied to their menu.` : 'They build their own menu.'}</p>
-                <p className="text-[11px] font-bold text-slate-700">Pay structure and commission cleared — they can never appear on a payroll draft.</p>
+                <p className="text-[11px] font-bold text-foreground/80">Employee until {effectiveDate}; a booth renter from then.</p>
+                <p className="text-[11px] font-bold text-foreground/80">{preview.clientsMoving.length} client{preview.clientsMoving.length === 1 ? '' : 's'} move to their book, {preview.clientsStaying} stay with you.</p>
+                <p className="text-[11px] font-bold text-foreground/80">{preview.inFlightCount} outstanding booking{preview.inFlightCount === 1 ? '' : 's'} {inFlight === 'transfer' ? 'become theirs' : 'stay studio work'}.</p>
+                <p className="text-[11px] font-bold text-foreground/80">{seedMenu ? `${preview.servicesToSeed.length} services copied to their menu.` : 'They build their own menu.'}</p>
+                <p className="text-[11px] font-bold text-foreground/80">Pay structure and commission cleared — they can never appear on a payroll draft.</p>
               </div>
               {preview.warnings.map((w, i) => (
                 <p key={i} className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">{w}</p>
@@ -253,7 +253,7 @@ export function ConvertToRenterDialog({ open, onOpenChange, member, firestore, t
           {step > 0 && <Button variant="outline" onClick={() => setStep((s) => s - 1)} disabled={busy} className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Back</Button>}
           {step < 3
             ? <Button onClick={() => setStep((s) => s + 1)} disabled={!canNext} className="h-11 flex-1 rounded-xl font-black uppercase text-[10px] tracking-widest">Next</Button>
-            : <Button onClick={run} disabled={busy} className="h-11 flex-1 rounded-xl bg-slate-900 font-black uppercase text-[10px] tracking-widest">{busy ? 'Converting…' : 'Convert'}</Button>}
+            : <Button onClick={run} disabled={busy} className="h-11 flex-1 rounded-xl bg-foreground font-black uppercase text-[10px] tracking-widest">{busy ? 'Converting…' : 'Convert'}</Button>}
         </div>
       </DialogContent>
     </Dialog>

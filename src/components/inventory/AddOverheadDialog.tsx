@@ -40,7 +40,7 @@ type FormData = z.infer<typeof schema>;
 const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; step: number }) => (
   <div className="flex items-center gap-4 mb-8 text-left">
     <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0"><Icon className="w-5 h-5" /></div>
-    <div><p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p><h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3></div>
+    <div><p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p><h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3></div>
   </div>
 );
 
@@ -195,7 +195,7 @@ export const AddOverheadDialog = ({
         <form onSubmit={handleSubmit(onSubmit)} className="h-full flex flex-col">
           <div className="flex-shrink-0 border-b bg-muted/5 px-8 py-6">
             <div className="flex items-center gap-3 mb-2"><Sparkles className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span></div>
-            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Overhead Supply</h2>
+            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Register Overhead Supply</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Log consumable studio supplies into the manifest.</p>
             <div className="mt-5"><Progress value={(step / STEPS) * 100} className="h-1 rounded-full bg-muted" /></div>
           </div>
@@ -210,7 +210,7 @@ export const AddOverheadDialog = ({
 
           <div className="flex-shrink-0 border-t bg-background px-8 py-5 shadow-md">
             <div className="flex w-full gap-3">
-              {step > 1 && <Button variant="ghost" type="button" onClick={goBack} className="flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400">Back</Button>}
+              {step > 1 && <Button variant="ghost" type="button" onClick={goBack} className="flex-1 h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest text-muted-foreground">Back</Button>}
               <div className={step === 1 ? 'flex gap-3 w-full' : 'flex gap-3 flex-[2.5]'}>
                 <Button variant="outline" type="button" onClick={() => onOpenChange(false)} className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2">Cancel</Button>
                 {step < STEPS

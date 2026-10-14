@@ -56,15 +56,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
-    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm overflow-hidden">
+    <Card className="border-2 shadow-sm min-w-0 text-left bg-card/50 backdrop-blur-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                 {title}
             </CardTitle>
-            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
+            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-foreground")} />
         </CardHeader>
         <CardContent className="p-4 pt-0">
-            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-foreground")}>
                 {value}
             </div>
             <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40 truncate">{description}</p>
@@ -92,20 +92,20 @@ const SubscriptionRow = ({ instance, client, onSettle }: { instance: Subscriptio
                         )}
                     </div>
                     <div className="min-w-0">
-                        <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{instance.clientName}</p>
+                        <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">{instance.clientName}</p>
                         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{instance.membershipName}</p>
                     </div>
                 </div>
             </TableCell>
             <TableCell>
                 <div className="text-left">
-                    <p className="font-black text-sm text-slate-900 font-mono tracking-tighter">${instance.amount.toFixed(2)}</p>
+                    <p className="font-black text-sm text-foreground font-mono tracking-tighter">${instance.amount.toFixed(2)}</p>
                     <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-40">Monthly Due</p>
                 </div>
             </TableCell>
             <TableCell>
                 <div className="text-left space-y-1">
-                    <p className="text-[10px] font-black uppercase text-slate-600">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
+                    <p className="text-[10px] font-black uppercase text-foreground/80">{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
                     {isOverdue && <Badge variant="destructive" className="h-4 text-[7px] font-black uppercase animate-pulse border-none">Overdue</Badge>}
                 </div>
             </TableCell>
@@ -116,7 +116,7 @@ const SubscriptionRow = ({ instance, client, onSettle }: { instance: Subscriptio
                         "h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2",
                         instance.status === 'paid' ? "bg-green-500 border-none text-white shadow-sm" : 
                         instance.status === 'failed' ? "text-destructive border-destructive/20" : 
-                        "bg-white"
+                        "bg-card"
                     )}
                 >
                     {instance.status}
@@ -129,7 +129,7 @@ const SubscriptionRow = ({ instance, client, onSettle }: { instance: Subscriptio
                             size="sm" 
                             className={cn(
                                 "h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg transition-all active:scale-95",
-                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-slate-600 shadow-none border-2"
+                                hasCard ? "bg-primary text-white shadow-primary/20" : "bg-muted text-foreground/80 shadow-none border-2"
                             )}
                             onClick={() => onSettle(instance)}
                         >
@@ -139,7 +139,7 @@ const SubscriptionRow = ({ instance, client, onSettle }: { instance: Subscriptio
                     {instance.status === 'paid' && instance.settledAt && (
                         <div className="text-right">
                             <p className="text-[8px] font-black text-muted-foreground uppercase opacity-40">Settled</p>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase">{format(parseISO(instance.settledAt), 'MMM d')}</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase">{format(parseISO(instance.settledAt), 'MMM d')}</p>
                         </div>
                     )}
                 </div>
@@ -222,12 +222,12 @@ export default function MembershipLedgerPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
+    <div className="flex min-h-screen w-full flex-col bg-background overflow-x-hidden">
       <AppHeader title="Recurring Ledger" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-left">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Collections</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Collections</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
               Recurring revenue & settlement pipeline
             </p>
@@ -240,21 +240,21 @@ export default function MembershipLedgerPage() {
             <KpiCard title="Arrears Alert" value={`$${stats.arrears.toFixed(0)}`} icon={AlertTriangle} description="Failed/Past due payments" colorClass="text-destructive" />
         </div>
 
-        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
             <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
                 <div className="flex flex-col md:flex-row items-center gap-4">
                     <div className="relative flex-1 w-full">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                         <Input 
                             placeholder="SEARCH BY GUEST OR CLUB NAME..." 
-                            className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white"
+                            className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-card"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
                     <div className="w-full md:w-auto">
                         <Select value={statusFilter} onValueChange={setStatusFilter}>
-                            <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner">
+                            <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-card shadow-inner">
                                 <SelectValue placeholder="STATUS" />
                             </SelectTrigger>
                             <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -278,11 +278,11 @@ export default function MembershipLedgerPage() {
                         <Table>
                             <TableHeader className="bg-muted/10 border-b-2">
                                 <TableRow>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900">Member & Tier</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Yield Value</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Settlement Date</TableHead>
-                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900">Protocol State</TableHead>
-                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Actions</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-foreground">Member & Tier</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground">Yield Value</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground">Settlement Date</TableHead>
+                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-foreground">Protocol State</TableHead>
+                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-foreground">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -310,7 +310,7 @@ export default function MembershipLedgerPage() {
             <Info className="w-5 h-5 text-primary shrink-0 mt-0.5 opacity-40" />
             <div className="space-y-1">
                 <p className="text-[10px] font-black uppercase text-primary">Operational Protocol</p>
-                <p className="text-[11px] font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                <p className="text-[11px] font-medium text-foreground/80 leading-relaxed uppercase tracking-tight">
                     Subscriptions marked as **Overdue** or **Failed** automatically suspend member perks in the POS Terminal. Settle payments to restore privilege access instantly.
                 </p>
             </div>

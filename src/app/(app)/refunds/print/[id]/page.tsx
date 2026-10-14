@@ -18,6 +18,6 @@ export default function PrintRefund() {
     const after = () => { payPost('/api/refund-payouts', { tenantId, id, action: 'printed' }); window.removeEventListener('afterprint', after); };
     window.addEventListener('afterprint', after); setTimeout(() => window.print(), 600);
   }, [p, tenantId, id]);
-  if (!p || !selectedTenant) return <p className="p-8" style={{ color: '#6d7075' }}>Loading…</p>;
+  if (!p || !selectedTenant) return <p className="p-8" style={{ color: 'hsl(var(--muted-foreground))' }}>Loading…</p>;
   return <RefundSheets p={p} tenant={selectedTenant} />;
 }

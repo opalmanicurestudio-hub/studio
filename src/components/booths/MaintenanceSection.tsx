@@ -47,7 +47,7 @@ const newToken = () => {
  */
 function PanelShell({ show, children }: { show: boolean; children: React.ReactNode }) {
   if (!show) return null;
-  return <div className="rounded-2xl border-2 bg-white p-4">{children}</div>;
+  return <div className="rounded-2xl border-2 bg-card p-4">{children}</div>;
 }
 
 export function MaintenanceSection({
@@ -973,21 +973,21 @@ export function MaintenanceSection({
       <div className="flex items-center gap-2">
         <h2 className="text-xs font-black uppercase tracking-widest flex items-center gap-1.5"><Wrench className="h-3.5 w-3.5" /> Maintenance</h2>
         {openCount > 0 && <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{openCount}</span>}
-        <button onClick={() => setCreateOpen(true)} className="ml-auto h-9 px-4 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center gap-1 shrink-0">
+        <button onClick={() => setCreateOpen(true)} className="ml-auto h-9 px-4 rounded-xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest flex items-center gap-1 shrink-0">
           <Plus className="h-3 w-3" /> Ticket
         </button>
       </div>
       <div className={tab === 'queue' ? 'flex items-center gap-2' : 'hidden'}>
         <input value={queueSearch} onChange={(e) => setQueueSearch(e.target.value)} aria-label="Search the queue"
           placeholder="Search tickets — title, space, who reported it, who has it"
-          className="h-9 flex-1 min-w-0 rounded-xl border-2 bg-white px-3 text-xs font-bold" />
+          className="h-9 flex-1 min-w-0 rounded-xl border-2 bg-card px-3 text-xs font-bold" />
         {(queueSearch || (focus && focus !== 'all')) && (
           <button onClick={() => { setQueueSearch(''); onFocusChange?.('all'); }}
-            className="h-9 shrink-0 rounded-xl border-2 bg-white px-3 text-[9px] font-black uppercase tracking-widest text-slate-500">Clear</button>
+            className="h-9 shrink-0 rounded-xl border-2 bg-card px-3 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Clear</button>
         )}
       </div>
       {tab === 'queue' && focus && focus !== 'all' && (
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
           Showing {focus === 'overdue' ? 'overdue' : focus === 'unassigned' ? 'unassigned' : 'unanswered'} only · {shown.length} of {openCount}
         </p>
       )}
@@ -1000,17 +1000,17 @@ export function MaintenanceSection({
           { icon: FileClock, key: 'history', label: 'History', count: 0 },
         ] as any[]).map((b) => (
           <button key={b.key} onClick={() => setTab(b.key)} aria-pressed={tab === b.key}
-            className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest flex items-center gap-1.5 whitespace-nowrap shrink-0 active:scale-95 transition-transform ${tab === b.key ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600'}`}>
+            className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest flex items-center gap-1.5 whitespace-nowrap shrink-0 active:scale-95 transition-transform ${tab === b.key ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80'}`}>
             <b.icon className="h-3.5 w-3.5" /> {b.label}{b.count > 0 ? ` · ${b.count}` : ''}
           </button>
         ))}
         <button onClick={openRules}
-          className="h-9 px-3.5 rounded-full border-2 bg-white font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1.5 whitespace-nowrap shrink-0">
+          className="h-9 px-3.5 rounded-full border-2 bg-card font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center gap-1.5 whitespace-nowrap shrink-0">
           <Shield className="h-3.5 w-3.5" /> Setup
         </button>
         {tab === 'queue' && (
           <button onClick={() => setShowResolved(o => !o)}
-            className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest whitespace-nowrap shrink-0 ${showResolved ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400'}`}>
+            className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest whitespace-nowrap shrink-0 ${showResolved ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground'}`}>
             {showResolved ? 'Showing everything' : 'Show resolved too'}
           </button>
         )}
@@ -1018,7 +1018,7 @@ export function MaintenanceSection({
 
       {/* Running costs — what maintenance is actually costing, live */}
       {(spend.allMaterials > 0 || spend.allLabor > 0 || spend.owedLabor > 0) && (
-        <div className="rounded-2xl border-2 bg-white p-3 flex gap-4 overflow-x-auto">
+        <div className="rounded-2xl border-2 bg-card p-3 flex gap-4 overflow-x-auto">
           {[
             { label: 'This month', value: `$${((spend.monthMaterials + spend.monthLabor) / 100).toFixed(0)}`, sub: `${spend.monthJobs} job${spend.monthJobs === 1 ? '' : 's'} · $${(spend.monthMaterials / 100).toFixed(0)} materials · $${(spend.monthLabor / 100).toFixed(0)} labor` },
             { label: 'All time', value: `$${((spend.allMaterials + spend.allLabor) / 100).toFixed(0)}`, sub: `$${(spend.allMaterials / 100).toFixed(0)} materials · $${(spend.allLabor / 100).toFixed(0)} labor · ${spend.receipts} receipt${spend.receipts === 1 ? '' : 's'}` },
@@ -1052,7 +1052,7 @@ export function MaintenanceSection({
               : t.priority === 'high' ? 'border-l-orange-400'
               : t.priority === 'low' ? 'border-l-slate-200' : 'border-l-indigo-300';
             return (
-              <div key={t.id} className={`rounded-2xl border-2 border-l-4 bg-white overflow-hidden shadow-sm ${rail} ${overdue ? 'border-red-200' : ''}`}>
+              <div key={t.id} className={`rounded-2xl border-2 border-l-4 bg-card overflow-hidden shadow-sm ${rail} ${overdue ? 'border-red-200' : ''}`}>
                 <button onClick={() => { setExpandedId(expanded ? null : t.id); setNoteDraft(''); }} className="w-full text-left px-4 py-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -1100,7 +1100,7 @@ export function MaintenanceSection({
                         ] as [string, string][]).map(([k, v]) => (
                           <div key={k}>
                             <p className="text-[8px] font-black uppercase tracking-widest text-violet-500">{k}</p>
-                            <p className="text-xs font-bold text-slate-800">{v}</p>
+                            <p className="text-xs font-bold text-foreground">{v}</p>
                           </div>
                         ))}
                         <p className="col-span-2 text-[10px] font-bold text-violet-600">Bought it? Resolve with the Materials $ and receipt — the purchase logs to the ledger and {t.reporter?.name || 'the tech'} gets a text.</p>
@@ -1123,7 +1123,7 @@ export function MaintenanceSection({
                           className="h-8 px-2.5 rounded-lg bg-amber-600 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Handled</button>
                       </div>
                     ))}
-                    {t.description && <p className="text-xs font-medium text-slate-600 whitespace-pre-wrap">{t.description}</p>}
+                    {t.description && <p className="text-xs font-medium text-foreground/80 whitespace-pre-wrap">{t.description}</p>}
                     {Array.isArray(t.photoUrls) && t.photoUrls.length > 0 && (
                       <div className="flex gap-2 overflow-x-auto pb-1">
                         {t.photoUrls.map((u: string, i: number) => (
@@ -1136,20 +1136,20 @@ export function MaintenanceSection({
                     {/* Quote card — pending gets decision buttons; decided
                         shows the verdict; resolved shows quoted vs actual */}
                     {t.quote && (
-                      <div className={`rounded-xl border-2 p-2.5 ${t.quote.status === 'approved' ? 'border-emerald-200 bg-emerald-50' : t.quote.status === 'declined' ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50'}`}>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">
+                      <div className={`rounded-xl border-2 p-2.5 ${t.quote.status === 'approved' ? 'border-emerald-200 bg-emerald-50' : t.quote.status === 'declined' ? 'border-border bg-muted/60' : 'border-amber-300 bg-amber-50'}`}>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-foreground/80">
                           Quote from {t.quote.by} · {t.quote.status === 'pending' ? 'awaiting your decision' : t.quote.status}
                         </p>
                         <p className="text-sm font-black mt-0.5">
                           ${((t.quote.totalCents || 0) / 100).toFixed(2)}
                           <span className="text-[10px] font-bold text-muted-foreground"> {[(t.quote.hours || 0) > 0 ? `${t.quote.hours}h labor` : null, (t.quote.materialsCents || 0) > 0 ? `$${(t.quote.materialsCents / 100).toFixed(0)} materials` : null].filter(Boolean).join(' + ')}</span>
                         </p>
-                        {t.quote.note && <p className="text-[11px] font-medium text-slate-600 mt-0.5">{t.quote.note}</p>}
+                        {t.quote.note && <p className="text-[11px] font-medium text-foreground/80 mt-0.5">{t.quote.note}</p>}
                         {t.quote.status === 'pending' && (
                           <div className="flex gap-2 mt-2 flex-wrap">
                             <button onClick={() => decideQuote(t, true)} className="flex-1 min-w-[120px] h-10 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Approve · ${((t.quote.totalCents || 0) / 100).toFixed(0)}</button>
                             <button onClick={() => counterQuote(t)} className="h-10 px-3 rounded-xl border-2 border-indigo-300 text-indigo-700 font-black uppercase text-[9px] tracking-widest">Counter</button>
-                            <button onClick={() => decideQuote(t, false)} className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>
+                            <button onClick={() => decideQuote(t, false)} className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-muted-foreground">Decline</button>
                           </div>
                         )}
                         {t.quote.status === 'approved' && t.quote.countered && (
@@ -1164,7 +1164,7 @@ export function MaintenanceSection({
                       </div>
                     )}
                     {((t.costCents || 0) > 0 || (t.laborCents || 0) > 0 || (t.laborHours || 0) > 0) && (
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                         {[(t.costCents || 0) > 0 ? `Materials $${(t.costCents / 100).toFixed(2)}${t.materialsPaidBy === 'tech' ? ' · fronted by tech, reimburses at payout' : ' · in ledger'}` : null,
                           (t.laborCents || 0) > 0 ? `Labor $${(t.laborCents / 100).toFixed(2)}${(t.laborHours || 0) > 0 ? ` (${t.laborHours}h)` : ''}` : (t.laborHours || 0) > 0 ? `${t.laborHours}h logged · no rate set` : null].filter(Boolean).join(' · ')}
                       </p>
@@ -1178,7 +1178,7 @@ export function MaintenanceSection({
                       const hot = t.status === 'resolved' && claimedMin > 0 && tm > 0 && claimedMin > tm * 1.25;
                       return (
                         <div className="space-y-1">
-                          <p className={`text-[10px] font-black uppercase tracking-widest ${running ? 'text-emerald-600' : hot ? 'text-amber-600' : 'text-slate-400'}`}>
+                          <p className={`text-[10px] font-black uppercase tracking-widest ${running ? 'text-emerald-600' : hot ? 'text-amber-600' : 'text-muted-foreground'}`}>
                             {running ? `Clock running · ${fmtMinutes(tm)} so far` : `Timer: ${fmtMinutes(tm)} across ${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'}`}
                             {hot ? ` · claimed ${t.laborHours}h — ${fmtMinutes(Math.round(claimedMin - tm))} more than timed` : ''}
                           </p>
@@ -1199,7 +1199,7 @@ export function MaintenanceSection({
                       );
                     })()}
                     {(t.mileage || 0) > 0 && (
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                         Mileage {t.mileage} mi{(t.mileageCents || 0) > 0 ? ` · $${((t.mileageCents || 0) / 100).toFixed(2)} reimbursed via payout balance` : ''}
                       </p>
                     )}
@@ -1230,7 +1230,7 @@ export function MaintenanceSection({
                           Log purchase
                         </button>
                       )}
-                      <button onClick={() => printTicket(t)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
+                      <button onClick={() => printTicket(t)} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground underline underline-offset-2">
                         Print work order
                       </button>
                     </div>
@@ -1240,7 +1240,7 @@ export function MaintenanceSection({
                           <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Purchase $</span>
                           <input type="number" inputMode="decimal" min={0} value={purchaseDraft} onChange={(e) => setPurchaseDraft(e.target.value)}
                             autoFocus placeholder="0" className="w-24 h-9 rounded-xl border-2 px-2 text-sm font-bold" />
-                          <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 bg-white ${purchaseReceipt ? 'border-emerald-400 text-emerald-700' : 'text-slate-500'}`}>
+                          <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 bg-card ${purchaseReceipt ? 'border-emerald-400 text-emerald-700' : 'text-muted-foreground'}`}>
                             {uploading ? '…' : purchaseReceipt ? 'Receipt ✓' : 'Receipt'}
                             <input type="file" accept="image/*" className="hidden"
                               onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const url = await uploadPhoto(f); if (url) setPurchaseReceipt(url); } }} />
@@ -1258,12 +1258,12 @@ export function MaintenanceSection({
                     {(t.updates || []).length > 0 && (
                       <div className="space-y-1">
                         {(t.updates || []).slice(-6).map((u: any, i: number) => (
-                          <div key={i} className="text-[11px] font-medium text-slate-500">
-                            <span className="font-black text-slate-700">{u.by}</span>
-                            <span className="text-slate-400 text-[9px] uppercase font-black"> {u.byType}</span>
+                          <div key={i} className="text-[11px] font-medium text-muted-foreground">
+                            <span className="font-black text-foreground/80">{u.by}</span>
+                            <span className="text-muted-foreground text-[9px] uppercase font-black"> {u.byType}</span>
                             {u.status ? ` → ${TICKET_STATUS_LABELS[u.status as TicketStatus] || u.status}` : ''}
                             {u.note ? ` — ${u.note}` : ''}
-                            <span className="text-slate-400"> · {fmtWhen(u.at)}</span>
+                            <span className="text-muted-foreground"> · {fmtWhen(u.at)}</span>
                             {u.photoUrl && (
                               <a href={u.photoUrl} target="_blank" rel="noreferrer" className="block mt-1">
                                 <img src={u.photoUrl} alt="" className="h-14 w-14 rounded-lg object-cover border-2" />
@@ -1277,7 +1277,7 @@ export function MaintenanceSection({
                       <>
                         <div className="flex gap-2 flex-wrap items-center">
                           <select value={t.assigneeId || ''} onChange={(e) => e.target.value && assign(t, e.target.value)}
-                            className="h-9 rounded-xl border-2 px-2 text-xs font-bold bg-white flex-1 min-w-[130px] max-w-full">
+                            className="h-9 rounded-xl border-2 px-2 text-xs font-bold bg-card flex-1 min-w-[130px] max-w-full">
                             <option value="">{t.assigneeName ? `Assigned: ${t.assigneeName}` : 'Assign worker…'}</option>
                             {activeWorkers.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
                           </select>
@@ -1286,7 +1286,7 @@ export function MaintenanceSection({
                           )}
                           {t.assigneeId && activeWorkers.filter((w: any) => w.id !== t.assigneeId && !(t.helpers || []).some((h: any) => h.id === w.id)).length > 0 && (
                             <select value="" onChange={(e) => e.target.value && addHelper(t, e.target.value)}
-                              className="h-9 rounded-xl border-2 border-dashed px-2 text-xs font-bold bg-white text-slate-500 max-w-[150px]">
+                              className="h-9 rounded-xl border-2 border-dashed px-2 text-xs font-bold bg-card text-muted-foreground max-w-[150px]">
                               <option value="">+ Add help…</option>
                               {activeWorkers.filter((w: any) => w.id !== t.assigneeId && !(t.helpers || []).some((h: any) => h.id === w.id))
                                 .map((w: any) => <option key={w.id} value={w.id}>{w.name}{w.providerId ? ' (provider)' : ''}</option>)}
@@ -1300,7 +1300,7 @@ export function MaintenanceSection({
                           )}
                           <button onClick={() => { setResolveForId(resolveForId === t.id ? null : t.id); setCostDraft(''); setLaborDraft(''); setReceiptUrl(null); setFixDraft(''); }}
                             className="h-9 px-3 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
-                          <button onClick={() => setStatus(t, 'cancelled')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Cancel</button>
+                          <button onClick={() => setStatus(t, 'cancelled')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-muted-foreground">Cancel</button>
                         </div>
                         {resolveForId === t.id && (
                           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-2.5 space-y-2">
@@ -1308,7 +1308,7 @@ export function MaintenanceSection({
                               <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700">What fixed it?</span>
                               <input value={fixDraft} onChange={(e) => setFixDraft(e.target.value.slice(0, 600))} autoFocus
                                 aria-label="What fixed it" placeholder="Replaced the heating element. Runs fine now."
-                                className="w-full h-10 rounded-xl border-2 bg-white px-3 text-sm font-bold" />
+                                className="w-full h-10 rounded-xl border-2 bg-card px-3 text-sm font-bold" />
                               <p className="text-[9px] font-bold text-emerald-800/70">Goes on the record and to whoever reported it. Most jobs cost nothing — money is optional below.</p>
                             </div>
                             {(t.purchasedCents || 0) > 0 && (
@@ -1320,7 +1320,7 @@ export function MaintenanceSection({
                               <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700 w-20">Materials $</span>
                               <input type="number" inputMode="decimal" min={0} value={costDraft} onChange={(e) => setCostDraft(e.target.value)}
                                 placeholder="0 if none" className="w-24 h-9 rounded-xl border-2 px-2 text-sm font-bold" />
-                              <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 bg-white ${receiptUrl ? 'border-emerald-400 text-emerald-700' : 'text-slate-500'}`}>
+                              <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 bg-card ${receiptUrl ? 'border-emerald-400 text-emerald-700' : 'text-muted-foreground'}`}>
                                 {uploading ? '…' : receiptUrl ? 'Receipt ✓' : 'Receipt'}
                                 <input type="file" accept="image/*" className="hidden"
                                   onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const url = await uploadPhoto(f); if (url) setReceiptUrl(url); } }} />
@@ -1348,16 +1348,16 @@ export function MaintenanceSection({
                         <div className="flex gap-2 items-center">
                           <input value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Add a note — sent to whoever reported it…"
                             className="flex-1 min-w-0 h-9 rounded-xl border-2 px-3 text-sm font-medium" />
-                          <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 ${notePhoto ? 'border-emerald-300 text-emerald-700' : 'text-slate-500'}`}>
+                          <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 ${notePhoto ? 'border-emerald-300 text-emerald-700' : 'text-muted-foreground'}`}>
                             {uploading ? '…' : notePhoto ? 'Photo ✓' : 'Photo'}
                             <input type="file" accept="image/*" className="hidden"
                               onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const url = await uploadPhoto(f); if (url) setNotePhoto(url); } }} />
                           </label>
                           <button onClick={() => addNote(t)} disabled={(!noteDraft.trim() && !notePhoto) || uploading}
-                            className="h-9 px-3 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40 shrink-0">Post &amp; tell</button>
+                            className="h-9 px-3 rounded-xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest disabled:opacity-40 shrink-0">Post &amp; tell</button>
                           <button onClick={() => addNote(t, false)} disabled={(!noteDraft.trim() && !notePhoto) || uploading}
                             title="Save to the record without messaging the reporter"
-                            className="h-9 px-3 rounded-xl border-2 bg-white font-black uppercase text-[9px] tracking-widest text-slate-500 disabled:opacity-40 shrink-0">Internal</button>
+                            className="h-9 px-3 rounded-xl border-2 bg-card font-black uppercase text-[9px] tracking-widest text-muted-foreground disabled:opacity-40 shrink-0">Internal</button>
                         </div>
                       </>
                     )}
@@ -1385,22 +1385,22 @@ export function MaintenanceSection({
               placeholder="Details — what happened, where exactly, anything they should bring…"
               className="w-full rounded-xl border-2 px-3.5 py-2.5 text-sm font-medium" />
             <div className="grid grid-cols-2 gap-2">
-              <select value={form.category} onChange={(e) => setForm(f => ({ ...f, category: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+              <select value={form.category} onChange={(e) => setForm(f => ({ ...f, category: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                 {TICKET_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
-              <select value={form.priority} onChange={(e) => setForm(f => ({ ...f, priority: e.target.value as TicketPriority }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+              <select value={form.priority} onChange={(e) => setForm(f => ({ ...f, priority: e.target.value as TicketPriority }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                 {(['urgent', 'high', 'normal', 'low'] as TicketPriority[]).map(p => <option key={p} value={p}>{TICKET_PRIORITY_LABELS[p]}</option>)}
               </select>
-              <select value={form.boothId} onChange={(e) => setForm(f => ({ ...f, boothId: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+              <select value={form.boothId} onChange={(e) => setForm(f => ({ ...f, boothId: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                 <option value="">No specific station</option>
                 {booths.filter((b: any) => !['wall', 'door', 'plant'].includes(b.shape)).map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
-              <select value={form.assigneeId} onChange={(e) => setForm(f => ({ ...f, assigneeId: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+              <select value={form.assigneeId} onChange={(e) => setForm(f => ({ ...f, assigneeId: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                 <option value="">Assign later</option>
                 {activeWorkers.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
               {namedResources.length > 0 && (
-                <select value={form.resourceId} onChange={(e) => setForm(f => ({ ...f, resourceId: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-white col-span-2">
+                <select value={form.resourceId} onChange={(e) => setForm(f => ({ ...f, resourceId: e.target.value }))} className="h-11 rounded-xl border-2 px-2 text-sm font-bold bg-card col-span-2">
                   <option value="">Room / equipment (optional — from Resources)</option>
                   {namedResources.map((r: any) => <option key={r.id} value={r.id}>{r.name}{r.type ? ` (${r.type})` : ''}</option>)}
                 </select>
@@ -1412,11 +1412,11 @@ export function MaintenanceSection({
                 <span key={i} className="relative">
                   <img src={u} alt="" className="h-14 w-14 rounded-xl object-cover border-2" />
                   <button onClick={() => setCreatePhotos(ps => ps.filter((_, j) => j !== i))}
-                    className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-slate-900 text-white text-[10px] font-black leading-none">×</button>
+                    className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-foreground text-background text-[10px] font-black leading-none">×</button>
                 </span>
               ))}
               {createPhotos.length < 3 && (
-                <label className="h-14 w-14 rounded-xl border-2 border-dashed flex items-center justify-center text-slate-400 cursor-pointer text-xl font-black">
+                <label className="h-14 w-14 rounded-xl border-2 border-dashed flex items-center justify-center text-muted-foreground cursor-pointer text-xl font-black">
                   {uploading ? '…' : '+'}
                   <input type="file" accept="image/*" className="hidden"
                     onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const url = await uploadPhoto(f); if (url) setCreatePhotos(ps => [...ps, url]); } }} />
@@ -1426,7 +1426,7 @@ export function MaintenanceSection({
             </div>
             <p className="text-[10px] font-bold text-muted-foreground">Urgent/high tickets on a station take it off the floor automatically until resolved.</p>
             <button onClick={createTicket} disabled={saving || uploading || !form.title.trim()}
-              className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-[10px] disabled:opacity-40">
+              className="w-full h-12 rounded-2xl bg-foreground text-background font-black uppercase tracking-widest text-[10px] disabled:opacity-40">
               {saving ? 'Creating…' : 'Create ticket'}
             </button>
           </div>
@@ -1457,10 +1457,10 @@ export function MaintenanceSection({
                       {[p.trade, p.contactName].filter(Boolean).join(' · ')}
                     </p>
                   </div>
-                  <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-slate-100 text-slate-600 shrink-0">{p.trade}</span>
+                  <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-muted text-foreground/80 shrink-0">{p.trade}</span>
                 </div>
                 {lst && (lst.resolvedAll > 0 || lst.open > 0) && (
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                     {[
                       lst.open > 0 ? `${lst.open} open` : null,
                       `${lst.resolvedAll} job${lst.resolvedAll === 1 ? '' : 's'} done`,
@@ -1470,16 +1470,16 @@ export function MaintenanceSection({
                     ].filter(Boolean).join(' · ')}
                   </p>
                 )}
-                {p.notes && <p className="text-[11px] font-medium text-slate-500 whitespace-pre-wrap">{p.notes}</p>}
+                {p.notes && <p className="text-[11px] font-medium text-muted-foreground whitespace-pre-wrap">{p.notes}</p>}
                 <div className="flex gap-1.5 items-center">
                   {p.phone && (
-                    <a href={`tel:${p.phone}`} title="Call" className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900"><Phone className="h-4 w-4" /></a>
+                    <a href={`tel:${p.phone}`} title="Call" className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-muted-foreground hover:text-foreground"><Phone className="h-4 w-4" /></a>
                   )}
                   {p.phone && (
-                    <a href={`sms:${p.phone}`} title="Text" className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900"><MessageCircle className="h-4 w-4" /></a>
+                    <a href={`sms:${p.phone}`} title="Text" className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-muted-foreground hover:text-foreground"><MessageCircle className="h-4 w-4" /></a>
                   )}
                   {p.email && (
-                    <a href={`mailto:${p.email}`} title="Email" className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900"><Mail className="h-4 w-4" /></a>
+                    <a href={`mailto:${p.email}`} title="Email" className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-muted-foreground hover:text-foreground"><Mail className="h-4 w-4" /></a>
                   )}
                   {linked ? (
                     <span className="ml-auto h-9 px-2.5 rounded-xl bg-indigo-50 border-2 border-indigo-200 text-indigo-700 font-black uppercase text-[9px] tracking-widest shrink-0 flex items-center">Has portal</span>
@@ -1489,7 +1489,7 @@ export function MaintenanceSection({
                       Give portal
                     </button>
                   )}
-                  <button onClick={() => removeProvider(p)} className="h-9 px-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2 shrink-0">Archive</button>
+                  <button onClick={() => removeProvider(p)} className="h-9 px-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-muted-foreground underline underline-offset-2 shrink-0">Archive</button>
                 </div>
               </div>
               );
@@ -1499,7 +1499,7 @@ export function MaintenanceSection({
               <input value={provForm.company} onChange={(e) => setProvForm(f => ({ ...f, company: e.target.value }))} placeholder="Company *" className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
               <div className="grid grid-cols-2 gap-2">
                 <input value={provForm.contactName} onChange={(e) => setProvForm(f => ({ ...f, contactName: e.target.value }))} placeholder="Contact person" className="h-10 rounded-xl border-2 px-3 text-sm font-medium" />
-                <select value={provForm.trade} onChange={(e) => setProvForm(f => ({ ...f, trade: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+                <select value={provForm.trade} onChange={(e) => setProvForm(f => ({ ...f, trade: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                   {PROVIDER_TRADES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 {provForm.trade === 'Other' && (
@@ -1512,7 +1512,7 @@ export function MaintenanceSection({
                 placeholder="Account #, rates, hours, who to ask for, warranty info…"
                 className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium" />
               <button onClick={saveProvider} disabled={provSaving || !provForm.company.trim()}
-                className="w-full h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                className="w-full h-10 rounded-xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
                 {provSaving ? 'Saving…' : 'Save provider'}
               </button>
               <p className="text-[10px] font-bold text-muted-foreground">"Give portal" turns a provider into a worker: they get a ticket queue link and can be assigned jobs directly.</p>
@@ -1535,7 +1535,7 @@ export function MaintenanceSection({
               <div key={p.id} className={`rounded-2xl border-2 p-3 space-y-1 ${p.active === false ? 'opacity-50' : ''}`}>
                 <div className="flex items-center gap-2">
                   <p className="flex-1 min-w-0 text-sm font-black truncate">{p.title}</p>
-                  <button onClick={() => togglePlan(p)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2 shrink-0">
+                  <button onClick={() => togglePlan(p)} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground underline underline-offset-2 shrink-0">
                     {p.active === false ? 'Resume' : 'Pause'}
                   </button>
                 </div>
@@ -1563,13 +1563,13 @@ export function MaintenanceSection({
                 placeholder="Checklist / instructions carried onto every generated ticket…"
                 className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium" />
               <div className="grid grid-cols-2 gap-2">
-                <select value={pForm.category} onChange={(e) => setPForm(f => ({ ...f, category: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+                <select value={pForm.category} onChange={(e) => setPForm(f => ({ ...f, category: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                   {TICKET_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
-                <select value={pForm.priority} onChange={(e) => setPForm(f => ({ ...f, priority: e.target.value as TicketPriority }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+                <select value={pForm.priority} onChange={(e) => setPForm(f => ({ ...f, priority: e.target.value as TicketPriority }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                   {(['normal', 'low', 'high'] as TicketPriority[]).map(p => <option key={p} value={p}>{TICKET_PRIORITY_LABELS[p]}</option>)}
                 </select>
-                <select value={pForm.everyDays} onChange={(e) => setPForm(f => ({ ...f, everyDays: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+                <select value={pForm.everyDays} onChange={(e) => setPForm(f => ({ ...f, everyDays: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                   {PLAN_INTERVALS.map(x => <option key={x.days} value={String(x.days)}>{x.label}</option>)}
                   <option value="custom">Custom…</option>
                 </select>
@@ -1584,23 +1584,23 @@ export function MaintenanceSection({
                   <input type="date" value={pForm.firstRun} onChange={(e) => setPForm(f => ({ ...f, firstRun: e.target.value }))}
                     className="h-10 rounded-xl border-2 px-2 text-sm font-bold col-span-2" />
                 )}
-                <select value={pForm.boothId} onChange={(e) => setPForm(f => ({ ...f, boothId: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+                <select value={pForm.boothId} onChange={(e) => setPForm(f => ({ ...f, boothId: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                   <option value="">Facility-wide</option>
                   {booths.filter((b: any) => !['wall', 'door', 'plant'].includes(b.shape)).map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
-                <select value={pForm.assigneeId} onChange={(e) => setPForm(f => ({ ...f, assigneeId: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white">
+                <select value={pForm.assigneeId} onChange={(e) => setPForm(f => ({ ...f, assigneeId: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-card">
                   <option value="">Assign later</option>
                   {activeWorkers.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
                 </select>
                 {namedResources.length > 0 && (
-                  <select value={pForm.resourceId} onChange={(e) => setPForm(f => ({ ...f, resourceId: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white col-span-2">
+                  <select value={pForm.resourceId} onChange={(e) => setPForm(f => ({ ...f, resourceId: e.target.value }))} className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-card col-span-2">
                     <option value="">Room / equipment (optional)</option>
                     {namedResources.map((r: any) => <option key={r.id} value={r.id}>{r.name}{r.type ? ` (${r.type})` : ''}</option>)}
                   </select>
                 )}
               </div>
               <button onClick={savePlan} disabled={pSaving || !pForm.title.trim()}
-                className="w-full h-11 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+                className="w-full h-11 rounded-xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
                 {pSaving ? 'Saving…' : 'Save plan'}
               </button>
               <p className="text-[10px] font-bold text-muted-foreground">The nightly sweep opens the ticket on schedule, pre-assigned, with both clocks running — and texts whoever it is assigned to if SMS is set up.</p>
@@ -1635,13 +1635,13 @@ export function MaintenanceSection({
                 <p className="text-xs font-black">{r.title}</p>
                 <p className="text-[10px] font-bold text-muted-foreground">{r.desc}</p>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{r.prefix}</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{r.prefix}</span>
                   <input type="number" inputMode="decimal" min={0} value={rulesDraft[r.key]}
                     onChange={(e) => setRulesDraft(d => ({ ...d, [r.key]: e.target.value }))}
                     placeholder="off" className="w-24 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
                   {Number(rulesDraft[r.key]) > 0
                     ? <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">On</span>
-                    : <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">Off</span>}
+                    : <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">Off</span>}
                 </div>
               </div>
             ))}
@@ -1650,12 +1650,12 @@ export function MaintenanceSection({
               <p className="text-xs font-black">Response-time promise</p>
               <p className="text-[10px] font-bold text-muted-foreground">Hours to first answer, and hours to fixed, per priority. Renters see these in their portal before they report anything; a ticket that passes either clock raises a notification. Two clocks, because "someone will look at it Tuesday" heard within the hour is fine — silence is not.</p>
               <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-2 gap-y-1.5">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Priority</span>
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Answer within</span>
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Fixed within</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Priority</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center">Answer within</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center">Fixed within</span>
                 {(['urgent', 'high', 'normal', 'low'] as const).map((p) => (
                   <React.Fragment key={p}>
-                    <span className="text-[11px] font-black capitalize">{p}{p === 'urgent' ? <span className="block text-[9px] font-bold text-slate-400 normal-case">your call, not the renter's</span> : null}</span>
+                    <span className="text-[11px] font-black capitalize">{p}{p === 'urgent' ? <span className="block text-[9px] font-bold text-muted-foreground normal-case">your call, not the renter's</span> : null}</span>
                     <input type="number" inputMode="numeric" min={1} aria-label={`${p}: answer within hours`} value={clockDraft[p]?.respond ?? ''}
                       onChange={(e) => setClockDraft((d) => ({ ...d, [p]: { respond: e.target.value, fix: d[p]?.fix ?? '' } }))}
                       className="w-16 h-9 rounded-xl border-2 px-2 text-center text-sm font-bold" />
@@ -1665,10 +1665,10 @@ export function MaintenanceSection({
                   </React.Fragment>
                 ))}
               </div>
-              <p className="text-[9px] font-bold text-slate-400">In hours. 24 = a day, 168 = a week.</p>
+              <p className="text-[9px] font-bold text-muted-foreground">In hours. 24 = a day, 168 = a week.</p>
             </div>
             <button onClick={saveRules} disabled={rulesSaving}
-              className="w-full h-11 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+              className="w-full h-11 rounded-xl bg-foreground text-background font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
               {rulesSaving ? 'Saving…' : 'Save rules'}
             </button>
             <p className="text-[10px] font-bold text-muted-foreground">
@@ -1691,25 +1691,25 @@ export function MaintenanceSection({
             <div className="flex gap-2 flex-wrap">
               <input value={hQuery} onChange={(e) => setHQuery(e.target.value)} placeholder="Search title, worker, place…"
                 className="flex-1 min-w-[140px] h-10 rounded-xl border-2 px-3 text-sm font-medium" />
-              <select value={hPlace} onChange={(e) => setHPlace(e.target.value)} className="h-10 rounded-xl border-2 px-2 text-xs font-bold bg-white">
+              <select value={hPlace} onChange={(e) => setHPlace(e.target.value)} className="h-10 rounded-xl border-2 px-2 text-xs font-bold bg-card">
                 <option value="">All places</option>
                 {historyPlaces.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
               <div className="flex rounded-xl border-2 overflow-hidden">
                 {([['30', '30d'], ['90', '90d'], ['365', 'Year'], ['all', 'All']] as const).map(([v, label]) => (
                   <button key={v} onClick={() => setHRange(v)}
-                    className={`h-10 px-2.5 text-[9px] font-black uppercase tracking-widest ${hRange === v ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{label}</button>
+                    className={`h-10 px-2.5 text-[9px] font-black uppercase tracking-widest ${hRange === v ? 'bg-foreground text-background' : 'text-muted-foreground'}`}>{label}</button>
                 ))}
               </div>
             </div>
             {/* Totals for exactly what's filtered — answer "what did the
                 pedicure chairs cost me this year" in two taps */}
-            <div className="rounded-xl border-2 bg-slate-50 p-2.5 flex items-center gap-4 flex-wrap">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+            <div className="rounded-xl border-2 bg-muted/60 p-2.5 flex items-center gap-4 flex-wrap">
+              <p className="text-[10px] font-black uppercase tracking-widest text-foreground/80">
                 {historyTotals.jobs} job{historyTotals.jobs === 1 ? '' : 's'} · ${(historyTotals.materials / 100).toFixed(0)} materials · ${(historyTotals.labor / 100).toFixed(0)} labor · ${((historyTotals.materials + historyTotals.labor) / 100).toFixed(0)} total
               </p>
               <button onClick={exportHistoryCsv} disabled={historyRows.length === 0}
-                className="ml-auto h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 disabled:opacity-40">
+                className="ml-auto h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 disabled:opacity-40">
                 Export CSV
               </button>
             </div>
@@ -1730,7 +1730,7 @@ export function MaintenanceSection({
                           t.status === 'cancelled' ? 'cancelled' : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
-                    <button onClick={() => printTicket(t)} className="h-8 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 shrink-0">Print</button>
+                    <button onClick={() => printTicket(t)} className="h-8 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-muted-foreground shrink-0">Print</button>
                   </div>
                 ))}
                 {historyRows.length > 100 && <p className="text-[10px] font-bold text-muted-foreground">Showing the latest 100 — narrow the filters or export the CSV for everything.</p>}
@@ -1760,7 +1760,7 @@ export function MaintenanceSection({
                 </p>
               </div>
               <button onClick={toggleRotation}
-                className={`h-9 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest shrink-0 ${autoAssign ? 'bg-indigo-600 text-white' : 'border-2 text-slate-600'}`}>
+                className={`h-9 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest shrink-0 ${autoAssign ? 'bg-indigo-600 text-white' : 'border-2 text-foreground/80'}`}>
                 {autoAssign ? 'On' : 'Turn on'}
               </button>
             </div>
@@ -1776,7 +1776,7 @@ export function MaintenanceSection({
                       <p className="flex-1 min-w-0 text-sm font-black truncate">{w.name}</p>
                       {balance > 0 && <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 shrink-0">Owed ${(balance / 100).toFixed(0)}</span>}
                       {st.overdueNow > 0 && <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-red-100 text-red-700 shrink-0">{st.overdueNow} overdue</span>}
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">{onPayroll ? 'Payroll' : 'Per-job'}</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">{onPayroll ? 'Payroll' : 'Per-job'}</span>
                     </div>
                     <p className="text-[10px] font-bold text-muted-foreground mt-0.5">
                       {[w.phone, w.email, `${st.open} open`, `${st.resolved30} done in 30d`].filter(Boolean).join(' · ')}
@@ -1807,7 +1807,7 @@ export function MaintenanceSection({
                           <div className="flex rounded-lg border-2 overflow-hidden">
                             {(['per_job', 'payroll'] as const).map((pt) => (
                               <button key={pt} onClick={() => setWorkerPayType(w, pt)}
-                                className={`h-7 px-2.5 text-[9px] font-black uppercase tracking-widest ${(w.payType || 'per_job') === pt ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                                className={`h-7 px-2.5 text-[9px] font-black uppercase tracking-widest ${(w.payType || 'per_job') === pt ? 'bg-foreground text-background' : 'text-muted-foreground'}`}>
                                 {pt === 'per_job' ? 'Per job' : 'Payroll'}
                               </button>
                             ))}
@@ -1815,7 +1815,7 @@ export function MaintenanceSection({
                         </div>
                         {!onPayroll && (
                           <button onClick={() => setWorkerRate(w)}
-                            className="w-full h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center justify-center gap-1.5">
+                            className="w-full h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1.5">
                             {(w.hourlyRateCents || 0) > 0
                               ? <>Rate ${((w.hourlyRateCents || 0) / 100).toFixed(2)}/hr · change</>
                               : <>Set hourly rate — required before labor accrues</>}
@@ -1835,7 +1835,7 @@ export function MaintenanceSection({
                             <div className="flex gap-1.5 flex-wrap">
                               {['Cash', 'Zelle', 'Venmo', 'Check', 'Card'].map((mth) => (
                                 <button key={mth} onClick={() => setPayoutMethod(mth)}
-                                  className={`h-7 px-2.5 rounded-lg text-[9px] font-black uppercase tracking-widest ${payoutMethod === mth ? 'bg-slate-900 text-white' : 'border-2 text-slate-500'}`}>{mth}</button>
+                                  className={`h-7 px-2.5 rounded-lg text-[9px] font-black uppercase tracking-widest ${payoutMethod === mth ? 'bg-foreground text-background' : 'border-2 text-muted-foreground'}`}>{mth}</button>
                               ))}
                             </div>
                             <button onClick={() => payOutLabor(w)}
@@ -1848,7 +1848,7 @@ export function MaintenanceSection({
                         )}
                         {Array.isArray(w.laborPayments) && w.laborPayments.length > 0 && (
                           <div className="space-y-0.5 pt-1 border-t">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-foreground/80">
                               Paid out to date: ${(w.laborPayments.reduce((a: number, p: any) => a + (Number(p.amountCents) || 0), 0) / 100).toFixed(2)} across {w.laborPayments.length} payout{w.laborPayments.length === 1 ? '' : 's'}
                             </p>
                             {w.laborPayments.slice(-3).reverse().map((p: any, i: number) => (
@@ -1862,10 +1862,10 @@ export function MaintenanceSection({
                         <div className="space-y-1">
                           <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Recent jobs</p>
                           {st.recent.map((t: any) => (
-                            <div key={t.id} className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+                            <div key={t.id} className="flex items-center gap-2 text-[11px] font-medium text-foreground/80">
                               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${t.status === 'resolved' ? 'bg-emerald-500' : t.status === 'cancelled' ? 'bg-slate-300' : isTicketOverdue(t) ? 'bg-red-500' : 'bg-amber-500'}`} />
                               <span className="flex-1 min-w-0 truncate">{t.title}{t.boothName ? ` · ${t.boothName}` : ''}</span>
-                              <span className="text-[9px] font-bold text-slate-400 shrink-0">{fmtWhen(t.resolvedAt || t.updatedAt || t.createdAt)}</span>
+                              <span className="text-[9px] font-bold text-muted-foreground shrink-0">{fmtWhen(t.resolvedAt || t.updatedAt || t.createdAt)}</span>
                             </div>
                           ))}
                         </div>
@@ -1874,13 +1874,13 @@ export function MaintenanceSection({
                       <div className="flex gap-2">
                         {w.phone && (
                           <a href={`sms:${w.phone}?&body=${encodeURIComponent(`Your maintenance portal for the studio — open tickets, add notes, mark resolved: ${workerLink(w)}`)}`}
-                            className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center justify-center">Text link</a>
+                            className="flex-1 h-9 rounded-xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest flex items-center justify-center">Text link</a>
                         )}
                         <button onClick={() => { try { navigator.clipboard.writeText(workerLink(w)); toast({ title: 'Link copied' }); } catch { /* select manually */ } }}
-                          className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">Copy link</button>
+                          className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80">Copy link</button>
                         <button onClick={() => rotateToken(w)} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-red-500">Rotate</button>
                       </div>
-                      <button onClick={() => toggleWorker(w)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
+                      <button onClick={() => toggleWorker(w)} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground underline underline-offset-2">
                         {w.active === false ? 'Reactivate' : 'Deactivate'} {w.name}
                       </button>
                     </div>
@@ -1901,12 +1901,12 @@ export function MaintenanceSection({
                   { v: 'payroll', label: 'Payroll — wages via Staff page' },
                 ] as const).map((pt) => (
                   <button key={pt.v} onClick={() => setWForm(f => ({ ...f, payType: pt.v }))}
-                    className={`flex-1 h-10 text-[9px] font-black uppercase tracking-widest px-2 ${wForm.payType === pt.v ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                    className={`flex-1 h-10 text-[9px] font-black uppercase tracking-widest px-2 ${wForm.payType === pt.v ? 'bg-foreground text-background' : 'text-muted-foreground'}`}>
                     {pt.label}
                   </button>
                 ))}
               </div>
-              <button onClick={addWorker} disabled={!wForm.name.trim()} className="w-full h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">Add to team</button>
+              <button onClick={addWorker} disabled={!wForm.name.trim()} className="w-full h-10 rounded-xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest disabled:opacity-40">Add to team</button>
             </div>
           </div>
         </div>

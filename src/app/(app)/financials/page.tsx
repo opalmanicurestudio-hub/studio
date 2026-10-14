@@ -95,7 +95,7 @@ const BillItemRow = ({ bill, isEditing = false, onBillChange, onDelete }: {
           <Input value={bill.title} onChange={(e) => onBillChange(bill.id, 'title', e.target.value)} className="font-bold h-9 sm:h-10 border-2 rounded-xl uppercase text-[10px] sm:text-xs" />
         ) : (
           <div className="flex flex-col text-left">
-            <Label className="font-black uppercase tracking-tight text-[10px] sm:text-xs text-slate-900 truncate">{bill.title}</Label>
+            <Label className="font-black uppercase tracking-tight text-[10px] sm:text-xs text-foreground truncate">{bill.title}</Label>
             {!isEditing && (
               <div className="flex items-center gap-2 text-muted-foreground mt-0.5 opacity-40 flex-wrap">
                 {/* v70 — cadence-aware due label: weekly bills show the
@@ -174,14 +174,14 @@ const BillItemRow = ({ bill, isEditing = false, onBillChange, onDelete }: {
                 <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late Penalty ($)</Label>
                 <div className="relative">
                   <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
-                  <Input type="number" placeholder="0.00" value={bill.lateFee || ''} onChange={(e) => onBillChange(bill.id, 'lateFee', parseFloat(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-white" />
+                  <Input type="number" placeholder="0.00" value={bill.lateFee || ''} onChange={(e) => onBillChange(bill.id, 'lateFee', parseFloat(e.target.value) || 0)} className="pl-7 h-9 rounded-lg border-2 font-black text-xs bg-card" />
                 </div>
               </div>
               <div className="space-y-1.5 text-left">
                 <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Late After (Days)</Label>
                 <div className="relative">
                   <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 opacity-40" />
-                  <Input type="number" placeholder="0" value={bill.lateByDay || ''} onChange={(e) => onBillChange(bill.id, 'lateByDay', parseInt(e.target.value) || 0)} className="h-9 rounded-lg border-2 font-black text-xs bg-white text-center" />
+                  <Input type="number" placeholder="0" value={bill.lateByDay || ''} onChange={(e) => onBillChange(bill.id, 'lateByDay', parseInt(e.target.value) || 0)} className="h-9 rounded-lg border-2 font-black text-xs bg-card text-center" />
                 </div>
               </div>
             </div>
@@ -206,7 +206,7 @@ const BillEditor = ({ categories, isEditing, onBillChange, onAddBillItem, onDele
   // true monthly cost, so this total (and TMHR downstream) is accurate.
   const total = useMemo(() => categories.reduce((a, c) => a + (c.bills || []).reduce((b, bill) => b + monthlyEquivalent(bill), 0), 0), [categories]);
   return (
-    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-card">
       <CardHeader className="bg-muted/5 border-b p-5 sm:p-8 text-left">
         <CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary" /> Manifest Entry</CardTitle>
         <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Enter your monthly recurring amounts in each category.</CardDescription>
@@ -214,10 +214,10 @@ const BillEditor = ({ categories, isEditing, onBillChange, onAddBillItem, onDele
       <CardContent className="p-3 sm:p-8">
         <Accordion type="multiple" defaultValue={categories.map((_, i) => `category-${i}`)} className="w-full space-y-3 sm:space-y-4">
           {categories.map((category, index) => (
-            <AccordionItem key={`${category.name}-${index}`} value={`category-${index}`} className="border-2 rounded-2xl overflow-hidden bg-white">
-              <AccordionTrigger className="p-3 sm:p-4 bg-muted/30 hover:no-underline font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-900 group">
+            <AccordionItem key={`${category.name}-${index}`} value={`category-${index}`} className="border-2 rounded-2xl overflow-hidden bg-card">
+              <AccordionTrigger className="p-3 sm:p-4 bg-muted/30 hover:no-underline font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-foreground group">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-white rounded-xl shadow-inner border border-border/50 group-data-[state=open]:bg-primary group-data-[state=open]:text-white transition-all duration-300">{getCategoryIcon(category.name)}</div>
+                  <div className="p-2 bg-card rounded-xl shadow-inner border border-border/50 group-data-[state=open]:bg-primary group-data-[state=open]:text-white transition-all duration-300">{getCategoryIcon(category.name)}</div>
                   <div className="flex items-center gap-3">
                     <span className="truncate max-w-[140px] sm:max-w-none">{category.name}</span>
                     {(category.bills || []).some(b => b.amount > 0) && (
@@ -247,7 +247,7 @@ const BillEditor = ({ categories, isEditing, onBillChange, onAddBillItem, onDele
         </div>
         <div className="text-right">
           <p className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Annual Run-Rate</p>
-          <p className="text-lg sm:text-xl font-black font-mono tracking-tighter text-slate-900">${(total * 12).toFixed(0)}</p>
+          <p className="text-lg sm:text-xl font-black font-mono tracking-tighter text-foreground">${(total * 12).toFixed(0)}</p>
         </div>
       </CardFooter>
     </Card>
@@ -276,7 +276,7 @@ const FinancialProfileManager = ({ activeTab, profiles, setProfiles, isEditing, 
   };
 
   return (
-    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-card">
       <CardHeader className="bg-muted/5 border-b p-5 sm:p-6 text-left">
         <CardTitle className="text-xs sm:text-sm font-black uppercase tracking-widest flex items-center gap-2">
           <Briefcase className="w-4 h-4 text-primary" />{activeTab === 'lifestyle' ? 'Lifestyle' : 'Business'} Portfolios
@@ -293,7 +293,7 @@ const FinancialProfileManager = ({ activeTab, profiles, setProfiles, isEditing, 
               </div>
             ) : (
               <button className="flex-1 text-left min-w-0" onClick={() => handleSetActive(profile.id)} disabled={isEditing}>
-                <p className={cn('font-black uppercase tracking-tight text-[10px] sm:text-[11px] truncate', profile.isActive ? 'text-primary' : 'text-slate-900')}>{profile.name}</p>
+                <p className={cn('font-black uppercase tracking-tight text-[10px] sm:text-[11px] truncate', profile.isActive ? 'text-primary' : 'text-foreground')}>{profile.name}</p>
                 {profile.isActive && <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Active</p>}
               </button>
             )}
@@ -342,14 +342,14 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
           <p className="text-4xl sm:text-7xl font-black text-primary tracking-tighter font-mono leading-none">${tmhr.toFixed(2)}</p>
           {totalHours === 0 && <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest">Set a schedule profile to calculate</p>}
         </div>
-        <div className="p-5 rounded-[1.5rem] border-2 border-primary/10 bg-white/50 space-y-4 shadow-inner">
+        <div className="p-5 rounded-[1.5rem] border-2 border-primary/10 bg-card/50 space-y-4 shadow-inner">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label className="text-[10px] font-black uppercase tracking-widest text-primary leading-none">Labor Tax Burden</Label>
               <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">FICA, SUI, Benefits</p>
             </div>
             <div className="relative w-20">
-              <Input type="number" value={taxBurden || ''} onChange={(e) => setTaxBurden(parseFloat(e.target.value) || 0)} disabled={!isEditing} className="h-10 pr-6 rounded-xl border-2 font-black text-xs text-right bg-white shadow-sm" />
+              <Input type="number" value={taxBurden || ''} onChange={(e) => setTaxBurden(parseFloat(e.target.value) || 0)} disabled={!isEditing} className="h-10 pr-6 rounded-xl border-2 font-black text-xs text-right bg-card shadow-sm" />
               <Percent className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground opacity-40" />
             </div>
           </div>
@@ -357,11 +357,11 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
         <div className="space-y-3 pt-4 border-t-2 border-dashed border-primary/10">
           <div className="flex justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
             <span>Personal Draw / Hr</span>
-            <span className="font-mono text-slate-900">${(totalHours > 0 ? lifestyleTotal / totalHours : 0).toFixed(2)}</span>
+            <span className="font-mono text-foreground">${(totalHours > 0 ? lifestyleTotal / totalHours : 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
             <span>OpEx Load / Hr</span>
-            <span className="font-mono text-slate-900">${(totalHours > 0 ? businessTotal / totalHours : 0).toFixed(2)}</span>
+            <span className="font-mono text-foreground">${(totalHours > 0 ? businessTotal / totalHours : 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">
             <span>Billable Hours / Mo</span>
@@ -566,24 +566,24 @@ export default function FinancialFoundationPage() {
   const businessTotal  = useMemo(() => (activeBusiness?.categories  || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + monthlyEquivalent(bill), 0), 0), [activeBusiness]);
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Foundation Analysis" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
 
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 text-left">
           <div className="space-y-1">
-            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Yield Architecture</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Yield Architecture</h1>
             <p className="text-[10px] sm:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">TMHR Calculation &amp; Core Economics</p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
             {isEditing ? (
               <>
-                <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:w-auto h-12 sm:h-14 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                <Button variant="ghost" onClick={() => setIsEditing(false)} className="flex-1 sm:w-auto h-12 sm:h-14 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-muted-foreground">Cancel</Button>
                 <Button onClick={handleSave} className="flex-[2] sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase text-[9px] sm:text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" /> Save</Button>
               </>
             ) : (
               <>
-                <Button variant="outline" onClick={handleSyncBillTracker} disabled={isSyncing} className="flex-1 sm:flex-none h-12 sm:h-14 px-4 sm:px-6 rounded-2xl border-2 font-black uppercase tracking-widest text-[9px] sm:text-[10px] bg-white">
+                <Button variant="outline" onClick={handleSyncBillTracker} disabled={isSyncing} className="flex-1 sm:flex-none h-12 sm:h-14 px-4 sm:px-6 rounded-2xl border-2 font-black uppercase tracking-widest text-[9px] sm:text-[10px] bg-card">
                   <LinkIcon className="mr-2 h-4 w-4 text-primary opacity-60" /> {isSyncing ? 'Syncing…' : 'Sync Bill Tracker'}
                 </Button>
                 <Button onClick={() => setIsEditing(true)} className="flex-1 sm:flex-none h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20"><Pencil className="mr-2 h-4 w-4" /> Edit Profiles</Button>
@@ -596,8 +596,8 @@ export default function FinancialFoundationPage() {
           <div className="flex flex-col space-y-6 sm:space-y-8">
             <div className="w-full overflow-x-auto pb-2">
               <TabsList className="inline-flex bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5">
-                <TabsTrigger value="lifestyle" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">1. Lifestyle Target</TabsTrigger>
-                <TabsTrigger value="business"  className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">2. Studio Overhead</TabsTrigger>
+                <TabsTrigger value="lifestyle" className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">1. Lifestyle Target</TabsTrigger>
+                <TabsTrigger value="business"  className="px-4 sm:px-8 h-10 sm:h-11 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">2. Studio Overhead</TabsTrigger>
               </TabsList>
             </div>
 

@@ -53,10 +53,10 @@ export function RequestDecisionPanel({ appointment, firestore, tenantId, actorUi
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-800"><Clock className="h-5 w-5" /></div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-black text-slate-900">Waiting on your answer</p>
-          <p className="text-xs font-medium text-slate-600">{holdReasonLabel(appointment) || 'This booking needs a yes before it’s confirmed.'}{leftLabel ? ` · ${leftLabel}` : ''}</p>
+          <p className="text-sm font-black text-foreground">Waiting on your answer</p>
+          <p className="text-xs font-medium text-foreground/80">{holdReasonLabel(appointment) || 'This booking needs a yes before it’s confirmed.'}{leftLabel ? ` · ${leftLabel}` : ''}</p>
           {depositCents > 0 && (
-            <p className="mt-1 text-xs font-medium text-slate-600">
+            <p className="mt-1 text-xs font-medium text-foreground/80">
               ${(depositCents / 100).toFixed(2)} deposit — {depositPaid ? 'already paid.' : 'not charged yet. Accepting charges their card on file, or sends them a link to pay.'}
             </p>
           )}
@@ -75,14 +75,14 @@ export function RequestDecisionPanel({ appointment, firestore, tenantId, actorUi
       ) : (
         <div className="space-y-2">
           <textarea value={reason} onChange={(e) => setReason(e.target.value.slice(0, 300))} rows={2} placeholder="A note for them (optional)"
-            className="w-full rounded-2xl border-2 border-slate-200 bg-white/70 px-3 py-2 text-sm" />
+            className="w-full rounded-2xl border-2 border-border bg-card/70 px-3 py-2 text-sm" />
           <Button disabled={!!busy} onClick={() => run('decline', 'alternative')} className="h-11 w-full rounded-2xl text-[11px] font-black uppercase tracking-widest">
             {busy === 'decline' ? <Loader className="h-4 w-4 animate-spin" /> : 'Decline — invite another time'}
           </Button>
           <Button variant="outline" disabled={!!busy} onClick={() => run('decline', 'final')} className="h-11 w-full rounded-2xl border-2 border-red-200 text-[11px] font-black uppercase tracking-widest text-red-700">
             Not taking this booking
           </Button>
-          <button type="button" onClick={() => { setDeclining(false); setReason(''); }} className="w-full text-center text-[11px] font-bold text-slate-500 underline">Back</button>
+          <button type="button" onClick={() => { setDeclining(false); setReason(''); }} className="w-full text-center text-[11px] font-bold text-muted-foreground underline">Back</button>
         </div>
       )}
     </div>

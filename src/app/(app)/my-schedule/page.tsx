@@ -203,13 +203,13 @@ export default function MySchedulePage() {
   })).filter(x => x.member);
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50/50">
+    <div className="flex min-h-screen flex-col bg-background">
       <AppHeader title="My Schedule" />
       <main className="flex-1 p-4 md:p-8 w-full max-w-2xl mx-auto space-y-6">
 
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">My Schedule</h1>
+            <h1 className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">My Schedule</h1>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Your shifts & requests</p>
           </div>
           <Button onClick={() => setIsRequestOpen(true)} className="h-12 px-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
@@ -217,7 +217,7 @@ export default function MySchedulePage() {
           </Button>
         </div>
 
-        <div className="flex items-center justify-between gap-4 p-4 bg-white rounded-[2rem] border-2 shadow-sm">
+        <div className="flex items-center justify-between gap-4 p-4 bg-card rounded-[2rem] border-2 shadow-sm">
           <Button variant="ghost" size="icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl">
             <ChevronLeft className="w-5 h-5" />
           </Button>
@@ -237,14 +237,14 @@ export default function MySchedulePage() {
             const dayShifts = myShifts.filter(s => s.date === dayStr);
             const isPastDay = isBefore(day, startOfDay(new Date())) && !isToday(day);
             return (
-              <div key={day.toISOString()} className={cn("rounded-[2rem] border-2 overflow-hidden bg-white transition-all", isToday(day) ? "border-primary/30 shadow-md shadow-primary/10" : "border-slate-200", isPastDay && "opacity-50")}>
+              <div key={day.toISOString()} className={cn("rounded-[2rem] border-2 overflow-hidden bg-card transition-all", isToday(day) ? "border-primary/30 shadow-md shadow-primary/10" : "border-border", isPastDay && "opacity-50")}>
                 <div className={cn("px-5 py-3 flex items-center justify-between border-b border-dashed", isToday(day) ? "bg-primary/5" : "bg-muted/5")}>
                   <div className="flex items-center gap-3">
-                    <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0", isToday(day) ? "bg-primary text-white" : "bg-white border-2 text-slate-600")}>
+                    <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0", isToday(day) ? "bg-primary text-white" : "bg-card border-2 text-foreground/80")}>
                       {format(day, 'd')}
                     </div>
                     <div>
-                      <p className={cn("font-black uppercase text-sm leading-none", isToday(day) ? "text-primary" : "text-slate-700")}>{format(day, 'EEEE')}</p>
+                      <p className={cn("font-black uppercase text-sm leading-none", isToday(day) ? "text-primary" : "text-foreground/80")}>{format(day, 'EEEE')}</p>
                       <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{format(day, 'MMMM d')}</p>
                     </div>
                   </div>
@@ -279,7 +279,7 @@ export default function MySchedulePage() {
           <div className="space-y-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">My Requests</p>
             {myRequests.slice(0, 5).map(req => (
-              <Card key={req.id} className="border-2 rounded-[2rem] shadow-sm bg-white">
+              <Card key={req.id} className="border-2 rounded-[2rem] shadow-sm bg-card">
                 <CardContent className="p-4 flex items-start gap-4">
                   <div className={cn("p-2.5 rounded-xl shrink-0 border-2",
                     req.type === 'day_off' ? "bg-blue-50 border-blue-200" :
@@ -291,7 +291,7 @@ export default function MySchedulePage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <p className="font-black uppercase text-[10px] text-slate-900">
+                      <p className="font-black uppercase text-[10px] text-foreground">
                         {req.type === 'day_off' ? 'Day Off' : req.type === 'swap' ? 'Shift Swap' : 'Early Release'}
                         {req.date && ` -- ${format(safeDate(req.date), 'MMM d')}`}
                       </p>
@@ -324,7 +324,7 @@ export default function MySchedulePage() {
         <DialogContent className="sm:max-w-md max-h-[85dvh] !flex flex-col !gap-0 p-0 rounded-[2.5rem] border-4 shadow-2xl bg-background overflow-hidden">
 
           <div className="flex-shrink-0 p-6 pb-4 border-b bg-muted/5 text-left">
-            <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Submit Request</h2>
+            <h2 className="text-2xl font-black uppercase tracking-tighter text-foreground">Submit Request</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Your manager will be notified immediately.</p>
           </div>
 
@@ -366,13 +366,13 @@ export default function MySchedulePage() {
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                   {requestType === 'swap' ? 'Date to Swap' : 'Date'}
                 </Label>
-                <input type="date" value={requestDate} onChange={e => setRequestDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-white focus:border-primary/40" />
+                <input type="date" value={requestDate} onChange={e => setRequestDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-card focus:border-primary/40" />
               </div>
 
               {requestType === 'swap' && requestDate && (
                 <div className="space-y-3">
                   {myShiftOnDate ? (
-                    <div className="p-3 rounded-2xl bg-slate-50 border-2 border-slate-200">
+                    <div className="p-3 rounded-2xl bg-muted/60 border-2 border-border">
                       <p className="text-[9px] font-black uppercase text-muted-foreground mb-1">Your Shift</p>
                       <p className="font-black text-sm text-primary">{formatTime(myShiftOnDate.startTime)} -- {formatTime(myShiftOnDate.endTime)}</p>
                     </div>
@@ -396,7 +396,7 @@ export default function MySchedulePage() {
                               "w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all text-left",
                               swapTargetShiftId === shift.id
                                 ? "border-purple-400 bg-purple-50"
-                                : "border-slate-200 bg-white hover:border-purple-200"
+                                : "border-border bg-card hover:border-purple-200"
                             )}
                           >
                             <Avatar className="w-8 h-8 rounded-xl border shrink-0">
@@ -414,7 +414,7 @@ export default function MySchedulePage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="p-4 rounded-2xl bg-slate-50 border-2 border-dashed text-center">
+                      <div className="p-4 rounded-2xl bg-muted/60 border-2 border-dashed text-center">
                         <Users className="w-6 h-6 text-muted-foreground/40 mx-auto mb-1" />
                         <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">No other staff scheduled on this date</p>
                       </div>

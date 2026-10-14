@@ -47,7 +47,7 @@ const EVENT_TYPES = [
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   upcoming:  { label: 'Upcoming',  color: 'bg-blue-50 text-blue-700 border-blue-200' },
   active:    { label: 'Live',      color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  completed: { label: 'Completed', color: 'bg-slate-100 text-slate-500 border-slate-200' },
+  completed: { label: 'Completed', color: 'bg-muted text-muted-foreground border-border' },
   cancelled: { label: 'Cancelled', color: 'bg-red-50 text-red-500 border-red-200' },
 };
 
@@ -176,7 +176,7 @@ export default function EventsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 flex items-center gap-3">
+          <h1 className="text-3xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
             <PartyPopper className="w-8 h-8 text-primary" /> Events
           </h1>
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-1">
@@ -216,12 +216,12 @@ export default function EventsPage() {
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-black uppercase tracking-tight text-slate-900">{displayName}</p>
+                      <p className="font-black uppercase tracking-tight text-foreground">{displayName}</p>
                       <Badge className={cn('font-black text-[8px] border', statusCfg.color)}>
                         {statusCfg.label}
                       </Badge>
                       {event.accessPin && (
-                        <span className="flex items-center gap-1 text-[8px] font-black uppercase text-slate-400">
+                        <span className="flex items-center gap-1 text-[8px] font-black uppercase text-muted-foreground">
                           <Lock className="w-2.5 h-2.5" /> Private
                         </span>
                       )}
@@ -253,12 +253,12 @@ export default function EventsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={e => { e.stopPropagation(); openEdit(event); }}
-                    className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                    className="p-2 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground/80 transition-colors">
                     <Pencil className="w-4 h-4" />
                   </button>
                   <button
                     onClick={e => { e.stopPropagation(); handleDelete(event); }}
-                    className="p-2 rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                    className="p-2 rounded-xl hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors">
                     <Trash2 className="w-4 h-4" />
                   </button>
                   <button
@@ -295,7 +295,7 @@ export default function EventsPage() {
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Event Type</Label>
                 <select value={form.eventType} onChange={e => f('eventType', e.target.value)}
-                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white">
+                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-card">
                   {EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
@@ -311,12 +311,12 @@ export default function EventsPage() {
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Date *</Label>
                 <input type="date" value={form.date} onChange={e => f('date', e.target.value)}
-                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
+                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-card" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Start Time</Label>
                 <input type="time" value={form.time} onChange={e => f('time', e.target.value)}
-                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
+                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-card" />
               </div>
             </div>
 
@@ -343,10 +343,10 @@ export default function EventsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <input type="date" value={form.orderingDeadlineDate}
                   onChange={e => f('orderingDeadlineDate', e.target.value)}
-                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
+                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-card" />
                 <input type="time" value={form.orderingDeadlineTime}
                   onChange={e => f('orderingDeadlineTime', e.target.value)}
-                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
+                  className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-card" />
               </div>
               <p className="text-[9px] text-muted-foreground font-bold">After this time guests can no longer submit orders.</p>
             </div>

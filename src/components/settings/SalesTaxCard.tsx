@@ -24,7 +24,7 @@ export function SalesTaxCard({ tenantId, tenant, canEdit }: { tenantId: string; 
     } catch (e: any) { setMsg(e?.message || 'Couldn’t save.'); } finally { setBusy(false); }
   };
   return (
-    <div className="space-y-4 rounded-[2rem] border-2 bg-white p-6">
+    <div className="space-y-4 rounded-[2rem] border-2 bg-card p-6">
       <div><p className="text-lg font-semibold">Sales tax at checkout</p>
         <p className="text-sm text-muted-foreground">What the POS adds to a client’s bill. Fees (late cancellations, no-shows, change fees, balances) are never taxed.</p></div>
       {cur.legacy && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900"><b>Please check this.</b> Checkout is still using the old default — <b>7% on everything, services included</b>. Set your rates below to change it. Check with your accountant if you’re unsure what’s taxable where you are.</p>}
@@ -33,7 +33,7 @@ export function SalesTaxCard({ tenantId, tenant, canEdit }: { tenantId: string; 
         <span className="text-xs text-muted-foreground">The same rate your online store uses.</span></label>
       <div className="space-y-2 text-sm"><span className="font-semibold">Services</span>
         <div className="flex flex-wrap gap-2">{([[false, 'Not taxed'], [true, 'Taxed']] as const).map(([v, l]) =>
-          <button key={String(v)} type="button" disabled={!canEdit} aria-pressed={servicesTaxed === v} onClick={() => setServicesTaxed(v)} className={`rounded-full border px-4 py-1.5 ${servicesTaxed === v ? 'bg-slate-900 text-white' : 'bg-white'}`}>{l}</button>)}</div>
+          <button key={String(v)} type="button" disabled={!canEdit} aria-pressed={servicesTaxed === v} onClick={() => setServicesTaxed(v)} className={`rounded-full border px-4 py-1.5 ${servicesTaxed === v ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
         {servicesTaxed && <div className="flex items-center gap-2"><input value={services} onChange={(e) => setServices(e.target.value)} inputMode="decimal" disabled={!canEdit} className="h-10 w-28 rounded-xl border px-3" /><span>%</span></div>}
       </div>
       {canEdit ? <button type="button" onClick={save} disabled={busy} className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{busy ? 'Saving…' : 'Save tax settings'}</button>

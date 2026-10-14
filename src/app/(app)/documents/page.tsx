@@ -212,7 +212,7 @@ const AUDIT_FILTERS = [['all', 'Everything'], ['tasks', 'Tasks'], ['runs', 'Chec
 
 const AUDIT_KIND_META: Record<string, { dot: string; label: string }> = {
   tasks: { dot: 'bg-emerald-500', label: 'Task' },
-  runs: { dot: 'bg-slate-900', label: 'Checklist' },
+  runs: { dot: 'bg-foreground', label: 'Checklist' },
   rotations: { dot: 'bg-amber-500', label: 'Rotation' },
   acks: { dot: 'bg-sky-500', label: 'Sign-off' },
 };
@@ -308,11 +308,11 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
   }, [entries]);
 
   return (
-    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+    <Card className="rounded-[2rem] border-2 bg-card overflow-hidden">
       <CardContent className="p-5 space-y-3">
         <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Completed work — audit trail</p>
+            <p className="text-[11px] font-black uppercase tracking-widest text-foreground">Completed work — audit trail</p>
             <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">Every finished task, checklist run, and rotation turn — with photos</p>
           </div>
           <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
@@ -328,17 +328,17 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
             ))}
             <div className="flex flex-wrap gap-1.5">
               {AUDIT_FILTERS.map(([v, l]) => (
-                <button key={v} type="button" aria-pressed={filter === v} onClick={() => setFilter(v)} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', filter === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                <button key={v} type="button" aria-pressed={filter === v} onClick={() => setFilter(v)} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', filter === v ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                   {l}
                 </button>
               ))}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              <button type="button" aria-pressed={personId === ''} onClick={() => setPersonId('')} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', personId === '' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+              <button type="button" aria-pressed={personId === ''} onClick={() => setPersonId('')} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', personId === '' ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                 Whole team
               </button>
               {staff.filter((m: any) => !m.archived).map((m: any) => (
-                <button key={m.id} type="button" aria-pressed={personId === m.id} onClick={() => setPersonId(personId === m.id ? '' : m.id)} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', personId === m.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                <button key={m.id} type="button" aria-pressed={personId === m.id} onClick={() => setPersonId(personId === m.id ? '' : m.id)} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', personId === m.id ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                   {m.name}
                 </button>
               ))}
@@ -351,11 +351,11 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                   {safeDate(day) ? format(safeDate(day) as Date, 'EEEE, MMM d') : day}
                 </p>
-                <div className="relative mt-2 space-y-3 border-l-2 border-slate-200 pl-5">
+                <div className="relative mt-2 space-y-3 border-l-2 border-border pl-5">
                   {dayEntries.map((e: any, i: number) => {
                     const meta = AUDIT_KIND_META[e.kind] || AUDIT_KIND_META.tasks;
                     const timeStr = /T\d{2}:\d{2}/.test(e.ts) && safeDate(e.ts) ? format(safeDate(e.ts) as Date, 'h:mm a') : '';
-                    const dot = <span className={cn('absolute -left-[27px] top-1.5 h-3 w-3 rounded-full border-2 border-white ring-2 ring-slate-200', meta.dot)} aria-hidden="true" />;
+                    const dot = <span className={cn('absolute -left-[27px] top-1.5 h-3 w-3 rounded-full border-2 border-white ring-2 ring-border', meta.dot)} aria-hidden="true" />;
                     const header = (
                       <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                         {meta.label}{timeStr ? ` \u00b7 ${timeStr}` : ''}
@@ -367,7 +367,7 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
                         <div key={`a-${i}`} className="relative">
                           {dot}
                           {header}
-                          <p className="text-[12px] font-bold text-slate-700">✍️ {a.staffName || 'Team member'} read &amp; confirmed <span className="font-black">{a.docTitle}</span> (v{a.version})</p>
+                          <p className="text-[12px] font-bold text-foreground/80">✍️ {a.staffName || 'Team member'} read &amp; confirmed <span className="font-black">{a.docTitle}</span> (v{a.version})</p>
                         </div>
                       );
                     }
@@ -378,8 +378,8 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
                           {dot}
                           {header}
                           <div className="flex items-center justify-between gap-2">
-                            <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-700">
-                              ✓ {t.title} — <span className="font-black">{t.completedByName || 'Team member'}</span>{t.notes ? <span className="text-slate-500"> \u00b7 {t.notes}</span> : null}
+                            <p className="min-w-0 flex-1 text-[12px] font-bold text-foreground/80">
+                              ✓ {t.title} — <span className="font-black">{t.completedByName || 'Team member'}</span>{t.notes ? <span className="text-muted-foreground"> \u00b7 {t.notes}</span> : null}
                             </p>
                             {(Array.isArray(t.photoUrls) && t.photoUrls.length > 0 ? t.photoUrls : (t.photoUrl ? [t.photoUrl] : [])).map((u: string, pi: number) => (
                               <a key={pi} href={u} target="_blank" rel="noreferrer">
@@ -396,7 +396,7 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
                         <div key={`r-${i}`} className="relative">
                           {dot}
                           {header}
-                          <p className="text-[12px] font-bold text-slate-700">
+                          <p className="text-[12px] font-bold text-foreground/80">
                             ✓ {h.rotationTitle} — <span className="font-black">{h.staffName}</span>{h.coveredForName ? ` (covering for ${h.coveredForName})` : ''}
                           </p>
                         </div>
@@ -415,10 +415,10 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
                         {dot}
                         {header}
                         <button type="button" onClick={() => setOpenRunKey(isOpen ? null : runKey)} className="flex w-full items-center justify-between gap-2 text-left">
-                          <p className="min-w-0 flex-1 text-[12px] font-bold text-slate-700">
+                          <p className="min-w-0 flex-1 text-[12px] font-bold text-foreground/80">
                             {full ? '✓' : '◐'} {rDoc?.title || 'Document'} — <span className="font-black">{r.staffName || 'Team member'}</span> · {r.checkedCount}/{r.totalItems}
                             {photoCount > 0 ? ` · 📷 ${photoCount}` : ''}
-                            {started && finished ? <span className="text-slate-500"> \u00b7 {started} \u2192 {finished}</span> : started ? <span className="text-slate-500"> \u00b7 started {started}</span> : null}
+                            {started && finished ? <span className="text-muted-foreground"> \u00b7 {started} \u2192 {finished}</span> : started ? <span className="text-muted-foreground"> \u00b7 started {started}</span> : null}
                           </p>
                           <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-180')} aria-hidden="true" />
                         </button>
@@ -432,7 +432,7 @@ const AuditCard = ({ tenantId, staff, initialOpen }: { tenantId: string; staff: 
                                 const photo = (r.photos || {})[key];
                                 return (
                                   <div key={key} className="flex items-center justify-between gap-2 py-0.5">
-                                    <p className={cn('min-w-0 flex-1 text-[11px] font-bold', on ? 'text-slate-700' : 'text-slate-400')}>{on ? '✓' : '·'} {item}</p>
+                                    <p className={cn('min-w-0 flex-1 text-[11px] font-bold', on ? 'text-foreground/80' : 'text-muted-foreground')}>{on ? '✓' : '·'} {item}</p>
                                     {photo && (
                                       <a href={photo} target="_blank" rel="noreferrer">
                                         <img src={photo} alt={`Evidence: ${item}`} className="h-10 w-10 shrink-0 rounded-lg border-2 object-cover" />
@@ -509,11 +509,11 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
   };
 
   return (
-    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+    <Card className="rounded-[2rem] border-2 bg-card overflow-hidden">
       <CardContent className="p-5 space-y-3">
         <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Rotations</p>
+            <p className="text-[11px] font-black uppercase tracking-widest text-foreground">Rotations</p>
             <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
               {list.length > 0 ? `${list.length} running — turn-taking chores, tracked fairly` : 'Shared duties that take turns (laundry, bathroom check\u2026)'}
             </p>
@@ -531,21 +531,21 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
                 <div key={r.id} className="space-y-2 rounded-2xl border-2 p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-[13px] font-black tracking-tight text-slate-900">{r.title}</p>
+                      <p className="text-[13px] font-black tracking-tight text-foreground">{r.title}</p>
                       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                         {(ROTATION_CADENCES.find(([v]) => v === r.cadence)?.[1]) || 'Daily'}{r.linkedDocId ? ' · linked to an SOP' : ''}
                       </p>
                     </div>
                     <Button type="button" variant="outline" aria-label={`Remove rotation ${r.title}`} onClick={() => deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`))} className="h-9 shrink-0 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest text-destructive border-destructive/30">✕</Button>
                   </div>
-                  <div className="rounded-xl border-2 border-dashed bg-slate-50 p-2.5">
-                    <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">Now: {nameOf(cur)}</p>
+                  <div className="rounded-xl border-2 border-dashed bg-muted/60 p-2.5">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-foreground">Now: {nameOf(cur)}</p>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    <button type="button" aria-pressed={r.allowCover !== false} onClick={() => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), { allowCover: r.allowCover === false })} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', r.allowCover !== false ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                    <button type="button" aria-pressed={r.allowCover !== false} onClick={() => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), { allowCover: r.allowCover === false })} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', r.allowCover !== false ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                       {r.allowCover !== false ? '✓ Covering on' : 'Covering off'}
                     </button>
-                    <button type="button" aria-pressed={r.allowSwap !== false} onClick={() => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), { allowSwap: r.allowSwap === false })} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', r.allowSwap !== false ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                    <button type="button" aria-pressed={r.allowSwap !== false} onClick={() => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/rotations/${r.id}`), { allowSwap: r.allowSwap === false })} className={cn('h-9 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest', r.allowSwap !== false ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                       {r.allowSwap !== false ? '✓ Swaps on' : 'Swaps off'}
                     </button>
                   </div>
@@ -553,7 +553,7 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Order</p>
                     {ids.map((id, i) => (
                       <div key={id} className="flex items-center gap-2">
-                        <p className={cn('min-w-0 flex-1 truncate text-[12px] font-bold', id === cur ? 'text-slate-900' : 'text-slate-500')}>{i + 1}. {nameOf(id)}{id === cur ? ' ← turn' : ''}</p>
+                        <p className={cn('min-w-0 flex-1 truncate text-[12px] font-bold', id === cur ? 'text-foreground' : 'text-muted-foreground')}>{i + 1}. {nameOf(id)}{id === cur ? ' ← turn' : ''}</p>
                         <Button type="button" variant="outline" aria-label={`Move ${nameOf(id)} up`} disabled={i === 0} onClick={() => moveMember(r, i, -1)} className="h-8 w-8 rounded-lg border-2 p-0 text-[10px] font-black">↑</Button>
                         <Button type="button" variant="outline" aria-label={`Move ${nameOf(id)} down`} disabled={i === ids.length - 1} onClick={() => moveMember(r, i, 1)} className="h-8 w-8 rounded-lg border-2 p-0 text-[10px] font-black">↓</Button>
                       </div>
@@ -564,7 +564,7 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
                       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Recent turns</p>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {history.map((h: any, i: number) => (
-                          <span key={i} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', h.action === 'swap' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-900 border-emerald-300')}>
+                          <span key={i} className={cn('rounded-lg border-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest', h.action === 'swap' ? 'bg-muted text-foreground/80' : 'bg-emerald-100 text-emerald-900 border-emerald-300')}>
                             {h.action === 'swap' ? `${h.staffName} ⇄ ${h.withName || ''}` : `${h.staffName}${h.coveredForName ? ` (for ${h.coveredForName})` : ''} · ${h.date}`}
                           </span>
                         ))}
@@ -578,14 +578,14 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
             {creating ? (
               <div className="space-y-2 rounded-2xl border-2 p-3">
                 <label htmlFor="rot-title" className="sr-only">Rotation name</label>
-                <Input id="rot-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={140} placeholder="e.g. Towel laundry" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+                <Input id="rot-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={140} placeholder="e.g. Towel laundry" className="h-11 rounded-xl border-2 bg-card font-bold text-sm" />
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Who takes turns (tap in order)</p>
                 <div className="flex flex-wrap gap-1.5">
                   {activeStaff.map((m: any) => {
                     const idx = memberIds.indexOf(m.id);
                     const on = idx >= 0;
                     return (
-                      <button key={m.id} type="button" aria-pressed={on} onClick={() => setMemberIds(prev => on ? prev.filter(x => x !== m.id) : [...prev, m.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                      <button key={m.id} type="button" aria-pressed={on} onClick={() => setMemberIds(prev => on ? prev.filter(x => x !== m.id) : [...prev, m.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                         {on ? `${idx + 1}. ` : ''}{m.name}
                       </button>
                     );
@@ -593,17 +593,17 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {ROTATION_CADENCES.map(([v, l]) => (
-                    <button key={v} type="button" aria-pressed={cadence === v} onClick={() => setCadence(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', cadence === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                    <button key={v} type="button" aria-pressed={cadence === v} onClick={() => setCadence(v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', cadence === v ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                       {l}
                     </button>
                   ))}
                 </div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What members may do</p>
                 <div className="flex flex-wrap gap-1.5">
-                  <button type="button" aria-pressed={allowCover} onClick={() => setAllowCover(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', allowCover ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                  <button type="button" aria-pressed={allowCover} onClick={() => setAllowCover(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', allowCover ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                     {allowCover ? '✓ ' : ''}Covering allowed
                   </button>
-                  <button type="button" aria-pressed={allowSwap} onClick={() => setAllowSwap(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', allowSwap ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                  <button type="button" aria-pressed={allowSwap} onClick={() => setAllowSwap(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', allowSwap ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                     {allowSwap ? '✓ ' : ''}Swaps allowed
                   </button>
                 </div>
@@ -612,7 +612,7 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
                     <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Link an SOP (optional — the turn arrives with its checklist)</p>
                     <div className="flex flex-wrap gap-1.5">
                       {publishedDocs.map((dd: any) => (
-                        <button key={dd.id} type="button" aria-pressed={linkedDocId === dd.id} onClick={() => setLinkedDocId(linkedDocId === dd.id ? '' : dd.id)} className={cn('h-10 max-w-[220px] truncate rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', linkedDocId === dd.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                        <button key={dd.id} type="button" aria-pressed={linkedDocId === dd.id} onClick={() => setLinkedDocId(linkedDocId === dd.id ? '' : dd.id)} className={cn('h-10 max-w-[220px] truncate rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', linkedDocId === dd.id ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                           {dd.title || 'Untitled'}
                         </button>
                       ))}
@@ -622,7 +622,7 @@ const RotationsCard = ({ tenantId, staff, publishedDocs }: { tenantId: string; s
                 {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={() => setCreating(false)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
-                  <Button type="button" onClick={createRotation} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">Start rotation</Button>
+                  <Button type="button" onClick={createRotation} className="h-11 flex-[2] rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background">Start rotation</Button>
                 </div>
               </div>
             ) : (
@@ -701,11 +701,11 @@ const TasksCard = ({ tenantId, staff, actorName, focusTaskId }: { tenantId: stri
   };
 
   return (
-    <Card className="rounded-[2rem] border-2 bg-white overflow-hidden">
+    <Card className="rounded-[2rem] border-2 bg-card overflow-hidden">
       <CardContent className="p-5 space-y-3">
         <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 text-left">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900">One-off tasks</p>
+            <p className="text-[11px] font-black uppercase tracking-widest text-foreground">One-off tasks</p>
             <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
               {openTasks.length > 0 ? `${openTasks.length} open` : 'Assign a to-do that isn\u2019t an SOP'}
             </p>
@@ -719,14 +719,14 @@ const TasksCard = ({ tenantId, staff, actorName, focusTaskId }: { tenantId: stri
               <div key={t.id} id={`task-${t.id}`} className={cn('rounded-2xl border-2 p-3', focusTaskId === t.id && 'ring-4 ring-amber-300')}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-[13px] font-black tracking-tight text-slate-900">{t.title}</p>
+                    <p className="text-[13px] font-black tracking-tight text-foreground">{t.title}</p>
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                       {(t.assignedStaffIds || []).map(nameOf).join(', ')}{t.dueDate ? ` · due ${t.dueDate}` : ''}{t.requirePhoto ? ' · 📷' : ''}
                     </p>
                   </div>
                   <Button type="button" variant="outline" aria-label={`Remove task ${t.title}`} onClick={() => deleteDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/tasks/${t.id}`))} className="h-9 shrink-0 rounded-lg border-2 px-2.5 text-[10px] font-black uppercase tracking-widest text-destructive border-destructive/30">✕</Button>
                 </div>
-                {t.notes && <p className="mt-1 text-[12px] font-bold text-slate-600">{t.notes}</p>}
+                {t.notes && <p className="mt-1 text-[12px] font-bold text-foreground/80">{t.notes}</p>}
               </div>
             ))}
 
@@ -735,8 +735,8 @@ const TasksCard = ({ tenantId, staff, actorName, focusTaskId }: { tenantId: stri
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Recently done</p>
                 <div className="mt-1 space-y-1.5">
                   {doneTasks.map((t: any) => (
-                    <div key={t.id} className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed bg-slate-50/60 px-3 py-2">
-                      <p className="min-w-0 text-[12px] font-bold text-slate-700">✓ {t.title} · {t.completedByName || 'Team member'}{t.completedAt && safeDate(t.completedAt) ? ` · ${format(safeDate(t.completedAt) as Date, 'MMM d, h:mm a')}` : ''}</p>
+                    <div key={t.id} className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed bg-muted/60 px-3 py-2">
+                      <p className="min-w-0 text-[12px] font-bold text-foreground/80">✓ {t.title} · {t.completedByName || 'Team member'}{t.completedAt && safeDate(t.completedAt) ? ` · ${format(safeDate(t.completedAt) as Date, 'MMM d, h:mm a')}` : ''}</p>
                       <div className="flex shrink-0 items-center gap-1.5">
                         {(Array.isArray(t.photoUrls) && t.photoUrls.length > 0 ? t.photoUrls : (t.photoUrl ? [t.photoUrl] : [])).map((u: string, pi: number) => (
                           <a key={pi} href={u} target="_blank" rel="noreferrer">
@@ -755,21 +755,21 @@ const TasksCard = ({ tenantId, staff, actorName, focusTaskId }: { tenantId: stri
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Quick starts</p>
                 <div className="flex flex-wrap gap-1.5">
                   {TASK_TEMPLATES.map(tt => (
-                    <button key={tt.title} type="button" onClick={() => { setTitle(tt.title); setNotes(tt.notes); setRequirePhoto(tt.requirePhoto); }} className="h-9 max-w-[240px] truncate rounded-lg border-2 bg-white px-2.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                    <button key={tt.title} type="button" onClick={() => { setTitle(tt.title); setNotes(tt.notes); setRequirePhoto(tt.requirePhoto); }} className="h-9 max-w-[240px] truncate rounded-lg border-2 bg-card px-2.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                       {tt.requirePhoto ? '\ud83d\udcf7 ' : ''}{tt.title}
                     </button>
                   ))}
                 </div>
                 <label htmlFor="task-title" className="sr-only">Task name</label>
-                <Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={140} placeholder="e.g. Deep-clean the front window" className="h-11 rounded-xl border-2 bg-white font-bold text-sm" />
+                <Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} maxLength={140} placeholder="e.g. Deep-clean the front window" className="h-11 rounded-xl border-2 bg-card font-bold text-sm" />
                 <label htmlFor="task-notes" className="sr-only">Notes</label>
-                <textarea id="task-notes" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} rows={2} placeholder="Details (optional)" className="w-full rounded-xl border-2 bg-white p-3 font-bold text-sm" />
+                <textarea id="task-notes" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} rows={2} placeholder="Details (optional)" className="w-full rounded-xl border-2 bg-card p-3 font-bold text-sm" />
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Who</p>
                 <div className="flex flex-wrap gap-1.5">
                   {activeStaff.map((m: any) => {
                     const on = assignees.includes(m.id);
                     return (
-                      <button key={m.id} type="button" aria-pressed={on} onClick={() => setAssignees(prev => on ? prev.filter(x => x !== m.id) : [...prev, m.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                      <button key={m.id} type="button" aria-pressed={on} onClick={() => setAssignees(prev => on ? prev.filter(x => x !== m.id) : [...prev, m.id])} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                         {m.name}
                       </button>
                     );
@@ -777,15 +777,15 @@ const TasksCard = ({ tenantId, staff, actorName, focusTaskId }: { tenantId: stri
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <label htmlFor="task-due" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Due</label>
-                  <input id="task-due" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="h-10 rounded-xl border-2 bg-white px-3 text-[12px] font-bold" />
-                  <button type="button" aria-pressed={requirePhoto} onClick={() => setRequirePhoto(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', requirePhoto ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-muted-foreground')}>
+                  <input id="task-due" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="h-10 rounded-xl border-2 bg-card px-3 text-[12px] font-bold" />
+                  <button type="button" aria-pressed={requirePhoto} onClick={() => setRequirePhoto(v => !v)} className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest', requirePhoto ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground')}>
                     📷 {requirePhoto ? 'Photo required' : 'No photo needed'}
                   </button>
                 </div>
                 {err && <p className="text-[11px] font-bold text-destructive">{err}</p>}
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={() => setCreating(false)} className="h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">Cancel</Button>
-                  <Button type="button" onClick={createTask} className="h-11 flex-[2] rounded-xl bg-slate-900 text-[11px] font-black uppercase tracking-widest text-white">Assign task</Button>
+                  <Button type="button" onClick={createTask} className="h-11 flex-[2] rounded-xl bg-foreground text-[11px] font-black uppercase tracking-widest text-background">Assign task</Button>
                 </div>
                 <p className="text-[11px] font-bold text-muted-foreground">Assignees get a ping in their portal inbox.</p>
               </div>
@@ -912,30 +912,30 @@ export default function DocumentsPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Documents" />
-      <main className="mx-auto w-full max-w-6xl flex-1 space-y-5 p-4 md:p-8" style={{ color: '#16171a', letterSpacing: '-0.01em' }}>
+      <main className="mx-auto w-full max-w-6xl flex-1 space-y-5 p-4 md:p-8" style={{ color: 'hsl(var(--foreground))', letterSpacing: '-0.01em' }}>
         {/* Header: the library's name and the two ways to start a document. */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-[12px] tracking-[0.1em]" style={{ color: '#6d7075' }}>documents</p>
+            <p className="text-[12px] tracking-[0.1em]" style={{ color: 'hsl(var(--muted-foreground))' }}>documents</p>
             <h1 className="mt-1 text-[30px] font-normal tracking-[-0.03em] md:text-[34px]">{canManage ? 'Your playbook' : 'Handbook and SOPs'}</h1>
           </div>
           {canManage && (
             <div className="flex gap-2">
-              <button type="button" onClick={() => setTemplatesOpen(v => !v)} aria-expanded={templatesOpen} className="h-11 rounded-full border bg-white px-5 text-[14px] font-medium" style={{ borderColor: '#ececee' }}>Templates</button>
-              <button type="button" onClick={() => { handleCreate(); setPageTab('library'); }} className="h-11 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: '#16171a' }}>New document</button>
+              <button type="button" onClick={() => setTemplatesOpen(v => !v)} aria-expanded={templatesOpen} className="h-11 rounded-full border bg-card px-5 text-[14px] font-medium" style={{ borderColor: 'hsl(var(--border))' }}>Templates</button>
+              <button type="button" onClick={() => { handleCreate(); setPageTab('library'); }} className="h-11 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: 'hsl(var(--foreground))' }}>New document</button>
             </div>
           )}
         </div>
         {canManage && templatesOpen && (
-          <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: '#ececee' }}>
-            <div className="mb-3 flex items-baseline justify-between"><p className="text-[15px] font-semibold">Start from a template</p><p className="text-[12.5px]" style={{ color: '#6d7075' }}>Templates land as drafts — make every line match how you work, then publish.</p></div>
+          <div className="rounded-[18px] border bg-card p-4" style={{ borderColor: 'hsl(var(--border))' }}>
+            <div className="mb-3 flex items-baseline justify-between"><p className="text-[15px] font-semibold">Start from a template</p><p className="text-[12.5px]" style={{ color: 'hsl(var(--muted-foreground))' }}>Templates land as drafts — make every line match how you work, then publish.</p></div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {TEMPLATES.map(t => (
-                <button key={t.key} type="button" onClick={() => { handleCreate(t); setTemplatesOpen(false); setPageTab('library'); }} className="rounded-[14px] p-3.5 text-left hover:bg-[#ececee]" style={{ background: '#f3f3f5' }}>
+                <button key={t.key} type="button" onClick={() => { handleCreate(t); setTemplatesOpen(false); setPageTab('library'); }} className="rounded-[14px] p-3.5 text-left hover:bg-[#ececee]" style={{ background: 'hsl(var(--secondary))' }}>
                   <p className="text-[14.5px] font-semibold">{t.title}</p>
-                  <p className="mt-0.5 text-[12.5px]" style={{ color: '#6d7075' }}>{categoryLabel(t.category)} · {t.sections.length} sections — {t.blurb}</p>
+                  <p className="mt-0.5 text-[12.5px]" style={{ color: 'hsl(var(--muted-foreground))' }}>{categoryLabel(t.category)} · {t.sections.length} sections — {t.blurb}</p>
                 </button>
               ))}
             </div>
@@ -943,9 +943,9 @@ export default function DocumentsPage() {
         )}
 
         {canManage && (
-          <div role="tablist" aria-label="Documents" className="flex gap-1 overflow-x-auto border-b" style={{ borderColor: '#ececee' }}>
+          <div role="tablist" aria-label="Documents" className="flex gap-1 overflow-x-auto border-b" style={{ borderColor: 'hsl(var(--border))' }}>
             {([['library', 'Library'], ['training', 'Training record'], ['certification', 'Certification'], ['tasks', 'Tasks'], ['rotations', 'Rotations'], ['audit', 'Activity']] as const).map(([v, l]) => (
-              <button key={v} type="button" role="tab" aria-selected={pageTab === v} onClick={() => { setPageTab(v); setExpandedId(null); }} className="-mb-px h-11 shrink-0 px-3.5 text-[14px]" style={pageTab === v ? { fontWeight: 700, borderBottom: '2px solid #16171a' } : { color: '#6d7075' }}>{l}</button>
+              <button key={v} type="button" role="tab" aria-selected={pageTab === v} onClick={() => { setPageTab(v); setExpandedId(null); }} className="-mb-px h-11 shrink-0 px-3.5 text-[14px]" style={pageTab === v ? { fontWeight: 700, borderBottom: '2px solid hsl(var(--foreground))' } : { color: 'hsl(var(--muted-foreground))' }}>{l}</button>
             ))}
           </div>
         )}
@@ -974,7 +974,7 @@ export default function DocumentsPage() {
         ) : openDoc ? (
           // One document: who has signed, recent checklist runs, and (for managers) the editor.
           <div className="space-y-3">
-            <button type="button" onClick={() => setExpandedId(null)} className="text-[14px]" style={{ color: '#6d7075' }}>‹ All documents</button>
+            <button type="button" onClick={() => setExpandedId(null)} className="text-[14px]" style={{ color: 'hsl(var(--muted-foreground))' }}>‹ All documents</button>
             <DocDetail
               key={openDoc.id}
               d={openDoc}

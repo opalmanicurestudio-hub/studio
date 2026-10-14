@@ -23,7 +23,7 @@ export function PushPrompt({ tenantId, tone = 'light' }: { tenantId: string; ton
   if (!state) return null;
   const dark = tone === 'dark';
   return (
-    <div className={dark ? 'flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3' : 'flex flex-wrap items-center gap-3 rounded-xl px-4 py-3'} style={dark ? undefined : { background: '#f3eee8' }}>
+    <div className={dark ? 'flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-card/5 p-3' : 'flex flex-wrap items-center gap-3 rounded-xl px-4 py-3'} style={dark ? undefined : { background: 'hsl(var(--secondary))' }}>
       <p className={dark ? 'min-w-0 flex-1 text-xs text-white/80' : 'min-w-0 flex-1 text-[13px]'}>{TEXT[state]}{err && <span className={dark ? 'mt-1 block text-red-300' : 'mt-1 block text-red-700'}>{err}</span>}</p>
       {state === 'off' && (
         <button type="button" disabled={busy} onClick={() => { setBusy(true); setErr(''); void enablePush(tenantId).then((r) => { setState(r.state); if (r.error) setErr(r.error); setBusy(false); }); }}

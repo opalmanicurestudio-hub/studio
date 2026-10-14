@@ -20,7 +20,7 @@ export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLo
   return (
     <Card className={cn(
         "relative transition-all border-4 rounded-[2rem] overflow-hidden group",
-        isOverdue ? "border-destructive/40 bg-destructive/[0.02] shadow-xl shadow-destructive/5 animate-in fade-in zoom-in-95" : "border-border/50 bg-white",
+        isOverdue ? "border-destructive/40 bg-destructive/[0.02] shadow-xl shadow-destructive/5 animate-in fade-in zoom-in-95" : "border-border/50 bg-card",
         isPaid && "opacity-60 grayscale-[0.5] border-green-500/20"
     )}>
       <CardContent className="p-4 sm:p-6 space-y-4">
@@ -34,7 +34,7 @@ export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLo
               {isPaid ? <CheckCircle2 className="w-6 h-6" /> : isOverdue ? <AlertTriangle className="w-6 h-6 animate-pulse" /> : <Landmark className="w-6 h-6" />}
             </div>
             <div className="min-w-0">
-              <p className="font-black uppercase tracking-tight text-xs sm:text-sm text-slate-900 truncate leading-tight mb-1">{instance.definition.name}</p>
+              <p className="font-black uppercase tracking-tight text-xs sm:text-sm text-foreground truncate leading-tight mb-1">{instance.definition.name}</p>
               <div className="flex items-center gap-2">
                 <Badge
                   variant="outline"
@@ -54,7 +54,7 @@ export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLo
             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40 mb-0.5">Amount Due</p>
             <p className={cn(
                 "font-black text-xl sm:text-2xl tracking-tighter font-mono leading-none", 
-                isPaid ? 'text-muted-foreground line-through opacity-40' : 'text-slate-900'
+                isPaid ? 'text-muted-foreground line-through opacity-40' : 'text-foreground'
             )}>
                 ${instance.definition.amount.toFixed(2)}
             </p>

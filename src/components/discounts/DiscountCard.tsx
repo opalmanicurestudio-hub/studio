@@ -50,13 +50,13 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
   return (
     <Card className={cn(
         "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col",
-        discount.isActive ? "border-primary/20 bg-white hover:border-primary/40 hover:shadow-2xl hover:shadow-primary/5 shadow-sm" : "border-border/50 bg-muted/5 opacity-70 grayscale-[0.5]"
+        discount.isActive ? "border-primary/20 bg-card hover:border-primary/40 hover:shadow-2xl hover:shadow-primary/5 shadow-sm" : "border-border/50 bg-muted/5 opacity-70 grayscale-[0.5]"
     )}>
       <CardHeader className="p-6 pb-2 text-left">
         <div className="flex justify-between items-start gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
-                <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{discount.code}</p>
+                <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">{discount.code}</p>
                 {discount.automation && discount.automation.trigger !== 'none' && (
                     <TooltipProvider>
                         <Tooltip>
@@ -103,13 +103,13 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1">
                     <Activity className="w-2.5 h-2.5" /> Total Yield
                 </p>
-                <p className="font-black font-mono text-sm text-slate-900">${totalSavings.toFixed(0)}</p>
+                <p className="font-black font-mono text-sm text-foreground">${totalSavings.toFixed(0)}</p>
             </div>
             <div className="p-3 rounded-xl bg-background border shadow-sm text-left">
                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1">
                     <Target className="w-2.5 h-2.5" /> Reach
                 </p>
-                <p className="font-black font-mono text-sm text-slate-900">{discount.usageCount}</p>
+                <p className="font-black font-mono text-sm text-foreground">{discount.usageCount}</p>
             </div>
         </div>
 

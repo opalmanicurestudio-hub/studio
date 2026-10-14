@@ -13,7 +13,7 @@ import { payPost } from '@/components/pay/pay-client';
 import { accuracyOf } from '@/lib/prep-accuracy';
 import { isSoloTeam } from '@/lib/solo';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#3d5a99', PURPLE = '#7a4b8c';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#3d5a99', PURPLE = '#7a4b8c';
 const money = (n: number) => `$${Number.isInteger(Math.round(n * 100) / 100) ? Math.round(n) : n.toFixed(2)}`;
 const STATE: Record<string, { label: string; bg: string; fg: string }> = {
   needs_desk: { label: 'Needs you', bg: '#fdf3e6', fg: AMBER }, question: { label: 'Has a question', bg: '#fdf3e6', fg: AMBER }, safety: { label: 'Call first', bg: '#fdecec', fg: RED },
@@ -39,14 +39,14 @@ export default function BeforeTheVisitDesk() {
   const when = (iso: string) => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz });
   const group = (title: string, list: any[], sub?: string, actions = false) => list.length > 0 && <section className="space-y-2">
     <div className="flex items-baseline justify-between"><h2 className="text-[17px] font-semibold">{title} <span style={{ color: MUTED }}>· {list.length}</span></h2>{sub && <p className="text-[13px]" style={{ color: MUTED }}>{sub}</p>}</div>
-    <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>{list.map((a, i) => <Row key={a.id} a={a} first={i === 0} when={when} tenantId={tenantId} actions={actions} solo={solo} />)}</div></section>;
+    <div className="overflow-hidden rounded-[18px] border bg-card" style={{ borderColor: LINE }}>{list.map((a, i) => <Row key={a.id} a={a} first={i === 0} when={when} tenantId={tenantId} actions={actions} solo={solo} />)}</div></section>;
   return (
     <div className="min-h-full p-4 md:p-8" style={{ color: INK }}>
       <AppHeader title="Before the visit" />
       <div className="mx-auto mt-4 max-w-[1100px] space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>next 8 days</p><h1 className="text-[34px] font-normal tracking-[-0.03em]">{need.length ? `${need.length} visit${need.length === 1 ? ' needs' : 's need'} a decision` : 'Nothing needs you'}</h1>
           <p className="text-[14px]" style={{ color: MUTED }}>Nothing changes on a client’s booking or price until they’ve seen it. Changes we suggest are always free to move or cancel.</p></div>
-          <a href="/settings/before-the-visit" className="inline-flex h-10 items-center rounded-full border bg-white px-4 text-[14px]" style={{ borderColor: LINE }}>Questions and rules</a></div>
+          <a href="/settings/before-the-visit" className="inline-flex h-10 items-center rounded-full border bg-card px-4 text-[14px]" style={{ borderColor: LINE }}>Questions and rules</a></div>
         {isLoading && <p style={{ color: MUTED }}>Loading…</p>}
         {!isLoading && !rows.length && <p className="rounded-[18px] p-6 text-[14.5px]" style={{ background: SOFT, color: MUTED }}>No checks in the next 8 days. Turn on questions for a service in <a className="underline" href="/settings/before-the-visit">Settings → Before the visit</a>.</p>}
         {group('Needs you', need, solo ? 'A change to approve, a question, or a safety answer' : 'Doesn’t fit, a question, or a safety answer', true)}
@@ -65,13 +65,13 @@ function Row({ a, first, when, tenantId, actions, solo }: { a: any; first: boole
   const go = async (action: string) => { setBusy(action); setMsg(''); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: a.id, action }); setBusy(''); setMsg(r.ok ? (action === 'cancel' && r.offered ? `Cancelled — offered to ${r.offered} on the waitlist.` : 'Done — the client has been told.') : r.error || 'That didn’t work.'); setConfirm(false); };
   const photos = Object.values(p.answers || {}).filter((v: any) => typeof v === 'string' && /^https:\/\//.test(v)) as string[];
   const phone = a.clientPhone || a.phone || '';
-  const chip = (label: string, action: string, solid = false) => <button type="button" disabled={!!busy} onClick={() => go(action)} className="h-10 rounded-full px-4 text-[13.5px] font-semibold disabled:opacity-40" style={solid ? { background: INK, color: '#fff' } : { background: SOFT }}>{busy === action ? '…' : label}</button>;
+  const chip = (label: string, action: string, solid = false) => <button type="button" disabled={!!busy} onClick={() => go(action)} className="h-10 rounded-full px-4 text-[13.5px] font-semibold disabled:opacity-40" style={solid ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>{busy === action ? '…' : label}</button>;
   return (
     <div className="grid gap-3 p-4 md:grid-cols-[1fr_1.4fr_auto] md:items-start md:px-5" style={{ borderTop: first ? undefined : `1px solid ${LINE}` }}>
       <div><p className="text-[15px] font-semibold">{a.clientName || 'Client'} · {when(a.startTime)}</p><p className="text-[13px]" style={{ color: MUTED }}>{a.serviceName || 'Visit'}{a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''}{p.answeredAt ? ` · answered ${new Date(p.answeredAt).toLocaleDateString('en-US', { weekday: 'short' })}` : a.prepSentAt ? ' · asked, no answer yet' : ''}</p>
         {photos.length > 0 && <div className="mt-2 flex gap-1.5">{photos.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" className="h-12 w-12 rounded-[10px] object-cover" /></a>)}</div>}</div>
       <div className="space-y-2 text-[14px]">
-        {st === 'safety' && <p className="rounded-[12px] px-3 py-2" style={{ background: '#fdecec', color: '#7a1d14' }}>Safety answer — call before anything else. Moving or cancelling is free.</p>}
+        {st === 'safety' && <p className="rounded-[12px] px-3 py-2" style={{ background: 'color-mix(in srgb, #b42318 10%, transparent)', color: '#7a1d14' }}>Safety answer — call before anything else. Moving or cancelling is free.</p>}
         {q?.changed && st !== 'safety' && <p><b>{(q.lines || []).join(' · ')}</b>{q.newPrice !== q.oldPrice ? <span style={{ color: MUTED }}> · {money(q.oldPrice)} → {money(q.newPrice)}</span> : null}</p>}
         {!p.answeredAt && a.prepSuggestion && <p style={{ color: PURPLE }}>No answer — {a.prepSuggestion.why}. Suggests {a.prepSuggestion.serviceName}.</p>}
         {p.quote && !q?.changed && st !== 'safety' && <p style={{ color: GREEN }}>No change needed.</p>}
@@ -104,7 +104,7 @@ function Accuracy({ firestore, tenantId }: { firestore: Firestore; tenantId: str
   const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '—');
   return (<section className="space-y-2">
     <div className="flex items-baseline justify-between"><h2 className="text-[17px] font-semibold">How accurate are the answers?</h2><p className="text-[13px]" style={{ color: MUTED }}>Last 90 days · from what was found on the day</p></div>
-    <div className="overflow-x-auto rounded-[18px] border bg-white" style={{ borderColor: LINE }}>
+    <div className="overflow-x-auto rounded-[18px] border bg-card" style={{ borderColor: LINE }}>
       <table className="w-full min-w-[560px] text-[14px]"><thead><tr className="text-left text-[12.5px]" style={{ color: MUTED }}><th className="px-4 py-3 font-normal">Service</th><th className="px-3 font-normal">Asked</th><th className="px-3 font-normal">Answered</th><th className="px-3 font-normal">Matched on the day</th><th className="px-3 font-normal">More found</th></tr></thead>
         <tbody>{r.rows.map((x) => <tr key={x.service} style={{ borderTop: `1px solid ${LINE}` }}><td className="px-4 py-3">{x.service}</td><td className="px-3">{x.asked}</td><td className="px-3">{pct(x.answered, x.asked)}</td>
           <td className="px-3" style={{ color: x.answered && x.matched / x.answered < 0.8 ? AMBER : GREEN }}>{pct(x.matched, x.answered)}</td><td className="px-3">{x.moreAfterAnswer + x.moreNoAnswer ? `${x.moreAfterAnswer + x.moreNoAnswer}${x.moreNoAnswer ? ` (${x.moreNoAnswer} didn’t answer)` : ''}` : '—'}</td></tr>)}</tbody></table></div>
@@ -118,5 +118,5 @@ function OtherProvider({ a, tenantId, onDone }: { a: any; tenantId: string; onDo
   if (moved) return null;
   if (list === null) return <button type="button" disabled={!!busy} onClick={async () => { setBusy('look'); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: a.id, action: 'providers' }); setBusy(''); setList(r.ok ? r.providers || [] : []); if (!r.ok) onDone(r.error || 'That didn’t work.'); }} className="h-10 rounded-full px-4 text-[13.5px]" style={{ background: SOFT }}>{busy ? '…' : 'Same time, another provider?'}</button>;
   if (!list.length) return <span className="inline-flex h-10 items-center px-2 text-[13px]" style={{ color: MUTED }}>Nobody else is free for it then.</span>;
-  return <>{list.map((p) => <button key={p.staffId} type="button" disabled={!!busy} onClick={async () => { setBusy(p.staffId); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: a.id, action: 'move_provider', staffId: p.staffId }); setBusy(''); onDone(r.ok ? `Done — moved to ${p.name}; the client has been told.` : r.error || 'That didn’t work.'); if (r.ok) setMoved(true); }} className="h-10 rounded-full px-4 text-[13.5px] font-semibold" style={{ background: '#e6ecf7', color: '#22365f' }}>{busy === p.staffId ? '…' : `Move to ${String(p.name).split(' ')[0]}`}</button>)}</>;
+  return <>{list.map((p) => <button key={p.staffId} type="button" disabled={!!busy} onClick={async () => { setBusy(p.staffId); const r = await payPost('/api/prep-decide', { tenantId, appointmentId: a.id, action: 'move_provider', staffId: p.staffId }); setBusy(''); onDone(r.ok ? `Done — moved to ${p.name}; the client has been told.` : r.error || 'That didn’t work.'); if (r.ok) setMoved(true); }} className="h-10 rounded-full px-4 text-[13.5px] font-semibold" style={{ background: 'color-mix(in srgb, #3d5a99 12%, transparent)', color: '#22365f' }}>{busy === p.staffId ? '…' : `Move to ${String(p.name).split(' ')[0]}`}</button>)}</>;
 }

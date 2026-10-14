@@ -40,7 +40,7 @@ export function VisitProfit() {
     try { await updateDoc(doc(firestore, 'tenants', tenantId), { opsCosts: { linenEach: num(draft.linenEach), kitEach: num(draft.kitEach), minMarginPct: Math.min(90, num(draft.minMarginPct)) } }); setDraft(null); setSaved('Saved.'); } catch { setSaved('That didn’t save — try again.'); } };
 
   return (
-    <section aria-label="What visits really earn" className="rounded-3xl border bg-white p-5 md:p-6">
+    <section aria-label="What visits really earn" className="rounded-3xl border bg-card p-5 md:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h2 className="text-xl font-bold">What visits really earn</h2>
           <p className="text-sm text-muted-foreground">From the time each visit actually took and the products actually used. Worst first.</p></div>

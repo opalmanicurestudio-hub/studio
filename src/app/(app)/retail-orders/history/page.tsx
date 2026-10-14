@@ -223,7 +223,7 @@ export default function RetailOrderHistoryPage() {
     <Badge variant="outline" className={cn(
       'h-6 px-2.5 font-black text-[8px] uppercase tracking-widest border-2 shrink-0',
       ['completed', 'handed_off', 'shipped'].includes(stage) && 'bg-green-50 border-green-100 text-green-700',
-      ['cancelled', 'refunded'].includes(stage) && 'bg-slate-100 border-slate-200 text-slate-500',
+      ['cancelled', 'refunded'].includes(stage) && 'bg-muted border-border text-muted-foreground',
       ACTIVE_STAGES.includes(stage) && 'bg-primary/5 border-primary/20 text-primary'
     )}>
       {STAGE_LABELS[stage] || stage}
@@ -234,7 +234,7 @@ export default function RetailOrderHistoryPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -267,7 +267,7 @@ export default function RetailOrderHistoryPage() {
             {STAGE_FILTERS.map((f) => (
               <button key={f.id} type="button" onClick={() => setFilter(f.id)}
                 className={cn('shrink-0 h-8 px-3.5 rounded-full border-2 text-[9px] font-black uppercase tracking-widest transition-all',
-                  filter === f.id ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+                  filter === f.id ? 'bg-foreground text-background border-foreground' : 'bg-card hover:border-primary/40')}>
                 {f.label}
               </button>
             ))}
@@ -289,7 +289,7 @@ export default function RetailOrderHistoryPage() {
           const Icon = methodIcon(o.method);
           return (
             <button key={o.id} type="button" onClick={() => openDetail(o)} className="w-full text-left">
-              <Card className="border-2 rounded-2xl overflow-hidden bg-white hover:border-primary/40 transition-all">
+              <Card className="border-2 rounded-2xl overflow-hidden bg-card hover:border-primary/40 transition-all">
                 <CardContent className="p-3.5 sm:p-4 flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl border-2 bg-muted/10 hidden sm:flex items-center justify-center shrink-0">
                     <Icon className="w-4 h-4 text-muted-foreground" />

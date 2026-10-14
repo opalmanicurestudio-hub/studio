@@ -29,14 +29,14 @@ export function PayStatement({ tenantId, staffId, from, to, weekStartsOn = 1, ti
       const r = await fetch('/api/pay/statement', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, staffId, from: range.from, to: range.to }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection.' }));
       if (!on) return; setBusy(false); if (r.ok) setSt(r.statement); else { setSt(null); setErr(r.error || 'Couldn’t load.'); } })();
     return () => { on = false; }; }, [tenantId, staffId, range.from, range.to]);
-  const line = 'var(--line, #e7e2dc)'; const muted = { color: 'var(--muted, #78716c)' };
+  const line = 'hsl(var(--border))'; const muted = { color: 'hsl(var(--muted-foreground))' };
 
   return (
-    <section className="space-y-3 rounded-2xl bg-white p-4" style={{ border: `1px solid ${line}` }} aria-label={title}>
+    <section className="space-y-3 rounded-2xl bg-card p-4" style={{ border: `1px solid ${line}` }} aria-label={title}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div><p className="text-[16px] font-[800]">{title}</p>{st && <p className="text-[12px]" style={muted}>{dayLabel(st.from)} – {dayLabel(st.to)}</p>}</div>
         {!(from && to) && <div className="flex overflow-hidden rounded-full border text-[12px] font-[600]" style={{ borderColor: line }}>
-          {choices.map((c) => <button key={c.key} type="button" aria-pressed={pick === c.key} onClick={() => setPick(c.key)} className={`h-9 px-3 ${pick === c.key ? 'bg-[#17181A] text-white' : 'bg-white'}`}>{c.label}</button>)}</div>}
+          {choices.map((c) => <button key={c.key} type="button" aria-pressed={pick === c.key} onClick={() => setPick(c.key)} className={`h-9 px-3 ${pick === c.key ? 'bg-foreground text-background' : 'bg-card'}`}>{c.label}</button>)}</div>}
       </div>
       {busy && !st && <p className="text-[13px]" style={muted}>Working it out…</p>}
       {err && <p className="text-[13px] font-[600] text-[#B42318]">{err}</p>}

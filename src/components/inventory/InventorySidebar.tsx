@@ -233,7 +233,7 @@ export const InventorySidebar = ({
                 </CardTitle>
             </CardHeader>
             <CardContent className="p-8 pt-0">
-                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Total Assets</p>
+                <p className="text-[10px] font-bold text-foreground/80 uppercase tracking-widest mb-1">Total Assets</p>
                 <p className="text-5xl font-black text-primary tracking-tighter font-mono leading-none">${totalValue.toFixed(2)}</p>
                 
                 <div className="mt-8 space-y-3">
@@ -248,14 +248,14 @@ export const InventorySidebar = ({
                                 <item.icon className="w-3 h-3" />
                                 {item.label}
                             </span>
-                            <span className="font-mono text-xs text-slate-900">${item.value.toFixed(0)}</span>
+                            <span className="font-mono text-xs text-foreground">${item.value.toFixed(0)}</span>
                         </div>
                     ))}
                 </div>
             </CardContent>
         </Card>
 
-        <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+        <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-card">
             <CardHeader className="bg-muted/5 border-b p-6">
                 <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                     <TrendingUp className="w-3 h-3" /> Consumption Matrix
@@ -268,7 +268,7 @@ export const InventorySidebar = ({
                         <div className="grid gap-2">
                             {topUsedProducts.map(p => (
                                 <div key={p.name} className="flex justify-between items-center p-2.5 rounded-xl bg-muted/20 border-2 border-transparent transition-all hover:border-primary/10">
-                                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-700 truncate pr-2">{p.name}</span>
+                                    <span className="text-[10px] font-black uppercase tracking-tight text-foreground/80 truncate pr-2">{p.name}</span>
                                     <Badge variant="secondary" className="h-5 px-1.5 font-mono font-black text-[9px] border-none bg-primary/10 text-primary">{p.count}</Badge>
                                 </div>
                             ))}
@@ -286,7 +286,7 @@ export const InventorySidebar = ({
                         <div className="grid gap-2">
                             {overheadItemsInStock.slice(0, 3).map(item => (
                                 <div key={item.id} className="flex justify-between items-center p-2.5 rounded-xl bg-muted/20 border-2 border-transparent transition-all hover:border-primary/10">
-                                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-700 truncate pr-2">{item.name}</span>
+                                    <span className="text-[10px] font-black uppercase tracking-tight text-foreground/80 truncate pr-2">{item.name}</span>
                                     <Button variant="ghost" size="xs" onClick={() => handleLogUseClick(item)} className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
                                         <Pipette className="mr-1 h-2.5 w-2.5"/> Log Unit
                                     </Button>
@@ -302,7 +302,7 @@ export const InventorySidebar = ({
 
         <Card className={cn(
             "border-2 shadow-sm rounded-[2rem] overflow-hidden transition-all",
-            expiredItemsCount > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-white"
+            expiredItemsCount > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-card"
         )}>
             <CardHeader className="bg-muted/5 border-b p-6">
                 <CardTitle className={cn(
@@ -314,8 +314,8 @@ export const InventorySidebar = ({
             </CardHeader>
             <CardContent className="p-6 text-center space-y-4">
                 <div className="space-y-1">
-                    <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest opacity-60">Potential Loss</p>
-                    <p className={cn("text-3xl font-black font-mono tracking-tighter", expiredItemsCount > 0 ? "text-destructive" : "text-slate-900")}>
+                    <p className="text-[9px] font-bold text-foreground/80 uppercase tracking-widest opacity-60">Potential Loss</p>
+                    <p className={cn("text-3xl font-black font-mono tracking-tighter", expiredItemsCount > 0 ? "text-destructive" : "text-foreground")}>
                         ${expiredValue.toFixed(2)}
                     </p>
                 </div>
@@ -346,7 +346,7 @@ export const InventorySidebar = ({
                         Recording usage for: <strong>{itemToLogUse?.name}</strong>
                     </AlertDialogDescription>
                 </AlertDialogHeader>
-                <div className="p-6 text-sm font-medium text-slate-600 leading-relaxed uppercase tracking-tight">
+                <div className="p-6 text-sm font-medium text-foreground/80 leading-relaxed uppercase tracking-tight">
                     Confirming the use of 1 unit. This will automatically deduct stock and record the associated cost in the studio ledger.
                 </div>
                 <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">

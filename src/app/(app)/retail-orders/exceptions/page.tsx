@@ -30,7 +30,7 @@ import {
 const fmt = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
 
 const GROUP_CLS: Record<string, string> = {
-  customer: 'border-slate-200 bg-slate-50 text-slate-700',
+  customer: 'border-border bg-muted/60 text-foreground/80',
   carrier: 'border-blue-200 bg-blue-50 text-blue-700',
   supplier: 'border-purple-200 bg-purple-50 text-purple-700',
   internal: 'border-amber-200 bg-amber-50 text-amber-700',
@@ -42,7 +42,7 @@ const REC_CLS: Record<string, string> = {
   approved: 'border-teal-200 bg-teal-50 text-teal-700',
   paid: 'border-green-200 bg-green-50 text-green-700',
   denied: 'border-red-200 bg-red-50 text-red-700',
-  abandoned: 'border-slate-200 bg-slate-50 text-slate-500',
+  abandoned: 'border-border bg-muted/60 text-muted-foreground',
 };
 
 export default function InventoryExceptionsPage() {
@@ -127,7 +127,7 @@ export default function InventoryExceptionsPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -170,7 +170,7 @@ export default function InventoryExceptionsPage() {
             ['Recovered', fmt(totals.recovered)],
             ['Net loss', fmt(totals.net)],
           ] as const).map(([k, v]) => (
-            <Card key={k} className={cn('border-2 rounded-2xl bg-white', k === 'Net loss' && 'border-foreground/50')}>
+            <Card key={k} className={cn('border-2 rounded-2xl bg-card', k === 'Net loss' && 'border-foreground/50')}>
               <CardContent className="p-3">
                 <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{k}</p>
                 <p className={cn('mt-0.5 font-mono text-lg font-black leading-none', k === 'Recovered' && totals.recovered > 0 && 'text-green-700')}>{v}</p>
@@ -183,7 +183,7 @@ export default function InventoryExceptionsPage() {
           {(['ledger', 'analytics'] as const).map((v) => (
             <button key={v} type="button" onClick={() => setView(v)}
               className={cn('h-10 flex-1 rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest transition-all',
-                view === v ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+                view === v ? 'bg-foreground text-background border-foreground' : 'bg-card hover:border-primary/40')}>
               {v === 'ledger' ? 'Ledger' : 'Analytics · 90 days'}
             </button>
           ))}
@@ -196,7 +196,7 @@ export default function InventoryExceptionsPage() {
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Prevention signals</p>
                 {analytics.signals.map((sig, i) => (
                   <p key={i} className={cn('flex items-start gap-2 rounded-xl border-2 px-3 py-2 text-[11px] font-bold leading-relaxed',
-                    sig.severity === 'warn' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-600')}>
+                    sig.severity === 'warn' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-border bg-card text-foreground/80')}>
                     <ChartColumn className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>{sig.text}</span>
                   </p>
@@ -210,7 +210,7 @@ export default function InventoryExceptionsPage() {
             )}
 
             {analytics.recovery.candidateLanded > 0 && (
-              <Card className="border-2 rounded-[2rem] bg-white">
+              <Card className="border-2 rounded-[2rem] bg-card">
                 <CardContent className="p-4 space-y-1.5">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Recovery performance</p>
                   <p className="text-sm font-bold leading-relaxed">
@@ -224,7 +224,7 @@ export default function InventoryExceptionsPage() {
             )}
 
             {analytics.byGroup.length > 0 && (
-              <Card className="border-2 rounded-[2rem] bg-white">
+              <Card className="border-2 rounded-[2rem] bg-card">
                 <CardContent className="p-4 space-y-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Where losses come from</p>
                   {analytics.byGroup.map((g) => (
@@ -243,7 +243,7 @@ export default function InventoryExceptionsPage() {
             )}
 
             {analytics.byProduct.length > 0 && (
-              <Card className="border-2 rounded-[2rem] bg-white">
+              <Card className="border-2 rounded-[2rem] bg-card">
                 <CardContent className="p-4 space-y-1.5">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Losses by product</p>
                   {analytics.byProduct.map((pr) => (
@@ -260,7 +260,7 @@ export default function InventoryExceptionsPage() {
             )}
 
             {analytics.byCarrier.length > 0 && (
-              <Card className="border-2 rounded-[2rem] bg-white">
+              <Card className="border-2 rounded-[2rem] bg-card">
                 <CardContent className="p-4 space-y-1.5">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Carriers</p>
                   {analytics.byCarrier.map((c) => (
@@ -314,7 +314,7 @@ export default function InventoryExceptionsPage() {
           const dl = deadlineState(r);
           const partial = rec.status === 'paid' && (Number(rec.recoveredCents) || 0) < (Number(rec.claimAmountCents) || 0);
           return (
-            <Card key={r.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', dl === 'overdue' && 'border-red-300')}>
+            <Card key={r.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-card', dl === 'overdue' && 'border-red-300')}>
               <CardContent className="p-4 space-y-2.5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -375,7 +375,7 @@ export default function InventoryExceptionsPage() {
 
                     {r.reasonGroup === 'carrier' && r.insuredCents != null && (
                       <p className={cn('flex items-center gap-1.5 rounded-xl border-2 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest',
-                        r.insuredCents > 0 ? 'border-green-200 bg-green-50 text-green-700' : 'border-slate-200 bg-slate-50 text-slate-600')}>
+                        r.insuredCents > 0 ? 'border-green-200 bg-green-50 text-green-700' : 'border-border bg-muted/60 text-foreground/80')}>
                         {r.insuredCents > 0 ? <Shield className="h-3 w-3 shrink-0" /> : <ShieldOff className="h-3 w-3 shrink-0" />}
                         {r.insuredCents > 0
                           ? `Insured for ${fmt(r.insuredCents)} at label purchase — claim up to this plus postage`
@@ -407,17 +407,17 @@ export default function InventoryExceptionsPage() {
                           <span className="text-sm font-black">$</span>
                           <input inputMode="decimal" aria-label="Claim amount in dollars" value={fileAmount}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFileAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                            className="h-9 w-24 rounded-xl border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                            className="h-9 w-24 rounded-xl border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
                           <input placeholder="Claim / ref #" aria-label="Claim reference number" value={fileRef}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFileRef(e.target.value)}
-                            className="h-9 flex-1 min-w-28 rounded-xl border-2 bg-white px-2.5 text-sm font-bold outline-none focus:border-foreground/60" />
+                            className="h-9 flex-1 min-w-28 rounded-xl border-2 bg-card px-2.5 text-sm font-bold outline-none focus:border-foreground/60" />
                           <input type="date" aria-label="Claim deadline" value={fileDeadline}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFileDeadline(e.target.value)}
-                            className="h-9 rounded-xl border-2 bg-white px-2 text-sm font-bold outline-none focus:border-foreground/60" />
+                            className="h-9 rounded-xl border-2 bg-card px-2 text-sm font-bold outline-none focus:border-foreground/60" />
                         </div>
                         <input placeholder="Note (optional)" aria-label="Filing note" value={fileNote}
                           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFileNote(e.target.value)}
-                          className="h-9 w-full rounded-xl border-2 bg-white px-2.5 text-sm font-bold outline-none focus:border-foreground/60" />
+                          className="h-9 w-full rounded-xl border-2 bg-card px-2.5 text-sm font-bold outline-none focus:border-foreground/60" />
                         {(() => { const w = claimWindowFor(r.carrier); return (
                           <p className="flex flex-wrap items-center gap-x-2 text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                             Typical {r.carrier || 'carrier'} window: {w.days} days from ship — verify for your service.
@@ -464,7 +464,7 @@ export default function InventoryExceptionsPage() {
                           <input inputMode="decimal" aria-label="Payment received in dollars" placeholder="0.00"
                             value={payDraft[r.id] || ''}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPayDraft({ ...payDraft, [r.id]: e.target.value.replace(/[^0-9.]/g, '') })}
-                            className="h-9 w-24 rounded-xl border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                            className="h-9 w-24 rounded-xl border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
                           <Button className={ACT_BTN} disabled={busy === `${r.id}-payment` || !(Number(payDraft[r.id]) > 0)}
                             onClick={() => void act(r.id, 'payment', { amountCents: Math.round((Number(payDraft[r.id]) || 0) * 100) })}>
                             {busy === `${r.id}-payment` ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Record payment'}
@@ -483,8 +483,8 @@ export default function InventoryExceptionsPage() {
                   )}
                   <span className={cn('rounded-full border-2 px-2.5 py-1 text-[8px] font-black uppercase tracking-widest',
                     r.accountingStatus === 'handed_off' ? 'border-green-200 bg-green-50 text-green-700'
-                      : r.accountingStatus === 'ledgered' ? 'border-slate-200 bg-slate-50 text-slate-600'
-                      : 'border-slate-200 bg-white text-slate-500')}>
+                      : r.accountingStatus === 'ledgered' ? 'border-border bg-muted/60 text-foreground/80'
+                      : 'border-border bg-card text-muted-foreground')}>
                     {r.accountingStatus === 'handed_off' ? 'Handed to accounting' : r.accountingStatus === 'ledgered' ? 'On the books' : 'Recorded'}
                   </span>
                   {r.costed === false && (

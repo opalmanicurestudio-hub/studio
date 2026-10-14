@@ -112,7 +112,7 @@ export const MergeClientsDialog = ({
                 <Fingerprint className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
             </div>
-            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Record Reconciler</DialogTitle>
+            <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Record Reconciler</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
                 {step === 1 ? 'Locate duplicate dossiers via primary identity email.' : 'Identify the master dossier to preserve.'}
             </DialogDescription>
@@ -157,7 +157,7 @@ export const MergeClientsDialog = ({
                                         <Label key={client.id} htmlFor={`primary-client-sel-${client.id}`} className="block">
                                             <div className={cn(
                                                 "relative p-4 sm:p-5 rounded-[2rem] border-2 transition-all cursor-pointer group",
-                                                isSelected ? "border-primary bg-primary/5 shadow-md ring-4 ring-primary/10" : "border-border/50 bg-white hover:border-primary/20"
+                                                isSelected ? "border-primary bg-primary/5 shadow-md ring-4 ring-primary/10" : "border-border/50 bg-card hover:border-primary/20"
                                             )}>
                                                 <div className="flex items-start gap-3 sm:gap-4">
                                                     <div className="pt-1">
@@ -170,7 +170,7 @@ export const MergeClientsDialog = ({
                                                     <div className="flex-1 min-w-0 space-y-3">
                                                         <div className="space-y-0.5">
                                                             <div className="flex items-center justify-between gap-2">
-                                                                <p className="font-black uppercase tracking-tight text-slate-900 truncate leading-none">{client.name}</p>
+                                                                <p className="font-black uppercase tracking-tight text-foreground truncate leading-none">{client.name}</p>
                                                                 {isSelected && (
                                                                     <Badge className="bg-primary text-white border-none font-black text-[8px] h-5 px-2 rounded-lg shadow-sm shrink-0">MASTER</Badge>
                                                                 )}
@@ -206,9 +206,9 @@ export const MergeClientsDialog = ({
 
         <DialogFooter className="p-6 sm:p-8 pt-4 border-t bg-muted/5">
           <div className="flex w-full gap-2 sm:gap-4 items-center">
-            {step === 2 && <Button variant="ghost" onClick={() => setStep(1)} className="h-14 font-black uppercase tracking-tighter text-xs sm:text-sm text-slate-400">Back</Button>}
+            {step === 2 && <Button variant="ghost" onClick={() => setStep(1)} className="h-14 font-black uppercase tracking-tighter text-xs sm:text-sm text-muted-foreground">Back</Button>}
             <div className="flex-1" />
-            <Button variant="outline" onClick={handleClose} className="h-12 sm:h-14 px-4 sm:px-8 rounded-2xl border-2 font-black uppercase text-[9px] sm:text-[10px] tracking-widest bg-white">Cancel</Button>
+            <Button variant="outline" onClick={handleClose} className="h-12 sm:h-14 px-4 sm:px-8 rounded-2xl border-2 font-black uppercase text-[9px] sm:text-[10px] tracking-widest bg-card">Cancel</Button>
             {step > 1 && (
                 <Button 
                     onClick={() => setIsConfirmOpen(true)} 
@@ -231,23 +231,23 @@ export const MergeClientsDialog = ({
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Final Authorization</span>
                 </div>
                 <AlertDialogTitle className="text-xl sm:text-2xl font-black uppercase tracking-tighter">Confirm Consolidation</AlertDialogTitle>
-                <AlertDialogDescription className="text-xs sm:text-sm font-bold text-slate-600 leading-relaxed uppercase tracking-tight">
-                    You are merging <strong className="text-slate-900">{clientsToMerge.length} records</strong> into the master dossier of <strong className="text-primary">{selectedPrimaryClient?.name}</strong>.
+                <AlertDialogDescription className="text-xs sm:text-sm font-bold text-foreground/80 leading-relaxed uppercase tracking-tight">
+                    You are merging <strong className="text-foreground">{clientsToMerge.length} records</strong> into the master dossier of <strong className="text-primary">{selectedPrimaryClient?.name}</strong>.
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="p-6 sm:p-8 space-y-6">
                 <div className="p-4 sm:p-6 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-4 shadow-inner">
                     <p className="text-[10px] font-black uppercase text-primary tracking-widest text-center">Consolidation Impact</p>
                     <div className="grid gap-2 sm:gap-3">
-                        <div className="flex justify-between items-center bg-white p-2.5 sm:p-3 rounded-xl border shadow-sm">
+                        <div className="flex justify-between items-center bg-card p-2.5 sm:p-3 rounded-xl border shadow-sm">
                             <span className="text-[9px] sm:text-[10px] font-bold text-muted-foreground uppercase">Migrating Sessions</span>
-                            <span className="font-black text-sm sm:text-base text-slate-900">{totalAppointmentsToTransfer} Appointments</span>
+                            <span className="font-black text-sm sm:text-base text-foreground">{totalAppointmentsToTransfer} Appointments</span>
                         </div>
-                        <div className="flex justify-between items-center bg-white p-2.5 sm:p-3 rounded-xl border shadow-sm">
+                        <div className="flex justify-between items-center bg-card p-2.5 sm:p-3 rounded-xl border shadow-sm">
                             <span className="text-[9px] sm:text-[10px] font-bold text-muted-foreground uppercase">Aggregating LTV</span>
                             <span className="font-black text-sm sm:text-base text-green-600 font-mono">+${clientsToMerge.reduce((sum, c) => sum + (c.lifetimeValue || 0), 0).toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between items-center bg-white p-2.5 sm:p-3 rounded-xl border shadow-sm">
+                        <div className="flex justify-between items-center bg-card p-2.5 sm:p-3 rounded-xl border shadow-sm">
                             <span className="text-[9px] sm:text-[10px] font-bold text-muted-foreground uppercase">Transferring Debt</span>
                             <span className="font-black text-sm sm:text-base text-destructive font-mono">+${clientsToMerge.reduce((sum, c) => sum + (c.outstandingBalance || 0), 0).toFixed(2)}</span>
                         </div>

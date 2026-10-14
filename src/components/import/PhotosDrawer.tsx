@@ -9,7 +9,7 @@ import { useFirebase } from '@/firebase';
 import { payPost } from '@/components/pay/pay-client';
 import { matchFile, clientNameIndex, fileKind, OK_FILE, type LiteClient } from '@/lib/import-files';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
+const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
 const MAX = 25 * 1024 * 1024;
 type Item = { file: File; path: string; client: LiteClient | null; skip?: boolean };
 
@@ -42,18 +42,18 @@ export function PhotosDrawer({ tenantId, app, appName, onClose, onDone }: { tena
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-label="Bring in client photos and files">
       <button type="button" aria-label="Close" className="absolute inset-0" style={{ background: 'rgba(22,23,26,.2)' }} onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-white p-6" style={{ color: INK }}>
+      <div className="relative flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-card p-6" style={{ color: INK }}>
         <div className="flex items-start justify-between gap-3"><div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>client photos and files</p>
           <h2 className="text-[26px] font-normal tracking-[-0.02em]">{done ? 'Done' : 'Bring in photos and files'}</h2></div>
           <button type="button" onClick={onClose} className="text-[24px]" style={{ color: MUTED }} aria-label="Close">×</button></div>
-        {done ? <div className="mt-4 space-y-2 rounded-2xl p-4" style={{ background: '#e9f3ed' }}><p className="text-[17px] font-bold" style={{ color: GREEN }}>{done.added.toLocaleString()} files are on clients’ profiles</p>
+        {done ? <div className="mt-4 space-y-2 rounded-2xl p-4" style={{ background: 'color-mix(in srgb, #1f7a4d 11%, transparent)' }}><p className="text-[17px] font-bold" style={{ color: GREEN }}>{done.added.toLocaleString()} files are on clients’ profiles</p>
             <p className="text-[14px]">They show under Photos on each client, marked as from your old app.{done.failed ? ` ${done.failed} didn’t upload — try those again.` : ''} You can undo this from Moving in.</p></div>
           : !items.length ? <div className="mt-4 space-y-3">
             <p className="text-[14.5px] leading-relaxed" style={{ color: MUTED }}>Your old app may give you a folder for each client (“Maria Lopez” with her photos inside) or files named after them. Choose the folder — or the files — and we’ll match each one to a client. You’ll see the matches before anything is uploaded.</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-[1.5px] border-dashed p-6 text-center" style={{ borderColor: '#c9cacd' }}><span className="text-[15px] font-semibold">Choose a folder</span><span className="text-[12.5px]" style={{ color: MUTED }}>a folder per client</span>
+              <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-[1.5px] border-dashed p-6 text-center" style={{ borderColor: 'hsl(var(--border))' }}><span className="text-[15px] font-semibold">Choose a folder</span><span className="text-[12.5px]" style={{ color: MUTED }}>a folder per client</span>
                 <input type="file" multiple className="hidden" {...({ webkitdirectory: '', directory: '' } as any)} onChange={(e) => pick(e.target.files)} disabled={!clients} /></label>
-              <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-[1.5px] border-dashed p-6 text-center" style={{ borderColor: '#c9cacd' }}><span className="text-[15px] font-semibold">Choose files</span><span className="text-[12.5px]" style={{ color: MUTED }}>named after the client</span>
+              <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-[1.5px] border-dashed p-6 text-center" style={{ borderColor: 'hsl(var(--border))' }}><span className="text-[15px] font-semibold">Choose files</span><span className="text-[12.5px]" style={{ color: MUTED }}>named after the client</span>
                 <input type="file" multiple accept="image/*,.heic,.pdf,.doc,.docx,.txt" className="hidden" onChange={(e) => pick(e.target.files)} disabled={!clients} /></label></div>
             {clients === null && <p className="text-[13px]" style={{ color: MUTED }}>Loading your clients…</p>}
             <p className="text-[12.5px]" style={{ color: MUTED }}>Got a .zip? Open it first, then choose the folder inside.</p></div>
@@ -72,7 +72,7 @@ export function PhotosDrawer({ tenantId, app, appName, onClose, onDone }: { tena
                 <span className="truncate" title={x.path}>{x.path}</span><span className="shrink-0 font-semibold">{x.client!.name}</span></div>)}</div></div>}
             {progress !== null ? <div><div className="h-2 rounded-full" style={{ background: SOFT }}><div className="h-2 rounded-full" style={{ width: `${progress}%`, background: INK }} /></div><p className="mt-1 text-[13px]" style={{ color: MUTED }}>Uploading… {progress}% — keep this open</p></div>
               : <div className="flex gap-2"><button type="button" onClick={() => setItems([])} className="h-11 rounded-full px-5 text-[14.5px] font-semibold" style={{ background: SOFT }}>Start over</button>
-                <button type="button" disabled={!matched.length} onClick={save} className="h-11 flex-1 rounded-full text-[14.5px] font-semibold text-white disabled:opacity-40" style={{ background: INK }}>Bring in {matched.length.toLocaleString()} file{matched.length === 1 ? '' : 's'}</button></div>}
+                <button type="button" disabled={!matched.length} onClick={save} className="h-11 flex-1 rounded-full text-[14.5px] font-semibold text-background disabled:opacity-40" style={{ background: INK }}>Bring in {matched.length.toLocaleString()} file{matched.length === 1 ? '' : 's'}</button></div>}
           </div>}
         {err && <p className="mt-3 text-[13.5px] font-semibold" style={{ color: done ? MUTED : RED }}>{err}</p>}
       </div>

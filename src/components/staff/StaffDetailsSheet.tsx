@@ -95,14 +95,14 @@ const ActivityLogCard = ({ log }: { log: ActivityLog }) => (
                         {log.type === 'clock_in' && <Clock className="w-3.5 h-3.5 text-green-500" />}
                         {log.type === 'clock_out' && <Clock className="w-3.5 h-3.5 text-red-500" />}
                         {log.type === 'break_start' && <Coffee className="w-3.5 h-3.5 text-yellow-500" />}
-                        {log.type === 'break_end' && <Coffee className="w-3.5 h-3.5 text-gray-500" />}
+                        {log.type === 'break_end' && <Coffee className="w-3.5 h-3.5 text-muted-foreground" />}
                         {log.type.replace('_', ' ')}
                     </p>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{format(log.timestamp, 'MMM d, h:mm a')}</p>
                 </div>
                 {log.durationMinutes && (
                     <div className="text-right flex-shrink-0">
-                        <p className="font-black text-xs text-slate-900">{log.durationMinutes}m</p>
+                        <p className="font-black text-xs text-foreground">{log.durationMinutes}m</p>
                         <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Dur.</p>
                     </div>
                 )}
@@ -313,7 +313,7 @@ export const StaffDetailsSheet = ({
           {staffMember?.id && (() => { const m: any = staffMember; const ps = String(m.payStructure || '');
             const varies = Object.keys(m.serviceCommission || {}).length > 0 || (services || []).some((x: any) => x?.commissionRate != null && x.commissionRate !== '' && Number(x.commissionRate) !== Number(m.commissionRate ?? 0)); const pay = ps === 'per_service' ? `$${Number(m.serviceHourRate || 0).toFixed(2)} per hour of service${Object.keys(m.servicePay || {}).length || (services || []).some((x: any) => x?.providerPay != null && x.providerPay !== '') ? ' (some services set)' : ''}` : ps === 'commission' ? `${m.commissionRate ?? 0}% of services${varies ? ' (some differ)' : ''}` : ps === 'hourly' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour` : ps === 'hourly_plus_commission' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour + ${m.commissionRate ?? 0}% of services` : ps === 'salary' ? 'Salary' : 'Not set';
             const tipPart = m.role === 'renter' ? 'Renter — keeps their own tips' : ['owner', 'admin', 'manager'].includes(String(m.role)) && m.tipPoolEligible !== true ? 'Can’t share in tips (owner / manager)' : ({ provider: 'Provider', assistant: 'Assistant', front_desk: 'Front desk' } as any)[m.tipRole || (m.isAssistant ? 'assistant' : 'provider')] || 'Provider';
-            return (<section className="space-y-2 rounded-2xl border p-4" style={{ borderColor: 'var(--line, #e7e2dc)' }} aria-label="Pay and tips">
+            return (<section className="space-y-2 rounded-2xl border p-4" style={{ borderColor: 'hsl(var(--border))' }} aria-label="Pay and tips">
               <p className="text-[15px] font-semibold">Pay and tips</p>
               <div className="grid grid-cols-1 gap-1 text-[14px] sm:grid-cols-2">
                 <p><span className="text-muted-foreground">Paid:</span> {pay}{m.payoutFrequency ? ` · ${m.payoutFrequency === 'bi-weekly' ? 'every two weeks' : 'weekly'}` : ''}</p>
@@ -343,7 +343,7 @@ export const StaffDetailsSheet = ({
                               </SelectContent>
                           </Select>
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => window.print()} className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest mt-auto bg-white shadow-sm shrink-0">
+                      <Button variant="outline" size="sm" onClick={() => window.print()} className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest mt-auto bg-card shadow-sm shrink-0">
                           <Printer className="mr-2 h-4 w-4 opacity-40" /> Print
                       </Button>
                   </div>
@@ -384,9 +384,9 @@ export const StaffDetailsSheet = ({
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
-              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Gross Sales</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">${(currentStats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Gross Sales</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-foreground font-mono">${(currentStats.totalSales || 0).toFixed(2)}</p></CardContent></Card>
               <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tips Earned</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-green-600 font-mono">${(currentStats.tips || 0).toFixed(2)}</p></CardContent></Card>
-              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total Hours</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-slate-900 font-mono">{(currentStats.totalHours || 0).toFixed(1)}h</p></CardContent></Card>
+              <Card className="border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total Hours</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-foreground font-mono">{(currentStats.totalHours || 0).toFixed(1)}h</p></CardContent></Card>
               <Card className="bg-primary/5 border-primary/20 border-2 shadow-sm"><CardHeader className="p-3 sm:p-4 pb-1 text-left"><CardTitle className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">Est. Payout</CardTitle></CardHeader><CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 text-left"><p className="text-xl sm:text-2xl font-black tracking-tighter text-primary font-mono">${(currentStats.earnings || 0).toFixed(2)}</p></CardContent></Card>
           </div>
 
@@ -459,14 +459,14 @@ export const StaffDetailsSheet = ({
                     <CardHeader className="bg-muted/10 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest">Contact & Compliance</CardTitle></CardHeader>
                     <CardContent className="p-6 space-y-6 text-sm font-bold">
                         <div className="space-y-3">
-                            <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-primary opacity-40" /> <span className="text-slate-900 truncate">{staffMember.email}</span></div>
-                            <div className="flex items-center gap-3"><Phone className="w-4 h-4 text-primary opacity-40" /> <span className="text-slate-900">{staffMember.phone ? formatPhoneNumber(staffMember.phone) : 'No Phone'}</span></div>
+                            <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-primary opacity-40" /> <span className="text-foreground truncate">{staffMember.email}</span></div>
+                            <div className="flex items-center gap-3"><Phone className="w-4 h-4 text-primary opacity-40" /> <span className="text-foreground">{staffMember.phone ? formatPhoneNumber(staffMember.phone) : 'No Phone'}</span></div>
                         </div>
                         {staffMember.emergencyContact?.name && (
                             <div className="pt-6 border-t border-dashed space-y-3">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Emergency Protocol</p>
                                 <div className="space-y-1">
-                                    <p className="text-slate-900 uppercase font-black tracking-tight">{staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p>
+                                    <p className="text-foreground uppercase font-black tracking-tight">{staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p>
                                     <p className="text-primary font-black">{staffMember.emergencyContact.phone ? formatPhoneNumber(staffMember.emergencyContact.phone) : ''}</p>
                                 </div>
                             </div>
@@ -487,7 +487,7 @@ export const StaffDetailsSheet = ({
                     <CardContent className="p-6 space-y-2">
                         {staffServices.length > 0 ? staffServices.map((s: any) => (
                             <div key={s.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all">
-                                <span className="text-[10px] font-black uppercase tracking-tight text-slate-700 truncate mr-2">{s.name}</span>
+                                <span className="text-[10px] font-black uppercase tracking-tight text-foreground/80 truncate mr-2">{s.name}</span>
                                 <span className="font-mono font-black text-primary text-[10px] shrink-0">${s.price.toFixed(2)}</span>
                             </div>
                         )) : <p className="text-center py-6 text-[10px] font-black text-muted-foreground uppercase opacity-40">No services assigned</p>}
@@ -517,7 +517,7 @@ export const StaffDetailsSheet = ({
   if (inline) {
     return (
       <div className="w-full max-w-2xl mx-auto">
-        <div className="rounded-[2rem] border-2 bg-white overflow-hidden">
+        <div className="rounded-[2rem] border-2 bg-card overflow-hidden">
           <div className="border-b bg-muted/5 p-4 text-left">
             <div className="flex items-center gap-4">
               <AvatarUpload
@@ -532,7 +532,7 @@ export const StaffDetailsSheet = ({
                 fallbackClassName="font-black text-lg bg-primary/10 text-primary"
               />
               <div className="min-w-0 flex-1 text-left">
-                <h2 className="mb-1 truncate text-lg font-black uppercase tracking-tighter leading-none text-slate-900">{staffMember.name}</h2>
+                <h2 className="mb-1 truncate text-lg font-black uppercase tracking-tighter leading-none text-foreground">{staffMember.name}</h2>
                 <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Performance</p>
               </div>
               {currentUser?.uid !== staffMember?.id && (
@@ -573,7 +573,7 @@ export const StaffDetailsSheet = ({
                         fallbackClassName="font-black text-lg bg-primary/10 text-primary"
                     />
                     <div className='text-left flex-1'>
-                        <SheetTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none mb-1", isMobile ? "text-lg" : "text-3xl")}>{staffMember.name}</SheetTitle>
+                        <SheetTitle className={cn("font-black uppercase tracking-tighter text-foreground leading-none mb-1", isMobile ? "text-lg" : "text-3xl")}>{staffMember.name}</SheetTitle>
                         <SheetDescription className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest opacity-60">Performance Intelligence</SheetDescription>
                     </div>
                     {currentUser?.uid !== staffMember?.id && (

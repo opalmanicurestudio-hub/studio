@@ -71,14 +71,14 @@ const ProviderLineup = ({ lanes, leadStaffId }: { lanes: ProviderLane[]; leadSta
           // can't run two services on the client at the same time.
           const hasSelfConcurrencyConflict = lane.staffId === leadStaffId && lane.items.some((i) => !i.isLead && i.isConcurrent);
           return (
-            <div key={lane.staffId} className="p-3 rounded-xl bg-white border border-indigo-100">
+            <div key={lane.staffId} className="p-3 rounded-xl bg-card border border-indigo-100">
               <div className="flex items-start gap-3">
                 <Avatar className="h-7 w-7 border shrink-0">
                   <AvatarImage src={lane.staffMember?.avatarUrl} className="object-cover" />
                   <AvatarFallback className="text-[9px] font-black bg-primary/10 text-primary">{(lane.staffMember?.name || 'S')[0]}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  <p className="text-[10px] font-black uppercase tracking-tight text-slate-800 truncate">
+                  <p className="text-[10px] font-black uppercase tracking-tight text-foreground truncate">
                     {lane.staffMember?.name || 'Unassigned'}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
@@ -91,7 +91,7 @@ const ProviderLineup = ({ lanes, leadStaffId }: { lanes: ProviderLane[]; leadSta
                             ? 'bg-primary/10 text-primary border-primary/20'
                             : item.isConcurrent
                               ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-slate-50 text-slate-600 border-slate-200'
+                              : 'bg-muted/60 text-foreground/80 border-border'
                         )}
                       >
                         {item.isLead ? <Sparkles className="w-2.5 h-2.5" /> : item.isConcurrent ? <Zap className="w-2.5 h-2.5" /> : <Workflow className="w-2.5 h-2.5" />}
@@ -249,7 +249,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
               <div
                 className={cn(
                   "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer",
-                  isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-white"
+                  isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-card"
                 )}
                 onClick={() => handleToggle(addOn.id)}
               >
@@ -261,7 +261,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
                   onClick={(e) => e.stopPropagation()}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate text-left">
+                  <p className="text-sm font-black uppercase tracking-tight text-foreground truncate text-left">
                     {addOn.name}
                   </p>
                   <div className="flex items-center gap-3 mt-0.5">
@@ -272,7 +272,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
                 {isSelected && config && (
                   <span className={cn(
                     "shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border",
-                    config.isConcurrent ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-50 text-slate-600 border-slate-200"
+                    config.isConcurrent ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-muted/60 text-foreground/80 border-border"
                   )}>
                     {config.isConcurrent ? <Zap className="w-2.5 h-2.5" /> : <Workflow className="w-2.5 h-2.5" />}
                     {config.isConcurrent ? 'Concurrent' : 'Sequential'}
@@ -375,7 +375,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
               <Sparkles className="w-4 h-4 text-primary" />
               <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Session Configurator</span>
             </div>
-            <SheetTitle className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">Add & Configure Parts</SheetTitle>
+            <SheetTitle className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-foreground leading-tight">Add & Configure Parts</SheetTitle>
             <SheetDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select new parts and assign providers inline.</SheetDescription>
           </SheetHeader>
           <ScrollArea className="flex-1 min-h-0">
@@ -390,7 +390,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
               >
                 Apply Selection ({selectedIds.size})
               </Button>
-              <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 rounded-xl font-bold uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
+              <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 rounded-xl font-bold uppercase text-[9px] sm:text-[10px] tracking-widest text-muted-foreground">Cancel</Button>
             </div>
           </SheetFooter>
         </SheetContent>
@@ -406,7 +406,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
             <Sparkles className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Session Configurator</span>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Add & Configure Parts</DialogTitle>
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Add & Configure Parts</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select new parts and assign providers inline.</DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1 min-h-0">
@@ -421,7 +421,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
             >
               Apply Selection ({selectedIds.size})
             </Button>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Cancel</Button>
           </div>
         </DialogFooter>
       </DialogContent>

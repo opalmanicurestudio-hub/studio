@@ -125,14 +125,14 @@ export function HelpDesk() {
   };
 
   if (!open) return issuePrompt ? (
-    <div role="status" className="fixed inset-x-3 bottom-24 z-[70] mx-auto max-w-md rounded-3xl border border-stone-200 bg-white/95 p-4 shadow-xl backdrop-blur md:bottom-6">
+    <div role="status" className="fixed inset-x-3 bottom-24 z-[70] mx-auto max-w-md rounded-3xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur md:bottom-6">
       <p className="text-[15px] font-semibold">{issuePrompt === 'update' ? 'The app has been updated' : issuePrompt === 'data' ? 'Some information couldn’t be loaded' : 'Something went wrong on this page'}</p>
-      <p className="mt-0.5 text-[13px] text-stone-600">{issuePrompt === 'update' ? 'Reload to get the latest version — nothing is lost.' : issuePrompt === 'data' ? 'Your account may not have access to part of this page yet, or the database rules need publishing. A quick check will say which.' : 'If something looks missing, a quick check can often fix it — and you can send it to us with one tap.'}</p>
+      <p className="mt-0.5 text-[13px] text-foreground/80">{issuePrompt === 'update' ? 'Reload to get the latest version — nothing is lost.' : issuePrompt === 'data' ? 'Your account may not have access to part of this page yet, or the database rules need publishing. A quick check will say which.' : 'If something looks missing, a quick check can often fix it — and you can send it to us with one tap.'}</p>
       <div className="mt-3 flex gap-2">
         {issuePrompt === 'update'
-          ? <button type="button" onClick={() => window.location.reload()} className="flex h-10 items-center rounded-full bg-stone-900 px-4 text-[13px] font-semibold text-white">Reload</button>
-          : <a href="/diagnostics" onClick={() => setIssuePrompt(null)} className="flex h-10 items-center rounded-full bg-stone-900 px-4 text-[13px] font-semibold text-white">Check &amp; send to support</a>}
-        <button type="button" onClick={() => setIssuePrompt(null)} className="h-10 rounded-full px-4 text-[13px] text-stone-600">Dismiss</button>
+          ? <button type="button" onClick={() => window.location.reload()} className="flex h-10 items-center rounded-full bg-foreground px-4 text-[13px] font-semibold text-background">Reload</button>
+          : <a href="/diagnostics" onClick={() => setIssuePrompt(null)} className="flex h-10 items-center rounded-full bg-foreground px-4 text-[13px] font-semibold text-background">Check &amp; send to support</a>}
+        <button type="button" onClick={() => setIssuePrompt(null)} className="h-10 rounded-full px-4 text-[13px] text-foreground/80">Dismiss</button>
       </div>
     </div>) : null;
   const errors = recorded();
@@ -141,7 +141,7 @@ export function HelpDesk() {
       <div onClick={(e) => e.stopPropagation()} className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-[2rem] bg-[#f7f5f2] p-5 shadow-2xl sm:rounded-[2rem]" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)' }} role="dialog" aria-label="Help">
         <div className="flex items-center justify-between">
           <p className="text-2xl font-light tracking-tight">How can we <span className="font-semibold">help?</span></p>
-          <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="rounded-full p-2 text-stone-500 hover:bg-white"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="rounded-full p-2 text-muted-foreground hover:bg-card"><X className="h-5 w-5" /></button>
         </div>
 
         {sent ? (
@@ -153,32 +153,32 @@ export function HelpDesk() {
           <div className="mt-4 space-y-3">
             <div className="grid grid-cols-3 gap-2">
               {([['broken', 'Something’s not working'], ['question', 'A question'], ['idea', 'An idea']] as const).map(([k, l]) => (
-                <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k} className={`rounded-2xl px-2 py-3 text-[13px] ${kind === k ? 'bg-stone-900 text-white' : 'bg-white/80 text-stone-700'}`}>{l}</button>
+                <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k} className={`rounded-2xl px-2 py-3 text-[13px] ${kind === k ? 'bg-foreground text-background' : 'bg-card/80 text-foreground/80'}`}>{l}</button>
               ))}
             </div>
-            <a href="/diagnostics" className="flex items-center justify-between rounded-2xl bg-stone-100 px-4 py-3 text-[13px]"><span><span className="block font-semibold">Something not loading?</span><span className="text-stone-600">Run a quick account check — it can fix common problems for you.</span></span><span aria-hidden>›</span></a>
+            <a href="/diagnostics" className="flex items-center justify-between rounded-2xl bg-muted px-4 py-3 text-[13px]"><span><span className="block font-semibold">Something not loading?</span><span className="text-foreground/80">Run a quick account check — it can fix common problems for you.</span></span><span aria-hidden>›</span></a>
             <textarea value={message} onChange={(e) => setMessage(e.target.value.slice(0, 4000))} rows={5} placeholder={kind === 'broken' ? 'What happened, and what did you expect?' : kind === 'idea' ? 'What would make ClarityFlow better for you?' : 'What would you like to know?'}
-              className="w-full rounded-2xl border border-white/80 bg-white/80 p-4 text-[15px] outline-none focus:ring-2 focus:ring-stone-300" />
-            <p className="text-[12px] text-stone-500">We’ll include the page you’re on{errors.length ? `, ${errors.length} recent error${errors.length === 1 ? '' : 's'}` : ''}, your device and app version — so you don’t have to explain.</p>
+              className="w-full rounded-2xl border border-white/80 bg-card/80 p-4 text-[15px] outline-none focus:ring-2 focus:ring-stone-300" />
+            <p className="text-[12px] text-muted-foreground">We’ll include the page you’re on{errors.length ? `, ${errors.length} recent error${errors.length === 1 ? '' : 's'}` : ''}, your device and app version — so you don’t have to explain.</p>
             {err && <p className="text-sm text-red-700">{err}</p>}
-            <button type="button" disabled={busy || message.trim().length < 5} onClick={send} className="flex h-12 w-full items-center justify-center rounded-full bg-stone-900 text-sm font-medium text-white disabled:opacity-40">{busy ? <Loader className="h-4 w-4 animate-spin" /> : 'Send to ClarityFlow'}</button>
+            <button type="button" disabled={busy || message.trim().length < 5} onClick={send} className="flex h-12 w-full items-center justify-center rounded-full bg-foreground text-sm font-medium text-background disabled:opacity-40">{busy ? <Loader className="h-4 w-4 animate-spin" /> : 'Send to ClarityFlow'}</button>
           </div>
         )}
 
         {mine && mine.length > 0 && (
           <div className="mt-6 space-y-2">
-            <p className="text-[10px] uppercase tracking-widest text-stone-400">Your requests</p>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Your requests</p>
             {mine.map((k) => (
-              <div key={k.id} className="rounded-2xl bg-white/80 p-3">
-                <div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-semibold">{k.subject}</p><span className="shrink-0 text-[11px] text-stone-500">{STATUS[k.status] || k.status}</span></div>
-                <p className="text-[12px] text-stone-500">{when(k.createdAt)}</p>
+              <div key={k.id} className="rounded-2xl bg-card/80 p-3">
+                <div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-semibold">{k.subject}</p><span className="shrink-0 text-[11px] text-muted-foreground">{STATUS[k.status] || k.status}</span></div>
+                <p className="text-[12px] text-muted-foreground">{when(k.createdAt)}</p>
                 {(k.thread || []).map((m: any, i: number) => (
-                  <p key={i} className={`mt-2 rounded-xl p-2 text-[13px] ${m.from === 'hq' ? 'bg-emerald-50 text-emerald-900' : 'bg-stone-100 text-stone-700'}`}><span className="font-semibold">{m.from === 'hq' ? 'ClarityFlow' : 'You'}:</span> {m.message}</p>
+                  <p key={i} className={`mt-2 rounded-xl p-2 text-[13px] ${m.from === 'hq' ? 'bg-emerald-50 text-emerald-900' : 'bg-muted text-foreground/80'}`}><span className="font-semibold">{m.from === 'hq' ? 'ClarityFlow' : 'You'}:</span> {m.message}</p>
                 ))}
                 {k.status !== 'solved' && (k.thread || []).some((m: any) => m.from === 'hq') && (
                   <div className="mt-2 flex gap-2">
                     <input value={reply[k.id] || ''} onChange={(e) => setReply((r) => ({ ...r, [k.id]: e.target.value }))} placeholder="Reply" className="h-10 min-w-0 flex-1 rounded-xl border px-3 text-sm" />
-                    <button type="button" onClick={() => answer(k.id)} className="h-10 rounded-xl bg-stone-900 px-3 text-xs text-white">Send</button>
+                    <button type="button" onClick={() => answer(k.id)} className="h-10 rounded-xl bg-foreground px-3 text-xs text-background">Send</button>
                   </div>
                 )}
               </div>

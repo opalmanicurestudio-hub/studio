@@ -235,8 +235,8 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
       return ['Autopay ready', 'bg-emerald-100 text-emerald-800'];
     }
     if (r.readiness === 'no_card') return ['No card on file', 'bg-amber-100 text-amber-900'];
-    if (r.readiness === 'manual') return ['Pays manually', 'bg-slate-100 text-slate-600'];
-    return ['No schedule', 'bg-slate-100 text-slate-500'];
+    if (r.readiness === 'manual') return ['Pays manually', 'bg-muted text-foreground/80'];
+    return ['No schedule', 'bg-muted text-muted-foreground'];
   };
   const upcoming = rows.slice(0, 12);
   const dueSum = rows.reduce((n, r) => n + (r.readiness === 'ready' ? r.amountCents : 0), 0);
@@ -248,7 +248,7 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
         <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
           <CalendarClockIcon className="h-3.5 w-3.5" /> Scheduled
         </CardTitle>
-        <p className="text-[11px] font-bold text-slate-500">
+        <p className="text-[11px] font-bold text-muted-foreground">
           What autopay will draft next, and whether it can.
           {rows.length > 0 && ` ${money(dueSum)} set to collect automatically`}
           {trouble > 0 && ` · ${trouble} need${trouble === 1 ? 's' : ''} attention`}.
@@ -256,17 +256,17 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
       </CardHeader>
       <CardContent className="p-5 pt-2 space-y-2">
         {upcoming.length === 0 ? (
-          <p className="text-[11px] font-bold text-slate-500">No active leases with a due day yet.</p>
+          <p className="text-[11px] font-bold text-muted-foreground">No active leases with a due day yet.</p>
         ) : upcoming.map((r) => {
           const renter = renterById.get(r.renterId);
           const booth = boothById.get(r.boothId);
           const [label, tone] = chip(r);
           const name = renter ? `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter' : 'Renter';
           return (
-            <div key={r.leaseId} className="flex items-center gap-3 rounded-2xl border-2 bg-white px-3.5 py-2.5">
+            <div key={r.leaseId} className="flex items-center gap-3 rounded-2xl border-2 bg-card px-3.5 py-2.5">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-black">{name}<span className="font-bold text-slate-400"> · {booth?.name || 'Space'}</span></p>
-                <p className="text-[11px] font-bold text-slate-500">
+                <p className="truncate text-sm font-black">{name}<span className="font-bold text-muted-foreground"> · {booth?.name || 'Space'}</span></p>
+                <p className="text-[11px] font-bold text-muted-foreground">
                   {when(r.date)} · {money(r.amountCents)} {r.frequency}
                   {r.lastAttempt ? ` · last ${r.lastAttempt.ok ? 'paid' : `declined (${r.lastAttempt.note})`} ${r.lastAttempt.date}` : ''}
                 </p>
@@ -276,7 +276,7 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
                 // file. One tap moves them to "ready" without opening their
                 // card; the switch there does the same thing.
                 <button type="button" onClick={() => onEnableAutopay(r.renterId)}
-                  className="shrink-0 rounded-full border-2 border-emerald-300 bg-white px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-50">
+                  className="shrink-0 rounded-full border-2 border-emerald-300 bg-card px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-50">
                   Turn on autopay
                 </button>
               ) : (
@@ -285,7 +285,7 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
             </div>
           );
         })}
-        {rows.length > 12 && <p className="text-[10px] font-bold text-slate-400">Showing the next 12 of {rows.length}.</p>}
+        {rows.length > 12 && <p className="text-[10px] font-bold text-muted-foreground">Showing the next 12 of {rows.length}.</p>}
       </CardContent>
     </Card>
   );
@@ -408,9 +408,9 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
     const on = cfg.offered.includes(t);
     return (
       <button type="button" aria-pressed={on} onClick={() => setCfg((c) => ({ ...c, offered: on ? c.offered.filter((x) => x !== t) : [...c.offered, t] }))}
-        className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors', on ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+        className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors', on ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
         <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest">{LEAVE_TREATMENT_LABEL[t]}</span><span className="block text-[10px] font-bold text-muted-foreground">{LEAVE_TREATMENT_NOTE[t]}</span></span>
-        <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{on ? 'Offered' : 'Off'}</span>
+        <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}>{on ? 'Offered' : 'Off'}</span>
       </button>
     );
   };
@@ -418,7 +418,7 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
     <Card className="rounded-[2rem] border-2">
       <CardHeader className="p-5 pb-2">
         <CardTitle className="text-[11px] font-black uppercase tracking-widest">Leave</CardTitle>
-        <p className="text-[11px] font-bold text-slate-500">Maternity, medical, family. What a renter can ask for, and what rent does while they're away. Nothing is offered until you tick it; every request is yours to decide.</p>
+        <p className="text-[11px] font-bold text-muted-foreground">Maternity, medical, family. What a renter can ask for, and what rent does while they're away. Nothing is offered until you tick it; every request is yours to decide.</p>
       </CardHeader>
       <CardContent className="p-5 pt-2 space-y-4">
         {pending.length > 0 && (
@@ -429,16 +429,16 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
               const pick = chosen[l.id] || l.preferred || cfg.offered[0];
               return (
                 <div key={l.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 space-y-2">
-                  <p className="text-sm font-black">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-slate-500"> · {LEAVE_TYPE_LABEL[l.type as keyof typeof LEAVE_TYPE_LABEL] || l.type}</span></p>
-                  <p className="text-[11px] font-bold text-slate-700">{l.startDate} → {l.endDate} · {l.days} day{l.days === 1 ? '' : 's'}{l.preferred ? ` · they'd prefer: ${LEAVE_TREATMENT_LABEL[l.preferred as LeaveTreatment]}` : ''}</p>
-                  {l.note && <p className="text-[11px] font-medium text-slate-700">“{l.note}”</p>}
+                  <p className="text-sm font-black">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-muted-foreground"> · {LEAVE_TYPE_LABEL[l.type as keyof typeof LEAVE_TYPE_LABEL] || l.type}</span></p>
+                  <p className="text-[11px] font-bold text-foreground/80">{l.startDate} → {l.endDate} · {l.days} day{l.days === 1 ? '' : 's'}{l.preferred ? ` · they'd prefer: ${LEAVE_TREATMENT_LABEL[l.preferred as LeaveTreatment]}` : ''}</p>
+                  {l.note && <p className="text-[11px] font-medium text-foreground/80">“{l.note}”</p>}
                   <div className="flex flex-wrap gap-1.5">
                     {cfg.offered.map((t) => (
                       <button key={t} type="button" onClick={() => setChosen((m) => ({ ...m, [l.id]: t }))} aria-pressed={pick === t}
-                        className={cn('h-9 px-3 rounded-full border-2 text-[9px] font-black uppercase tracking-widest', pick === t ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-300 text-slate-600 bg-white')}>{LEAVE_TREATMENT_LABEL[t]}</button>
+                        className={cn('h-9 px-3 rounded-full border-2 text-[9px] font-black uppercase tracking-widest', pick === t ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80 bg-card')}>{LEAVE_TREATMENT_LABEL[t]}</button>
                     ))}
                   </div>
-                  {pick === 'sublet' && <p className="text-[10px] font-bold text-slate-600">Approving opens their space for day rentals from {l.startDate} to {l.endDate} — those dates only.</p>}
+                  {pick === 'sublet' && <p className="text-[10px] font-bold text-foreground/80">Approving opens their space for day rentals from {l.startDate} to {l.endDate} — those dates only.</p>}
                   <div className="flex gap-2">
                     <Button onClick={() => decide(l, 'approved')} disabled={deciding === l.id || !pick} className="h-10 flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-black uppercase text-[10px] tracking-widest">{deciding === l.id ? '…' : `Approve · ${pick ? LEAVE_TREATMENT_LABEL[pick] : ''}`}</Button>
                     <Button variant="outline" onClick={() => decide(l, 'declined')} disabled={deciding === l.id} className="h-10 rounded-xl border-2 border-red-200 text-red-700 font-black uppercase text-[10px] tracking-widest">Decline</Button>
@@ -456,9 +456,9 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
               const cents = redeemValueCents(leaseById.get(l.leaseId) || {}, Number(l.redeem?.days) || 0);
               return (
                 <div key={`r-${l.id}`} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 space-y-2">
-                  <p className="text-sm font-black">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-slate-500"> · {l.redeem.days} day{l.redeem.days === 1 ? '' : 's'}</span></p>
-                  <p className="text-[11px] font-bold text-slate-700">Approving posts a {formatCents(cents)} credit against their rent. They have {bankedAvailable(l)} banked.</p>
-                  {l.redeem.note && <p className="text-[11px] font-medium text-slate-700">“{l.redeem.note}”</p>}
+                  <p className="text-sm font-black">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-muted-foreground"> · {l.redeem.days} day{l.redeem.days === 1 ? '' : 's'}</span></p>
+                  <p className="text-[11px] font-bold text-foreground/80">Approving posts a {formatCents(cents)} credit against their rent. They have {bankedAvailable(l)} banked.</p>
+                  {l.redeem.note && <p className="text-[11px] font-medium text-foreground/80">“{l.redeem.note}”</p>}
                   <div className="flex gap-2">
                     <Button onClick={() => decideRedeem(l, true)} disabled={deciding === `r-${l.id}`} className="h-10 flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-black uppercase text-[10px] tracking-widest">{deciding === `r-${l.id}` ? '…' : `Credit ${formatCents(cents)}`}</Button>
                     <Button variant="outline" onClick={() => decideRedeem(l, false)} disabled={deciding === `r-${l.id}`} className="h-10 rounded-xl border-2 border-red-200 text-red-700 font-black uppercase text-[10px] tracking-widest">Decline</Button>
@@ -472,17 +472,17 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
           <div className="space-y-1.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">On leave now</p>
             {active.map((l) => { const r = renterById.get(l.renterId); const back = String(l.endDate) < todayIso; return (
-              <div key={l.id} className="rounded-2xl border-2 bg-white px-3.5 py-2.5 space-y-2">
+              <div key={l.id} className="rounded-2xl border-2 bg-card px-3.5 py-2.5 space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-[12px] font-black truncate">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-slate-500"> · {l.startDate} → {l.endDate}</span></p>
+                  <p className="text-[12px] font-black truncate">{r ? `${r.firstName} ${r.lastName}` : l.renterName}<span className="font-bold text-muted-foreground"> · {l.startDate} → {l.endDate}</span></p>
                   <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', back ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{back ? 'Due back' : (LEAVE_TREATMENT_LABEL[l.treatment as LeaveTreatment] || 'Approved')}</span>
                 </div>
                 {l.treatment === 'sublet' && (() => {
                   const inc = subletIncome(reservations, l.leaseId, Number(l.subletCreditedCents) || 0);
                   if (inc.bookings === 0) return <p className="text-[10px] font-bold text-muted-foreground">Their space is listed for day rentals until {l.endDate}. Nothing booked yet.</p>;
                   return (
-                    <div className="rounded-xl bg-slate-50 border-2 px-3 py-2 space-y-1.5">
-                      <p className="text-[11px] font-bold text-slate-700">
+                    <div className="rounded-xl bg-muted/60 border-2 px-3 py-2 space-y-1.5">
+                      <p className="text-[11px] font-bold text-foreground/80">
                         {formatCents(inc.grossCents)} from {inc.bookings} booking{inc.bookings === 1 ? '' : 's'} while away
                         {inc.passBookings > 0 ? ` · ${inc.passBookings} paid by prepaid pass, already earned at pack sale` : ''}
                         {inc.creditedCents > 0 ? ` · ${formatCents(inc.creditedCents)} already credited` : ''}
@@ -507,9 +507,9 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
           {(['pause', 'reduced', 'bank', 'sublet'] as LeaveTreatment[]).map((t) => <Row key={t} t={t} />)}
         </div>
         <button type="button" aria-pressed={cfg.autoEnd} onClick={() => setCfg((c) => ({ ...c, autoEnd: !c.autoEnd }))}
-          className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left', cfg.autoEnd ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+          className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left', cfg.autoEnd ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
           <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest">Close a leave on its return date</span><span className="block text-[10px] font-bold text-muted-foreground">Rent goes back to normal on the day they said they'd be back. Off means the date raises a decision for you instead — a leave nobody closes never invoices again.</span></span>
-          <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', cfg.autoEnd ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{cfg.autoEnd ? 'On' : 'Off'}</span>
+          <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', cfg.autoEnd ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}>{cfg.autoEnd ? 'On' : 'Off'}</span>
         </button>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {([['reducedPercent', 'Holding rate %', 0, 100], ['bankDaysPerWeek', 'Banked days / week', 0, 7], ['maxWeeks', 'Max weeks', 1, 104], ['noticeDays', 'Notice days', 0, 90]] as const).map(([k, label, lo, hi]) => (
@@ -517,7 +517,7 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
               <input inputMode="numeric" aria-label={label} value={String((cfg as any)[k])}
                 onChange={(e) => { const n = Number(e.target.value.replace(/[^0-9]/g, '')); setCfg((c) => ({ ...c, [k]: Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : (c as any)[k] })); }}
-                className="h-9 w-full rounded-lg border-2 bg-white px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
+                className="h-9 w-full rounded-lg border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
             </div>
           ))}
         </div>
@@ -554,12 +554,12 @@ function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
   }));
   const Row = ({ title, note, on, onToggle }: { title: string; note: string; on: boolean; onToggle: () => void }) => (
     <button type="button" onClick={onToggle} aria-pressed={on}
-      className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors', on ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+      className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors', on ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
       <span className="min-w-0">
         <span className="block text-[11px] font-black uppercase tracking-widest">{title}</span>
         <span className="block text-[10px] font-bold text-muted-foreground">{note}</span>
       </span>
-      <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', on ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500')}>{on ? 'On' : 'Off'}</span>
+      <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}>{on ? 'On' : 'Off'}</span>
     </button>
   );
 
@@ -567,7 +567,7 @@ function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
     <Card className="rounded-[2rem] border-2">
       <CardHeader className="p-5 pb-2">
         <CardTitle className="text-[11px] font-black uppercase tracking-widest">Collections</CardTitle>
-        <p className="text-[11px] font-bold text-slate-500">
+        <p className="text-[11px] font-bold text-muted-foreground">
           What happens when rent goes unpaid. Everything here is off until you switch it on — the app never bars anyone on its own.
         </p>
       </CardHeader>
@@ -580,7 +580,7 @@ function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
               const on = cfg.dunningDays.includes(d);
               return (
                 <button key={d} type="button" onClick={() => toggleDay(d)} aria-pressed={on}
-                  className={cn('h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-colors', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>
+                  className={cn('h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-colors', on ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80')}>
                   Day {d}
                 </button>
               );
@@ -595,7 +595,7 @@ function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
               const on = cfg.autoBarAfterDaysLate === d;
               return (
                 <button key={String(d)} type="button" onClick={() => setCfg((c) => ({ ...c, autoBarAfterDaysLate: d }))} aria-pressed={on}
-                  className={cn('h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-colors', on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>
+                  className={cn('h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-colors', on ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80')}>
                   {d === null ? 'Never — I decide' : `${d} days late`}
                 </button>
               );
@@ -612,13 +612,13 @@ function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Make checks payable to</p>
             <input value={(cfg as any).payableTo || ''} onChange={(e) => setCfg((c) => ({ ...c, payableTo: e.target.value.slice(0, 120) } as any))}
               placeholder={tenant?.name || 'Your business name'} aria-label="Make checks payable to"
-              className="h-10 w-full rounded-xl border-2 bg-white px-3 text-sm font-bold outline-none focus:border-foreground/60" />
+              className="h-10 w-full rounded-xl border-2 bg-card px-3 text-sm font-bold outline-none focus:border-foreground/60" />
           </div>
           <div className="space-y-1.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Mail payments to</p>
             <input value={(cfg as any).remitAddress || ''} onChange={(e) => setCfg((c) => ({ ...c, remitAddress: e.target.value.slice(0, 200) } as any))}
               placeholder="Your studio address, if different" aria-label="Mail payments to"
-              className="h-10 w-full rounded-xl border-2 bg-white px-3 text-sm font-bold outline-none focus:border-foreground/60" />
+              className="h-10 w-full rounded-xl border-2 bg-card px-3 text-sm font-bold outline-none focus:border-foreground/60" />
           </div>
           <p className="sm:col-span-2 text-[10px] font-bold text-muted-foreground">Printed on the tear-off remittance slip at the bottom of every statement.</p>
         </div>
@@ -627,7 +627,7 @@ function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
           <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What a barred renter sees when they try to book</p>
           <textarea value={cfg.wallMessage} onChange={(e) => setCfg((c) => ({ ...c, wallMessage: e.target.value.slice(0, 300) }))}
             rows={3} aria-label="Message shown to a barred renter"
-            className="w-full rounded-2xl border-2 bg-white px-3.5 py-2.5 text-sm font-medium outline-none focus:border-foreground/60" />
+            className="w-full rounded-2xl border-2 bg-card px-3.5 py-2.5 text-sm font-medium outline-none focus:border-foreground/60" />
         </div>
 
         <div className="flex items-center justify-end gap-2">
@@ -666,10 +666,10 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
   const ProspectRow = () => (
     <button type="button" onClick={() => setProspectOn((v) => !v)} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
       <span>
-        <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">Tour confirmation to the prospect</span>
-        <span className="block text-[11px] font-bold text-slate-500">Emails the person who booked the tour their time and what to expect. Off means nothing ever sends.</span>
+        <span className="block text-[12px] font-black uppercase tracking-wide text-foreground">Tour confirmation to the prospect</span>
+        <span className="block text-[11px] font-bold text-muted-foreground">Emails the person who booked the tour their time and what to expect. Off means nothing ever sends.</span>
       </span>
-      <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${prospectOn ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+      <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${prospectOn ? 'bg-emerald-100 text-emerald-700' : 'bg-border text-foreground/80'}`}>
         {prospectOn ? 'On' : 'Off'}
       </span>
     </button>
@@ -677,10 +677,10 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
   const Row = ({ k, label, hint }: { k: string; label: string; hint: string }) => (
     <button type="button" onClick={() => flip(k)} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
       <span>
-        <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">{label}</span>
-        <span className="block text-[11px] font-bold text-slate-500">{hint}</span>
+        <span className="block text-[12px] font-black uppercase tracking-wide text-foreground">{label}</span>
+        <span className="block text-[11px] font-bold text-muted-foreground">{hint}</span>
       </span>
-      <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${cfg[k] !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+      <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${cfg[k] !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>
         {cfg[k] !== false ? 'On' : 'Off'}
       </span>
     </button>
@@ -689,15 +689,15 @@ function RentCommsCard({ tenantId, firestore, tenant }: { tenantId: string; fire
     <Card className="rounded-[2rem] border-2">
       <CardHeader className="p-5 pb-2">
         <CardTitle className="text-[11px] font-black uppercase tracking-widest">Rent notifications</CardTitle>
-        <p className="text-[11px] font-bold text-slate-500">Who hears what, automatically. Late-fee amounts and grace days live on each lease.</p>
+        <p className="text-[11px] font-bold text-muted-foreground">Who hears what, automatically. Late-fee amounts and grace days live on each lease.</p>
       </CardHeader>
       <CardContent className="space-y-2 p-5 pt-2">
         <ProspectRow />
         <Row k="remindRenterBeforeDue" label="Remind renters before rent is due" hint="Branded email with a pay link — autopay renters are skipped" />
         <div className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
           <span>
-            <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">Reminder lead time</span>
-            <span className="block text-[11px] font-bold text-slate-500">Days before the due date (1–7)</span>
+            <span className="block text-[12px] font-black uppercase tracking-wide text-foreground">Reminder lead time</span>
+            <span className="block text-[11px] font-bold text-muted-foreground">Days before the due date (1–7)</span>
           </span>
           <Input type="number" min={1} max={7} value={cfg.remindLeadDays} onChange={(e: any) => setCfg((c: any) => ({ ...c, remindLeadDays: e.target.value }))} className="w-20 text-center font-black" />
         </div>
@@ -763,17 +763,17 @@ function RenterSwapsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
     <Card className="rounded-[2rem] border-2">
       <CardHeader className="p-5 pb-2">
         <CardTitle className="text-[11px] font-black uppercase tracking-widest">Day swaps</CardTitle>
-        <p className="text-[11px] font-bold text-slate-500">
+        <p className="text-[11px] font-bold text-muted-foreground">
           Renters cover for each other directly. Rent never moves, so there is nothing to approve — this is just who is in.
         </p>
       </CardHeader>
       <CardContent className="space-y-3 p-5 pt-2">
         <button type="button" onClick={toggle} className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
           <span>
-            <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">Renters can swap days directly</span>
-            <span className="block text-[11px] font-bold text-slate-500">Turn off in a tight space where you want every change to come through you</span>
+            <span className="block text-[12px] font-black uppercase tracking-wide text-foreground">Renters can swap days directly</span>
+            <span className="block text-[11px] font-bold text-muted-foreground">Turn off in a tight space where you want every change to come through you</span>
           </span>
-          <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+          <span className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>
             {saved ? 'Saved' : enabled ? 'On' : 'Off'}
           </span>
         </button>
@@ -785,22 +785,22 @@ function RenterSwapsCard({ tenantId, firestore, tenant }: { tenantId: string; fi
         )}
 
         <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Who is covering whom</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Who is covering whom</p>
           {upcoming.length === 0 ? (
-            <p className="text-[11px] font-bold text-slate-500">No swaps coming up.</p>
+            <p className="text-[11px] font-bold text-muted-foreground">No swaps coming up.</p>
           ) : upcoming.map((x: any) => (
             <div key={x.id} className="rounded-2xl border-2 p-3">
-              <p className="text-[12px] font-black text-slate-900">
+              <p className="text-[12px] font-black text-foreground">
                 {x.toName || 'Someone'} covers {x.fromName || 'someone'}
               </p>
-              <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+              <p className="text-[11px] font-bold text-muted-foreground mt-0.5">
                 {when(x.giveDate)} · {x.wholeDay === false ? `${x.giveStart}–${x.giveEnd}` : 'all day'}
                 {x.giveBoothName ? ` · ${x.giveBoothName}` : ''}
               </p>
             </div>
           ))}
         </div>
-        <p className="text-[10px] font-bold text-slate-400">
+        <p className="text-[10px] font-bold text-muted-foreground">
           Rent, invoices and leases are untouched by every swap above. A permanent change of days is a lease change.
         </p>
       </CardContent>
@@ -891,7 +891,7 @@ function RenterProvidersCard({ tenantId, firestore, renters, staff, allAppointme
     <Card className="rounded-[2rem] border-2">
       <CardHeader className="p-5 pb-2">
         <CardTitle className="text-[11px] font-black uppercase tracking-widest">Independent providers</CardTitle>
-        <p className="text-[11px] font-bold text-slate-500">Let a renter take bookings on your booking page with their own menu and prices. They collect payment directly — nothing runs through your Stripe.</p>
+        <p className="text-[11px] font-bold text-muted-foreground">Let a renter take bookings on your booking page with their own menu and prices. They collect payment directly — nothing runs through your Stripe.</p>
       </CardHeader>
       <CardContent className="space-y-2 p-5 pt-2">
         {list.map((r: any) => {
@@ -903,8 +903,8 @@ function RenterProvidersCard({ tenantId, firestore, renters, staff, allAppointme
             <div key={r.id} className="rounded-2xl border-2 p-3">
               <div className="flex items-center justify-between gap-3">
                 <button type="button" onClick={() => setOpenId(open ? '' : r.id)} className="flex-1 text-left">
-                  <span className="block text-[12px] font-black uppercase tracking-wide text-slate-900">{rName(r)}</span>
-                  <span className="block text-[11px] font-bold text-slate-500">{on ? `${mine.length} service${mine.length === 1 ? '' : 's'} on their menu` : 'Not taking bookings here'}</span>
+                  <span className="block text-[12px] font-black uppercase tracking-wide text-foreground">{rName(r)}</span>
+                  <span className="block text-[11px] font-bold text-muted-foreground">{on ? `${mine.length} service${mine.length === 1 ? '' : 's'} on their menu` : 'Not taking bookings here'}</span>
                 </button>
                 <Button size="sm" variant={on ? 'ghost' : 'default'} className="shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest"
                         onClick={() => (on ? disableProvider(r) : enableProvider(r))}>
@@ -914,9 +914,9 @@ function RenterProvidersCard({ tenantId, firestore, renters, staff, allAppointme
 
               {open && on && (
                 <div className="mt-3 space-y-2 border-t-2 pt-3">
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Chair activity (last 30 days)</p>
-                    <p className="text-[13px] font-bold text-slate-700">
+                  <div className="rounded-2xl bg-muted/60 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Chair activity (last 30 days)</p>
+                    <p className="text-[13px] font-bold text-foreground/80">
                       {(() => {
                         const since = new Date(Date.now() - 30 * 86400000).toISOString();
                         const rows = ((allAppointments || []) as any[]).filter((a: any) => a.isRenterBooking && a.staffId === st?.id && a.startTime >= since && a.status !== 'cancelled');
@@ -924,7 +924,7 @@ function RenterProvidersCard({ tenantId, firestore, renters, staff, allAppointme
                         return `${rows.length} booking${rows.length === 1 ? '' : 's'} · ${upcoming} upcoming`;
                       })()}
                     </p>
-                    <p className="mt-1 text-[10px] font-bold text-slate-400">
+                    <p className="mt-1 text-[10px] font-bold text-muted-foreground">
                       Volume only — their earnings are their own books.
                       {Number(r.sharedTargetHourlyCents) > 0
                         ? ` They've chosen to share an hourly target of $${(Number(r.sharedTargetHourlyCents) / 100).toFixed(2)}.`
@@ -941,8 +941,8 @@ function RenterProvidersCard({ tenantId, firestore, renters, staff, allAppointme
                   {mine.map((sv: any) => (
                     <div key={sv.id} className="flex items-center justify-between gap-3 rounded-xl border-2 p-2">
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12px] font-black text-slate-900">{sv.name}</span>
-                        <span className="block text-[11px] font-bold text-slate-500">${Number(sv.price || 0).toFixed(2)} · {sv.duration} min</span>
+                        <span className="block truncate text-[12px] font-black text-foreground">{sv.name}</span>
+                        <span className="block text-[11px] font-bold text-muted-foreground">${Number(sv.price || 0).toFixed(2)} · {sv.duration} min</span>
                       </span>
                       <Button size="sm" variant="ghost" className="shrink-0 text-[10px] font-black uppercase tracking-widest" onClick={() => removeService(sv.id)}>Remove</Button>
                     </div>
@@ -953,7 +953,7 @@ function RenterProvidersCard({ tenantId, firestore, renters, staff, allAppointme
                     <Input type="number" min={5} step={5} value={draft.duration} onChange={(e: any) => setDraft(d => ({ ...d, duration: e.target.value }))} className="w-20 text-center text-[12px] font-bold" />
                     <Button size="sm" className="rounded-xl text-[10px] font-black uppercase tracking-widest" onClick={() => addService(r)}>Add</Button>
                   </div>
-                  <p className="text-[11px] font-bold text-slate-500">Clients booking these see “you’ll pay {rName(r)} directly at your visit.” Their own hours and self-serve menu editing come next.</p>
+                  <p className="text-[11px] font-bold text-muted-foreground">Clients booking these see “you’ll pay {rName(r)} directly at your visit.” Their own hours and self-serve menu editing come next.</p>
                 </div>
               )}
             </div>
@@ -1577,7 +1577,7 @@ export default function RentRollPage() {
   ];
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Rent" />
       <div className="flex-1 w-full max-w-[1100px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6"
         style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
@@ -1610,14 +1610,14 @@ export default function RentRollPage() {
           {cycleResult}
           {lastReceipt && (
             <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(lastReceipt.renterId)}&receipt=${encodeURIComponent(lastReceipt.paymentId)}`}
-              target="_blank" rel="noopener" className="ml-1 underline text-slate-900">Print receipt</a>
+              target="_blank" rel="noopener" className="ml-1 underline text-foreground">Print receipt</a>
           )}
         </p>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {kpis.map(([label, value, sub]) => (
-          <div key={label} className="rounded-2xl border-2 bg-white p-3.5">
+          <div key={label} className="rounded-2xl border-2 bg-card p-3.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
             <p className="mt-1 text-2xl font-black tabular-nums leading-none">{value}</p>
             <p className="mt-1 text-[10px] font-bold text-muted-foreground">{sub}</p>
@@ -1631,7 +1631,7 @@ export default function RentRollPage() {
           <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
             <AlertTriangle className="h-3.5 w-3.5" /> Owed
           </CardTitle>
-          <p className="text-[11px] font-bold text-slate-500">
+          <p className="text-[11px] font-bold text-muted-foreground">
             Open invoices, oldest first. Late ones have passed their grace days and carry any fee the lease sets.
           </p>
         </CardHeader>
@@ -1653,23 +1653,23 @@ export default function RentRollPage() {
             </div>
           )}
           {owedByRenter.length === 0 ? (
-            <p className="text-[11px] font-bold text-slate-500">Nothing outstanding. Invoices appear here on each lease's due day.</p>
+            <p className="text-[11px] font-bold text-muted-foreground">Nothing outstanding. Invoices appear here on each lease's due day.</p>
           ) : owedByRenter.map((r) => (
-            <div key={r.renterId} className={cn('flex items-center gap-3 rounded-2xl border-2 px-3.5 py-2.5', r.late ? 'border-red-200 bg-red-50/60' : 'bg-white')}>
+            <div key={r.renterId} className={cn('flex items-center gap-3 rounded-2xl border-2 px-3.5 py-2.5', r.late ? 'border-red-200 bg-red-50/60' : 'bg-card')}>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-black">{r.renterName}<span className="font-bold text-slate-400"> · {r.boothName}</span></p>
-                <p className="text-[11px] font-bold text-slate-500">
+                <p className="truncate text-sm font-black">{r.renterName}<span className="font-bold text-muted-foreground"> · {r.boothName}</span></p>
+                <p className="text-[11px] font-bold text-muted-foreground">
                   {r.count} invoice{r.count === 1 ? '' : 's'} · oldest due {r.oldest}
                   {r.feeCents > 0 ? ` · ${formatCents(r.feeCents)} in late fees` : ''}
                 </p>
               </div>
               <div className="text-right shrink-0">
-                <p className={cn('text-base font-black tabular-nums', r.late ? 'text-red-700' : 'text-slate-900')}>{formatCents(r.dueCents + r.lateCents + r.feeCents)}</p>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{r.late ? 'Late' : 'Due'}</p>
+                <p className={cn('text-base font-black tabular-nums', r.late ? 'text-red-700' : 'text-foreground')}>{formatCents(r.dueCents + r.lateCents + r.feeCents)}</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{r.late ? 'Late' : 'Due'}</p>
               </div>
               <button type="button" onClick={() => setOwedOpen(owedOpen === r.renterId ? '' : r.renterId)}
                 aria-expanded={owedOpen === r.renterId} aria-label="Show invoices"
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-white text-slate-600">
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-card text-foreground/80">
                 <ChevronDown className={cn('h-4 w-4 transition-transform', owedOpen === r.renterId && 'rotate-180')} />
               </button>
             </div>
@@ -1681,7 +1681,7 @@ export default function RentRollPage() {
               <div key={inv.id} className="ml-4 rounded-2xl border-2 border-dashed px-3.5 py-3 space-y-2">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[12px] font-black">Rent due {inv.dueDate}<span className="font-bold text-slate-400"> · {inv.boothName}</span></p>
+                    <p className="text-[12px] font-black">Rent due {inv.dueDate}<span className="font-bold text-muted-foreground"> · {inv.boothName}</span></p>
                     <p className="text-[10px] font-bold text-muted-foreground">
                       {formatCents(Number(inv.amountCents) || 0)} rent{fee > 0 ? ` + ${formatCents(fee)} late fee` : ''}{(Number(inv.paidCents) || 0) > 0 ? ` − ${formatCents(Number(inv.paidCents))} paid` : ''}
                       {inv.feeWaivedAt ? ` · fee waived ${String(inv.feeWaivedAt).slice(0, 10)}` : ''}
@@ -1691,7 +1691,7 @@ export default function RentRollPage() {
                 </div>
                 <input value={waiveReason[inv.id] || ''} onChange={(e) => setWaiveReason((m) => ({ ...m, [inv.id]: e.target.value.slice(0, 160) }))}
                   placeholder="Reason (goes on their record and the statement)" aria-label="Waiver reason"
-                  className="h-9 w-full rounded-lg border-2 bg-white px-2.5 text-[11px] font-bold outline-none focus:border-foreground/60" />
+                  className="h-9 w-full rounded-lg border-2 bg-card px-2.5 text-[11px] font-bold outline-none focus:border-foreground/60" />
                 <div className="flex flex-wrap gap-2">
                   {fee > 0 && (
                     <Button variant="outline" size="sm" disabled={!!waiveBusy}
@@ -1730,12 +1730,12 @@ export default function RentRollPage() {
       )}
 
       {formerOwing.length > 0 && (
-        <Card className="rounded-[2rem] border-2 border-slate-300">
+        <Card className="rounded-[2rem] border-2 border-border">
           <CardHeader className="p-5 pb-2">
             <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
               <AlertTriangle className="h-3.5 w-3.5" /> Former renters who still owe
             </CardTitle>
-            <p className="text-[11px] font-bold text-slate-500">
+            <p className="text-[11px] font-bold text-muted-foreground">
               No lease, nothing more coming due. Collect it, write it off, or bar them from booking until it is cleared.
             </p>
           </CardHeader>
@@ -1745,7 +1745,7 @@ export default function RentRollPage() {
               const barred = (r as any).doNotRent === true;
               const busy = formerBusy === r.id;
               return (
-                <div key={r.id} className={cn('rounded-2xl border-2 px-4 py-3 space-y-2.5', barred ? 'border-slate-900 bg-slate-50' : 'bg-white')}>
+                <div key={r.id} className={cn('rounded-2xl border-2 px-4 py-3 space-y-2.5', barred ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-black text-sm truncate">{r.firstName} {r.lastName}</p>
@@ -1765,7 +1765,7 @@ export default function RentRollPage() {
                       <HandCoins className="h-3.5 w-3.5 mr-1.5" /> Record payment
                     </Button>
                     <Button variant="outline" onClick={() => setDoNotRent(r, !barred)} disabled={busy}
-                      className={cn('h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest', barred ? 'bg-slate-900 text-white border-slate-900' : '')}>
+                      className={cn('h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest', barred ? 'bg-foreground text-background border-slate-900' : '')}>
                       {barred ? 'Allow booking' : 'Bar from booking'}
                     </Button>
                     {bal > 0 && (
@@ -1779,7 +1779,7 @@ export default function RentRollPage() {
                       className="h-11 w-11 shrink-0 rounded-xl border-2 p-0"><History className="h-4 w-4" /></Button>
                     <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(r.id)}`}
                       target="_blank" rel="noopener"
-                      className="h-11 inline-flex items-center rounded-xl border-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      className="h-11 inline-flex items-center rounded-xl border-2 bg-card px-3 text-[10px] font-black uppercase tracking-widest text-foreground/80">
                       <Receipt className="h-3.5 w-3.5 mr-1.5" /> Statement
                     </a>
                   </div>
@@ -1875,7 +1875,7 @@ export default function RentRollPage() {
                     <a
                       href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}`}
                       target="_blank" rel="noopener"
-                      className="h-11 inline-flex items-center rounded-xl border-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600"
+                      className="h-11 inline-flex items-center rounded-xl border-2 bg-card px-3 text-[10px] font-black uppercase tracking-widest text-foreground/80"
                     >
                       <Receipt className="h-3.5 w-3.5 mr-1.5" /> Statement
                     </a>
@@ -2127,7 +2127,7 @@ export default function RentRollPage() {
                     {entry.type === 'payment' && isCredit && historyRenter && (
                       <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(historyRenter.id)}&receipt=${encodeURIComponent(entry.id)}`}
                         target="_blank" rel="noopener" title="Print receipt"
-                        className="grid h-9 w-9 place-items-center rounded-lg border-2 bg-white text-slate-600">
+                        className="grid h-9 w-9 place-items-center rounded-lg border-2 bg-card text-foreground/80">
                         <Receipt className="h-3.5 w-3.5" />
                       </a>
                     )}

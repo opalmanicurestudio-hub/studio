@@ -15,7 +15,7 @@ async function api(body: any) {
   const r = await fetch('/api/stripe/pay-later', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'No response' }));
 }
-const TONE: Record<string, string> = { active: 'bg-emerald-100 text-emerald-800', pending: 'bg-amber-100 text-amber-800', inactive: 'bg-stone-200 text-stone-600', unrequested: 'bg-stone-100 text-stone-500' };
+const TONE: Record<string, string> = { active: 'bg-emerald-100 text-emerald-800', pending: 'bg-amber-100 text-amber-800', inactive: 'bg-border text-foreground/80', unrequested: 'bg-muted text-muted-foreground' };
 
 export function PayLaterCard({ tenantId }: { tenantId: string }) {
   const [d, setD] = useState<any>(null);
@@ -40,7 +40,7 @@ export function PayLaterCard({ tenantId }: { tenantId: string }) {
           <p className="mt-1 text-sm text-muted-foreground">Let customers split bigger purchases into 4 payments or monthly instalments with Klarna, Afterpay or Affirm. You’re paid the full amount up front; they carry the risk.</p>
         </div>
         <button type="button" role="switch" aria-checked={on} disabled={busy || !d.connected} onClick={() => save(!on)} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-primary' : 'bg-muted'}`}>
-          <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? 'left-6' : 'left-1'}`} />
+          <span className={`absolute top-1 h-5 w-5 rounded-full bg-card shadow transition-all ${on ? 'left-6' : 'left-1'}`} />
         </button>
       </div>
       {!d.connected && <p className="text-sm text-amber-700">Connect Stripe above first.</p>}

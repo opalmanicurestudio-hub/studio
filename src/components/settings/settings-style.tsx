@@ -1,6 +1,6 @@
 'use client';
 // src/components/settings/settings-style.tsx — THE STUDIO LOOK FOR SETTINGS.
-// The same paper, ink, accent (the business's own colour), lines and type as the front desk and booking page, so
+// The same white (or true black), ink, accent (the business's own colour), lines and type as the front desk and booking page, so
 // Settings no longer feels like a different app. `.cf-legacy` calms the older heavy styling inside the settings
 // pages in ONE place — 1px lines instead of thick borders, readable sentence-case labels instead of tiny spaced-out
 // capitals, no grey washes or stacked shadows — and is scoped to Settings, so nothing else in the app changes.
@@ -8,9 +8,9 @@ import * as React from 'react';
 import { DESK_FONT } from '@/components/pos/desk/kit';
 
 export const SETTINGS_CSS = `
-.cf-settings{--accent:hsl(var(--primary));--accent-ink:#fff;--ok:#15803d;--warn:#b45309;--danger:#b91c1c;--paper:#faf8f5;--ink:#1c1917;--muted:#6b635c;--line:#e7e2dc;--card:#fff;--soft:#f3eee8;
+.cf-settings{--accent:hsl(var(--primary));--accent-ink:hsl(var(--primary-foreground));--ok:#1f7a4d;--warn:#b45309;--danger:#b42318;--paper:#fff;--ink:#16171a;--muted:#6d7075;--line:#ececee;--card:#fff;--soft:#f5f5f7;
   background:var(--paper);color:var(--ink);font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
-.dark .cf-settings{--ok:#4ade80;--warn:#fbbf24;--danger:#f87171;--paper:#171412;--ink:#f3eee8;--muted:#b3aaa1;--line:#342e29;--card:#211d1a;--soft:#2a2521}
+.dark .cf-settings{--ok:#7fd1a5;--warn:#f0b35a;--danger:#ff8a80;--paper:#000;--ink:#f5f5f7;--muted:#9a9ca3;--line:#222226;--card:#0c0c0e;--soft:#18181b}
 .cf-settings :focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:12px}
 .cf-sheet{background:var(--card);border:1px solid var(--line);border-radius:22px;overflow:hidden}
 .cf-row{display:flex;align-items:center;gap:16px;padding:16px 20px;transition:background-color .15s ease}
@@ -18,6 +18,33 @@ export const SETTINGS_CSS = `
 .cf-row:hover{background:var(--soft)}
 .cf-muted{color:var(--muted)}
 .cf-accent-wash{background:color-mix(in srgb, var(--accent) 9%, var(--card));border-color:color-mix(in srgb, var(--accent) 28%, var(--line))}
+/* theme classes inside this scope: its own --card/--muted are plain colours */
+.cf-settings .bg-card{background-color:var(--card)}
+.cf-settings .bg-muted{background-color:var(--soft)}
+.cf-settings .bg-card\\/5{background-color:color-mix(in srgb,var(--card) 5%,transparent)}
+.cf-settings .bg-card\\/10{background-color:color-mix(in srgb,var(--card) 10%,transparent)}
+.cf-settings .bg-card\\/20{background-color:color-mix(in srgb,var(--card) 20%,transparent)}
+.cf-settings .bg-card\\/30{background-color:color-mix(in srgb,var(--card) 30%,transparent)}
+.cf-settings .bg-card\\/40{background-color:color-mix(in srgb,var(--card) 40%,transparent)}
+.cf-settings .bg-card\\/50{background-color:color-mix(in srgb,var(--card) 50%,transparent)}
+.cf-settings .bg-card\\/60{background-color:color-mix(in srgb,var(--card) 60%,transparent)}
+.cf-settings .bg-card\\/70{background-color:color-mix(in srgb,var(--card) 70%,transparent)}
+.cf-settings .bg-card\\/80{background-color:color-mix(in srgb,var(--card) 80%,transparent)}
+.cf-settings .bg-card\\/90{background-color:color-mix(in srgb,var(--card) 90%,transparent)}
+.cf-settings .bg-card\\/95{background-color:color-mix(in srgb,var(--card) 95%,transparent)}
+.cf-settings .bg-muted\\/5{background-color:color-mix(in srgb,var(--soft) 5%,transparent)}
+.cf-settings .bg-muted\\/10{background-color:color-mix(in srgb,var(--soft) 10%,transparent)}
+.cf-settings .bg-muted\\/20{background-color:color-mix(in srgb,var(--soft) 20%,transparent)}
+.cf-settings .bg-muted\\/30{background-color:color-mix(in srgb,var(--soft) 30%,transparent)}
+.cf-settings .bg-muted\\/40{background-color:color-mix(in srgb,var(--soft) 40%,transparent)}
+.cf-settings .bg-muted\\/50{background-color:color-mix(in srgb,var(--soft) 50%,transparent)}
+.cf-settings .bg-muted\\/60{background-color:color-mix(in srgb,var(--soft) 60%,transparent)}
+.cf-settings .bg-muted\\/70{background-color:color-mix(in srgb,var(--soft) 70%,transparent)}
+.cf-settings .bg-muted\\/80{background-color:color-mix(in srgb,var(--soft) 80%,transparent)}
+.cf-settings .bg-muted\\/90{background-color:color-mix(in srgb,var(--soft) 90%,transparent)}
+.cf-settings .bg-muted\\/95{background-color:color-mix(in srgb,var(--soft) 95%,transparent)}
+.cf-settings .hover\\:bg-muted:hover{background-color:var(--soft)}
+.cf-settings .text-muted{color:var(--muted)}
 @media (prefers-reduced-motion: reduce){.cf-row{transition:none}}
 /* ── calming the older settings pages (scoped) ── */
 .cf-legacy .border-2{border-width:1px!important;border-color:var(--line)}

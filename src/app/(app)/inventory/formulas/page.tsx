@@ -105,7 +105,7 @@ export default function FormulasPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+      <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
           <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
             <Link href="/inventory"><ArrowLeft className="h-4 w-4" /></Link>
@@ -136,7 +136,7 @@ export default function FormulasPage() {
         )}
 
         {editing && (
-          <Card className="border-2 border-primary rounded-[2.5rem] overflow-hidden bg-white">
+          <Card className="border-2 border-primary rounded-[2.5rem] overflow-hidden bg-card">
             <CardContent className="p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-widest text-primary">
@@ -163,7 +163,7 @@ export default function FormulasPage() {
                       const it = items.find((i: any) => i.id === e.target.value);
                       setEditing({ ...editing, outputItemId: e.target.value, outputName: it ? it.name : '' });
                     }}
-                    className="w-full h-12 rounded-xl border-2 bg-white px-3 text-xs font-bold"
+                    className="w-full h-12 rounded-xl border-2 bg-card px-3 text-xs font-bold"
                   >
                     <option value="">Pick the finished item…</option>
                     {items.map((i: any) => <option key={i.id} value={i.id}>{i.name}</option>)}
@@ -241,7 +241,7 @@ export default function FormulasPage() {
           const est = estimateRunCost(f, items);
           const runs = runsDraft[f.id] ?? '1';
           return (
-            <Card key={f.id} className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <Card key={f.id} className="border-2 rounded-[2rem] overflow-hidden bg-card">
               <CardContent className="p-5 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">

@@ -170,7 +170,7 @@ const IntelCategory = ({
                 onCheckedChange={() => handleFlagToggle(item)}
                 className="h-5 w-5 rounded-lg border-2"
               />
-              <Label htmlFor={`check-${title}-${item}`} className="text-xs font-bold uppercase tracking-tight text-slate-600">{item}</Label>
+              <Label htmlFor={`check-${title}-${item}`} className="text-xs font-bold uppercase tracking-tight text-foreground/80">{item}</Label>
             </div>
           ))}
         </div>
@@ -242,7 +242,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
             </div>
             <div className="space-y-0.5 text-left">
                 <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-                <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+                <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
             </div>
         </div>
     );
@@ -329,7 +329,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                             <Lock className="w-5 h-5 text-primary opacity-40" />
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">PCI Compliant Archive</span>
                         </div>
-                        <Badge variant="outline" className="font-black text-[8px] uppercase tracking-widest h-6 px-3 bg-white border-2">Card on File</Badge>
+                        <Badge variant="outline" className="font-black text-[8px] uppercase tracking-widest h-6 px-3 bg-card border-2">Card on File</Badge>
                     </div>
                     <div className="space-y-2 text-left">
                         <p className="text-sm">No card on file yet.</p>
@@ -456,7 +456,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         { id: 'history', label: 'Historical Service Context', placeholder: 'Past experiences and preferences.' },
                         { id: 'other', label: 'Miscellaneous Intel', placeholder: 'Other relevant tactical details.' }
                     ].map(section => (
-                        <AccordionItem key={section.id} value={section.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-white shadow-sm">
+                        <AccordionItem key={section.id} value={section.id} className="border-2 rounded-[1.5rem] overflow-hidden bg-card shadow-sm">
                             <AccordionTrigger className="px-6 py-4 text-xs font-black uppercase tracking-widest hover:no-underline bg-muted/10">{section.label}</AccordionTrigger>
                             <AccordionContent className="p-6">
                                 <Textarea placeholder={section.placeholder} className="text-sm rounded-xl border-2 bg-muted/5 min-h-[120px]" {...register(`notes.${section.id === 'other' ? 'general' : section.id}` as any)} />
@@ -500,7 +500,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
           <UserPlus className="w-5 h-5 text-primary" />
           <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Operations Suite</span>
         </div>
-        <h2 className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>Register New Guest</h2>
+        <h2 className={cn("font-black uppercase tracking-tighter text-foreground leading-none", isMobile ? "text-xl" : "text-3xl")}>Register New Guest</h2>
         <p className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Populate the client dossier.</p>
       </div>
       <ScrollArea className="flex-1 min-h-0">

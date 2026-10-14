@@ -147,7 +147,7 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any, title: string, 
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-primary/60">Module {step}</p>
-            <h3 className="text-lg md:text-xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</h3>
+            <h3 className="text-lg md:text-xl font-black uppercase tracking-tighter text-foreground leading-none">{title}</h3>
         </div>
     </div>
 );
@@ -540,7 +540,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                   className="h-6 w-6 rounded-full border-2"
                               />
                               <div className="min-w-0 text-left">
-                                  <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{service.name}</Label>
+                                  <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-foreground block truncate text-left">{service.name}</Label>
                                   <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60 text-left">Main Service</p>
                               </div>
                           </div>
@@ -572,8 +572,8 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                                       className="h-6 w-6 rounded-full border-2"
                                   />
                                   <div className="min-w-0 text-left">
-                                      <Label htmlFor={`complete-review-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{addon.name}</Label>
-                                      <Badge variant="outline" className={cn("text-[8px] h-5 px-2 uppercase font-black tracking-widest cursor-pointer border-2 shadow-sm transition-all", (concurrentServiceIds.includes(addon.id)) ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
+                                      <Label htmlFor={`complete-review-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-foreground block truncate text-left">{addon.name}</Label>
+                                      <Badge variant="outline" className={cn("text-[8px] h-5 px-2 uppercase font-black tracking-widest cursor-pointer border-2 shadow-sm transition-all", (concurrentServiceIds.includes(addon.id)) ? "bg-primary text-white border-primary" : "bg-card text-muted-foreground border-border")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
                                           {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2.5 h-2.5 mr-1" /> Concurrent</> : <><Workflow className="w-2.5 h-2.5 mr-1" /> Sequential</>}
                                       </Badge>
                                   </div>
@@ -652,9 +652,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                           {editableFormula.length > 0 ? (
                               <div className="grid gap-3 text-left">
                                   {editableFormula.map((item, index) => (
-                                      <div key={item.id} className="p-5 bg-white rounded-2xl border-2 shadow-sm space-y-4 group hover:border-primary/20 transition-all">
+                                      <div key={item.id} className="p-5 bg-card rounded-2xl border-2 shadow-sm space-y-4 group hover:border-primary/20 transition-all">
                                           <div className="flex items-center justify-between gap-4 text-left">
-                                              <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
+                                              <span className="font-black text-xs uppercase tracking-tight text-foreground flex-1 truncate text-left">{item.name}</span>
                                               <div className="flex items-center gap-3 text-left">
                                                   <div className="flex items-center gap-2 text-left">
                                                       <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left">Load</Label>
@@ -724,11 +724,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
               {refreshments.length > 0 ? (
                   <div className="grid gap-2 text-left">
                       {refreshments.map((ref, idx) => (
-                          <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
+                          <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-card shadow-sm group">
                               <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
                                   <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
                                   <div className="min-w-0 text-left">
-                                      <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
+                                      <p className="text-[11px] font-black uppercase tracking-tight text-foreground truncate text-left">{ref.name}</p>
                                       <div className="flex items-center gap-2 text-left">
                                           <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
                                           {ref.isAccountedFor && <Badge variant="outline" className="h-3.5 text-[6px] font-black uppercase bg-green-50 text-green-700 border-green-200">Inventory Sync</Badge>}
@@ -771,7 +771,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
               <AnimatePresence>
                   {saveAsCustomFormula && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden text-left">
-                          <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
+                          <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-card shadow-xl text-left">
                               <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
                                   <Tag className="w-3.5 h-3.5" /> Formula Identifier
                               </Label>
@@ -821,7 +821,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <Sparkles className="w-5 h-5 text-primary" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical review</span>
                 </div>
-                <DialogTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none", isMobile ? "text-xl" : "text-3xl")}>{titleText}</DialogTitle>
+                <DialogTitle className={cn("font-black uppercase tracking-tighter text-foreground leading-none", isMobile ? "text-xl" : "text-3xl")}>{titleText}</DialogTitle>
                 <DialogDescription className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1 text-left">
@@ -833,7 +833,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                             <AvatarFallback className="font-black bg-primary/10 text-primary text-xl">{(client.name || 'G').substring(0,2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1 text-left">
-                            <p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
+                            <p className="font-black text-lg md:text-2xl uppercase tracking-tighter text-foreground leading-none truncate">{client.name}</p>
                             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5">{service.name}</p>
                         </div>
                     </CardContent>
@@ -911,7 +911,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     >
                         {buttonLabel} <ArrowRight className="ml-2 sm:ml-3 w-4 h-4 sm:w-6 sm:h-6 transition-transform group-hover:translate-x-2 shrink-0" />
                     </Button>
-                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-tighter text-[10px] text-slate-400">Abort Review</Button>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-tighter text-[10px] text-muted-foreground">Abort Review</Button>
                 </div>
             </DialogFooter>
         </ContentComponent>

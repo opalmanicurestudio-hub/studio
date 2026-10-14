@@ -46,7 +46,7 @@ const STATUS_CONFIG: Record<InquiryStatus, { label: string; color: string; dot: 
     reviewing: { label: 'Reviewing', color: 'bg-blue-50 border-blue-200 text-blue-700',       dot: 'bg-blue-400' },
     quoted:    { label: 'Quoted',    color: 'bg-amber-50 border-amber-200 text-amber-700',    dot: 'bg-amber-400' },
     converted: { label: 'Converted', color: 'bg-green-50 border-green-200 text-green-700',    dot: 'bg-green-500' },
-    closed:    { label: 'Closed',    color: 'bg-slate-100 border-slate-200 text-slate-500',   dot: 'bg-slate-300' },
+    closed:    { label: 'Closed',    color: 'bg-muted border-border text-muted-foreground',   dot: 'bg-slate-300' },
 };
 
 const BUDGET_LABELS: Record<string, string> = {
@@ -88,7 +88,7 @@ const InquiryCard = ({
         <Card
             className={cn(
                 'border-2 rounded-[2rem] overflow-hidden cursor-pointer transition-all hover:shadow-md group',
-                isNew ? 'border-violet-200 bg-violet-50/30' : 'border-slate-200 bg-white',
+                isNew ? 'border-violet-200 bg-violet-50/30' : 'border-border bg-card',
                 isHighPriority && 'ring-2 ring-amber-300/50'
             )}
             onClick={() => onOpen(inquiry)}
@@ -99,14 +99,14 @@ const InquiryCard = ({
                         <Avatar className="h-10 w-10 rounded-xl border-2 border-white shadow-sm shrink-0">
                             <AvatarFallback className={cn(
                                 'font-black text-[11px] rounded-xl',
-                                isNew ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'
+                                isNew ? 'bg-violet-100 text-violet-700' : 'bg-muted text-foreground/80'
                             )}>
                                 {(inquiry.firstName || inquiry.fullName || '?')[0].toUpperCase()}
                             </AvatarFallback>
                         </Avatar>
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                                <p className="font-black text-sm text-slate-900 truncate">
+                                <p className="font-black text-sm text-foreground truncate">
                                     {inquiry.fullName || `${inquiry.firstName} ${inquiry.lastName}`}
                                 </p>
                                 {isNew && (
@@ -118,7 +118,7 @@ const InquiryCard = ({
                                     </Badge>
                                 )}
                             </div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase truncate">
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase truncate">
                                 {inquiry.email}
                             </p>
                         </div>
@@ -131,24 +131,24 @@ const InquiryCard = ({
 
                 {/* Event summary */}
                 <div className="space-y-1.5">
-                    <p className="font-black text-sm text-slate-800 uppercase tracking-tight truncate">
+                    <p className="font-black text-sm text-foreground uppercase tracking-tight truncate">
                         {inquiry.eventName || inquiry.eventType || 'Unnamed Event'}
                     </p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1">
                         {inquiry.eventDate && (
-                            <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                            <span className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">
                                 <Calendar className="w-3 h-3 opacity-40" />
                                 {format(new Date(inquiry.eventDate + 'T12:00:00'), 'MMM d, yyyy')}
                             </span>
                         )}
                         {inquiry.guestCount > 0 && (
-                            <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                            <span className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">
                                 <Users className="w-3 h-3 opacity-40" />
                                 {inquiry.guestCount} guests
                             </span>
                         )}
                         {inquiry.budgetRange && (
-                            <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                            <span className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">
                                 <DollarSign className="w-3 h-3 opacity-40" />
                                 {BUDGET_LABELS[inquiry.budgetRange] || inquiry.budgetRange}
                             </span>
@@ -160,12 +160,12 @@ const InquiryCard = ({
                 {inquiry.interestedServices?.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                         {inquiry.interestedServices.slice(0, 3).map((svc: any) => (
-                            <Badge key={svc.id} variant="outline" className="h-5 px-2 text-[9px] font-black border-slate-200 text-slate-500">
+                            <Badge key={svc.id} variant="outline" className="h-5 px-2 text-[9px] font-black border-border text-muted-foreground">
                                 {svc.name}
                             </Badge>
                         ))}
                         {inquiry.interestedServices.length > 3 && (
-                            <Badge variant="outline" className="h-5 px-2 text-[9px] font-black border-slate-200 text-slate-400">
+                            <Badge variant="outline" className="h-5 px-2 text-[9px] font-black border-border text-muted-foreground">
                                 +{inquiry.interestedServices.length - 3} more
                             </Badge>
                         )}
@@ -173,8 +173,8 @@ const InquiryCard = ({
                 )}
 
                 {/* Footer */}
-                <div className="flex items-center justify-between pt-2 border-t border-dashed border-slate-200">
-                    <p className="text-[9px] font-bold text-slate-400">
+                <div className="flex items-center justify-between pt-2 border-t border-dashed border-border">
+                    <p className="text-[9px] font-bold text-muted-foreground">
                         {inquiry.submittedAt
                             ? formatDistanceToNow(parseISO(inquiry.submittedAt), { addSuffix: true })
                             : 'Recently'}
@@ -231,7 +231,7 @@ const InquiryDetailSheet = ({
                 <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
                     <div className="flex items-start justify-between gap-4">
                         <div className="space-y-1 min-w-0">
-                            <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                            <SheetTitle className="text-2xl font-black uppercase tracking-tighter text-foreground leading-none">
                                 {inquiry.fullName || `${inquiry.firstName} ${inquiry.lastName}`}
                             </SheetTitle>
                             <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
@@ -254,28 +254,28 @@ const InquiryDetailSheet = ({
                         <div className="space-y-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Contact Information</p>
                             <div className="grid grid-cols-1 gap-2">
-                                <a href={`mailto:${inquiry.email}`} className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-white hover:border-primary/20 transition-all">
+                                <a href={`mailto:${inquiry.email}`} className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-card hover:border-primary/20 transition-all">
                                     <Mail className="w-4 h-4 text-primary/40 shrink-0" />
-                                    <span className="font-bold text-sm text-slate-700">{inquiry.email}</span>
-                                    <ExternalLink className="w-3 h-3 text-slate-300 ml-auto" />
+                                    <span className="font-bold text-sm text-foreground/80">{inquiry.email}</span>
+                                    <ExternalLink className="w-3 h-3 text-muted-foreground/70 ml-auto" />
                                 </a>
-                                <a href={`tel:${inquiry.phone}`} className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-white hover:border-primary/20 transition-all">
+                                <a href={`tel:${inquiry.phone}`} className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-card hover:border-primary/20 transition-all">
                                     <Phone className="w-4 h-4 text-primary/40 shrink-0" />
-                                    <span className="font-bold text-sm text-slate-700">{inquiry.phone}</span>
-                                    <ExternalLink className="w-3 h-3 text-slate-300 ml-auto" />
+                                    <span className="font-bold text-sm text-foreground/80">{inquiry.phone}</span>
+                                    <ExternalLink className="w-3 h-3 text-muted-foreground/70 ml-auto" />
                                 </a>
                                 <div className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-muted/5">
                                     <MessageSquare className="w-4 h-4 text-primary/40 shrink-0" />
                                     <div className="text-left">
                                         <p className="font-black text-[9px] uppercase tracking-widest text-muted-foreground">Preferred Contact</p>
-                                        <p className="font-bold text-sm text-slate-700 capitalize">{inquiry.preferredContact || 'Email'}</p>
+                                        <p className="font-bold text-sm text-foreground/80 capitalize">{inquiry.preferredContact || 'Email'}</p>
                                     </div>
                                     {inquiry.bestTime && (
                                         <>
                                             <Clock className="w-4 h-4 text-primary/40 shrink-0 ml-4" />
                                             <div className="text-left">
                                                 <p className="font-black text-[9px] uppercase tracking-widest text-muted-foreground">Best Time</p>
-                                                <p className="font-bold text-sm text-slate-700">{inquiry.bestTime}</p>
+                                                <p className="font-bold text-sm text-foreground/80">{inquiry.bestTime}</p>
                                             </div>
                                         </>
                                     )}
@@ -309,7 +309,7 @@ const InquiryDetailSheet = ({
                                     <MapPin className="w-4 h-4 text-primary/40 shrink-0 mt-0.5" />
                                     <div>
                                         <p className="font-black text-[9px] uppercase tracking-widest text-muted-foreground">Location</p>
-                                        <p className="font-bold text-sm text-slate-700">{inquiry.eventLocation}</p>
+                                        <p className="font-bold text-sm text-foreground/80">{inquiry.eventLocation}</p>
                                         {inquiry.venueType && (
                                             <p className="text-[10px] font-bold text-primary/60 uppercase mt-0.5">{inquiry.venueType.replace('_', '-')}</p>
                                         )}
@@ -336,8 +336,8 @@ const InquiryDetailSheet = ({
                                 {inquiry.interestedServices?.length > 0 && (
                                     <div className="space-y-2">
                                         {inquiry.interestedServices.map((svc: any) => (
-                                            <div key={svc.id} className="flex items-center justify-between p-3 rounded-2xl border-2 bg-white">
-                                                <p className="font-black text-sm text-slate-900 uppercase tracking-tight">{svc.name}</p>
+                                            <div key={svc.id} className="flex items-center justify-between p-3 rounded-2xl border-2 bg-card">
+                                                <p className="font-black text-sm text-foreground uppercase tracking-tight">{svc.name}</p>
                                                 {svc.price > 0 && (
                                                     <p className="font-black font-mono text-sm text-primary">${svc.price}</p>
                                                 )}
@@ -348,7 +348,7 @@ const InquiryDetailSheet = ({
                                 {inquiry.customServiceNote && (
                                     <div className="p-4 rounded-2xl border-2 border-dashed bg-muted/5">
                                         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Custom Note</p>
-                                        <p className="font-medium text-sm text-slate-700 leading-relaxed">{inquiry.customServiceNote}</p>
+                                        <p className="font-medium text-sm text-foreground/80 leading-relaxed">{inquiry.customServiceNote}</p>
                                     </div>
                                 )}
                             </div>
@@ -367,7 +367,7 @@ const InquiryDetailSheet = ({
                                         icon={inquiry.readyToDeposit ? CheckCircle2 : Clock}
                                         label="Ready to Deposit"
                                         value={inquiry.readyToDeposit ? 'Yes — ready to book' : 'Needs more info'}
-                                        valueColor={inquiry.readyToDeposit ? 'text-green-600' : 'text-slate-500'}
+                                        valueColor={inquiry.readyToDeposit ? 'text-green-600' : 'text-muted-foreground'}
                                     />
                                 )}
                                 {inquiry.referralSource && (
@@ -393,7 +393,7 @@ const InquiryDetailSheet = ({
                                 <div className="space-y-3">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Special Requests</p>
                                     <div className="p-4 rounded-2xl border-2 border-dashed bg-muted/5">
-                                        <p className="font-medium text-sm text-slate-700 leading-relaxed">{inquiry.specialRequests}</p>
+                                        <p className="font-medium text-sm text-foreground/80 leading-relaxed">{inquiry.specialRequests}</p>
                                     </div>
                                 </div>
                             </>
@@ -409,7 +409,7 @@ const InquiryDetailSheet = ({
                                         <div className="grid grid-cols-3 gap-2">
                                             {inquiry.inspirationImages.map((url: string, i: number) => (
                                                 <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                                                    className="relative aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-primary/40 transition-all">
+                                                    className="relative aspect-square rounded-xl overflow-hidden border-2 border-border hover:border-primary/40 transition-all">
                                                     <img src={url} alt="" className="w-full h-full object-cover" />
                                                 </a>
                                             ))}
@@ -417,7 +417,7 @@ const InquiryDetailSheet = ({
                                     )}
                                     {inquiry.inspirationLinks && (
                                         <div className="p-4 rounded-2xl border-2 border-dashed bg-muted/5">
-                                            <p className="font-medium text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{inquiry.inspirationLinks}</p>
+                                            <p className="font-medium text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{inquiry.inspirationLinks}</p>
                                         </div>
                                     )}
                                 </div>
@@ -436,7 +436,7 @@ const InquiryDetailSheet = ({
                                         size="sm"
                                         className={cn(
                                             'h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2 transition-all',
-                                            inquiry.status === s ? 'border-slate-900 bg-slate-900 text-white' : ''
+                                            inquiry.status === s ? 'border-slate-900 bg-foreground text-background' : ''
                                         )}
                                         onClick={() => onUpdateStatus(inquiry.id, s)}
                                     >
@@ -490,7 +490,7 @@ const InfoTile = ({
             <Icon className="w-3 h-3 text-primary/40" />
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
         </div>
-        <p className={cn('font-black text-sm text-slate-900', valueColor)}>{value}</p>
+        <p className={cn('font-black text-sm text-foreground', valueColor)}>{value}</p>
     </div>
 );
 
@@ -604,10 +604,10 @@ export const InquiriesTab = ({ tenantId }: { tenantId: string }) => {
                 ].map(s => (
                     <div key={s.label} className={cn(
                         'p-4 rounded-[1.5rem] border-2 text-left',
-                        s.highlight ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-white'
+                        s.highlight ? 'border-violet-200 bg-violet-50' : 'border-border bg-card'
                     )}>
                         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{s.label}</p>
-                        <p className={cn('text-3xl font-black mt-0.5', s.highlight ? 'text-violet-700' : 'text-slate-900')}>{s.value}</p>
+                        <p className={cn('text-3xl font-black mt-0.5', s.highlight ? 'text-violet-700' : 'text-foreground')}>{s.value}</p>
                     </div>
                 ))}
             </div>
@@ -641,11 +641,11 @@ export const InquiriesTab = ({ tenantId }: { tenantId: string }) => {
                         placeholder="SEARCH BY NAME, EMAIL OR EVENT..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-xs tracking-widest bg-white"
+                        className="pl-12 h-12 rounded-2xl border-2 font-black uppercase text-xs tracking-widest bg-card"
                     />
                 </div>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-40 bg-white shrink-0">
+                    <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-40 bg-card shrink-0">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-2 shadow-xl">

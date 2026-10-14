@@ -42,15 +42,15 @@ import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
-    <Card className="border-2 shadow-sm min-w-0 text-left bg-white/50 backdrop-blur-sm">
+    <Card className="border-2 shadow-sm min-w-0 text-left bg-card/50 backdrop-blur-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
                 {title}
             </CardTitle>
-            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-slate-900")} />
+            <Icon className={cn("h-4 w-4 opacity-40", colorClass || "text-foreground")} />
         </CardHeader>
         <CardContent>
-            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-slate-900")}>
+            <div className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", colorClass || "text-foreground")}>
                 {value}
             </div>
             <p className="text-[9px] font-bold text-muted-foreground uppercase mt-1 opacity-40">{description}</p>
@@ -66,7 +66,7 @@ const ReviewCard = ({ review, onTogglePublic, onToggleFeatured, staff }: { revie
   return (
     <Card className={cn(
         "transition-all duration-300 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col",
-        isPublic ? "border-primary/20 bg-white shadow-md" : "border-border/50 bg-muted/5 opacity-80"
+        isPublic ? "border-primary/20 bg-card shadow-md" : "border-border/50 bg-muted/5 opacity-80"
     )}>
       <CardContent className="p-6 md:p-8 space-y-6 flex-1 text-left">
         <div className="flex items-start justify-between gap-4">
@@ -77,7 +77,7 @@ const ReviewCard = ({ review, onTogglePublic, onToggleFeatured, staff }: { revie
             </Avatar>
             <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                    <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{review.clientName}</p>
+                    <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">{review.clientName}</p>
                     {isFeatured && <Badge className="bg-primary text-white border-none text-[7px] h-4 font-black uppercase">Featured</Badge>}
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
@@ -110,7 +110,7 @@ const ReviewCard = ({ review, onTogglePublic, onToggleFeatured, staff }: { revie
 
         <div className="p-5 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-primary/5 transition-all relative">
             <Quote className="absolute -top-3 -left-2 w-8 h-8 text-primary opacity-10" />
-            <p className="text-sm font-medium text-slate-700 leading-relaxed italic relative z-10">
+            <p className="text-sm font-medium text-foreground/80 leading-relaxed italic relative z-10">
                 "{review.text}"
             </p>
         </div>
@@ -120,13 +120,13 @@ const ReviewCard = ({ review, onTogglePublic, onToggleFeatured, staff }: { revie
                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1">
                     <Scissors className="w-2.5 h-2.5" /> Treatment
                 </p>
-                <p className="font-black text-[10px] uppercase tracking-tight text-slate-700 truncate">{review.serviceName}</p>
+                <p className="font-black text-[10px] uppercase tracking-tight text-foreground/80 truncate">{review.serviceName}</p>
             </div>
             <div className="p-3 rounded-xl bg-background border shadow-inner">
                 <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1">
                     <User className="w-2.5 h-2.5" /> Technician
                 </p>
-                <p className="font-black text-[10px] uppercase tracking-tight text-slate-700 truncate">
+                <p className="font-black text-[10px] uppercase tracking-tight text-foreground/80 truncate">
                     {staffMember?.name || 'Assigned Staff'}
                 </p>
             </div>
@@ -134,13 +134,13 @@ const ReviewCard = ({ review, onTogglePublic, onToggleFeatured, staff }: { revie
       </CardContent>
 
       <CardFooter className="p-4 bg-muted/5 border-t mt-auto">
-        <div className="flex items-center justify-between w-full p-3 rounded-2xl bg-white border-2 border-border/50 shadow-sm">
+        <div className="flex items-center justify-between w-full p-3 rounded-2xl bg-card border-2 border-border/50 shadow-sm">
             <div className="flex items-center gap-3">
                 <div className={cn("p-2 rounded-xl", isPublic ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground opacity-40")}>
                     {isPublic ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                 </div>
                 <div className="text-left">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">{isPublic ? 'Publicly Visible' : 'Internal Only'}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-foreground">{isPublic ? 'Publicly Visible' : 'Internal Only'}</p>
                     <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{isPublic ? 'Shown on booking page' : 'Hidden from guests'}</p>
                 </div>
             </div>
@@ -190,7 +190,7 @@ export default function ReviewsPage() {
   }, [reviews]);
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 relative overflow-x-hidden">
+    <div className="flex min-h-screen w-full flex-col bg-background relative overflow-x-hidden">
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
           <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/5 blur-[120px] rounded-full animate-pulse" />
@@ -200,7 +200,7 @@ export default function ReviewsPage() {
       <main className="relative z-10 flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0 space-y-8 md:space-y-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1 text-left">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Feedback Ledger</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Feedback Ledger</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
               Reputation yield & visibility control
             </p>
@@ -215,7 +215,7 @@ export default function ReviewsPage() {
             <KpiCard title="Publicity Ratio" value={`${publicityRatio.toFixed(0)}%`} icon={Percent} description="Approval vs. Audit" />
         </div>
 
-        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white/80 backdrop-blur-xl">
+        <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card/80 backdrop-blur-xl">
           <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
             <div className="flex items-center gap-3 mb-1">
                 <Activity className="w-5 h-5 text-primary" />
@@ -245,7 +245,7 @@ export default function ReviewsPage() {
                 <div className="text-center py-24 md:py-32 px-6 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6">
                     <div className="p-6 bg-muted rounded-[2rem] shadow-inner"><Quote className="h-16 w-16 text-muted-foreground" /></div>
                     <div className="space-y-2 text-center">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Archives Empty</h3>
+                        <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">Archives Empty</h3>
                         <p className="text-sm font-bold uppercase tracking-tight max-w-sm mx-auto">
                             Guest feedback is currently at zero. New reviews will automatically populate this ledger upon guest submission.
                         </p>
@@ -267,10 +267,10 @@ export default function ReviewsPage() {
                     <span className="text-[10px] font-black uppercase tracking-[0.25em] text-primary">Master Control</span>
                 </div>
                 <CardTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter">Publicity Strategy</CardTitle>
-                <CardDescription className="text-sm font-medium text-slate-600 max-w-lg">Visible reviews directly influence conversion on your Booking Page. Feature your best stories to pin them to the top of your public profile.</CardDescription>
+                <CardDescription className="text-sm font-medium text-foreground/80 max-w-lg">Visible reviews directly influence conversion on your Booking Page. Feature your best stories to pin them to the top of your public profile.</CardDescription>
             </CardHeader>
             <CardFooter className="p-8 pt-4">
-                <Button variant="outline" asChild className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white">
+                <Button variant="outline" asChild className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-card">
                     <Link href="/settings/booking#design">Configure Booking Page</Link>
                 </Button>
             </CardFooter>

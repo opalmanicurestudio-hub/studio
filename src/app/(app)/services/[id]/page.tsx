@@ -80,11 +80,11 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
           <div key={tier.id} className="space-y-3">
             <div className="flex justify-between items-center px-1 text-left">
               <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{tier.name}</span>
-              <span className="font-black text-slate-900 text-xs">${tier.price.toFixed(2)}</span>
+              <span className="font-black text-foreground text-xs">${tier.price.toFixed(2)}</span>
             </div>
             <div className="grid gap-2">
               {tier.staffAnalysis.length > 0 ? tier.staffAnalysis.map(sa => (
-                <div key={sa.id} className={cn('p-3 rounded-2xl border-2 flex items-center justify-between shadow-sm', sa.studioNet >= 0 ? 'bg-white border-primary/5 hover:border-primary/20' : 'bg-red-50 border-red-200')}>
+                <div key={sa.id} className={cn('p-3 rounded-2xl border-2 flex items-center justify-between shadow-sm', sa.studioNet >= 0 ? 'bg-card border-primary/5 hover:border-primary/20' : 'bg-red-50 border-red-200')}>
                   <div className="flex items-center gap-3 min-w-0">
                     <Avatar className="h-8 w-8 border-2 shadow-sm rounded-xl">
                       <AvatarImage src={sa.avatarUrl} className="object-cover" />
@@ -139,7 +139,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
   }, [service, tmhr, inventory]);
 
   return (
-    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+    <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-card">
       <CardHeader className="bg-muted/5 border-b p-6 sm:p-8">
         <CardTitle className="text-sm font-black uppercase tracking-widest text-left">Base Operational Load</CardTitle>
         <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60 text-left">Studio-side overhead manifest.</CardDescription>
@@ -168,7 +168,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                 {(service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0)} Min @ ${tmhr.toFixed(2)}/hr
               </p>
             </div>
-            <span className="font-black text-2xl font-mono tracking-tighter text-slate-900">${timeCost.toFixed(2)}</span>
+            <span className="font-black text-2xl font-mono tracking-tighter text-foreground">${timeCost.toFixed(2)}</span>
           </div>
         </div>
       </CardContent>
@@ -237,20 +237,20 @@ export default function ServiceDetailPage() {
   if (!service) return notFound();
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
+    <div className="flex min-h-screen w-full flex-col bg-background overflow-x-hidden">
       <AppHeader title="Service Record" />
       <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0">
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
           <div className="space-y-1 text-left">
-            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Treatment Record</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Treatment Record</h1>
             <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Service definition & yield dossier</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-            <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 shadow-sm">
+            <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-card/50 shadow-sm">
               <Link href="/services" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link>
             </Button>
-            <Button variant="outline" size="sm" className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 shadow-sm" onClick={handleCopyLink}>
+            <Button variant="outline" size="sm" className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-card/50 shadow-sm" onClick={handleCopyLink}>
               <LinkIcon className="h-4 w-4 mr-2" />Share Link
             </Button>
             <Button size="sm" className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20" onClick={() => setIsEditOpen(true)}>
@@ -259,7 +259,7 @@ export default function ServiceDetailPage() {
           </div>
         </div>
 
-        <Card className="border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white/80 backdrop-blur-xl">
+        <Card className="border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-card/80 backdrop-blur-xl">
           <CardContent className="p-6 md:p-12 flex flex-col sm:flex-row items-center sm:items-start gap-6 md:gap-12">
             <div className="relative shrink-0">
               <div className="w-32 h-32 md:w-48 md:h-48 rounded-[2rem] md:rounded-[3rem] overflow-hidden border-4 border-white shadow-2xl bg-muted/20 relative flex items-center justify-center">
@@ -271,7 +271,7 @@ export default function ServiceDetailPage() {
             </div>
             <div className="space-y-4 flex-1 min-w-0 text-left">
               <div className="flex flex-wrap items-baseline gap-3">
-                <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">{service.name}</h2>
+                <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">{service.name}</h2>
                 {service.isPrivate && <Badge className="bg-muted text-muted-foreground border-none font-black text-[9px] uppercase tracking-widest h-6 px-3">Private</Badge>}
                 <Badge variant="outline" className="h-6 px-3 rounded-full font-black text-[9px] uppercase tracking-widest border-2">{service.category || 'Standard'}</Badge>
               </div>
@@ -285,15 +285,15 @@ export default function ServiceDetailPage() {
                 {((service.padBefore || 0) + (service.padAfter || 0)) > 0 && (
                   <div className="space-y-1">
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Padding</p>
-                    <p className="text-xl font-black uppercase tracking-tight text-slate-500">+{(service.padBefore || 0) + (service.padAfter || 0)}m</p>
+                    <p className="text-xl font-black uppercase tracking-tight text-muted-foreground">+{(service.padBefore || 0) + (service.padAfter || 0)}m</p>
                   </div>
                 )}
                 <div className="space-y-1">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Base Rate</p>
-                  <p className="text-xl font-black uppercase tracking-tight text-slate-700">${service.price.toFixed(2)}</p>
+                  <p className="text-xl font-black uppercase tracking-tight text-foreground/80">${service.price.toFixed(2)}</p>
                 </div>
               </div>
-              <p className="text-sm font-medium text-slate-600 leading-relaxed max-w-2xl pt-2">{service.description || 'No description provided.'}</p>
+              <p className="text-sm font-medium text-foreground/80 leading-relaxed max-w-2xl pt-2">{service.description || 'No description provided.'}</p>
             </div>
           </CardContent>
         </Card>
@@ -307,14 +307,14 @@ export default function ServiceDetailPage() {
                 { label: 'Guests', icon: Users, value: servicePerformance?.uniqueClients, highlight: false },
                 { label: 'Avg. Value', icon: Target, value: `$${servicePerformance?.avgRevenuePerBooking.toFixed(0)}`, highlight: true },
               ].map(({ label, icon: Icon, value, highlight }) => (
-                <Card key={label} className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
+                <Card key={label} className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card">
                   <CardHeader className="p-4 pb-1 text-left">
                     <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60">
                       <Icon className="w-3 h-3" />{label}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-4 pt-0 text-left">
-                    <p className={cn('text-2xl md:text-3xl font-black tracking-tighter font-mono', highlight ? 'text-primary' : 'text-slate-900')}>{value}</p>
+                    <p className={cn('text-2xl md:text-3xl font-black tracking-tighter font-mono', highlight ? 'text-primary' : 'text-foreground')}>{value}</p>
                   </CardContent>
                 </Card>
               ))}
@@ -322,14 +322,14 @@ export default function ServiceDetailPage() {
 
             <Tabs defaultValue="architecture" className="w-full">
               <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 overflow-x-auto">
-                <TabsTrigger value="architecture" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Architecture</TabsTrigger>
-                <TabsTrigger value="logistics" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Logistics</TabsTrigger>
+                <TabsTrigger value="architecture" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Architecture</TabsTrigger>
+                <TabsTrigger value="logistics" className="flex-1 min-w-[120px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Logistics</TabsTrigger>
               </TabsList>
               <TabsContent value="architecture" className="m-0 animate-in fade-in duration-500">
                 <CostBreakdown service={service} tmhr={tmhr} />
               </TabsContent>
               <TabsContent value="logistics" className="m-0 animate-in fade-in duration-500">
-                <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
+                <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-card">
                   <CardHeader className="bg-muted/5 border-b p-6 sm:p-8 pb-4">
                     <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-3">
                       <MapPin className="w-4 h-4 text-primary" />Resource Dependencies
@@ -341,7 +341,7 @@ export default function ServiceDetailPage() {
                         {(service.requiredResourceIds || []).map(rid => (
                           <div key={rid} className="p-4 rounded-2xl bg-muted/20 border-2 flex items-center gap-4">
                             <div className="p-2.5 bg-background rounded-xl shadow-inner text-muted-foreground"><Hammer className="w-5 h-5" /></div>
-                            <p className="font-black text-xs uppercase tracking-tight text-slate-900">Resource #{rid.slice(-4).toUpperCase()}</p>
+                            <p className="font-black text-xs uppercase tracking-tight text-foreground">Resource #{rid.slice(-4).toUpperCase()}</p>
                           </div>
                         ))}
                       </div>

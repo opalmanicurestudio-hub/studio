@@ -19,7 +19,7 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
   useNow(1000);   // the live timer
   const [confirmDecline, setConfirmDecline] = React.useState(false); const [showMore, setShowMore] = React.useState(false);
   const a = appointment; const client = clients.find((c) => c.id === a.clientId); const service = services.find((s) => s.id === a.serviceId); const prov = staff.find((s) => s.id === a.staffId);
-  const st = stateOf(a, service); const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
+  const st = stateOf(a, service); const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
   const elapsed = a.status === 'servicing' && a.actualStartTime ? differenceInMinutes(new Date(), safe(a.actualStartTime)) : null;
   // Last time: the client's most recent finished visit before this one.
   const last = appointments.filter((x) => x.clientId === a.clientId && x.id !== a.id && x.status === 'completed' && safe(x.startTime) < safe(a.startTime)).sort((x, y) => safe(y.startTime).getTime() - safe(x.startTime).getTime())[0];
@@ -62,7 +62,7 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{actions}</div>
       {extra.some(([, f]) => f) && <div><button type="button" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} className="text-[13px] font-semibold underline underline-offset-2" style={muted}>{showMore ? 'Fewer actions' : 'More actions'}</button>
         {showMore && <div className="mt-2 flex flex-wrap gap-2">{extra.filter(([, f]) => f).map(([l, f]) => <button key={l} type="button" onClick={f} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{l}</button>)}</div>}</div>}
-      {members.length > 1 && <div className="space-y-2 rounded-2xl p-3" style={{ background: 'var(--soft, #efebe6)' }} aria-label="Group">
+      {members.length > 1 && <div className="space-y-2 rounded-2xl p-3" style={{ background: 'hsl(var(--secondary))' }} aria-label="Group">
         <div className="flex items-center justify-between gap-2"><p className="text-[14px] font-semibold">{a.groupId ? (a.groupName || `Group of ${members.length}`) : `${members.length} services, one visit`}</p>
           {more.onCheckIn && notHere.length > 0 && <button type="button" onClick={() => notHere.forEach((x) => more.onCheckIn!(x))} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>{notHere.length === members.length ? 'Check the group in' : `Check in the other ${notHere.length}`}</button>}</div>
         {members.map((x) => { const xs = stateOf(x, services.find((sv) => sv.id === x.serviceId)); const xc = clients.find((c) => c.id === x.clientId); const xp = staff.find((st) => st.id === x.staffId);

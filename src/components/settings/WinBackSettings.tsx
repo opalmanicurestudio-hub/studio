@@ -39,7 +39,7 @@ export function WinBackSettings({ tenantId, tenant, canEdit }: { tenantId: strin
   const [local, setLocal] = useState<Record<string, any>>({});
   const v = (field: string, fallback: any) => (field in local ? local[field] : fallback);
   const typed = (field: string, value: any) => { setLocal((l) => ({ ...l, [field]: value })); save(field, value, 700); };
-  const box = 'rounded-2xl border bg-white p-4 space-y-3';
+  const box = 'rounded-2xl border bg-card p-4 space-y-3';
   const num = 'h-10 w-24 rounded-xl border px-3 text-sm';
   return (
     <div className="space-y-4">
@@ -74,7 +74,7 @@ export function WinBackSettings({ tenantId, tenant, canEdit }: { tenantId: strin
         <div className="grid gap-2 sm:grid-cols-3">
           {([['off', 'Off', 'Renters can’t send campaigns'], ['business_covers', 'We cover some', 'A monthly allowance of texts per renter; they pay beyond it'], ['renter_pays', 'Renters pay', 'Every text is charged to the renter']] as const).map(([k, l, d]) => {
             const on = (rc.mode || 'off') === k;
-            return <button key={k} type="button" disabled={!canEdit} aria-pressed={on} onClick={() => save('renterCampaigns.mode', k)} className={`rounded-2xl border p-3 text-left text-sm disabled:opacity-60 ${on ? 'bg-slate-900 text-white' : 'bg-white'}`}><b>{l}</b><span className="mt-1 block opacity-80">{d}</span></button>;
+            return <button key={k} type="button" disabled={!canEdit} aria-pressed={on} onClick={() => save('renterCampaigns.mode', k)} className={`rounded-2xl border p-3 text-left text-sm disabled:opacity-60 ${on ? 'bg-foreground text-background' : 'bg-card'}`}><b>{l}</b><span className="mt-1 block opacity-80">{d}</span></button>;
           })}
         </div>
         {rc.mode && rc.mode !== 'off' && <div className="flex flex-wrap gap-4 text-sm">

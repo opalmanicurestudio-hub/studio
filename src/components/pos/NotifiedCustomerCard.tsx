@@ -92,7 +92,7 @@ const safeDate = (val: any): Date | null => {
 const firstNameOf = (val: any): string => String(val || '').trim().split(/\s+/)[0] || '';
 
 const statusOptions = [
-    { value: 'pending', label: 'Reset to Pending', icon: Clock, color: 'text-slate-400' },
+    { value: 'pending', label: 'Reset to Pending', icon: Clock, color: 'text-muted-foreground' },
     { value: 'on_my_way', label: 'Mark as On My Way', icon: Car, color: 'text-blue-500' },
     { value: 'arrived', label: 'Mark as Arrived', icon: MapPin, color: 'text-green-500' },
     { value: 'running_late', label: 'Mark as Running Late', icon: AlertTriangle, color: 'text-amber-500' },
@@ -165,14 +165,14 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
     return (
         <Card className={cn(
             'transition-all border-4 rounded-2xl overflow-hidden shadow-sm',
-            isOverTime ? 'border-destructive bg-destructive/[0.03] animate-pulse' : 'border-green-500/20 bg-white',
+            isOverTime ? 'border-destructive bg-destructive/[0.03] animate-pulse' : 'border-green-500/20 bg-card',
         )}>
             <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-start gap-4">
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap text-left">
                             {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-bounce shrink-0" />}
-                            <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{displayName}</p>
+                            <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">{displayName}</p>
                             {isMember && (
                                 <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
                                     <Award className="w-2 h-2 mr-0.5" /> MEM

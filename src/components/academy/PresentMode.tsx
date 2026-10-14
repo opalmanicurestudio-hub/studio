@@ -52,29 +52,29 @@ export function PresentMode({ tenantId, courseId, lessonId, color, onClose }: { 
   useEffect(() => { const k = (e: KeyboardEvent) => { if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); go(stepRef.current + 1); } else if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); go(stepRef.current - 1); } else if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [go, onClose]);
   const s = slides[step];
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col bg-[#f7f5f2] text-stone-900">
+    <div className="fixed inset-0 z-[70] flex flex-col bg-[#f7f5f2] text-foreground">
       <style>{MOTION_CSS}</style>
-      <div className="flex items-center gap-3 px-6 py-3 text-sm text-stone-500">
-        <span className="truncate font-semibold text-stone-700">{L?.title}</span><span>· {slides.length ? `${step + 1} / ${slides.length}` : ''}</span>
-        <div className="ml-4 hidden h-1.5 flex-1 overflow-hidden rounded-full bg-stone-200 sm:block"><div className="h-1.5 rounded-full transition-all duration-500" style={{ width: `${slides.length ? ((step + 1) / slides.length) * 100 : 0}%`, background: c }} /></div>
-        <button type="button" onClick={() => setShowQr(!showQr)} className="rounded-full bg-white px-3 py-1.5 font-semibold">📱 Remote</button>
-        <button type="button" onClick={onClose} className="rounded-full bg-white px-3 py-1.5 font-semibold">Exit</button>
+      <div className="flex items-center gap-3 px-6 py-3 text-sm text-muted-foreground">
+        <span className="truncate font-semibold text-foreground/80">{L?.title}</span><span>· {slides.length ? `${step + 1} / ${slides.length}` : ''}</span>
+        <div className="ml-4 hidden h-1.5 flex-1 overflow-hidden rounded-full bg-border sm:block"><div className="h-1.5 rounded-full transition-all duration-500" style={{ width: `${slides.length ? ((step + 1) / slides.length) * 100 : 0}%`, background: c }} /></div>
+        <button type="button" onClick={() => setShowQr(!showQr)} className="rounded-full bg-card px-3 py-1.5 font-semibold">📱 Remote</button>
+        <button type="button" onClick={onClose} className="rounded-full bg-card px-3 py-1.5 font-semibold">Exit</button>
       </div>
       <div className="relative min-h-0 flex-1 overflow-y-auto">
-        {err ? <p className="p-10 text-center text-xl">{err}</p> : !s ? <p className="p-10 text-center text-xl text-stone-400">Loading…</p> : (
+        {err ? <p className="p-10 text-center text-xl">{err}</p> : !s ? <p className="p-10 text-center text-xl text-muted-foreground">Loading…</p> : (
           <div key={s.key} className="cf-land mx-auto flex min-h-full max-w-5xl flex-col justify-center px-8 py-8" style={{ zoom: 1.45 } as any}>
-            {s.kind === 'title' && <div className="space-y-4"><p className="text-sm uppercase tracking-[0.3em] text-stone-500">{L.courseTitle} · {L.moduleTitle}</p><h1 className="text-5xl font-light leading-tight tracking-tight">{L.title}</h1>
+            {s.kind === 'title' && <div className="space-y-4"><p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">{L.courseTitle} · {L.moduleTitle}</p><h1 className="text-5xl font-light leading-tight tracking-tight">{L.title}</h1>
               {(L.plan?.objectives || []).length > 0 && <div className="mt-6 space-y-2"><p className="text-sm font-semibold uppercase tracking-widest" style={{ color: c }}>Today you’ll be able to</p>{L.plan.objectives.map((o: string) => <p key={o} className="text-2xl">✓ {o}</p>)}</div>}</div>}
-            {s.kind === 'notes' && <div className="rounded-[2rem] bg-white p-8 text-lg leading-relaxed shadow-sm [&_h2]:text-3xl"><Prose text={s.text || ''} /></div>}
+            {s.kind === 'notes' && <div className="rounded-[2rem] bg-card p-8 text-lg leading-relaxed shadow-sm [&_h2]:text-3xl"><Prose text={s.text || ''} /></div>}
             {s.kind === 'block' && <Blocks blocks={[s.block]} accent={c} />}
-            {s.kind === 'quiz' && <div className="space-y-5"><p className="text-sm font-semibold uppercase tracking-widest" style={{ color: c }}>Question {s.n}</p><p className="text-4xl font-light leading-snug">{s.q.q}</p><div className="grid gap-3 sm:grid-cols-2">{s.q.options.map((o: string, j: number) => <div key={j} className="rounded-2xl bg-white p-5 text-2xl shadow-sm"><b className="mr-3" style={{ color: c }}>{'ABCD'[j]}</b>{o}</div>)}</div></div>}
+            {s.kind === 'quiz' && <div className="space-y-5"><p className="text-sm font-semibold uppercase tracking-widest" style={{ color: c }}>Question {s.n}</p><p className="text-4xl font-light leading-snug">{s.q.q}</p><div className="grid gap-3 sm:grid-cols-2">{s.q.options.map((o: string, j: number) => <div key={j} className="rounded-2xl bg-card p-5 text-2xl shadow-sm"><b className="mr-3" style={{ color: c }}>{'ABCD'[j]}</b>{o}</div>)}</div></div>}
             {s.kind === 'end' && <div className="text-center"><p className="text-7xl">💬</p><p className="mt-4 text-5xl font-light">Questions?</p></div>}
           </div>
         )}
-        {showQr && qr && <div className="absolute bottom-4 right-4 w-44 rounded-2xl bg-white p-3 text-center shadow-lg"><img src={qr} alt="Scan to control from your phone" className="mx-auto w-36" /><p className="mt-1 text-[11px] text-stone-600">Scan with your phone (signed in) to use it as the remote</p></div>}
+        {showQr && qr && <div className="absolute bottom-4 right-4 w-44 rounded-2xl bg-card p-3 text-center shadow-lg"><img src={qr} alt="Scan to control from your phone" className="mx-auto w-36" /><p className="mt-1 text-[11px] text-foreground/80">Scan with your phone (signed in) to use it as the remote</p></div>}
       </div>
       <div className="flex items-center justify-center gap-3 pb-5">
-        <button type="button" disabled={step === 0} onClick={() => go(step - 1)} className="h-12 rounded-full bg-white px-6 text-sm font-semibold shadow-sm disabled:opacity-30">← Back</button>
+        <button type="button" disabled={step === 0} onClick={() => go(step - 1)} className="h-12 rounded-full bg-card px-6 text-sm font-semibold shadow-sm disabled:opacity-30">← Back</button>
         <button type="button" disabled={step >= slides.length - 1} onClick={() => go(step + 1)} className="h-12 rounded-full px-8 text-sm font-semibold text-white shadow-sm disabled:opacity-30" style={{ background: c }}>Next →</button>
       </div>
     </div>

@@ -143,10 +143,10 @@ export function ScanGate({
 
   return (
     <div className={cn('space-y-2', className)}>
-      <div className="relative rounded-2xl border-2 overflow-hidden bg-black min-h-[220px]">
+      <div className="relative rounded-2xl border-2 overflow-hidden bg-foreground min-h-[220px]">
         <div id={idRef.current} className="w-full" />
         {torch.can && <button type="button" aria-pressed={torch.on} aria-label={torch.on ? 'Turn the light off' : 'Turn the light on'} onClick={async () => { const on = !torch.on; try { await qrRef.current?.applyVideoConstraints({ advanced: [{ torch: on }] } as any); setTorch({ can: true, on }); } catch { setTorch({ can: false, on: false }); } }}
-          className="absolute right-3 top-3 z-10 h-11 rounded-full px-4 text-[13px] font-semibold shadow" style={{ background: torch.on ? '#FDE68A' : 'rgba(255,255,255,0.9)', color: '#17181A' }}>{torch.on ? 'Light on' : 'Light'}</button>}
+          className="absolute right-3 top-3 z-10 h-11 rounded-full px-4 text-[13px] font-semibold shadow" style={{ background: torch.on ? '#FDE68A' : 'rgba(255,255,255,0.9)', color: 'hsl(var(--foreground))' }}>{torch.on ? 'Light on' : 'Light'}</button>}
         {cameraError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center bg-black/80">
             <Camera className="w-6 h-6 text-white/40" />
@@ -175,7 +175,7 @@ export function ScanGate({
               autoCapitalize="characters"
               autoCorrect="off"
               spellCheck={false}
-              className="h-11 flex-1 rounded-xl border-2 bg-white px-3 font-mono font-black text-xs uppercase tracking-widest outline-none focus:border-primary"
+              className="h-11 flex-1 rounded-xl border-2 bg-card px-3 font-mono font-black text-xs uppercase tracking-widest outline-none focus:border-primary"
             />
             <button
               type="submit"

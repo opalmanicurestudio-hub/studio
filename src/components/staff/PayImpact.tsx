@@ -17,12 +17,12 @@ const tone = (keep: number, pct: number | null, target: number) => (keep < 0 ? {
 
 function Card({ title, sub, rows, target }: { title: string; sub?: string; rows: { kind: VisitKind; pay: number | null; keep: number; pct: number | null }[]; target: number }) {
   return (
-    <div className="space-y-2 rounded-2xl bg-white p-3" style={{ border: '1px solid var(--line, #e7e2dc)' }}>
-      <div><p className="text-[14px] font-[700]">{title}</p>{sub && <p className="text-[12px]" style={{ color: 'var(--muted, #78716c)' }}>{sub}</p>}</div>
+    <div className="space-y-2 rounded-2xl bg-card p-3" style={{ border: '1px solid var(--line, hsl(var(--border)))' }}>
+      <div><p className="text-[14px] font-[700]">{title}</p>{sub && <p className="text-[12px]" style={{ color: 'hsl(var(--muted-foreground))' }}>{sub}</p>}</div>
       {rows.map(({ kind, pay, keep, pct }) => { const t = tone(keep, pct, target);
         return (
           <div key={kind.key} className="flex items-center justify-between gap-2 text-[13px]">
-            <span className="min-w-0"><span className="font-[600]">{kind.label}</span> <span style={{ color: 'var(--muted, #78716c)' }}>· brings in {money(kind.brings)}{pay != null ? ` · pays ${money(pay)}` : ''}</span></span>
+            <span className="min-w-0"><span className="font-[600]">{kind.label}</span> <span style={{ color: 'hsl(var(--muted-foreground))' }}>· brings in {money(kind.brings)}{pay != null ? ` · pays ${money(pay)}` : ''}</span></span>
             <span className="shrink-0 rounded-full px-2.5 py-1 text-[12px] font-[700] tabular-nums" style={{ background: t.bg, color: t.fg }}>you keep {money(keep)}{pct !== null ? ` · ${Math.round(pct) < 0 ? '−' : ''}${Math.abs(Math.round(pct))}%` : ''}</span>
           </div>); })}
     </div>);
@@ -38,7 +38,7 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
   // Real time with clients, from the time clock (last 30 days) — for hourly pay, the time between clients is paid too.
   const sessions = React.useMemo(() => sessionsFrom((inv?.activityLogs || []) as any, clockPolicy(selectedTenant)), [inv?.activityLogs, selectedTenant]);
   const teamBusy = React.useMemo(() => busyShareFrom({ sessions, appointments: inv?.appointments || [] }), [sessions, inv?.appointments]);
-  const muted = { color: 'var(--muted, #78716c)' }; const ipt = 'h-9 w-16 rounded-lg border px-2 text-right text-[13px] tabular-nums';
+  const muted = { color: 'hsl(var(--muted-foreground))' }; const ipt = 'h-9 w-16 rounded-lg border px-2 text-right text-[13px] tabular-nums';
 
   if (mode === 'person') {
     if (!staffMember || !['commission', 'hourly_plus_commission', 'per_service', 'hourly'].includes(String(staffMember.payStructure))) return null;
@@ -64,7 +64,7 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
   const cap = (k: VisitKind) => maxPayFor({ ...base, service, kind: k, targetPct: target });
 
   return (
-    <section className="space-y-3 rounded-2xl p-4" style={{ background: 'var(--soft, #F6F3EE)' }} aria-label="What each visit leaves you">
+    <section className="space-y-3 rounded-2xl p-4" style={{ background: 'hsl(var(--secondary))' }} aria-label="What each visit leaves you">
       <div>
         <p className="text-[15px] font-[700]">What each visit leaves you</p>
         <p className="text-[12px]" style={muted}>After the provider’s pay plus {taxPct}% employer taxes, products ({money(sample.materials)}) and running costs for the time the station is busy ({money(sample.overhead)} at ${costPerHour} an hour). Green keeps at least your target.</p>
@@ -75,7 +75,7 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
         const text = losing.length ? `${losing.map((x) => x.c.label).join(' and ')} lose${losing.length === 1 ? 's' : ''} money on a ${KIND_NOUN[losing[0].w.k.key]} (${money(losing[0].w.o.keep)}). ${best.c.label} keeps at least ${money(best.w.o.keep)} on every kind of visit.`
           : thin.length ? `Every option makes money, but ${thin.map((x) => x.c.label).join(' and ')} keep${thin.length === 1 ? 's' : ''} less than ${target}% on a ${KIND_NOUN[thin[0].w.k.key]}.`
           : `Every option keeps at least ${target}% on every kind of visit.`;
-        return <p className="rounded-xl px-3 py-2 text-[14px] font-[600]" style={losing.length ? { background: '#FBEAE8', color: '#B42318' } : thin.length ? { background: '#FDF1DC', color: '#7A4A00' } : { background: '#E3F3E7', color: '#1F6B3A' }}>{text}</p>; })()}
+        return <p className="rounded-xl px-3 py-2 text-[14px] font-[600]" style={losing.length ? { background: '#FBEAE8', color: 'var(--bad-ink)' } : thin.length ? { background: 'color-mix(in srgb, #b45309 10%, transparent)', color: 'var(--warn-ink)' } : { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: 'var(--ok-ink)' }}>{text}</p>; })()}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]">
         <label className="inline-flex items-center gap-1.5">Commission <input aria-label="What-if commission percent" inputMode="decimal" className={ipt} placeholder={String(choices[0].staff.commissionRate)} value={what.commissionPct ?? ''} onChange={(e) => setWhat((w) => ({ ...w, commissionPct: Number(e.target.value) || undefined }))} />%</label>
         <label className="inline-flex items-center gap-1.5">Per service $<input aria-label="What-if pay per hour of service" inputMode="decimal" className={ipt} placeholder={String(choices[1].staff.serviceHourRate)} value={what.perHour ?? ''} onChange={(e) => setWhat((w) => ({ ...w, perHour: Number(e.target.value) || undefined }))} />an hour</label>

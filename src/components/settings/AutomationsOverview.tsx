@@ -74,7 +74,7 @@ export function AutomationsOverview({ tenantId, firestore }: { tenantId: string;
   return (
     <div className="space-y-8">
       {(notReady.length > 0 || late.length > 0) && (
-        <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#fffbeb', color: '#92400e' }}>
+        <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)', color: 'var(--warn-ink)' }}>
           {[...notReady, ...late.map((j: any) => `${j.label} hasn’t run lately`)].join(' · ')} — some automations below can’t run until this is sorted.
         </div>)}
       <div className="flex flex-wrap items-center gap-2">

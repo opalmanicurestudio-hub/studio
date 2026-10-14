@@ -109,14 +109,14 @@ export function TimezoneSettingCard({
   };
 
   return (
-    <div className={cn('rounded-2xl border bg-white overflow-hidden shadow-sm', className)}>
+    <div className={cn('rounded-2xl border bg-card overflow-hidden shadow-sm', className)}>
       <div className="p-4 border-b flex items-start gap-3">
         <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
           <Globe className="w-4 h-4 text-blue-600" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900">Studio timezone</p>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-sm font-semibold text-foreground">Studio timezone</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
             Used by the AI receptionist and automations to compute business
             hours and speak appointment times correctly.
           </p>
@@ -132,7 +132,7 @@ export function TimezoneSettingCard({
         <select
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
-          className="w-full h-10 rounded-lg border text-xs px-3 bg-white"
+          className="w-full h-10 rounded-lg border text-xs px-3 bg-card"
         >
           {US_TIMEZONES.map((tz) => (
             <option key={tz.value} value={tz.value}>
@@ -141,12 +141,12 @@ export function TimezoneSettingCard({
           ))}
         </select>
 
-        <div className="rounded-lg bg-slate-50 border px-3 py-2 flex items-center gap-2">
-          <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-          <p className="text-xs text-slate-600">
+        <div className="rounded-lg bg-muted/60 border px-3 py-2 flex items-center gap-2">
+          <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <p className="text-xs text-foreground/80">
             Right now in this zone it's{' '}
-            <span className="font-medium text-slate-900">{preview}</span>
-            <span className="text-slate-400"> — should match the clock on your wall.</span>
+            <span className="font-medium text-foreground">{preview}</span>
+            <span className="text-muted-foreground"> — should match the clock on your wall.</span>
           </p>
         </div>
 

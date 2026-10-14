@@ -12,8 +12,8 @@ import * as React from 'react';
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const safe = (v: any) => new Date(v?.toDate ? v.toDate() : v);
 export type FormulaItem = { id: string; name: string; quantity: number; unit: string; costPerUnit: number; note?: string };
-const card = { background: 'var(--card, #fff)', border: '1px solid var(--line, #e7e2dc)' } as React.CSSProperties;
-const muted = { color: 'var(--muted, #6b635c)' } as React.CSSProperties;
+const card = { background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' } as React.CSSProperties;
+const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
 const qty = (i: FormulaItem) => `${Math.round(n(i.quantity) * 100) / 100} ${i.unit || ''}`.trim();
 
 /** The service recipe as formula items (what the review starts from when nothing's recorded yet). */
@@ -50,9 +50,9 @@ export function PartsPlan({ appointment, service, allServices, staff }: { appoin
   return (
     <section className="space-y-2 rounded-2xl p-4" style={card} aria-label="Parts of this visit">
       <p className="text-[14px] font-semibold">Parts · {done.size} of {parts.length} done{onNow && after && who(after) !== who(onNow) ? <span className="font-normal" style={muted}> · next: {who(after)} for {after.name}</span> : null}</p>
-      {parts.map((p, i) => (<div key={p.id + i} className="flex items-center justify-between gap-3 border-t pt-2 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+      {parts.map((p, i) => (<div key={p.id + i} className="flex items-center justify-between gap-3 border-t pt-2 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }}>
         <span>{i + 1}. {p.name} <span style={muted}>· {who(p)}</span></span>
-        <span className="text-[13px] font-semibold" style={{ color: done.has(p.id) ? 'var(--ok, #15803d)' : p === onNow ? 'var(--accent)' : 'var(--muted, #6b635c)' }}>{done.has(p.id) ? 'Done ✓' : p === onNow ? (appointment.status === 'servicing' ? 'On now' : 'First') : 'Waiting'}</span>
+        <span className="text-[13px] font-semibold" style={{ color: done.has(p.id) ? 'var(--ok, #15803d)' : p === onNow ? 'var(--accent)' : 'hsl(var(--muted-foreground))' }}>{done.has(p.id) ? 'Done ✓' : p === onNow ? (appointment.status === 'servicing' ? 'On now' : 'First') : 'Waiting'}</span>
       </div>))}
     </section>);
 }
@@ -60,15 +60,15 @@ export function PartsPlan({ appointment, service, allServices, staff }: { appoin
 export function AddAsYouGo({ inventory, onAdd }: { inventory: any[]; onAdd: (productId: string, quantity: number) => void }) {
   const [open, setOpen] = React.useState(false); const [q, setQ] = React.useState(''); const [pick, setPick] = React.useState<any>(null); const [amount, setAmount] = React.useState('1');
   const list = React.useMemo(() => inventory.filter((i) => i.type === 'professional' || i.type === 'retail').filter((i) => !q || String(i.name).toLowerCase().includes(q.toLowerCase())).slice(0, 8), [inventory, q]);
-  if (!open) return <button type="button" onClick={() => setOpen(true)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>+ Add a product used</button>;
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>+ Add a product used</button>;
   return (
     <section className="space-y-2 rounded-2xl p-4" style={card} aria-label="Add a product used">
       <p className="text-[14px] font-semibold">Add a product used <span className="font-normal" style={muted}>· goes into this visit's formula</span></p>
       {!pick ? <>
-        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products" className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
-        <div className="flex flex-wrap gap-2">{list.map((i) => <button key={i.id} type="button" onClick={() => setPick(i)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft, #efebe6)' }}>{i.name}</button>)}{!list.length && <span className="text-[13px]" style={muted}>No match.</span>}</div>
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products" className="h-11 w-full rounded-xl border px-3 text-[15px]" style={{ borderColor: 'hsl(var(--border))' }} />
+        <div className="flex flex-wrap gap-2">{list.map((i) => <button key={i.id} type="button" onClick={() => setPick(i)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>{i.name}</button>)}{!list.length && <span className="text-[13px]" style={muted}>No match.</span>}</div>
       </> : <div className="flex flex-wrap items-center gap-2 text-[14px]">
-        <b>{pick.name}</b><input type="number" min={0} step={0.1} value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Amount" className="h-10 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'var(--line, #e7e2dc)' }} />
+        <b>{pick.name}</b><input type="number" min={0} step={0.1} value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Amount" className="h-10 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'hsl(var(--border))' }} />
         <span style={muted}>{pick.costingMethod === 'uses' ? (pick.useUnit || 'uses') : pick.useUnit || pick.unit || 'unit'}</span>
         <button type="button" onClick={() => { const v = n(amount); if (v > 0) { onAdd(pick.id, v); setPick(null); setQ(''); setAmount('1'); setOpen(false); } }} className="h-10 rounded-full px-4 font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Add</button>
         <button type="button" onClick={() => setPick(null)} className="h-10 rounded-full px-3" style={muted}>Back</button></div>}
@@ -81,7 +81,7 @@ export function ThisVisitFormula({ appointment, onClear }: { appointment: any; o
   return (
     <section className="space-y-2 rounded-2xl p-4" style={card} aria-label="This visit's formula">
       <p className="text-[14px] font-semibold">This visit's formula <span className="font-normal" style={muted}>· {f.length ? (recorded ? 'as recorded at the hand-off' : 'so far — the hand-off review opens with this') : 'nothing recorded yet — the service recipe is used until it is'}</span></p>
-      {f.map((i, k) => <div key={i.id + k} className="flex justify-between gap-3 border-t pt-2 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}><span>{i.name}{i.note ? <span style={muted}> · {i.note}</span> : null}</span><span>{qty(i)}</span></div>)}
+      {f.map((i, k) => <div key={i.id + k} className="flex justify-between gap-3 border-t pt-2 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }}><span>{i.name}{i.note ? <span style={muted}> · {i.note}</span> : null}</span><span>{qty(i)}</span></div>)}
       {f.length > 0 && !recorded && onClear && <button type="button" onClick={onClear} className="text-[13px] underline underline-offset-2" style={muted}>Start again from the recipe</button>}
     </section>);
 }
@@ -105,7 +105,7 @@ export function VisitCharges({ tenantId, appointmentId }: { tenantId: string; ap
   return (
     <section className="space-y-2 rounded-2xl p-4" style={card} aria-label="Charges on this visit">
       <p className="text-[14px] font-semibold">Charges on this visit <span className="font-normal" style={muted}>· and what each rests on</span></p>
-      {rows.map((c) => (<div key={c.id} className="border-t pt-2 text-[13px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+      {rows.map((c) => (<div key={c.id} className="border-t pt-2 text-[13px]" style={{ borderColor: 'hsl(var(--border))' }}>
         <p><b>${(n(c.cents) / 100).toFixed(2)}</b> · {String(c.kind).replace(/_/g, ' ')} · {new Date(c.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{c.approvedBy ? ` · approved by ${c.approvedBy}` : ''}</p>
         <p style={muted}>{c.reason}{c.basis.length ? ` · agreed: ${c.basis.join('; ')}` : ''}{c.missing.length ? <span style={{ color: 'var(--warn, #b45309)' }}> · no record of agreeing to {c.missing.map((m: string) => m.replace(/_/g, ' ')).join(', ')}</span> : null}</p></div>))}
     </section>);
@@ -119,7 +119,7 @@ export function HandoffLog({ appointment, staff, allServices }: { appointment: a
   return (
     <section className="space-y-2 rounded-2xl p-4" style={card} aria-label="Hand-offs">
       <p className="text-[14px] font-semibold">Hand-offs</p>
-      {rows.map((h, i) => (<div key={i} className="border-t pt-2 text-[14px]" style={{ borderColor: 'var(--line, #e7e2dc)' }}>
+      {rows.map((h, i) => (<div key={i} className="border-t pt-2 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }}>
         <p><span style={muted}>{new Date(h.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · </span><b>{nm(h.fromStaffId)}</b>{h.partsDone?.length ? ` finished ${h.partsDone.map(part).join(', ')}` : ''} → {h.toDesk ? <b>the desk</b> : <b>{nm(h.toStaffId)}</b>}</p>
         {h.note && <p className="text-[13px]" style={muted}>“{h.note}”</p>}</div>))}
     </section>);

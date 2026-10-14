@@ -282,7 +282,7 @@ export default function PackBenchPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-28 station-mode">
-      <header className="sticky top-0 z-30 border-b-2 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b-2 bg-card/90 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4">
           <Button asChild variant="ghost" size="icon" aria-label="Back to orders" className="h-10 w-10 rounded-xl">
             <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -324,7 +324,7 @@ export default function PackBenchPage() {
               </div>
             )}
 
-            <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
               <CardContent className="space-y-4 p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -470,7 +470,7 @@ export default function PackBenchPage() {
                         {photoUrls.length < photoPolicy.maxPhotos && (
                           <label className={cn(
                             'mt-2 flex h-12 cursor-pointer items-center justify-center rounded-xl border-2 text-[11px] font-black uppercase tracking-widest',
-                            photoBusy ? 'opacity-60' : 'bg-white hover:border-primary/40'
+                            photoBusy ? 'opacity-60' : 'bg-card hover:border-primary/40'
                           )}>
                             {photoBusy ? <Loader className="h-4 w-4 animate-spin" /> : 'Take photo'}
                             <input
@@ -584,7 +584,7 @@ export default function PackBenchPage() {
                   key={o.id}
                   type="button"
                   onClick={() => setActiveId(o.id)}
-                  className={cn('flex w-full items-center gap-3 rounded-2xl border-2 bg-white p-3 text-left',
+                  className={cn('flex w-full items-center gap-3 rounded-2xl border-2 bg-card p-3 text-left',
                     sla.state === 'late' && 'border-destructive/50')}
                 >
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 font-mono text-base font-bold">

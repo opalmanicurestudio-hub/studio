@@ -34,7 +34,7 @@ export function RunningBehind({ tenantId, delays, appts, staff, onOpenVisit, mar
       <div className="grid gap-3 lg:grid-cols-2">
         {delays.map((d) => { const span = Math.max(1, d.freeMs - (d.clientEndMs - d.delayMin * 60000) ); const bookedEnd = d.clientEndMs - d.delayMin * 60000;
           return (
-          <article key={d.visitId} className="overflow-hidden rounded-[22px] bg-white shadow-[0_1px_0_rgba(23,24,26,0.04),0_8px_24px_-12px_rgba(23,24,26,0.18)]" style={{ border: '1px solid #ece6dd' }}>
+          <article key={d.visitId} className="overflow-hidden rounded-[22px] bg-card shadow-[0_1px_0_rgba(23,24,26,0.04),0_8px_24px_-12px_rgba(23,24,26,0.18)]" style={{ border: '1px solid hsl(var(--border))' }}>
             <button type="button" onClick={() => onOpenVisit?.(d.visitId)} className="flex w-full items-center gap-3 px-4 pb-3 pt-4 text-left">
               <Initials name={staff.find((m: any) => m.id === d.staffId)?.name || d.clientName} size={40} />
               <div className="min-w-0 flex-1">

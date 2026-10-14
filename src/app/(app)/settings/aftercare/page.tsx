@@ -26,7 +26,7 @@ export default function AftercareSettingsPage() {
   };
   return (
     <SettingsPage title="Aftercare" help={<>What clients get after a visit. You write the aftercare itself in <a href="/documents" className="underline underline-offset-2">Documents → Client aftercare</a> — one for a service, or one for everything.</>}
-      actions={canEdit ? <button type="button" disabled={!dirty || saving} onClick={save} className="h-11 rounded-full px-5 text-[14.5px] font-semibold text-white disabled:opacity-40" style={{ background: '#16171a' }}>{saving ? 'Saving…' : 'Save'}</button> : null}>
+      actions={canEdit ? <button type="button" disabled={!dirty || saving} onClick={save} className="h-11 rounded-full px-5 text-[14.5px] font-semibold text-white disabled:opacity-40" style={{ background: 'hsl(var(--foreground))' }}>{saving ? 'Saving…' : 'Save'}</button> : null}>
       {!canEdit && <p className="text-[14px] cf-muted">Only the owner can change these.</p>}
       <Section title="Sending">
         <div className="cf-sheet">

@@ -280,7 +280,7 @@ function POSPage() {
     };
 
     return (
-        <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
+        <div className="h-screen w-full flex flex-col bg-muted/60 dark:bg-slate-950">
             <AppHeader />
             <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
                 <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">

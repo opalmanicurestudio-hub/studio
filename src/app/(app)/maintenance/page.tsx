@@ -109,7 +109,7 @@ export default function MaintenancePage() {
   );
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Maintenance" />
       <div className="flex-1 w-full max-w-[1400px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -132,31 +132,31 @@ export default function MaintenancePage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <button type="button" onClick={() => setFocus(focus === 'all' ? 'all' : 'all')} aria-pressed={focus === 'all'} className={cn('text-left rounded-2xl transition-all', focus === 'all' && 'ring-2 ring-slate-900 ring-offset-2')}>
-          <Stat icon={CircleDot} label="Open" value={stats.open} tone="border-slate-200" />
+          <Stat icon={CircleDot} label="Open" value={stats.open} tone="border-border" />
         </button>
         <button type="button" onClick={() => setFocus(focus === 'overdue' ? 'all' : 'overdue')} aria-pressed={focus === 'overdue'} className={cn('text-left rounded-2xl transition-all', focus === 'overdue' && 'ring-2 ring-rose-500 ring-offset-2')}>
           <Stat icon={AlertTriangle} label="Overdue" value={stats.overdue}
-            tone={stats.overdue > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-slate-200'} />
+            tone={stats.overdue > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-border'} />
         </button>
         <button type="button" onClick={() => setFocus(focus === 'unassigned' ? 'all' : 'unassigned')} aria-pressed={focus === 'unassigned'} className={cn('text-left rounded-2xl transition-all', focus === 'unassigned' && 'ring-2 ring-amber-500 ring-offset-2')}>
           <Stat icon={Wrench} label="Unassigned" value={stats.unassigned}
-            tone={stats.unassigned > 0 ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200'} />
+            tone={stats.unassigned > 0 ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-border'} />
         </button>
         <button type="button" onClick={() => setFocus(focus === 'unanswered' ? 'all' : 'unanswered')} aria-pressed={focus === 'unanswered'} className={cn('text-left rounded-2xl transition-all', focus === 'unanswered' && 'ring-2 ring-red-600 ring-offset-2')}>
           <Stat icon={MessageCircleWarning} label="Unanswered" value={stats.unanswered}
-            tone={stats.unanswered > 0 ? 'border-red-300 bg-red-50 text-red-900' : 'border-slate-200'} />
+            tone={stats.unanswered > 0 ? 'border-red-300 bg-red-50 text-red-900' : 'border-border'} />
         </button>
       </div>
 
       {tenantId && (openInterruptions === 0 && !showInterruptions ? (
         <button type="button" onClick={() => setShowInterruptions(true)}
-          className="w-full rounded-2xl border-2 bg-white px-4 py-3 flex items-center justify-between gap-3 text-left">
+          className="w-full rounded-2xl border-2 bg-card px-4 py-3 flex items-center justify-between gap-3 text-left">
           <span className="flex items-center gap-2 min-w-0">
-            <CloudLightning className="h-4 w-4 shrink-0 text-slate-400" />
+            <CloudLightning className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="text-[11px] font-black uppercase tracking-widest">Business interruption</span>
             <span className="text-[10px] font-bold text-muted-foreground truncate">Nothing open</span>
           </span>
-          <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-500">Report / history</span>
+          <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Report / history</span>
         </button>
       ) : (
         <InterruptionsCard tenantId={tenantId} firestore={firestore} tenant={tenant} booths={sortedBooths} />

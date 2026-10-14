@@ -108,20 +108,20 @@ export function CommsTrail({
   return (
     <div className="rounded-2xl border-2 overflow-hidden">
       <button onClick={() => setOpen((v) => !v)}
-        className="w-full px-3 py-2.5 flex items-center justify-between gap-2 bg-white">
-        <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-600">
+        className="w-full px-3 py-2.5 flex items-center justify-between gap-2 bg-card">
+        <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-foreground/80">
           <Send className="w-3 h-3 text-primary" /> {title}
           <span className="rounded-full border-2 px-1.5 text-[8px]">{messages.length}</span>
           {attention > 0 && (
             <span className="rounded-full border-2 border-red-200 bg-red-50 text-red-700 px-1.5 text-[8px]">{attention} failed</span>
           )}
         </span>
-        <ChevronDown className={cn('w-3.5 h-3.5 text-slate-400 transition-transform', open && 'rotate-180')} />
+        <ChevronDown className={cn('w-3.5 h-3.5 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="px-3 pb-3 space-y-2 bg-white">
+        <div className="px-3 pb-3 space-y-2 bg-card">
           {messages.length === 0 && (
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest text-center py-2">Nothing sent yet</p>
+            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest text-center py-2">Nothing sent yet</p>
           )}
           {messages.map((m: any) => {
             const failed = !!(m.bouncedAt || m.status === 'failed');
@@ -129,19 +129,19 @@ export function CommsTrail({
             const stage = failed ? 'Failed' : m.clickedAt ? 'Clicked' : m.openedAt ? 'Opened' : m.deliveredAt ? 'Delivered' : skipped ? 'Skipped' : 'Sent';
             const reached = STEPS.indexOf(stage);
             return (
-              <div key={m.id} className={cn('rounded-xl border-2 p-2.5', failed ? 'border-red-200 bg-red-50/50' : 'bg-slate-50/50')}>
+              <div key={m.id} className={cn('rounded-xl border-2 p-2.5', failed ? 'border-red-200 bg-red-50/50' : 'bg-muted/50')}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-[9px] font-black uppercase tracking-tight flex items-center gap-1.5">
                       {m.channel === 'sms' ? <MessageSquare className="w-3 h-3 text-primary shrink-0" /> : <Mail className="w-3 h-3 text-primary shrink-0" />}
                       <span className="truncate">{String(m.kind || 'message').replace(/_/g, ' ')}</span>
                     </p>
-                    <p className="text-[8px] font-bold text-slate-500 mt-0.5 break-all">{m.to || '—'}</p>
+                    <p className="text-[8px] font-bold text-muted-foreground mt-0.5 break-all">{m.to || '—'}</p>
                     {(m.subject || m.preview) && (
-                      <p className="text-[8px] font-medium text-slate-400 mt-0.5 line-clamp-1 italic">{m.subject || m.preview}</p>
+                      <p className="text-[8px] font-medium text-muted-foreground mt-0.5 line-clamp-1 italic">{m.subject || m.preview}</p>
                     )}
                   </div>
-                  <span className="text-[7px] font-bold text-slate-400 uppercase tracking-wide shrink-0 whitespace-nowrap">
+                  <span className="text-[7px] font-bold text-muted-foreground uppercase tracking-wide shrink-0 whitespace-nowrap">
                     {m.sentAt ? fmtDT(m.sentAt) : ''}
                   </span>
                 </div>
@@ -150,7 +150,7 @@ export function CommsTrail({
                     {(m.channel === 'sms' ? STEPS.slice(0, 2) : STEPS).map((s, i) => (
                       <span key={s} className={cn(
                         'px-1.5 h-4 inline-flex items-center rounded-full text-[7px] font-black uppercase tracking-wide border',
-                        i <= reached ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-white text-slate-300 border-slate-100',
+                        i <= reached ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-card text-muted-foreground/70 border-border',
                       )}>
                         {i <= reached ? <CheckCircle2 className="w-2 h-2 mr-0.5" /> : null}{s}
                       </span>
@@ -165,8 +165,8 @@ export function CommsTrail({
                       ['Opened', m.firstOpenedAt || m.openedAt, m.openCount],
                       ['Clicked', m.firstClickedAt || m.clickedAt, m.clickCount],
                     ] as const).map(([label, at, count]) => at ? (
-                      <p key={label} className="text-[8px] font-bold text-slate-500">
-                        <span className="uppercase tracking-wide text-slate-400">{label}</span>{' '}
+                      <p key={label} className="text-[8px] font-bold text-muted-foreground">
+                        <span className="uppercase tracking-wide text-muted-foreground">{label}</span>{' '}
                         {fmtFull(at)}
                         {typeof count === 'number' && count > 1 ? ` · ${count}×` : ''}
                         {label === 'Opened' && m.firstOpenedAt && m.openedAt && m.openedAt !== m.firstOpenedAt

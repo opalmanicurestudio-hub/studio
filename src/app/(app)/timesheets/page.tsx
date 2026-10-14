@@ -327,7 +327,7 @@ export default function TimesheetsPage() {
 
   if (role !== 'owner' && role !== 'admin') {
     return (
-      <div className="flex min-h-screen flex-col bg-slate-50/50">
+      <div className="flex min-h-screen flex-col bg-background">
         <AppHeader title="Timesheets" />
         <main className="flex-1 flex items-center justify-center">
           <p className="font-black uppercase text-muted-foreground opacity-40">Access Restricted</p>
@@ -337,7 +337,7 @@ export default function TimesheetsPage() {
   }
 
   if (isLoading) return (
-    <div className="flex min-h-screen flex-col bg-slate-50/50">
+    <div className="flex min-h-screen flex-col bg-background">
       <AppHeader title="Timesheets" />
       <main className="flex-1 flex items-center justify-center"><Loader className="h-8 w-8 animate-spin text-primary" /></main>
     </div>
@@ -348,7 +348,7 @@ export default function TimesheetsPage() {
   const totalOvertimeHours = timesheets.reduce((sum, ts) => sum + ts.overtimeMinutes / 60, 0);
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50/50">
+    <div className="flex min-h-screen flex-col bg-background">
       <AppHeader title="Timesheets" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto space-y-8">
         <ClockFixReview firestore={firestore} tenantId={tenantId || ""} />
@@ -356,7 +356,7 @@ export default function TimesheetsPage() {
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Timesheets</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Timesheets</h1>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Weekly review & approval</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -377,7 +377,7 @@ export default function TimesheetsPage() {
         </div>
 
         {/* Week nav */}
-        <div className="flex items-center gap-4 p-4 bg-white rounded-[2rem] border-2 shadow-sm w-fit">
+        <div className="flex items-center gap-4 p-4 bg-card rounded-[2rem] border-2 shadow-sm w-fit">
           <Button variant="ghost" size="icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl"><ChevronLeft className="w-5 h-5" /></Button>
           <div className="text-center min-w-[200px]">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary opacity-60">Pay Week</p>
@@ -395,7 +395,7 @@ export default function TimesheetsPage() {
             { label: 'Overtime Hours', value: `${totalOvertimeHours.toFixed(1)}h`, icon: AlertTriangle, color: totalOvertimeHours > 0 ? 'text-amber-600' : 'text-muted-foreground' },
             { label: 'Pending Approval', value: String(totalUnapproved), icon: Shield, color: totalUnapproved > 0 ? 'text-destructive' : 'text-green-600' },
           ].map(kpi => (
-            <Card key={kpi.label} className="border-2 rounded-[2rem] shadow-sm bg-white">
+            <Card key={kpi.label} className="border-2 rounded-[2rem] shadow-sm bg-card">
               <CardContent className="p-5 flex items-center gap-4">
                 <div className={cn("p-3 rounded-2xl bg-muted/20", kpi.color)}><kpi.icon className="w-5 h-5" /></div>
                 <div className="min-w-0">
@@ -410,7 +410,7 @@ export default function TimesheetsPage() {
         {/* Per-staff timesheets */}
         <div className="space-y-6">
           {timesheets.map(ts => (
-            <Card key={ts.member.id} className={cn("border-2 rounded-[2rem] shadow-sm overflow-hidden bg-white", ts.hasUnapproved && "border-amber-300 shadow-amber-100")}>
+            <Card key={ts.member.id} className={cn("border-2 rounded-[2rem] shadow-sm overflow-hidden bg-card", ts.hasUnapproved && "border-amber-300 shadow-amber-100")}>
               <CardHeader className="p-5 md:p-6 border-b bg-muted/5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
@@ -418,7 +418,7 @@ export default function TimesheetsPage() {
                       <AvatarFallback className="font-black bg-primary/10 text-primary text-sm">{ts.member.name?.[0]}</AvatarFallback>
                     </Avatar>
                     <div>
-                      <p className="font-black uppercase tracking-tight text-slate-900">{ts.member.name}</p>
+                      <p className="font-black uppercase tracking-tight text-foreground">{ts.member.name}</p>
                       <div className="flex items-center gap-2 flex-wrap mt-0.5">
                         <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">{ts.member.role} -- {ts.member.payStructure || 'commission'}</p>
                         {paidBreakMinutes > 0 && (
@@ -437,7 +437,7 @@ export default function TimesheetsPage() {
                     {(ts as any).scheduledWeekMinutes > 0 && (
                       <div className="text-right">
                         <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Scheduled</p>
-                        <p className="font-black text-lg font-mono text-slate-500">{formatDuration((ts as any).scheduledWeekMinutes)}</p>
+                        <p className="font-black text-lg font-mono text-muted-foreground">{formatDuration((ts as any).scheduledWeekMinutes)}</p>
                       </div>
                     )}
                     {(ts as any).projectedOvertime > 0 && ts.overtimeMinutes === 0 && (
@@ -478,7 +478,7 @@ export default function TimesheetsPage() {
                   {ts.days.map(day => (
                     <div key={day.date.toISOString()} className={cn("p-3 text-center", isSameDay(day.date, new Date()) && "bg-primary/5")}>
                       <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">{format(day.date, 'EEE')}</p>
-                      <p className={cn("font-black text-sm", isSameDay(day.date, new Date()) ? "text-primary" : "text-slate-900")}>{format(day.date, 'd')}</p>
+                      <p className={cn("font-black text-sm", isSameDay(day.date, new Date()) ? "text-primary" : "text-foreground")}>{format(day.date, 'd')}</p>
                       <p className="text-[10px] font-black font-mono text-primary mt-1">{day.totalMinutes > 0 ? formatDuration(day.totalMinutes) : '--'}</p>
                       {(day as any).scheduledMinutes > 0 && <p className={cn("text-[10px] font-mono", (day as any).noShow ? "font-black text-destructive" : "text-muted-foreground")}>{(day as any).noShow ? 'no-show' : `of ${formatDuration((day as any).scheduledMinutes)}`}</p>}
                     </div>
@@ -499,7 +499,7 @@ export default function TimesheetsPage() {
                             : "bg-amber-400"
                           )} />
                           <div className="min-w-0">
-                            <p className="text-[11px] font-black uppercase text-slate-900">{format(day.date, 'EEE, MMM d')}</p>
+                            <p className="text-[11px] font-black uppercase text-foreground">{format(day.date, 'EEE, MMM d')}</p>
                             <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
                               {tHM(session.clockIn)} -- {session.clockOut ? tHM(session.clockOut) : session.missingOut ? 'no clock-out' : 'Active'}
                               {session.breakMinutes > 0 && ` (${session.breakMinutes}m break`}
@@ -566,7 +566,7 @@ export default function TimesheetsPage() {
       <Dialog open={isReviewOpen} onOpenChange={(v) => { setIsReviewOpen(v); if (!v) { setIsEditing(false); setReviewNote(''); } }}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
           <DialogHeader className="p-6 pb-0 text-left">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">
+            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">
               {isEditing ? 'Edit Session Times' : 'Review Session'}
             </DialogTitle>
             <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
@@ -582,14 +582,14 @@ export default function TimesheetsPage() {
               </div>
               <div className="p-4 rounded-2xl bg-muted/20 border-2">
                 <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Break</p>
-                <p className="font-black text-lg font-mono text-slate-900">{selectedEntry?.breakMinutes || 0}m</p>
+                <p className="font-black text-lg font-mono text-foreground">{selectedEntry?.breakMinutes || 0}m</p>
                 {(selectedEntry?.paidBreakMins || 0) > 0 && (
                   <p className="text-[8px] font-black text-green-600 uppercase">{selectedEntry.paidBreakMins}m paid</p>
                 )}
               </div>
-              <div className={cn("p-4 rounded-2xl border-2", selectedEntry?.geoVerified ? "bg-green-50 border-green-200" : selectedEntry?.geoWarnOnly ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200")}>
+              <div className={cn("p-4 rounded-2xl border-2", selectedEntry?.geoVerified ? "bg-green-50 border-green-200" : selectedEntry?.geoWarnOnly ? "bg-amber-50 border-amber-200" : "bg-muted/60 border-border")}>
                 <p className="text-[9px] font-black uppercase opacity-60">Geo</p>
-                <p className={cn("font-black text-[10px] uppercase", selectedEntry?.geoVerified ? "text-green-700" : selectedEntry?.geoWarnOnly ? "text-amber-700" : "text-slate-400")}>
+                <p className={cn("font-black text-[10px] uppercase", selectedEntry?.geoVerified ? "text-green-700" : selectedEntry?.geoWarnOnly ? "text-amber-700" : "text-muted-foreground")}>
                   {selectedEntry?.geoVerified ? 'Verified' : selectedEntry?.geoWarnOnly ? 'Out of Zone' : 'N/A'}
                 </p>
               </div>
@@ -604,21 +604,21 @@ export default function TimesheetsPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">In</Label>
-                    <input type="time" value={editClockIn} onChange={e => setEditClockIn(e.target.value)} className="w-full h-9 rounded-xl border-2 px-2 font-bold text-sm outline-none bg-white focus:border-amber-400 text-center" />
+                    <input type="time" value={editClockIn} onChange={e => setEditClockIn(e.target.value)} className="w-full h-9 rounded-xl border-2 px-2 font-bold text-sm outline-none bg-card focus:border-amber-400 text-center" />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Out</Label>
-                    <input type="time" value={editClockOut} onChange={e => setEditClockOut(e.target.value)} className="w-full h-9 rounded-xl border-2 px-2 font-bold text-sm outline-none bg-white focus:border-amber-400 text-center" />
+                    <input type="time" value={editClockOut} onChange={e => setEditClockOut(e.target.value)} className="w-full h-9 rounded-xl border-2 px-2 font-bold text-sm outline-none bg-card focus:border-amber-400 text-center" />
                   </div>
                 </div>
                 <p className="text-[7px] font-bold text-amber-700/60 uppercase leading-relaxed">Times saved as same date. Returns to Pending.</p>
               </div>
             ) : (
-              <div className="p-4 rounded-2xl bg-slate-50 border-2 border-slate-200">
+              <div className="p-4 rounded-2xl bg-muted/60 border-2 border-border">
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Recorded Times</p>
-                    <p className="font-black text-sm text-slate-900">
+                    <p className="font-black text-sm text-foreground">
                       {selectedEntry?.clockIn ? tHM(selectedEntry.clockIn) : '--'} to {selectedEntry?.clockOut ? tHM(selectedEntry.clockOut) : '--'}
                     </p>
                   </div>

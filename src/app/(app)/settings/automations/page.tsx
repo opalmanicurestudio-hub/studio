@@ -190,7 +190,7 @@ function TriggerCard({
   return (
     <Card className={cn(
       'border-2 rounded-[1.5rem] overflow-hidden transition-all',
-      value.enabled ? 'border-border/80 bg-white' : 'border-border/30 bg-muted/5 opacity-60'
+      value.enabled ? 'border-border/80 bg-card' : 'border-border/30 bg-muted/5 opacity-60'
     )}>
       <CardContent className="p-5 space-y-5">
 
@@ -202,7 +202,7 @@ function TriggerCard({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-[12px] font-black uppercase tracking-tight text-slate-900">{def.label}</p>
+                <p className="text-[12px] font-black uppercase tracking-tight text-foreground">{def.label}</p>
                 {!def.hasSecondWindow && def.key === 'healthFormMissing' && (
                   <span className="text-[8px] font-black uppercase bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Always on</span>
                 )}
@@ -248,10 +248,10 @@ function TriggerCard({
                       'w-full text-left p-3 rounded-xl border-2 transition-all',
                       value.severity === s.value
                         ? 'border-primary bg-primary/5'
-                        : 'border-border/50 hover:border-primary/30 bg-white'
+                        : 'border-border/50 hover:border-primary/30 bg-card'
                     )}
                   >
-                    <p className={cn('text-[10px] font-black uppercase tracking-widest', value.severity === s.value ? 'text-primary' : 'text-slate-700')}>
+                    <p className={cn('text-[10px] font-black uppercase tracking-widest', value.severity === s.value ? 'text-primary' : 'text-foreground/80')}>
                       {s.label}
                     </p>
                     <p className="text-[9px] font-bold text-muted-foreground mt-0.5">{s.description}</p>

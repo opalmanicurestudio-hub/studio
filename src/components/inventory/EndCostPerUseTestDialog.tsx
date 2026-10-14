@@ -114,7 +114,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
             <FlaskConical className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Evaluation</span>
           </div>
-          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+          <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">
             Experiment Conclusion
           </DialogTitle>
           <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
@@ -131,7 +131,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Original Estimate</p>
                 </CardHeader>
                 <CardContent className="p-6 pt-0 text-center space-y-2">
-                  <p className="text-4xl font-black tracking-tighter text-slate-900 font-mono">
+                  <p className="text-4xl font-black tracking-tighter text-foreground font-mono">
                     ${isEquipment ? estimatedCostPerMonth.toFixed(2) : oldCostPerUse.toFixed(2)}
                   </p>
                   <p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">Per {isEquipment ? 'Month' : 'Use'}</p>
@@ -159,7 +159,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
             </div>
 
             {isEquipment && (
-                <div className="p-8 rounded-[2.5rem] bg-slate-900 text-white flex flex-col sm:flex-row items-center justify-between gap-6 shadow-3xl">
+                <div className="p-8 rounded-[2.5rem] bg-foreground text-background flex flex-col sm:flex-row items-center justify-between gap-6 shadow-3xl">
                     <div className="text-center sm:text-left space-y-1">
                         <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Asset Contribution</p>
                         <p className="text-sm font-bold uppercase tracking-tight opacity-80">Verified Return on Investment</p>
@@ -188,7 +188,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
 
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
           <div className="flex flex-col sm:flex-row gap-3 w-full">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 md:h-14 flex-1 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Analysis</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 md:h-14 flex-1 rounded-2xl font-black uppercase text-[10px] tracking-widest text-muted-foreground">Abort Analysis</Button>
             <Button 
                 onClick={handleEndTest} 
                 className="h-12 md:h-14 flex-[2] rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 group"

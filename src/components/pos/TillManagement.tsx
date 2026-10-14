@@ -63,7 +63,7 @@ const DepositSlip = ({ session, staff, business }: { session: any; staff: Staff[
     }).filter((r) => r.counted > 0 || r.deposited > 0);
     const staffTips = Object.entries(session.cashTipsByStaff || {}).map(([id, amount]) => ({ name: nameOf(id) || 'Team member', amount: safeNumber(amount) })).filter((t) => t.amount > 0);
     const row = (l: React.ReactNode, v: React.ReactNode, strong = false) => <div className={`flex justify-between gap-3 ${strong ? 'font-bold' : ''}`}><span>{l}</span><span className="tabular-nums">{v}</span></div>;
-    const signer = (label: string, id?: string, sig?: string) => id ? <div className="space-y-1"><div className="flex justify-between"><span style={{ opacity: 0.55 }}>{label}</span><b>{nameOf(id) || '—'}</b></div>{sig && <img src={sig} alt={`${label} signature`} className="h-12 w-full object-contain" style={{ border: '1px solid #e5e5e5' }} />}</div> : null;
+    const signer = (label: string, id?: string, sig?: string) => id ? <div className="space-y-1"><div className="flex justify-between"><span style={{ opacity: 0.55 }}>{label}</span><b>{nameOf(id) || '—'}</b></div>{sig && <img src={sig} alt={`${label} signature`} className="h-12 w-full object-contain" style={{ border: '1px solid hsl(var(--border))' }} />}</div> : null;
     return (
         <div id="deposit-slip-print" className="cf-paper mx-auto w-[320px] space-y-4 rounded-2xl bg-white p-6 text-left font-mono text-[12px] text-black" style={{ border: '1px solid #e5e5e5' }}>
             <div className="space-y-0.5 text-center">

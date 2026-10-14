@@ -75,7 +75,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
         onInteractOutside={(e) => e.stopPropagation()}
       >
         <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Browse Inventory</DialogTitle>
+          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">Browse Inventory</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Select products to append to this record.</DialogDescription>
         </DialogHeader>
         <div className="p-8 space-y-6">
@@ -98,7 +98,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
                     key={product.id}
                     className={cn(
                       "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer",
-                      isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-white"
+                      isSelected ? "border-primary bg-primary/5 shadow-md" : "border-border/50 hover:border-primary/20 bg-card"
                     )}
                     onClick={() => handleToggle(product.id)}
                   >
@@ -117,7 +117,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                      <p className="text-sm font-black uppercase tracking-tight text-foreground truncate">
                         {product.name || 'Untitled product'}
                       </p>
                       <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
@@ -139,7 +139,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5">
           <div className="flex flex-col gap-3 w-full">
             <Button type="button" onClick={handleSave} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Add Selected</Button>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest text-muted-foreground">Cancel</Button>
           </div>
         </DialogFooter>
       </DialogContent>

@@ -64,7 +64,7 @@ export function WeeklyHoursEditor({ week, onChange, note }: {
         <span className="text-[9px] uppercase font-black text-muted-foreground tracking-widest ml-1">Bookable hours</span>
         {open.length > 1 && (
           <button type="button" onClick={copyFirstOpen}
-            className="h-7 rounded-lg border-2 bg-white px-2 text-[9px] font-black uppercase tracking-widest text-slate-600">
+            className="h-7 rounded-lg border-2 bg-card px-2 text-[9px] font-black uppercase tracking-widest text-foreground/80">
             Same times all week
           </button>
         )}
@@ -76,16 +76,16 @@ export function WeeklyHoursEditor({ week, onChange, note }: {
             <div key={k} className="flex items-center gap-2">
               <button type="button" aria-pressed={d.enabled} aria-label={`${SHORT[k]} — ${d.enabled ? 'open' : 'closed'}`}
                 onClick={() => set(k, { enabled: !d.enabled })}
-                className={`h-10 w-14 shrink-0 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest ${d.enabled ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400'}`}>
+                className={`h-10 w-14 shrink-0 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest ${d.enabled ? 'bg-foreground text-background border-slate-900' : 'bg-card text-muted-foreground'}`}>
                 {SHORT[k]}
               </button>
               {d.enabled ? (
                 <>
                   <input type="time" value={d.start} onChange={(e) => set(k, { start: e.target.value })}
-                    aria-label={`${SHORT[k]} start`} className="h-10 flex-1 min-w-0 rounded-xl border-2 bg-white px-2 text-sm font-bold" />
+                    aria-label={`${SHORT[k]} start`} className="h-10 flex-1 min-w-0 rounded-xl border-2 bg-card px-2 text-sm font-bold" />
                   <span className="text-[10px] font-black text-muted-foreground">to</span>
                   <input type="time" value={d.end} onChange={(e) => set(k, { end: e.target.value })}
-                    aria-label={`${SHORT[k]} end`} className="h-10 flex-1 min-w-0 rounded-xl border-2 bg-white px-2 text-sm font-bold" />
+                    aria-label={`${SHORT[k]} end`} className="h-10 flex-1 min-w-0 rounded-xl border-2 bg-card px-2 text-sm font-bold" />
                 </>
               ) : (
                 <span className="flex-1 text-[11px] font-bold text-muted-foreground">Not working</span>

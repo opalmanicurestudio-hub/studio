@@ -121,7 +121,7 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
         </div>
         <div className="space-y-0.5 text-left">
             <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Edit</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
         </div>
     </div>
 );
@@ -342,7 +342,7 @@ const EditAppointmentForm = ({
                                 <AvatarFallback className="font-black bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
                             </Avatar>
                             <div className="min-w-0 flex-1">
-                                <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none truncate">{client.name}</p>
+                                <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-foreground leading-none truncate">{client.name}</p>
                                 {isOwnerOrAdmin ? (
                                     <div className="flex flex-col gap-1 mt-2">
                                         {client.email && (
@@ -422,8 +422,8 @@ const EditAppointmentForm = ({
                         {editableFormula.length > 0 ? (
                             <div className="grid gap-2">
                                 {editableFormula.map(item => (
-                                    <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm gap-4 group">
-                                        <span className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate flex-1">{item.name}</span>
+                                    <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-card shadow-sm gap-4 group">
+                                        <span className="text-[11px] font-black uppercase tracking-tight text-foreground truncate flex-1">{item.name}</span>
                                         <div className="flex items-center gap-3">
                                             <div className="flex items-center gap-2">
                                                 <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Load</Label>
@@ -564,7 +564,7 @@ const EditAppointmentForm = ({
                 <AlertDialogContent className="cf-settings cf-legacy rounded-[3rem] border-4 shadow-3xl">
                     <AlertDialogHeader className="p-6 pb-0 text-center sm:text-left">
                         <AlertDialogTitle className="font-black uppercase tracking-tighter text-xl md:text-2xl">Confirm Logic Violation</AlertDialogTitle>
-                        <AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase text-left">
+                        <AlertDialogDescription className="font-bold text-sm text-foreground/80 leading-relaxed uppercase text-left">
                             This modification results in a conflict with {clashingItem?.details || 'an existing item'}. Force this record update?
                         </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -600,7 +600,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
                 <Edit className="w-5 h-5 text-primary" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Refinement</span>
             </div>
-            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">{dialogTitle}</DialogTitle>
+            <DialogTitle className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">{dialogTitle}</DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{dialogDescription}</DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1">
@@ -610,7 +610,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
         </ScrollArea>
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0 shadow-2xl">
           <div className="flex w-full gap-4">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-slate-400 flex-1">Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground flex-1">Cancel</Button>
             <Button onClick={() => {
                 const form = document.getElementById('edit-appointment-form') as HTMLFormElement;
                 if (form) form.dispatchEvent(new globalThis.Event('submit', { cancelable: true, bubbles: true }));

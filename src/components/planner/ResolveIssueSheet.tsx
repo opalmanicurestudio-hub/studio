@@ -82,7 +82,7 @@ export function ResolveIssueSheet({
                   aria-pressed={pickedStaff === c.id}
                   className={cn(
                     'flex w-full items-center gap-2.5 rounded-xl border-2 px-3 py-2 text-left transition-colors active:scale-[0.99]',
-                    pickedStaff === c.id ? 'border-primary bg-primary/[0.06]' : 'border-border bg-white hover:bg-muted/40',
+                    pickedStaff === c.id ? 'border-primary bg-primary/[0.06]' : 'border-border bg-card hover:bg-muted/40',
                   )}
                 >
                   <Avatar className="h-7 w-7 shrink-0 rounded-lg">

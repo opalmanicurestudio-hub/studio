@@ -106,7 +106,7 @@ type StaffAvailability = {
 };
 
 const STATUS_STYLES: Record<string, string> = {
-  draft: 'bg-slate-100 text-slate-600 border-slate-200',
+  draft: 'bg-muted text-foreground/80 border-border',
   published: 'bg-primary/10 text-primary border-primary/20',
   confirmed: 'bg-green-100 text-green-700 border-green-200',
   cancelled: 'bg-destructive/10 text-destructive border-destructive/20',
@@ -547,13 +547,13 @@ export default function SchedulePage() {
   const canManage = can('schedule.manage');
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50/50">
+    <div className="flex min-h-screen flex-col bg-background">
       <AppHeader title="Shift Schedule" />
       <main className="flex-1 p-4 md:p-8 w-full max-w-[1400px] mx-auto space-y-6">
 
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Schedule</h1>
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Schedule</h1>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Shift management & labor planning</p>
           </div>
           {canManage && (
@@ -598,7 +598,7 @@ export default function SchedulePage() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3 p-1 bg-white rounded-[2rem] border-2 shadow-sm">
+          <div className="flex items-center gap-3 p-1 bg-card rounded-[2rem] border-2 shadow-sm">
             <Button variant="ghost" size="icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl"><ChevronLeft className="w-5 h-5" /></Button>
             <div className="text-center min-w-[160px]">
               <p className="text-[9px] font-black uppercase tracking-widest text-primary opacity-60">Week</p>
@@ -609,7 +609,7 @@ export default function SchedulePage() {
           </div>
 
           {laborPreview.total > 0 && (
-            <div className="flex items-center gap-3 px-5 py-3 bg-white rounded-[2rem] border-2 shadow-sm">
+            <div className="flex items-center gap-3 px-5 py-3 bg-card rounded-[2rem] border-2 shadow-sm">
               <DollarSign className="w-4 h-4 text-green-600" />
               <div>
                 <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Est. Labor Cost</p>
@@ -618,13 +618,13 @@ export default function SchedulePage() {
               <Separator orientation="vertical" className="h-8" />
               <div>
                 <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Shifts</p>
-                <p className="font-black text-lg font-mono text-slate-900">{(shifts || []).filter(s => s.status !== 'cancelled').length}</p>
+                <p className="font-black text-lg font-mono text-foreground">{(shifts || []).filter(s => s.status !== 'cancelled').length}</p>
               </div>
             </div>
           )}
         </div>
 
-        <Card className="border-2 rounded-[2.5rem] shadow-sm overflow-hidden bg-white hidden md:block">
+        <Card className="border-2 rounded-[2.5rem] shadow-sm overflow-hidden bg-card hidden md:block">
           <ScrollArea className="w-full">
             <div className="min-w-[800px]">
               <div className="grid border-b" style={{ gridTemplateColumns: '180px repeat(7, 1fr)' }}>
@@ -638,7 +638,7 @@ export default function SchedulePage() {
                   return (
                     <div key={day.toISOString()} className={cn("p-3 border-r text-center", isToday(day) && "bg-primary/5")}>
                       <p className={cn("text-[9px] font-black uppercase tracking-widest opacity-60", isToday(day) ? "text-primary" : "text-muted-foreground")}>{format(day, 'EEE')}</p>
-                      <p className={cn("font-black text-lg", isToday(day) ? "text-primary" : "text-slate-900")}>{format(day, 'd')}</p>
+                      <p className={cn("font-black text-lg", isToday(day) ? "text-primary" : "text-foreground")}>{format(day, 'd')}</p>
                       {!hasCoverage && !isBefore(day, startOfDay(new Date())) && (
                         <div className="w-1.5 h-1.5 bg-amber-400 rounded-full mx-auto mt-1" />
                       )}
@@ -680,12 +680,12 @@ export default function SchedulePage() {
                           className={cn(
                             "p-2 border-r min-h-[80px] relative group",
                             isToday(day) && "bg-primary/[0.02]",
-                            !available && "bg-slate-50",
+                            !available && "bg-muted/60",
                           )}
                         >
                           {!available && (
                             <div className="absolute inset-0 flex items-center justify-center opacity-20">
-                              <p className="text-[8px] font-black uppercase text-slate-500 rotate-[-30deg]">Unavailable</p>
+                              <p className="text-[8px] font-black uppercase text-muted-foreground rotate-[-30deg]">Unavailable</p>
                             </div>
                           )}
                           <div className="space-y-1">
@@ -694,7 +694,7 @@ export default function SchedulePage() {
                                 key={shift.id}
                                 className={cn(
                                   "rounded-xl px-2 py-1.5 border-2 text-left cursor-pointer transition-all hover:shadow-md group/shift",
-                                  shift.status === 'draft' ? "bg-slate-50 border-slate-200" :
+                                  shift.status === 'draft' ? "bg-muted/60 border-border" :
                                   shift.status === 'published' ? "bg-primary/5 border-primary/20" :
                                   shift.status === 'confirmed' ? "bg-green-50 border-green-200" :
                                   "bg-destructive/5 border-destructive/20"
@@ -726,7 +726,7 @@ export default function SchedulePage() {
                           {canManage && available && (
                             <button
                               onClick={() => openAddShift(day, member.id)}
-                              className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-lg bg-white border-2 border-dashed border-muted flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:border-primary/30 hover:text-primary"
+                              className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-lg bg-card border-2 border-dashed border-muted flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:border-primary/30 hover:text-primary"
                             >
                               <Plus className="w-3 h-3" />
                             </button>
@@ -747,14 +747,14 @@ export default function SchedulePage() {
             const dayStr = format(day, 'yyyy-MM-dd');
             const dayShifts = (shifts || []).filter(s => s.date === dayStr && s.status !== 'cancelled');
             return (
-              <Card key={day.toISOString()} className={cn("border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm", isToday(day) && "border-primary/30 shadow-primary/10")}>
+              <Card key={day.toISOString()} className={cn("border-2 rounded-[2rem] overflow-hidden bg-card shadow-sm", isToday(day) && "border-primary/30 shadow-primary/10")}>
                 <div className={cn("px-4 py-3 flex items-center justify-between border-b", isToday(day) ? "bg-primary/5" : "bg-muted/5")}>
                   <div className="flex items-center gap-3">
-                    <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0", isToday(day) ? "bg-primary text-white" : "bg-white border-2 text-slate-700")}>
+                    <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0", isToday(day) ? "bg-primary text-white" : "bg-card border-2 text-foreground/80")}>
                       {format(day, 'd')}
                     </div>
                     <div>
-                      <p className={cn("font-black uppercase text-sm leading-none", isToday(day) ? "text-primary" : "text-slate-900")}>{format(day, 'EEEE')}</p>
+                      <p className={cn("font-black uppercase text-sm leading-none", isToday(day) ? "text-primary" : "text-foreground")}>{format(day, 'EEEE')}</p>
                       <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{format(day, 'MMM d')}</p>
                     </div>
                   </div>
@@ -776,7 +776,7 @@ export default function SchedulePage() {
                     const member = (staff || []).find(s => s.id === shift.staffId);
                     const hours = ((spanMinutes(shift.startTime, shift.endTime) - (shift.breakMinutes || 0)) / 60);
                     return (
-                      <div key={shift.id} className={cn("flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer", shift.status === 'draft' ? "bg-slate-50 border-slate-200" : shift.status === 'published' ? "bg-primary/5 border-primary/20" : "bg-green-50 border-green-200")} onClick={() => canManage && openEditShift(shift)}>
+                      <div key={shift.id} className={cn("flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer", shift.status === 'draft' ? "bg-muted/60 border-border" : shift.status === 'published' ? "bg-primary/5 border-primary/20" : "bg-green-50 border-green-200")} onClick={() => canManage && openEditShift(shift)}>
                         <Avatar className="w-8 h-8 rounded-xl border shrink-0">
                           <AvatarImage src={member?.avatarUrl} className="object-cover" />
                           <AvatarFallback className="text-[9px] font-black bg-primary/10 text-primary">{member?.name?.[0]}</AvatarFallback>
@@ -801,18 +801,18 @@ export default function SchedulePage() {
         </div>
 
         {laborPreview.byStaff.length > 0 && (
-          <Card className="border-2 rounded-[2.5rem] shadow-sm bg-white overflow-hidden">
+          <Card className="border-2 rounded-[2.5rem] shadow-sm bg-card overflow-hidden">
             <CardHeader className="p-5 border-b bg-muted/5">
               <div className="flex items-center gap-3">
                 <DollarSign className="w-4 h-4 text-primary" />
-                <p className="font-black uppercase tracking-widest text-sm text-slate-900">Labor Cost Preview</p>
+                <p className="font-black uppercase tracking-widest text-sm text-foreground">Labor Cost Preview</p>
               </div>
             </CardHeader>
             <CardContent className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {laborPreview.byStaff.map(({ member, totalHours, pay, shiftCount }) => {
                 const warnings = staffWarnings.get(member.id) || [];
                 return (
-                  <div key={member.id} className={cn("p-4 rounded-2xl border-2 space-y-2", warnings.length > 0 ? "border-red-200 bg-red-50" : "border-slate-100 bg-slate-50")}>
+                  <div key={member.id} className={cn("p-4 rounded-2xl border-2 space-y-2", warnings.length > 0 ? "border-red-200 bg-red-50" : "border-border bg-muted/60")}>
                     <div className="flex items-center gap-2">
                       <Avatar className="w-7 h-7 rounded-xl border"><AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{member.name?.[0]}</AvatarFallback></Avatar>
                       <div className="min-w-0 flex-1">
@@ -841,7 +841,7 @@ export default function SchedulePage() {
       <Dialog open={isAddShiftOpen} onOpenChange={setIsAddShiftOpen}>
         <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background p-0 overflow-hidden flex flex-col max-h-[90dvh]">
           <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b text-left">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">
+            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">
               {editingShift ? 'Edit Shift' : 'Add Shift'}
             </DialogTitle>
           </DialogHeader>
@@ -869,7 +869,7 @@ export default function SchedulePage() {
 
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date</Label>
-                <input type="date" value={shiftDate} onChange={e => setShiftDate(e.target.value)} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-white focus:border-primary/40" />
+                <input type="date" value={shiftDate} onChange={e => setShiftDate(e.target.value)} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-card focus:border-primary/40" />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -959,7 +959,7 @@ export default function SchedulePage() {
       <Dialog open={isAISuggestOpen} onOpenChange={setIsAISuggestOpen}>
         <DialogContent className="sm:max-w-2xl rounded-[3rem] border-4 shadow-3xl bg-background max-h-[90dvh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b text-left">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900 flex items-center gap-3">
+            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
               <Sparkles className="w-6 h-6 text-primary" /> Smart Schedule Suggestion
             </DialogTitle>
             <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
@@ -973,13 +973,13 @@ export default function SchedulePage() {
                 const member = (staff || []).find(s => s.id === shift.staffId);
                 const hours = (spanMinutes(shift.startTime, shift.endTime) - (shift.breakMinutes || 0)) / 60;
                 return (
-                  <div key={idx} className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-white shadow-sm">
+                  <div key={idx} className="flex items-center gap-4 p-4 rounded-2xl border-2 bg-card shadow-sm">
                     <Avatar className="w-10 h-10 rounded-xl border shrink-0">
                       <AvatarImage src={member?.avatarUrl} className="object-cover" />
                       <AvatarFallback className="text-[10px] font-black bg-primary/10 text-primary">{member?.name?.[0]}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
-                      <p className="font-black uppercase text-[11px] text-slate-900">{member?.name || 'Unknown'}</p>
+                      <p className="font-black uppercase text-[11px] text-foreground">{member?.name || 'Unknown'}</p>
                       <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
                         {format(new Date(shift.date), 'EEE, MMM d')} -- {formatTime(shift.startTime)} to {formatTime(shift.endTime)}
                       </p>
@@ -1013,7 +1013,7 @@ export default function SchedulePage() {
       <Dialog open={isPublishConfirmOpen} onOpenChange={setIsPublishConfirmOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
           <DialogHeader className="p-6 pb-0 text-left">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Publish Schedule</DialogTitle>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">Publish Schedule</DialogTitle>
             <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
               {draftCount} draft shift{draftCount !== 1 ? 's' : ''} will be published. All affected staff will be notified.
             </DialogDescription>

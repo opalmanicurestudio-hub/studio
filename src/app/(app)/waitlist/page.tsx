@@ -10,5 +10,5 @@ import { WaitlistDesk } from '@/components/waitlist/WaitlistDesk';
 
 export default function WaitlistPage() {
   const { selectedTenant } = useTenant() as any; const tenantId = selectedTenant?.id || '';
-  return <div className="min-h-full p-4 md:p-8" style={{ color: '#16171a' }}><AppHeader title="Waitlist" /><WaitlistDesk tenantId={tenantId} /></div>;
+  return <div className="min-h-full p-4 md:p-8" style={{ color: 'hsl(var(--foreground))' }}><AppHeader title="Waitlist" /><WaitlistDesk tenantId={tenantId} /></div>;
 }
