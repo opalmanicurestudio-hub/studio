@@ -85,12 +85,19 @@ export function Thumb({ sku, size = 46 }: { sku?: R.Sku; size?: number }) {
   );
 }
 
-export function FaceDot({ look, size = 58, ring = true }: { look: R.Look; size?: number; ring?: boolean }) {
+export function FaceDot({ look, photo, size = 58, ring = true, mood }: { look: R.Look; photo?: string; size?: number; ring?: boolean; mood?: number }) {
+  const moodRing = mood == null ? null : mood < 0.3 ? '#e5484d' : mood < 0.6 ? '#f0a43a' : '#7fd1a5';
   return (
-    <span style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', background: 'linear-gradient(180deg,#efe6da,#d9cbb9)', display: 'inline-flex', alignItems: 'flex-end', justifyContent: 'center', flexShrink: 0, boxShadow: ring ? '0 0 0 2px rgba(255,255,255,.85)' : undefined }}>
-      <span style={{ marginBottom: -size * 0.08 }}><Person look={look} size={size * 1.25} /></span>
+    <span title={mood == null ? undefined : mood < 0.3 ? 'Unhappy' : mood < 0.6 ? 'Getting impatient' : 'Happy'} style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', background: 'linear-gradient(180deg,#efe6da,#d9cbb9)', display: 'inline-flex', alignItems: 'flex-end', justifyContent: 'center', flexShrink: 0, boxShadow: moodRing ? `0 0 0 3px ${moodRing}` : ring ? '0 0 0 2px rgba(255,255,255,.85)' : undefined, transition: 'box-shadow .4s' }}>
+      {photo ? <span style={{ width: '100%', height: '100%', backgroundImage: `url(${photo})`, backgroundRepeat: 'no-repeat', backgroundSize: '230% auto', backgroundPosition: '44% 6%' }} />
+        : <span style={{ marginBottom: -size * 0.08 }}><Person look={look} size={size * 1.25} /></span>}
     </span>
   );
+}
+
+/** A client in a real photo, standing behind the counter. */
+export function PhotoPerson({ src, size, mood = 0.8 }: { src: string; size: number; mood?: number }) {
+  return <img src={src} alt="" draggable={false} style={{ width: size, height: 'auto', display: 'block', filter: mood < 0.3 ? 'saturate(.85) brightness(.96)' : undefined, transition: 'filter .6s' }} />;
 }
 
 const ICONS: Record<string, string> = {

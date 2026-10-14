@@ -68,6 +68,8 @@ export type Slip =
   | { kind: 'offline' };                           // the card reader drops off Wi-Fi
 export type Customer = {
   id: string; name: string; pron: 'she' | 'he' | 'they'; look: Look;
+  /** A real photo of this client (cut out, transparent background). Without one, the drawn character is used. */
+  photo?: string;
   service: { label: string; price: number; provider: string };
   items: { sku: string; n: number }[];
   slips: Slip[]; arrive: number; hello: string; visits: number;
@@ -130,7 +132,7 @@ export type RegState = {
 
 const V = (pitch: number, rate: number) => ({ pitch, rate });
 export const PEOPLE: Customer[] = [
-  { id: 'rosa', name: 'Rosa', pron: 'she', persona: 'Warm, chatty regular in her 40s. Adores Ana and her gel manicures every 3 weeks. Loves a good deal and would happily join a nail membership that saves her money.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'none', voice: V(1.15, 1), look: { skin: '#c68a62', hair: '#2b1d16', top: '#e9a7a0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
+  { id: 'rosa', name: 'Rosa', pron: 'she', persona: 'Warm, chatty regular in her 40s. Adores Ana and her gel manicures every 3 weeks. Loves a good deal and would happily join a nail membership that saves her money.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'none', voice: V(1.15, 1), look: { skin: '#c68a62', hair: '#2b1d16', top: '#e9a7a0', style: 'long' }, photo: '/practice/people/rosa.png', service: { label: 'Gel manicure', price: 45, provider: 'Ana' },
     items: [{ sku: 'cuticle', n: 1 }], slips: [], arrive: 0, hello: 'Hi! Just this cuticle oil too, please.', visits: 4, rebook: 3, wants: 'nailclub' },
   { id: 'theo', name: 'Theo', pron: 'he', persona: 'Easygoing guy in his 20s, on his lunch break and a little pressed for time. Pays cash. Friendly but brief.', voiceHint: { gender: 'male', age: 'young' }, kind: 'returning', receipt: 'print', voice: V(0.9, 1.05), look: { skin: '#e7c3a4', hair: '#6b4a2f', top: '#9fc2a8', style: 'short' }, service: { label: 'Fade', price: 40, provider: 'Diego' },
     items: [{ sku: 'beardoil', n: 1 }], slips: [{ kind: 'unreadable', sku: 'beardoil' }], arrive: 20, hello: 'And the beard oil. The label got a little wet, sorry. I’ll pay cash.', visits: 2, rebook: 4, pays: { cash: 'round', keep: 3 } },

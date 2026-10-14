@@ -15,7 +15,7 @@ import { VoicePicker, VoiceCheck, type CheckRow } from './voice-panels';
 import { PhoneDock, CallCard, CallReviewCard } from './phone-panel';
 import { useAuth, useFirestore } from '@/firebase';
 import QRCode from 'qrcode';
-import { Backdrop, Counter, ProductPhoto, Thumb, FaceDot, Icon, RailButton, Pill, LevelPill, PointsPill, Wordmark, GLASS, GLASS_ROW, PINE, tabletBtn } from './studio';
+import { Backdrop, Counter, ProductPhoto, PhotoPerson, Thumb, FaceDot, Icon, RailButton, Pill, LevelPill, PointsPill, Wordmark, GLASS, GLASS_ROW, PINE, tabletBtn } from './studio';
 import { Barcode, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
 
 type PayStep = null | 'split' | 'method' | 'tip' | 'reader' | 'processing' | 'approved' | 'declined' | 'decline-wait' | 'chip' | 'offline' | 'reconnecting' | 'cash-total' | 'cash-keep' | 'cash-count' | 'cash-done' | 'receipt';
@@ -1033,10 +1033,10 @@ export default function RegisterPractice() {
               {face.current.state === 'live' && !face.current.videoStarted && <button onClick={() => { (document.getElementById('cf-face') as HTMLVideoElement | null)?.play().catch(() => {}); }} style={{ position: 'absolute', left: '50%', bottom: 12, transform: 'translateX(-50%)', ...mini }}>Tap to start video</button>}
             </div>
           ) : faceOn && caps.faces && s.onCall && cur?.c.id === shownC.id ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} /><span style={{ fontSize: 11, color: MUTED, fontWeight: 600 }}>Live video paused while you’re on the phone</span></div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>{shownC.photo ? <PhotoPerson src={shownC.photo} size={Math.round(big * 1.12)} mood={cur?.mood ?? 0.9} /> : <Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} />}<span style={{ fontSize: 11, color: MUTED, fontWeight: 600 }}>Live video paused while you’re on the phone</span></div>
           ) : facePaused === shownC.id && faceOn ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} /><button onClick={() => setFacePaused(null)} style={{ ...mini, fontSize: 11 }}>Paused to save minutes · resume live video</button></div>
-          ) : <Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>{shownC.photo ? <PhotoPerson src={shownC.photo} size={Math.round(big * 1.12)} mood={cur?.mood ?? 0.9} /> : <Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} />}<button onClick={() => setFacePaused(null)} style={{ ...mini, fontSize: 11 }}>Paused to save minutes · resume live video</button></div>
+          ) : shownC.photo ? <PhotoPerson src={shownC.photo} size={Math.round(big * 1.12)} mood={cur?.mood ?? 0.9} /> : <Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} />
   );
   const client = shownC ? (
     <div style={{ display: 'flex', alignItems: narrow ? 'center' : 'flex-end', gap: narrow ? 10 : 18 }}>
@@ -1151,7 +1151,7 @@ export default function RegisterPractice() {
     <div style={{ ...GLASS, borderRadius: 26, padding: 14, width: compact ? 330 : 360, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 'calc(64vh - 96px)', overflow: 'auto', boxSizing: 'border-box' }}>
       {shownC ? <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <FaceDot look={shownC.look} size={58} />
+          <FaceDot look={shownC.look} photo={shownC.photo} size={58} mood={cur && cur.c.id === shownC.id ? cur.mood : undefined} />
           <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 19, fontWeight: 600 }}>{shownC.party ? 'Maya’s bridal party' : shownC.name}</div><div style={{ fontSize: 12.5, opacity: 0.88, lineHeight: 1.35 }}>{clientSub(shownC)}</div></div>
           <span style={{ fontSize: 12.5, fontWeight: 600, padding: '5px 11px', borderRadius: 999, background: 'rgba(127,209,165,.22)', color: '#dff5e9', border: '1px solid rgba(127,209,165,.5)', whiteSpace: 'nowrap' }}>{kindLabel(shownC)}</span>
         </div>
@@ -1180,7 +1180,7 @@ export default function RegisterPractice() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0, overflow: 'auto' }}>
               <div style={{ ...tcard, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <FaceDot look={cur.c.look} size={40} ring={false} />
+                <FaceDot look={cur.c.look} photo={cur.c.photo} size={40} ring={false} />
                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 14, fontWeight: 700 }}>{cur.c.name}</div><div style={{ fontSize: 11, color: MUTED, lineHeight: 1.3 }}>{clientSub(cur.c)}</div></div>
                 <Chip tone={cur.c.kind === 'new' ? 'blue' : cur.c.kind === 'regular' ? 'green' : undefined}>{kindLabel(cur.c)}</Chip>
               </div>
