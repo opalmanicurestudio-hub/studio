@@ -1,7 +1,8 @@
 // src/app/api/referrals/route.ts — REFERRALS for the business (lib/referrals-server). Managers only.
 //   overview { period: month|3m|year }         → the story (links opened → booked → visited → credit), money, month by
 //                                                month, champions, and the inbox (needs a look, waiting, credit given, everyone)
-//   get_settings                               → the program's settings (Referrals → Settings)
+//   get_settings                               → the program's settings, with the Circle (Referrals → Settings)
+//   circle · circle_do { do: request|creator|tier|boost|end_boost|cash_paid } → the Circle tab (lib/circle-server)
 //   settings { referrals }                     → the program (and the friend's welcome offer as an approved discount)
 //   decide { id, action: approve|decline|confirm, referrerPhone? } → the few that need a person
 //   find { q } · preview { clientId } → try it yourself: a client's wallet (private link, 2 hours) and welcome link
@@ -22,7 +23,9 @@ export async function POST(req: NextRequest) {
   try {
     const action = String(b.action || 'overview');
     if (action === 'overview') return j(await referralOverview(db, tenantId, Date.now(), (['month', '3m', 'year'].includes(b.period) ? b.period : 'month') as any));
-    if (action === 'get_settings') return j({ ok: true, settings: referralSettingsOf((await db.doc(`tenants/${tenantId}`).get()).data() || {}) });
+    if (action === 'get_settings') { const td = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; const { circleOf } = await import('@/lib/circle'); return j({ ok: true, settings: { ...referralSettingsOf(td), circle: circleOf(td) } }); }
+    if (action === 'circle') { const { circleOverview } = await import('@/lib/circle-server'); return j(await circleOverview(db, tenantId)); }
+    if (action === 'circle_do') { const { circleAction } = await import('@/lib/circle-server'); return j(await circleAction(db, tenantId, b, { id: a.staffId, name: a.name })); }
     if (action === 'settings') return j(await setReferralSettings(db, tenantId, b.referrals || {}, { id: a.staffId, name: a.name }));
     if (action === 'decide') return j(await decideReferral(db, tenantId, { id: String(b.id || ''), action: b.decision, referrerPhone: b.referrerPhone, referrerId: b.referrerId ? String(b.referrerId) : undefined }, { id: a.staffId, name: a.name }));
     if (action === 'find') return j(await findClients(db, tenantId, String(b.q || '').slice(0, 60)));

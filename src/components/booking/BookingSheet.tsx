@@ -140,6 +140,7 @@ const bookingSchema = z.object({
   smsMarketing: z.boolean().optional(),
   referrerFirst: z.string().max(40).optional(),
   referrerPhone: z.string().max(30).optional(),
+  friendCode: z.string().max(20).optional(),
 });
 type BookingFormData = z.infer<typeof bookingSchema>;
 
@@ -631,6 +632,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         smsMarketing:     !!formValues.smsMarketing,
         smsMarketingText: formValues.smsMarketing ? smsMarketingWording(tenant?.name) : undefined,
         // Who recommended them (no link used): both have to match one client on the server, or nothing happens.
+        ...(String(formValues.friendCode || '').replace(/[^A-Za-z0-9]/g, '').length >= 3 ? { referralTypedCode: String(formValues.friendCode).replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16) } : {}),
         ...(String(formValues.referrerFirst || '').trim() && String(formValues.referrerPhone || '').replace(/\D/g, '').length >= 10 ? { referredBy: { firstName: String(formValues.referrerFirst).trim().slice(0, 40), phone: String(formValues.referrerPhone).slice(0, 30) } } : {}),
       },
     };
@@ -1380,8 +1382,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                           </div>
                           {(tenant as any)?.referrals?.on === true && !(typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('ref')) && (
                             <details className="pt-3 border-t border-dashed">
-                              <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Who recommended you? (optional)</summary>
-                              <p className="ml-1 mt-2 text-[11px] text-muted-foreground">Their first name and mobile number. We’ll thank them for you. No names are ever shown.</p>
+                              <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Have a friend’s code, or who recommended you? (optional)</summary>
+                              <Input {...methods.register('friendCode')} aria-label="A friend’s code" placeholder="A friend’s code, like HANNAH15" autoCapitalize="characters" style={{ borderRadius: r2 }} className="mt-2 h-11 border-2 uppercase" />
+                              <p className="ml-1 mt-2 text-[11px] text-muted-foreground">No code? Their first name and mobile number. We’ll thank them for you. No names are ever shown.</p>
                               <div className="mt-2 grid grid-cols-2 gap-2">
                                 <Input {...methods.register('referrerFirst')} aria-label="Their first name" placeholder="Their first name" style={{ borderRadius: r2 }} className="h-11 border-2" />
                                 <Input {...methods.register('referrerPhone')} aria-label="Their mobile number" placeholder="Their mobile" inputMode="tel" style={{ borderRadius: r2 }} className="h-11 border-2" />

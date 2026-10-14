@@ -19,6 +19,11 @@ const DEAD = ['cancelled', 'canceled', 'no_show', 'noshow', 'declined', 'expired
 const biz = (t: any) => String(t?.name || t?.businessName || 'us');
 const rand = () => Math.random().toString(36).slice(2, 6);
 
+/** What this client's friends get: their tier's or creator's offer when the Circle is on, else the program's. */
+async function offerOf(tenant: any, S: ReferralSettings, c: any): Promise<number> {
+  const { circleOf, friendOfferFor, creatorOf } = await import('@/lib/circle'); const C = circleOf(tenant);
+  return C.on ? friendOfferFor(S, C, (c?.circle?.tier || null) as any, creatorOf(c?.circle?.creator)) : S.friendCents;
+}
 async function tenantOf(db: any, t: string) { return ((await db.doc(T(t)).get()).data() as any) || {}; }
 async function origin(tenant: any) { const { linkOrigin } = await import('@/lib/app-origin'); return linkOrigin(tenant, ''); }
 
@@ -30,7 +35,11 @@ export async function setReferralSettings(db: any, t: string, raw: any, approver
   const ref = db.doc(`${T(t)}/discounts/${WELCOME_ID}`); const cur: any = (await ref.get()).data() || null;
   await ref.set({ id: WELCOME_ID, code: WELCOME_CODE, name: 'Welcome offer (referral)', description: 'A friend’s first visit, from the referral program.', type: 'fixed', value: S.friendCents / 100,
     isActive: S.on && S.friendCents > 0, limitOnePerCustomer: true, source: 'referrals', approvedBy: approver.name, approvedById: approver.id, approvedAt: iso(now), ...(cur ? {} : { createdAt: iso(now), usageCount: 0, usedByClientIds: [] }) }, { merge: true });
-  return { ok: true, settings: S };
+  // The Circle's tier and creator offers are their own approved discounts; they switch on and off with the program.
+  for (const d of rows(await db.collection(`${T(t)}/discounts`).where('source', '==', 'referrals').get())) if (d.id !== WELCOME_ID && d.isActive !== S.on) await db.doc(`${T(t)}/discounts/${d.id}`).set({ isActive: S.on }, { merge: true });
+  let circle: any = null;
+  if (raw && typeof raw.circle === 'object' && raw.circle) { const { saveCircle } = await import('@/lib/circle-server'); circle = (await saveCircle(db, t, raw.circle, approver, now)).circle; }
+  return { ok: true, settings: S, ...(circle ? { circle } : {}) };
 }
 
 // ── The client's link ─────────────────────────────────────────────────────────────────
@@ -60,7 +69,7 @@ async function favoriteOf(db: any, t: string, clientId: string, now: number) {
 export async function publicInfo(db: any, t: string, slug: string, now = Date.now()) {
   const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); if (!S.on) return { ok: false as const, error: 'This offer isn’t available right now.' };
   const c = await clientOfSlug(db, t, slug); if (!c || c.archived || c.status === 'archived') return { ok: false as const, error: 'This link isn’t valid.' };
-  return { ok: true as const, firstName: firstOf(c.name || c.firstName) || 'A friend', business: biz(tenant), logo: tenant.logoUrl || null, offerCents: S.friendCents, code: WELCOME_CODE, favorite: await favoriteOf(db, t, c.id, now) };
+  return { ok: true as const, firstName: firstOf(c.name || c.firstName) || 'A friend', business: biz(tenant), logo: tenant.logoUrl || null, offerCents: await offerOf(tenant, S, c), code: WELCOME_CODE, favorite: await favoriteOf(db, t, c.id, now) };
 }
 /** The welcome page in full (design canvas RF6, RF8): the gift, their friend's favorite with the next open times, who
  * they'll see, the visit in steps, where to go, and real proof. Built only from what the business already has: their
@@ -119,7 +128,7 @@ export async function welcomeFor(db: any, t: string, slug: string, now = Date.no
   let review: any = null; try { const rv = rows(await db.collection(`${T(t)}/reviews`).where('isPublic', '==', true).get()).filter((r: any) => Number(r.rating) >= 5 && String(r.text || '').trim().length >= 12)
     .sort((a: any, b: any) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0) || ms(b.createdAt) - ms(a.createdAt))[0]; if (rv) review = { text: String(rv.text).trim().slice(0, 220), first: firstOf(rv.clientName) || null }; } catch { /* none */ }
   const photos = [...S.photos, ...(favorite?.image && !S.photos.includes(favorite.image) ? [favorite.image] : [])].slice(0, 3);
-  return { ok: true as const, firstName: first, business: biz(tenant), logo: tenant.logoUrl || null, offerCents: S.friendCents, code: WELCOME_CODE, layout: layoutOf(S, favorite?.image ? 1 : 0), sections: S.sections, motion: S.motion, who: S.who, favorite, provider, providers, times, anyTimes, steps, address, policy, loved: loved >= 10 ? loved : 0, review, photos };
+  return { ok: true as const, firstName: first, business: biz(tenant), logo: tenant.logoUrl || null, offerCents: await offerOf(tenant, S, c), code: WELCOME_CODE, layout: layoutOf(S, favorite?.image ? 1 : 0), sections: S.sections, motion: S.motion, who: S.who, favorite, provider, providers, times, anyTimes, steps, address, policy, loved: loved >= 10 ? loved : 0, review, photos };
 }
 
 export async function termsFor(db: any, t: string) { const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); return { ok: true, on: S.on, business: biz(tenant), lines: termsLines(S, biz(tenant)) }; }
@@ -141,7 +150,8 @@ export async function mine(db: any, t: string, clientId: string, now = Date.now(
     when: r.rewardedAt || r.bookedAt || r.createdAt }));
   const soonest = credits.map((x: any) => x.expiresAt).filter(Boolean).sort()[0] || null;
   const lines = credits.slice().sort((a: any, b: any) => ms(a.expiresAt || '9999') - ms(b.expiresAt || '9999')).slice(0, 8).map((x: any) => ({ cents: Math.round((Number(x.amount) || 0) * 100), why: String(x.reason || 'Store credit').replace(/^Referral reward: /, ''), referral: x.source === 'referral_reward', endsAt: x.expiresAt || null }));
-  return { ok: true, on: true, lines, wallet: await walletExtras(db, t, clientId, c, now), link: base ? `${base}/ref/${encodeURIComponent(t)}/${slug}` : null, slug, business: biz(tenant), rewardCents: S.rewardCents, friendCents: S.friendCents, unlock: S.unlock, months: S.months,
+  const { memberView } = await import('@/lib/circle-server'); const circle = await memberView(db, t, clientId, tenant, base || null, now);
+  return { ok: true, on: true, circle, lines, wallet: await walletExtras(db, t, clientId, c, now), link: base ? `${base}/ref/${encodeURIComponent(t)}/${slug}` : null, slug, business: biz(tenant), rewardCents: Number(c.circle?.creator?.rewardCents) >= 0 && c.circle?.creator ? Number(c.circle.creator.rewardCents) : (circle?.tier?.rewardCents ?? S.rewardCents), friendCents: await offerOf(tenant, S, c), unlock: S.unlock, months: S.months,
     creditCents: Math.round(credits.reduce((n: number, x: any) => n + (Number(x.amount) || 0), 0) * 100), creditEndsAt: soonest, friends };
 }
 
@@ -171,7 +181,7 @@ export async function giftFriend(db: any, t: string, clientId: string, f: { firs
   if (!dup) { const ref = db.collection(`${T(t)}/referrals`).doc();
     await ref.set({ id: ref.id, referrerId: clientId, referrerName: c.name || null, friendFirst: first, friendPhone: ph, via: 'gift', status: 'invited', createdAt: iso(now) }); }
   const link = base ? `${base}/ref/${encodeURIComponent(t)}/${slug}` : '';
-  const text = `Hi ${first}! I love ${biz(tenant)} and thought you would too. Here is ${dollars(S.friendCents)} off your first visit: ${link}`;
+  const text = `Hi ${first}! I love ${biz(tenant)} and thought you would too. Here is ${dollars(await offerOf(tenant, S, c))} off your first visit: ${link}`;
   return { ok: true, text, to: `+1${ph}` };
 }
 
@@ -186,7 +196,7 @@ async function textTo(db: any, t: string, c: any, text: string, kind: string) {
   try { const { sendNotification } = await import('@/lib/notify'); const r: any = await sendNotification(db, { tenantId: t, channel: 'sms', to: String(c.phone), text, kind, clientId: c.id, clientName: c.name || null, recipientType: 'client', recipientId: c.id } as any); return !!r?.ok; } catch { return false; }
 }
 
-export async function matchOnBooking(db: any, t: string, o: { clientId: string; appointmentId: string; slug?: string | null; named?: { firstName: string; phone: string } | null; serviceIds?: string[]; broughtBy?: string | null }, now = Date.now()) {
+export async function matchOnBooking(db: any, t: string, o: { clientId: string; appointmentId: string; slug?: string | null; named?: { firstName: string; phone: string } | null; serviceIds?: string[]; broughtBy?: string | null; code?: string | null }, now = Date.now()) {
   const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); if (!S.on) return { ok: true, skipped: 'off' };
   if (o.broughtBy && !S.group) return { ok: true, skipped: 'group off' };
   const fSnap = await db.doc(`${T(t)}/clients/${o.clientId}`).get(); if (!fSnap.exists) return { ok: true, skipped: 'no client' };
@@ -194,8 +204,10 @@ export async function matchOnBooking(db: any, t: string, o: { clientId: string; 
   const existing = rows(await col.where('friendClientId', '==', friend.id).get());
   if (existing.some((r: any) => ['booked', 'held', 'rewarded'].includes(r.status))) return { ok: true, skipped: 'already referred' };
   // Who sent them: their link, then "who recommended you?", then a number someone gifted.
-  let referrer: any = null; let via: 'link' | 'named' | 'gift' | 'brought' = 'link'; let invite: any = null;
+  let referrer: any = null; let via: 'link' | 'named' | 'gift' | 'brought' | 'code' = 'link'; let invite: any = null;
   if (o.slug) referrer = await clientOfSlug(db, t, o.slug);
+  // A code they typed at booking (HANNAH15, or a creator's MAYA20).
+  if (!referrer && o.code) { const { clientOfCode } = await import('@/lib/circle-server'); referrer = await clientOfCode(db, t, o.code); if (referrer) via = 'code' as any; }
   // Bring a friend: the client who booked them in as a guest.
   if (!referrer && o.broughtBy && o.broughtBy !== friend.id) { const bs = await db.doc(`${T(t)}/clients/${o.broughtBy}`).get(); if (bs.exists) { referrer = { id: bs.id, ...(bs.data() || {}) }; via = 'brought'; } }
   if (!referrer && o.named && String(o.named.firstName || '').trim() && last10(o.named.phone).length === 10) {
@@ -228,10 +240,14 @@ export async function matchOnBooking(db: any, t: string, o: { clientId: string; 
   // The welcome offer rides the visit like any offer — unless they already have one on it.
   const aRef = db.doc(`${T(t)}/appointments/${o.appointmentId}`); const a: any = (await aRef.get()).data() || {};
   const patch: any = { referralId: ref.id, referralBookedAt: iso(now) };
-  if (S.friendCents > 0 && !a.pendingDiscountCode) {
-    const dz: any = (await db.doc(`${T(t)}/discounts/${WELCOME_ID}`).get()).data();
+  // Their friend's tier (or creator offer) decides what they get; each amount is its own approved discount.
+  const { circleOf, friendOfferFor, welcomeIdFor, creatorOf: crOf } = await import('@/lib/circle'); const C = circleOf(tenant);
+  const offerCents = C.on ? friendOfferFor(S, C, (referrer.circle?.tier || null) as any, crOf(referrer.circle?.creator)) : S.friendCents;
+  if (offerCents > 0 && !a.pendingDiscountCode) {
     const { offerProblem } = await import('@/lib/offers');
-    if (dz && !offerProblem(dz, { clientId: friend.id, serviceIds: o.serviceIds || [] })) patch.pendingDiscountCode = WELCOME_CODE;
+    let dz: any = (await db.doc(`${T(t)}/discounts/${welcomeIdFor(offerCents, S.friendCents)}`).get()).data();
+    if (!dz || dz.isActive === false) dz = (await db.doc(`${T(t)}/discounts/${WELCOME_ID}`).get()).data();
+    if (dz && dz.isActive !== false && !offerProblem(dz, { clientId: friend.id, serviceIds: o.serviceIds || [] })) patch.pendingDiscountCode = dz.code || WELCOME_CODE;
   }
   await aRef.set(patch, { merge: true });
   // Someone who brought a friend along booked it themselves, so there's nothing to tell them yet; the thank-you comes after the visit.
@@ -265,10 +281,16 @@ async function refundedVisit(db: any, t: string, apptId: string): Promise<boolea
 }
 
 async function reward(db: any, t: string, tenant: any, S: ReferralSettings, r: any, now: number) {
-  const credit = await issueCredit(db, t, r.referrerId, S.rewardCents, S.months, `Referral reward: ${r.friendFirst || 'a friend'}`, r.id, now);
-  await db.doc(`${T(t)}/referrals/${r.id}`).set({ status: 'rewarded', rewardedAt: iso(now), rewardCents: S.rewardCents, creditId: credit, holdReason: null }, { merge: true });
+  // The Circle: their tier's (or a creator's own) amount, times a boost that's running.
+  const { circleOf, rewardFor } = await import('@/lib/circle'); const { memberState, afterReward } = await import('@/lib/circle-server');
+  const C = circleOf(tenant); const st = C.on ? await memberState(db, t, r.referrerId, C, now) : null;
+  const pay = rewardFor(S, C, st?.tier || null, now, st?.creator || null);
+  const credit = pay.cents > 0 ? await issueCredit(db, t, r.referrerId, pay.cents, S.months, `Referral reward: ${r.friendFirst || 'a friend'}`, r.id, now) : null;
+  await db.doc(`${T(t)}/referrals/${r.id}`).set({ status: 'rewarded', rewardedAt: iso(now), rewardCents: pay.cents, creditId: credit, holdReason: null, ...(pay.boost ? { boostId: pay.boost.id } : {}),
+    ...(pay.cashCents > 0 ? { cashOwedCents: pay.cashCents } : {}), ...(st?.tier ? { tierAtReward: st.tier } : {}) }, { merge: true });
   const rc: any = (await db.doc(`${T(t)}/clients/${r.referrerId}`).get()).data() || {};
-  await textTo(db, t, { id: r.referrerId, ...rc }, `Hi ${firstOf(rc.name) || 'there'}, ${r.friendFirst || 'your friend'} came in today. Thank you for trusting us with your friend! Your ${dollars(S.rewardCents)} is ready for your next visit.`, 'referral_update');
+  if (pay.cents > 0) await textTo(db, t, { id: r.referrerId, ...rc }, `Hi ${firstOf(rc.name) || 'there'}, ${r.friendFirst || 'your friend'} came in today. Thank you for trusting us with your friend! Your ${dollars(pay.cents)}${pay.boost ? ` (${pay.boost.name.toLowerCase()})` : ''} is ready for your next visit.`, 'referral_update');
+  await afterReward(db, t, tenant, r.referrerId, now, (c, body) => textTo(db, t, c, body, 'referral_update'));
 }
 
 /** Every pass: credit friends' first paid visits; hold the few that need a manager; take back credit for refunds. */

@@ -1182,7 +1182,7 @@ export async function POST(req: NextRequest) {
             const { matchOnBooking } = await import('@/lib/referrals-server');
             await matchOnBooking(db, tenantId, { clientId: String(r.clientId), appointmentId: String(r.aptId), slug: typeof body.referralCode === 'string' ? body.referralCode : null,
               named: body.referredBy && typeof body.referredBy === 'object' ? { firstName: String(body.referredBy.firstName || ''), phone: String(body.referredBy.phone || '') } : null,
-              serviceIds: [String(serviceId || '')] });
+              serviceIds: [String(serviceId || '')], code: typeof body.referralTypedCode === 'string' ? body.referralTypedCode.slice(0, 20) : null });
           } catch (e) { console.error('[book] referral', e); }   // a bonus; the booking stands
         }
 
