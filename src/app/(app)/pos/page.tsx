@@ -6,64 +6,39 @@ export const runtime = 'nodejs';
 import { printAppointmentTicket } from '@/lib/appointment-ticket';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import React, { useState, useEffect, useMemo, useCallback, Suspense, useRef } from 'react';
-import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption, type TillSession, type Membership, type Package } from '@/lib/data';
-import { RetailCatalog } from '@/components/pos/RetailCatalog';
-import { CheckoutHub } from '@/components/pos/CheckoutHub';
-import { WalkInQueue } from '@/components/pos/WalkInQueue';
+import React, { useState, useEffect, Suspense } from 'react';
 import { DeskAvailabilityPanel } from '@/components/pos/DeskAvailabilityPanel';
 import { GuestsTodayPanel } from '@/components/pos/GuestsTodayPanel';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField, limit } from 'firebase/firestore';
-import { offerProblem, offerLine, offerAmount, walletStatus } from '@/lib/offers';
-import { useTenant } from '@/context/TenantContext';
-import { useToast } from '@/hooks/use-toast';
-import { nanoid } from 'nanoid';
-import { differenceInMinutes, parseISO, addMinutes, isToday, isSameDay, startOfDay, endOfDay, format, subMinutes } from 'date-fns';
+import { updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { doc, writeBatch } from 'firebase/firestore';
+import { isToday, format } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { AddClientDialog, type ClientFormData } from '@/components/clients/AddClientDialog';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { useCancellationConfirm } from '@/hooks/useCancellationConfirm';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Smartphone, Cake, Printer, Trash2, Lock, Calendar, BookOpen, Copy, Link2, Armchair } from 'lucide-react';
+import { AddClientDialog } from '@/components/clients/AddClientDialog';
+import { QrCode, Loader, XCircle, Wallet, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { cn, safeNumber } from '@/lib/utils';
-import { buildEntry } from '@/lib/stock-ledger';
 // parseScan / codeVariants are what make a scanned ticket resolve at all: they
 // keep a mixed-case check-in token intact, pull the token out of a scanned
 // check-in URL, and hand back every spelling of a short code worth trying,
 // because Firestore equality is case-sensitive.
-import { parseScan, codeVariants } from '@/lib/scan-codes';
-import { type Transaction } from '@/lib/financial-data';
-import { resolveDepositPolicy, resolveDepositOutcome, hoursUntilStart, rolloverExpiryISO, isCreditExpired, computeDepositCents } from '@/lib/deposit-policy';
-import { useSearchParams, useRouter } from 'next/navigation';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
-import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { TillManagement } from '@/components/pos/TillManagement';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { CheckInConfirmationDialog } from '@/components/pos/CheckInConfirmationDialog';
 import { PrintTicket } from '@/components/planner/PrintTicket';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ── NEW IMPORTS — four feature additions ──────────────────────────────────────
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
-import { useWaitlist } from '@/hooks/useWaitlist';
 import { QRScanner } from '@/components/pos/QRScanner';
 import { DeskCheckIn } from '@/components/pos/desk/DeskCheckIn';
 import { DeskPOS } from '@/components/pos/desk/DeskPOS';
 import { StripeTerminalProvider } from '@/components/pos/StripeTerminalProvider';
-import { usePosEngine, printTicketInNewWindow, sanitizeForFirestore, safeDate, computeServiceCost, KpiCard, RecoveryOverrideDialog, IdentityMatchDialog, VoidAuthForm } from '@/components/pos/usePosEngine';
+import { usePosEngine, safeDate, RecoveryOverrideDialog, IdentityMatchDialog, VoidAuthForm } from '@/components/pos/usePosEngine';
 
 function POSPage() {
   // Everything the POS knows and can do lives in the engine (shared by every POS layout).

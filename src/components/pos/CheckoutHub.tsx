@@ -21,96 +21,23 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import { offerProblem } from '@/lib/offers';
 import { prepAddOnsOf, usedQty, ceilingOf, dayFeeOf } from '@/lib/prep-checkout';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
-import {
-  Banknote,
-  CreditCard,
-  Trash2,
-  DollarSign,
-  Award,
-  Loader,
-  Tag,
-  Wand2,
-  X,
-  ShoppingCart,
-  CheckCircle,
-  Percent,
-  AlertTriangle,
-  QrCode,
-  ShieldCheck,
-  Users,
-  Repeat,
-  Wallet,
-  UserPlus,
-  Cake,
-  ChevronDown,
-  Zap,
-  Search,
-  User,
-  Plus,
-  Minus,
-  TicketIcon,
-  XCircle,
-  Fingerprint,
-  Scan as ScanIcon,
-  ArrowRight,
-  Star,
-  Check,
-  Lock,
-  Sparkles,
-  Info,
-  PartyPopper,
-  Box,
-  CheckCircle2,
-  VolumeX,
-  Ear,
-  SunDim,
-  Coffee,
-  Landmark,
-  Scale,
-  ShieldAlert,
-  Undo2,
-  MessageSquare,
-  AlertCircle,
-  Radio,
-  Wifi,
-  WifiOff,
-  Smartphone,
-  Monitor,
-  Receipt, Clock} from 'lucide-react';
-import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice, type RecoveryPreset } from '@/lib/data';
-import { ScrollArea } from '../ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Loader, ShieldCheck, Lock } from 'lucide-react';
+import { type Client, type Staff, type Membership, getServicePrice, type RecoveryPreset } from '@/lib/data';
 import { Label } from '../ui/label';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { useInventory } from '@/context/InventoryContext';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { cn, safeNumber } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-import { subMonths, parseISO, isAfter, isSameMonth, differenceInDays, subYears } from 'date-fns';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from '@/components/ui/dialog';
+import { subMonths, parseISO, isAfter, subYears } from 'date-fns';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '../ui/textarea';
-import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
-import { useFirebase, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase } from '@/firebase';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { StoreCreditPanel } from '@/components/pos/StoreCreditPanel';
 import { GiftCardPanel } from '@/components/pos/GiftCardPanel';
 import { brandAccent } from '@/lib/brand-accent';

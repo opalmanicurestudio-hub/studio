@@ -47,7 +47,6 @@ import { LayoutGroup, motion } from 'framer-motion';
 import { format, isToday, parseISO } from 'date-fns';
 import { moduleEnabled } from '@/lib/modules';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
-import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { DeskFrame, Btn, Seg, Pill, GuestCard, Empty, Panel, Drawer, Menu, Icon, Ring, LiveDot, Toggle, ThemeSwitch } from './kit';
 import { doc } from 'firebase/firestore';
 import { updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
