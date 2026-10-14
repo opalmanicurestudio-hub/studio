@@ -27,9 +27,11 @@ export const PUBLIC_CSS = `
 export const PUBLIC_FONT_HREF = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap';
 
 /** Wraps a public page in the kit's look, with the business's accent. */
-export function PublicFrame({ accent, children, className = '' }: { accent: string; children: ReactNode; className?: string }) {
+export function PublicFrame({ accent, children, className = '', app = false }: { accent: string; children: ReactNode; className?: string; app?: boolean }) {
+  // app: the app's own neutral palette (soft grey paper, ink, muted) — the client's visit link uses it.
+  const palette = app ? { ['--paper' as any]: '#f3f3f5', ['--ink' as any]: '#16171a', ['--muted' as any]: '#6d7075' } : {};
   return (
-    <div className={`pub min-h-dvh ${className}`} style={{ ['--accent' as any]: accent || '#7c3aed' }}>
+    <div className={`pub min-h-dvh ${className}`} style={{ ['--accent' as any]: accent || '#7c3aed', ...palette }}>
       <style>{PUBLIC_CSS}</style>
       <link rel="stylesheet" href={PUBLIC_FONT_HREF} />
       {children}

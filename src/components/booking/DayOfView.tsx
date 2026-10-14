@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { format } from 'date-fns';
 import { PublicFrame } from '@/components/public/kit';
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
+import { VisitHero, VisitActions } from '@/components/booking/VisitHero';
 
 const safeDate = (v: any): Date => { try { const d = v?.toDate ? v.toDate() : new Date(v); return isNaN(d.getTime()) ? new Date() : d; } catch { return new Date(); } };
 // ── YOUR VISIT, ON THE DAY (Studio look) ───────────────────────────────────
@@ -13,7 +14,7 @@ const safeDate = (v: any): Date => { try { const d = v?.toDate ? v.toDate() : ne
 // when it's past it), optional trip sharing (distance only; ends at check-in),
 // and the ways to change it. Replaces the old "Enter Studio / Portal Active" screens.
 const LATE_CHOICES = [5, 10, 15, 20, 30, 45];
-export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel, onMessage, openLate, notice }: {
+export const DayOfView = ({ hero, place, callNumber, lateChoices, onLateChoice, accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel, onMessage, openLate, notice }: {
     /** Where it happens — online (with a link) or at the client's place skip check-in, directions and trips. */
     place?: ServicePlace | null;
     /** Their number to call, for "they call us" phone appointments. */
@@ -46,6 +47,8 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
     openLate?: boolean;
     /** A short notice under the greeting (e.g. "you're confirmed"). */
     notice?: React.ReactNode;
+    /** The hybrid hero (design canvas RF26): photo, time, the visit's steps and the pass code. When given, "I'm here" sits in it. */
+    hero?: { photo?: string | null; minutesAway?: number | null; pass?: React.ReactNode } | null;
 }) => {
     const [lateOpen, setLateOpen] = useState(!!openLate); const [mins, setMins] = useState<number | null>(null); const [note, setNote] = useState('');
     const [said, setSaid] = useState<string | null>(null); const [past, setPast] = useState(false); const [busy, setBusy] = useState(false);
@@ -89,9 +92,23 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
     const when = startTime ? format(safeDate(startTime), 'EEEE · h:mm a') : '';
     const btn = 'inline-flex h-12 w-full items-center justify-center rounded-full px-6 text-[15px] transition active:scale-[.98] disabled:opacity-60';
     return (
-        <PublicFrame accent={accent}>
+        <PublicFrame accent={accent} app={!!hero}>
             <main className="mx-auto max-w-md space-y-4 px-4 py-8 pub-safe-bottom">
-                <header className="pub-rise space-y-1 px-1">
+                {hero ? <>
+                <header className="pub-rise flex items-end justify-between gap-3 px-1">
+                    <div><p className="text-[13px]" style={{ color: 'var(--muted)' }}>Today</p><h1 className="text-[30px] leading-tight">{status === 'running_late' ? 'On your way' : `See you soon, ${first}`}</h1></div>
+                    {studioName && <p className="shrink-0 pb-1.5 text-[12px] uppercase tracking-[0.24em]">{String(studioName).slice(0, 18)}</p>}
+                </header>
+                {notice}
+                <VisitHero photo={hero.photo} kicker={`Today${provider?.name ? ` · with ${String(provider.name).split(' ')[0]}` : ''}`} big={hero.minutesAway != null && hero.minutesAway > 0 && hero.minutesAway < 180 ? `In ${hero.minutesAway < 60 ? `${hero.minutesAway} min` : `${Math.floor(hero.minutesAway / 60)} hr ${hero.minutesAway % 60 ? `${hero.minutesAway % 60} min` : ''}`.trim()}` : (startTime ? format(safeDate(startTime), 'h:mm a') : 'Today')}
+                    sub={[serviceName, startTime ? format(safeDate(startTime), 'h:mm a') : null, address && isStudio ? String(address).split(',')[0] : null].filter(Boolean).join(' · ')} step={2}>
+                    {isStudio && selfCheckIn && !askedToMove && !confirmHere ? <div className="flex items-center gap-2.5">
+                        <button type="button" disabled={busy} className="h-[52px] flex-1 rounded-full text-[16px] font-bold text-white disabled:opacity-60" style={{ background: '#1f7a4d' }}
+                            onClick={async () => { if (dist != null && dist > 1) { setConfirmHere(true); return; } setBusy(true); if (sharing) await stopTrip(true); await onArrived(); setBusy(false); }}>{busy ? 'Checking you in…' : 'I’m here'}</button>
+                        {hero.pass}</div> : hero.pass ? <div className="flex items-center gap-2.5"><span className="flex-1 text-[13px] opacity-85">Show this at the desk</span>{hero.pass}</div> : null}
+                </VisitHero>
+                <VisitActions items={[address && isStudio && { label: 'Directions', icon: 'pin', href: `https://maps.apple.com/?q=${encodeURIComponent(address)}` }, onMessage && { label: 'Message', icon: 'chat', onClick: onMessage }, onReschedule && { label: 'Reschedule', icon: 'cal', onClick: onReschedule }]} />
+                </> : <><header className="pub-rise space-y-1 px-1">
                     <p className="text-[13px] font-semibold tracking-wide" style={{ color: 'var(--accent)' }}>{studioName || 'Your visit'}</p>
                     <h1 className="text-4xl">Hi <b>{first}</b></h1>
                     <p className="text-[15px]" style={{ color: 'var(--muted)' }}>Your visit today</p>
@@ -103,6 +120,7 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
                     {provider?.name && <div className="flex items-center gap-3">{provider.avatarUrl ? <img src={provider.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white" style={{ background: 'var(--accent)' }}>{provider.name.slice(0, 1)}</span>}<p className="text-[15px]">with <b>{provider.name.split(' ')[0]}</b></p></div>}
                     {address && isStudio && <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{address} · <a className="underline underline-offset-2" style={{ color: 'var(--ink)' }} target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}>Directions</a></p>}
                 </section>
+</>}
                 {lateChoices && (lcOpen || lcMsg) && onLateChoice && <section className="pub-card space-y-3 p-5" style={{ boxShadow: 'inset 0 0 0 2px var(--accent)' }} aria-live="polite">
                     <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>Your options for today</p>
                     {lcMsg ? <p className="text-[15px]">{lcMsg}</p> : <>
@@ -153,7 +171,7 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
                         <div className="pub-card space-y-2 p-4"><p className="text-[15px]">Looks like you’re about {dist} km away — check in anyway?</p>
                             <div className="grid grid-cols-2 gap-2"><button type="button" disabled={busy} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={async () => { setBusy(true); if (sharing) await stopTrip(true); await onArrived(); setBusy(false); }}>Yes, I’m here</button>
                                 <button type="button" className={`${btn} bg-white shadow-sm`} onClick={() => setConfirmHere(false)}>Not yet</button></div></div>
-                    ) : <button type="button" disabled={busy} className={`${btn} font-semibold text-white shadow-sm`} style={{ background: 'var(--accent)' }}
+                    ) : hero ? null : <button type="button" disabled={busy} className={`${btn} font-semibold text-white shadow-sm`} style={{ background: 'var(--accent)' }}
                         onClick={async () => { if (dist != null && dist > 1) { setConfirmHere(true); return; } setBusy(true); if (sharing) await stopTrip(true); await onArrived(); setBusy(false); }}>{busy ? 'Checking you in…' : 'I’m here'}</button>}
                     <div className="grid grid-cols-2 gap-2">
                         <button type="button" hidden={!isStudio} disabled={busy || status === 'on_my_way'} aria-pressed={status === 'on_my_way'} className={`${btn} bg-white shadow-sm`}
@@ -177,7 +195,7 @@ export const DayOfView = ({ place, callNumber, lateChoices, onLateChoice, accent
                         <button type="button" onClick={() => (sharing ? stopTrip() : startTrip())} className="h-9 rounded-full px-4 text-[14px]" style={sharing ? { background: '#f1ece6' } : { background: 'var(--accent)', color: '#fff' }}>{sharing ? 'Stop' : 'Start'}</button></div>
                     <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{tripMsg || (tripNudge ? 'On your way? Tap Start and we’ll see roughly how far away you are — only the distance, and it stops when you check in.' : 'Let us see roughly how far away you are until you arrive. Only the distance is shared, and it stops when you check in.')}</p>
                 </section>}
-                {onMessage && <button type="button" className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={onMessage}>Message us</button>}
+                {onMessage && !hero && <button type="button" className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={onMessage}>Message us</button>}
                 <section className="space-y-2 px-1 pt-2 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
                     {(onReschedule || onCancel) && <p>Need to change it? {onReschedule && <button type="button" className="underline underline-offset-2" onClick={onReschedule}>Reschedule</button>}{onReschedule && onCancel && ' · '}{onCancel && <button type="button" className="underline underline-offset-2" onClick={onCancel}>Cancel</button>}</p>}
                     <p>{portalHref && <a className="underline underline-offset-2" href={portalHref}>Your account</a>}{portalHref && onNotifications && ' · '}{onNotifications && <button type="button" className="underline underline-offset-2" onClick={onNotifications}>Message settings</button>}</p>

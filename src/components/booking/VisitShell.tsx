@@ -1,7 +1,7 @@
 'use client';
 // src/components/booking/VisitShell.tsx — the Studio look for every screen of
-// a client's visit link (booked, on the day, cancelled, finished…): warm paper,
-// the business's accent, white cards, calm type. Wording works for in-person,
+// a client's visit link (booked, on the day, cancelled, finished…): the app's soft
+// grey paper, the business's accent, white cards, calm type, the business's name as a small wordmark. Wording works for in-person,
 // virtual and mobile appointments alike.
 import React from 'react';
 import { PublicFrame } from '@/components/public/kit';
@@ -19,14 +19,17 @@ export function brandOf(tenant: any, tenantId?: string | null, serviceId?: strin
   };
 }
 
-export function VisitShell({ brand, title, subtitle, children }: { brand: VisitBrand; title: React.ReactNode; subtitle?: React.ReactNode; children?: React.ReactNode }) {
+export function VisitShell({ brand, title, subtitle, kicker, children }: { brand: VisitBrand; title: React.ReactNode; subtitle?: React.ReactNode; kicker?: React.ReactNode; children?: React.ReactNode }) {
   return (
-    <PublicFrame accent={brand.accent}>
+    <PublicFrame accent={brand.accent} app>
       <main className="mx-auto max-w-md space-y-4 px-4 py-8 pub-safe-bottom">
-        <header className="pub-rise space-y-1 px-1">
-          {brand.studioName && <p className="text-[13px] font-semibold tracking-wide" style={{ color: 'var(--accent)' }}>{brand.studioName}</p>}
-          <h1 className="text-4xl">{title}</h1>
-          {subtitle && <p className="text-[15px]" style={{ color: 'var(--muted)' }}>{subtitle}</p>}
+        <header className="pub-rise flex items-end justify-between gap-3 px-1">
+          <div className="min-w-0 space-y-0.5">
+            {kicker && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{kicker}</p>}
+            <h1 className="text-[30px] leading-tight">{title}</h1>
+            {subtitle && <p className="text-[15px]" style={{ color: 'var(--muted)' }}>{subtitle}</p>}
+          </div>
+          {brand.studioName && <p className="shrink-0 pb-1.5 text-[12px] uppercase tracking-[0.24em]" style={{ color: 'var(--ink)' }}>{String(brand.studioName).slice(0, 18)}</p>}
         </header>
         {children}
       </main>

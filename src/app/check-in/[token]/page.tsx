@@ -34,6 +34,7 @@ import { ReferralCard } from '@/components/visit/ReferralCard';
 import { placeOf } from '@/lib/service-place';
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
 import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
+import { VisitHero, VisitActions, PassCode, greeting } from '@/components/booking/VisitHero';
 import { DayOfView } from '@/components/booking/DayOfView';
 import { VisitMessages } from '@/components/booking/VisitMessages';
 import { ClientNotifyCard, isStandalone } from '@/components/booking/ClientNotifyCard';
@@ -374,8 +375,9 @@ const ComeInSooner = ({ tenantId, token, on: on0 }: { tenantId: string; token: s
     </VisitCard>);
 };
 const TooEarlyView = ({
-    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName, disruption, hasDeposit, onDisruptionCancel, sooner, onMessage, notice, notify,
+    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName, disruption, hasDeposit, onDisruptionCancel, sooner, onMessage, notice, notify, first, photo,
 }: {
+    first?: string | null; photo?: string | null;
     sooner?: { tenantId: string; token: string; on: boolean } | null;
     onMessage?: () => void; notice?: React.ReactNode; notify?: React.ReactNode;
     startTime: string; serviceName?: string;
@@ -383,17 +385,13 @@ const TooEarlyView = ({
     brand: VisitBrand; providerName?: string | null;
     disruption?: any; hasDeposit?: boolean; onDisruptionCancel?: (d: 'refund' | 'credit' | 'keep' | null, extra?: any) => Promise<any>;
 }) => (
-    <VisitShell brand={brand} title={<>You’re <b>booked</b></>} subtitle={format(safeDate(startTime), 'EEEE, MMMM d · h:mm a')}>
+    <VisitShell brand={brand} kicker={greeting()} title={first || <>You’re <b>booked</b></>}>
         {notice}
         {onDisruptionCancel && <DisruptionCard disruption={disruption} hasDeposit={!!hasDeposit} onReschedule={onReschedule} onCancel={onDisruptionCancel} />}
-        <VisitCard>
-            <p className="text-[18px] font-semibold">{serviceName || 'Your appointment'}</p>
-            {providerName && <VisitMuted>with {providerName}</VisitMuted>}
-            <VisitMuted>Check in from this link on the day.</VisitMuted>
-        </VisitCard>
+        <VisitHero photo={photo} kicker="Your next visit" big={format(safeDate(startTime), 'EEE h:mm a')} sub={[format(safeDate(startTime), 'MMMM d'), serviceName, providerName ? `with ${providerName}` : null].filter(Boolean).join(' · ')} step={2} />
+        <p className="px-1 text-center text-[13px]" style={{ color: 'var(--muted)' }}>You’re all set. Check in from this link on the day.</p>
+        <VisitActions items={[onMessage && { label: 'Message', icon: 'chat', onClick: onMessage }, onReschedule && { label: 'Reschedule', icon: 'cal', onClick: onReschedule }, calendarUrl && { label: 'Calendar', icon: 'bell', href: calendarUrl }]} />
         {sooner && <ComeInSooner tenantId={sooner.tenantId} token={sooner.token} on={sooner.on} />}
-        {calendarUrl && <VisitButton href={calendarUrl}>Add to calendar</VisitButton>}
-        {onMessage && <VisitButton quiet onClick={onMessage}>Message us</VisitButton>}
         {notify}
         {(onReschedule || onCancel) && (
             <p className="px-1 pt-1 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
@@ -432,7 +430,9 @@ const CompletedView = ({ tenant, client, appointment, service, brand }: { brand:
     };
 
     return (
-        <VisitShell brand={brand} title={<>Thanks for <b>visiting</b></>} subtitle={service?.name || undefined}>
+        <VisitShell brand={brand} kicker="Thank you" title={String((client as any)?.name || '').split(' ')[0] ? <>Thanks, <b>{String((client as any)?.name).split(' ')[0]}</b></> : <>Thanks for <b>visiting</b></>}>
+            <VisitHero photo={(service as any)?.imageUrl || ((tenant as any)?.referrals?.photos || [])[0] || null} kicker="Your visit" big={service?.name || (appointment as any)?.serviceName || 'Your visit'}
+                sub={[appointment?.startTime ? format(safeDate(appointment.startTime), 'EEEE, MMMM d') : null, (appointment as any)?.staffName ? `with ${String((appointment as any).staffName).split(' ')[0]}` : null].filter(Boolean).join(' · ')} step={3} done />
             {!submitted ? (
                 <VisitCard>
                     <p className="text-[15px] font-semibold">How was it?</p>
@@ -1836,6 +1836,7 @@ const CompletionGateView = ({
     return (
         <VisitShell brand={brand} title={skipCardStep ? <>Your <b>forms</b></> : <>Finish your <b>booking</b></>} subtitle={skipCardStep ? 'Your card is already on file — just a few details.' : 'A couple of quick steps.'}>
             <div className="space-y-4">
+                {completion?.appointmentStartTime && <VisitHero photo={((tenant as any)?.referrals?.photos || [])[0] || null} kicker="Get ready" big={format(safeDate(completion.appointmentStartTime), 'EEE h:mm a')} sub={skipCardStep ? 'Just a few details and you’re all set' : 'A couple of quick steps and you’re all set'} step={1} />}
                 {skipCardStep && (
                     <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border-2 border-green-200">
                         <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
@@ -2953,6 +2954,8 @@ export default function CheckInPage() {
             <TooEarlyView disruption={(appointmentData as any)?.disruption || null} hasDeposit={(appointmentData as any)?.depositStatus === 'paid'} onDisruptionCancel={async (dep, extra) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(extra?.action ? { tenantId, apptId: appointmentData?.id, k: token, ...extra } : { action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: extra?.choice || (dep === 'keep' ? 'keep' : 'cancel'), deposit: dep === 'keep' ? null : dep }) }); return await r.json(); } catch { return { ok: false }; } }} brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} providerName={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
                 startTime={appointmentData!.startTime}
                 serviceName={service?.name}
+                first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || null}
+                photo={(service as any)?.imageUrl || ((tenant as any)?.referrals?.photos || [])[0] || null}
                 onReschedule={() => setShowRescheduleFlow(true)}
                 onCancel={() => setShowCancelFlow(true)}
                 onMessage={() => setShowMessages(true)}
@@ -2968,6 +2971,10 @@ export default function CheckInPage() {
 
     return withFooter(
         <DayOfView
+            hero={{ photo: (service as any)?.imageUrl || ((tenant as any)?.referrals?.photos || [])[0] || null,
+                minutesAway: appointmentData?.startTime ? Math.round((safeDate(appointmentData.startTime).getTime() - Date.now()) / 60000) : null,
+                pass: placeOf(service, appointmentData)?.kind && placeOf(service, appointmentData)?.kind !== 'studio' ? null : <PassCode token={token} code={(appointmentData as any)?.shortCode || null} name={String(client?.name || appointmentData?.clientName || 'Your visit').split(' ')[0]}
+                    when={appointmentData?.startTime ? format(safeDate(appointmentData.startTime), 'h:mm a') : ''} service={service?.name || null} business={tenant?.name || null} /> }}
             place={placeOf(service, appointmentData)}
             callNumber={(tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null}
             lateChoices={(appointmentData as any)?.lateChoices || null}
