@@ -10,16 +10,13 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { DeskAvailabilityPanel } from '@/components/pos/DeskAvailabilityPanel';
 import { GuestsTodayPanel } from '@/components/pos/GuestsTodayPanel';
 import { TeamStatus } from '@/components/pos/TeamStatus';
-import { Button } from '@/components/ui/button';
 import { updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { doc, writeBatch } from 'firebase/firestore';
 import { isToday, format } from 'date-fns';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
-import { QrCode, Loader, XCircle, Wallet, AlertTriangle } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { cn, safeNumber } from '@/lib/utils';
+import { Loader } from 'lucide-react';
+import { safeNumber } from '@/lib/utils';
 // parseScan / codeVariants are what make a scanned ticket resolve at all: they
 // keep a mixed-case check-in token intact, pull the token out of a scanned
 // check-in URL, and hand back every spelling of a short code worth trying,
@@ -28,7 +25,6 @@ import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetails
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { TillManagement } from '@/components/pos/TillManagement';
-import { Badge } from '@/components/ui/badge';
 import { PrintTicket } from '@/components/planner/PrintTicket';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -38,6 +34,7 @@ import { QRScanner } from '@/components/pos/QRScanner';
 import { DeskCheckIn } from '@/components/pos/desk/DeskCheckIn';
 import { DeskPOS } from '@/components/pos/desk/DeskPOS';
 import { StripeTerminalProvider } from '@/components/pos/StripeTerminalProvider';
+import { Drawer, Icon } from '@/components/pos/desk/kit';
 import { usePosEngine, safeDate, RecoveryOverrideDialog, IdentityMatchDialog, VoidAuthForm } from '@/components/pos/usePosEngine';
 
 function POSPage() {
@@ -80,7 +77,7 @@ function POSPage() {
       {(() => { const desk = <DeskPOS e={__engine} tools={{
         // The classic POS's remaining panels, wired exactly as before, now in Desk's "More" drawer.
         team: (
-          <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
+          <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: 'Marked free' }); }} />
         ),
         waitlist: (
                 <WaitlistManager
@@ -122,14 +119,17 @@ function POSPage() {
 
       <AnimatePresence>
         {newWalkInAlert && (
-          <motion.div initial={{ opacity: 0, y: 60, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} className="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-primary text-primary-foreground px-6 py-4 rounded-2xl shadow-2xl shadow-primary/30 flex items-center gap-3 border border-primary/20 whitespace-nowrap">
-            <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-            <p className="font-black uppercase tracking-widest text-xs">{newWalkInAlert}</p>
+          <motion.div role="status" aria-live="polite" initial={{ opacity: 0, y: 40, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16 }} transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+            className="desk fixed left-1/2 z-50 flex max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-3 rounded-full py-3 pl-4 pr-5"
+            style={{ bottom: 'calc(env(safe-area-inset-bottom,0px) + 96px)', background: 'var(--ink, #16171a)', color: 'var(--paper, #fff)', boxShadow: '0 18px 40px -16px rgba(0,0,0,.45)' }}>
+            <span className="d-ping relative h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: '#7fd1a5', color: '#7fd1a5' }} />
+            <Icon name="walk" size={18} />
+            <p className="truncate text-[14px] font-semibold">{newWalkInAlert}</p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <RecoveryOverrideDialog tenantId={tenantId} open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { if (authorizer?.approvalToken) (__engine as any).recoveryApprovalRef.current = authorizer.approvalToken; setIsRecoveryOverrideOpen(false); toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` }); }} />
+      <RecoveryOverrideDialog tenantId={tenantId} open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { if (authorizer?.approvalToken) (__engine as any).recoveryApprovalRef.current = authorizer.approvalToken; setIsRecoveryOverrideOpen(false); toast({ title: `${authorizer.name} approved it`, description: "Go ahead with the adjustment." }); }} />
       <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
       <AlertDialog open={!!earlyStart} onOpenChange={(o) => { if (!o) setEarlyStart(null); }}>
         <AlertDialogContent className="rounded-3xl">
@@ -154,47 +154,41 @@ function POSPage() {
       <DeskCheckIn e={__engine} accent={(selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || null} />
 
       <IdentityMatchDialog open={!!pendingIdentityMatch} onOpenChange={() => setPendingIdentityMatch(null)} walkIn={pendingIdentityMatch} matchedClient={pendingIdentityMatch?.matchedClient}
-        onLinkSession={async (matchedClient: any) => { if (!firestore || !tenantId || !pendingIdentityMatch) return; if (pendingIdentityMatch.type !== 'walk-in') { toast({ title: 'Cannot link', description: 'Identity matching only applies to walk-in guests.' }); setPendingIdentityMatch(null); return; } updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name }); toast({ title: "Session Linked", description: `Today's visit linked to ${matchedClient.name}.` }); setPendingIdentityMatch(null); }}
-        onMerge={async (matchedClient: any) => { if (!firestore || !tenantId || !pendingIdentityMatch) return; const walkInPhone = pendingIdentityMatch.customerPhone || pendingIdentityMatch.phone || ''; const walkInEmail = pendingIdentityMatch.customerEmail || pendingIdentityMatch.email || ''; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name }); const clientUpdates: any = {}; if (walkInPhone && walkInPhone !== matchedClient.phone) clientUpdates.phone = walkInPhone; if (walkInEmail && walkInEmail !== matchedClient.email) clientUpdates.email = walkInEmail; if (Object.keys(clientUpdates).length > 0) updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, matchedClient.id), clientUpdates); toast({ title: "Profile Merged", description: `${matchedClient.name}'s profile updated and session linked.` }); setPendingIdentityMatch(null); }}
-        onKeepSeparate={() => { toast({ title: "Kept Separate", description: "Walk-in will be treated as a new guest." }); setPendingIdentityMatch(null); }}
+        onLinkSession={async (matchedClient: any) => { if (!firestore || !tenantId || !pendingIdentityMatch) return; if (pendingIdentityMatch.type !== 'walk-in') { toast({ title: 'Cannot link', description: 'Identity matching only applies to walk-in guests.' }); setPendingIdentityMatch(null); return; } updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name }); toast({ title: 'Linked', description: `Today’s visit is now on ${matchedClient.name}’s profile.` }); setPendingIdentityMatch(null); }}
+        onMerge={async (matchedClient: any) => { if (!firestore || !tenantId || !pendingIdentityMatch) return; const walkInPhone = pendingIdentityMatch.customerPhone || pendingIdentityMatch.phone || ''; const walkInEmail = pendingIdentityMatch.customerEmail || pendingIdentityMatch.email || ''; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name }); const clientUpdates: any = {}; if (walkInPhone && walkInPhone !== matchedClient.phone) clientUpdates.phone = walkInPhone; if (walkInEmail && walkInEmail !== matchedClient.email) clientUpdates.email = walkInEmail; if (Object.keys(clientUpdates).length > 0) updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, matchedClient.id), clientUpdates); toast({ title: 'Profile updated', description: `${matchedClient.name}’s details are updated and today’s visit is linked.` }); setPendingIdentityMatch(null); }}
+        onKeepSeparate={() => { toast({ title: 'Kept separate', description: 'They’ll be treated as a new guest.' }); setPendingIdentityMatch(null); }}
       />
 
-      <Dialog open={isVoidDialogOpen} onOpenChange={setIsVoidDialogOpen}>
-        <DialogContent className="sm:max-w-lg rounded-[2rem] border-4 shadow-2xl">
-          <DialogHeader className="p-6 pb-0">
-            <DialogTitle className="text-xl font-black uppercase tracking-tighter text-destructive flex items-center gap-2"><XCircle className="w-5 h-5" /> Void Transaction</DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select today's transaction to void. Manager authorization required.</DialogDescription>
-          </DialogHeader>
-          <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-            {(transactions || []).filter(t => isToday(safeDate(t.date)) && !t.voided && t.type === 'income').sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()).map(tx => (
-              <button key={tx.id} onClick={() => setVoidTransactionId(voidTransactionId === tx.id ? null : tx.id)} className={cn("w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left", voidTransactionId === tx.id ? "border-destructive bg-destructive/5" : "border-border hover:border-destructive/30")}>
-                <div><p className="text-[11px] font-black uppercase tracking-tight text-slate-900">{tx.description}</p><p className="text-[9px] font-bold text-muted-foreground uppercase mt-0.5">{format(safeDate(tx.date), 'h:mm a')} · {tx.paymentMethod}</p></div>
-                <p className={cn("font-black text-lg", voidTransactionId === tx.id ? "text-destructive" : "text-slate-900")}>${safeNumber(tx.amount).toFixed(2)}</p>
-              </button>
-            ))}
-            {voidTransactionId && <VoidAuthForm onConfirm={(pin, reason) => handleVoidTransaction(voidTransactionId, pin, reason)} onCancel={() => setVoidTransactionId(null)} />}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <Drawer open={isVoidDialogOpen} onClose={() => { setIsVoidDialogOpen(false); setVoidTransactionId(null); }} title="Void a sale">
+        <div className="space-y-3">
+          <p className="text-[14px]" style={{ color: 'var(--muted)' }}>Choose one of today’s sales. A manager approves with their PIN, and the reason is recorded.</p>
+          {(() => { const list = (transactions || []).filter((t: any) => isToday(safeDate(t.date)) && !t.voided && t.type === 'income').sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
+            if (!list.length) return <p className="py-6 text-center text-[14px]" style={{ color: 'var(--muted)' }}>No sales today to void.</p>;
+            return list.map((tx: any) => { const on = voidTransactionId === tx.id;
+              return <div key={tx.id} className="space-y-2">
+                <button type="button" aria-pressed={on} onClick={() => setVoidTransactionId(on ? null : tx.id)} className="d-row flex w-full items-center justify-between gap-3 rounded-2xl p-3.5 text-left"
+                  style={{ border: `1px solid ${on ? 'var(--warn)' : 'var(--line)'}`, background: on ? 'color-mix(in srgb, var(--warn) 7%, var(--card))' : 'var(--card)' }}>
+                  <span className="min-w-0"><span className="block truncate text-[14.5px] font-semibold">{tx.description}</span><span className="block text-[12.5px]" style={{ color: 'var(--muted)' }}>{format(safeDate(tx.date), 'h:mm a')} · {String(tx.paymentMethod || 'sale').replace(/^./, (c: string) => c.toUpperCase())}</span></span>
+                  <span className="shrink-0 text-[17px] tabular-nums">${safeNumber(tx.amount).toFixed(2)}</span></button>
+                {on && <VoidAuthForm onConfirm={(pin, reason) => handleVoidTransaction(tx.id, pin, reason)} onCancel={() => setVoidTransactionId(null)} />}
+              </div>; }); })()}
+        </div>
+      </Drawer>
 
       <StaffBookSheet open={isQuickBookOpen} onClose={() => { setIsQuickBookOpen(false); setResumeDraft(null); }}
         tenantId={tenantId || ''} tenant={selectedTenant} clients={clients || []} services={services || []} staff={staff || []}
         appointments={appointmentsFromInventory || []} role={role} uid={currentUser?.uid || null} resume={resumeDraft} />
-      <Dialog open={!!pendingRefund} onOpenChange={(o) => { if (!o) setPendingRefund(null); }}>
-        <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
-          <DialogHeader className="p-6 pb-0">
-            <DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><Wallet className="w-5 h-5 text-primary" /> Refund Deposit?</DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{pendingRefund?.reason}</DialogDescription>
-          </DialogHeader>
-          <div className="p-6 space-y-5">
-            <p className="text-sm font-medium text-slate-600 leading-relaxed">Return <strong className="text-slate-900">${safeNumber(pendingRefund?.amount).toFixed(2)}</strong> to {pendingRefund?.clientName}? This sends the money back through Stripe and can't be undone. Skip to keep it as a credit toward their next visit instead.</p>
-            <div className="flex gap-3">
-              <Button onClick={() => setPendingRefund(null)} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Skip · keep as credit</Button>
-              <Button onClick={handleConfirmRefund} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Refund ${safeNumber(pendingRefund?.amount).toFixed(2)}</Button>
-            </div>
+      <Drawer open={!!pendingRefund} onClose={() => setPendingRefund(null)} title="Refund the deposit?">
+        <div className="space-y-4">
+          {pendingRefund?.reason && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{pendingRefund.reason}</p>}
+          <div className="rounded-2xl p-5 text-center" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={{ color: 'var(--muted)' }}>Back to {pendingRefund?.clientName || 'the client'}</p><p className="text-[38px] font-light tabular-nums tracking-tight">${safeNumber(pendingRefund?.amount).toFixed(2)}</p></div>
+          <p className="text-[14px]">This sends the money back to their card and can’t be undone. Or keep it as a credit toward their next visit.</p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setPendingRefund(null)} className="h-12 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Keep as credit</button>
+            <button type="button" onClick={handleConfirmRefund} className="h-12 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Refund ${safeNumber(pendingRefund?.amount).toFixed(2)}</button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </Drawer>
 
       {isCameraScanOpen && (
         <QRScanner
@@ -216,114 +210,50 @@ function POSPage() {
         />
       )}
 
-      <Dialog open={isScanLookupOpen} onOpenChange={(o) => { if (!o) { setScanQuery(''); setScanResult(null); setScanNotFound(false); } setIsScanLookupOpen(o); }}>
-        <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 shadow-2xl p-0 overflow-hidden">
-          <DialogHeader className="p-6 pb-0">
-            <DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">
-              <QrCode className="w-5 h-5 text-emerald-600" /> Scan or Enter Code
-            </DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-              Code from any printed ticket — appointment or walk-in. Barcode scanner supported.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-6 space-y-4">
-            <Input
-              aria-label="Scan or type a code"
-              ref={scanInputRef}
-              value={scanQuery}
-              onChange={e => handleScanInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') resolveScanCode(scanQuery); }}
-              placeholder="e.g. 7QX2K9LM"
-              className={cn(
-                'h-14 text-center font-black font-mono rounded-2xl border-4',
-                scanQuery.length > 14 ? 'text-sm tracking-normal' : 'text-2xl tracking-[0.3em]',
-                scanResult ? 'border-emerald-400 bg-emerald-50' : scanNotFound ? 'border-red-300 bg-red-50' : 'border-slate-200',
-              )}
-              maxLength={160}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-            />
-
-            {isScanResolving && (
-              <div className="flex items-center justify-center gap-2 py-2 text-slate-400">
-                <Loader className="w-4 h-4 animate-spin" />
-                <p className="text-[10px] font-black uppercase tracking-widest">Checking full records…</p>
-              </div>
-            )}
-
-            {scanResult && (() => {
-              const isRow = scanResult.__walkIn === true;
-              const c = clients?.find((cl: any) => cl.id === scanResult.clientId);
-              // A walk-in row keeps its services in `serviceIds`; an appointment in
-              // `serviceId`. Reading only one of the two showed a blank line for
-              // every walk-in ticket.
-              const ids: string[] = Array.isArray(scanResult.serviceIds) ? scanResult.serviceIds : (scanResult.serviceId ? [scanResult.serviceId] : []);
-              const svcNames = ids.map((id: string) => services?.find((s: any) => s.id === id)?.name).filter(Boolean) as string[];
-              const rowStatus = String(scanResult.status || '').toLowerCase();
-              const inChair = isRow && (rowStatus === 'servicing' || rowStatus === 'in_service');
-              const isArrived = !isRow && scanResult.checkInStatus && !['pending','confirmed'].includes(scanResult.checkInStatus);
-              const when = isRow ? (scanResult.checkInTime || scanResult.startTime) : scanResult.startTime;
-              return (
-                <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-1.5">
-                  <p className="text-[10px] font-black uppercase text-emerald-700 tracking-widest">
-                    {isRow ? 'Walk-in ticket found' : 'Match found'}
-                  </p>
-                  <p className="text-sm font-black text-slate-900 break-words">{c?.name || scanResult.clientName || scanResult.customerName || 'Unknown guest'}</p>
-                  <p className="text-xs text-slate-500 break-words">{svcNames.join(' + ') || 'Service'}</p>
-                  <p className="text-[10px] text-slate-400">{when ? format(safeDate(when), 'EEE MMM d · h:mm a') : ''}</p>
-                  {inChair && <Badge className="bg-purple-100 text-purple-700 border-none text-[9px]">In service — opens full record</Badge>}
-                  {!inChair && isRow && <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px]">In the walk-in queue — opens check-in</Badge>}
-                  {isArrived && <Badge className="bg-blue-100 text-blue-700 border-none text-[9px]">Already checked in — opens full record</Badge>}
-                  {!isRow && !isArrived && <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px]">Not yet arrived — opens check-in</Badge>}
-                </div>
-              );
-            })()}
-            {scanNotFound && !isScanResolving && (
-              <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 flex items-start gap-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-[10px] font-black uppercase text-red-700">No ticket found</p>
-                  <p className="text-[10px] text-red-500">Appointments and the walk-in queue were both searched. Check the code, or find the guest by name in the queue.</p>
-                </div>
-              </div>
-            )}
-            <div className="flex gap-3">
-              <Button variant="ghost" onClick={() => setIsScanLookupOpen(false)} className="flex-1 h-12 rounded-xl font-black uppercase text-[10px]">Cancel</Button>
-              <Button
-                onClick={handleScanConfirm}
-                disabled={!scanResult}
-                className="flex-[2] h-12 rounded-xl font-black uppercase text-[10px] shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {scanResult ? (scanResult.__walkIn ? 'Open Walk-in' : 'Open Appointment') : 'Scan or type code above'}
-              </Button>
-            </div>
+      <Drawer open={isScanLookupOpen} onClose={() => { setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsScanLookupOpen(false); }} title="Find a ticket">
+        <div className="space-y-4">
+          <p className="text-[14px]" style={{ color: 'var(--muted)' }}>Scan or type the code on any printed ticket, booked or walk-in.</p>
+          <input aria-label="Scan or type a code" ref={scanInputRef} value={scanQuery} onChange={(e) => handleScanInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') resolveScanCode(scanQuery); }} placeholder="e.g. 7QX2K9LM"
+            className={`h-14 w-full rounded-2xl px-4 text-center font-mono outline-none ${scanQuery.length > 14 ? 'text-[14px]' : 'text-[22px] tracking-[0.25em]'}`}
+            style={{ background: 'var(--paper)', color: 'var(--ink)', border: `1px solid ${scanResult ? 'var(--ok)' : scanNotFound ? 'var(--warn)' : 'var(--line)'}` }}
+            maxLength={160} autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} />
+          {isScanResolving && <div className="d-shimmer h-1.5 rounded-full" aria-label="Looking it up" />}
+          {scanResult && (() => {
+            const isRow = scanResult.__walkIn === true;
+            const c = clients?.find((cl: any) => cl.id === scanResult.clientId);
+            const ids: string[] = Array.isArray(scanResult.serviceIds) ? scanResult.serviceIds : (scanResult.serviceId ? [scanResult.serviceId] : []);
+            const svcNames = ids.map((id: string) => services?.find((x: any) => x.id === id)?.name).filter(Boolean) as string[];
+            const rowStatus = String(scanResult.status || '').toLowerCase();
+            const inChair = isRow && (rowStatus === 'servicing' || rowStatus === 'in_service');
+            const isArrived = !isRow && scanResult.checkInStatus && !['pending', 'confirmed'].includes(scanResult.checkInStatus);
+            const when = isRow ? (scanResult.checkInTime || scanResult.startTime) : scanResult.startTime;
+            const what = inChair ? 'In service · opens their ticket' : isRow ? 'Waiting · opens check-in' : isArrived ? 'Already here · opens their ticket' : 'Not here yet · opens check-in';
+            return <div className="d-rise space-y-1 rounded-2xl p-4" style={{ border: '1px solid color-mix(in srgb, var(--ok) 40%, transparent)', background: 'color-mix(in srgb, var(--ok) 7%, var(--card))' }}>
+              <p className="flex items-center gap-1.5 text-[12.5px] font-semibold" style={{ color: 'var(--ok)' }}><Icon name="check" size={15} />{isRow ? 'Walk-in ticket' : 'Booking'} found</p>
+              <p className="text-[17px] font-semibold">{c?.name || scanResult.clientName || scanResult.customerName || 'Guest'}</p>
+              <p className="text-[13.5px]" style={{ color: 'var(--muted)' }}>{svcNames.join(' + ') || 'Service'}{when ? ` · ${format(safeDate(when), 'EEE, MMM d, h:mm a')}` : ''}</p>
+              <p className="text-[13px] font-medium">{what}</p></div>; })()}
+          {scanNotFound && !isScanResolving && <p className="flex items-start gap-2 rounded-2xl p-4 text-[13.5px]" style={{ background: 'color-mix(in srgb, var(--warn) 9%, transparent)' }}><Icon name="alert" size={16} className="mt-0.5" style={{ color: 'var(--warn)' }} />No ticket has that code. Bookings and the walk-in line were both checked. Try the code again, or search for them by name on the desk.</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setIsScanLookupOpen(false)} className="h-12 rounded-full px-5 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Cancel</button>
+            <button type="button" onClick={handleScanConfirm} disabled={!scanResult} className="h-12 flex-1 rounded-full text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{scanResult ? (scanResult.__walkIn ? 'Open the walk-in' : 'Open the booking') : 'Scan or type a code'}</button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </Drawer>
 
-      <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-        <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center">
-          <DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader>
-          <div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div>
-          <DialogFooter className="p-6 border-t bg-muted/5">
-            <Button
-              className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20"
-              onClick={() => {
-                // The shared ticket (Studio look, QR + barcode) — the old path copied the markup into a window without its styles.
-                const t: any = ticketToPrint || {}; const apt: any = t.appointment || t;
-                const okPrint = apt?.id ? printAppointmentTicket({ ...apt }, { studioName: selectedTenant?.name || 'Studio', clientName: apt.clientName || t.client?.name || (clients || []).find((c: any) => c.id === apt.clientId)?.name, serviceName: t.service?.name || apt.serviceName || (services || []).find((x: any) => x.id === apt.serviceId)?.name, staffName: t.staff?.name || t.provider?.name || apt.staffName || (staff || []).find((x: any) => x.id === apt.staffId)?.name,
-                  accent: (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (selectedTenant as any)?.brandColor, logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.logoUrl, kind: apt.isWalkIn ? 'walkin' : 'appointment', origin: window.location.origin }) : false;
-                if (!okPrint) window.print();
-                setIsPrintDialogOpen(false);
-              }}
-            >
-              Authorize Print
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Drawer open={isPrintDialogOpen} onClose={() => setIsPrintDialogOpen(false)} title="Their ticket">
+        <div className="space-y-4">
+          <div className="flex justify-center rounded-2xl bg-white p-6" style={{ border: '1px solid var(--line)' }}>{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div>
+          <button type="button" className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-[15px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}
+            onClick={() => {
+              const t: any = ticketToPrint || {}; const apt: any = t.appointment || t;
+              const okPrint = apt?.id ? printAppointmentTicket({ ...apt }, { studioName: selectedTenant?.name || 'Studio', clientName: apt.clientName || t.client?.name || (clients || []).find((c: any) => c.id === apt.clientId)?.name, serviceName: t.service?.name || apt.serviceName || (services || []).find((x: any) => x.id === apt.serviceId)?.name, staffName: t.staff?.name || t.provider?.name || apt.staffName || (staff || []).find((x: any) => x.id === apt.staffId)?.name,
+                accent: (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (selectedTenant as any)?.brandColor, logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.logoUrl, kind: apt.isWalkIn ? 'walkin' : 'appointment', origin: window.location.origin }) : false;
+              if (!okPrint) window.print();
+              setIsPrintDialogOpen(false);
+            }}><Icon name="printer" size={18} />Print the ticket</button>
+        </div>
+      </Drawer>
     </div>
   );
 }

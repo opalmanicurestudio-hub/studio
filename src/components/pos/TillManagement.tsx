@@ -1,324 +1,113 @@
 'use client';
+// The till: open it with a counted float, close it with a count, what stays for tomorrow, the bank deposit,
+// PIN and signature (plus a witness when the business asks), and the deposit slip. In the front desk's look.
 
 import { verifyPin } from '@/lib/pin-client';
 import { useTenant } from '@/context/TenantContext';
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { 
-    Banknote, 
-    Coins, 
-    Calculator, 
-    KeyRound, 
-    Sparkles, 
-    ArrowRight, 
-    AlertTriangle, 
-    CheckCircle2, 
-    Undo2, 
-    Printer, 
-    Landmark, 
-    FileText, 
-    ArrowDownToLine, 
-    ArrowUpFromLine, 
-    Users, 
-    ShieldCheck, 
-    User, 
-    History, 
-    FileSignature, 
-    Search, 
-    Filter, 
-    Calendar, 
-    ChevronRight, 
-    ArrowDown, 
-    HeartHandshake, 
-    PackageOpen, 
-    Check, 
-    DollarSign, 
-    TrendingDown 
-} from 'lucide-react';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { cn, safeNumber } from '@/lib/utils';
-import { type TillSession, type Staff, type TillDenominations } from '@/lib/data';
+import React, { useState, useMemo, useRef } from 'react';
+import { safeNumber } from '@/lib/utils';
+import { type TillSession, type Staff } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
-import { format, parseISO, isSameDay, startOfDay, subDays } from 'date-fns';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { format, parseISO, startOfDay, subDays } from 'date-fns';
 import SignatureCanvas from 'react-signature-canvas';
 import { useInventory } from '@/context/InventoryContext';
+import { Drawer, Icon, Seg } from '@/components/pos/desk/kit';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
     if (typeof val?.toDate === 'function') return val.toDate();
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
+    if (typeof val === 'string') { try { return parseISO(val); } catch { return new Date(val); } }
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     return new Date(val);
 };
+const money = (n: any) => `$${safeNumber(n).toFixed(2)}`;
 
 const denominations = [
-    { key: 'bills_100', label: '$100', val: 100, icon: Banknote },
-    { key: 'bills_50', label: '$50', val: 50, icon: Banknote },
-    { key: 'bills_20', label: '$20', val: 20, icon: Banknote },
-    { key: 'bills_10', label: '$10', val: 10, icon: Banknote },
-    { key: 'bills_5', label: '$5', val: 5, icon: Banknote },
-    { key: 'bills_1', label: '$1', val: 1, icon: Banknote },
-    { key: 'coins_25', label: '25¢', val: 0.25, icon: Coins },
-    { key: 'coins_10', label: '10¢', val: 0.10, icon: Coins },
-    { key: 'coins_05', label: '5¢', val: 0.05, icon: Coins },
-    { key: 'coins_01', label: '1¢', val: 0.01, icon: Coins },
+    { key: 'bills_100', label: '$100', val: 100, kind: 'bill' },
+    { key: 'bills_50', label: '$50', val: 50, kind: 'bill' },
+    { key: 'bills_20', label: '$20', val: 20, kind: 'bill' },
+    { key: 'bills_10', label: '$10', val: 10, kind: 'bill' },
+    { key: 'bills_5', label: '$5', val: 5, kind: 'bill' },
+    { key: 'bills_1', label: '$1', val: 1, kind: 'bill' },
+    { key: 'coins_25', label: '25¢', val: 0.25, kind: 'coin' },
+    { key: 'coins_10', label: '10¢', val: 0.10, kind: 'coin' },
+    { key: 'coins_05', label: '5¢', val: 0.05, kind: 'coin' },
+    { key: 'coins_01', label: '1¢', val: 0.01, kind: 'coin' },
 ];
 
-const DenominationInput = ({ denom, count, onChange, disabled, subtitle }: any) => {
-    const Icon = denom.icon;
+const muted = { color: 'var(--muted)' } as React.CSSProperties;
+const box = { border: '1px solid var(--line)', background: 'var(--card)' } as React.CSSProperties;
+
+const DenominationInput = ({ denom, count, onChange, disabled, subtitle }: any) => (
+    <div className="flex items-center gap-3 rounded-2xl px-3 py-2.5" style={box}>
+        <span className="flex h-9 w-12 shrink-0 items-center justify-center rounded-xl text-[13px] font-semibold tabular-nums" style={{ background: 'var(--soft)' }}>{denom.label}</span>
+        <span className="min-w-0 flex-1 text-[12.5px]" style={muted}>{subtitle || (denom.kind === 'bill' ? 'Bills' : 'Coins')}</span>
+        <div className="flex items-center gap-1">
+            <button type="button" disabled={disabled || !count} onClick={() => onChange(denom.key, Math.max(0, safeNumber(count) - 1))} aria-label={`One fewer ${denom.label}`} className="flex h-9 w-9 items-center justify-center rounded-full text-[18px] disabled:opacity-30" style={{ background: 'var(--soft)' }}>−</button>
+            <input aria-label={`How many ${denom.label}`} type="number" inputMode="numeric" value={count || ''} onChange={(e) => onChange(denom.key, Math.max(0, parseInt(e.target.value) || 0))} onFocus={(e) => e.currentTarget.select()} placeholder="0" disabled={disabled}
+                className="h-9 w-14 rounded-xl text-center text-[15px] font-semibold tabular-nums outline-none" style={{ background: 'var(--paper)', border: '1px solid var(--line)', color: 'var(--ink)' }} />
+            <button type="button" disabled={disabled} onClick={() => onChange(denom.key, safeNumber(count) + 1)} aria-label={`One more ${denom.label}`} className="flex h-9 w-9 items-center justify-center rounded-full text-[18px] disabled:opacity-30" style={{ background: 'var(--soft)' }}>+</button>
+        </div>
+        <span className="w-[72px] shrink-0 text-right text-[14px] tabular-nums">{money(safeNumber(count) * denom.val)}</span>
+    </div>
+);
+
+const DepositSlip = ({ session, staff, business }: { session: any; staff: Staff[]; business?: string | null }) => {
+    const nameOf = (id: string) => staff.find((s) => s.id === id)?.name;
+    const auditRows = denominations.map((d) => {
+        const counted = safeNumber(session.closingDenominations?.[d.key] || (session.status === 'open' ? session.openingDenominations?.[d.key] : 0) || 0);
+        const kept = safeNumber(session.nextDayDenominations?.[d.key] || 0);
+        return { ...d, counted, kept, deposited: Math.max(0, counted - kept) };
+    }).filter((r) => r.counted > 0 || r.deposited > 0);
+    const staffTips = Object.entries(session.cashTipsByStaff || {}).map(([id, amount]) => ({ name: nameOf(id) || 'Team member', amount: safeNumber(amount) })).filter((t) => t.amount > 0);
+    const row = (l: React.ReactNode, v: React.ReactNode, strong = false) => <div className={`flex justify-between gap-3 ${strong ? 'font-bold' : ''}`}><span>{l}</span><span className="tabular-nums">{v}</span></div>;
+    const signer = (label: string, id?: string, sig?: string) => id ? <div className="space-y-1"><div className="flex justify-between"><span style={{ opacity: 0.55 }}>{label}</span><b>{nameOf(id) || '—'}</b></div>{sig && <img src={sig} alt={`${label} signature`} className="h-12 w-full object-contain" style={{ border: '1px solid #e5e5e5' }} />}</div> : null;
     return (
-        <div className="flex items-center justify-between p-3 rounded-2xl border-2 bg-background hover:border-primary/20 transition-all group">
-            <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
-                    <Icon className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                </div>
-                <div>
-                    <p className="font-black uppercase tracking-tight text-xs">{denom.label}</p>
-                    {subtitle && <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{subtitle}</p>}
-                </div>
+        <div id="deposit-slip-print" className="mx-auto w-[320px] space-y-4 rounded-2xl bg-white p-6 text-left font-mono text-[12px] text-black" style={{ border: '1px solid #e5e5e5' }}>
+            <div className="space-y-0.5 text-center">
+                <p className="text-[14px] font-bold">{business || 'Deposit slip'}</p>
+                <p>Till deposit slip</p>
+                <p style={{ opacity: 0.55 }}>{format(safeDate(session.closedAt || session.openedAt), 'MMM d, yyyy, h:mm a')} · {String(session.id || '').slice(0, 8)}</p>
             </div>
-            <div className="flex items-center gap-3">
-                <Input 
-                    aria-label={`How many ${denom.label}`}
-                    type="number" 
-                    value={count || ''} 
-                    onChange={e => onChange(denom.key, parseInt(e.target.value) || 0)}
-                    placeholder="0"
-                    disabled={disabled}
-                    className="w-20 h-10 text-center font-black rounded-xl border-2 focus-visible:ring-primary/20 bg-muted/5 shadow-inner"
-                />
-                <div className="w-20 text-right">
-                    <p className="font-mono text-xs font-black text-slate-900">${(safeNumber(count) * denom.val).toFixed(2)}</p>
-                </div>
+            <div className="space-y-1 border-y border-dashed border-black py-3">
+                <div className="grid grid-cols-4 gap-2 font-bold"><span>Note</span><span className="text-center">Count</span><span className="text-center">Kept</span><span className="text-right">Deposit</span></div>
+                {auditRows.map((r) => <div key={r.key} className="grid grid-cols-4 gap-2"><span>{r.label}</span><span className="text-center">{r.counted}</span><span className="text-center">{r.kept}</span><span className="text-right">{money(r.deposited * r.val)}</span></div>)}
+                <div className="pt-1">{row('Bank deposit', money(session.cashToDeposit || session.openingFloat), true)}</div>
             </div>
+            {staffTips.length > 0 && <div className="space-y-1 border-b border-dashed border-black pb-3"><p className="font-bold">Cash tips</p>{staffTips.map((t, i) => <div key={i}>{row(t.name, money(t.amount))}</div>)}{row('Total cash tips', money(session.totalCashTips), true)}</div>}
+            <div className="space-y-1 border-b border-dashed border-black pb-3">
+                {row('Opening float', money(session.openingFloat))}
+                {row('Cash sales', money(session.totalCashSales))}
+                {row('Cash tips', money(session.totalCashTips))}
+                {safeNumber(session.totalCashRefunds) > 0 && row('Cash refunds', `−${money(session.totalCashRefunds)}`)}
+                {row('Counted in the drawer', money(session.actualCash || session.openingFloat), true)}
+                {Math.abs(safeNumber(session.discrepancy)) > 0.01 && row(safeNumber(session.discrepancy) > 0 ? 'Over' : 'Short', `${safeNumber(session.discrepancy) > 0 ? '+' : '−'}${money(Math.abs(safeNumber(session.discrepancy)))}`, true)}
+            </div>
+            <div className="space-y-3">{signer('Opened by', session.openedBy, session.openedBySignature)}{signer('Closed by', session.closedBy, session.closedBySignature)}{signer('Witness', session.verifiedBy, session.verifiedBySignature)}</div>
         </div>
     );
 };
 
-const DepositSlip = ({ session, staff }: { session: any, staff: Staff[] }) => {
-    const closedBy = staff.find(s => s.id === session.closedBy);
-    const verifiedBy = staff.find(s => s.id === session.verifiedBy);
-    const openedBy = staff.find(s => s.id === session.openedBy);
-
-    const auditRows = denominations.map(d => {
-        const counted = safeNumber(session.closingDenominations?.[d.key] || (session.status === 'open' ? session.openingDenominations?.[d.key] : 0) || 0);
-        const kept = safeNumber(session.nextDayDenominations?.[d.key] || 0);
-        const deposited = Math.max(0, counted - kept);
-        return { ...d, counted, kept, deposited };
-    }).filter(r => r.counted > 0 || r.deposited > 0);
-
-    const staffTips = useMemo(() => {
-        if (!session.cashTipsByStaff) return [];
-        return Object.entries(session.cashTipsByStaff).map(([staffId, amount]) => ({
-            name: staff.find(s => s.id === staffId)?.name || 'Unknown Staff',
-            amount: safeNumber(amount)
-        })).filter(t => t.amount > 0);
-    }, [session.cashTipsByStaff, staff]);
-
-    return (
-        <div className="bg-white p-6 md:p-8 rounded-none border shadow-none font-mono text-xs text-black space-y-6 w-[320px] mx-auto text-left" id="deposit-slip-print">
-            <div className="text-center space-y-2">
-                <div className="flex justify-center mb-2">
-                    <Landmark className="w-10 h-10" />
-                </div>
-                <h2 className="text-sm font-black uppercase tracking-widest">Certified Deposit Slip</h2>
-                <p className="text-[10px] font-bold">Registry ID: {session.id.toUpperCase()}</p>
-                <p className="text-[9px] opacity-60">{format(safeDate(session.closedAt || session.openedAt), 'MMM d, yyyy @ h:mm a')}</p>
-            </div>
-
-            <Separator className="border-dashed border-black" />
-
-            <div className="space-y-4">
-                <div className="grid grid-cols-4 gap-2 text-[8px] font-black uppercase tracking-tighter border-b border-black pb-1">
-                    <span className="col-span-1">Denom</span>
-                    <span className="text-center">Total</span>
-                    <span className="text-center">Kept</span>
-                    <span className="text-right">Deposit</span>
-                </div>
-                <div className="space-y-1">
-                    {auditRows.map(row => (
-                        <div key={row.key} className="grid grid-cols-4 gap-2 text-[9px]">
-                            <span className="font-bold">{row.label}</span>
-                            <span className="text-center opacity-40">{row.counted}</span>
-                            <span className="text-center opacity-40">{row.kept}</span>
-                            <span className="text-right font-black">${(row.deposited * row.val).toFixed(2)}</span>
-                        </div>
-                    ))}
-                </div>
-                <div className="flex justify-between font-black border-t-2 border-black pt-2 text-sm">
-                    <span className="uppercase text-[9px]">Net Bank Deposit</span>
-                    <span>${safeNumber(session.cashToDeposit || session.openingFloat).toFixed(2)}</span>
-                </div>
-            </div>
-
-            <Separator className="border-dashed border-black" />
-
-            {staffTips.length > 0 && (
-                <div className="space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest border-b border-black pb-1 text-center">Gratuity Attribution</p>
-                    <div className="space-y-1.5">
-                        {staffTips.map((t, idx) => (
-                            <div key={idx} className="flex justify-between items-center text-[10px]">
-                                <span className="truncate pr-2">{t.name}</span>
-                                <span className="font-black">${safeNumber(t.amount).toFixed(2)}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="flex justify-between font-black border-t border-dashed border-black pt-2">
-                        <span className="text-[9px]">Total Cash Tips</span>
-                        <span>${safeNumber(session.totalCashTips || 0).toFixed(2)}</span>
-                    </div>
-                    <Separator className="border-dashed border-black" />
-                </div>
-            )}
-
-            <div className="space-y-2 uppercase font-bold text-[10px]">
-                <p className="text-[9px] font-black tracking-widest border-b border-black pb-1 text-center">Audit Summary</p>
-                <div className="flex justify-between items-center">
-                    <span>Opening Float</span>
-                    <span className="font-black">${safeNumber(session.openingFloat).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                    <span>Cash Sales</span>
-                    <span className="font-black">${safeNumber(session.totalCashSales || 0).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                    <span>Cash Tips</span>
-                    <span className="font-black">${safeNumber(session.totalCashTips || 0).toFixed(2)}</span>
-                </div>
-                {safeNumber(session.totalCashRefunds) > 0 && (
-                    <div className="flex justify-between items-center text-destructive">
-                        <span>Cash Refunds</span>
-                        <span className="font-black">-${safeNumber(session.totalCashRefunds).toFixed(2)}</span>
-                    </div>
-                )}
-                <Separator className="border-black opacity-20" />
-                <div className="flex justify-between items-center text-sm font-black pt-1">
-                    <span>Actual Drawer</span>
-                    <span>${safeNumber(session.actualCash || session.openingFloat).toFixed(2)}</span>
-                </div>
-                {Math.abs(safeNumber(session.discrepancy || 0)) > 0.01 && (
-                    <div className="mt-2 p-2 bg-slate-100 flex flex-col gap-1 border border-black">
-                        <div className={cn("flex justify-between items-center", safeNumber(session.discrepancy) > 0 ? "text-green-700" : "text-red-700")}>
-                            <span>Audit Variance</span>
-                            <span>{safeNumber(session.discrepancy) > 0 ? '+' : ''}${safeNumber(session.discrepancy).toFixed(2)}</span>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            <Separator className="border-dashed border-black" />
-
-            <div className="space-y-6 pt-2">
-                {openedBy && (
-                    <div className="space-y-2">
-                        <div className="flex justify-between items-baseline">
-                            <span className="text-[8px] font-black opacity-40 uppercase">Opened By:</span>
-                            <span className="text-[9px] font-black">{openedBy.name}</span>
-                        </div>
-                        {session.openedBySignature && (
-                            <div className="relative h-12 w-full border border-black/10">
-                                <img src={session.openedBySignature} alt="Signature" className="h-full w-full object-contain" />
-                            </div>
-                        )}
-                    </div>
-                )}
-                {closedBy && (
-                    <div className="space-y-2">
-                        <div className="flex justify-between items-baseline">
-                            <span className="text-[8px] font-black opacity-40 uppercase">Closed By:</span>
-                            <span className="text-[9px] font-black">{closedBy.name}</span>
-                        </div>
-                        {session.closedBySignature && (
-                            <div className="relative h-12 w-full border border-black/10">
-                                <img src={session.closedBySignature} alt="Signature" className="h-full w-full object-contain" />
-                            </div>
-                        )}
-                    </div>
-                )}
-                {verifiedBy && (
-                    <div className="space-y-2">
-                        <div className="flex justify-between items-baseline">
-                            <span className="text-[8px] font-black opacity-40 uppercase">Verified By:</span>
-                            <span className="text-[9px] font-black">{verifiedBy.name}</span>
-                        </div>
-                        {session.verifiedBySignature && (
-                            <div className="relative h-12 w-full border border-black/10">
-                                <img src={session.verifiedBySignature} alt="Signature" className="h-full w-full object-contain" />
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-
-            <div className="pt-4 text-center space-y-1">
-                <p className="text-[8px] font-black opacity-40 tracking-widest">CLARITYFLOW RECONCILIATION</p>
-                <p className="text-[7px] opacity-30 italic">Digitally Verified Dossier</p>
-            </div>
-        </div>
-    );
-}
-
-export const TillManagement = ({ 
-    open, 
-    onOpenChange, 
-    activeTill, 
+export const TillManagement = ({
+    open,
+    onOpenChange,
+    activeTill,
     staff,
     onOpenTill,
-    onConfirmCloseTill,
     onCloseTill,
-    requireTillWitness = true
-}: { 
-    open: boolean, 
-    onOpenChange: (open: boolean) => void, 
+    requireTillWitness = true,
+}: {
+    open: boolean,
+    onOpenChange: (open: boolean) => void,
     activeTill: TillSession | null,
     staff: Staff[],
     onOpenTill: (data: any) => void,
-    onConfirmCloseTill: (data: any) => void,
+    onConfirmCloseTill?: (data: any) => void,
     onCloseTill: (data: any) => void,
     requireTillWitness?: boolean
 }) => {
-    const isMobile = useIsMobile();
     const { toast } = useToast();
     // PINs are checked on the server; the people confirmed at "verify" are remembered here for the signature step.
     const { selectedTenant } = useTenant() as any;
@@ -363,8 +152,7 @@ export const TillManagement = ({
         }
 
         if (historyDateFilter !== 'all') {
-            const now = new Date();
-            let cutoff = startOfDay(now);
+            let cutoff = startOfDay(new Date());
             if (historyDateFilter === '7days') cutoff = subDays(cutoff, 7);
             if (historyDateFilter === '30days') cutoff = subDays(cutoff, 30);
             list = list.filter(s => safeDate(s.openedAt) >= cutoff);
@@ -380,7 +168,7 @@ export const TillManagement = ({
     const handleFloatChange = (key: string, val: number) => {
         const totalInDrawer = safeNumber(counts[key]) || 0;
         if (val > totalInDrawer) {
-            toast({ variant: 'destructive', title: 'Invalid Selection', description: `Only ${totalInDrawer} units of ${key.replace('_', ' ')} counted.` });
+            toast({ variant: 'destructive', title: 'More than was counted', description: `Only ${totalInDrawer} of those were counted in the drawer.` });
             return;
         }
         setFloatCounts(prev => ({ ...prev, [key]: val }));
@@ -398,7 +186,7 @@ export const TillManagement = ({
             const pv = await verifyPin(selectedTenant?.id || '', primaryPin);
             const authorizedStaff: Staff | null = pv.ok ? ((staff.find((s) => s.id === pv.staff.id) || (pv.staff as any)) as Staff) : null;
             if (!authorizedStaff) {
-                toast({ variant: 'destructive', title: 'Invalid PIN', description: pv.ok ? 'Primary auditor not identified.' : pv.error });
+                toast({ variant: 'destructive', title: 'That PIN didn’t match', description: pv.ok ? 'We couldn’t tell who that is.' : pv.error });
                 return;
             }
             verified.current = { primary: authorizedStaff, witness: null };
@@ -407,11 +195,11 @@ export const TillManagement = ({
                 const witnessStaff: Staff | null = wv.ok ? ((staff.find((s) => s.id === wv.staff.id) || (wv.staff as any)) as Staff) : null;
                 verified.current.witness = witnessStaff;
                 if (!witnessStaff) {
-                    toast({ variant: 'destructive', title: 'Witness Required', description: 'Invalid Witness PIN.' });
+                    toast({ variant: 'destructive', title: 'The witness PIN didn’t match' });
                     return;
                 }
                 if (witnessStaff.id === authorizedStaff.id) {
-                    toast({ variant: 'destructive', title: 'Audit Conflict', description: 'The witness must be a different staff member.' });
+                    toast({ variant: 'destructive', title: 'The witness has to be someone else', description: 'Ask a different team member to watch the count.' });
                     return;
                 }
             }
@@ -425,7 +213,7 @@ export const TillManagement = ({
 
         const mainSig = sigCanvasRef.current?.getTrimmedCanvas().toDataURL('image/png');
         if (!mainSig) {
-            toast({ variant: 'destructive', title: 'Signature Required' });
+            toast({ variant: 'destructive', title: 'Add your signature' });
             return;
         }
 
@@ -434,7 +222,7 @@ export const TillManagement = ({
             const witnessSig = requireTillWitness ? witnessSigCanvasRef.current?.getTrimmedCanvas().toDataURL('image/png') : null;
             
             if (requireTillWitness && !witnessSig) {
-                toast({ variant: 'destructive', title: 'Witness Signature Required' });
+                toast({ variant: 'destructive', title: 'The witness needs to sign too' });
                 return;
             }
 
@@ -493,357 +281,120 @@ export const TillManagement = ({
         setTimeout(resetState, 300);
     };
 
-    const DialogComponent = isMobile ? Sheet : Dialog;
-    const ContentComponent = isMobile ? SheetContent : DialogContent;
+    const business = (selectedTenant as any)?.name || null;
+    const title = step === 'success' ? 'Till closed' : mainView === 'history' ? 'Past tills' : activeTill ? 'Close the till' : 'Open the till';
+    const STEPS = activeTill ? ['count', 'float_select', 'allocation', 'verify', 'sign'] : ['count', 'verify', 'sign'];
+    const stepNo = STEPS.indexOf(step);
+    const btn = 'flex h-12 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold transition active:scale-[.98] disabled:opacity-40';
+    const primary = { background: 'var(--accent)', color: 'var(--accent-ink)' } as React.CSSProperties;
+    const quiet = { background: 'var(--soft)', color: 'var(--ink)' } as React.CSSProperties;
+    const pinInput = (label: string, val: string, set: (v: string) => void, hint: string) => (
+        <label className="block space-y-1.5">
+            <span className="flex items-center gap-2 text-[14px] font-semibold"><Icon name="user" size={16} />{label}</span>
+            <span className="block text-[12.5px]" style={muted}>{hint}</span>
+            <input aria-label={label} type="password" inputMode="numeric" maxLength={8} value={val} onChange={(e) => set(e.target.value.replace(/\D/g, ''))} placeholder="••••"
+                className="h-14 w-full rounded-2xl text-center text-[26px] tracking-[0.4em] outline-none" style={{ background: 'var(--paper)', border: '1px solid var(--line)', color: 'var(--ink)' }} />
+        </label>);
+    const pad = (label: string, ref: React.MutableRefObject<SignatureCanvas | null>) => (
+        <div className="space-y-1.5">
+            <div className="flex items-center justify-between"><span className="text-[14px] font-semibold">{label}</span><button type="button" onClick={() => ref.current?.clear()} className="text-[13px] font-semibold underline underline-offset-4" style={muted}>Clear</button></div>
+            <div className="relative h-44 overflow-hidden rounded-2xl" style={{ background: '#fff', border: '1px dashed var(--line)' }}>
+                <SignatureCanvas ref={ref as any} penColor="#16171a" canvasProps={{ className: 'h-full w-full', 'aria-label': label } as any} />
+                <div className="pointer-events-none absolute inset-x-5 bottom-5 border-b" style={{ borderColor: '#d4d4d8' }} />
+            </div>
+        </div>);
+    const back = (to: typeof step) => <button type="button" onClick={() => setStep(to)} className={btn} style={quiet}>Back</button>;
+    const next = (label: string, onClick: () => void, disabled = false) => <button type="button" onClick={onClick} disabled={disabled} className={`${btn} flex-1`} style={primary}>{label}<Icon name="arrow" size={17} /></button>;
+    const over = activeTill ? actualTotal - safeNumber(activeTill.expectedCash) : 0;
 
     return (
-        <DialogComponent open={open} onOpenChange={handleClose}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[92dvh]")}>
-                <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-8 pb-6" : "p-8 pb-6")}>
-                    <div className="flex items-center gap-3 mb-2">
-                        <Landmark className="w-5 h-5 text-primary" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Accounting Suite</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                        <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                            {step === 'success' ? 'Audit Certified' : mainView === 'history' ? 'Archives' : activeTill ? 'Closing Protocol' : 'Open Studio Till'}
-                        </DialogTitle>
-                        {step === 'count' && (
-                            <Tabs value={mainView} onValueChange={(v: any) => setMainView(v)} className="w-fit">
-                                <TabsList className="bg-muted/50 rounded-xl h-9 border p-1">
-                                    <TabsTrigger value="active" className="rounded-lg h-7 px-3 text-[9px] font-black uppercase tracking-widest">Active</TabsTrigger>
-                                    <TabsTrigger value="history" className="rounded-lg h-7 px-3 text-[9px] font-black uppercase tracking-widest">Archives</TabsTrigger>
-                                </TabsList>
-                            </Tabs>
-                        )}
-                    </div>
-                </DialogHeader>
-
-                <ScrollArea className="flex-1">
-                    <div className="p-8">
-                        <AnimatePresence mode="wait">
-                            {mainView === 'history' ? (
-                                <motion.div key="history" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6 pb-20">
-                                    {historicalSession ? (
-                                        <div className="space-y-8 animate-in zoom-in-95 duration-300">
-                                            <Button variant="ghost" size="sm" onClick={() => setHistoricalSession(null)} className="h-8 font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5">
-                                                <Undo2 className="mr-2 h-3.5 w-3.5"/> Back to Archives
-                                            </Button>
-                                            <DepositSlip session={historicalSession} staff={staff} />
-                                            <Button className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-primary/20" onClick={() => window.print()}>
-                                                <Printer className="mr-3 h-5 w-5" /> Print Certified Slip
-                                            </Button>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-6">
-                                            <div className="flex flex-col sm:flex-row gap-3">
-                                                <div className="relative flex-1">
-                                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                                                    <Input 
-                                                        aria-label="Search till history by ID or staff member"
-                                                        placeholder="SEARCH BY ID OR TECH..." 
-                                                        value={historySearch} 
-                                                        onChange={e => setHistorySearch(e.target.value)}
-                                                        className="pl-9 h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-inner"
-                                                    />
-                                                </div>
-                                                <Select value={historyDateFilter} onValueChange={setHistoryDateFilter}>
-                                                    <SelectTrigger aria-label="Filter till history by period" className="h-11 w-full sm:w-40 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
-                                                        <SelectValue placeholder="Period" />
-                                                    </SelectTrigger>
-                                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                                        <SelectItem value="all" className="font-bold">ALL TIME</SelectItem>
-                                                        <SelectItem value="today" className="font-bold">TODAY</SelectItem>
-                                                        <SelectItem value="7days" className="font-bold">LAST 7 DAYS</SelectItem>
-                                                        <SelectItem value="30days" className="font-bold">LAST 30 DAYS</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="grid gap-3">
-                                                {filteredSessions.map(session => {
-                                                    const staffMember = staff.find(s => s.id === session.openedBy);
-                                                    const isDiff = Math.abs(safeNumber(session.discrepancy) || 0) > 0.01;
-                                                    return (
-                                                        <button key={session.id} onClick={() => setHistoricalSession(session)} className="text-left w-full p-4 rounded-2xl border-2 bg-white hover:border-primary/20 transition-all group flex items-center justify-between">
-                                                            <div className="flex items-center gap-4">
-                                                                <div className="p-3 bg-muted rounded-2xl group-hover:bg-primary/5 transition-colors shrink-0">
-                                                                    <Landmark className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
-                                                                </div>
-                                                                <div className="min-w-0">
-                                                                    <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{format(safeDate(session.openedAt), 'MMM d, yyyy')}</p>
-                                                                    <div className="flex items-center gap-2 mt-0.5">
-                                                                        <Badge variant="outline" className={cn("text-[8px] font-black uppercase h-4 px-1.5 border-none", session.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground')}>{session.status}</Badge>
-                                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 truncate">By {staffMember?.name.split(' ')[0]}</p>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-right shrink-0 ml-4">
-                                                                <p className="font-black font-mono text-sm tracking-tighter text-slate-900">${safeNumber(session.actualCash || session.openingFloat).toFixed(2)}</p>
-                                                                {isDiff && <p className="text-[8px] font-black uppercase text-destructive animate-pulse">Variance Logged</p>}
-                                                            </div>
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
-                                </motion.div>
-                            ) : (
-                                <>
-                                    {step === 'count' && (
-                                        <motion.div key="count" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-10 pb-20">
-                                            {activeTill && (
-                                                <Card className="bg-primary/5 border-2 border-primary/10 rounded-[2rem] shadow-inner overflow-hidden text-left">
-                                                    <CardContent className="p-6 grid grid-cols-2 gap-6">
-                                                        <div className="space-y-1 text-left">
-                                                            <p className="text-[9px] font-black uppercase text-primary tracking-widest">Expected Ledger</p>
-                                                            <p className="text-3xl font-black font-mono tracking-tighter text-primary">${safeNumber(activeTill.expectedCash).toFixed(2)}</p>
-                                                            <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2">
-                                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Sales: ${safeNumber(activeTill.totalCashSales || 0).toFixed(2)}</p>
-                                                                <p className="text-[8px] font-bold text-primary/60 uppercase">Tips: ${safeNumber(activeTill.totalCashTips || 0).toFixed(2)}</p>
-                                                                {safeNumber(activeTill.totalCashRefunds) > 0 && <p className="text-[8px] font-bold text-destructive/60 uppercase">Refunds: -${safeNumber(activeTill.totalCashRefunds).toFixed(2)}</p>}
-                                                            </div>
-                                                        </div>
-                                                        <div className="space-y-1 text-right border-l border-dashed border-primary/20 pl-6">
-                                                            <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-60">Session Opened</p>
-                                                            <p className="text-sm font-black text-slate-900">{format(safeDate(activeTill.openedAt), 'h:mm a')}</p>
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            )}
-                                            <div className="space-y-4">
-                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1 text-left">Total Drawer Count</p>
-                                                <div className="grid grid-cols-1 gap-2">
-                                                    {denominations.map(d => <DenominationInput key={d.key} denom={d} count={counts[d.key] || 0} onChange={handleCountChange} />)}
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'float_select' && (
-                                        <motion.div key="float_select" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-20 text-left">
-                                            <div className="p-8 rounded-[2.5rem] border-2 border-dashed border-indigo-500/30 bg-indigo-500/[0.02] text-center space-y-4 shadow-inner">
-                                                <div className="space-y-1">
-                                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-600">Float Target</p>
-                                                    <p className="text-5xl font-black font-mono tracking-tighter text-indigo-700">${floatTotal.toFixed(2)}</p>
-                                                </div>
-                                                <p className="text-[9px] font-bold uppercase text-slate-500 max-w-xs mx-auto">Select specific bills and coins to remain in the drawer for next shift.</p>
-                                            </div>
-                                            <div className="grid grid-cols-1 gap-2">
-                                                {denominations.map(d => (
-                                                    <DenominationInput 
-                                                        key={d.key} 
-                                                        denom={d} 
-                                                        count={floatCounts[d.key] || 0} 
-                                                        onChange={handleFloatChange} 
-                                                        subtitle={`Counted: ${counts[d.key] || 0}`}
-                                                    />
-                                                ))}
-                                            </div>
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'allocation' && (
-                                        <motion.div key="allocation" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-20 text-left">
-                                            <div className="p-8 rounded-[2.5rem] bg-slate-900 text-white text-center space-y-4 shadow-2xl relative overflow-hidden">
-                                                <div className="absolute top-0 right-0 p-6 opacity-5"><Banknote className="w-32 h-32" /></div>
-                                                <div className="space-y-1 relative z-10">
-                                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40">Actual Drawer Total</p>
-                                                    <p className="text-6xl font-black font-mono tracking-tighter text-primary">${actualTotal.toFixed(2)}</p>
-                                                </div>
-                                                {activeTill && (
-                                                    <div className={cn("inline-flex items-center gap-2 px-4 py-1.5 rounded-full font-black text-[9px] uppercase tracking-widest relative z-10", 
-                                                        actualTotal >= activeTill.expectedCash ? "bg-green-500/20 text-green-400" : "bg-destructive/20 text-red-400")}>
-                                                        {actualTotal >= activeTill.expectedCash ? `Overage: +$${(actualTotal - activeTill.expectedCash).toFixed(2)}` : `Shortage: -$${(activeTill.expectedCash - actualTotal).toFixed(2)}`}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div className="p-5 rounded-[1.5rem] border-2 bg-muted/10 space-y-1 text-left">
-                                                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Verified Revenue</p>
-                                                    <p className="text-xl font-black font-mono text-slate-900">${safeNumber(activeTill?.totalCashSales || 0).toFixed(2)}</p>
-                                                </div>
-                                                <div className="p-5 rounded-[1.5rem] border-2 bg-indigo-500/5 border-indigo-500/10 space-y-1 text-left">
-                                                    <p className="text-[9px] font-black uppercase text-indigo-600 opacity-60 flex items-center gap-2"><HeartHandshake className="w-3 h-3" /> Team Gratuity</p>
-                                                    <p className="text-xl font-black font-mono text-indigo-600">${safeNumber(activeTill?.totalCashTips || 0).toFixed(2)}</p>
-                                                </div>
-                                            </div>
-
-                                            <div className="p-6 rounded-[2rem] border-4 border-primary/20 bg-primary/5 flex justify-between items-center shadow-xl">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="p-2 rounded-xl bg-primary text-white shadow-lg"><ArrowUpFromLine className="w-5 h-5" /></div>
-                                                    <div className="space-y-0.5 text-left">
-                                                        <span className="font-black uppercase tracking-tight text-xs text-slate-900">Bank Deposit Allocation</span>
-                                                        <p className="text-[8px] font-black text-primary/60 uppercase">Net removed from drawer</p>
-                                                    </div>
-                                                </div>
-                                                <p className="text-3xl font-black font-mono tracking-tighter text-primary">${Math.max(0, actualTotal - floatTotal).toFixed(2)}</p>
-                                            </div>
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'verify' && (
-                                        <motion.div key="verify" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-10 py-6 pb-20">
-                                            <div className="space-y-8 text-left">
-                                                <div className="space-y-4">
-                                                    <div className="flex items-center gap-3 px-1">
-                                                        <div className="p-2 bg-primary/10 rounded-xl"><User className="w-5 h-5 text-primary" /></div>
-                                                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Primary Auditor PIN</Label>
-                                                    </div>
-                                                    <Input 
-                                                        aria-label="Primary auditor PIN, four digits"
-                                                        type="password" 
-                                                        maxLength={4} 
-                                                        value={primaryPin} 
-                                                        onChange={e => setPrimaryPin(e.target.value.replace(/\D/g, ''))}
-                                                        className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 focus-visible:ring-primary/20 shadow-inner bg-muted/5"
-                                                        placeholder="••••"
-                                                    />
-                                                </div>
-
-                                                {activeTill && requireTillWitness && (
-                                                    <div className="space-y-4 pt-10 border-t-2 border-dashed">
-                                                        <div className="flex items-center gap-3 px-1">
-                                                            <div className="p-2 bg-primary/10 rounded-xl"><ShieldCheck className="w-5 h-5 text-primary" /></div>
-                                                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Witness Verification PIN</Label>
-                                                        </div>
-                                                        <Input 
-                                                            aria-label="Witness verification PIN, four digits"
-                                                            type="password" 
-                                                            maxLength={4} 
-                                                            value={witnessPin} 
-                                                            onChange={e => setWitnessPin(e.target.value.replace(/\D/g, ''))}
-                                                            className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 border-primary/20 focus-visible:ring-primary/20 shadow-inner bg-white"
-                                                            placeholder="••••"
-                                                        />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'sign' && (
-                                        <motion.div key="sign" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-10 pb-20">
-                                            <div className="space-y-4 text-left">
-                                                <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
-                                                    <FileSignature className="w-4 h-4" /> Primary Signature
-                                                </Label>
-                                                <div className="rounded-[2rem] border-4 border-dashed bg-muted/20 overflow-hidden relative h-48">
-                                                    <SignatureCanvas 
-                                                        ref={sigCanvasRef}
-                                                        penColor="black"
-                                                        canvasProps={{ className: 'w-full h-full' }}
-                                                    />
-                                                    <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2 opacity-20 pointer-events-none">
-                                                        <span className="text-xl font-black">X</span>
-                                                        <div className="flex-1 border-b-2 border-black" />
-                                                    </div>
-                                                </div>
-                                                <Button variant="ghost" size="sm" onClick={() => sigCanvasRef.current?.clear()} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground h-6 px-3">Clear Pad</Button>
-                                            </div>
-
-                                            {activeTill && requireTillWitness && (
-                                                <div className="space-y-4 pt-10 border-t-2 border-dashed text-left">
-                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
-                                                        <ShieldCheck className="w-4 h-4" /> Witness Signature
-                                                    </Label>
-                                                    <div className="rounded-[2rem] border-4 border-dashed bg-muted/20 overflow-hidden relative h-48">
-                                                        <SignatureCanvas 
-                                                            ref={witnessSigCanvasRef}
-                                                            penColor="black"
-                                                            canvasProps={{ className: 'w-full h-full' }}
-                                                        />
-                                                        <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2 opacity-20 pointer-events-none">
-                                                            <span className="text-xl font-black">X</span>
-                                                            <div className="flex-1 border-b-2 border-black" />
-                                                        </div>
-                                                    </div>
-                                                    <Button variant="ghost" size="sm" onClick={() => witnessSigCanvasRef.current?.clear()} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground h-6 px-3">Clear Pad</Button>
-                                                </div>
-                                            )}
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'success' && finalSessionData && (
-                                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-10 pb-20">
-                                            <div className="p-8 rounded-[3rem] border-4 border-green-500/20 bg-green-500/5 text-center space-y-4 shadow-xl">
-                                                <div className="w-20 h-20 bg-green-500 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/20 rotate-6">
-                                                    <CheckCircle2 className="w-12 h-12 text-white -rotate-6" />
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Audit Finalized</h3>
-                                                    <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Protocol Entry Verified</p>
-                                                </div>
-                                            </div>
-                                            <DepositSlip session={finalSessionData} staff={staff} />
-                                        </motion.div>
-                                    )}
-                                </>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                </ScrollArea>
-
-                <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl p-8 pt-4")}>
-                    <div className="flex flex-col gap-3 w-full">
-                        {mainView === 'history' ? (
-                            <Button variant="outline" onClick={handleClose} className="w-full h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-white">Close Archives</Button>
-                        ) : (
-                            <>
-                                {step === 'count' && (
-                                    <div className="flex gap-3">
-                                        <Button variant="ghost" type="button" onClick={handleClose} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Cancel</Button>
-                                        <Button onClick={handleStepTransition} disabled={actualTotal <= 0} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">
-                                            {activeTill ? 'Next: Float Selection' : 'Next: Identity'} <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-                                        </Button>
-                                    </div>
-                                )}
-                                {step === 'float_select' && (
-                                    <div className="flex gap-3">
-                                        <Button variant="ghost" type="button" onClick={() => setStep('count')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
-                                        <Button onClick={handleStepTransition} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Allocate Deposit <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
-                                    </div>
-                                )}
-                                {step === 'allocation' && (
-                                    <div className="flex gap-3">
-                                        <Button variant="ghost" type="button" onClick={() => setStep('float_select')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
-                                        <Button onClick={handleStepTransition} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Audit Verification <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
-                                    </div>
-                                )}
-                                {step === 'verify' && (
-                                    <div className="flex gap-3">
-                                        <Button variant="ghost" type="button" onClick={() => setStep('allocation')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
-                                        <Button onClick={handleStepTransition} disabled={primaryPin.length < 4 || (activeTill && requireTillWitness && witnessPin.length < 4)} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl group">Sign Audit <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" /></Button>
-                                    </div>
-                                )}
-                                {step === 'sign' && (
-                                    <div className="flex gap-3">
-                                        <Button variant="ghost" type="button" onClick={() => setStep('verify')} className="flex-1 h-14 font-black uppercase tracking-tighter text-[10px] text-slate-400">Back</Button>
-                                        <Button onClick={handleAction} className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl">Commit Archive</Button>
-                                    </div>
-                                )}
-                                {step === 'success' && (
-                                    <div className="flex flex-col gap-3">
-                                        <Button className="w-full h-16 rounded-2xl font-black uppercase text-sm tracking-widest shadow-2xl shadow-primary/30 group" onClick={() => window.print()}>
-                                            <Printer className="mr-3 h-5 w-5" /> Print Certified Slip
-                                        </Button>
-                                        <Button variant="ghost" type="button" onClick={handleClose} className="w-full h-10 font-bold uppercase text-[10px] tracking-widest text-slate-400">Return to Terminal</Button>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </DialogFooter>
-            </ContentComponent>
-            <style jsx global>{`
-                @media print {
-                    body * { visibility: hidden; }
-                    #deposit-slip-print, #deposit-slip-print * { visibility: visible; }
-                    #deposit-slip-print { position: absolute; left: 0; top: 0; width: 3.5in; margin: 0; border: none; box-shadow: none; padding: 0.25in; }
-                }
-            `}</style>
-        </DialogComponent>
+        <Drawer open={open} onClose={handleClose} title={title}>
+            <div className="space-y-5">
+                {step === 'count' && <Seg label="Till" value={mainView} onChange={(v) => { setMainView(v as any); setHistoricalSession(null); }} options={[['active', activeTill ? 'Today' : 'Open'], ['history', 'Past tills']]} />}
+                {mainView === 'active' && step !== 'success' && <ol className="flex gap-1.5" aria-label="Steps">{STEPS.map((k, i) => <li key={k} className={`h-1 flex-1 rounded-full ${i === stepNo ? 'd-breathe' : ''}`} style={{ background: i <= stepNo ? 'var(--ok)' : 'var(--line)' }} />)}</ol>}
+                <AnimatePresence mode="wait">
+                    {mainView === 'history' ? (
+                        <motion.div key="history" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                            {historicalSession ? <div className="space-y-4">
+                                <button type="button" onClick={() => setHistoricalSession(null)} className="flex items-center gap-1.5 text-[14px] font-semibold"><Icon name="back" size={16} />All past tills</button>
+                                <DepositSlip session={historicalSession} staff={staff} business={business} />
+                                <button type="button" onClick={() => window.print()} className={`${btn} w-full`} style={primary}><Icon name="printer" size={18} />Print the slip</button>
+                            </div> : <>
+                                <label className="flex h-11 items-center gap-2.5 rounded-full px-4" style={{ background: 'var(--soft)', border: '1px solid var(--line)' }}>
+                                    <Icon name="search" size={17} style={muted} />
+                                    <input aria-label="Search past tills by person or reference" placeholder="Search by person or reference" value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-[14px] outline-none" />
+                                </label>
+                                <Seg label="Period" value={historyDateFilter} onChange={setHistoryDateFilter} options={[['all', 'All'], ['today', 'Today'], ['7days', '7 days'], ['30days', '30 days']]} />
+                                <div className="space-y-2">
+                                    {filteredSessions.length === 0 && <p className="py-6 text-center text-[13px]" style={muted}>No tills match.</p>}
+                                    {filteredSessions.map((session) => { const who = staff.find((s) => s.id === session.openedBy); const diff = safeNumber(session.discrepancy);
+                                        return <button key={session.id} type="button" onClick={() => setHistoricalSession(session)} className="d-row flex w-full items-center gap-3 rounded-2xl p-3.5 text-left" style={box}>
+                                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ background: 'var(--soft)' }}><Icon name="till" size={18} /></span>
+                                            <span className="min-w-0 flex-1"><span className="block text-[14.5px] font-semibold">{format(safeDate(session.openedAt), 'EEE, MMM d')}</span>
+                                                <span className="block text-[12.5px]" style={muted}>{session.status === 'open' ? 'Open now' : 'Closed'}{who ? ` · opened by ${String(who.name).split(' ')[0]}` : ''}</span></span>
+                                            <span className="text-right"><span className="block text-[15px] tabular-nums">{money(session.actualCash || session.openingFloat)}</span>
+                                                {Math.abs(diff) > 0.01 && <span className="block text-[12px] font-semibold" style={{ color: 'var(--warn)' }}>{diff > 0 ? 'Over' : 'Short'} {money(Math.abs(diff))}</span>}</span>
+                                        </button>; })}
+                                </div>
+                            </>}
+                        </motion.div>
+                    ) : step === 'count' ? (
+                        <motion.div key="count" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-4">
+                            {activeTill && <div className="grid grid-cols-2 gap-2">
+                                <div className="rounded-2xl p-4" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={muted}>Should be in the drawer</p><p className="text-[26px] font-light tabular-nums tracking-tight">{money(activeTill.expectedCash)}</p>
+                                    <p className="text-[12px]" style={muted}>Sales {money(activeTill.totalCashSales)} · tips {money(activeTill.totalCashTips)}{safeNumber(activeTill.totalCashRefunds) > 0 ? ` · refunds −${money(activeTill.totalCashRefunds)}` : ''}</p></div>
+                                <div className="rounded-2xl p-4" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={muted}>Opened</p><p className="text-[26px] font-light tracking-tight">{format(safeDate(activeTill.openedAt), 'h:mm a')}</p></div>
+                            </div>}
+                            <div className="flex items-end justify-between"><p className="text-[14px] font-semibold">{activeTill ? 'Count everything in the drawer' : 'Count the starting cash'}</p><p className="text-[22px] font-light tabular-nums">{money(actualTotal)}</p></div>
+                            <div className="space-y-1.5">{denominations.map((d) => <DenominationInput key={d.key} denom={d} count={counts[d.key] || 0} onChange={handleCountChange} />)}</div>
+                        </motion.div>
+                    ) : step === 'float_select' ? (
+                        <motion.div key="float" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-4">
+                            <div className="rounded-2xl p-5 text-center" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={muted}>Staying in the drawer for tomorrow</p><p className="text-[38px] font-light tabular-nums tracking-tight">{money(floatTotal)}</p>
+                                <p className="text-[13px]" style={muted}>Choose the notes and coins to leave. The rest goes to the bank.</p></div>
+                            <div className="space-y-1.5">{denominations.map((d) => <DenominationInput key={d.key} denom={d} count={floatCounts[d.key] || 0} onChange={handleFloatChange} subtitle={`${counts[d.key] || 0} counted`} />)}</div>
+                        </motion.div>
+                    ) : step === 'allocation' ? (
+                        <motion.div key="alloc" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-3">
+                            <div className="rounded-3xl p-6 text-center" style={box}><p className="text-[12px]" style={muted}>Counted in the drawer</p><p className="text-[44px] font-light tabular-nums tracking-tight">{money(actualTotal)}</p>
+                                {activeTill && <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-semibold" style={Math.abs(over) < 0.01 ? { background: 'color-mix(in srgb, var(--ok) 12%, transparent)', color: 'var(--ok)' } : { background: 'color-mix(in srgb, var(--warn) 12%, transparent)', color: 'var(--warn)' }}>
+                                    <Icon name={Math.abs(over) < 0.01 ? 'check' : 'alert'} size={14} />{Math.abs(over) < 0.01 ? 'Matches what should be there' : over > 0 ? `${money(over)} over` : `${money(-over)} short`}</span>}</div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="rounded-2xl p-4" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={muted}>Cash sales</p><p className="text-[20px] font-light tabular-nums">{money(activeTill?.totalCashSales)}</p></div>
+                                <div className="rounded-2xl p-4" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={muted}>Cash tips</p><p className="text-[20px] font-light tabular-nums">{money(activeTill?.totalCashTips)}</p></div>
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl p-4" style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--card))', border: '1px solid var(--line)' }}>
+                                <span className="flex items-center gap-2.5"><Icon name="arrow" size={18} /><span><span className="block text-[14px] font-semibold">To the bank</span><span className="block text-[12.5px]" style={muted}>Leaving {money(floatTotal)} for tomorrow</span></span></span>
+                                <span className="text-[28px] font-light tabular-nums">{money(Math.max(0, actualTotal - floatTotal))}</span></div>
+                        </motion.div>
+                    ) : step === 'verify' ? (
+                        <motion.div key="verify" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-6">
+                            {pinInput('Your PIN', primaryPin, setPrimaryPin, activeTill ? 'You counted the drawer.' : 'You counted the starting cash.')}
+                            {activeTill && requireTillWitness && pinInput('Witness PIN', witnessPin, setWitnessPin, 'A different team member who watched the count.')}
+                        </motion.div>
+                    ) : step === 'sign' ? (
+                        <motion.div key="sign" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-6">
+                            {pad(`${verified.current.primary?.name || 'Your'} signature`, sigCanvasRef)}
+                            {activeTill && requireTillWitness && pad(`${verified.current.witness?.name ? `${verified.current.witness.name}’s` : 'Witness'} signature`, witnessSigCanvasRef)}
+                        </motion.div>
+                    ) : step === 'success' && finalSessionData ? (
+                        <motion.div key="done" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="space-y-5">
+                            <div className="space-y-1 text-center"><span className="d-rise mx-auto flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'color-mix(in srgb, var(--ok) 14%, transparent)', color: 'var(--ok)' }}><Icon name="check" size={30} stroke={2} /></span>
+                                <p className="pt-2 text-[22px] font-light tracking-tight">The till is closed</p><p className="text-[13.5px]" style={muted}>Print the slip to go with the bank deposit.</p></div>
+                            <DepositSlip session={finalSessionData} staff={staff} business={business} />
+                        </motion.div>
+                    ) : null}
+                </AnimatePresence>
+                {mainView === 'active' && <div className="sticky bottom-0 -mx-5 flex gap-2 px-5 pb-1 pt-3" style={{ background: 'var(--paper)', borderTop: '1px solid var(--line)' }}>
+                    {step === 'count' && <><button type="button" onClick={handleClose} className={btn} style={quiet}>Cancel</button>{next(activeTill ? 'Choose tomorrow’s float' : 'Next', handleStepTransition, actualTotal <= 0)}</>}
+                    {step === 'float_select' && <>{back('count')}{next('See the deposit', handleStepTransition)}</>}
+                    {step === 'allocation' && <>{back('float_select')}{next('Confirm with PINs', handleStepTransition)}</>}
+                    {step === 'verify' && <>{back(activeTill ? 'allocation' : 'count')}{next('Sign', handleStepTransition, primaryPin.length < 4 || !!(activeTill && requireTillWitness && witnessPin.length < 4))}</>}
+                    {step === 'sign' && <>{back('verify')}<button type="button" onClick={handleAction} className={`${btn} flex-1`} style={primary}><Icon name="check" size={18} />{activeTill ? 'Close the till' : 'Open the till'}</button></>}
+                    {step === 'success' && <><button type="button" onClick={handleClose} className={btn} style={quiet}>Done</button><button type="button" onClick={() => window.print()} className={`${btn} flex-1`} style={primary}><Icon name="printer" size={18} />Print the slip</button></>}
+                </div>}
+            </div>
+            <style>{`@media print { body * { visibility: hidden; } #deposit-slip-print, #deposit-slip-print * { visibility: visible; } #deposit-slip-print { position: absolute; left: 0; top: 0; width: 3.5in; margin: 0; border: none; padding: 0.25in; } }`}</style>
+        </Drawer>
     );
 };

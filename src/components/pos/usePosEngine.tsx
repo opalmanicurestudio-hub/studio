@@ -19,7 +19,6 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, getServicePrice } from '@/lib/data';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, limit } from 'firebase/firestore';
@@ -32,8 +31,6 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useCancellationConfirm } from '@/hooks/useCancellationConfirm';
 import { XCircle, Fingerprint, ShieldCheck, ArrowRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import { cn, safeNumber } from '@/lib/utils';
 // parseScan / codeVariants are what make a scanned ticket resolve at all: they
 // keep a mixed-case check-in token intact, pull the token out of a scanned
@@ -241,22 +238,15 @@ export const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient,
 export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string, reason: string) => void; onCancel: () => void }) {
   const [pin, setPin] = React.useState('');
   const [reason, setReason] = React.useState('');
+  const field = { background: 'var(--paper, #fff)', border: '1px solid var(--line, #ececee)', color: 'var(--ink, #16171a)' } as React.CSSProperties;
   return (
-    <div className="mt-4 p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5 space-y-4">
-      <p className="text-[10px] font-black uppercase tracking-widest text-destructive">Manager Authorization Required</p>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Manager PIN</Label>
-          <Input aria-label="Manager PIN, four digits" type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="••••" className="h-10 rounded-xl text-center font-black text-lg tracking-widest border-2" />
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Reason</Label>
-          <Input aria-label="Reason for voiding" value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe void reason" className="h-10 rounded-xl border-2" />
-        </div>
-      </div>
+    <div className="space-y-3 rounded-2xl p-4" style={{ background: 'var(--soft, #f5f5f7)' }}>
+      <p className="text-[14px] font-semibold">A manager approves the void</p>
+      <input aria-label="Why it's being voided" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (e.g. rung up twice)" className="h-11 w-full rounded-xl px-3.5 text-[15px] outline-none" style={field} />
+      <input aria-label="Manager PIN" type="password" inputMode="numeric" maxLength={8} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Manager PIN" className="h-11 w-full rounded-xl px-3.5 text-center text-[18px] tracking-[0.3em] outline-none" style={field} />
       <div className="flex gap-2">
-        <Button onClick={() => onConfirm(pin, reason)} disabled={pin.length < 4 || !reason.trim()} variant="destructive" className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">Authorize Void</Button>
-        <Button onClick={onCancel} variant="ghost" className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</Button>
+        <button type="button" onClick={onCancel} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--card, #fff)' }}>Cancel</button>
+        <button type="button" onClick={() => onConfirm(pin, reason)} disabled={pin.length < 4 || !reason.trim()} className="h-11 flex-1 rounded-full text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--warn, #a15c07)', color: '#fff' }}>Void this sale</button>
       </div>
     </div>
   );
