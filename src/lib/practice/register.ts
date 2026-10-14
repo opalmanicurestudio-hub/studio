@@ -9,7 +9,7 @@ import * as $ from './currency';
 import type { CurrencyCode } from './currency';
 
 // ── Products and barcodes ───────────────────────────────────────────────
-export type Sku = { key: string; name: string; size?: string; price: number; code: string; color: string; fragrance?: boolean };
+export type Sku = { key: string; name: string; size?: string; price: number; code: string; color: string; fragrance?: boolean; img?: string; brand?: string };
 
 /** UPC-A check digit for 11 digits. */
 export function upcCheck(d11: string) {
@@ -20,8 +20,12 @@ export function upcCheck(d11: string) {
 const upc = (item: number) => { const d = `084221${String(item).padStart(5, '0')}`; return d + upcCheck(d); };
 
 export const SKUS: Sku[] = [
-  { key: 'cuticle', name: 'Cuticle oil', price: 17.5, code: upc(10041), color: '#e8b4b8', fragrance: true },
-  { key: 'handcream', name: 'Hand cream', price: 24, code: upc(10058), color: '#f3e3c3', fragrance: true },
+  // The studio's own line (photos in /public/practice/products).
+  { key: 'cuticle', name: 'Cuticle Oil Pen', size: '2.5 mL', price: 12, code: upc(10041), color: '#eef0ee', img: '/practice/products/cuticle-oil-pen.png', brand: 'Opal' },
+  { key: 'topcoat', name: 'Non-Wipe Top Coat', size: '15 mL', price: 18, code: upc(10058), color: '#f2f3f5', img: '/practice/products/top-coat.png', brand: 'Opal' },
+  { key: 'bitball', name: 'Diamond drill bit', size: 'ball', price: 14, code: upc(10140), color: '#5f8a74', img: '/practice/products/drill-bit-ball.png', brand: 'Opal' },
+  { key: 'bitbarrel', name: 'Diamond drill bit', size: 'barrel', price: 14, code: upc(10157), color: '#5f8a74', img: '/practice/products/drill-bit-barrel.png', brand: 'Opal' },
+  { key: 'nipper', name: 'Cuticle nipper', price: 38, code: upc(10164), color: '#d9dcdf', img: '/practice/products/cuticle-nipper.png', brand: 'Opal' },
   { key: 'shampoo', name: 'Bond shampoo', price: 28, code: upc(10065), color: '#d9d3ea' },
   { key: 'serum2', name: 'Scalp serum', size: '2 oz', price: 32, code: upc(10072), color: '#bcd3e8', fragrance: true },
   { key: 'serum4', name: 'Scalp serum', size: '4 oz', price: 54, code: upc(10089), color: '#a9c4de', fragrance: true },
@@ -136,7 +140,7 @@ export const PEOPLE: Customer[] = [
   { id: 'grace', name: 'Grace', pron: 'she', persona: 'Busy professional in her 30s, friendly but efficient. Gets a silk press with Mei every 2 weeks and would value a membership that keeps her on schedule.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'text', voice: V(1.05, 0.98), look: { skin: '#8d5a3b', hair: '#1d1612', top: '#c9b6e4', style: 'curls' }, service: { label: 'Silk press', price: 95, provider: 'Mei' },
     items: [{ sku: 'serum2', n: 1 }, { sku: 'shampoo', n: 1 }], slips: [{ kind: 'double', sku: 'shampoo' }, { kind: 'chip' }], arrive: 60, hello: 'The serum and the shampoo, please.', visits: 6, rebook: 2, wants: 'hairclub' },
   { id: 'party', name: 'Maya’s bridal party', pron: 'they', persona: 'Maya, speaking for her bridal party of three (Maya, Jo, Sam). Giddy and celebratory after getting ready together. They want to split the bill evenly three ways, and Jo pays her share in cash. They’re not booking again today.', voiceHint: { gender: 'female', age: 'young' }, kind: 'group', receipt: 'print', voice: V(1.2, 1.12), look: { skin: '#a8714f', hair: '#2a1a12', top: '#f3c6d0', style: 'bun' }, service: { label: 'Bridal party', price: 175, provider: 'Ana, Mei, Hana' },
-    items: [{ sku: 'handcream', n: 1 }], slips: [], arrive: 85, hello: 'Hi! We’re the bridal party. We had the best time!', visits: 2, rebook: 'no',
+    items: [{ sku: 'topcoat', n: 1 }], slips: [], arrive: 85, hello: 'Hi! We’re the bridal party. We had the best time!', visits: 2, rebook: 'no',
     party: { members: [
       { name: 'Maya', look: { skin: '#a8714f', hair: '#2a1a12', top: '#f3c6d0', style: 'bun' }, service: { label: 'Gel manicure', price: 45, provider: 'Ana' } },
       { name: 'Jo', look: { skin: '#e9c9a8', hair: '#8a5a2b', top: '#c9dcef', style: 'short' }, service: { label: 'Blowout', price: 55, provider: 'Mei' } },
@@ -146,6 +150,8 @@ export const PEOPLE: Customer[] = [
     items: [{ sku: 'vitc', n: 1 }], slips: [{ kind: 'shelf', sku: 'vitc', claim: 39 }, { kind: 'decline' }], arrive: 115, hello: 'Oh, and the shelf sign said this serum was $39.', visits: 2, rebook: 6, wants: 'facial5' },
   { id: 'marcus', name: 'Marcus', pron: 'he', persona: 'Quiet regular with a dry sense of humor, in his 30s. Buying two beard oils, one as a gift. Pays cash. Rather book online later.', voiceHint: { gender: 'male', age: 'middle_aged' }, kind: 'returning', receipt: 'none', voice: V(0.8, 0.95), look: { skin: '#5c3b2a', hair: '#0f0b09', top: '#f2c38b', style: 'fade' }, service: { label: 'Beard trim', price: 25, provider: 'Diego' },
     items: [{ sku: 'beardoil', n: 2 }], slips: [], arrive: 140, hello: 'Two of the beard oils. One’s a gift. Cash is fine.', visits: 3, rebook: 'no', pays: { cash: 'one', keep: 'none' } },
+  { id: 'dani', name: 'Dani', pron: 'she', persona: 'Nail tech in her mid-20s and an Opal Nail Academy grad, restocking her kit after her fill. Knows exactly what she wants: the ball diamond bit (not the barrel) and a cuticle nipper. Friendly, quick, pays by card.', voiceHint: { gender: 'female', age: 'young' }, kind: 'returning', receipt: 'email', voice: V(1.15, 1.08), look: { skin: '#d9a27c', hair: '#3a2318', top: '#a9c4b8', style: 'long' }, service: { label: 'Builder gel fill', price: 55, provider: 'Ana' },
+    items: [{ sku: 'bitball', n: 1 }, { sku: 'nipper', n: 1 }], slips: [{ kind: 'unreadable', sku: 'bitball' }], arrive: 152, hello: 'The ball bit and the cuticle nipper, please. The bit’s sticker got scratched.', visits: 3, rebook: 3 },
   { id: 'priya', name: 'Priya', pron: 'she', persona: 'Thoughtful and health-conscious regular in her 30s. Has a fragrance allergy she takes seriously and appreciates staff who notice.', voiceHint: { gender: 'female', age: 'middle_aged' }, kind: 'regular', receipt: 'print', voice: V(1.0, 1.0), look: { skin: '#b07a52', hair: '#1a1210', top: '#e7c3c9', style: 'braids' }, service: { label: 'Color', price: 150, provider: 'Jordan' },
     items: [{ sku: 'serum4', n: 1 }], slips: [{ kind: 'unreadable', sku: 'serum4' }, { kind: 'allergy', allergy: 'fragrance' }, { kind: 'offline' }], arrive: 165, hello: 'The big scalp serum, please.', visits: 5, rebook: 6 },
   // Arrivals: checking in for today's bookings.
@@ -172,6 +178,7 @@ export const DRILLS: { id: string; title: string; sub: string }[] = [
   { id: 'grace', title: 'Grace', sub: 'Her card declines: keep it kind and private' },
   { id: 'lena', title: 'Lena', sub: 'The shelf price doesn’t match' },
   { id: 'priya', title: 'Priya', sub: 'An allergy and a smudged label' },
+  { id: 'dani', title: 'Dani', sub: 'Two drill bits that look alike: ring up the right one' },
   { id: 'olivia', title: 'Olivia', sub: 'Checking in 15 minutes late' },
 ];
 export function newRegister(currency: CurrencyCode = 'USD', mode: PhoneMode = 'full', opts: ShiftOptions = {}): RegState {
@@ -297,7 +304,7 @@ function ticketChecks(s: RegState) {
       s.mistakes.push({ at, who, what: `Charged ${who} for ${n} × ${skuLabel(sku)} (${they(c)} bought ${it.n})`, later: `${who} saw it on the receipt and came back for a ${fm(s, (n - it.n) * sku.price)} refund.`, right: dbl ? 'Two beeps, two lines, one bottle: void the extra line before payment.' : 'Count the items on the counter against the lines on the ticket.' });
     } else if (n < it.n) {
       const wrongVariant = SKUS.find((x) => x.name === sku.name && x.key !== sku.key && scanned[x.key]);
-      if (wrongVariant) s.mistakes.push({ at, who, what: `Rang up ${skuLabel(wrongVariant)} instead of ${skuLabel(sku)}`, later: `${who} paid ${fm(s, wrongVariant.price)} for a ${fm(s, sku.price)} product. The stock count for both is now off.`, right: 'When a label won’t scan, type the number under the barcode instead of guessing by name.' });
+      if (wrongVariant) s.mistakes.push({ at, who, what: `Rang up ${skuLabel(wrongVariant)} instead of ${skuLabel(sku)}`, later: wrongVariant.price === sku.price ? `${who}’s receipt shows the wrong item, so a return or exchange won’t match, and the stock count for both is now off.` : `${who} paid ${fm(s, wrongVariant.price)} for a ${fm(s, sku.price)} product. The stock count for both is now off.`, right: 'When a label won’t scan, type the number under the barcode instead of guessing by name.' });
       else s.mistakes.push({ at, who, what: `${it.n - n} × ${skuLabel(sku)} not rung up`, later: `${who} left with it unpaid: ${fm(s, (it.n - n) * sku.price)} lost, and the shelf count is off.`, right: it.n > 1 ? `${who} had ${it.n} of them. Scan each one.` : 'Scan everything on the counter before you take payment.' });
     }
   }

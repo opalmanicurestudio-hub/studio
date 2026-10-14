@@ -1,7 +1,7 @@
 'use client';
 // Practice a shift: the desk phone. Caller ID, two lines, hold, voicemail and callbacks, a workflow for each kind
 // of call, transfers, and a short review after every call.
-import { useState, type ReactNode } from 'react';
+import { type CSSProperties, useState, type ReactNode } from 'react';
 import * as R from '@/lib/practice/register';
 import { Btn, Chip, Say, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
 
@@ -18,13 +18,13 @@ type Props = {
   onExcuse: () => void; onAnswer: () => void; onListen: (vm: R.Voicemail) => void; beforeAct?: () => void;
 };
 
-export function PhoneDock({ s, narrow, excused, done, onExcuse, onAnswer, onListen }: Props) {
+export function PhoneDock({ s, narrow, excused, done, onExcuse, onAnswer, onListen, at }: Props & { at?: CSSProperties }) {
   const [vmOpen, setVmOpen] = useState(false);
   const rg = s.ringing; const id = rg ? R.clientByPhone(s, rg.call.phone) : null; const cur = s.cur; const oc = s.onCall;
   const vmLeft = s.voicemails.filter((v) => !v.returned);
   const box = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, boxShadow: '0 12px 26px -14px rgba(0,0,0,.45)' } as const;
   return (
-    <div style={{ position: 'fixed', left: narrow ? 8 : 24, right: narrow ? 8 : 'auto', top: narrow ? 112 : 122, zIndex: 43, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: narrow ? 'none' : 420 }}>
+    <div style={{ position: 'fixed', left: narrow ? 8 : 24, right: narrow ? 8 : 'auto', top: narrow ? 112 : 122, zIndex: 43, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: narrow ? 'none' : 420, ...(narrow ? {} : at) }}>
       {rg && <div style={{ ...box, padding: '8px 8px 8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', boxShadow: '0 0 0 6px #fdf1e3, 0 12px 26px -14px rgba(0,0,0,.45)' }}>
         <span style={{ fontSize: 19, animation: 'regBeam .25s ease-in-out infinite alternate' }}>📞</span>
         <div style={{ flex: 1, minWidth: 150 }}><div style={{ fontSize: 13.5 }}><b>Line {oc || s.held.some((h) => h.line === 1) ? 2 : 1}</b> · {id ? id.name : rg.call.known ? rg.call.name : 'Unknown caller'}</div>

@@ -15,7 +15,8 @@ import { VoicePicker, VoiceCheck, type CheckRow } from './voice-panels';
 import { PhoneDock, CallCard, CallReviewCard } from './phone-panel';
 import { useAuth, useFirestore } from '@/firebase';
 import QRCode from 'qrcode';
-import { Barcode, Bottle, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
+import { Backdrop, Counter, ProductPhoto, Thumb, FaceDot, Icon, RailButton, Pill, LevelPill, PointsPill, Wordmark, GLASS, GLASS_ROW, PINE, tabletBtn } from './studio';
+import { Barcode, Btn, CameraScanner, Cash, CashDrawer, Chip, Person, Reader, ReceiptPaper, ReceiptPrinter, Say, ScannerGun, INK, MUTED, LINE, SOFT, GREEN, AMBER, RED, BLUE } from './parts';
 
 type PayStep = null | 'split' | 'method' | 'tip' | 'reader' | 'processing' | 'approved' | 'declined' | 'decline-wait' | 'chip' | 'offline' | 'reconnecting' | 'cash-total' | 'cash-keep' | 'cash-count' | 'cash-done' | 'receipt';
 type Mode = 'scan' | 'type' | 'name';
@@ -99,6 +100,8 @@ export default function RegisterPractice() {
   const [usb, setUsb] = useState(false);
   const [narrow, setNarrow] = useState(false);
   const [compact, setCompact] = useState(false);
+  const [stats, setStats] = useState(false);
+  const counterH = compact ? 230 : 280;
   const speed = useRef(1);
   const holdT = useRef<number | null>(null);
 
@@ -759,61 +762,13 @@ export default function RegisterPractice() {
       <Btn small onClick={doneArrival}>Finish check-in · send to the lounge</Btn>
     </div>
   );
-  const pos = cur && !R.isArrival(cur.c) && (
-    <div style={{ background: '#fff', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: narrow ? 0 : 300, boxSizing: 'border-box', height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ width: 28, height: 28, borderRadius: 14, background: cur.c.look.top, color: '#fff', fontSize: 12.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{cur.c.name[0]}</span>
-        <div style={{ flex: 1 }}><div style={{ fontSize: 13.5, fontWeight: 700 }}>{cur.c.name}</div><div style={{ fontSize: 11, color: MUTED }}>{cur.c.party ? `Group · ${cur.c.party.members.length} guests` : cur.c.kind === 'new' ? 'First visit' : `${ordinal(cur.c.visits)} visit`} · {cur.c.party ? cur.c.party.members.map((m) => m.name).join(', ') : `${cur.c.service.label} with ${cur.c.service.provider}`}</div></div>
-        {cur.c.kind === 'new' ? <Chip tone="blue">New client</Chip> : cur.c.kind === 'regular' ? <Chip tone="green">Regular</Chip> : <Chip>Ticket</Chip>}
-      </div>
-      {flag && <div style={{ background: '#fdf6ec', border: '1px solid #f3dfc4', borderRadius: 10, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#9a4a07' }}>Health flag · private</div><div style={{ fontSize: 12, color: '#9a4a07' }}>{flag.text}</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Btn small onClick={() => { R.suggestSafe(s, flag.id); setFlag(null); drainSfx(); rerender(); }}>Suggest the fragrance-free one</Btn><Btn small ghost onClick={() => setFlag(null)}>Sell it anyway</Btn></div>
-      </div>}
-      <div style={{ overflow: 'auto', flex: 1 }}>
-        {cur.lines.map((l) => (
-          <div key={l.id} style={{ borderTop: `1px solid ${LINE}`, padding: '6px 0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 12.8, color: l.voided ? RED : l.kind === 'discount' ? GREEN : INK }}>
-              <span style={{ textDecoration: l.voided ? 'line-through' : undefined, flex: 1 }}>{l.kind === 'retail' ? '🛍 ' : ''}{l.label}</span>
-              <span style={{ textDecoration: l.voided ? 'line-through' : undefined }}>{money(l.price)}</span>
-              {l.kind === 'retail' && !l.voided && !pay && <span style={{ display: 'flex', gap: 4 }}>
-                <button style={mini} onClick={() => setVoidFor(voidFor === l.id ? null : l.id)}>Void</button>
-                <button style={mini} onClick={() => { setNote(R.editPrice(s, l.id).note); drainSfx(); rerender(); }}>Price</button></span>}
-            </div>
-            {l.voided && <div style={{ fontSize: 11, color: MUTED }}>Voided · {l.voided}</div>}
-            {voidFor === l.id && <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}><span style={{ fontSize: 11.5, color: MUTED, alignSelf: 'center' }}>Reason:</span>{R.VOID_REASONS.map((r) => <button key={r} style={mini} onClick={() => { R.voidLine(s, l.id, r); setVoidFor(null); drainSfx(); rerender(); }}>{r}</button>)}</div>}
-          </div>
-        ))}
-      </div>
-      {note && <div style={{ fontSize: 12, color: RED, fontWeight: 600 }}>{note}</div>}
-      {cur.c.details && !pay && <div style={{ background: '#f4f7ff', border: '1px solid #dbe4ff', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><b style={{ fontSize: 12.5, flex: 1 }}>First visit: save {R.their(cur.c)} details</b>{cur.contact && <Chip tone="green">Saved</Chip>}</div>
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><button style={mini} onClick={() => { R.askDetail(s, 'phone'); rerender(); }}>Ask for {R.their(cur.c)} phone</button><button style={mini} onClick={() => { R.askDetail(s, 'email'); rerender(); }}>Ask for {R.their(cur.c)} email</button></div>
-        <input aria-label="Client phone" value={details.phone} onChange={(e) => setDetails((d) => ({ ...d, phone: e.target.value }))} placeholder="Mobile number" inputMode="tel" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
-        <input aria-label="Client email" value={details.email} onChange={(e) => setDetails((d) => ({ ...d, email: e.target.value }))} placeholder="Email" inputMode="email" autoCapitalize="none" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><input type="checkbox" checked={details.promo} onChange={(e) => setDetails((d) => ({ ...d, promo: e.target.checked }))} />Send offers by text <span style={{ color: MUTED }}>(only if they say yes)</span></label>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Btn small onClick={() => { R.saveContact(s, details); rerender(); }}>{cur.contact ? 'Update details' : 'Save details'}</Btn><Btn small ghost onClick={() => sendDetails(true)} disabled={!!formWait}>{formWait === 'details' ? `Waiting for ${cur.c.name}…` : 'Let her type them on the client screen'}</Btn></div>
-      </div>}
-      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1.5px solid ${INK}`, paddingTop: 7, fontSize: 16, fontWeight: 800 }}><span>Total</span><span>{money(total)}</span></div>
-      {!pay && <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, flex: 1 }}>📅 Next visit</span>
-          {cur.rebooked ? <Chip tone={cur.rebooked === 'no' ? undefined : 'green'}>{cur.rebooked === 'no' ? 'Will book online' : cur.rebooked}</Chip>
-            : asking === 'rebook' ? <span style={{ fontSize: 12, color: BLUE }}>{twoP ? 'Choosing on the client screen…' : 'Asking…'}</span>
-            : <button style={mini} onClick={offerNextVisit}>Offer next visit{cur.c.rebook !== 'no' && !cur.c.party ? ` · usually ${cur.c.rebook} wks` : ''}</button>}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, fontWeight: 700 }}>⭐ Memberships & packages</span>
-          {R.offersFor(s).slice(0, 3).map((o) => { const done2 = cur.offered.includes(o.key); const ok = R.fits(cur.c, o); return <button key={o.key} disabled={done2 || !!asking} onClick={() => offerIt(o.key)} title={o.desc} style={{ ...mini, opacity: done2 ? 0.5 : 1, borderColor: ok ? '#cfe6d8' : LINE, background: ok ? '#f2f8f4' : '#fff' }}>{asking === o.key ? 'Asking…' : `${o.name} · ${money(o.price)}${o.per ? '/mo' : ''}`}{done2 ? ' ✓' : ''}</button>; })}
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><Btn small onClick={takePayment} disabled={!!asking}>Take payment · {money(total)}</Btn></div>
-      </div>}
+  const payFlow = cur && !R.isArrival(cur.c) && (<>
       {pay === 'split' && cur.c.party && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ fontSize: 12, color: MUTED }}>How is the group paying?</div>
         {(['own', 'even', 'one'] as const).map((m) => m === 'one' ? <div key={m} style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}><span style={{ fontSize: 12.5 }}>One person pays:</span>{cur.c.party!.members.map((mm) => <button key={mm.name} style={mini} onClick={() => { R.setSplit(s, 'one', mm.name); startMethod(); }}>{mm.name}</button>)}</div>
           : <button key={m} style={{ ...rowBtn, padding: '7px 10px', fontSize: 13 }} onClick={() => { R.setSplit(s, m); startMethod(); }}>{m === 'own' ? 'Each pays for their own' : `Split evenly, ${cur.c.party!.members.length} ways`}</button>)}
       </div>}
-      {pay === 'method' && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {pay === 'method' && narrow && <div style={{ background: SOFT, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {cur.parts && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{cur.parts.map((p, i) => <Chip key={i} tone={p.paid ? 'green' : i === cur.partIdx ? 'ink' : undefined}>{p.paid ? '✓ ' : ''}{p.who} · {cash(p.amount)}</Chip>)}</div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5 }}><span>{cur.parts ? `${R.payerName(s)} pays` : 'Amount due'}</span><b>{cash(R.dueNow(s))}</b></div>
         <div style={{ fontSize: 12, color: MUTED }}>{R.payerName(s)} would like to pay by {R.prefers(s)}. You can take either.</div>
@@ -847,6 +802,63 @@ export default function RegisterPractice() {
         {pay === 'cash-count' && (cur.kept || 0) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: GREEN }}><span>Kept as a tip</span><b>{cash(cur.kept || 0)}</b></div>}
         {pay === 'cash-count' ? <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 800 }}><span>Change due</span><span>{cash(R.changeShown(s, tendered))}</span></div> : <div style={{ color: MUTED }}>{R.payerName(s)} is choosing on the client screen…</div>}
       </div>}
+  </>);
+  const tillLines = cur && !R.isArrival(cur.c) && (<>
+      {flag && <div style={{ background: '#fdf6ec', border: '1px solid #f3dfc4', borderRadius: 10, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#9a4a07' }}>Health flag · private</div><div style={{ fontSize: 12, color: '#9a4a07' }}>{flag.text}</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Btn small onClick={() => { R.suggestSafe(s, flag.id); setFlag(null); drainSfx(); rerender(); }}>Suggest the fragrance-free one</Btn><Btn small ghost onClick={() => setFlag(null)}>Sell it anyway</Btn></div>
+      </div>}
+      <div style={{ overflow: 'auto', flex: 1 }}>
+        {cur.lines.map((l) => (
+          <div key={l.id} style={{ borderTop: `1px solid ${LINE}`, padding: '6px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 12.8, color: l.voided ? RED : l.kind === 'discount' ? GREEN : INK }}>
+              {!narrow && (l.kind === 'retail' || l.kind === 'service') && <Thumb sku={l.sku ? R.skuBy(l.sku) : undefined} size={34} />}<span style={{ textDecoration: l.voided ? 'line-through' : undefined, flex: 1 }}>{l.kind === 'retail' && narrow ? '🛍 ' : ''}{l.label}</span>
+              <span style={{ textDecoration: l.voided ? 'line-through' : undefined }}>{money(l.price)}</span>
+              {l.kind === 'retail' && !l.voided && !pay && <span style={{ display: 'flex', gap: 4 }}>
+                <button style={mini} onClick={() => setVoidFor(voidFor === l.id ? null : l.id)}>Void</button>
+                <button style={mini} onClick={() => { setNote(R.editPrice(s, l.id).note); drainSfx(); rerender(); }}>Price</button></span>}
+            </div>
+            {l.voided && <div style={{ fontSize: 11, color: MUTED }}>Voided · {l.voided}</div>}
+            {voidFor === l.id && <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}><span style={{ fontSize: 11.5, color: MUTED, alignSelf: 'center' }}>Reason:</span>{R.VOID_REASONS.map((r) => <button key={r} style={mini} onClick={() => { R.voidLine(s, l.id, r); setVoidFor(null); drainSfx(); rerender(); }}>{r}</button>)}</div>}
+          </div>
+        ))}
+      </div>
+      {note && <div style={{ fontSize: 12, color: RED, fontWeight: 600 }}>{note}</div>}
+  </>);
+  const detailsEl = cur && !R.isArrival(cur.c) && (<>
+      {cur.c.details && !pay && <div style={{ background: '#f4f7ff', border: '1px solid #dbe4ff', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><b style={{ fontSize: 12.5, flex: 1 }}>First visit: save {R.their(cur.c)} details</b>{cur.contact && <Chip tone="green">Saved</Chip>}</div>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><button style={mini} onClick={() => { R.askDetail(s, 'phone'); rerender(); }}>Ask for {R.their(cur.c)} phone</button><button style={mini} onClick={() => { R.askDetail(s, 'email'); rerender(); }}>Ask for {R.their(cur.c)} email</button></div>
+        <input aria-label="Client phone" value={details.phone} onChange={(e) => setDetails((d) => ({ ...d, phone: e.target.value }))} placeholder="Mobile number" inputMode="tel" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
+        <input aria-label="Client email" value={details.email} onChange={(e) => setDetails((d) => ({ ...d, email: e.target.value }))} placeholder="Email" inputMode="email" autoCapitalize="none" style={{ ...input, padding: '6px 10px', fontSize: 13 }} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}><input type="checkbox" checked={details.promo} onChange={(e) => setDetails((d) => ({ ...d, promo: e.target.checked }))} />Send offers by text <span style={{ color: MUTED }}>(only if they say yes)</span></label>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Btn small onClick={() => { R.saveContact(s, details); rerender(); }}>{cur.contact ? 'Update details' : 'Save details'}</Btn><Btn small ghost onClick={() => sendDetails(true)} disabled={!!formWait}>{formWait === 'details' ? `Waiting for ${cur.c.name}…` : 'Let her type them on the client screen'}</Btn></div>
+      </div>}
+  </>);
+  const pos = cur && !R.isArrival(cur.c) && (
+    <div style={{ background: '#fff', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: narrow ? 0 : 300, boxSizing: 'border-box', height: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ width: 28, height: 28, borderRadius: 14, background: cur.c.look.top, color: '#fff', fontSize: 12.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{cur.c.name[0]}</span>
+        <div style={{ flex: 1 }}><div style={{ fontSize: 13.5, fontWeight: 700 }}>{cur.c.name}</div><div style={{ fontSize: 11, color: MUTED }}>{cur.c.party ? `Group · ${cur.c.party.members.length} guests` : cur.c.kind === 'new' ? 'First visit' : `${ordinal(cur.c.visits)} visit`} · {cur.c.party ? cur.c.party.members.map((m) => m.name).join(', ') : `${cur.c.service.label} with ${cur.c.service.provider}`}</div></div>
+        {cur.c.kind === 'new' ? <Chip tone="blue">New client</Chip> : cur.c.kind === 'regular' ? <Chip tone="green">Regular</Chip> : <Chip>Ticket</Chip>}
+      </div>
+      {tillLines}
+      {detailsEl}
+      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1.5px solid ${INK}`, paddingTop: 7, fontSize: 16, fontWeight: 800 }}><span>Total</span><span>{money(total)}</span></div>
+      {!pay && <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, flex: 1 }}>📅 Next visit</span>
+          {cur.rebooked ? <Chip tone={cur.rebooked === 'no' ? undefined : 'green'}>{cur.rebooked === 'no' ? 'Will book online' : cur.rebooked}</Chip>
+            : asking === 'rebook' ? <span style={{ fontSize: 12, color: BLUE }}>{twoP ? 'Choosing on the client screen…' : 'Asking…'}</span>
+            : <button style={mini} onClick={offerNextVisit}>Offer next visit{cur.c.rebook !== 'no' && !cur.c.party ? ` · usually ${cur.c.rebook} wks` : ''}</button>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>⭐ Memberships & packages</span>
+          {R.offersFor(s).slice(0, 3).map((o) => { const done2 = cur.offered.includes(o.key); const ok = R.fits(cur.c, o); return <button key={o.key} disabled={done2 || !!asking} onClick={() => offerIt(o.key)} title={o.desc} style={{ ...mini, opacity: done2 ? 0.5 : 1, borderColor: ok ? '#cfe6d8' : LINE, background: ok ? '#f2f8f4' : '#fff' }}>{asking === o.key ? 'Asking…' : `${o.name} · ${money(o.price)}${o.per ? '/mo' : ''}`}{done2 ? ' ✓' : ''}</button>; })}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><Btn small onClick={takePayment} disabled={!!asking}>Take payment · {money(total)}</Btn></div>
+      </div>}
+      {payFlow}
     </div>
   );
 
@@ -906,7 +918,7 @@ export default function RegisterPractice() {
         <button onClick={() => { setSel(null); setMsg(null); }} style={pill}>Done</button></div>
       {mode === 'scan' && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: narrow ? 6 : 40, background: 'linear-gradient(180deg,#f4f4f6,#e4e4e8)', borderRadius: 16, padding: '14px 10px', userSelect: 'none', touchAction: 'none' }}
         onPointerDown={holdStart} onPointerUp={holdEnd} onPointerLeave={holdEnd}>
-        <Bottle sku={sku} w={narrow ? 92 : 112} h={narrow ? 180 : 214} smudge={smudged} />
+        <ProductPhoto sku={sku} h={narrow ? 170 : 230} smudge={smudged} />
         <ScannerGun beam={holding} ok={!holding && msg?.tone === 'ok'} size={narrow ? 0.62 : 0.85} />
       </div>}
       {mode === 'scan' && <div style={{ fontSize: 12.5, color: MUTED, textAlign: 'center' }}>Press and hold on the counter to scan. A real scanner works too: just scan the practice sheet.</div>}
@@ -918,13 +930,13 @@ export default function RegisterPractice() {
       </div>}
       {mode === 'name' && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products" style={input} />
-        {R.lookup(q).map((k) => <button key={k.key} onClick={() => nameGo(k.key)} style={{ ...rowBtn }}><span style={{ width: 14, height: 22, borderRadius: 4, background: k.color }} /><span style={{ flex: 1, textAlign: 'left' }}>{R.skuLabel(k)}</span><b>{money(k.price)}</b></button>)}
+        {R.lookup(q).map((k) => <button key={k.key} onClick={() => nameGo(k.key)} style={{ ...rowBtn }}><Thumb sku={k} size={34} /><span style={{ flex: 1, textAlign: 'left' }}>{R.skuLabel(k)}</span><b>{money(k.price)}</b></button>)}
         {!q && <div style={{ fontSize: 12, color: MUTED }}>Similar products have similar names. Check the size.</div>}
       </div>}
       {msg && <div style={{ fontSize: 13, fontWeight: 600, color: msg.tone === 'ok' ? GREEN : msg.tone === 'warn' ? AMBER : RED, textAlign: 'center' }}>{msg.text}</div>}
       {cur.c.items.length > 1 && <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderTop: `1px solid ${LINE}`, paddingTop: 10 }}>
         <span style={{ fontSize: 12, color: MUTED }}>On the counter:</span>
-        {cur.c.items.map((it) => { const k = R.skuBy(it.sku); return <button key={it.sku} aria-label={`Pick up ${R.skuLabel(k)}`} onClick={() => { setSel(it.sku); setMsg(null); }} style={{ ...mini, display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: sel === it.sku ? INK : LINE }}><span style={{ width: 8, height: 14, borderRadius: 2, background: k.color }} />{R.skuLabel(k)}{it.n > 1 ? ` ×${it.n}` : ''}</button>; })}
+        {cur.c.items.map((it) => { const k = R.skuBy(it.sku); return <button key={it.sku} aria-label={`Pick up ${R.skuLabel(k)}`} onClick={() => { setSel(it.sku); setMsg(null); }} style={{ ...mini, display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: sel === it.sku ? INK : LINE }}><Thumb sku={k} size={22} />{R.skuLabel(k)}{it.n > 1 ? ` ×${it.n}` : ''}</button>; })}
       </div>}
     </div>
   );
@@ -956,7 +968,7 @@ export default function RegisterPractice() {
 
   const counter = cur && (
     <div style={{ display: 'flex', gap: narrow ? 10 : 16, alignItems: 'flex-end', overflowX: 'auto', padding: '10px 4px 4px' }}>
-      {items.map((it, i) => <Bottle key={`${it.key}${i}`} sku={R.skuBy(it.key)} w={narrow ? 54 : 66} h={narrow ? 104 : 126} selected={sel === it.key} onClick={() => { setSel(it.key); setMode('scan'); setMsg(null); }} smudge={cur.c.slips.some((x) => x.kind === 'unreadable' && x.sku === it.key)} />)}
+      {items.map((it, i) => <ProductPhoto key={`${it.key}${i}`} sku={R.skuBy(it.key)} h={narrow ? 104 : counterH} selected={sel === it.key} onClick={() => { setSel(it.key); setMode('scan'); setMsg(null); }} smudge={cur.c.slips.some((x) => x.kind === 'unreadable' && x.sku === it.key)} />)}
     </div>
   );
 
@@ -965,7 +977,7 @@ export default function RegisterPractice() {
   const micOpen = !!micRef.current?.open || (!cloudEars && talkState !== 'idle');
   const statusLine = !micOpen ? (handsFree ? 'Tap the mic to start talking' : 'Hold the mic (or Space) and talk') : talkState === 'hearing' ? (handsFree ? 'Hearing you… pause when you’re done' : 'Hearing you… let go to send') : talkState === 'thinking' ? `${talkName} is thinking…` : talkState === 'client' ? `${talkName} is talking. Just start talking to cut in` : handsFree ? `Listening. Just talk to ${talkName}` : 'Hold the mic (or Space) and talk';
   const talkEl = talkOn && (cur || onLine) && (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: narrow || onLine ? '100%' : 360, background: 'rgba(255,255,255,.97)', border: `1px solid ${LINE}`, borderRadius: 18, padding: 10, boxSizing: 'border-box', boxShadow: onLine ? 'none' : '0 12px 28px -18px rgba(0,0,0,.45)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', background: 'rgba(255,255,255,.97)', border: `1px solid ${LINE}`, borderRadius: 18, padding: 10, boxSizing: 'border-box', boxShadow: onLine ? 'none' : '0 12px 28px -18px rgba(0,0,0,.45)' }}>
       {(interim.trim() || heard) && <div style={{ alignSelf: 'flex-end', background: interim.trim() ? SOFT : INK, color: interim.trim() ? MUTED : '#fff', borderRadius: '14px 14px 4px 14px', padding: '7px 11px', fontSize: 13, lineHeight: 1.4, maxWidth: '92%', fontStyle: interim.trim() ? 'italic' : 'normal' }}>“{interim.trim() || heard}”</div>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button ref={micBtn} aria-label={handsFree ? (micOpen ? 'Turn the mic off' : 'Start talking') : 'Hold to talk'}
@@ -1010,12 +1022,10 @@ export default function RegisterPractice() {
       {R.greetOptions(cur.c).map((g) => <button key={g.text} onClick={() => { R.greet(s, g.q); drainSfx(); rerender(); }} style={{ ...rowBtn, padding: '7px 11px', fontSize: 13, textAlign: 'left', background: INK, color: '#fff', borderColor: INK, borderRadius: '14px 14px 4px 14px' }}>“{g.text}”</button>)}
     </div>
   );
-  const client = shownC ? (
-    <div style={{ display: 'flex', alignItems: narrow ? 'center' : 'flex-end', gap: narrow ? 10 : 18 }}>
-      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-end' }}>
-        {shownC.party ? shownC.party.members.map((m, i) => { const now = cur?.parts ? R.payerName(s) === m.name : i === 0; return <div key={m.name} style={{ marginLeft: i ? (narrow ? -34 : -90) : 0, opacity: cur?.parts && !now ? 0.75 : 1, transform: now ? 'translateY(-6px)' : undefined, transition: 'all .3s', zIndex: now ? 2 : 1 }}><Person look={m.look} size={narrow ? 84 : 220} mood={cur?.mood ?? 0.9} /></div>; })
+  const portrait = (big: number, partySize: number) => !shownC ? null : (
+    shownC.party ? shownC.party.members.map((m, i) => { const now = cur?.parts ? R.payerName(s) === m.name : i === 0; return <div key={m.name} style={{ marginLeft: i ? -Math.round(partySize * 0.4) : 0, opacity: cur?.parts && !now ? 0.75 : 1, transform: now ? 'translateY(-6px)' : undefined, transition: 'all .3s', zIndex: now ? 2 : 1 }}><Person look={m.look} size={partySize} mood={cur?.mood ?? 0.9} /></div>; })
           : face.current && face.current.state !== 'off' && face.current.who === shownC.id ? (
-            <div style={{ position: 'relative', width: narrow ? 150 : 300, height: narrow ? 200 : 400, borderRadius: 22, overflow: 'hidden', background: '#1b1a20', boxShadow: '0 30px 50px -24px rgba(0,0,0,.55)' }}>
+            <div style={{ position: 'relative', width: narrow ? 150 : big, height: narrow ? 200 : Math.round(big * 1.33), borderRadius: 22, overflow: 'hidden', background: '#1b1a20', boxShadow: '0 30px 50px -24px rgba(0,0,0,.55)' }}>
               <video id="cf-face" autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               {face.current.state === 'live' && <span style={{ position: 'absolute', left: 10, top: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 9px', borderRadius: 999, background: 'rgba(220,38,38,.9)', color: '#fff', fontSize: 10.5, fontWeight: 800 }}><span style={{ width: 7, height: 7, borderRadius: 4, background: '#fff' }} />LIVE</span>}
               {face.current.state === 'connecting' && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12.5, fontWeight: 600, background: 'rgba(0,0,0,.35)' }}>Connecting live video…</div>}
@@ -1023,10 +1033,15 @@ export default function RegisterPractice() {
               {face.current.state === 'live' && !face.current.videoStarted && <button onClick={() => { (document.getElementById('cf-face') as HTMLVideoElement | null)?.play().catch(() => {}); }} style={{ position: 'absolute', left: '50%', bottom: 12, transform: 'translateX(-50%)', ...mini }}>Tap to start video</button>}
             </div>
           ) : faceOn && caps.faces && s.onCall && cur?.c.id === shownC.id ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} /><span style={{ fontSize: 11, color: MUTED, fontWeight: 600 }}>Live video paused while you’re on the phone</span></div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} /><span style={{ fontSize: 11, color: MUTED, fontWeight: 600 }}>Live video paused while you’re on the phone</span></div>
           ) : facePaused === shownC.id && faceOn ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} /><button onClick={() => setFacePaused(null)} style={{ ...mini, fontSize: 11 }}>Paused to save minutes · resume live video</button></div>
-          ) : <Person look={shownC.look} size={narrow ? 120 : 300} mood={cur?.mood ?? 0.9} />}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}><Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} /><button onClick={() => setFacePaused(null)} style={{ ...mini, fontSize: 11 }}>Paused to save minutes · resume live video</button></div>
+          ) : <Person look={shownC.look} size={big} mood={cur?.mood ?? 0.9} />
+  );
+  const client = shownC ? (
+    <div style={{ display: 'flex', alignItems: narrow ? 'center' : 'flex-end', gap: narrow ? 10 : 18 }}>
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-end' }}>
+        {portrait(narrow ? 120 : 300, narrow ? 84 : 220)}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: narrow ? 0 : 90 }}>
         <Say tone={cur && cur.mood < 0.3 ? 'warn' : cur?.claim === 'discount' || pay === 'approved' || pay === 'receipt' ? 'ok' : 'soft'}>{pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : talkOn && talkState === 'thinking' && !s.onCall ? '…' : cur?.said}</Say>
@@ -1060,7 +1075,7 @@ export default function RegisterPractice() {
   const waitEl = waitingClient && <div style={{ position: 'fixed', left: '50%', bottom: narrow ? 10 : 18, transform: 'translateX(-50%)', zIndex: 45, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '7px 8px 7px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 12px 26px -14px rgba(0,0,0,.45)', fontSize: 13 }}><span style={{ width: 8, height: 8, borderRadius: 4, background: BLUE }} />Waiting for the client screen…<button style={mini} onClick={chooseForThem}>Choose for them</button></div>;
   const lastRv = s.reviews.length ? s.reviews[s.reviews.length - 1] : null;
   const phoneEl = <>
-    <PhoneDock s={s} narrow={narrow} talkEl={null} twoPlayer={twoP} excused={!!s.ringing && excusedFor.current === s.ringing.call.id} done={phoneDone} onExcuse={excuseMe} onAnswer={answerCall}
+    <PhoneDock at={{ left: '50%', top: 84, transform: 'translateX(-30%)' }} s={s} narrow={narrow} talkEl={null} twoPlayer={twoP} excused={!!s.ringing && excusedFor.current === s.ringing.call.id} done={phoneDone} onExcuse={excuseMe} onAnswer={answerCall}
       onListen={(vm) => sayOut(vm.call.voicemail, { id: vm.call.id, voice: vm.call.voice, pron: vm.call.voiceHint.gender === 'male' ? 'he' : 'she' } as R.Customer, 'neutral', phoneFxRef.current, true)} />
     {s.onCall && <CallCard key={s.onCall.call.id} s={s} narrow={narrow} talkEl={talkEl} twoPlayer={twoP} excused done={phoneDone} onExcuse={excuseMe} onAnswer={answerCall} onListen={() => {}} beforeAct={() => stopAudio.current?.()} />}
     {lastRv && seenRv !== s.reviews.length && !s.onCall && !s.ringing && <CallReviewCard key={s.reviews.length} rv={lastRv} narrow={narrow} onClose={() => setSeenRv(s.reviews.length)} />}
@@ -1126,27 +1141,128 @@ export default function RegisterPractice() {
     </div>
   );
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, background: 'linear-gradient(180deg,#f6f3ef 0%,#f1ece6 58%,#ece6df 100%)' }}>
-      <Fonts />
-      {/* the salon behind the client */}
-      <div style={{ position: 'absolute', left: '50%', top: 70, width: 420, height: 280, transform: 'translateX(-10%)', borderRadius: 16, background: '#fbfaf8', boxShadow: 'inset 0 0 0 10px #fff, 0 20px 40px -30px rgba(0,0,0,.4)' }} />
-      <div style={{ position: 'absolute', right: 70, top: 160, width: 84, height: 210, borderRadius: '42px 42px 10px 10px', background: 'radial-gradient(circle at 40% 30%,#7fb27a,#2f6b3a)' }} />
-      <div style={{ position: 'absolute', right: 88, top: 350, width: 48, height: 60, borderRadius: '6px 6px 14px 14px', background: '#efe9e2', boxShadow: 'inset 0 0 0 2px #e2dbd2' }} />
-      <div style={{ position: 'absolute', left: 16, right: 16, top: 14, zIndex: 5 }}>{hud}</div>
-      <div style={{ position: 'absolute', right: 24, top: 74, zIndex: 5 }}>{queue}</div>
-      {coachEl && <div style={{ position: 'absolute', left: '50%', top: 74, transform: 'translateX(-50%)', zIndex: 6 }}>{coachEl}</div>}
-      <div style={{ position: 'absolute', left: '38%', bottom: '40%', zIndex: 1 }}>{client}</div>
-      {/* the counter */}
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '42%', background: 'linear-gradient(180deg,#f4f4f6 0%,#e9e9ec 40%,#dfdfe3 100%)', borderTop: '8px solid #fff', zIndex: 2 }} />
-      <div style={{ position: 'absolute', left: 28, bottom: 34, width: 'min(430px, 34vw)', height: 'min(430px, 58vh)', zIndex: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ background: '#16171a', borderRadius: 16, padding: 8, width: '100%', height: '100%', boxSizing: 'border-box', boxShadow: '0 26px 40px -20px rgba(0,0,0,.6)' }}>{pos || arrivalPanel || saleDone}</div>
+  const clientSub = (c: R.Customer) => c.party ? `Group · ${c.party.members.map((m) => m.name).join(', ')}` : `${c.kind === 'new' ? 'First visit' : `${ordinal(c.visits)} visit`} · ${c.service.label} with ${c.service.provider}`;
+  const kindLabel = (c: R.Customer) => c.party ? 'Group' : c.kind === 'new' ? 'New client' : c.kind === 'regular' ? 'Regular' : 'Returning';
+  const saidNow = pay === 'receipt' ? 'Thank you! See you next time.' : pay === 'approved' ? 'Thank you!' : talkOn && talkState === 'thinking' && !s.onCall ? '…' : cur?.said;
+  const openLookup = () => { if (!cur || !items.length) { setMsg({ text: 'Nothing on the counter to ring up yet.', tone: 'warn' }); return; } setSel(items[0].key); setMode('name'); setMsg(null); };
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+  const glassBtn = { ...GLASS_ROW, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 16, fontSize: 14.5, fontWeight: 500, fontFamily: 'inherit', textAlign: 'left' as const, cursor: 'pointer', width: '100%' };
+  const chat = (
+    <div style={{ ...GLASS, borderRadius: 26, padding: 14, width: compact ? 330 : 360, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 'calc(64vh - 96px)', overflow: 'auto', boxSizing: 'border-box' }}>
+      {shownC ? <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <FaceDot look={shownC.look} size={58} />
+          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 19, fontWeight: 600 }}>{shownC.party ? 'Maya’s bridal party' : shownC.name}</div><div style={{ fontSize: 12.5, opacity: 0.88, lineHeight: 1.35 }}>{clientSub(shownC)}</div></div>
+          <span style={{ fontSize: 12.5, fontWeight: 600, padding: '5px 11px', borderRadius: 999, background: 'rgba(127,209,165,.22)', color: '#dff5e9', border: '1px solid rgba(127,209,165,.5)', whiteSpace: 'nowrap' }}>{kindLabel(shownC)}</span>
+        </div>
+        {saidNow && <div style={{ background: '#fff', color: INK, borderRadius: '22px 22px 22px 6px', padding: '13px 17px', fontSize: 16, fontWeight: 500, lineHeight: 1.4, boxShadow: '0 14px 28px -18px rgba(0,0,0,.6)', border: cur && cur.mood < 0.3 ? `2px solid ${AMBER}` : 'none' }}>{saidNow}</div>}
+        {cur && !cur.greeted && !pay && !talkOn && R.greetOptions(cur.c).map((g, i) => <button key={g.text} onClick={() => { R.greet(s, g.q); drainSfx(); rerender(); }} style={glassBtn}><Icon name={['sparkle', 'question', 'clock'][i % 3]} size={19} />{g.text}</button>)}
+        {claimCard}
+        {talkOn ? (!s.onCall && talkEl) : cur && <button onClick={toggleTalk} style={{ ...glassBtn, borderRadius: 999, padding: '8px 16px 8px 8px', marginTop: 2 }}><span style={{ width: 38, height: 38, borderRadius: 19, background: 'rgba(255,255,255,.9)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="mic" size={19} color={INK} /></span><span style={{ opacity: 0.9 }}>Tap to speak or type…</span></button>}
+      </> : <div style={{ fontSize: 15, padding: '8px 4px' }}>{waiting.length ? 'Next client is walking up…' : 'Nobody at the desk right now.'}</div>}
+    </div>
+  );
+  const offers = cur && !R.isArrival(cur.c) ? R.offersFor(s).slice(0, 3) : [];
+  const tcard = { background: '#fff', borderRadius: 16, border: '1px solid #ece8e2', padding: '10px 12px' } as const;
+  const tablet = (
+    <div style={{ width: 'min(640px, 45vw)', height: 'min(560px, 62vh)', background: 'linear-gradient(160deg,#2c2d31,#111214)', borderRadius: 36, padding: 12, boxSizing: 'border-box', boxShadow: '0 50px 80px -40px rgba(0,0,0,.8), inset 0 0 0 1px rgba(255,255,255,.08)' }}>
+      <div style={{ background: '#f8f7f4', borderRadius: 26, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px 10px' }}>
+          <Wordmark light={false} h={24} sub={false} />
+          <button onClick={openLookup} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, height: 40, borderRadius: 14, border: '1px solid #e6e2dc', background: '#fff', padding: '0 12px', color: MUTED, fontSize: 13.5, fontFamily: 'inherit', cursor: 'pointer' }}><Icon name="search" size={16} />Scan, search, or add item…<span style={{ marginLeft: 'auto', display: 'inline-flex' }}><Icon name="barcode" size={18} /></span></button>
+        </div>
+        {cur && !R.isArrival(cur.c) && pay !== 'receipt' ? <>
+          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: compact ? '1.1fr 1fr' : '1.3fr 1fr', gap: 10, padding: '0 12px 10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0, overflow: 'auto' }}>
+              <div style={{ ...tcard, padding: '2px 12px' }}>{tillLines}</div>
+              {detailsEl}
+              {!pay && items.length > 0 && <button onClick={openLookup} style={{ ...tabletBtn(), alignSelf: 'flex-start', height: 38, fontSize: 13 }}><Icon name="plus" size={16} />Add item</button>}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0, overflow: 'auto' }}>
+              <div style={{ ...tcard, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <FaceDot look={cur.c.look} size={40} ring={false} />
+                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 14, fontWeight: 700 }}>{cur.c.name}</div><div style={{ fontSize: 11, color: MUTED, lineHeight: 1.3 }}>{clientSub(cur.c)}</div></div>
+                <Chip tone={cur.c.kind === 'new' ? 'blue' : cur.c.kind === 'regular' ? 'green' : undefined}>{kindLabel(cur.c)}</Chip>
+              </div>
+              {!pay && <div style={{ ...tcard, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><b style={{ fontSize: 12.5, flex: 1 }}>Next visit</b>
+                  {cur.rebooked ? <Chip tone={cur.rebooked === 'no' ? undefined : 'green'}>{cur.rebooked === 'no' ? 'Will book online' : cur.rebooked}</Chip> : asking === 'rebook' ? <span style={{ fontSize: 12, color: BLUE }}>{twoP ? 'Choosing on the client screen…' : 'Asking…'}</span> : null}</div>
+                {!cur.rebooked && asking !== 'rebook' && <button style={{ ...tabletBtn(), height: 34, fontSize: 12.5 }} onClick={offerNextVisit}>Offer next visit</button>}
+                {!cur.rebooked && cur.c.rebook !== 'no' && !cur.c.party && <span style={{ fontSize: 11.5, color: MUTED }}>{cur.c.name} usually comes every {cur.c.rebook} weeks.</span>}
+              </div>}
+              {!pay && offers.length > 0 && <div style={{ ...tcard, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <b style={{ fontSize: 12.5 }}>Suggested</b>
+                {offers.map((o) => { const done2 = cur.offered.includes(o.key); const ok = R.fits(cur.c, o); return (
+                  <div key={o.key} title={o.desc} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 34, height: 34, borderRadius: 10, background: ok ? '#e8f3ec' : '#f2f0ec', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: ok ? GREEN : MUTED, fontSize: 15 }}>★</span>
+                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 600 }}>{o.name}</div><div style={{ fontSize: 11.5, color: MUTED }}>{money(o.price)}{o.per ? '/mo' : ''}</div></div>
+                    <button disabled={done2 || !!asking} onClick={() => offerIt(o.key)} style={{ ...tabletBtn(false, !done2 && ok), height: 30, padding: '0 12px', fontSize: 12, opacity: done2 ? 0.5 : 1 }}>{asking === o.key ? 'Asking…' : done2 ? 'Offered' : 'Offer'}</button>
+                  </div>); })}
+              </div>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '0 14px 10px' }}>
+            <span style={{ fontSize: 12.5, color: MUTED }}>{R.live(cur).length} {R.live(cur).length === 1 ? 'item' : 'items'}</span><span style={{ flex: 1 }} />
+            <span style={{ fontSize: 17, fontWeight: 600 }}>Total</span><span style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em' }}>{money(total)}</span>
+          </div>
+          {pay === 'method' && <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {cur.parts && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{cur.parts.map((p, i) => <Chip key={i} tone={p.paid ? 'green' : i === cur.partIdx ? 'ink' : undefined}>{p.paid ? '✓ ' : ''}{p.who} · {cash(p.amount)}</Chip>)}</div>}
+            <div style={{ fontSize: 12.5, color: MUTED }}>{cur.parts ? `${R.payerName(s)} pays ${cash(R.dueNow(s))}. ` : ''}{R.payerName(s)} would like to pay by {R.prefers(s)}. You can take either.{twoP && !prefPick ? ' They’re choosing on the client screen…' : ''}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <button onClick={() => chooseMethod('card')} style={{ ...tabletBtn(false, (prefPick || R.prefers(s)) === 'card'), height: 54, fontSize: 15 }}><Icon name="card" size={20} />Card</button>
+              <button onClick={() => chooseMethod('cash')} style={{ ...tabletBtn(false, (prefPick || R.prefers(s)) === 'cash'), height: 54, fontSize: 15 }}><Icon name="cash" size={20} />Cash</button>
+            </div>
+          </div>}
+          {!pay ? <div style={{ padding: '0 12px 12px' }}><button onClick={takePayment} disabled={!!asking} style={{ ...tabletBtn(true), width: '100%', height: 58, fontSize: 17, borderRadius: 16, opacity: asking ? 0.6 : 1 }}>Take payment — {money(total)}<span aria-hidden style={{ fontSize: 20 }}>→</span></button></div>
+            : pay !== 'method' && <div style={{ padding: '0 12px 12px', maxHeight: '48%', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>{payFlow}</div>}
+        </> : <div style={{ flex: 1, minHeight: 0, padding: '0 12px 12px', overflow: 'auto' }}>{arrivalPanel || saleDone || <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 14 }}>{waiting.length ? 'Next client is walking up…' : 'Ready for the next client.'}</div>}</div>}
       </div>
-      <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 70px)', bottom: 40, zIndex: 3 }}>{counter}</div>
-      <div style={{ position: 'absolute', right: 400, bottom: 40, zIndex: 4 }}>{receiptPanel || <ReceiptPrinter r={null} printing={false} />}</div>
-      <div style={{ position: 'absolute', right: 40, bottom: 40, zIndex: 3 }}>{clientScreen || (cur && <Reader amount={money(total)} line1="Waiting for payment" />)}</div>
-      {zoom && <div style={{ position: 'absolute', left: '50%', bottom: 30, transform: 'translateX(-30%)', zIndex: 10 }}>{zoom}</div>}
-      {drawerPanel && <div style={{ position: 'absolute', left: 'calc(min(430px, 34vw) + 50px)', right: 390, bottom: 24, zIndex: 10, display: 'flex', justifyContent: 'center' }}>{drawerPanel}</div>}
+    </div>
+  );
+  const statsEl = stats && (
+    <div style={{ ...GLASS, position: 'absolute', right: 24, top: 86, zIndex: 30, borderRadius: 18, padding: 12, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220, fontSize: 13.5 }}>
+      {([['Accuracy', `${done.length ? Math.round((clean / done.length) * 100) : 100}%`], ['Average checkout', done.length ? `${avg}s` : '—'], ['Checkouts', String(done.length)], ['Best streak', `×${s.bestStreak}`], ['Scanner', usb ? 'Connected' : 'Not connected']] as const).map(([k, v]) => <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}><span style={{ opacity: 0.85 }}>{k}</span><b>{v}</b></div>)}
+      <a href="/practice/register/sheet" target="_blank" rel="noreferrer" style={{ color: '#7fd1a5', fontSize: 12.5, fontWeight: 600, marginTop: 4 }}>Print practice barcodes</a>
+    </div>
+  );
+  const counterRow = cur && !pay && (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 30 }}>
+      {counter}
+      {!zoom && <Reader amount={money(total)} line1="Waiting for payment" scale={compact ? 0.9 : 1.05} />}
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: INK, background: '#5d4c40' }}>
+      <Fonts />
+      <Backdrop />
+      <div style={{ position: 'absolute', left: '47%', bottom: '36%', transform: 'translateX(-50%)', zIndex: 1, filter: 'drop-shadow(0 30px 40px rgba(40,28,20,.35))' }}>{portrait(compact ? 380 : 440, compact ? 220 : 260)}</div>
+      <Counter top="64%" />
+      <div style={{ position: 'absolute', left: 26, top: 18, zIndex: 6 }}><Wordmark h={46} /></div>
+      <div style={{ position: 'absolute', left: 206, top: 26, zIndex: 6 }}><Pill style={{ gap: 26, fontSize: 13.5, letterSpacing: '.04em' }}><span>{today}</span><span>{clockOf(s.t)}</span></Pill></div>
+      {coachEl && <div style={{ position: 'absolute', left: '50%', top: 24, transform: 'translateX(-30%)', zIndex: 7, maxWidth: 420 }}>{coachEl}</div>}
+      <div style={{ position: 'absolute', right: 24, top: 22, zIndex: 6, display: 'flex', gap: 10, alignItems: 'center' }}>
+        {s.streak > 1 && <Pill style={{ padding: '10px 14px', fontSize: 13 }}>Streak ×{s.streak}</Pill>}
+        <LevelPill points={s.points} /><PointsPill points={s.points} />
+        <button onClick={() => setStats((v) => !v)} aria-label="Shift stats" aria-expanded={stats} style={{ ...GLASS, width: 50, height: 46, borderRadius: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Icon name="menu" size={22} color="#fff" /></button>
+      </div>
+      {statsEl}
+      <div style={{ position: 'absolute', right: 24, top: stats ? 300 : 86, zIndex: 5 }}>{queue}</div>
+      <nav aria-label="Register" style={{ ...GLASS, position: 'absolute', left: 18, top: 104, width: 172, borderRadius: 20, padding: 8, display: 'flex', flexDirection: 'column', gap: 2, zIndex: 6, boxSizing: 'border-box' }}>
+        <RailButton icon="bag" label="Sale" active />
+        <RailButton icon="mic" label="Talk" on={talkOn} onClick={toggleTalk} />
+        <RailButton icon="screen" label="Client screen" on={twoP} onClick={() => setShowRoom(true)} />
+        <RailButton icon="camera" label="Camera scan" onClick={() => setCamera(true)} />
+        <RailButton icon={voice ? 'sound' : 'mute'} label={voice ? 'Voices on' : 'Voices off'} onClick={toggleVoice} />
+        <RailButton icon={paused ? 'play' : 'pause'} label={paused ? 'Resume' : 'Pause'} onClick={() => setPaused((p) => !p)} />
+        <RailButton icon="exit" label="Exit" onClick={() => setScreen('menu')} />
+      </nav>
+      <div style={{ position: 'absolute', left: 204, top: 104, zIndex: 6 }}>{chat}</div>
+      <div style={{ position: 'absolute', left: 40, bottom: '6%', zIndex: 3 }}>{pay ? clientScreen : counterRow}</div>
+      {receiptPanel && <div style={{ position: 'absolute', left: 400, bottom: 18, zIndex: 4 }}>{receiptPanel}</div>}
+      <div style={{ position: 'absolute', right: 22, bottom: 22, zIndex: 5 }}>{tablet}</div>
+      {zoom && <div style={{ position: 'absolute', left: 30, bottom: 24, zIndex: 10 }}>{zoom}</div>}
+      {drawerPanel && <div style={{ position: 'absolute', left: 30, bottom: 24, zIndex: 10 }}>{drawerPanel}</div>}
       {camera && <CameraScanner onCode={onCamera} onClose={() => setCamera(false)} />}
       {toast}{roomEl}{waitEl}{phoneEl}{printEl}{voicePanel}{checkPanel}
       {pauseEl}

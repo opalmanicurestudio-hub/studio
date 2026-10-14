@@ -178,7 +178,7 @@ for (const cc of ['USD', 'CAD'] as const) { const s = R.newRegister(cc); until(s
   const r3 = R.pay(s)!; check(`${cc}: last part closes the ticket, clean`, r3.partial === false && (r3 as any).clean && !s.cur, s.mistakes);
   check(`${cc}: the receipt shows three payments`, s.lastReceipt?.tenders.length === 3 && s.lastReceipt.choice === 'print'); }
 { const s = R.newRegister(); until(s, 'party'); scanAllUsb(s); const parts = R.setSplit(s, 'own')!;
-  check('each pays their own: retail goes with Maya', parts[0].amount === $.cents(45 + 24) && parts[1].amount === 5500 && parts[2].amount === 7500, parts);
+  check('each pays their own: retail goes with Maya', parts[0].amount === $.cents(45 + 18) && parts[1].amount === 5500 && parts[2].amount === 7500, parts);
   R.pay(s); R.pay(s); R.pay(s); check('wrong split: they had to redo it', s.mistakes.some((m) => /asked to split evenly/.test(m.what))); }
 
 console.log('Card or cash for anyone');
@@ -279,10 +279,10 @@ console.log('Pace and the review');
 { const s = R.newRegister(); let guard = 0;
   while (!R.finished(s) && guard++ < 3000) { R.advance(s, 0.5); if (deskRight(s)) continue; if (s.cur) { for (const it of s.cur.c.items) for (let k = 0; k < it.n; k++) R.scan(s, code(it.sku), 'usb'); R.pay(s); } }
   const rv = R.review(s);
-  check('a whole shift runs to the end (8 checkouts, 3 check-ins, 5 calls, 1 voicemail callback)', rv.checkouts === 17, rv.checkouts);
+  check('a whole shift runs to the end (9 checkouts, 3 check-ins, 5 calls, 1 voicemail callback)', rv.checkouts === 18, rv.checkouts);
   check('every call got a review with a perfect etiquette checklist', s.reviews.length === 6 && s.reviews.every((x) => x.score === 100), s.reviews.map((x) => [x.who, x.score, x.checklist.filter((i) => !i.ok).map((i) => i.label)]));
   check('scanning straight through trips on new-client details, the split, the shelf price and the allergy', rv.mistakes.filter((m) => !m.minor).length === 4 && rv.stars === 2, rv.mistakes.map((m) => m.what));
-  check('and coaches on every missed rebook and membership', rv.mistakes.filter((m) => /next visit/.test(m.what)).length === 6 && rv.mistakes.filter((m) => /Didn’t mention/.test(m.what)).length === 3);
+  check('and coaches on every missed rebook and membership', rv.mistakes.filter((m) => /next visit/.test(m.what)).length === 7 && rv.mistakes.filter((m) => /Didn’t mention/.test(m.what)).length === 3);
   check('the review names a best moment', !!rv.best); }
 
 console.log('Hold');
@@ -342,6 +342,15 @@ console.log('Pacing');
 { const s = R.newRegister('USD', 'drill', { client: 'grace' }); R.advance(s, 0.5);
   check('drill: one client, no phone, relaxed', s.cur?.c.id === 'grace' && s.queue.length === 0 && s.calls.length === 0 && s.voicemails.length === 0 && s.pace === 'relaxed');
   for (let i = 0; i < 2 * 600; i++) R.advance(s, 0.5); check('drill: she waits as long as you need', s.cur!.mood > 0.2, s.cur!.mood); }
+
+{ const s = R.newRegister('USD', 'drill', { client: 'dani' }); R.advance(s, 0.5);
+  check('Dani: the studio’s own products are on her counter, with photos', s.cur!.c.items.every((i) => !!R.skuBy(i.sku).img && R.skuBy(i.sku).brand === 'Opal'));
+  const r1 = R.scan(s, code('bitball'), 'gun'); check('the scratched sticker won’t scan with the gun', !r1.ok && r1.kind === 'unreadable');
+  check('looking up “drill bit” shows both shapes', R.lookup('drill bit').length === 2);
+  R.addByName(s, 'bitbarrel'); R.scan(s, code('nipper'), 'gun'); R.pay(s);
+  check('ringing up the barrel instead of the ball is caught in the review', s.mistakes.some((m) => /barrel\) instead of .*ball/.test(m.what) && /wrong item/.test(m.later)), s.mistakes.map((m) => m.what)); }
+{ const s = R.newRegister('USD', 'drill', { client: 'dani' }); R.advance(s, 0.5); R.scan(s, code('bitball'), 'typed'); R.scan(s, code('nipper'), 'gun'); R.pay(s);
+  check('typing the number under the barcode rings up the right bit', !s.mistakes.some((m) => /instead of|not rung up/.test(m.what)) && R.totalOf(s.cur || ({ lines: [] } as any)) >= 0, s.mistakes.map((m) => m.what)); }
 
 console.log(fails ? `\n${fails} failed` : '\nAll checks passed');
 process.exit(fails ? 1 : 0);
