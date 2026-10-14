@@ -3,8 +3,10 @@
 // Adds `studio` to <html> (see globals.css) unless the business chose the
 // Classic look, and paints buttons/active states in the business's accent —
 // only when white text on it stays readable (WCAG 4.5:1); otherwise ink.
+// Also applies white or true black (html.dark), this device's choice.
 import { useEffect } from 'react';
 import { useTenant } from '@/context/TenantContext';
+import { useDeskTheme } from '@/components/pos/desk/kit';
 
 /** The business's accent: their booking-page colour (same one the front desk uses). */
 export function accentOf(t: any): string | null {
@@ -27,6 +29,12 @@ export function StudioTheme() {
   const { selectedTenant } = useTenant() as any;
   const on = (selectedTenant as any)?.appAppearance !== 'classic';
   const hsl = accentHsl(accentOf(selectedTenant));
+  const { resolved } = useDeskTheme();   // white or true black, this device's choice (lib/app-theme)
+  useEffect(() => {
+    const root = document.documentElement; const dark = resolved === 'dark';
+    root.classList.toggle('dark', dark); root.style.colorScheme = dark ? 'dark' : 'light';
+    return () => { root.classList.remove('dark'); root.style.colorScheme = ''; };
+  }, [resolved]);
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle('studio', on);

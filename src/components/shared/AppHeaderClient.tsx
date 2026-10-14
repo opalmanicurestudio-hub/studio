@@ -11,10 +11,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Bell, LifeBuoy, LogOut, Settings, User, Sparkles } from 'lucide-react';
+import { Bell, LogOut, Settings, Sun, Moon, MonitorSmartphone, Check } from 'lucide-react';
 import { ClientOnly } from './ClientOnly';
-import { useUser } from '@/firebase';
-import { cn } from '@/lib/utils';
+import { useUser, useAuth } from '@/firebase';
+import { useRouter } from 'next/navigation';
+import { signOut } from 'firebase/auth';
+import { useDeskTheme } from '@/components/pos/desk/kit';
 
 type AppHeaderProps = {
   title: string;
@@ -22,61 +24,61 @@ type AppHeaderProps = {
 
 export function AppHeaderClient({ title }: AppHeaderProps) {
   const { user } = useUser();
-  
+  const auth = useAuth();
+  const router = useRouter();
+  const { pref, resolved, set } = useDeskTheme();
+  const dark = resolved === 'dark';
+
   const getInitials = (name?: string | null): string => {
     if (!name) return 'U';
     const parts = name.split(' ').filter(Boolean);
-    if (parts.length > 1) {
-      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-    }
+    if (parts.length > 1) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
     return name.substring(0, 2).toUpperCase();
   };
+  const item = 'h-11 cursor-pointer rounded-xl px-3 text-[14px]';
+  const looks: ['light' | 'dark' | 'system', string, typeof Sun][] = [['light', 'White', Sun], ['dark', 'Black', Moon], ['system', 'Match this device', MonitorSmartphone]];
 
   return (
-    <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur-xl md:px-8">
-      <div className="flex items-center gap-4">
-        <SidebarTrigger className="lg:hidden hover:bg-primary/10 transition-colors" />
-        <h1 className="text-sm sm:text-lg font-black uppercase tracking-tighter text-slate-900 md:text-xl truncate">
-          {title}
-        </h1>
+    <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border/60 bg-background/85 px-4 backdrop-blur-xl md:px-8">
+      <div className="flex min-w-0 items-center gap-3">
+        <SidebarTrigger className="lg:hidden" />
+        <h1 className="truncate text-[19px] font-light tracking-tight text-foreground md:text-[22px]">{title}</h1>
       </div>
-      <div className="ml-auto flex items-center gap-2 md:gap-4">
+      <div className="ml-auto flex items-center gap-1.5 md:gap-2">
         <ClientOnly>
-          <Button variant="ghost" size="icon" className="rounded-full h-10 w-10 hover:bg-primary/5">
-            <Bell className="h-5 w-5" />
-            <span className="sr-only">Toggle notifications</span>
+          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full" onClick={() => set(dark ? 'light' : 'dark')} aria-label={dark ? 'Switch to white' : 'Switch to black'} title={dark ? 'Switch to white' : 'Switch to black'}>
+            {dark ? <Sun className="h-5 w-5" strokeWidth={1.7} /> : <Moon className="h-5 w-5" strokeWidth={1.7} />}
+          </Button>
+          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full" aria-label="Notifications">
+            <Bell className="h-5 w-5" strokeWidth={1.7} />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-10 w-10 rounded-xl p-0 hover:bg-primary/5">
-                <Avatar className="h-10 w-10 rounded-xl border-2 border-transparent hover:border-primary/20 transition-all shadow-sm">
-                  <AvatarImage src={user?.photoURL || undefined} alt="User" className="object-cover" />
-                  <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">
-                    {getInitials(user?.displayName)}
-                  </AvatarFallback>
+              <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0" aria-label="Your account">
+                <Avatar className="h-10 w-10 rounded-full">
+                  <AvatarImage src={user?.photoURL || undefined} alt="" className="object-cover" />
+                  <AvatarFallback className="bg-secondary text-[12px] font-semibold text-foreground">{getInitials(user?.displayName)}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64 rounded-[2rem] shadow-3xl border-4 p-2 overflow-hidden bg-background">
-              <DropdownMenuLabel className="px-4 py-3 font-black uppercase tracking-widest text-[10px] text-muted-foreground opacity-60 border-b mb-1">
-                Account Hub
+            <DropdownMenuContent align="end" className="w-64 rounded-2xl border bg-popover p-1.5 shadow-xl">
+              <DropdownMenuLabel className="px-3 py-2">
+                <span className="block truncate text-[14px] font-semibold">{user?.displayName || 'Signed in'}</span>
+                {user?.email && <span className="block truncate text-[12px] font-normal text-muted-foreground">{user.email}</span>}
               </DropdownMenuLabel>
-              <DropdownMenuItem className="rounded-xl h-11 font-black uppercase text-[10px] tracking-widest focus:bg-primary/5 cursor-pointer">
-                <User className="w-4 h-4 mr-3 text-primary opacity-40" />
-                <span>Profile</span>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="px-3 pb-1 pt-2 text-[12px] font-normal text-muted-foreground">Appearance</DropdownMenuLabel>
+              {looks.map(([k, l, I]) => (
+                <DropdownMenuItem key={k} className={item} onSelect={(ev) => { ev.preventDefault(); set(k); }}>
+                  <I className="mr-3 h-4 w-4" strokeWidth={1.7} /><span className="flex-1">{l}</span>{pref === k && <Check className="h-4 w-4" />}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className={item} onSelect={() => router.push('/settings')}>
+                <Settings className="mr-3 h-4 w-4" strokeWidth={1.7} /><span>Settings</span>
               </DropdownMenuItem>
-              <DropdownMenuItem className="rounded-xl h-11 font-black uppercase text-[10px] tracking-widest focus:bg-primary/5 cursor-pointer">
-                <Settings className="w-4 h-4 mr-3 text-primary opacity-40" />
-                <span>Settings</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="rounded-xl h-11 font-black uppercase text-[10px] tracking-widest focus:bg-primary/5 cursor-pointer">
-                <LifeBuoy className="w-4 h-4 mr-3 text-primary opacity-40" />
-                <span>Support</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="mx-1 my-2" />
-              <DropdownMenuItem className="rounded-xl h-11 text-destructive font-black uppercase text-[10px] tracking-widest focus:bg-destructive/5 focus:text-destructive cursor-pointer">
-                <LogOut className="w-4 h-4 mr-3" />
-                <span>Log out</span>
+              <DropdownMenuItem className={`${item} text-destructive focus:text-destructive`} onSelect={async () => { if (auth) { await signOut(auth).catch(() => {}); router.push('/login'); } }}>
+                <LogOut className="mr-3 h-4 w-4" strokeWidth={1.7} /><span>Log out</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

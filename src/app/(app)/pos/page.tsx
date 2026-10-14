@@ -243,7 +243,7 @@ function POSPage() {
 
       <Drawer open={isPrintDialogOpen} onClose={() => setIsPrintDialogOpen(false)} title="Their ticket">
         <div className="space-y-4">
-          <div className="flex justify-center rounded-2xl bg-white p-6" style={{ border: '1px solid var(--line)' }}>{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div>
+          <div className="cf-paper flex justify-center rounded-2xl bg-white p-6" style={{ border: '1px solid var(--line)' }}>{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div>
           <button type="button" className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-[15px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}
             onClick={() => {
               const t: any = ticketToPrint || {}; const apt: any = t.appointment || t;

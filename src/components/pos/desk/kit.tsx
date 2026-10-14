@@ -11,6 +11,7 @@
 import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { readThemePref, resolveTheme, setThemePref, type ThemePref } from '@/lib/app-theme';
 
 export const DESK_CSS = `
 .desk{--accent:#16171a;--accent-ink:#fff;--paper:#fff;--panel:#fff;--ink:#16171a;--muted:#6d7075;--line:#ececee;--card:#fff;--soft:#f5f5f7;--warn:#a15c07;--ok:#1f7a4d;--danger:#b42318;--shade:0 1px 2px rgba(16,17,20,.04),0 8px 24px -16px rgba(16,17,20,.18);
@@ -37,22 +38,21 @@ export const DESK_CSS = `
 `;
 export const DESK_FONT = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap';
 
-export type DeskThemePref = 'light' | 'dark' | 'system';
-const THEME_KEY = 'cf.desk.theme';
-/** White by default; true black when switched (or when following a dark device). Remembered per device. */
+export type DeskThemePref = ThemePref;
+/** White by default; true black when switched (or when following a dark device). One choice for the whole app, per device. */
 export function useDeskTheme() {
   const [pref, setPref] = useState<DeskThemePref>('light');
   const [sysDark, setSysDark] = useState(false);
   useEffect(() => {
-    try { const v = localStorage.getItem(THEME_KEY); if (v === 'light' || v === 'dark' || v === 'system') setPref(v); } catch { /* per-device memory is a nicety */ }
+    setPref(readThemePref());
     const on = (ev: any) => { const v = ev?.detail; if (v === 'light' || v === 'dark' || v === 'system') setPref(v); };
-    window.addEventListener('cf:desk-theme', on);
+    window.addEventListener('cf:theme', on);
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     const sync = () => setSysDark(!!mq?.matches); sync(); mq?.addEventListener?.('change', sync);
-    return () => { window.removeEventListener('cf:desk-theme', on); mq?.removeEventListener?.('change', sync); };
+    return () => { window.removeEventListener('cf:theme', on); mq?.removeEventListener?.('change', sync); };
   }, []);
-  const set = (p: DeskThemePref) => { setPref(p); try { localStorage.setItem(THEME_KEY, p); } catch { /* ignore */ } window.dispatchEvent(new CustomEvent('cf:desk-theme', { detail: p })); };
-  const resolved: 'light' | 'dark' = pref === 'system' ? (sysDark ? 'dark' : 'light') : pref;
+  const set = (p: DeskThemePref) => { setPref(p); setThemePref(p); };
+  const resolved = resolveTheme(pref, sysDark);
   return { pref, resolved, set };
 }
 
@@ -72,7 +72,7 @@ export function ThemeSwitch() {
   const { resolved, set } = useDeskTheme();
   const dark = resolved === 'dark';
   return (
-    <button type="button" role="switch" aria-checked={dark} aria-label={dark ? 'Switch to the white desk' : 'Switch to the black desk'} onClick={() => set(dark ? 'light' : 'dark')}
+    <button type="button" role="switch" aria-checked={dark} aria-label={dark ? 'Switch to white' : 'Switch to black'} onClick={() => set(dark ? 'light' : 'dark')}
       className="relative inline-flex h-9 w-[68px] shrink-0 items-center rounded-full px-1" style={{ background: 'var(--soft)', border: '1px solid var(--line)' }}>
       <span aria-hidden className="absolute top-1 h-7 w-7 rounded-full transition-all duration-300" style={{ left: dark ? 35 : 4, background: 'var(--card)', boxShadow: '0 1px 3px rgba(0,0,0,.18)' }} />
       <span className="relative z-10 flex w-full justify-between px-[5px]" style={{ color: 'var(--muted)' }}>
@@ -161,7 +161,7 @@ export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChang
   return (
     <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}
       className="relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors disabled:opacity-40" style={{ background: on ? 'var(--ok)' : 'var(--line)' }}>
-      <span aria-hidden className="absolute h-5 w-5 rounded-full bg-white transition-all duration-200" style={{ left: on ? 18 : 2, boxShadow: '0 1px 2px rgba(0,0,0,.25)' }} />
+      <span aria-hidden className="cf-paper absolute h-5 w-5 rounded-full bg-white transition-all duration-200" style={{ left: on ? 18 : 2, boxShadow: '0 1px 2px rgba(0,0,0,.25)' }} />
     </button>
   );
 }

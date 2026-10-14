@@ -65,7 +65,7 @@ const DepositSlip = ({ session, staff, business }: { session: any; staff: Staff[
     const row = (l: React.ReactNode, v: React.ReactNode, strong = false) => <div className={`flex justify-between gap-3 ${strong ? 'font-bold' : ''}`}><span>{l}</span><span className="tabular-nums">{v}</span></div>;
     const signer = (label: string, id?: string, sig?: string) => id ? <div className="space-y-1"><div className="flex justify-between"><span style={{ opacity: 0.55 }}>{label}</span><b>{nameOf(id) || '—'}</b></div>{sig && <img src={sig} alt={`${label} signature`} className="h-12 w-full object-contain" style={{ border: '1px solid #e5e5e5' }} />}</div> : null;
     return (
-        <div id="deposit-slip-print" className="mx-auto w-[320px] space-y-4 rounded-2xl bg-white p-6 text-left font-mono text-[12px] text-black" style={{ border: '1px solid #e5e5e5' }}>
+        <div id="deposit-slip-print" className="cf-paper mx-auto w-[320px] space-y-4 rounded-2xl bg-white p-6 text-left font-mono text-[12px] text-black" style={{ border: '1px solid #e5e5e5' }}>
             <div className="space-y-0.5 text-center">
                 <p className="text-[14px] font-bold">{business || 'Deposit slip'}</p>
                 <p>Till deposit slip</p>
@@ -298,7 +298,7 @@ export const TillManagement = ({
     const pad = (label: string, ref: React.MutableRefObject<SignatureCanvas | null>) => (
         <div className="space-y-1.5">
             <div className="flex items-center justify-between"><span className="text-[14px] font-semibold">{label}</span><button type="button" onClick={() => ref.current?.clear()} className="text-[13px] font-semibold underline underline-offset-4" style={muted}>Clear</button></div>
-            <div className="relative h-44 overflow-hidden rounded-2xl" style={{ background: '#fff', border: '1px dashed var(--line)' }}>
+            <div className="cf-paper relative h-44 overflow-hidden rounded-2xl" style={{ background: '#fff', border: '1px dashed var(--line)' }}>
                 <SignatureCanvas ref={ref as any} penColor="#16171a" canvasProps={{ className: 'h-full w-full', 'aria-label': label } as any} />
                 <div className="pointer-events-none absolute inset-x-5 bottom-5 border-b" style={{ borderColor: '#d4d4d8' }} />
             </div>
