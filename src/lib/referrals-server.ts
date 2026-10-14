@@ -149,7 +149,7 @@ export async function matchOnBooking(db: any, t: string, o: { clientId: string; 
     if (dz && !offerProblem(dz, { clientId: friend.id, serviceIds: o.serviceIds || [] })) patch.pendingDiscountCode = WELCOME_CODE;
   }
   await aRef.set(patch, { merge: true });
-  await textTo(db, t, referrer, `Hi ${firstOf(referrer.name) || 'there'}, this is ${biz(tenant)}. ${base.friendFirst} just booked their first visit. Thank you for sending them to us!${S.unlock === 'paid' ? ` Your ${dollars(S.rewardCents)} credit will be ready after their visit.` : ''}`, 'referral_update');
+  await textTo(db, t, referrer, `Hi ${firstOf(referrer.name) || 'there'}! ${base.friendFirst} just booked their first visit with us. Thank you so much for sending them our way.${S.unlock === 'paid' ? ` Your ${dollars(S.rewardCents)} will be waiting for you after their appointment.` : ` Your ${dollars(S.rewardCents)} is on its way.`}`, 'referral_update');
   return { ok: true, matched: via, referralId: ref.id };
 }
 
@@ -182,7 +182,7 @@ async function reward(db: any, t: string, tenant: any, S: ReferralSettings, r: a
   const credit = await issueCredit(db, t, r.referrerId, S.rewardCents, S.months, `Referral reward: ${r.friendFirst || 'a friend'}`, r.id, now);
   await db.doc(`${T(t)}/referrals/${r.id}`).set({ status: 'rewarded', rewardedAt: iso(now), rewardCents: S.rewardCents, creditId: credit, holdReason: null }, { merge: true });
   const rc: any = (await db.doc(`${T(t)}/clients/${r.referrerId}`).get()).data() || {};
-  await textTo(db, t, { id: r.referrerId, ...rc }, `Hi ${firstOf(rc.name) || 'there'}, ${r.friendFirst || 'your friend'} came in to see us. Your ${dollars(S.rewardCents)} credit is ready for your next visit. Thank you so much! ${biz(tenant)}`, 'referral_update');
+  await textTo(db, t, { id: r.referrerId, ...rc }, `Hi ${firstOf(rc.name) || 'there'}, ${r.friendFirst || 'your friend'} came in today. Thank you for trusting us with your friend! Your ${dollars(S.rewardCents)} is ready for your next visit.`, 'referral_update');
 }
 
 /** Every pass: credit friends' first paid visits; hold the few that need a manager; take back credit for refunds. */
