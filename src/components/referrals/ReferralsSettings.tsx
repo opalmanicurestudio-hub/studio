@@ -10,7 +10,7 @@ import { uploadImage } from '@/lib/upload-image';
 import { WelcomeSettings } from '@/components/referrals/WelcomeSettings';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
-const MENU = [['program', 'Program'], ['welcome', 'Welcome page'], ['rules', 'Rules'], ['try', 'Try it yourself']] as const;
+const MENU = [['program', 'Program'], ['circle', 'The Circle'], ['welcome', 'Welcome page'], ['rules', 'Rules'], ['try', 'Try it yourself']] as const;
 
 const Switch = ({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) => <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onClick} className="relative h-7 w-12 shrink-0 rounded-full" style={{ background: on ? INK : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: on ? 23 : 3 }} /></button>;
 const Card = ({ id, title, sub, children }: { id: string; title: string; sub?: string; children: React.ReactNode }) =>
@@ -47,6 +47,7 @@ export function ReferralsSettings({ tenantId }: { tenantId: string }) {
             {row('c', 'Most rewards a month, per client', <input type="number" min={1} max={50} value={s.cap} onChange={(e) => set({ ...s, cap: Number(e.target.value) })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} />)}
             <div className="pt-2"><a href={`/ref/${encodeURIComponent(tenantId)}/terms`} target="_blank" rel="noreferrer" className="text-[13.5px] underline underline-offset-2">Preview terms</a></div>
           </Card>
+          <CircleSettings s={s} set={set} />
           <Card id="welcome" title="Welcome page" sub="What a friend sees when they open a client’s link.">
             <div className="space-y-2 pb-1">
               <p className="text-[14px] font-semibold">Your photos</p>
@@ -104,4 +105,36 @@ function TryIt({ tenantId }: { tenantId: string }) {
           </ol></details>
       </div>
     </Card>);
+}
+
+/** The Circle (design canvas RF16, RF17): tiers clients earn by bringing friends, the season, and the public page. */
+function CircleSettings({ s, set }: { s: any; set: (fn: any) => void }) {
+  const c = s.circle || { on: false, name: 'Circle', tiers: [], season: {}, show: {} };
+  const put = (patch: any) => set((x: any) => ({ ...x, circle: { ...(x.circle || {}), ...patch } }));
+  const tier = (id: string, patch: any) => put({ tiers: (c.tiers || []).map((t: any) => (t.id === id ? { ...t, ...patch } : t)) });
+  const inp = 'h-10 rounded-[12px] border px-2 text-[14px]';
+  return (
+    <section id="circle" className="scroll-mt-24 space-y-3 rounded-[20px] border bg-white p-5" style={{ borderColor: LINE }} aria-label="The Circle">
+      <div className="flex items-start justify-between gap-3"><div><p className="text-[18px] font-light tracking-[-0.01em]">The {c.name || 'Circle'}</p>
+        <p className="text-[12.5px] leading-[1.5]" style={{ color: MUTED }}>Tiers clients earn by bringing friends who have a paid first visit (last 12 months). Each tier pays more per friend and gives the friend more. Creators join by invitation from the Circle tab.</p></div>
+        <Switch on={!!c.on} label="The Circle on" onClick={() => put({ on: !c.on })} /></div>
+      <label className="flex items-center justify-between gap-3 border-t py-3 text-[14px]" style={{ borderColor: LINE }}><span>Program name<span className="block text-[12px]" style={{ color: MUTED }}>Shown as “{s.businessName || 'Your business'} {c.name || 'Circle'}”</span></span>
+        <input value={c.name || ''} maxLength={30} onChange={(e) => put({ name: e.target.value })} placeholder="Circle" className={`${inp} w-44 px-3`} style={{ borderColor: LINE }} /></label>
+      <div className="grid gap-3 border-t pt-3 md:grid-cols-3" style={{ borderColor: LINE }}>{(c.tiers || []).map((t: any) => <div key={t.id} className="space-y-2 rounded-[16px] p-3" style={{ background: SOFT }}>
+        <input value={t.name} maxLength={24} onChange={(e) => tier(t.id, { name: e.target.value })} aria-label="Tier name" className={`${inp} w-full bg-white px-3 font-semibold`} style={{ borderColor: LINE }} />
+        <label className="flex items-center justify-between text-[13px]">Friends<input type="number" min={1} value={t.friends} onChange={(e) => tier(t.id, { friends: Number(e.target.value) || 1 })} className={`${inp} w-20 bg-white`} style={{ borderColor: LINE }} /></label>
+        <label className="flex items-center justify-between text-[13px]">Credit per friend<span className="flex items-center gap-1">$<input type="number" min={0} value={Math.round((t.rewardCents || 0) / 100)} onChange={(e) => tier(t.id, { rewardCents: Math.max(0, Number(e.target.value) || 0) * 100 })} className={`${inp} w-20 bg-white`} style={{ borderColor: LINE }} /></span></label>
+        <label className="flex items-center justify-between text-[13px]">Off for the friend<span className="flex items-center gap-1">$<input type="number" min={0} value={Math.round((t.friendCents || 0) / 100)} onChange={(e) => tier(t.id, { friendCents: Math.max(0, Number(e.target.value) || 0) * 100 })} className={`${inp} w-20 bg-white`} style={{ borderColor: LINE }} /></span></label>
+        <textarea value={(t.perks || []).join('\n')} onChange={(e) => tier(t.id, { perks: e.target.value.split('\n').slice(0, 5) })} rows={3} aria-label={`${t.name} perks, one per line`} className="w-full rounded-[12px] border bg-white p-2 text-[12.5px]" style={{ borderColor: LINE }} />
+        <p className="text-[11px]" style={{ color: MUTED }}>Perks, one per line. Only promise what you’ll do.</p></div>)}</div>
+      <div className="grid gap-3 border-t pt-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
+        <label className="text-[13px]">Season name<input value={c.season?.name || ''} maxLength={30} onChange={(e) => put({ season: { ...(c.season || {}), name: e.target.value } })} placeholder="Fall" className={`${inp} mt-1 w-full px-3`} style={{ borderColor: LINE }} /></label>
+        <label className="text-[13px]">Places this season (optional)<input type="number" min={1} value={c.season?.places ?? ''} onChange={(e) => put({ season: { ...(c.season || {}), places: e.target.value === '' ? null : Number(e.target.value) } })} placeholder="No limit" className={`${inp} mt-1 w-full px-3`} style={{ borderColor: LINE }} /></label>
+        <label className="text-[13px]">Season ends (optional)<input type="date" value={c.season?.end ? String(c.season.end).slice(0, 10) : ''} onChange={(e) => put({ season: { ...(c.season || {}), end: e.target.value ? new Date(`${e.target.value}T23:59:00`).toISOString() : null } })} className={`${inp} mt-1 w-full px-3`} style={{ borderColor: LINE }} /></label>
+      </div>
+      <div className="space-y-1 border-t pt-3" style={{ borderColor: LINE }}><p className="text-[14px] font-semibold">The public page</p>
+        {[['count', 'Show how many members there are'], ['members', 'Show members who said yes (first name, last initial)'], ['totals', 'Show credit earned and friends brought this year (once there are 5+)']].map(([k, label]) =>
+          <label key={k} className="flex items-center justify-between gap-3 py-1.5 text-[13.5px]"><span>{label}</span><Switch on={c.show?.[k] !== false} label={label} onClick={() => put({ show: { ...(c.show || {}), [k]: c.show?.[k] === false } })} /></label>)}
+        <p className="text-[12px]" style={{ color: MUTED }}>Every number on the page is real. Places left only shows if you set places for the season.</p></div>
+    </section>);
 }

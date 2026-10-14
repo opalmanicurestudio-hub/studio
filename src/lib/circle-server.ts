@@ -104,7 +104,7 @@ export async function memberView(db: any, t: string, clientId: string, tenant: a
     creator: st.creator ? { code: st.creator.code, handle: st.creator.handle, page: base ? `${base}/c/${encodeURIComponent(t)}/${st.creator.code}` : null } : null,
     friends: st.friends, next: next ? { name: next.tier.name, need: next.need, at: next.tier.friends, perks: next.tier.perks, rewardCents: next.tier.rewardCents } : null,
     boost: boost ? { name: boost.name, multiplier: boost.multiplier, end: boost.end } : null,
-    code, since: c.circle?.since || null, optIn: c.circle?.optIn === true,
+    code, since: c.circle?.since || null, optIn: c.circle?.optIn === true, memberName: String(c.name || '').trim() || null,
     month: { opens, booked: thisMonth.filter((r: any) => ['booked', 'held', 'rewarded'].includes(r.status)).length, earnedCents: thisMonth.filter((r: any) => r.status === 'rewarded').reduce((n: number, r: any) => n + (Number(r.rewardCents) || 0), 0) },
     board: C.show.members ? await board(db, t, C, now, clientId) : [], circleUrl: base ? `${base}/circle/${encodeURIComponent(t)}` : null,
     tiers: C.tiers.map((x) => ({ id: x.id, name: x.name, friends: x.friends })),

@@ -8,6 +8,7 @@
 import * as React from 'react';
 import { motion, AnimatePresence, useReducedMotion, animate } from 'framer-motion';
 import { VisitInput } from '@/components/booking/VisitShell';
+import { CircleMember } from '@/components/referrals/CircleMember';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d';
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -52,7 +53,7 @@ export function ReferralCard({ token, preview, tenantId }: { token: string; prev
   const totalCents = (d.creditCents || 0) + (w.gift || []).reduce((n: number, g: any) => n + g.cents, 0);
   const visitsLeft = (w.packages || []).reduce((n: number, p: any) => n + p.left, 0);
   const sel = cards.find((c) => c.key === openCard) || null;
-  const share = async () => { const text = `I love ${d.business} and thought you would too. Here is ${money(d.friendCents)} off your first visit:`;
+  const share = async (custom?: string) => { const text = custom || `I love ${d.business} and thought you would too. Here is ${money(d.friendCents)} off your first visit (I get credit if you book):`;
     try { if ((navigator as any).share) { await (navigator as any).share({ title: d.business, text, url: d.link }); return; } } catch { return; }
     try { await navigator.clipboard.writeText(`${text} ${d.link}`); setMsg({ ok: true, t: 'Copied. Paste it in a message to your friend.' }); } catch { setMsg({ ok: false, t: d.link }); } };
   const sendGift = async () => { setBusy(true); setMsg(null); const r = await call({ action: 'gift', ...who, firstName: first, phone }); setBusy(false);
@@ -87,6 +88,8 @@ export function ReferralCard({ token, preview, tenantId }: { token: string; prev
         {(d.creditCents > 0 || (w.gift || []).length > 0) && <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Comes off at checkout by itself. Nothing to ask for.</p>}
       </>}
 
+      {d.on && d.circle && <CircleMember m={d.circle} link={d.link || null} friendCents={d.friendCents} business={d.business} token={token} preview={!!preview} onShareText={(t) => { void share(t); }} />}
+
       {d.on && <div className="space-y-3 rounded-[20px] bg-white p-4">
         <p className="text-[20px] font-light tracking-[-0.02em]">{(d.friends || []).length ? 'Friends you’ve sent' : 'Share with a friend'}</p>
         <p className="text-[13.5px] leading-[1.5]" style={{ color: MUTED }}>Give a friend {money(d.friendCents)} off their first visit. {d.unlock === 'paid' ? 'When they’ve been in' : 'When they book'}, you get {money(d.rewardCents)} toward your next one.</p>
@@ -99,7 +102,7 @@ export function ReferralCard({ token, preview, tenantId }: { token: string; prev
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10" strokeOpacity=".25" /><motion.path d="M7 12.5l3.2 3.2L17 9" initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5, ease, delay: 0.9 }} /></svg>
             <span className="text-[14px]"><b>{f.first} came in!</b> {money(d.rewardCents)} just landed in your wallet.</span></motion.div>}
         </div>}</Seen>)}
-        {d.link && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={share} className="h-11 rounded-full text-[14px] font-semibold text-white" style={{ background: INK }}>Share my link</button>
+        {d.link && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => { void share(); }} className="h-11 rounded-full text-[14px] font-semibold text-white" style={{ background: INK }}>Share my link</button>
           <button type="button" onClick={() => setGift(!gift)} className="h-11 rounded-full border text-[14px] font-semibold" style={{ borderColor: INK }}>Gift a friend</button></div>}
         <AnimatePresence>{gift && <motion.div className="space-y-2 overflow-hidden" initial={still ? false : { height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease }}>
           <VisitInput label="Their first name" value={first} onChange={setFirst} placeholder="Their first name" />

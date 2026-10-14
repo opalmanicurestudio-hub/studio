@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
   try {
     const action = String(b.action || 'overview');
     if (action === 'overview') return j(await referralOverview(db, tenantId, Date.now(), (['month', '3m', 'year'].includes(b.period) ? b.period : 'month') as any));
-    if (action === 'get_settings') { const td = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; const { circleOf } = await import('@/lib/circle'); return j({ ok: true, settings: { ...referralSettingsOf(td), circle: circleOf(td) } }); }
+    if (action === 'get_settings') { const td = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; const { circleOf } = await import('@/lib/circle'); return j({ ok: true, settings: { ...referralSettingsOf(td), circle: circleOf(td), businessName: String((td as any).name || (td as any).businessName || '') } }); }
+    if (action === 'services') { const sv = (await db.collection(`tenants/${tenantId}/services`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((x: any) => x.isActive !== false && x.status !== 'archived' && !x.renterId && !x.renterProviderId && x.type !== 'addon' && !x.isAddon);
+      return j({ ok: true, services: sv.map((x: any) => ({ id: x.id, name: String(x.name || 'Service') })).slice(0, 60) }); }
     if (action === 'circle') { const { circleOverview } = await import('@/lib/circle-server'); return j(await circleOverview(db, tenantId)); }
     if (action === 'circle_do') { const { circleAction } = await import('@/lib/circle-server'); return j(await circleAction(db, tenantId, b, { id: a.staffId, name: a.name })); }
     if (action === 'settings') return j(await setReferralSettings(db, tenantId, b.referrals || {}, { id: a.staffId, name: a.name }));

@@ -8,6 +8,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion, animate } from 'framer-motion';
 import { payPost } from '@/components/pay/pay-client';
+import { CircleBoard } from '@/components/referrals/CircleBoard';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', MINT = '#7fd1a5', AMBER = '#b45309', RED = '#b42318';
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -73,6 +74,16 @@ function Story({ d, still }: { d: any; still: boolean }) {
 }
 
 export function ReferralsBoard({ tenantId }: { tenantId: string }) {
+  const [view, setView] = React.useState<'referrals' | 'circle'>(() => { try { return typeof window !== 'undefined' && window.location.hash === '#circle' ? 'circle' : 'referrals'; } catch { return 'referrals'; } });
+  const go = (v: 'referrals' | 'circle') => { setView(v); try { history.replaceState(null, '', v === 'circle' ? '#circle' : ' '); } catch { /* fine */ } };
+  return <div className="mx-auto mt-4 max-w-[1180px]" style={{ color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }}>
+    <div className="flex gap-1 rounded-full p-1" style={{ background: SOFT, width: 'fit-content' }} role="tablist" aria-label="Referrals or the Circle">
+      {(['referrals', 'circle'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => go(v)} className="rounded-full px-4 py-1.5 text-[13px] font-semibold capitalize" style={view === v ? { background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.12)' } : { color: MUTED }}>{v === 'circle' ? 'Circle' : 'Referrals'}</button>)}</div>
+    {view === 'circle' ? <div className="mt-4 pb-10"><CircleBoard tenantId={tenantId} /></div> : <Overview tenantId={tenantId} />}
+  </div>;
+}
+
+function Overview({ tenantId }: { tenantId: string }) {
   const still = !!useReducedMotion();
   const [period, setPeriod] = React.useState('month'); const [d, setD] = React.useState<any>(null); const [tab, setTab] = React.useState('needs');
   const [busy, setBusy] = React.useState(''); const [note, setNote] = React.useState<{ ok: boolean; t: string } | null>(null); const [phones, setPhones] = React.useState<Record<string, string>>({});
@@ -97,7 +108,7 @@ export function ReferralsBoard({ tenantId }: { tenantId: string }) {
       <p className="truncate text-[12.5px]" style={{ color: MUTED }}>{r.status === 'rewarded' ? `${money(r.rewardCents)} credit given ${day(r.rewardedAt)}` : r.bookedAt ? `Booked ${day(r.bookedAt)}` : day(r.createdAt)}{r.via ? ` · by ${VIA[r.via] || r.via}` : ''}</p></div>{right}</div>;
 
   return (
-    <div className="mx-auto mt-4 max-w-[1180px] space-y-5 pb-10" style={{ color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }}>
+    <div className="mt-4 space-y-5 pb-10">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>referrals</p><h1 className="text-[30px] font-light tracking-[-0.02em]">{title}</h1>
           <p className="text-[13.5px]" style={{ color: MUTED }}>How referrals are growing the business. Paid visits only.</p></div>

@@ -181,7 +181,7 @@ export async function giftFriend(db: any, t: string, clientId: string, f: { firs
   if (!dup) { const ref = db.collection(`${T(t)}/referrals`).doc();
     await ref.set({ id: ref.id, referrerId: clientId, referrerName: c.name || null, friendFirst: first, friendPhone: ph, via: 'gift', status: 'invited', createdAt: iso(now) }); }
   const link = base ? `${base}/ref/${encodeURIComponent(t)}/${slug}` : '';
-  const text = `Hi ${first}! I love ${biz(tenant)} and thought you would too. Here is ${dollars(await offerOf(tenant, S, c))} off your first visit: ${link}`;
+  const text = `Hi ${first}! I love ${biz(tenant)} and thought you would too. Here is ${dollars(await offerOf(tenant, S, c))} off your first visit (I get credit if you book): ${link}`;
   return { ok: true, text, to: `+1${ph}` };
 }
 
