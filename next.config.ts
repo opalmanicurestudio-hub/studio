@@ -2,9 +2,6 @@ import type {NextConfig} from 'next';
 const nextConfig: NextConfig = {
   /* config options here */
   productionBrowserSourceMaps: true,
-  // TEMPORARY (front desk crash): browser code is left unshortened so an error names the real value and function.
-  // Remove once the /pos crash is fixed — it makes the downloaded files larger.
-  webpack: (config: any, { dev, isServer }: { dev: boolean; isServer: boolean }) => { if (!dev && !isServer) config.optimization.minimize = false; return config; },
   typescript: {
     ignoreBuildErrors: true,
   },
