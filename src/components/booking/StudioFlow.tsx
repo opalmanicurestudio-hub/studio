@@ -29,6 +29,11 @@ const answered = (v: any) => v !== undefined && v !== null && v !== '' && !(Arra
 const card = 'rounded-3xl bg-white p-5 shadow-[0_1px_2px_rgba(28,25,23,.04),0_12px_32px_-18px_rgba(28,25,23,.25)]';
 const field = 'h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[16px] outline-none transition focus:border-[var(--accent)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_15%,transparent)]';
 
+/** Bring a friend: what a new guest and the person booking them get, when the business's referrals allow it. */
+const friendNoteOf = (tenant: any): string | null => { const r = tenant?.referrals || {}; if (r.on !== true || r.group === false) return null;
+  const d = (c: any) => { const n = Number(c); return Number.isFinite(n) && n > 0 ? `$${n % 100 ? (n / 100).toFixed(2) : n / 100}` : ''; }; const f = d(r.friendCents ?? 1500), g = d(r.rewardCents ?? 1500);
+  return f ? `New to us? Each new guest gets ${f} off their first visit${g ? `, and you get ${g} in credit after their visit` : ''}.` : null; };
+
 export function StudioFlow({ c }: { c: any }) {
   const { service, tenant, currentStep, steps, currentStepIndex } = c;
   const accent = 'var(--accent, #7c3aed)';
@@ -241,7 +246,7 @@ export function StudioFlow({ c }: { c: any }) {
         {currentStep === 'dateTime' && whenStep}
         {currentStep === 'details' && c.placeChooser && <section className="mb-4 rounded-3xl bg-white p-5 shadow-sm">{c.placeChooser}</section>}
         {currentStep === 'details' && youStep}
-        {currentStep === 'details' && c.groupPol?.enabled && !c.rescheduleOf && <PartyBuilder policy={c.groupPol} services={c.allServices || []} mainServiceId={service?.id} party={c.party} onChange={c.setParty} accent={accent} />}
+        {currentStep === 'details' && c.groupPol?.enabled && !c.rescheduleOf && <PartyBuilder policy={c.groupPol} services={c.allServices || []} mainServiceId={service?.id} party={c.party} onChange={c.setParty} accent={accent} friendNote={friendNoteOf(tenant)} />}
         {currentStep === 'details' && (() => { const lines = bookingPolicyLines(tenant, service); return lines.length ? (
           <section className="mb-4 rounded-3xl bg-white p-5 shadow-sm" aria-label="Our policies">
             <p className="text-[14px] font-semibold">By confirming, you agree to these policies</p>

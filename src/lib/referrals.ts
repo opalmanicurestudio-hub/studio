@@ -15,9 +15,9 @@ export type WelcomeLayout = typeof LAYOUTS[number];
 export const SECTIONS = ['favorite', 'provider', 'visit', 'photos', 'good', 'proof'] as const;
 export type WelcomeSection = typeof SECTIONS[number];
 export interface ReferralSettings { on: boolean; rewardCents: number; friendCents: number; unlock: 'paid' | 'booked'; months: number; cap: number; photos: string[]; arrival: string;
-  layout: WelcomeLayout | 'auto'; sections: WelcomeSection[]; motion: boolean; who: 'theirs' | 'first' }
+  layout: WelcomeLayout | 'auto'; sections: WelcomeSection[]; motion: boolean; who: 'theirs' | 'first'; group: boolean }
 export const REF_DEFAULTS: ReferralSettings = { on: false, rewardCents: 1500, friendCents: 1500, unlock: 'paid', months: 6, cap: 5, photos: [], arrival: '',
-  layout: 'auto', sections: [...SECTIONS], motion: true, who: 'theirs' };
+  layout: 'auto', sections: [...SECTIONS], motion: true, who: 'theirs', group: true };
 /** The layout a friend actually sees. */
 export const layoutOf = (S: Pick<ReferralSettings, 'layout' | 'photos'>, extraPhotos = 0): WelcomeLayout =>
   S.layout !== 'auto' && (LAYOUTS as readonly string[]).includes(S.layout) ? S.layout as WelcomeLayout : (S.photos.length + extraPhotos > 0 ? 'invitation' : 'simple');
@@ -34,7 +34,9 @@ export function referralSettingsOf(tenant: any): ReferralSettings {
     // The welcome page: up to 3 of the business's own photos, and a line about arriving (parking, which door…).
     photos: (Array.isArray(r.photos) ? r.photos : []).filter((u: any) => typeof u === 'string' && /^https:\/\//.test(u)).slice(0, 3), arrival: String(r.arrival || '').trim().slice(0, 200),
     // Its layout, which sections show and in what order, gentle motion, and who a friend sees first (they can always choose).
-    layout: r.layout === 'auto' || (LAYOUTS as readonly string[]).includes(r.layout) ? r.layout : 'auto', sections: sectionsOf(r.sections), motion: r.motion !== false, who: r.who === 'first' ? 'first' : 'theirs' };
+    layout: r.layout === 'auto' || (LAYOUTS as readonly string[]).includes(r.layout) ? r.layout : 'auto', sections: sectionsOf(r.sections), motion: r.motion !== false, who: r.who === 'first' ? 'first' : 'theirs',
+    // Bring a friend: a new guest booked together with a client counts as that client's referral.
+    group: r.group !== false };
 }
 
 export const last10 = (v: any) => String(v || '').replace(/\D+/g, '').slice(-10);

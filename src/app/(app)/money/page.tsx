@@ -70,6 +70,7 @@ import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
 import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
+import { OwedToClients } from '@/components/money/OwedToClients';
 import { BankFeedSection } from '@/components/shared/BankFeedSection';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -1408,6 +1409,7 @@ const LedgerTab = () => {
             sub="Held — not your income"
           />
         </div>
+        <OwedToClients tenantId={tenantId} />
 
         {/* ── Quick period chips — v66: the #1 ledger action (switching the
                period) is now one tap on mobile, no accordion trip ────────── */}

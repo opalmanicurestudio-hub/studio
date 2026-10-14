@@ -186,15 +186,18 @@ async function textTo(db: any, t: string, c: any, text: string, kind: string) {
   try { const { sendNotification } = await import('@/lib/notify'); const r: any = await sendNotification(db, { tenantId: t, channel: 'sms', to: String(c.phone), text, kind, clientId: c.id, clientName: c.name || null, recipientType: 'client', recipientId: c.id } as any); return !!r?.ok; } catch { return false; }
 }
 
-export async function matchOnBooking(db: any, t: string, o: { clientId: string; appointmentId: string; slug?: string | null; named?: { firstName: string; phone: string } | null; serviceIds?: string[] }, now = Date.now()) {
+export async function matchOnBooking(db: any, t: string, o: { clientId: string; appointmentId: string; slug?: string | null; named?: { firstName: string; phone: string } | null; serviceIds?: string[]; broughtBy?: string | null }, now = Date.now()) {
   const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); if (!S.on) return { ok: true, skipped: 'off' };
+  if (o.broughtBy && !S.group) return { ok: true, skipped: 'group off' };
   const fSnap = await db.doc(`${T(t)}/clients/${o.clientId}`).get(); if (!fSnap.exists) return { ok: true, skipped: 'no client' };
   const friend: any = { id: fSnap.id, ...(fSnap.data() || {}) }; const col = db.collection(`${T(t)}/referrals`);
   const existing = rows(await col.where('friendClientId', '==', friend.id).get());
   if (existing.some((r: any) => ['booked', 'held', 'rewarded'].includes(r.status))) return { ok: true, skipped: 'already referred' };
   // Who sent them: their link, then "who recommended you?", then a number someone gifted.
-  let referrer: any = null; let via: 'link' | 'named' | 'gift' = 'link'; let invite: any = null;
+  let referrer: any = null; let via: 'link' | 'named' | 'gift' | 'brought' = 'link'; let invite: any = null;
   if (o.slug) referrer = await clientOfSlug(db, t, o.slug);
+  // Bring a friend: the client who booked them in as a guest.
+  if (!referrer && o.broughtBy && o.broughtBy !== friend.id) { const bs = await db.doc(`${T(t)}/clients/${o.broughtBy}`).get(); if (bs.exists) { referrer = { id: bs.id, ...(bs.data() || {}) }; via = 'brought'; } }
   if (!referrer && o.named && String(o.named.firstName || '').trim() && last10(o.named.phone).length === 10) {
     const hits = (await clientsByPhone(db, t, o.named.phone)).filter((c: any) => sameFirst(c.name || c.firstName, o.named!.firstName));
     if (hits.length === 1) { referrer = hits[0]; via = 'named'; }
@@ -227,7 +230,8 @@ export async function matchOnBooking(db: any, t: string, o: { clientId: string; 
     if (dz && !offerProblem(dz, { clientId: friend.id, serviceIds: o.serviceIds || [] })) patch.pendingDiscountCode = WELCOME_CODE;
   }
   await aRef.set(patch, { merge: true });
-  await textTo(db, t, referrer, `Hi ${firstOf(referrer.name) || 'there'}! ${base.friendFirst} just booked their first visit with us. Thank you so much for sending them our way.${S.unlock === 'paid' ? ` Your ${dollars(S.rewardCents)} will be waiting for you after their appointment.` : ` Your ${dollars(S.rewardCents)} is on its way.`}`, 'referral_update');
+  // Someone who brought a friend along booked it themselves, so there's nothing to tell them yet; the thank-you comes after the visit.
+  if (via !== 'brought') await textTo(db, t, referrer, `Hi ${firstOf(referrer.name) || 'there'}! ${base.friendFirst} just booked their first visit with us. Thank you so much for sending them our way.${S.unlock === 'paid' ? ` Your ${dollars(S.rewardCents)} will be waiting for you after their appointment.` : ` Your ${dollars(S.rewardCents)} is on its way.`}`, 'referral_update');
   return { ok: true, matched: via, referralId: ref.id };
 }
 

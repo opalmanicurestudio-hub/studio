@@ -11,9 +11,9 @@ export type Party = { guests: PartyGuest[]; extras: PartyExtra[] };
 export const emptyParty: Party = { guests: [], extras: [] };
 export const partyHasMore = (p?: Party | null) => !!p && (p.guests.length > 0 || p.extras.length > 0);
 
-export function PartyBuilder({ policy, services, mainServiceId, party, onChange, accent }: {
+export function PartyBuilder({ policy, services, mainServiceId, party, onChange, accent, friendNote }: {
   policy: { enabled: boolean; maxGuests: number; deposits: 'organizer' | 'each'; sideBySide: boolean; after: boolean };
-  services: any[]; mainServiceId: string; party: Party; onChange: (p: Party) => void; accent?: string;
+  services: any[]; mainServiceId: string; party: Party; onChange: (p: Party) => void; accent?: string; friendNote?: string | null;
 }) {
   if (!policy.enabled) return null;
   const list = services.filter((s) => s.isActive !== false && s.status !== 'archived' && !s.isPrivate && s.type !== 'addon' && !s.isAddon && !s.renterProviderId && !s.renterId);
@@ -24,6 +24,7 @@ export function PartyBuilder({ policy, services, mainServiceId, party, onChange,
     <section className="mb-4 space-y-4 rounded-3xl bg-white p-5 shadow-sm" aria-label="Guests and more services">
       <div className="space-y-2">
         <p className="text-[15px] font-semibold">Bringing someone?</p>
+        {friendNote && <p className="rounded-2xl p-3 text-[13px] leading-snug" style={{ background: '#e8f3ec', color: '#1f7a4d' }}>{friendNote}</p>}
         {party.guests.map((g, i) => (
           <div key={i} className="space-y-2 rounded-2xl border p-3" style={{ borderColor: '#e7e2dc' }}>
             <div className="flex items-center justify-between"><span className="text-[13px] font-semibold text-stone-500">Guest {i + 1}</span><button type="button" onClick={() => set({ guests: party.guests.filter((_, j) => j !== i) })} className="text-[13px] text-stone-500 underline">Remove</button></div>

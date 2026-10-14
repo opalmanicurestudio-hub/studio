@@ -153,5 +153,23 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-13T15:00:00-04:00'); const ag
   await dbW.doc(`${TW}/appointments/fr1`).set({ clientId: 'fr', status: 'completed', startTime: ago(0.1), checkedOutAt: ago(0.1) });
   const before = ((await dbW.doc(`${TW}/clients/hk`).get()).data() as any).storeCredits.length;
   check('…then straight away, without the day’s wait', ((await RS.giveNow(dbW, 't2', 'gn', { name: 'Jessica' }, NOW)) as any).ok && ((await dbW.doc(`${TW}/clients/hk`).get()).data() as any).storeCredits.length === before + 1 && (await dbW.doc(`${TW}/referrals/gn`).get()).data()?.status === 'rewarded');
+
+  console.log('Referrals — bring a friend');
+  const dbG = makeDb(); const TG = 'tenants/t3';
+  await dbG.doc(TG).set({ name: 'Opal', timezone: 'America/New_York', referrals: { on: true } });
+  await RS.setReferralSettings(dbG, 't3', { on: true }, { id: 'jess', name: 'Jessica' }, NOW);
+  await dbG.doc(`${TG}/clients/org`).set({ id: 'org', name: 'Olivia Grant', phone: '+15555550401' });
+  await dbG.doc(`${TG}/clients/gst`).set({ id: 'gst', name: 'Gia Stone', phone: '+15555550402' });
+  await dbG.doc(`${TG}/clients/old`).set({ id: 'old', name: 'Omar Lee', phone: '+15555550403' });
+  await dbG.doc(`${TG}/appointments/old0`).set({ clientId: 'old', status: 'completed', startTime: ago(40) });
+  for (const id of ['ga', 'gb']) await dbG.doc(`${TG}/appointments/${id}`).set({ clientId: id === 'ga' ? 'gst' : 'old', status: 'requested', startTime: new Date(NOW + 3 * DAY).toISOString() });
+  const gm: any = await RS.matchOnBooking(dbG, 't3', { clientId: 'gst', appointmentId: 'ga', broughtBy: 'org', serviceIds: ['gel'] }, NOW);
+  const gRef: any = (await dbG.collection(`${TG}/referrals`).get()).docs.map((d: any) => d.data()).find((r: any) => r.friendClientId === 'gst');
+  check('a new guest booked together → Olivia’s referral, the welcome offer on Gia’s visit', gm.matched === 'brought' && gRef?.referrerId === 'org' && gRef?.status === 'booked' && (await dbG.doc(`${TG}/appointments/ga`).get()).data()?.pendingDiscountCode === R.WELCOME_CODE, gm);
+  const omg: any = await RS.matchOnBooking(dbG, 't3', { clientId: 'old', appointmentId: 'gb', broughtBy: 'org' }, NOW);
+  check('…a guest who’s been before → thanked, no reward', omg.declined === 'existing', omg);
+  await dbG.doc(TG).set({ referrals: { group: false } }, { merge: true });
+  await dbG.doc(`${TG}/clients/g2`).set({ id: 'g2', name: 'Gus Two', phone: '+15555550404' });
+  check('…switched off in Settings → not counted', ((await RS.matchOnBooking(dbG, 't3', { clientId: 'g2', appointmentId: 'gc', broughtBy: 'org' }, NOW)) as any).skipped === 'group off');
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

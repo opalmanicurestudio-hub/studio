@@ -12,7 +12,7 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GR
 const money = (c: number) => { const d = (Number(c) || 0) / 100; return `$${d % 1 ? d.toFixed(2) : d.toLocaleString('en-US')}`; };
 const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
 const HOLD: Record<string, string> = { same_card: 'Same saved card as the person who referred', cap: 'Monthly limit reached (given next month on its own)' };
-const VIA: Record<string, string> = { link: 'their link', gift: 'a gift', named: 'named at booking' };
+const VIA: Record<string, string> = { link: 'their link', gift: 'a gift', named: 'named at booking', brought: 'booked together' };
 
 function Tile({ label, value, sub, ok }: { label: string; value: string; sub?: string; ok?: boolean }) {
   return <div className="min-w-0 flex-1 rounded-[18px] border bg-white px-4 py-3.5" style={{ borderColor: LINE }}><p className="text-[12px] font-semibold" style={{ color: MUTED }}>{label}</p>
@@ -70,6 +70,7 @@ export function ReferralsBoard({ tenantId }: { tenantId: string }) {
         {row('f', 'Off the friend’s first visit', cents('friendCents'))}
         {row('u', 'Credit is given', <select value={s.unlock} onChange={(e) => setS({ ...s, unlock: e.target.value })} className="h-10 rounded-[12px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}><option value="paid">After the friend’s first paid visit</option><option value="booked">When the friend books (easier to abuse)</option></select>)}
         {row('m', 'Credit lasts', <select value={s.months} onChange={(e) => setS({ ...s, months: Number(e.target.value) })} className="h-10 rounded-[12px] border bg-white px-2 text-[14px]" style={{ borderColor: LINE }}>{[3, 6, 9, 12].map((m) => <option key={m} value={m}>{m} months</option>)}</select>)}
+        {row('g', 'Bring a friend: new guests booked together count', <button type="button" role="switch" aria-checked={s.group !== false} aria-label="New guests booked together count as referrals" onClick={() => setS({ ...s, group: s.group === false })} className="relative h-7 w-12 shrink-0 rounded-full" style={{ background: s.group !== false ? INK : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: s.group !== false ? 23 : 3 }} /></button>)}
         {row('c', 'Most rewards a month, per client', <input type="number" min={1} max={50} value={s.cap} onChange={(e) => setS({ ...s, cap: Number(e.target.value) })} className="h-10 w-20 rounded-[12px] border px-2 text-[14px]" style={{ borderColor: LINE }} />)}
         <div className="space-y-2 pt-3" style={{ borderTop: `1px solid ${LINE}` }}>
           <p className="text-[14px] font-semibold">Your welcome page</p>

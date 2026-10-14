@@ -68,6 +68,15 @@ export async function POST(req: NextRequest) {
     if (m.guest && m.clientId && lead.clientId && m.clientId !== lead.clientId) batch.set(db.collection(`${T}/clientRelationships`).doc(`org_${linkId}_${i}`), { fromId: lead.clientId, toId: m.clientId, kind: 'organizer', permissions: ['book', 'readiness', 'reminders'], note: s(b.groupName, 80) || 'Booked together online', createdAt: new Date().toISOString(), createdBy: 'online booking', endedAt: null, startsAt: null, endsAt: null }, { merge: true }); });
   if (movedCents > 0) batch.set(db.doc(`${T}/appointments/${lead.appointmentId}`), { depositAmountCents: lead.depositCents + movedCents, groupDepositCents: lead.depositCents + movedCents }, { merge: true });
   await batch.commit();
+  // Referrals: the organiser may have come from a friend's link (or named who recommended them), and each new guest
+  // they bring along counts as their referral (Bring a friend). Credit still waits for each guest's first paid visit.
+  try {
+    const { matchOnBooking } = await import('@/lib/referrals-server');
+    if (lead.clientId) await matchOnBooking(db, tenantId, { clientId: String(lead.clientId), appointmentId: lead.appointmentId, slug: typeof b.referralCode === 'string' ? b.referralCode.slice(0, 60) : null,
+      named: b.referredBy && typeof b.referredBy === 'object' ? { firstName: String(b.referredBy.firstName || ''), phone: String(b.referredBy.phone || '') } : null, serviceIds: [String(parts[0]?.serviceId || '')] });
+    for (let i = 1; i < made.length; i++) { const m = made[i]; if (!m.guest || !m.clientId || !lead.clientId || m.clientId === lead.clientId) continue;
+      await matchOnBooking(db, tenantId, { clientId: String(m.clientId), appointmentId: m.appointmentId, broughtBy: String(lead.clientId), serviceIds: [String(parts[i]?.serviceId || '')] }); }
+  } catch (e) { console.error('[book-group] referrals', e); }   // a bonus; the booking stands
   return NextResponse.json({ ok: true, linkId, kind: isGroup ? 'group' : 'visit', booked: made.length, status: 'requested', depositCents: lead.depositCents + movedCents,
     clientNotice: `Your request for ${made.length} ${isGroup ? 'people' : 'services'} is in — we’ll confirm shortly${lead.depositCents + movedCents > 0 ? `, and the deposit is only asked for once we do` : ''}.` });
 }
