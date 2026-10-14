@@ -185,7 +185,10 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const [sel, setSel] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [wide, setWide] = useState(true);
-  useEffect(() => { const mq = window.matchMedia('(min-width: 1024px)'); const f = () => setWide(mq.matches); f(); mq.addEventListener?.('change', f); return () => mq.removeEventListener?.('change', f); }, []);
+  const [phone, setPhone] = useState(false);
+  useEffect(() => { const mq = window.matchMedia('(min-width: 1024px)'), mp = window.matchMedia('(max-width: 639px)');
+    const f = () => { setWide(mq.matches); setPhone(mp.matches); }; f(); mq.addEventListener?.('change', f); mp.addEventListener?.('change', f);
+    return () => { mq.removeEventListener?.('change', f); mp.removeEventListener?.('change', f); }; }, []);
   const [now, setNow] = useState(() => new Date());
   const stationRows = useMemo(() => stationReadiness(allResources || [], todaysAppts, e.services || [], now.getTime(), e.staff || [], protocols || []), [allResources, todaysAppts, e.services, now]);   // the desk's clock keeps the count fresh
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -451,7 +454,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const progressOf = (g: Guest) => { const s0 = startedAt(g); return s0 ? (now.getTime() - s0.getTime()) / 60000 / Math.max(1, minsOf(g)) : 0; };
   const setTaking = (s: any, v: boolean) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'staff', s.id), { acceptingWalkIns: v }); };
   const setKioskTaking = (v: boolean) => { if (e.firestore && e.tenantId) updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId), { walkInKiosk: { ...(tenant?.walkInKiosk || {}), enabled: v } }); };
-  const matches = (g: Guest) => { const t = q.trim().toLowerCase(); return !t || `${g.name} ${g.service} ${g.staffName || ''} ${g.walkIn?.shortCode || ''}`.toLowerCase().includes(t); };
+  // NOW FIRST (solo): the one guest who needs you now leads the day — with you, ready to pay, here, or next to arrive.
+  const heroGuest: Guest | null = solo ? (active.find((g) => g.stage === 'service') || active.find((g) => g.stage === 'ready') || active.find((g) => g.stage === 'waiting') || active.find((g) => g.stage === 'arriving') || null) : null;
+  const matches = (g: Guest) => { const t = q.trim().toLowerCase(); if (!t && heroGuest && g.key === heroGuest.key) return false; return !t || `${g.name} ${g.service} ${g.staffName || ''} ${g.walkIn?.shortCode || ''}`.toLowerCase().includes(t); };
   const pick = (g: Guest) => setSel((cur) => (cur === g.key && wide ? null : g.key));
   const lead = (g: Guest, size = 40) => g.stage === 'service'
     ? <Ring progress={progressOf(g)} size={size} stroke={size > 44 ? 4 : 3}><span className="font-semibold" style={{ fontSize: size > 44 ? 15 : 12 }}>{initials(g.name)}</span></Ring>
@@ -473,7 +478,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
             {code && <span className="shrink-0 rounded-md px-1.5 text-[11px] font-semibold tabular-nums" style={{ background: 'var(--soft)', color: 'var(--muted)' }}>{code}</span>}
             {g.awaitingDeposit && <Pill tone="warn">Deposit</Pill>}
             {(() => { const o = owedOf(g).find((x) => x.tone !== 'info'); return o && !g.awaitingDeposit ? <Pill tone="warn">{o.label}</Pill> : null; })()}</p>
-          <p className="truncate text-[12.5px]" style={{ color: 'var(--muted)' }}>{g.service}{g.staffName ? ` · ${first(g.staffName)}` : g.kind === 'walkin' ? ' · anyone' : ''}</p>
+          <p className="truncate text-[12.5px]" style={{ color: 'var(--muted)' }}>{g.service}{solo ? '' : g.staffName ? ` · ${first(g.staffName)}` : g.kind === 'walkin' ? ' · anyone' : ''}</p>
           {sug && <p className="mt-0.5 truncate text-[12px] font-medium" style={{ color: 'var(--ok)' }}>{sug.when ? `Next free: ${first(sug.staff.name)} ~${format(sug.when, 'h:mm')}` : `Next in turn: ${first(sug.staff.name)}, free now`}</p>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -580,9 +585,52 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <p className="text-center text-[12px]" style={{ color: 'var(--muted)' }}>Select a guest to see their ticket here.</p>
     </div>
   );
+  const views: [View, string][] = solo ? [['day', 'Day'], ['timeline', 'Timeline'], ['lanes', 'Lanes']] : [['day', 'Day'], ['lanes', 'Lanes'], ['stations', 'Team'], ['timeline', 'Timeline'], ['mix', 'Mix']];
+  const shown: View = solo && (view === 'stations' || view === 'mix') ? 'day' : view;
+  const heroLabel: Record<string, string> = { service: 'With you now', ready: 'Ready to pay', waiting: 'Here and waiting', arriving: 'Next to arrive' };
+  const heroAct = (g: Guest): { label: string; icon: string; run: () => void } | null => {
+    if (g.kind === 'walkin' && g.stage === 'waiting' && !g.staffId && staffList[0]) return { label: 'Take them now', icon: 'arrow', run: () => assign(g, staffList[0].id) };
+    return bigAction(g);
+  };
+  const heroCard = solo && mode === 'desk' && shown === 'day' && !q && (() => {
+    const g = heroGuest;
+    const then = g ? active.find((x) => x.key !== g.key && (x.stage === 'arriving' || x.stage === 'waiting')) : null;
+    if (!g) return (
+      <section aria-label="Now" className="d-rise mb-6 rounded-[28px] p-6" style={{ background: 'var(--panel)', border: '1px solid var(--line)', boxShadow: 'var(--shade)' }}>
+        <p className="flex items-center gap-2 text-[13px]" style={{ color: 'var(--ok)' }}><LiveDot />Free now</p>
+        <p className="mt-1 text-[28px] font-light tracking-tight">No one else today.</p>
+        <p className="text-[14px]" style={{ color: 'var(--muted)' }}>Take a walk-in, book someone in, or sell from the shelf.</p>
+        <div className="mt-4 flex flex-wrap gap-2"><Btn big onClick={() => setWalkInOpen(true)}><Icon name="plus" size={18} />Walk-in</Btn><Btn big quiet onClick={() => e.setIsQuickBookOpen(true)}><Icon name="calendar" size={18} />Book</Btn></div>
+      </section>);
+    const e0 = g.stage === 'service' ? endsAt(g) : null; const left = e0 ? Math.round((e0.getTime() - now.getTime()) / 60000) : null;
+    const tm = timerFor(g); const act = heroAct(g);
+    return (
+      <section aria-label="Now" className="d-rise mb-6 overflow-hidden rounded-[28px] p-5 sm:p-6" style={{ background: 'var(--panel)', border: '1px solid var(--line)', boxShadow: 'var(--shade)' }}>
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+          <button type="button" onClick={() => setSel(g.key)} className="flex min-w-0 flex-1 items-center gap-4 text-left" aria-label={`Open ${g.name}’s ticket`}>
+            {g.stage === 'service'
+              ? <Ring progress={progressOf(g)} size={phone ? 84 : 104} stroke={5}><span className="block text-center"><span className="block text-[26px] font-light leading-none tabular-nums" style={left !== null && left < 0 ? { color: 'var(--warn)' } : undefined}>{left === null ? minsOf(g) : Math.abs(left)}</span><span className="block text-[11px]" style={{ color: 'var(--muted)' }}>{left !== null && left < 0 ? 'min over' : 'min left'}</span></span></Ring>
+              : lead(g, phone ? 64 : 76)}
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-[13px]" style={{ color: g.stage === 'ready' || g.stage === 'service' ? 'var(--ok)' : tm?.tone === 'warn' ? 'var(--warn)' : 'var(--muted)' }}>{(g.stage === 'service' || g.stage === 'waiting') && <LiveDot tone={g.stage === 'waiting' ? 'warn' : 'ok'} />}{heroLabel[g.stage]}{tm ? ` · ${tm.text}` : ''}</span>
+              <span className="block truncate text-[30px] font-light leading-tight tracking-tight">{g.name}</span>
+              <span className="block truncate text-[14px]" style={{ color: 'var(--muted)' }}>{g.service}{g.at && g.stage === 'arriving' ? ` · ${format(g.at, 'h:mm a')}` : ''}</span>
+            </span>
+          </button>
+          <div className="flex gap-2 sm:w-56 sm:flex-col">
+            {act && <Btn big className="flex-1 sm:w-full sm:flex-none" onClick={act.run}><Icon name={act.icon} size={18} />{act.label}</Btn>}
+            <Btn big quiet className="sm:w-full" onClick={() => setSel(g.key)} label="Open the ticket"><Icon name="ticket" size={18} /><span className={act ? 'hidden sm:inline' : ''}>Ticket</span></Btn>
+          </div>
+        </div>
+        {then && <button type="button" onClick={() => setSel(then.key)} className="d-row mt-5 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left" style={{ background: 'var(--soft)' }}>
+          <span className="text-[12px] font-semibold" style={{ color: 'var(--muted)' }}>Then</span>
+          <span className="min-w-0 flex-1 truncate text-[14px]"><b className="font-semibold">{then.name}</b> · {then.service}</span>
+          <span className="shrink-0 text-[12.5px] tabular-nums" style={{ color: 'var(--muted)' }}>{timerFor(then)?.text || (then.at ? format(then.at, 'h:mm a') : '')}</span></button>}
+      </section>);
+  })();
   const dayView = (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_430px]">
-      <div className="min-w-0">{dayList}</div>
+      <div className="min-w-0">{heroCard}{dayList}</div>
       {wide && <aside aria-label={selectedGuest ? `${selectedGuest.name}’s ticket` : 'Today'} className="sticky top-0 self-start rounded-[28px] p-5" style={{ background: 'var(--panel)', border: '1px solid var(--line)', boxShadow: 'var(--shade)' }}>
         {selectedGuest ? ticket(selectedGuest) : daySummary}</aside>}
     </div>
@@ -623,9 +671,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     ...moreTabs.map(([k, l]) => ({ label: l, icon: k === 'team' ? 'users' : k === 'spaces' ? 'home' : 'list', onSelect: () => { setMoreTab(k as any); setMoreOpen(true); } })),
   ];
   const toolCount = (Number(openCount(assistItems)) || 0) + hk.tasks.length + kitsToClean + ((allResources || []).length ? Number(needsAttention(stationRows)) || 0 : 0);
-  const views: [View, string][] = solo ? [['day', 'Day'], ['timeline', 'Timeline'], ['lanes', 'Lanes']] : [['day', 'Day'], ['lanes', 'Lanes'], ['stations', 'Team'], ['timeline', 'Timeline'], ['mix', 'Mix']];
-  const shown: View = solo && (view === 'stations' || view === 'mix') ? 'day' : view;
   const readyIds: string[] = Array.from(e.selectedAppointmentIds || []);
+  // Phones: the view switch lives in Tools, and Walk-in / Book / Sell / Scan sit in a bar at the bottom, in thumb reach.
+  const menuItems = phone && mode === 'desk' ? [...views.filter(([k]) => k !== shown).map(([k, l]) => ({ label: `Show as ${l}`, icon: k === 'day' ? 'list' : k === 'lanes' ? 'columns' : k === 'stations' ? 'users' : k === 'mix' ? 'grid' : 'clock', onSelect: () => pickView(k) })), ...toolItems] : toolItems;
 
   if (!mounted) return <DeskFrame accent={accent}><div className="p-8 text-[14px]" style={{ color: 'var(--muted)' }}>Opening the front desk…</div></DeskFrame>;
 
@@ -633,14 +681,14 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     <DeskFrame accent={accent}>
       <header className="space-y-3 px-4 pb-4 pt-4 md:px-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0"><p className="text-[26px] font-light tracking-tight">Front desk <span className="tabular-nums" style={{ color: 'var(--muted)' }}>{format(now, 'h:mm a')}</span></p>
+          <div className="min-w-0"><p className="text-[22px] font-light tracking-tight sm:text-[26px]">Front desk <span className="tabular-nums" style={{ color: 'var(--muted)' }}>{format(now, 'h:mm a')}</span></p>
             <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{active.length} today{doneCount ? ` · ${doneCount} done` : ''} · ${Math.round(takings).toLocaleString()} taken{next ? ` · next: ${first(next.name)} at ${next.at ? format(next.at, 'h:mm a') : '—'}` : ''}{requests > 0 && <> · <a href="/appointments/requests" className="font-semibold underline underline-offset-2" style={{ color: 'var(--ink)' }}>{requests} request{requests === 1 ? '' : 's'} to answer</a></>}</p></div>
           <div className="flex flex-wrap items-center gap-2">
-            {mode === 'desk' && <Seg label="View" value={shown} onChange={pickView} options={views} />}
-            <Btn quiet={!opsCount.attention && !opsCount.decisions} onClick={() => setAttnOpen(true)}><Icon name="alert" size={16} />{opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
+            {mode === 'desk' && !phone && <Seg label="View" value={shown} onChange={pickView} options={views} />}
+            <Btn quiet={!opsCount.attention && !opsCount.decisions} onClick={() => setAttnOpen(true)} label={opsCount.decisions ? `Needs a decision, ${opsCount.decisions}` : `Needs attention${opsCount.attention ? `, ${opsCount.attention}` : ''}`}><Icon name="alert" size={16} />{phone ? (opsCount.decisions || opsCount.attention || null) : opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
             {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}><Icon name="card" size={16} />Checkout · {readyIds.length}</Btn>}
             <ThemeSwitch />
-            <Menu label="More tools" width={290} items={toolItems} trigger={<><Icon name="grid" size={16} />Tools{toolCount > 0 && <span className="rounded-full px-1.5 text-[11px] tabular-nums" style={{ background: 'color-mix(in srgb, var(--warn) 14%, transparent)', color: 'var(--warn)' }}>{toolCount}</span>}</>} />
+            <Menu label="More tools" width={290} items={menuItems} trigger={<><Icon name="grid" size={16} />{phone ? null : 'Tools'}{toolCount > 0 && <span className="rounded-full px-1.5 text-[11px] tabular-nums" style={{ background: 'color-mix(in srgb, var(--warn) 14%, transparent)', color: 'var(--warn)' }}>{toolCount}</span>}</>} />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -653,13 +701,14 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
                 if (ev.key === 'Enter' && q.trim()) { const hit = active.filter(matches); if (hit.length === 1) setSel(hit[0].key); else if (!hit.length) { e.handlePosScan?.(q.trim()); setQ(''); } } }} />
             {q && <button type="button" aria-label="Clear the search" onClick={() => setQ('')} style={{ color: 'var(--muted)' }}><Icon name="close" size={16} /></button>}
           </label>
+          {!phone && <>
           <button type="button" aria-label="Scan kits, stations and bundles" title="Scan kits, stations and bundles" onClick={scanner.show} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full" style={{ background: 'var(--soft)', border: '1px solid var(--line)' }}><Icon name="scan" size={18} /></button>
-          <Btn big className="!h-11 !px-4" onClick={() => setWalkInOpen(true)} label="Add a walk-in"><Icon name="plus" size={18} /><span className="hidden sm:inline">Walk-in</span></Btn>
-          <Btn big quiet className="!h-11 !px-4" onClick={() => e.setIsQuickBookOpen(true)} label="Book"><Icon name="calendar" size={18} /><span className="hidden sm:inline">Book</span></Btn>
-          <Btn big quiet className="!h-11 !px-4" onClick={() => setMode(mode === 'counter' ? 'desk' : 'counter')} label="Sell"><Icon name="bag" size={18} /><span className="hidden sm:inline">Sell</span></Btn>
+          <Btn big className="!h-11 !px-4" onClick={() => setWalkInOpen(true)} label="Add a walk-in"><Icon name="plus" size={18} />Walk-in</Btn>
+          <Btn big quiet className="!h-11 !px-4" onClick={() => e.setIsQuickBookOpen(true)} label="Book"><Icon name="calendar" size={18} />Book</Btn>
+          <Btn big quiet className="!h-11 !px-4" onClick={() => setMode(mode === 'counter' ? 'desk' : 'counter')} label="Sell"><Icon name="bag" size={18} />Sell</Btn></>}
         </div>
       </header>
-      <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 md:px-8">
+      <main className="min-h-0 flex-1 overflow-y-auto px-4 md:px-8" style={{ paddingBottom: phone ? 'calc(env(safe-area-inset-bottom,0px) + 104px)' : 40 }}>
         <RunningBehind tenantId={e.tenantId} margin={delayMargin} delays={delays} appts={todaysAppts} staff={e.staff || []} onOpenVisit={(id: string) => openVisit(id)} />
         <HereNow rows={mode === 'desk' && shown === 'day' ? hereNow.filter((r) => r.kind === 'door') : hereNow} onOpenVisit={(id: string) => openVisit(id)} onOpenPickups={() => { setPickupScan(null); setPickupOpen(true); }}
           onDoorDone={(id: string) => updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'frontDoor', id), { status: 'handled', handledAt: new Date().toISOString(), handledBy: (e as any).currentUserName || (e as any).currentStaffName || 'Front desk' })} />
@@ -689,6 +738,12 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         </LayoutGroup>}
         {mode === 'desk' && (shown !== 'day' || !wide) && alsoToday(false)}
       </main>
+      {phone && <nav aria-label="Front desk actions" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 gap-1.5 px-3 pt-2"
+        style={{ background: 'color-mix(in srgb, var(--paper) 90%, transparent)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderTop: '1px solid var(--line)', paddingBottom: 'calc(env(safe-area-inset-bottom,0px) + 8px)' }}>
+        {([['Walk-in', 'plus', () => setWalkInOpen(true), true], ['Book', 'calendar', () => e.setIsQuickBookOpen(true), false], [mode === 'counter' ? 'Desk' : 'Sell', mode === 'counter' ? 'back' : 'bag', () => setMode(mode === 'counter' ? 'desk' : 'counter'), false], ['Scan', 'scan', scanner.show, false]] as [string, string, () => void, boolean][]).map(([l, ic, run, primary]) => (
+          <button key={l} type="button" onClick={run} className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[11.5px] font-semibold transition active:scale-[.96]"
+            style={primary ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { color: 'var(--ink)' }}><Icon name={ic} size={20} />{l}</button>))}
+      </nav>}
       <Drawer accent={accent} open={!wide && mode === 'desk' && shown === 'day' && !!selectedGuest} onClose={() => setSel(null)} title="Ticket">{selectedGuest && ticket(selectedGuest)}</Drawer>
       <DeskDelay e={e} appt={lateFor?.appt || null} accent={accent} onClose={() => setLateFor(null)} onReschedule={(a) => setMoveAppt(a)} />
       <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
