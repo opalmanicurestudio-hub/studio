@@ -17,6 +17,9 @@ const dark = { background: 'radial-gradient(90% 50% at 80% 0%, rgba(127,209,165,
 export default function CreatorPage() {
   const p = useParams() as any; const tenantId = String(p?.tenantId || ''); const code = String(p?.code || ''); const still = !!useReducedMotion();
   const [d, setD] = React.useState<any>(null); const [copied, setCopied] = React.useState(false);
+  const [cp, setCp] = React.useState<string | null>(null);
+  React.useEffect(() => { try { const v = new URLSearchParams(window.location.search).get('p') || ''; if (/^[a-z0-9]{2,40}\.[a-z0-9]{2,40}$/i.test(v)) { setCp(v); let seen = false; try { seen = sessionStorage.getItem(`piece-${v}`) === '1'; sessionStorage.setItem(`piece-${v}`, '1'); } catch { /* count it */ }
+    if (!seen) void fetch('/api/referrals/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'piece_open', tenantId, code, p: v }) }).catch(() => {}); } } catch { /* fine */ } }, [tenantId, code]);
   React.useEffect(() => { fetch('/api/referrals/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'creator', tenantId, code }) }).then((r) => r.json()).then(setD).catch(() => setD({ ok: false, error: 'This page couldn’t load.' }));
   }, [tenantId, code]);
   React.useEffect(() => { if (d?.ok && d.slug) { let seen = false; try { seen = sessionStorage.getItem(`ref-open-${d.slug}`) === '1'; sessionStorage.setItem(`ref-open-${d.slug}`, '1'); } catch { /* count it */ }
@@ -26,13 +29,13 @@ export default function CreatorPage() {
     <a href={`/book/${encodeURIComponent(tenantId)}`} className="mt-6 inline-flex h-12 items-center rounded-full bg-white px-6 font-semibold" style={{ color: INK }}>See services</a></div></main>;
   const c = d.creator; const offer = Math.round((d.offerCents || 0) / 100);
   const cover = c.photo || d.photos?.[0] || c.looks?.[0] || null;
-  const book = (serviceId?: string | null, staffId?: string | null) => `/book/${encodeURIComponent(tenantId)}?ref=${encodeURIComponent(d.slug)}${serviceId ? `&service=${encodeURIComponent(serviceId)}` : ''}${staffId ? `&staff=${encodeURIComponent(staffId)}` : ''}&src=creator`;
+  const book = (serviceId?: string | null, staffId?: string | null) => `/book/${encodeURIComponent(tenantId)}?ref=${encodeURIComponent(d.slug)}${serviceId ? `&service=${encodeURIComponent(serviceId)}` : ''}${staffId ? `&staff=${encodeURIComponent(staffId)}` : ''}${cp ? `&cp=${encodeURIComponent(cp)}` : ''}&src=creator`;
   const top = c.picks?.[0] || d.favorite || null;
   const rise = (i = 0) => (still ? {} : { initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.5, ease, delay: 0.1 + i * 0.08 } });
   const CodeBox = <div className="flex items-center justify-between gap-3 rounded-[18px] border border-dashed px-4 py-3" style={{ borderColor: 'rgba(255,255,255,.35)' }}>
     <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(c.code); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { /* fine */ } }} className="text-left" aria-label={`Copy the code ${c.code}`}>
       <p className="text-[11px] uppercase tracking-[0.16em] opacity-60">{copied ? 'Copied' : 'Your code'}</p><p className="text-[26px] font-light tracking-[0.06em]">{c.code}</p></button>
-    {offer > 0 && <div className="text-right"><p className="text-[26px] font-light" style={{ color: MINT }}>{money(offer)} off</p><p className="text-[11.5px] opacity-60">your first visit · applied</p></div>}</div>;
+    {offer > 0 && <div className="text-right"><p className="text-[26px] font-light" style={{ color: MINT }}>{money(offer)} off</p><p className="text-[11.5px] opacity-60">{d.days ? `first visit · ${d.days}` : 'your first visit · applied'}</p></div>}</div>;
   return (
     <main className="min-h-screen md:grid md:grid-cols-[1fr_minmax(440px,560px)]" style={dark}>
       <section className="relative min-h-[64vh] overflow-hidden md:sticky md:top-0 md:h-screen">

@@ -159,8 +159,10 @@ export async function creatorPage(db: any, t: string, code: string, now = Date.n
   const services = cr?.picks?.length ? rows(await db.collection(`${T(t)}/services`).get()).filter((s: any) => cr.picks.includes(s.id) && s.isActive !== false && s.onlineBooking !== false)
     .map((s: any) => ({ id: s.id, name: String(s.name || 'Service'), minutes: Number(s.duration) || null, price: Number(s.price) || null })) : (w.favorite ? [w.favorite] : []);
   const offer = friendOfferFor(S, C, (c.circle?.tier || null) as TierId | null, cr);
+  const { campaignOffer } = await import('@/lib/creator-campaigns-server'); const { daysLabel } = await import('@/lib/creator-campaigns');
+  const camp = cr ? await campaignOffer(db, t, c.id, null, now) : null;
   return { ...w, ok: true as const, creator: { name: cr?.displayName || short(c.name), handle: cr?.handle || null, line: cr?.line || null, code: cr?.code || normalizeCode(c.circle?.code), tier: cr ? 'Creator' : tier?.name || null,
-    photo: typeof c.avatarUrl === 'string' && /^https:/.test(c.avatarUrl) ? c.avatarUrl : null, looks: cr?.looks || [], picks: services }, offerCents: offer, slug };
+    photo: typeof c.avatarUrl === 'string' && /^https:/.test(c.avatarUrl) ? c.avatarUrl : null, looks: cr?.looks || [], picks: services }, offerCents: offer, slug, days: camp ? daysLabel(camp.days) : '' };
 }
 
 // ── The business's Circle tab ──────────────────────────────────────────────────────
@@ -173,17 +175,18 @@ export async function circleOverview(db: any, t: string, now = Date.now()) {
   const opensDoc: any = ((await db.doc(`${T(t)}/private/referralOpens-${iso(now).slice(0, 7)}`).get()).data()) || {};
   const reqs: any = ((await db.doc(`${T(t)}/private/circleRequests`).get()).data()) || {};
   const owed = refs.filter((r: any) => Number(r.cashOwedCents) > 0 && !r.cashPaidAt);
+  const { feesOwed } = await import('@/lib/creator-campaigns-server'); const fees = await feesOwed(db, t);
   const card = (c: any) => { const cr = creatorOf(c.circle?.creator); const f = count.get(c.id) || 0; const tier = c.circle?.tier ? tierById(C, c.circle.tier) : null; const nx = cr ? null : nextTier(f, C, tier?.id || null);
     return { clientId: c.id, name: c.name || 'Client', tier: tier?.name || null, tierId: tier?.id || null, friends: f, opens: Number(opensDoc.by?.[c.id]) || 0, toNext: nx ? `${nx.need} to ${nx.tier.name}` : null,
       creator: cr ? { ...cr } : null, earnedCents: refs.filter((r: any) => r.referrerId === c.id && r.status === 'rewarded').reduce((n: number, r: any) => n + (Number(r.rewardCents) || 0), 0),
-      owedCents: owed.filter((r: any) => r.referrerId === c.id).reduce((n: number, r: any) => n + (Number(r.cashOwedCents) || 0), 0), optIn: c.circle?.optIn === true }; };
+      owedCents: owed.filter((r: any) => r.referrerId === c.id).reduce((n: number, r: any) => n + (Number(r.cashOwedCents) || 0), 0) + (fees.get(c.id) || 0), optIn: c.circle?.optIn === true }; };
   const byId = new Map<string, any>(); for (const c of [...members, ...creators]) byId.set(c.id, c);
   return { ok: true, circle: C, business: biz(tenant), name: programName(C, biz(tenant)),
     counts: Object.fromEntries(C.tiers.map((x) => [x.id, members.filter((c: any) => c.circle?.tier === x.id).length])) as Record<TierId, number>, creatorsCount: creators.length,
     placesLeft: C.season.places != null ? Math.max(0, C.season.places - members.length) : null,
     members: [...byId.values()].map(card).sort((a, b) => (b.creator ? 1 : 0) - (a.creator ? 1 : 0) || b.friends - a.friends).slice(0, 200),
     requests: Object.values(reqs).filter((r: any) => r && ['new', 'waitlist'].includes(r.status)).sort((a: any, b: any) => ms(b.createdAt) - ms(a.createdAt)).slice(0, 100),
-    owedCents: owed.reduce((n: number, r: any) => n + (Number(r.cashOwedCents) || 0), 0),
+    owedCents: owed.reduce((n: number, r: any) => n + (Number(r.cashOwedCents) || 0), 0) + [...fees.values()].reduce((n, x) => n + x, 0),
     boosts: C.boosts.map((b) => ({ ...b, live: ms(b.start) <= now && now < ms(b.end), ended: ms(b.end) <= now })) };
 }
 
@@ -232,7 +235,8 @@ export async function circleAction(db: any, t: string, b: any, actor: { id?: str
     const id = String(b.clientId || ''); const how = String(b.method || '').trim().slice(0, 40) || 'paid';
     const owed = rows(await db.collection(`${T(t)}/referrals`).where('referrerId', '==', id).get()).filter((r: any) => Number(r.cashOwedCents) > 0 && !r.cashPaidAt);
     for (const r of owed) await db.doc(`${T(t)}/referrals/${r.id}`).set({ cashPaidAt: iso(now), cashPaidBy: actor.name, cashMethod: how }, { merge: true });
-    return { ok: true, paidCents: owed.reduce((n: number, r: any) => n + (Number(r.cashOwedCents) || 0), 0) };
+    const { markFeesPaid } = await import('@/lib/creator-campaigns-server'); const feePaid = await markFeesPaid(db, t, id, how, actor, now);
+    return { ok: true, paidCents: owed.reduce((n: number, r: any) => n + (Number(r.cashOwedCents) || 0), 0) + feePaid };
   }
   return { ok: false, error: 'Unknown action.' };
 }

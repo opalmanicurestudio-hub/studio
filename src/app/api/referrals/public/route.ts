@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
     if (action === 'circle_join') { const tid = String(b.tenantId || '').slice(0, 120); const limited = await limitPublic(req, 'circle_join', tid, { perHour: 5, perDay: 200 }); if (limited) return limited;
       const { circleJoin } = await import('@/lib/circle-server'); return j(await circleJoin(db, tid, b)); }
     if (action === 'creator') { const { creatorPage } = await import('@/lib/circle-server'); return j(await creatorPage(db, String(b.tenantId || '').slice(0, 120), String(b.code || '').slice(0, 20))); }
+    if (action === 'piece_open') { const tid = String(b.tenantId || '').slice(0, 120); const { clientOfCode } = await import('@/lib/circle-server'); const c = await clientOfCode(db, tid, String(b.code || '').slice(0, 20));
+      if (c) { const { countPieceOpen } = await import('@/lib/creator-campaigns-server'); await countPieceOpen(db, tid, c.id, String(b.p || '').slice(0, 80)); } return j({ ok: true }); }
     if (action === 'welcome') return j(await welcomeFor(db, String(b.tenantId || '').slice(0, 120), String(b.code || '').slice(0, 40)));
     if (action === 'terms') return j(await termsFor(db, String(b.tenantId || '').slice(0, 120)));
     // A manager previewing a client's wallet (Referrals → Try it yourself): a private token that lasts 2 hours.
@@ -44,6 +46,9 @@ export async function POST(req: NextRequest) {
     const v = pv ? { tenantId: String(b.tenantId).slice(0, 120), clientId: pv } : await fromVisit(db, String(b.token || '')); if (!v) return j({ ok: false, error: 'This link isn’t valid.' }, 404);
     if (action === 'mine') return j(await mine(db, v.tenantId, v.clientId));
     if (action === 'optin') { if (pv) return j({ ok: false, error: 'Only the client can choose this.' }, 403); const { setOptIn } = await import('@/lib/circle-server'); return j(await setOptIn(db, v.tenantId, v.clientId, b.on === true)); }
+    if (action === 'campaigns') { const { creatorCampaigns } = await import('@/lib/creator-campaigns-server'); const { linkOrigin } = await import('@/lib/app-origin');
+      const td = (await db.doc(`tenants/${v.tenantId}`).get()).data() || {}; return j(await creatorCampaigns(db, v.tenantId, v.clientId, linkOrigin(td, '') || null)); }
+    if (action === 'hand_in') { if (pv) return j({ ok: false, error: 'Only the creator can hand in.' }, 403); const { handIn } = await import('@/lib/creator-campaigns-server'); return j(await handIn(db, v.tenantId, v.clientId, b)); }
     if (action === 'gift') return j(await giftFriend(db, v.tenantId, v.clientId, { firstName: String(b.firstName || ''), phone: String(b.phone || '') }));
     return j({ ok: false, error: 'Unknown action.' }, 400);
   } catch (e: any) { console.error('[referrals/public]', e); return j({ ok: false, error: 'That didn’t work. Please try again.' }, 500); }

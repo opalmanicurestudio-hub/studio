@@ -10,7 +10,7 @@ const money = (c: number) => { const d = (Number(c) || 0) / 100; return `$${d.to
 export function OwedToClients({ tenantId }: { tenantId?: string | null }) {
   const [d, setD] = React.useState<any>(null);
   React.useEffect(() => { if (tenantId) void payPost('/api/money/owed', { tenantId }).then(setD).catch(() => setD({ ok: false })); }, [tenantId]);
-  if (!d?.ok || d.totalCents <= 0) return null;
+  if (!d?.ok || (d.totalCents <= 0 && !(d.creatorsCents > 0))) return null;
   const line = (label: string, v: number, sub?: string) => v > 0 ? <div className="flex items-baseline justify-between gap-3 py-1.5 text-[13.5px]" style={{ borderTop: `1px solid ${LINE}` }}><span>{label}{sub && <span className="block text-[12px]" style={{ color: MUTED }}>{sub}</span>}</span><span className="font-semibold">{money(v)}</span></div> : null;
   return (
     <section className="mb-6 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE, color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }} aria-label="What you still owe clients">
@@ -20,6 +20,7 @@ export function OwedToClients({ tenantId }: { tenantId?: string | null }) {
       {line('Referral rewards', d.credit.referralCents)}
       {line('Store credit', d.credit.otherCents, 'refunds and goodwill')}
       {line('Gift cards', d.gift.cents, `${d.gift.cards} card${d.gift.cards === 1 ? '' : 's'} with a balance`)}
+      {d.creatorsCents > 0 && <div className="flex items-baseline justify-between gap-3 py-1.5 text-[13.5px]" style={{ borderTop: `1px solid ${LINE}` }}><span>Owed to creators<span className="block text-[12px]" style={{ color: MUTED }}>cash you pay them yourself · mark paid on Referrals → Circle</span></span><span className="font-semibold">{money(d.creatorsCents)}</span></div>}
       {d.credit.endingSoonCents > 0 && <p className="pt-2 text-[12.5px]" style={{ color: AMBER }}>{money(d.credit.endingSoonCents)} of credit ends in the next 30 days.</p>}
     </section>);
 }

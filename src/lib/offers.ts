@@ -27,7 +27,7 @@ export interface OfferDiscount {
 }
 
 /** Why this offer can't be used right now — or null if it can. Plain words for staff and clients. */
-export function offerProblem(d: OfferDiscount | null | undefined, ctx: { clientId?: string | null; serviceIds?: string[]; now?: number } = {}): string | null {
+export function offerProblem(d: OfferDiscount | null | undefined, ctx: { clientId?: string | null; serviceIds?: string[]; now?: number; weekday?: number | null } = {}): string | null {
   if (!d) return 'That code isn’t recognised.';
   const now = ctx.now ?? Date.now();
   if (d.isActive === false) return 'That offer has been switched off.';
@@ -35,6 +35,9 @@ export function offerProblem(d: OfferDiscount | null | undefined, ctx: { clientI
   if (d.validUntil && new Date(d.validUntil).getTime() < now) return `That offer ended ${fmt(d.validUntil)}.`;
   if (Number(d.usageLimit) > 0 && Number(d.usageCount || 0) >= Number(d.usageLimit)) return 'That offer has been fully used.';
   if (d.limitOnePerCustomer && ctx.clientId && (d.usedByClientIds || []).includes(ctx.clientId)) return 'This client has already used that offer.';
+  // Some offers only work on certain days (a creator campaign sending new clients to quieter days). 0 = Sunday.
+  const days = Array.isArray((d as any).daysOfWeek) ? ((d as any).daysOfWeek as any[]).map(Number) : [];
+  if (days.length && days.length < 7 && ctx.weekday != null && !days.includes(ctx.weekday)) return `That offer works on ${days.sort().map((x) => ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'][x]).join(', ')}.`;
   const only = (d.applicableServiceIds || []).filter(Boolean);
   if (only.length && ctx.serviceIds && ctx.serviceIds.length && !ctx.serviceIds.some((s) => only.includes(s))) return 'That offer doesn’t cover these services.';
   return null;

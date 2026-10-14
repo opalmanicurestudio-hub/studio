@@ -18,5 +18,9 @@ export async function owedToClients(db: any, t: string, now = Date.now()) {
   const gift = { cents: 0, cards: 0 };
   const gs = await db.collection(`${T(t)}/giftCards`).where('status', '==', 'active').get();
   for (const d of gs.docs) { const g: any = d.data() || {}; const v = Math.max(0, Math.round(Number(g.balanceCents) || 0)); if (v > 0 && !g.renterId && !g.ownerRenterId) { gift.cents += v; gift.cards++; } }
-  return { ok: true as const, totalCents: credit.referralCents + credit.otherCents + gift.cents, credit, gift };
+  // Creators you pay yourself: cash per paid first visit, and fees for approved pieces, until you mark them paid.
+  let creatorsCents = 0;
+  try { const rs = await db.collection(`${T(t)}/referrals`).where('cashOwedCents', '>', 0).get(); for (const d of rs.docs) { const r: any = d.data() || {}; if (!r.cashPaidAt) creatorsCents += Math.round(Number(r.cashOwedCents) || 0); }
+    const { feesOwed } = await import('@/lib/creator-campaigns-server'); for (const v of (await feesOwed(db, t)).values()) creatorsCents += v; } catch { /* none */ }
+  return { ok: true as const, totalCents: credit.referralCents + credit.otherCents + gift.cents, credit, gift, creatorsCents };
 }

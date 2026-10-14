@@ -196,7 +196,7 @@ async function textTo(db: any, t: string, c: any, text: string, kind: string) {
   try { const { sendNotification } = await import('@/lib/notify'); const r: any = await sendNotification(db, { tenantId: t, channel: 'sms', to: String(c.phone), text, kind, clientId: c.id, clientName: c.name || null, recipientType: 'client', recipientId: c.id } as any); return !!r?.ok; } catch { return false; }
 }
 
-export async function matchOnBooking(db: any, t: string, o: { clientId: string; appointmentId: string; slug?: string | null; named?: { firstName: string; phone: string } | null; serviceIds?: string[]; broughtBy?: string | null; code?: string | null }, now = Date.now()) {
+export async function matchOnBooking(db: any, t: string, o: { clientId: string; appointmentId: string; slug?: string | null; named?: { firstName: string; phone: string } | null; serviceIds?: string[]; broughtBy?: string | null; code?: string | null; cp?: string | null }, now = Date.now()) {
   const tenant = await tenantOf(db, t); const S = referralSettingsOf(tenant); if (!S.on) return { ok: true, skipped: 'off' };
   if (o.broughtBy && !S.group) return { ok: true, skipped: 'group off' };
   const fSnap = await db.doc(`${T(t)}/clients/${o.clientId}`).get(); if (!fSnap.exists) return { ok: true, skipped: 'no client' };
@@ -243,11 +243,20 @@ export async function matchOnBooking(db: any, t: string, o: { clientId: string; 
   // Their friend's tier (or creator offer) decides what they get; each amount is its own approved discount.
   const { circleOf, friendOfferFor, welcomeIdFor, creatorOf: crOf } = await import('@/lib/circle'); const C = circleOf(tenant);
   const offerCents = C.on ? friendOfferFor(S, C, (referrer.circle?.tier || null) as any, crOf(referrer.circle?.creator)) : S.friendCents;
+  // A creator's live campaign: its own guarded offer (only on its days, up to its uses), and the campaign gets the credit.
+  const cr = crOf(referrer.circle?.creator);
+  const camp = cr ? await (await import('@/lib/creator-campaigns-server')).campaignOffer(db, t, referrer.id, o.cp || null, now) : null;
+  if (camp) await ref.set({ campaignId: camp.campaignId, pieceId: camp.pieceId || null }, { merge: true });
+  let weekday: number | null = null;
+  if (a.startTime) { try { const { tenantTimeZone } = await import('@/lib/tenant-time'); const tz = tenantTimeZone(tenant);
+    weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(new Date(a.startTime).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' })); } catch { weekday = new Date(a.startTime).getDay(); } }
   if (offerCents > 0 && !a.pendingDiscountCode) {
     const { offerProblem } = await import('@/lib/offers');
-    let dz: any = (await db.doc(`${T(t)}/discounts/${welcomeIdFor(offerCents, S.friendCents)}`).get()).data();
-    if (!dz || dz.isActive === false) dz = (await db.doc(`${T(t)}/discounts/${WELCOME_ID}`).get()).data();
-    if (dz && dz.isActive !== false && !offerProblem(dz, { clientId: friend.id, serviceIds: o.serviceIds || [] })) patch.pendingDiscountCode = dz.code || WELCOME_CODE;
+    let dz: any = camp ? (await db.doc(`${T(t)}/discounts/${camp.discountId}`).get()).data() : null;
+    if (camp && dz && dz.isActive !== false && offerProblem(dz, { clientId: friend.id, serviceIds: o.serviceIds || [], weekday })) dz = { isActive: false };   // outside the campaign's days or uses: no offer
+    if (!camp && (!dz || dz.isActive === false)) dz = (await db.doc(`${T(t)}/discounts/${welcomeIdFor(offerCents, S.friendCents)}`).get()).data();
+    if (!camp && (!dz || dz.isActive === false)) dz = (await db.doc(`${T(t)}/discounts/${WELCOME_ID}`).get()).data();
+    if (dz && dz.isActive !== false && !offerProblem(dz, { clientId: friend.id, serviceIds: o.serviceIds || [], weekday })) { patch.pendingDiscountCode = dz.code || WELCOME_CODE; await ref.set({ offerCents: Math.round((Number(dz.value) || 0) * 100) }, { merge: true }); }
   }
   await aRef.set(patch, { merge: true });
   // Someone who brought a friend along booked it themselves, so there's nothing to tell them yet; the thank-you comes after the visit.

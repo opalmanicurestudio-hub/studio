@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   try {
     const { matchOnBooking } = await import('@/lib/referrals-server');
     if (lead.clientId) await matchOnBooking(db, tenantId, { clientId: String(lead.clientId), appointmentId: lead.appointmentId, slug: typeof b.referralCode === 'string' ? b.referralCode.slice(0, 60) : null,
-      named: b.referredBy && typeof b.referredBy === 'object' ? { firstName: String(b.referredBy.firstName || ''), phone: String(b.referredBy.phone || '') } : null, serviceIds: [String(parts[0]?.serviceId || '')], code: typeof b.referralTypedCode === 'string' ? b.referralTypedCode.slice(0, 20) : null });
+      named: b.referredBy && typeof b.referredBy === 'object' ? { firstName: String(b.referredBy.firstName || ''), phone: String(b.referredBy.phone || '') } : null, serviceIds: [String(parts[0]?.serviceId || '')], code: typeof b.referralTypedCode === 'string' ? b.referralTypedCode.slice(0, 20) : null, cp: typeof b.referralCampaign === 'string' ? b.referralCampaign.slice(0, 90) : null });
     for (let i = 1; i < made.length; i++) { const m = made[i]; if (!m.guest || !m.clientId || !lead.clientId || m.clientId === lead.clientId) continue;
       await matchOnBooking(db, tenantId, { clientId: String(m.clientId), appointmentId: m.appointmentId, broughtBy: String(lead.clientId), serviceIds: [String(parts[i]?.serviceId || '')] }); }
   } catch (e) { console.error('[book-group] referrals', e); }   // a bonus; the booking stands

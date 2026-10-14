@@ -95,6 +95,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // The offer the client is booking with — shown to them, checked on the server.
   const [offerShown, setOfferShown] = useState<{ code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean; from?: string } | null>(null);
   // ?ref=<their link> — a friend sent them (lib/referrals). The welcome offer shows like any offer; the server decides.
+  const [refCampaign] = useState<string | null>(() => { try { const v = new URLSearchParams(window.location.search).get('cp') || ''; return /^[a-z0-9]{2,40}\.[a-z0-9]{2,40}$/i.test(v) ? v : null; } catch { return null; } });
   const [refSlug] = useState<string | null>(() => { try { const v = new URLSearchParams(window.location.search).get('ref') || ''; return /^[a-z0-9-]{3,40}$/.test(v) ? v : null; } catch { return null; } });
   useEffect(() => { if (!refSlug || !tenantId) return;
     fetch('/api/referrals/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'info', tenantId, code: refSlug }) }).then((r) => r.json()).then((r) => {
@@ -526,7 +527,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         for (const x of party.extras || []) { if (!x.serviceId) continue; if (x.when === 'after') { parts.push({ serviceId: x.serviceId, staffId: 'any', startTime: new Date(after).toISOString() }); after += durOf(x.serviceId) * 60000; } else parts.push({ serviceId: x.serviceId, staffId: 'any', startTime: restDetails.startTime }); }
         for (const g of party.guests || []) { if (!g.serviceId) continue; parts.push({ serviceId: g.serviceId, staffId: 'any', startTime: restDetails.startTime, guest: { name: g.name, email: g.email || '', phone: g.phone || '' } }); }
         const gr = await fetch('/api/appointments/book-group', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, parts, notes: formData.notes, signedForms: Array.isArray(signedForms) ? signedForms : [],
-          channel: channelFrom(new URLSearchParams(window.location.search).get('src')), ...(refSlug ? { referralCode: refSlug } : {}), ...((restDetails as any).referredBy ? { referredBy: (restDetails as any).referredBy } : {}), ...((restDetails as any).referralTypedCode ? { referralTypedCode: (restDetails as any).referralTypedCode } : {}), organizer: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone, smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null } }) }).then((x) => x.json()).catch(() => null);
+          channel: channelFrom(new URLSearchParams(window.location.search).get('src')), ...(refSlug ? { referralCode: refSlug } : {}), ...(refCampaign ? { referralCampaign: refCampaign } : {}), ...((restDetails as any).referredBy ? { referredBy: (restDetails as any).referredBy } : {}), ...((restDetails as any).referralTypedCode ? { referralTypedCode: (restDetails as any).referralTypedCode } : {}), organizer: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone, smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null } }) }).then((x) => x.json()).catch(() => null);
         if (!gr?.ok) return { requiresPayment: true, error: gr?.error || 'We couldn’t send that request — please try again. Nothing was booked.' };
         setBookingOutcome({ status: 'requested', notice: String(gr.clientNotice || ''), depositCents: Number(gr.depositCents) || 0, cardOnFile: false } as any);
         return { requiresPayment: false };
@@ -552,6 +553,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
             ...(oppRef ? { opportunityId: oppRef } : {}),
             ...(refSlug ? { referralCode: refSlug } : {}),
+            ...(refCampaign ? { referralCampaign: refCampaign } : {}),
             ...((restDetails as any).referredBy ? { referredBy: (restDetails as any).referredBy } : {}),
             ...((restDetails as any).referralTypedCode ? { referralTypedCode: (restDetails as any).referralTypedCode } : {}),
             serviceId: restDetails.serviceId,
