@@ -73,7 +73,7 @@ export const MODULES: Record<ModuleId, {
   // booking now — no pages of its own to hide. Kept so saved choices still read.
   guest_experience: { label: 'Guest experience', pages: [], messageKinds: [] },
   kiosk: { label: 'Front desk & walk-ins', pages: ['/walk-in', '/lobby'], messageKinds: [] },
-  marketing: { label: 'Marketing & reputation', pages: ['/campaigns', '/discounts', '/reviews'], messageKinds: [] },
+  marketing: { label: 'Marketing & reputation', pages: ['/campaigns', '/discounts', '/reviews', '/referrals'], messageKinds: [] },
   memberships: { label: 'Memberships & packages', pages: ['/memberships', '/memberships/ledger'], messageKinds: [] },
   team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/documents', '/schedule', '/schedule/requests', '/timeclock', '/staff-portal'], messageKinds: [] },
   voice: { label: 'AI receptionist', pages: ['/voice'], messageKinds: [] },

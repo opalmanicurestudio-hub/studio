@@ -51,6 +51,9 @@ export async function GET(req: NextRequest) {
     // Opportunities: once a day after 9 am local — find, hand out, expire, check who came back (lib/opportunities-server).
     try { const { opportunitySweep } = await import('@/lib/opportunities-server'); await opportunitySweep(db, t.id, tenant, now); } catch { /* next run */ }
     try { const { renterOpportunitySweep } = await import('@/lib/opportunities-server'); await renterOpportunitySweep(db, t.id, tenant, now); } catch { /* next run */ }   // renters' own, when the business allows it
+    // Referrals: credit for a friend's first paid visit, holds for a manager, refunds taken back (lib/referrals-server). Every 30 minutes.
+    if ((tenant as any)?.referrals?.on === true) { try { const mk = db.doc(`tenants/${t.id}/private/referralSweep`); const last = Date.parse(String(((await mk.get()).data() || {}).at || '')) || 0;
+      if (now - last > 30 * 60e3) { await mk.set({ at: new Date(now).toISOString() }, { merge: true }); const { referralSweep } = await import('@/lib/referrals-server'); await referralSweep(db, t.id, tenant, now); } } catch { /* next run */ } }
     // …and the moment something happens (a cancellation, a confirmed no-show, a checkout with nothing booked next): a task for
     // that client now, sent at its time — then anything scheduled whose time has come.
     try { const { opportunityEvents } = await import('@/lib/opportunities-server'); await opportunityEvents(db, t.id, tenant, now, justCancelled); } catch { /* next run */ }

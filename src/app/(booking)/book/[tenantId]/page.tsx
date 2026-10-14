@@ -93,7 +93,12 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [campaignRef, setCampaignRef] = useState<{ campaignId: string | null; code: string | null } | null>(null);
   const [oppRef] = useState<string | null>(() => { try { const v = new URLSearchParams(window.location.search).get('opp') || ''; return /^[A-Za-z0-9_-]{6,60}$/.test(v) ? v : null; } catch { return null; } });
   // The offer the client is booking with — shown to them, checked on the server.
-  const [offerShown, setOfferShown] = useState<{ code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean } | null>(null);
+  const [offerShown, setOfferShown] = useState<{ code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean; from?: string } | null>(null);
+  // ?ref=<their link> — a friend sent them (lib/referrals). The welcome offer shows like any offer; the server decides.
+  const [refSlug] = useState<string | null>(() => { try { const v = new URLSearchParams(window.location.search).get('ref') || ''; return /^[a-z0-9-]{3,40}$/.test(v) ? v : null; } catch { return null; } });
+  useEffect(() => { if (!refSlug || !tenantId) return;
+    fetch('/api/referrals/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'info', tenantId, code: refSlug }) }).then((r) => r.json()).then((r) => {
+      if (r?.ok && r.offerCents > 0) setOfferShown({ code: r.code || 'WELCOME', line: `$${Math.round(r.offerCents / 100)} off your first visit`, amount: `$${Math.round(r.offerCents / 100)} off your first visit`, until: null, from: r.firstName || undefined }); }).catch(() => {}); }, [refSlug, tenantId]);
   const [offerInput, setOfferInput] = useState('');
   const [offerErr, setOfferErr] = useState('');
   const [offerOpen, setOfferOpen] = useState(false);
@@ -546,6 +551,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             channel: channelFrom(new URLSearchParams(window.location.search).get('src')),   // where the link lived (website, instagram, google, qr…)
             ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
             ...(oppRef ? { opportunityId: oppRef } : {}),
+            ...(refSlug ? { referralCode: refSlug } : {}),
+            ...((restDetails as any).referredBy ? { referredBy: (restDetails as any).referredBy } : {}),
             serviceId: restDetails.serviceId,
             ...(Number((restDetails as any).acceptExtraCents) > 0 ? { acceptExtraCents: Number((restDetails as any).acceptExtraCents) } : {}),
             ...((restDetails as any).place ? { place: (restDetails as any).place } : {}),
@@ -810,7 +817,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] uppercase tracking-[0.22em]" style={{ color: mute }}>Your offer</p>
                     <p className="text-[24px] leading-tight" style={{ fontFamily: face, fontWeight: lightWeight }}>{offerShown.amount || offerShown.line}</p>
-                    <p className="text-[12px]" style={{ color: mute }}>{offerShown.until ? `Until ${offerShown.until} · ` : ''}code {offerShown.code} · taken off at your visit</p>
+                    <p className="text-[12px]" style={{ color: mute }}>{offerShown.until ? `Until ${offerShown.until} · ` : ''}{offerShown.from ? `From ${offerShown.from}` : `code ${offerShown.code}`} · taken off at your visit</p>
                   </div>
                 </div>
               </div>
@@ -1193,7 +1200,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             <div className="relative flex items-center gap-4">
               <div className="glass flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl shadow-sm" aria-hidden>🎁</div>
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] opacity-60">Your offer</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] opacity-60">{offerShown.from ? `${offerShown.from} recommended you` : 'Your offer'}</p>
                 <p className="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{offerShown.amount || offerShown.line}</p>
                 <p className="mt-0.5 text-[12px] opacity-70">{offerShown.until ? `Until ${offerShown.until}` : 'Applied at your visit'}{offerShown.oncePer ? ' · one per client' : ''}</p>
               </div>

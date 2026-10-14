@@ -84,17 +84,24 @@ export async function POST(req: NextRequest) {
   const toApply    = Math.min(amountToApply, totalAvailable);
   let   remaining  = toApply;
   const usedIds: string[] = [];
-  const updatedCredits    = allCredits.map((c: any) => {
-    if (remaining <= 0) return c;
-    if (c.status === 'used' || c.usedAt) return c;
+  const leftovers: any[] = [];
+  // Oldest first, matching the list above. A credit bigger than what's left is used for that much, and the rest stays
+  // available as its own credit with the same end date (before, the remainder was lost).
+  const order = new Map(available.map((c: any, i: number) => [c.id, i]));
+  const updatedCredits    = [...allCredits].sort((a: any, b: any) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9)).map((c: any) => {
+    if (remaining <= 0.0001) return c;
+    if (c.status === 'used' || c.usedAt || (c.status && c.status !== 'available')) return c;
     if (c.expiresAt && new Date(c.expiresAt) < nowDate) return c;
-    if (!usedIds.includes(c.id) && remaining > 0) {
-      remaining -= c.amount;
+    if (!usedIds.includes(c.id)) {
+      const amt = Number(c.amount) || 0; const take = Math.min(amt, remaining);
+      remaining = parseFloat((remaining - take).toFixed(2));
       usedIds.push(c.id);
-      return { ...c, status: 'used', usedAt: now, usedOnAppointmentId: appointmentId };
+      const rest = parseFloat((amt - take).toFixed(2));
+      if (rest > 0) leftovers.push({ ...c, id: `${c.id}_r${Date.now().toString(36)}`, amount: rest, amountCents: Math.round(rest * 100), status: 'available', usedAt: null, usedOnAppointmentId: null, splitFrom: c.id, createdAt: c.createdAt });
+      return { ...c, status: 'used', usedAt: now, usedOnAppointmentId: appointmentId, ...(rest > 0 ? { amount: take, amountCents: Math.round(take * 100), originalAmount: amt } : {}) };
     }
     return c;
-  });
+  }).concat(leftovers);
 
   const appliedAmount    = parseFloat(toApply.toFixed(2));
   const remainingBalance = parseFloat(Math.max(0, amountToApply - appliedAmount).toFixed(2));

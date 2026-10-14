@@ -430,7 +430,7 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
   const n0 = sentG.length; await Srv.opportunityReply(dbG, 't1', dgt(gB.phone), 'yes please', realG, ioG as any);
   check('a later yes from someone else: nothing to reply to any more (their task is closed)', sentG.length === n0 && bookedG.length === 1);
   await dbG.doc(`${T}/opportunities/${gB.id}`).set({ status: 'auto' }, { merge: true });
-  await Srv.opportunityReply(dbG, 't1', dgt(gB.phone), 'yes please', realG, ioG as any);
+  await Srv.opportunityReply(dbG, 't1', dgt(gB.phone), 'yes please', nowG + 3600e3, ioG as any);   // within texting hours (a reply after 8 PM goes to a person)
   check('…and if it was still open, a kind “it’s just been taken”, with no task for anyone', /just been taken/.test(sentG[sentG.length - 1]?.body || '') && (await dbG.doc(`${T}/opportunities/${gB.id}`).get()).data()?.status === 'done' && bookedG.length === 1);
   const gC = gOpps[2]; await Srv.opportunityReply(dbG, 't1', dgt(gC.phone), 'no thanks', realG, ioG as any);
   check('“no thanks” closes it without bothering anyone', (await dbG.doc(`${T}/opportunities/${gC.id}`).get()).data()?.outcome !== 'booked' && (await dbG.doc(`${T}/opportunities/${gC.id}`).get()).data()?.status === 'done');

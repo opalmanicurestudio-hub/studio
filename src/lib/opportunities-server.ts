@@ -549,7 +549,7 @@ export async function textCheck(db: any, t: string, tenant: any, o: any, client:
   const { inTextWindow } = await import('@/lib/campaigns');
   if (!inTextWindow(await tz(tenant), new Date(now))) return { ok: false, error: 'It is outside texting hours (9:00 AM to 8:00 PM). Please send it tomorrow, or call instead.' };
   if (!opts.answering && (o.attempts || []).some((x: any) => x.channel === 'text' && now - ms(x.at) < 2 * DAY)) return { ok: false, error: 'A text was sent in the last two days. Please give the client time to reply.' };
-  { const { budgetLeft } = await import('@/lib/text-budget'); if ((await budgetLeft(db, t, phone, 'opportunity', now)) <= 0) return { ok: false, error: 'This client has already received texts from us today. Please try again tomorrow, or call instead.' }; }
+  if (!opts.answering) { const { budgetLeft } = await import('@/lib/text-budget'); if ((await budgetLeft(db, t, phone, 'opportunity', now)) <= 0) return { ok: false, error: 'This client has already received texts from us today. Please try again tomorrow, or call instead.' }; }
   return { ok: true, phone };
 }
 
@@ -690,6 +690,8 @@ export async function resultsPass(db: any, t: string, tenant: any, now = Date.no
   for (const a of rows(wl)) if (!a.isRenterBooking) claim(String(a.id), { source: 'waitlist', type: 'recovered', at: ms(a.fromWaitlist?.at), direct: true });
   { const rb = await safe(db.collection(`${T(t)}/appointments`).where('rebookVia', 'in', ['client_screen', 'visit_link']).get());
     for (const a of rows(rb)) if (!a.isRenterBooking && (ms(a.createdAt) || ms(a.startTime)) >= ms(since)) claim(String(a.id), { source: 'visit', type: 'generated', at: ms(a.createdAt) || ms(a.startTime), direct: true }); }
+  { const rf = await safe(db.collection(`${T(t)}/appointments`).where('referralBookedAt', '>=', since).get());   // a friend's first visit (lib/referrals-server)
+    for (const a of rows(rf)) if (!a.isRenterBooking) claim(String(a.id), { source: 'referral', type: 'generated', at: ms(a.referralBookedAt), direct: true }); }
   for (const x of rows(cs)) if (ms(x.at) >= ms(since) && x.convertedAppointmentId) claim(String(x.convertedAppointmentId), { source: 'campaigns', type: 'influenced', at: ms(x.at), direct: false });
   for (const x of rows(ns)) if (ms(x.sentAt) >= ms(since) && x.convertedAppointmentId && (x.sender || 'studio') === 'studio') claim(String(x.convertedAppointmentId), { source: 'winback', type: 'influenced', at: ms(x.sentAt), direct: false });
   for (const [id, c] of claims) {

@@ -1147,7 +1147,7 @@ export async function POST(req: NextRequest) {
             } else if (pendingCode) {
               const dz = await findDiscount(pendingCode);
               if (offerProblem(dz, ctx)) await aRef.set({ pendingDiscountCode: null }, { merge: true });   // e.g. already used by this client
-              else attached = true;
+              else { await aRef.set({ pendingDiscountCode: pendingCode }, { merge: true }); attached = true; }   // saved on the visit, so checkout applies it (was checked, then never stored)
             }
 
             if (!attached) {
@@ -1173,6 +1173,17 @@ export async function POST(req: NextRequest) {
               }
             }
           } catch { /* offers are a bonus; the booking stands */ }
+        }
+
+        // ── REFERRALS: a friend's link, "who recommended you?", or a number a client gifted (lib/referrals-server).
+        // The friend's welcome offer is attached like any offer (unless one already is); the reward waits for a paid visit.
+        if (r.clientId && !renterSvc && !isRequest) {
+          try {
+            const { matchOnBooking } = await import('@/lib/referrals-server');
+            await matchOnBooking(db, tenantId, { clientId: String(r.clientId), appointmentId: String(r.aptId), slug: typeof body.referralCode === 'string' ? body.referralCode : null,
+              named: body.referredBy && typeof body.referredBy === 'object' ? { firstName: String(body.referredBy.firstName || ''), phone: String(body.referredBy.phone || '') } : null,
+              serviceIds: [String(serviceId || '')] });
+          } catch (e) { console.error('[book] referral', e); }   // a bonus; the booking stands
         }
 
         // ── RECONNECT: did a nudge bring them back? ──────────────────────

@@ -30,6 +30,7 @@ import { usePublicStaff } from '@/lib/use-public-staff';
 
 import { VisitTimeline } from '@/components/visit/VisitTimeline';
 import { VisitRebook } from '@/components/visit/VisitRebook';
+import { ReferralCard } from '@/components/visit/ReferralCard';
 import { placeOf } from '@/lib/service-place';
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
 import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
@@ -459,6 +460,7 @@ const CompletedView = ({ tenant, client, appointment, service, brand }: { brand:
             {(tenant as any)?.visitTimelineForClients !== false && <VisitTimeline items={(appointment as any).timelinePublic} showTimes={(appointment as any).timelineShowTimes !== false} />}
             {(appointment as any).checkInToken ? <VisitRebook token={String((appointment as any).checkInToken)} bookHref={brand.bookHref || null} />
                 : brand.bookHref && <VisitButton quiet={!submitted} href={brand.bookHref}>Book your next visit</VisitButton>}
+            {(appointment as any).checkInToken && !(submitted && rating > 0 && rating <= 3) && <ReferralCard token={String((appointment as any).checkInToken)} />}
         </VisitShell>
     );
 };

@@ -145,7 +145,7 @@ const KIND_HINT: Record<string, string> = {
   applicant_waiting: 'Job applicants with no reply after 3 days, and interviews 2 days past with no decision.',
   shop_reorder: 'Something a client buys again and again (online or at checkout), when it’s about time for more. Orders within 7 days count in Results, and so do carts finished after the “your cart has been saved” email.',
 };
-const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', visit: 'Booked before they left (checkout and visit link)', campaigns: 'Campaigns', winback: 'Win-back reminders (before they moved here)' };
+const TOOL_LABEL: Record<string, string> = { appointments: 'Appointments', gift_cards: 'Gift cards', quotes: 'Quotes and events', memberships: 'Memberships', shop: 'Online shop', booths: 'Booth rentals', academy: 'Academy', hiring: 'Hiring', calls: 'Calls and texts', waitlist: 'Waitlist (cancelled times filled)', visit: 'Booked before they left (checkout and visit link)', campaigns: 'Campaigns', referral: 'Referrals (a friend’s first visit)', winback: 'Win-back reminders (before they moved here)' };
 function Results({ tenantId }: { tenantId: string }) {
   const [r, setR] = React.useState<any>(null);
   React.useEffect(() => { payPost('/api/opportunities', { tenantId, action: 'results' }).then(setR); }, [tenantId]);
