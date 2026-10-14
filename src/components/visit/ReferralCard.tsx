@@ -9,6 +9,7 @@ import * as React from 'react';
 import { motion, AnimatePresence, useReducedMotion, animate } from 'framer-motion';
 import { VisitInput } from '@/components/booking/VisitShell';
 import { CircleMember } from '@/components/referrals/CircleMember';
+import { CreatorCampaigns } from '@/components/referrals/CreatorCampaigns';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d';
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -87,6 +88,8 @@ export function ReferralCard({ token, preview, tenantId }: { token: string; prev
         </AnimatePresence>
         {(d.creditCents > 0 || (w.gift || []).length > 0) && <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Comes off at checkout by itself. Nothing to ask for.</p>}
       </>}
+
+      {d.on && d.circle?.creator && <CreatorCampaigns token={token} preview={preview} tenantId={tenantId} />}
 
       {d.on && d.circle && <CircleMember m={d.circle} link={d.link || null} friendCents={d.friendCents} business={d.business} token={token} preview={!!preview} onShareText={(t) => { void share(t); }} />}
 

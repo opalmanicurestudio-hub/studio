@@ -69,7 +69,7 @@ export async function getCampaign(db: any, t: string, id: string, now = Date.now
   const creators = rows(await db.collection(`${T(t)}/clients`).where('circle.creator.code', '>=', '').get()).map((x: any) => ({ id: x.id, name: x.name || 'Client', creator: creatorOf(x.circle?.creator) })).filter((x: any) => x.creator);
   const services = rows(await db.collection(`${T(t)}/services`).get()).filter((s: any) => s.isActive !== false && !s.renterId && !s.renterProviderId).map((s: any) => ({ id: s.id, name: String(s.name || 'Service'), price: Number(s.price) || 0 }));
   const per = c.creators.map((cid) => { const cr = creators.find((x: any) => x.id === cid); const mine = refs.filter((r: any) => r.campaignId === c.id && r.referrerId === cid);
-    return { id: cid, name: cr?.name || 'Creator', code: cr?.creator?.code || null, booked: mine.filter((r: any) => ['booked', 'held', 'rewarded'].includes(r.status)).length, paidFirst: mine.filter((r: any) => r.status === 'rewarded').length,
+    return { id: cid, name: cr?.name || 'Creator', code: cr?.creator?.code || null, contentVisit: (raw?.contentVisits || {})[cid] || null, booked: mine.filter((r: any) => ['booked', 'held', 'rewarded'].includes(r.status)).length, paidFirst: mine.filter((r: any) => r.status === 'rewarded').length,
       pieces: c.pieces.map((p, i) => ({ id: p.id, label: pieceLabel(p, i), due: p.due, hand: (raw?.hands || {})[handKey(cid, p.id)] || null, opens: Number((raw?.opens || {})[`${cid}.${p.id}`]) || 0,
         booked: mine.filter((r: any) => r.pieceId === p.id).length })) }; });
   return { ok: true, campaign: c, live: liveNow(c, now), creators, services, per, stats: stats(c, raw || {}, refs), inputs: await planInputs(db, t, now), business: String(tenant.name || '') };
@@ -150,6 +150,23 @@ export async function reviewHand(db: any, t: string, b: any, actor: { name: stri
       text: ok ? `Hi ${firstOf(cl.name) || 'there'}, your ${label.toLowerCase()} for “${c.name}” is approved. Thank you!${c.pay.feeCents ? ` ${dollars(c.pay.feeCents)} is on its way to you.` : ''}` : `Hi ${firstOf(cl.name) || 'there'}, one small change on your ${label.toLowerCase()} for “${c.name}”: ${note} You can hand it in again from your visit link.` } as any); } catch { /* it shows in their link either way */ } }
   return { ok: true };
 }
+/** The creator's next booking becomes their free content visit: a 100% discount you approve, and the brief on the visit. */
+export async function markContentVisit(db: any, t: string, b: any, actor: { id?: string; name: string }, now = Date.now()) {
+  const d: any = (await db.doc(`${COL(t)}/${String(b.campaignId || '').slice(0, 60)}`).get()).data(); if (!d) return { ok: false, error: 'That campaign isn’t here any more.' };
+  const c = campaignOf(d, String(b.campaignId)); const cid = String(b.creatorId || ''); if (!c.creators.includes(cid)) return { ok: false, error: 'They aren’t on this campaign.' };
+  const next = rows(await db.collection(`${T(t)}/appointments`).where('clientId', '==', cid).get()).filter((a: any) => ms(a.startTime) > now && !['cancelled', 'canceled', 'no_show', 'declined', 'completed'].includes(String(a.status || '')))
+    .sort((x: any, y: any) => ms(x.startTime) - ms(y.startTime))[0];
+  if (!next) return { ok: false, error: 'They don’t have a visit booked yet. Book it first, then mark it here.' };
+  const did = `content_${c.id}`.slice(0, 120);
+  await db.doc(`${T(t)}/discounts/${did}`).set({ id: did, code: `CONTENT-${c.id.slice(-4).toUpperCase()}`, name: `Content visit · ${c.name}`, description: 'A creator’s free content visit for a campaign.', type: 'percentage', value: 100,
+    isActive: true, source: 'referrals', campaignId: c.id, approvedBy: actor.name, approvedById: actor.id || null, approvedAt: iso(now) }, { merge: true });
+  const line = `Content visit for “${c.name}”: they’ll film or photograph it. The brief and shot list are in Referrals → Campaigns.`;
+  await db.doc(`${T(t)}/appointments/${next.id}`).set({ pendingDiscountCode: `CONTENT-${c.id.slice(-4).toUpperCase()}`, contentVisit: { campaignId: c.id, name: c.name },
+    internalNotes: String(next.internalNotes || '').includes('Content visit for') ? next.internalNotes : [String(next.internalNotes || '').trim(), line].filter(Boolean).join('\n') }, { merge: true });
+  await db.doc(`${COL(t)}/${c.id}`).set({ contentVisits: { [cid]: { appointmentId: next.id, at: next.startTime } } }, { merge: true });
+  return { ok: true, at: next.startTime };
+}
+
 /** Approved piece fees not paid yet, per creator (shown with cash owed; marked paid together). */
 export async function feesOwed(db: any, t: string) {
   const out = new Map<string, number>();

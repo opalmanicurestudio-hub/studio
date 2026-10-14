@@ -57,6 +57,15 @@ const DAY = 864e5; const NOW = Date.parse('2026-10-14T15:00:00-04:00'); const at
   const paid: any = await CS.circleAction(db, 't1', { do: 'cash_paid', clientId: 'maya', method: 'Zelle' }, J, NOW);
   check('marking Maya paid clears her fee too', paid.paidCents === 6000 && (await S.feesOwed(db, 't1')).get('maya') === undefined);
 
+  console.log('Campaigns — the content visit');
+  check('no visit booked yet → it says to book first', /book/i.test(((await S.markContentVisit(db, 't1', { campaignId: cid, creatorId: 'maya' }, J, NOW)) as any).error || ''));
+  check('someone not on the campaign can’t get one', !((await S.markContentVisit(db, 't1', { campaignId: cid, creatorId: 'wed' }, J, NOW)) as any).ok);
+  await db.doc(`${T}/appointments/a_maya`).set({ clientId: 'maya', status: 'booked', startTime: at(4), internalNotes: 'Likes almond shape' });
+  const cv: any = await S.markContentVisit(db, 't1', { campaignId: cid, creatorId: 'maya' }, J, NOW); await S.markContentVisit(db, 't1', { campaignId: cid, creatorId: 'maya' }, J, NOW);
+  const mA: any = (await db.doc(`${T}/appointments/a_maya`).get()).data(); const cD: any = (await db.doc(`${T}/discounts/content_${cid}`).get()).data();
+  check('her next visit gets the approved content discount and a note for the team (once), the price untouched', cv.ok && mA.pendingDiscountCode === cD.code && cD.value === 100 && cD.approvedBy === 'Jessica' && mA.contentVisit?.campaignId === cid && mA.internalNotes.split('Content visit for').length === 2 && mA.internalNotes.startsWith('Likes almond') && mA.price === undefined, mA);
+  check('the campaign shows it on her row', ((await S.getCampaign(db, 't1', cid, NOW)) as any).per?.find((x: any) => x.id === 'maya')?.contentVisit?.appointmentId === 'a_maya');
+
   console.log('Campaigns — reminders and the guard');
   await db.doc(`${T}/clients/maya`).set({ smsConsent: false }, { merge: true });   // no texts in a test
   const sw: any = await S.campaignSweep(db, 't1', (await db.doc(T).get()).data(), NOW + 8 * DAY);

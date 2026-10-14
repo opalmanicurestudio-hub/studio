@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { motion, useReducedMotion, animate } from 'framer-motion';
 import { payPost } from '@/components/pay/pay-client';
 import { CircleBoard } from '@/components/referrals/CircleBoard';
+import { CampaignsBoard } from '@/components/referrals/CampaignsBoard';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', MINT = '#7fd1a5', AMBER = '#b45309', RED = '#b42318';
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -74,12 +75,13 @@ function Story({ d, still }: { d: any; still: boolean }) {
 }
 
 export function ReferralsBoard({ tenantId }: { tenantId: string }) {
-  const [view, setView] = React.useState<'referrals' | 'circle'>(() => { try { return typeof window !== 'undefined' && window.location.hash === '#circle' ? 'circle' : 'referrals'; } catch { return 'referrals'; } });
-  const go = (v: 'referrals' | 'circle') => { setView(v); try { history.replaceState(null, '', v === 'circle' ? '#circle' : ' '); } catch { /* fine */ } };
+  type V = 'referrals' | 'circle' | 'campaigns';
+  const [view, setView] = React.useState<V>(() => { try { const h = typeof window !== 'undefined' ? window.location.hash : ''; return h === '#circle' ? 'circle' : h === '#campaigns' ? 'campaigns' : 'referrals'; } catch { return 'referrals'; } });
+  const go = (v: V) => { setView(v); try { history.replaceState(null, '', v === 'referrals' ? ' ' : `#${v}`); } catch { /* fine */ } };
   return <div className="mx-auto mt-4 max-w-[1180px]" style={{ color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }}>
-    <div className="flex gap-1 rounded-full p-1" style={{ background: SOFT, width: 'fit-content' }} role="tablist" aria-label="Referrals or the Circle">
-      {(['referrals', 'circle'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => go(v)} className="rounded-full px-4 py-1.5 text-[13px] font-semibold capitalize" style={view === v ? { background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.12)' } : { color: MUTED }}>{v === 'circle' ? 'Circle' : 'Referrals'}</button>)}</div>
-    {view === 'circle' ? <div className="mt-4 pb-10"><CircleBoard tenantId={tenantId} /></div> : <Overview tenantId={tenantId} />}
+    <div className="flex gap-1 rounded-full p-1" style={{ background: SOFT, width: 'fit-content' }} role="tablist" aria-label="Referrals, the Circle, or campaigns">
+      {(['referrals', 'circle', 'campaigns'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => go(v)} className="rounded-full px-4 py-1.5 text-[13px] font-semibold capitalize" style={view === v ? { background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.12)' } : { color: MUTED }}>{v}</button>)}</div>
+    {view === 'circle' ? <div className="mt-4 pb-10"><CircleBoard tenantId={tenantId} /></div> : view === 'campaigns' ? <div className="mt-4 pb-10"><CampaignsBoard tenantId={tenantId} /></div> : <Overview tenantId={tenantId} />}
   </div>;
 }
 
