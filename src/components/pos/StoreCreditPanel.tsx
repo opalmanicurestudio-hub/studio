@@ -1,249 +1,57 @@
 'use client';
-
-/**
- * StoreCreditPanel
- *
- * Surface 1: POS / CheckoutHub
- *
- * Appears automatically above the payment method buttons when the
- * client has available store credit. Staff see the balance and can:
- *   1. Tap "Apply Credit" → slider/input appears to choose amount
- *   2. Confirm → calls /api/stripe/apply-store-credit, updates UI
- *
- * The panel is self-contained — pass it the total owed and it
- * computes what's left to charge after credit is applied.
- *
- * Props:
- *   client           — full client object (reads storeCredits array)
- *   totalOwed        — current checkout total before credit
- *   tenantId
- *   appointmentId    — the appointment being checked out
- *   staffId          — who is applying the credit
- *   onCreditApplied  — called with { appliedAmount, remainingBalance }
- *                      so CheckoutHub can adjust its total display
- */
-
+// src/components/pos/StoreCreditPanel.tsx — STORE CREDIT AT THE POS (CheckoutHub). When the client has credit, it comes
+// off by itself: the most it can (their balance or the bill, whichever is less). Staff can change the amount or choose
+// not to use it. Nothing is used until the sale is paid — the server uses the credit only once the sale is recorded
+// (/api/checkout/complete with lib/store-credit), so an abandoned sale never costs the client anything.
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Wallet, ChevronDown, ChevronUp, Check, Loader } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import { Wallet } from 'lucide-react';
 import { useStoreCredit, formatCreditExpiry, isCreditExpiringSoon } from '@/hooks/useStoreCredit';
-import { motion, AnimatePresence } from 'framer-motion';
 import type { Client } from '@/lib/data';
-import { useToast } from '@/hooks/use-toast';
 
 interface Props {
   client: Client | null | undefined;
-  totalOwed: number;
+  totalOwed: number;         // what's owed before credit
   tenantId: string;
   appointmentId: string;
   staffId: string;
   onCreditApplied: (result: { appliedAmount: number; remainingBalance: number }) => void;
-  appliedAmount?: number; // controlled — if credit was already applied this session
+  appliedAmount?: number;
 }
 
-export const StoreCreditPanel: React.FC<Props> = ({
-  client,
-  totalOwed,
-  tenantId,
-  appointmentId,
-  staffId,
-  onCreditApplied,
-  appliedAmount = 0,
-}) => {
-  const { availableCredits, totalAvailable, applyCredit, isApplying } = useStoreCredit(client);
-  const { toast } = useToast();
+const money = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 
-  const [isExpanded,      setIsExpanded]      = useState(false);
-  const [chosenAmount,    setChosenAmount]     = useState(0);
-  const [inputVal,        setInputVal]         = useState('');
-  const [isApplied,       setIsApplied]        = useState(appliedAmount > 0);
-
-  // Max we can apply = min(available credit, total owed)
-  const maxApplicable = useMemo(
-    () => parseFloat(Math.min(totalAvailable, totalOwed).toFixed(2)),
-    [totalAvailable, totalOwed],
-  );
-  // Ready to use: when a client has credit, the panel opens set to the most that can be used (their balance or the
-  // bill, whichever is less) — one tap applies it. Nothing comes off until that tap; staff can change it or close it.
-  const primedFor = useRef<string>('');
+export const StoreCreditPanel: React.FC<Props> = ({ client, totalOwed, onCreditApplied, appliedAmount = 0 }) => {
+  const { availableCredits, totalAvailable } = useStoreCredit(client);
+  const maxApplicable = useMemo(() => Math.max(0, Math.round(Math.min(totalAvailable, totalOwed) * 100) / 100), [totalAvailable, totalOwed]);
+  const [editing, setEditing] = useState(false); const [val, setVal] = useState('');
+  const skipped = useRef<string>(''); const autoFor = useRef<string>('');
+  const cid = String((client as any)?.id || '');
+  const set = (n: number) => { const a = Math.max(0, Math.min(maxApplicable, Math.round(n * 100) / 100)); onCreditApplied({ appliedAmount: a, remainingBalance: Math.max(0, Math.round((totalOwed - a) * 100) / 100) }); };
+  // Comes off by itself for each client (unless staff chose not to use it for this sale).
   useEffect(() => {
-    const key = `${(client as any)?.id || ''}:${maxApplicable}`;
-    if (isApplied || maxApplicable <= 0 || primedFor.current === key) return;
-    primedFor.current = key; setChosenAmount(maxApplicable); setInputVal(maxApplicable.toFixed(2)); setIsExpanded(true);
-  }, [maxApplicable, isApplied, client]);
-
-  // Don't render if nothing available or already fully applied
+    if (!cid || maxApplicable <= 0 || skipped.current === cid) return;
+    if (autoFor.current !== cid || (appliedAmount > maxApplicable + 0.004)) { autoFor.current = cid; set(maxApplicable); }
+  }, [cid, maxApplicable]); // eslint-disable-line react-hooks/exhaustive-deps
   if (totalAvailable <= 0) return null;
-  if (isApplied && appliedAmount > 0) {
-    return (
-      <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-green-300 bg-green-50">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-green-500 flex items-center justify-center">
-            <Check className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-green-700">Store Credit Applied</p>
-            <p className="text-[9px] font-bold text-green-600 uppercase opacity-70">
-              −${appliedAmount.toFixed(2)} · ${(totalAvailable - appliedAmount).toFixed(2)} remaining
-            </p>
-          </div>
-        </div>
-        <p className="text-xl font-black font-mono text-green-700">−${appliedAmount.toFixed(2)}</p>
-      </div>
-    );
-  }
-
-  const handleExpand = () => {
-    setChosenAmount(maxApplicable);
-    setInputVal(maxApplicable.toFixed(2));
-    setIsExpanded(v => !v);
-  };
-
-  const handleSlider = (val: number[]) => {
-    const v = parseFloat(val[0].toFixed(2));
-    setChosenAmount(v);
-    setInputVal(v.toFixed(2));
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInputVal(e.target.value);
-    const parsed = parseFloat(e.target.value);
-    if (!isNaN(parsed)) setChosenAmount(Math.min(parsed, maxApplicable));
-  };
-
-  const handleApply = async () => {
-    if (chosenAmount <= 0) return;
-    const result = await applyCredit({ tenantId, appointmentId, amountToApply: chosenAmount, staffId });
-    if (result.ok) {
-      setIsApplied(true);
-      setIsExpanded(false);
-      onCreditApplied({ appliedAmount: result.appliedAmount, remainingBalance: result.remainingBalance });
-      toast({ title: 'Credit Applied', description: `$${result.appliedAmount.toFixed(2)} applied — $${result.remainingBalance.toFixed(2)} remaining to charge.` });
-    } else {
-      toast({ variant: 'destructive', title: 'Could not apply credit', description: result.error });
-    }
-  };
-
-  const expiringSoon = availableCredits.some(c => isCreditExpiringSoon(c.expiresAt, 14));
-
+  const soon = availableCredits.find((c) => isCreditExpiringSoon(c.expiresAt, 14));
+  const on = appliedAmount > 0;
   return (
-    <div className={cn(
-      'rounded-2xl border-2 overflow-hidden transition-all',
-      expiringSoon ? 'border-amber-300 bg-amber-50' : 'border-green-300 bg-green-50',
-    )}>
-      {/* ── Header — always visible ── */}
-      <button
-        onClick={handleExpand}
-        className="w-full flex items-center justify-between p-4 text-left"
-      >
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            'w-8 h-8 rounded-xl flex items-center justify-center shrink-0',
-            expiringSoon ? 'bg-amber-400' : 'bg-green-500',
-          )}>
-            <Wallet className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <p className={cn('text-[10px] font-black uppercase tracking-widest', expiringSoon ? 'text-amber-700' : 'text-green-700')}>
-              Store Credit Available
-            </p>
-            <p className={cn('text-[9px] font-bold uppercase opacity-70', expiringSoon ? 'text-amber-600' : 'text-green-600')}>
-              {availableCredits.length} credit{availableCredits.length !== 1 ? 's' : ''} ·{' '}
-              {expiringSoon
-                ? formatCreditExpiry(availableCredits.find(c => isCreditExpiringSoon(c.expiresAt, 14))?.expiresAt || null)
-                : 'never expires'}
-            </p>
-          </div>
+    <div className="space-y-3 rounded-2xl p-4" style={{ background: on ? '#e8f3ec' : 'var(--card, #f3f3f5)', border: `1px solid ${on ? '#cfe6d8' : 'var(--line, #ececee)'}` }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: on ? '#1f7a4d' : '#9a9ca3' }}><Wallet className="h-4 w-4 text-white" aria-hidden="true" /></span>
+          <div className="min-w-0"><p className="text-[14px] font-semibold">{on ? `Store credit: −${money(appliedAmount)}` : `Store credit: ${money(totalAvailable)} available`}</p>
+            <p className="text-[12.5px]" style={{ color: 'var(--muted, #6d7075)' }}>{on ? `Used when this sale is paid${totalAvailable - appliedAmount > 0.004 ? ` · ${money(totalAvailable - appliedAmount)} stays for next time` : ''}` : 'Not used on this sale'}{soon ? ` · ${formatCreditExpiry(soon.expiresAt)}` : ''}</p></div></div>
+        <div className="flex shrink-0 gap-1.5">
+          {on ? <>
+            <button type="button" onClick={() => { setVal(appliedAmount.toFixed(2)); setEditing(!editing); }} className="h-9 rounded-full bg-white px-3 text-[13px] font-semibold">Change</button>
+            <button type="button" onClick={() => { skipped.current = cid; setEditing(false); set(0); }} className="h-9 rounded-full bg-white px-3 text-[13px]">Don’t use</button></>
+            : <button type="button" onClick={() => { skipped.current = ''; set(maxApplicable); }} disabled={maxApplicable <= 0} className="h-9 rounded-full px-3.5 text-[13px] font-semibold text-white disabled:opacity-40" style={{ background: '#1f7a4d' }}>Use {money(maxApplicable)}</button>}
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <p className={cn('text-xl font-black font-mono', expiringSoon ? 'text-amber-700' : 'text-green-700')}>
-            ${totalAvailable.toFixed(2)}
-          </p>
-          {isExpanded
-            ? <ChevronUp className={cn('w-4 h-4', expiringSoon ? 'text-amber-500' : 'text-green-500')} />
-            : <ChevronDown className={cn('w-4 h-4', expiringSoon ? 'text-amber-500' : 'text-green-500')} />}
-        </div>
-      </button>
-
-      {/* ── Expanded: amount chooser ── */}
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-4 space-y-4 border-t border-green-200">
-              <div className="pt-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-green-700">Amount to apply</p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-green-600">$</span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max={maxApplicable}
-                      value={inputVal}
-                      onChange={handleInputChange}
-                      className="h-8 w-24 rounded-xl border-2 border-green-300 bg-white text-center font-black text-sm focus-visible:ring-green-400"
-                    />
-                  </div>
-                </div>
-                <Slider
-                  min={0}
-                  max={maxApplicable}
-                  step={0.01}
-                  value={[chosenAmount]}
-                  onValueChange={handleSlider}
-                  className="[&_.slider-thumb]:bg-green-500 [&_.slider-track]:bg-green-200 [&_.slider-range]:bg-green-500"
-                />
-                <div className="flex justify-between text-[8px] font-bold text-green-600 uppercase opacity-60">
-                  <span>$0</span>
-                  <span className="text-green-700 font-black">Max ${maxApplicable.toFixed(2)}</span>
-                </div>
-              </div>
-
-              {/* Preview */}
-              {chosenAmount > 0 && (
-                <div className="p-3 rounded-xl bg-white border border-green-200 space-y-1.5">
-                  <div className="flex justify-between text-[9px] font-bold uppercase text-slate-500">
-                    <span>Credit applied</span>
-                    <span className="text-green-600 font-black">−${chosenAmount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-[10px] font-black uppercase text-slate-900">
-                    <span>Remaining to charge</span>
-                    <span>${Math.max(0, totalOwed - chosenAmount).toFixed(2)}</span>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => setIsExpanded(false)}
-                  className="flex-1 h-10 rounded-xl font-black uppercase text-[9px] tracking-widest text-green-700 hover:bg-green-100"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleApply}
-                  disabled={chosenAmount <= 0 || isApplying}
-                  className="flex-[2] h-10 rounded-xl font-black uppercase text-[9px] tracking-widest bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/20"
-                >
-                  {isApplying
-                    ? <Loader className="w-4 h-4 animate-spin" />
-                    : `Use $${chosenAmount.toFixed(2)} of their credit`}
-                </Button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
+      </div>
+      {editing && on && <div className="flex items-center gap-2">
+        <label className="flex items-center gap-1 text-[14px]">$<input type="number" step="0.01" min={0} max={maxApplicable} value={val} onChange={(e) => setVal(e.target.value)} aria-label="Credit to use" className="h-10 w-28 rounded-xl border bg-white px-2 text-[14px]" style={{ borderColor: 'var(--line, #ececee)' }} /></label>
+        <button type="button" onClick={() => { const n = parseFloat(val); if (Number.isFinite(n)) { if (n <= 0) skipped.current = cid; set(n); } setEditing(false); }} className="h-10 rounded-full px-4 text-[13px] font-semibold text-white" style={{ background: '#16171a' }}>Use this</button>
+        <span className="text-[12px]" style={{ color: 'var(--muted, #6d7075)' }}>up to {money(maxApplicable)}</span></div>}
+    </div>);
 };

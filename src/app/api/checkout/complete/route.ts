@@ -154,6 +154,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     db.collection(`${T}/inventory`).get(), db.collection(`${T}/memberships`).get(), db.collection(`${T}/packages`).get(), db.collection(`${T}/discounts`).get(),
   ]);
   const tenant: any = tSnap.data() || {}; const client: any = cSnap.exists ? { id: clientId, ...(cSnap.data() as any) } : null;
+  // Store credit is used when the sale is paid, not before (lib/store-credit): never more than the client really has.
+  if (b.creditAtPayment === true) { const { creditBalance } = await import('@/lib/store-credit'); b.storeCredit = Math.min(Math.max(0, num(b.storeCredit)), client ? creditBalance(client) : 0); }
   if (!client) return json({ ok: false, error: 'That client wasn’t found.' }, 404);
   const rows = (s: any) => s.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
   const staff = await withPay(db, tenantId, rows(stSnap)), services = rows(svSnap), inventory = rows(invSnap), memberships = rows(mSnap), packages = rows(pSnap), allDiscounts = rows(dSnap);
@@ -546,6 +548,13 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
 
   // After the sale is saved: enrol memberships / packages; confirm next-visit deposits.
   const warnings: string[] = [];
+  // The client's store credit, now that the sale is recorded (lib/store-credit).
+  if (b.creditAtPayment === true && clientId && num((calc as any).storeCredit) > 0) {
+    try { const { useCredit } = await import('@/lib/store-credit');
+      const u = await useCredit(db, tenantId, clientId, num((calc as any).storeCredit), { appointmentId: visits[0]?.appointment?.id || null, checkoutSessionId, by: auth.actor.name || null });
+      if (u.applied + 0.009 < num((calc as any).storeCredit)) warnings.push(`Only ${'$'}${u.applied.toFixed(2)} of store credit was left to use. Please check the balance with the client.`);
+    } catch (e) { console.error('[checkout] store credit', e); warnings.push('The store credit couldn’t be marked as used. Please check the client’s balance.'); }
+  }
   // Gift cards sold on this sale: made now, and sent (or set to send on the day chosen).
   const giftsIssued: { id: string; code: string; amount: number; sendVia: string; sent: boolean; path?: string; bonus?: boolean; when?: string }[] = [];
   for (const it of items.filter((x: any) => x.type === 'giftcard' && x.__gift)) {

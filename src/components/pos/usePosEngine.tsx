@@ -365,6 +365,7 @@ export function usePosEngine() {
   const scanInputRef = React.useRef<HTMLInputElement>(null);
   const [pendingRefund, setPendingRefund] = useState<any | null>(null);
   const [storeCreditApplied, setStoreCreditApplied] = useState(0);
+  useEffect(() => { setStoreCreditApplied(0); }, [selectedClientId]);   // credit belongs to one client: a new client starts fresh (their own comes off by itself)
   // Gift cards paying for this sale: each one's money is set aside on the server (a hold) until the sale finishes.
   const [giftApplied, setGiftApplied] = useState<{ id: string; code: string; cents: number; label?: string | null }[]>([]);
   const giftHoldRef = useRef(`h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
@@ -1139,7 +1140,7 @@ export function usePosEngine() {
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
     // A tip chosen on the client screen together with the payment is recorded exactly (it goes to the provider(s) on the ticket).
-    tipAllocations: paymentData?.tipOverride !== undefined ? ((paymentData as any)?.tipAllocationsOverride || {}) : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied, giftCards: giftApplied.map((g) => ({ id: g.id, cents: g.cents, holdId: giftHoldRef.current })),
+    tipAllocations: paymentData?.tipOverride !== undefined ? ((paymentData as any)?.tipAllocationsOverride || {}) : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied, creditAtPayment: true, giftCards: giftApplied.map((g) => ({ id: g.id, cents: g.cents, holdId: giftHoldRef.current })),
     skipGroupDiscount, skipMomentReward, skipMemberDiscount,
     staffDiscount: staffDiscount ? { kind: staffDiscount.kind, value: staffDiscount.value, reason: staffDiscount.reason, approvalToken: staffDiscount.approvalToken || null } : null,
     recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '', approvalToken: paymentData?.recoveryApprovalToken || recoveryApprovalRef.current || null },

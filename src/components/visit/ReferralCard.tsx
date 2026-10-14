@@ -83,7 +83,7 @@ export function ReferralCard({ token }: { token: string }) {
             <button type="button" onClick={() => setOpenCard(null)} className="h-11 w-full rounded-full border bg-white text-[14px] font-semibold" style={{ borderColor: LINE }}>Back to my wallet</button>
           </motion.div>}
         </AnimatePresence>
-        {(d.creditCents > 0 || (w.gift || []).length > 0) && <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Ready at checkout. The desk applies it for you in one tap.</p>}
+        {(d.creditCents > 0 || (w.gift || []).length > 0) && <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Comes off at checkout by itself. Nothing to ask for.</p>}
       </>}
 
       {d.on && <div className="space-y-3 rounded-[20px] bg-white p-4">

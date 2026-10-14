@@ -78,8 +78,7 @@ export function useStoreCredit(client: Client | null | undefined): UseCreditResu
   const availableCredits = useMemo(() => {
     const now = new Date();
     return credits.filter(c => {
-      if (c.status === 'used') return false;
-      if (c.status === 'expired') return false;
+      if ((c as any).status && (c as any).status !== 'available') return false;   // used, expired, voided (a refunded referral)…
       if (c.usedAt) return false;
       if (c.expiresAt && new Date(c.expiresAt) < now) return false;
       return true;

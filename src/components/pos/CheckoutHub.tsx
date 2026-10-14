@@ -827,9 +827,10 @@ export const CheckoutHub = ({
     }, 0);
   }, [appointmentsData]);
 
-  const beforeGiftTotal   = isFullyComped
-    ? Math.max(0, tipAmount)
-    : Math.max(0, subtotal - totalWithRecovery + (Number(tax) || 0) + tipAmount - totalPaidDeposits);
+  // Store credit comes off what's owed (never more than that); it's used when the sale is paid (lib/store-credit).
+  const owedBeforeCredit = isFullyComped ? Math.max(0, tipAmount) : Math.max(0, subtotal - totalWithRecovery + (Number(tax) || 0) + tipAmount - totalPaidDeposits);
+  const creditUsed = Math.round(Math.min(safeNumber(storeCreditApplied), owedBeforeCredit) * 100) / 100;
+  const beforeGiftTotal   = Math.max(0, Math.round((owedBeforeCredit - creditUsed) * 100) / 100);
   // Gift cards on this sale come off what's left to pay (never more than that — and never toward another gift card).
   const giftInCart = (cart || []).filter((i: any) => i.type === 'giftcard').reduce((s2: number, i: any) => s2 + safeNumber(i.price) * safeNumber(i.quantity || 1), 0);
   const giftUsed = Math.round(Math.min(safeNumber(giftCardValue), Math.max(0, beforeGiftTotal - giftInCart)) * 100) / 100;
@@ -1255,7 +1256,7 @@ export const CheckoutHub = ({
        {selectedClient && !isCartEmpty && (
          <StoreCreditPanel
            client={selectedClient}
-           totalOwed={finalTotal}
+           totalOwed={owedBeforeCredit}
            tenantId={tenantId}
            appointmentId={appointmentsData[0]?.appointment?.id || ''}
            staffId={cashierName ? (staff || []).find((s: any) => s.name === cashierName)?.id || '' : ''}
@@ -1580,7 +1581,7 @@ export const CheckoutHub = ({
               {finalTotal > 0 && <div className="flex justify-between"><span>{taxLabel || 'Sales tax'}</span><span className="tabular-nums">{coMoney(tax)}</span></div>}
               {tipAmount > 0 && <div className="flex justify-between"><span>Tip</span><span className="tabular-nums">{coMoney(tipAmount)}</span></div>}
               {totalPaidDeposits > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Deposit already paid</span><span className="tabular-nums">−{coMoney(totalPaidDeposits)}</span></div>}
-              {safeNumber(storeCreditApplied) > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Store credit</span><span className="tabular-nums">−{coMoney(storeCreditApplied)}</span></div>}
+              {creditUsed > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Store credit</span><span className="tabular-nums">−{coMoney(creditUsed)}</span></div>}
               {giftUsed > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Gift card{giftApplied.length > 1 ? 's' : ''}</span><span className="tabular-nums">−{coMoney(giftUsed)}</span></div>}
               {cardSurcharge > 0 && <div className="flex justify-between"><span>Card fee ({(cardSurchargeRate * 100).toFixed(1)}%)</span><span className="tabular-nums">+{coMoney(cardSurcharge)}</span></div>}
             </div>
