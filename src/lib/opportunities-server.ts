@@ -603,6 +603,22 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
   if (action === 'dismiss') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; await ref.update({ status: 'dismissed', closedAt: nowIso(now), dismissedBy: actor.name }); return { ok: true }; }
   if (o.status !== 'open') return { ok: false, error: 'This task is already closed.' };
   if (['times', 'book', 'send_times', 'send_link', 'waitlist'].includes(action)) return actInTask(db, t, tenant, actor, o, ref, action, b, now, io);
+  // Kind-specific steps (design canvas OE2, "still to come"): each one goes through what already owns it.
+  if (action === 'card_link') {   // a payment that didn't go through: their private add-your-card link (lib/card-save)
+    if (!o.clientId) return { ok: false, error: 'This task isn’t about a client.' };
+    const { sendCardLink } = await import('@/lib/card-save'); const r: any = await sendCardLink(db, t, String(o.clientId), io?.origin || '', 'manual').catch((e: any) => ({ ok: false, error: String(e?.message || e) }));
+    if (!r?.ok) return { ok: false, error: r?.error || 'The card link could not be sent.' };
+    await ref.update({ attempts: [...(o.attempts || []), { ...by, channel: 'text', note: 'Sent their secure add-your-card link' }].slice(-20), firstContactAt: o.firstContactAt || nowIso(now), lastContactAt: nowIso(now) });
+    return { ok: true }; }
+  if (action === 'note_next') {   // mention it at their next visit: a line on that visit for whoever sees them (and checkout shows the maths)
+    if (!o.clientId) return { ok: false, error: 'This task isn’t about a client.' };
+    const ahead = rows(await db.collection(`${T(t)}/appointments`).where('clientId', '==', o.clientId).get())
+      .filter((a: any) => ms(a.startTime) >= now && !['cancelled', 'canceled', 'no_show', 'declined'].includes(String(a.status || ''))).sort((x: any, y: any) => ms(x.startTime) - ms(y.startTime))[0];
+    if (!ahead) return { ok: false, error: 'They have nothing booked yet. Checkout will suggest it at their next visit anyway.' };
+    const line = String(b.note || o.why || '').trim().slice(0, 200); const cur = String(ahead.internalNotes || '');
+    await db.doc(`${T(t)}/appointments/${ahead.id}`).set({ internalNotes: cur ? `${cur}\n${line}` : line }, { merge: true });
+    await ref.update({ attempts: [...(o.attempts || []), { ...by, channel: 'note', note: 'Noted on their next visit' }].slice(-20), lastContactAt: nowIso(now) });
+    return { ok: true, when: ahead.startTime }; }
   if (action === 'skip') {   // not today (the 5-minute list): back tomorrow; skipped three times, it's let go
     const n = (Number(o.skips) || 0) + 1; const S = oppSettingsOf(tenant); const zone = await tz(tenant);
     if (n >= 3) { await ref.update({ status: 'expired', closedAt: nowIso(now), skips: n, closedWhy: 'Skipped three times.' }); return { ok: true, closed: true }; }

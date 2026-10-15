@@ -9,6 +9,8 @@
 //   send_link { id }                       → text a booking link (their service and provider, tagged with the task)
 //   book { id, startIso, staffId?, deposit? } → book it through the booking service; closes the task as booked
 //   waitlist { id, note? }                 → add them to the waitlist; closes the task
+//   card_link { id }                       → text their secure add-your-card link (a payment that didn't go through)
+//   note_next { id }                       → a line on their next booked visit (a membership that would save them money)
 //   text { id }                            → send the message — consent, the 30-day limit and texting hours checked
 //   outcome { id, outcome, note?, channel? } → what happened; makes the follow-up, opens a case, or opts them out
 //   dismiss { id }                         → (managers) not worth doing

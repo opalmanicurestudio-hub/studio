@@ -63,6 +63,7 @@ export function OppTask({ tenantId, item, manager = false, people = [], onChange
         {pb.never && <p className="text-[12px]" style={{ color: RED }}><b>Never:</b> {pb.never}</p>}
       </div>}
 
+      {open && <KindSteps tenantId={tenantId} item={item} />}
       {open && item.clientId && ['appointments', 'memberships'].includes(TOOL_OF[item.kind as OppKind]) && <TimesPanel tenantId={tenantId} item={item} onChanged={onChanged} />}
 
       {open && <div className="space-y-2">
@@ -148,4 +149,18 @@ function TimesPanel({ tenantId, item, onChanged }: { tenantId: string; item: any
       {chosen.length === 2 && <p className="text-[12px]" style={{ color: MUTED }}>Tap one time to book it straight away.</p>}
       {flash && <p className="text-[13.5px] font-semibold" style={{ color: flash.ok ? GREEN : RED }}>{flash.t}</p>}
     </div>);
+}
+
+/** The step that fits this kind of task: a card link for a payment that failed, a note on the next visit for a membership
+ * that would save them money, the quote screen for an event inquiry. */
+function KindSteps({ tenantId, item }: { tenantId: string; item: any }) {
+  const [busy, setBusy] = React.useState(''); const [flash, setFlash] = React.useState<{ ok: boolean; t: string } | null>(null);
+  const call = async (action: string, ok: string) => { setBusy(action); setFlash(null); const r = await payPost('/api/opportunities', { tenantId, action, id: item.id }); setBusy(''); setFlash(r.ok ? { ok: true, t: ok } : { ok: false, t: r.error || 'That didn’t work.' }); };
+  const btn = 'h-11 rounded-full border bg-card px-4 text-[14px] font-semibold disabled:opacity-40';
+  const steps: React.ReactNode[] = [];
+  if (item.clientId && ['renewal_failed', 'unused_visits'].includes(item.kind)) steps.push(<button key="card" type="button" disabled={!!busy} onClick={() => call('card_link', 'Their secure add-your-card link is on its way.')} className={btn} style={{ borderColor: LINE }}>{busy === 'card_link' ? 'Sending…' : 'Text their add-your-card link'}</button>);
+  if (item.clientId && item.kind === 'membership_fit') steps.push(<button key="note" type="button" disabled={!!busy} onClick={() => call('note_next', 'Noted on their next visit. Checkout will show the numbers too.')} className={btn} style={{ borderColor: LINE }}>{busy === 'note_next' ? 'Saving…' : 'Mention it at their next visit'}</button>);
+  if (item.kind === 'inquiry_waiting' && item.refs?.inquiryId) steps.push(<a key="quote" href={`/quotes/new?from=${encodeURIComponent(item.refs.inquiryId)}`} className={`${btn} inline-flex items-center`} style={{ borderColor: LINE }}>Start the quote</a>);
+  if (!steps.length) return null;
+  return (<div className="space-y-2"><div className="flex flex-wrap gap-2">{steps}</div>{flash && <p className="text-[13.5px] font-semibold" style={{ color: flash.ok ? GREEN : RED }}>{flash.t}</p>}</div>);
 }
