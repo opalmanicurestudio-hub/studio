@@ -16,10 +16,12 @@ export type Period = {
 };
 export type Cost = { id: string; label: string; amount: number; per: 'month' | 'once' };
 export type Plan = {
-  id: string; kind: 'current' | 'commission' | 'hourly' | 'hourly_commission' | 'greater_of' | 'tiered' | 'salary' | 'self' | 'draw'; label?: string;
+  id: string; kind: 'current' | 'commission' | 'hourly' | 'hourly_commission' | 'greater_of' | 'tiered' | 'salary' | 'self' | 'draw' | 'split'; label?: string;
   rate?: number; pct?: number; retailPct?: number; tiers?: { over: number; pct: number }[]; salary?: number;
   /** Commission with a weekly advance: paid back from later commission ("recoverable") or not. */
   draw?: { perWeek: number; recoverable: boolean };
+  /** Paid by the hour for some hours a week (the desk, say) and only commission for the rest. */
+  split?: { hoursPerWeek: number };
   self?: { spacePerWeek: number; suppliesPct: number; cardPct: number; retailMarginPct?: number; otherMonthly?: number; unpaidWeeks?: number };
   /** What else comes with it (or costs you): paid days off a year, the employer's health insurance contribution a month,
    *  retirement match (% of pay), supplies you buy yourself a month, and your commute (minutes each way). */
@@ -117,11 +119,14 @@ export function planPay(p: Plan, b: Basis): PlanResult {
   else if (p.kind === 'hourly_commission') pay = (Number(p.rate) || 0) * b.hours + b.serviceSales * pct + b.retailSales * rpct;
   else if (p.kind === 'greater_of') { const h = (Number(p.rate) || 0) * b.hours, c = b.serviceSales * pct + b.retailSales * rpct + b.otherPay; pay = Math.max(h, c); notes.push('Payroll works this out week by week, so the real figure can be a little higher.'); }
   else if (p.kind === 'salary') pay = (Number(p.salary) || 0) * (b.days / 365);
+  else if (p.kind === 'split') { const dh = Math.min(b.hours, (Number(p.split?.hoursPerWeek) || 0) * (b.days / 7));
+    pay = (Number(p.rate) || 0) * dh + b.serviceSales * pct + b.retailSales * rpct + b.otherPay;
+    notes.push(`Hourly for ${Math.round(dh)} of the ${Math.round(b.hours)} hours, commission only for the rest.`, 'Some states (California, for one) require the commission-only hours to earn at least minimum wage on their own, not averaged with the hourly pay.'); }
   else if (p.kind === 'draw') { const c = b.serviceSales * pct + b.retailSales * rpct + b.otherPay; const dr = (Number(p.draw?.perWeek) || 0) * (b.days / 7);
     if (p.draw?.recoverable) { pay = c; if (c < dr) notes.push(`The weekly advance is more than the commission earned: about $${Math.round(dr - c).toLocaleString('en-US')} would be taken back from later pay.`); else notes.push('Advances are paid back from commission, so over time you earn the commission.'); }
     else { pay = Math.max(c, dr); if (dr > c) notes.push('The advance isn’t paid back, so it works like a guaranteed minimum.'); } }
   // Commission taken back when a client gets a refund or a sale is cancelled.
-  if (b.clawback && ['commission', 'tiered', 'hourly_commission', 'greater_of', 'draw'].includes(p.kind)) { pay = Math.max(0, pay - b.clawback); lines.push({ label: 'Commission taken back for refunds', amount: -r2(b.clawback) }); }
+  if (b.clawback && ['commission', 'tiered', 'hourly_commission', 'greater_of', 'draw', 'split'].includes(p.kind)) { pay = Math.max(0, pay - b.clawback); lines.push({ label: 'Commission taken back for refunds', amount: -r2(b.clawback) }); }
   let toppedUp = 0;
   if (p.kind !== 'current' && b.minimumWage && b.hours > 0) {
     // Minimum wage for the hours: pay before tips, unless the state allows a tip credit (then tips can make up the gap above the cash wage).
@@ -165,6 +170,7 @@ export function planLabel(p: Plan): string {
     case 'greater_of': return `${$(p.rate || 0)} an hour or ${p.pct || 0}%, whichever is more`;
     case 'salary': return `${$(p.salary || 0)} a year`;
     case 'self': return `Working for myself (${$(p.self?.spacePerWeek || 0)} a week for space)`;
+    case 'split': return `${$(p.rate || 0)} an hour for ${p.split?.hoursPerWeek || 0} hours a week, ${p.pct || 0}% on the rest`;
     case 'draw': return `${p.pct || 0}% commission with a ${$(p.draw?.perWeek || 0)} weekly advance${p.draw?.recoverable ? ' (paid back)' : ''}`;
   }
 }
@@ -175,12 +181,13 @@ export function minWageWeeks(ps: Period[]) {
   return { weeks: weeks.length || (fromParts > 0 ? null : 0), amount: r2(weeks.length ? weeks.reduce((s, w) => s + w.topUp, 0) : fromParts) };
 }
 export function cleanPlan(x: any): Plan | null {
-  const kinds = ['commission', 'hourly', 'hourly_commission', 'greater_of', 'tiered', 'salary', 'self', 'draw']; if (!x || !kinds.includes(x.kind)) return null;
+  const kinds = ['commission', 'hourly', 'hourly_commission', 'greater_of', 'tiered', 'salary', 'self', 'draw', 'split']; if (!x || !kinds.includes(x.kind)) return null;
   const n = (v: any, hi: number) => { const k = Number(v); return Number.isFinite(k) ? Math.max(0, Math.min(hi, k)) : 0; };
   return { id: String(x.id || Math.random().toString(36).slice(2, 9)).slice(0, 30), kind: x.kind, label: x.label ? String(x.label).slice(0, 60) : undefined,
     rate: n(x.rate, 1000), pct: n(x.pct, 100), retailPct: n(x.retailPct, 100), salary: n(x.salary, 10000000),
     tiers: Array.isArray(x.tiers) ? x.tiers.slice(0, 5).map((t: any) => ({ over: n(t?.over, 10000000), pct: n(t?.pct, 100) })) : undefined,
     self: x.kind === 'self' ? { spacePerWeek: n(x.self?.spacePerWeek, 100000), suppliesPct: n(x.self?.suppliesPct, 100), cardPct: n(x.self?.cardPct, 10), retailMarginPct: n(x.self?.retailMarginPct, 100), otherMonthly: n(x.self?.otherMonthly, 100000), unpaidWeeks: n(x.self?.unpaidWeeks, 26) } : undefined,
+    split: x.kind === 'split' ? { hoursPerWeek: n(x.split?.hoursPerWeek, 80) } : undefined,
     draw: x.kind === 'draw' ? { perWeek: n(x.draw?.perWeek, 100000), recoverable: x.draw?.recoverable !== false } : undefined,
     perks: x.perks ? { ptoDays: n(x.perks.ptoDays, 120), healthMonthly: n(x.perks.healthMonthly, 10000), matchPct: n(x.perks.matchPct, 25), suppliesMonthly: n(x.perks.suppliesMonthly, 10000), commuteMin: n(x.perks.commuteMin, 300) } : undefined };
 }

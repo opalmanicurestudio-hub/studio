@@ -11,13 +11,13 @@ const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 const num = (v: any) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? 0 : Number(v));
 
 export type Mode = 'job' | 'self' | 'offer';
-export type PayType = 'hourly' | 'commission' | 'hourly_commission' | 'greater_of' | 'salary' | 'draw' | 'tips';
-export type OfferPay = { payType: Exclude<PayType, 'tips'>; rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek: number | null;
+export type PayType = 'hourly' | 'commission' | 'hourly_commission' | 'greater_of' | 'salary' | 'draw' | 'tips' | 'split';
+export type OfferPay = { payType: Exclude<PayType, 'tips'>; rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek: number | null; deskPerWeek?: number | null;
   ptoDays: number | null; healthMonthly: number | null; matchPct: number | null; suppliesMonthly: number | null; commuteMin: number | null };
 export type CalcState = {
   v: 1; mode: Mode; payType: PayType;
   weeks: number; daysPerWeek: number | null; hoursPerDay: number | null;
-  rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek: number | null; drawBack: boolean;
+  rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek: number | null; drawBack: boolean; deskPerWeek: number | null;
   sales: number | null; retailSales: number | null; paid: number | null; bonus: number | null; tips: number | null;
   costsMonthly: number | null; clawback: number | null;
   ptoDays: number | null; healthMonthly: number | null; matchPct: number | null;
@@ -31,7 +31,7 @@ export type CalcState = {
 
 export function blank(mode: Mode = 'job'): CalcState {
   return { v: 1, mode, payType: mode === 'self' ? 'commission' : 'hourly', weeks: 4, daysPerWeek: 5, hoursPerDay: 8,
-    rate: null, pct: null, retailPct: null, salary: null, drawPerWeek: null, drawBack: true,
+    rate: null, pct: null, retailPct: null, salary: null, drawPerWeek: null, drawBack: true, deskPerWeek: null,
     sales: null, retailSales: null, paid: null, bonus: null, tips: null, costsMonthly: null, clawback: null,
     ptoDays: null, healthMonthly: null, matchPct: null, commuteMin: null, offClockMonthly: null,
     soc: '', state: '', minWage: 7.25, contractor: null, cq: {},
@@ -59,13 +59,14 @@ export function decodeState(code: string): CalcState | null {
 export const hoursOf = (s: CalcState) => r2(Math.max(0, num(s.weeks)) * Math.max(0, num(s.daysPerWeek)) * Math.max(0, num(s.hoursPerDay)));
 const tipCreditFor = (s: CalcState) => (s.payType === 'tips' && s.state && !NO_TIP_CREDIT.includes(s.state) ? { cashWage: num(s.rate) || FEDERAL_CASH_WAGE } : null);
 
-export function planFor(t: PayType | OfferPay['payType'], x: { rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek?: number | null; drawBack?: boolean }, id = 'now'): Plan {
+export function planFor(t: PayType | OfferPay['payType'], x: { rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek?: number | null; drawBack?: boolean; deskPerWeek?: number | null }, id = 'now'): Plan {
   const rate = num(x.rate), pct = num(x.pct), retailPct = num(x.retailPct);
   if (t === 'hourly' || t === 'tips') return { id, kind: 'hourly', rate };
   if (t === 'commission') return { id, kind: 'commission', pct, retailPct };
   if (t === 'hourly_commission') return { id, kind: 'hourly_commission', rate, pct, retailPct };
   if (t === 'greater_of') return { id, kind: 'greater_of', rate, pct, retailPct };
   if (t === 'salary') return { id, kind: 'salary', salary: num(x.salary) };
+  if (t === 'split') return { id, kind: 'split', rate, pct, retailPct, split: { hoursPerWeek: num(x.deskPerWeek) } };
   return { id, kind: 'draw', pct, retailPct, draw: { perWeek: num(x.drawPerWeek), recoverable: x.drawBack !== false } };
 }
 export function basisOf(s: CalcState, currentGross = 0): Basis {
@@ -78,7 +79,7 @@ const monthly = (v: number, days: number) => r2(v * (MONTH_DAYS / days));
 const allInMonth = (p: Plan, b: Basis) => { const r = planPay(p, b); return { r, month: monthly(r.beforeIncomeTax + r.benefits - r.ownCosts, b.days) }; };
 
 export type Row = { key: string; plan: Plan; month: number; perHourAllIn: number | null; now?: boolean; offer?: boolean };
-export type Ask = { k: 'askMin' | 'askOffClock' | 'askCosts' | 'askClawback' | 'askUnbooked'; v?: number; h?: number };
+export type Ask = { k: 'askMin' | 'askOffClock' | 'askCosts' | 'askClawback' | 'askUnbooked' | 'askSplit'; v?: number; h?: number };
 
 export function compute(s: CalcState) {
   const hours = hoursOf(s); const base = basisOf(s); const days = base.days;
@@ -117,14 +118,14 @@ export function compute(s: CalcState) {
   if (s.mode === 'self') rows.unshift({ key: 'now', plan: selfPlan, month: monthly(now.beforeIncomeTax, days), perHourAllIn: now.perHourAllIn, now: true });
   const best = rows.reduce<Row | null>((a, r) => (!a || r.month > a.month ? r : a), null);
   const jobForBreakEven = s.mode === 'self' ? null : s.paid !== null && s.paid > 0 ? derived : nowPlan;
-  const breakEven = salesKnown && jobForBreakEven && s.mode !== 'self' && ['commission', 'hourly_commission', 'greater_of', 'draw'].includes(jobForBreakEven.kind) ? breakEvenSales(selfPlan, jobForBreakEven, basis) : null;
+  const breakEven = salesKnown && jobForBreakEven && s.mode !== 'self' && ['commission', 'hourly_commission', 'greater_of', 'draw', 'split'].includes(jobForBreakEven.kind) ? breakEvenSales(selfPlan, jobForBreakEven, basis) : null;
 
   // The offer, side by side, all in; and where the two cross as sales grow.
   let offer: null | { nowMonth: number; offerMonth: number; diff: number; payDiff: number; nowHr: number | null; offerHr: number | null; crossOver: number | null } = null;
   const offerRow = rows.find((r) => r.offer); const nowRow = rows.find((r) => r.now);
   if (offerRow && nowRow) {
     const nowPay = monthly(planPay(nowRow.plan, basis).beforeIncomeTax, days); const offPay = monthly(planPay(offerRow.plan, basis).beforeIncomeTax, days);
-    const nowCommish = ['commission', 'hourly_commission', 'greater_of', 'draw'].includes((s.paid !== null && s.paid > 0 ? derived : nowRow.plan).kind);
+    const nowCommish = ['commission', 'hourly_commission', 'greater_of', 'draw', 'split'].includes((s.paid !== null && s.paid > 0 ? derived : nowRow.plan).kind);
     let crossOver: number | null = null;
     if (nowCommish && salesKnown) {
       const nowP = { ...(s.paid !== null && s.paid > 0 ? derived : nowRow.plan), perks: nowPerks };
@@ -147,6 +148,7 @@ export function compute(s: CalcState) {
   if (s.mode !== 'self' && num(s.costsMonthly) > 0) asks.push({ k: 'askCosts', v: num(s.costsMonthly) });
   if (s.mode !== 'self' && num(s.clawback) > 0) asks.push({ k: 'askClawback' });
   if (s.mode !== 'self' && ['commission', 'draw'].includes(s.payType)) asks.push({ k: 'askUnbooked' });
+  if (s.mode !== 'self' && s.payType === 'split') asks.push({ k: 'askSplit' });
 
   // A rough take-home.
   const monthBIT = monthly(now.beforeIncomeTax, days);

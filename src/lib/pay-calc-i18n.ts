@@ -52,7 +52,7 @@ const en = {
   seasonal: 'A few weeks is a snapshot. A slow month or a holiday rush can tilt it; try 12 weeks too.',
   offerAnswer: 'Your job, or the offer?', offerMore: 'The offer is worth about {v} a month more, all in', offerLess: 'Your job is worth about {v} a month more, all in', offerSame: 'They come out about the same',
   offerPay: 'Pay alone: {v} a month {dir}', more: 'more', less: 'less', offerAllIn: '{a}/hr all in, vs {b} now, counting benefits, supplies and the commute.', crossOver: 'Above about {v} a month in sales, your current job pays more.',
-  noHours: 'Add your hours to see your pay per hour.', useThis: 'Use this', sample: 'Example', live: 'So far', liveEmpty: 'Your pay per hour shows here as you answer.', perMonthShort: 'a month', ofTypical: 'of typical pay for this work',
+  noHours: 'Add your hours to see your pay per hour.', useThis: 'Use this', ptSplit: 'Hourly for some hours (like the front desk), commission only for the rest', deskRateLabel: 'Pay per hour for the hourly work', deskHoursLabel: 'Hours a week paid by the hour', askSplit: 'Are the hours paid only by commission earning at least minimum wage? Some states (California, for one) require that for those hours on their own, not averaged with your hourly pay.', sample: 'Example', live: 'So far', liveEmpty: 'Your pay per hour shows here as you answer.', perMonthShort: 'a month', ofTypical: 'of typical pay for this work',
 };
 type Dict = typeof en;
 
@@ -103,7 +103,7 @@ const es: Dict = {
   seasonal: 'Unas pocas semanas son solo una muestra. Un mes flojo o la temporada alta pueden cambiarlo; prueba también con 12 semanas.',
   offerAnswer: '¿Tu trabajo o la oferta?', offerMore: 'La oferta vale unos {v} más al mes, todo incluido', offerLess: 'Tu trabajo vale unos {v} más al mes, todo incluido', offerSame: 'Salen más o menos igual',
   offerPay: 'Solo el pago: {v} al mes {dir}', more: 'más', less: 'menos', offerAllIn: '{a}/h todo incluido, contra {b} ahora, contando beneficios, productos y el trayecto.', crossOver: 'Con más de unos {v} en ventas al mes, tu trabajo actual paga más.',
-  noHours: 'Agrega tus horas para ver tu pago por hora.', useThis: 'Usar este', sample: 'Ejemplo', live: 'Hasta ahora', liveEmpty: 'Tu pago por hora aparece aquí mientras respondes.', perMonthShort: 'al mes', ofTypical: 'del pago típico de este trabajo',
+  noHours: 'Agrega tus horas para ver tu pago por hora.', useThis: 'Usar este', ptSplit: 'Por hora unas horas (como en recepción), solo comisión el resto', deskRateLabel: 'Pago por hora del trabajo por hora', deskHoursLabel: 'Horas a la semana pagadas por hora', askSplit: '¿Las horas pagadas solo con comisión llegan al menos al salario mínimo? Algunos estados (California, por ejemplo) lo exigen para esas horas por separado, sin promediarlas con tu pago por hora.', sample: 'Ejemplo', live: 'Hasta ahora', liveEmpty: 'Tu pago por hora aparece aquí mientras respondes.', perMonthShort: 'al mes', ofTypical: 'del pago típico de este trabajo',
 };
 
 const vi: Dict = {
@@ -153,7 +153,7 @@ const vi: Dict = {
   seasonal: 'Vài tuần chỉ là một lát cắt. Tháng ế hay mùa lễ có thể làm lệch; thử thêm với 12 tuần.',
   offerAnswer: 'Công việc hiện tại hay lời mời?', offerMore: 'Lời mời đáng giá hơn khoảng {v} mỗi tháng, tính hết', offerLess: 'Công việc hiện tại đáng giá hơn khoảng {v} mỗi tháng, tính hết', offerSame: 'Hai bên gần như bằng nhau',
   offerPay: 'Riêng tiền lương: {dir} {v} mỗi tháng', more: 'nhiều hơn', less: 'ít hơn', offerAllIn: '{a}/giờ tính hết, so với {b} hiện nay, gồm phúc lợi, vật tư và đi lại.', crossOver: 'Khi doanh thu trên khoảng {v} mỗi tháng, công việc hiện tại trả nhiều hơn.',
-  noHours: 'Nhập số giờ để xem lương mỗi giờ.', useThis: 'Dùng số này', sample: 'Ví dụ', live: 'Đến giờ', liveEmpty: 'Lương mỗi giờ của bạn hiện ở đây khi bạn trả lời.', perMonthShort: 'mỗi tháng', ofTypical: 'so với mức thông thường của nghề này',
+  noHours: 'Nhập số giờ để xem lương mỗi giờ.', useThis: 'Dùng số này', ptSplit: 'Theo giờ cho một số giờ (như trực quầy), chỉ hoa hồng cho phần còn lại', deskRateLabel: 'Lương mỗi giờ cho phần việc tính giờ', deskHoursLabel: 'Số giờ mỗi tuần tính lương theo giờ', askSplit: 'Những giờ chỉ có hoa hồng có đạt ít nhất lương tối thiểu không? Một số tiểu bang (như California) yêu cầu điều này riêng cho các giờ đó, không tính trung bình với lương theo giờ.', sample: 'Ví dụ', live: 'Đến giờ', liveEmpty: 'Lương mỗi giờ của bạn hiện ở đây khi bạn trả lời.', perMonthShort: 'mỗi tháng', ofTypical: 'so với mức thông thường của nghề này',
 };
 export const DICT: Record<Lang, Dict> = { en, es, vi };
 export type Key = keyof Dict;

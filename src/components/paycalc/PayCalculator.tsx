@@ -109,6 +109,7 @@ function payFields(t: PayType, prefix = ''): Field[] {
     case 'hourly_commission': return [f('rate', 'rateLabel', '$'), f('pct', 'pctLabel', '%'), ...sales];
     case 'greater_of': return [f('rate', 'rateLabel', '$'), f('pct', 'pctLabel', '%'), ...sales];
     case 'salary': return [f('salary', 'salaryLabel', '$')];
+    case 'split': return [f('rate', 'deskRateLabel', '$'), f('deskPerWeek', 'deskHoursLabel', 'h'), f('pct', 'pctLabel', '%'), f('retailPct', 'retailPctLabel', '%'), ...sales];
     case 'draw': return [f('pct', 'pctLabel', '%'), f('drawPerWeek', 'drawLabel', '$'), ...(prefix ? [] : [f('drawBack', 'drawBack', 'n', { bool: true })]), ...sales];
   }
 }
@@ -120,7 +121,7 @@ function stepsFor(s: CalcState): Step[] {
     { id: 'selfSales', q: 'qSelfSales', fields: [{ k: 'sales', label: 'selfSalesLabel', unit: '$', help: 'sales', where: 'salesWhere' }, { k: 'tips', label: 'qTips', unit: '$', help: 'tips', where: 'tipsWhere' }] },
     { id: 'selfCosts', q: 'qSelfCosts', fields: [{ k: 'self.spacePerWeek', label: 'spaceLabel', unit: '$' }, { k: 'self.suppliesPct', label: 'suppliesLabel', unit: '%' }, { k: 'self.cardPct', label: 'cardLabel', unit: '%' }, { k: 'self.otherMonthly', label: 'otherLabel', unit: '$' }, { k: 'self.unpaidWeeks', label: 'unpaidLabel', unit: 'n' }] },
     work, time];
-  const commish = ['commission', 'hourly_commission', 'greater_of', 'draw'].includes(s.payType);
+  const commish = ['commission', 'hourly_commission', 'greater_of', 'draw', 'split'].includes(s.payType);
   const list: Step[] = [
     { id: 'payType', q: 'qPayType', sub: 'qPayTypeSub', custom: 'payType' }, hours,
     { id: 'pay', q: 'qPay', fields: [...payFields(s.payType), { k: 'paid', label: 'paidLabel', unit: '$', where: 'paidWhere' }, { k: 'bonus', label: 'bonusLabel', unit: '$' }] },
@@ -377,7 +378,7 @@ function FieldRow({ f, s, up, t, lang, help, setHelp, big }: { f: Field; s: Calc
 }
 
 function StepBody({ step, s, up, t, lang, help, setHelp, occTitle }: { step: Step; s: CalcState; up: (k: string, v: any) => void; t: T; lang: Lang; help: string | null; setHelp: (v: string | null) => void; occTitle: (soc: string) => string }) {
-  const types: [PayType, string][] = [['hourly', t('ptHourly')], ['commission', t('ptCommission')], ['hourly_commission', t('ptHourlyCommission')], ['greater_of', t('ptGreater')], ['salary', t('ptSalary')], ['draw', t('ptDraw')], ['tips', t('ptTips')]];
+  const types: [PayType, string][] = [['hourly', t('ptHourly')], ['commission', t('ptCommission')], ['hourly_commission', t('ptHourlyCommission')], ['split', t('ptSplit')], ['greater_of', t('ptGreater')], ['salary', t('ptSalary')], ['draw', t('ptDraw')], ['tips', t('ptTips')]];
   const fr = (f: Field, big?: boolean) => <FieldRow key={f.k} f={f} s={s} up={up} t={t} lang={lang} help={help} setHelp={setHelp} big={big} />;
   if (step.custom === 'payType') return <Choice value={s.payType} options={types} onPick={(v) => up('payType', v)} />;
   if (step.custom === 'offerType') return (
@@ -424,6 +425,7 @@ function planName(p: Plan, t: T, lang: Lang) {
     case 'commission': return lang === 'es' ? `${p.pct}% de comisión` : `${p.pct}% hoa hồng`;
     case 'hourly_commission': return lang === 'es' ? `${$(p.rate || 0)} por hora + ${p.pct}%` : `${$(p.rate || 0)} mỗi giờ + ${p.pct}%`;
     case 'greater_of': return lang === 'es' ? `${$(p.rate || 0)} por hora o ${p.pct}%, lo que sea mayor` : `${$(p.rate || 0)} mỗi giờ hoặc ${p.pct}%, cái nào cao hơn`;
+    case 'split': return lang === 'es' ? `${$(p.rate || 0)} por hora ${p.split?.hoursPerWeek || 0} h/sem., ${p.pct}% el resto` : `${$(p.rate || 0)}/giờ cho ${p.split?.hoursPerWeek || 0} giờ/tuần, ${p.pct}% phần còn lại`;
     case 'salary': return lang === 'es' ? `${$(p.salary || 0)} al año` : `${$(p.salary || 0)} mỗi năm`;
     case 'draw': return lang === 'es' ? `${p.pct}% con adelanto de ${$(p.draw?.perWeek || 0)}` : `${p.pct}% với ứng trước ${$(p.draw?.perWeek || 0)}`;
     case 'self': return t('modeSelf');

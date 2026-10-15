@@ -54,4 +54,14 @@ for (const l of ['es', 'vi'] as const) {
 }
 ok(tr('es', 'answerTitle', { v: '$24.60' }) === 'Tu trabajo te paga $24.60 por hora', 'fills placeholders');
 
+// Hourly at the desk for some hours, commission only for the rest.
+const sp = compute({ ...blank('job'), payType: 'split', rate: 15, deskPerWeek: 10, pct: 40, sales: 6000, tips: 0, minWage: 7.25, state: 'TX' });
+ok(sp.payNoTips === 15 * 40 + 6000 * 0.4 && sp.hours === 160, 'split: hourly for 40 desk hours, 40% on the rest', sp.payNoTips);
+ok(sp.notes.some((n) => /California/.test(n)) && sp.asks.some((a) => a.k === 'askSplit'), 'split: says some states need commission-only time at minimum wage on its own', sp.notes);
+const spLow = compute({ ...blank('job'), payType: 'split', rate: 15, deskPerWeek: 10, pct: 40, sales: 500, tips: 0, minWage: 7.25 });
+ok(spLow.asks[0]?.k === 'askMin', 'split: slow weeks under minimum wage across all hours are flagged', spLow.asks);
+ok(decodeState(encodeState({ ...s, payType: 'split', deskPerWeek: 12 }))?.deskPerWeek === 12, 'split survives the link');
+const offSplit = compute({ ...s, mode: 'offer', offer: { ...blank().offer, payType: 'split', rate: 16, deskPerWeek: 15, pct: 45 } });
+ok(offSplit.rows.find((x) => x.offer)?.plan.kind === 'split', 'an offer can be split too');
+
 console.log(bad ? `${bad} failed` : 'all good'); if (bad) process.exit(1);
