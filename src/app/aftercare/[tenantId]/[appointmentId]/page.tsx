@@ -18,7 +18,7 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 const font = { fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif', color: INK, letterSpacing: '-0.01em' } as const;
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
 
-export default async function AftercarePage({ params, searchParams }: { params: Promise<{ tenantId: string; appointmentId: string }>; searchParams: Promise<{ k?: string; t?: string; c?: string }> }) {
+export default async function AftercarePage({ params, searchParams }: { params: Promise<{ tenantId: string; appointmentId: string }>; searchParams: Promise<{ k?: string; t?: string; c?: string; lang?: string }> }) {
   const { tenantId, appointmentId } = await params; const sp = await searchParams;
   const db = getAdminDb(); const v = await feedbackVisit(db, tenantId, appointmentId, sp.k || null, sp.t || null);
   const shell = (body: React.ReactNode) => <div style={{ ...font, background: '#f7f7f8', minHeight: '100vh' }}><div style={{ maxWidth: 560, margin: '0 auto', padding: '28px 20px 60px' }}>{body}</div></div>;
@@ -29,6 +29,9 @@ export default async function AftercarePage({ params, searchParams }: { params: 
   // The business's choices (Settings → Aftercare); a renter's visit follows the renter (their own portal).
   const S = aftercareSettingsOf(tenant); const on = isRenterVisit || S.on;
   const care = on ? await visitAftercare(db, tenantId, a, tenant, isRenterVisit, isRenterVisit ? '' : (tenant.makingItRight ? aftercareFor(settingsOf(tenant), a.serviceId) : '')) : { doc: null, text: null };
+  // In another language, when the client picks one (translated once per document version, then kept).
+  let shown = care; if (sp.lang) { try { const { translatedAftercare } = await import('@/lib/aftercare-translate'); shown = (await translatedAftercare(db, tenantId, care, String(sp.lang))) || care; } catch { shown = care; } }
+  const langBase = `/aftercare/${tenantId}/${appointmentId}?${sp.k ? `k=${encodeURIComponent(String(sp.k))}` : `t=${encodeURIComponent(String(sp.t || ''))}`}${sp.c === '1' ? '&c=1' : ''}`;
   // A renter's client sees the renter's business, not the studio's.
   const rb = isRenterVisit ? await renterBrand(db, tenantId, prov) : null;
   const RS = isRenterVisit && a.staffId ? await renterCareSettings(db, tenantId, String(a.staffId)) : null;
@@ -42,9 +45,16 @@ export default async function AftercarePage({ params, searchParams }: { params: 
   const svc: any = a.serviceId ? (await db.doc(`tenants/${tenantId}/services/${a.serviceId}`).get()).data() || null : null; const weeks = rebookWeeksOf(svc);
   const note = (isRenterVisit ? !!RS?.providerNote : S.providerNote) && providerNoteOf(a) ? { text: providerNoteOf(a)!, by: first(a.aftercareNote?.byName) || from || null } : null;
   const used = (isRenterVisit ? !!RS?.showProducts : S.showProducts) ? productsUsed(a) : [];
+  // Take home: shop products this service uses that the online shop sells (studio visits only, when the shop is on).
+  let takeHome: { name: string; price: number; href: string; image?: string | null }[] = [];
+  if (!isRenterVisit && svc && Array.isArray(svc.products) && svc.products.length) { try { const { moduleEnabled } = await import('@/lib/modules'); if (moduleEnabled(tenant, 'retail')) {
+    const { isStorefrontVisible } = await import('@/lib/retail-orders');
+    const items = (await Promise.all(svc.products.slice(0, 12).map((p: any) => (p?.id ? db.doc(`tenants/${tenantId}/inventory/${p.id}`).get() : null)))).filter((d: any) => d?.exists).map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+    takeHome = items.filter((it: any) => it.type === 'retail' && isStorefrontVisible(it as any)).slice(0, 4).map((it: any) => ({ name: String(it.name || 'Product'), price: Number(it.price || it.retailPrice) || 0, href: `/shop/${tenantId}/product/${it.id}`, image: it.imageUrl || it.image || null })); } } catch { takeHome = []; } }
+  const photo = (Array.isArray(a.afterPhotoUrls) ? a.afterPhotoUrls : []).find((u: any) => typeof u === 'string' && /^https:\/\//.test(u)) || null;
   const checkIn = sp.c === '1' || a.checkInSentAt ? { tenantId, appointmentId, k: sp.k, t: sp.t, answered: a.aftercareCheckIn?.answer || null,
     reportHref: mir ? `/how/${tenantId}/${appointmentId}?${visitQ}&start=report` : '' } : null;
-  return <AftercareView name={name} logo={logo} accent={accent} service={service} from={from} when={when} doc={care.doc} text={care.text} howHref={howHref} note={note} used={used} checkIn={sp.c === '1' ? checkIn : null}
+  return <AftercareView name={name} logo={logo} accent={accent} service={service} from={from} when={when} doc={shown.doc} text={shown.text} langBase={(care.doc || care.text) ? langBase : null} lang={String(sp.lang || '')} howHref={howHref} note={note} used={used} takeHome={takeHome} photo={photo} checkIn={sp.c === '1' ? checkIn : null}
     bookLabel={weeks ? `Book again in ${weeks} week${weeks === 1 ? '' : 's'}` : undefined}
     rebookToken={!isRenterVisit && a.checkInToken && a.status === 'completed' && rebookSettingsOf(tenant).on && rebookSettingsOf(tenant).visitLink ? String(a.checkInToken) : null}
     bookHref={!isRenterVisit && a.serviceId ? `/book/${tenantId}?service=${encodeURIComponent(String(a.serviceId))}` : ''} />;

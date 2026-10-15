@@ -62,7 +62,9 @@ export async function GET(req: NextRequest) {
   const view = visitProjection(a, tenant);
   // What the visit page needs, from the server through the whitelist (the public copy is no longer readable from a browser).
   const { publicVisitCopy } = await import('@/lib/public-visit-copy');
-  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId };
+  // The aftercare page (lib/aftercare), once one has been sent for this visit: the visit page links to it instead of old text.
+  let aftercareUrl: string | null = null; if (a.aftercareDocId) { const { aftercarePath } = await import('@/lib/visit-feedback'); aftercareUrl = aftercarePath(tenantId, id); }
+  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl };
   // keep the copies in step as a courtesy for anything else that still reads them
   if (miss || copy.stage !== view.stage || copy.status !== view.status) await Promise.all([db.doc(`appointmentCheckIns/${token}`).set(view, { merge: true }), db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(view, { merge: true })]).catch(() => {});
   return NextResponse.json({ ok: true, view: full }, noStore);
