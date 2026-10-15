@@ -228,6 +228,15 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
     const u = O.bizCandidates({ team, usage: use, products: [{ id: 'p1', costPerUnit: 20, costingMethod: 'size', size: 10 }] } as any, SB, NOW).filter((x: any) => x.kind === 'supply_overuse');
     check('50% more gel base than the recipe over 6 visits → a quiet owner task, with what it cost', u.length === 1 && u[0].valueCents === 1200 && /50%/.test(u[0].why));
     check('…but not when it’s close to the recipe', !O.bizCandidates({ team, usage: use.map((x) => ({ ...x, lines: [{ ...x.lines[0], actual: 2.2 }] })) } as any, SB, NOW).some((x: any) => x.kind === 'supply_overuse')); }
+  { const bad = O.checkWording('due', { versions: ['Hello! Book here https://x.co'], auto: ['Hi {first}, come back soon.'] });
+    check('your wording: a person’s message needs their name and no link; the automatic one needs {link}', bad.problems.length === 3);
+    const good = O.checkWording('due', { versions: ['Hi {first}, it’s {me}. Fancy a refresh soon?'], auto: ['Hi {first}, book here: {link}'] });
+    check('…good wording passes', good.problems.length === 0 && good.clean.versions.length === 1);
+    const t1 = { opportunities: { wording: { due: { versions: ['Hi {first}, ours now.'], pending: null, approvedAt: null } } } };
+    check('…and isn’t used until the owner approves it', O.playbookFor(t1, 'due').versions[0] === O.PLAYBOOKS.due.versions[0]);
+    const t2 = { opportunities: { wording: { due: { versions: ['Hi {first}, ours now.'], approvedAt: '2026-10-14' } } } };
+    check('…then it is, and the rest stays ours', O.playbookFor(t2, 'due').versions[0] === 'Hi {first}, ours now.' && O.playbookFor(t2, 'due').auto![0] === O.PLAYBOOKS.due.auto![0]);
+    check('…and version picking follows how many they wrote', O.pickVersion('due', [0], O.playbookFor(t2, 'due')) === 0); }
 
   const db4 = makeDb(); const sent4: any[] = []; const send4: any = async (_d: any, _t: string, to: string, body: string) => { sent4.push({ to, body }); return { ok: true, via: 'sms' }; };
   await db4.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); for (const m of team) await db4.doc(`${T}/staff/${m.id}`).set(m);

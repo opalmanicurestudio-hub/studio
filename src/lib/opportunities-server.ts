@@ -3,7 +3,7 @@
 // back. The task screens act through here: an answer (outcome), a text sent in the business's name with every consent
 // and limit checked, a different wording, handing it to someone else. Tasks live in tenants/{t}/opportunities —
 // server only (firestore.rules), so nobody can make or close one except through these checks.
-import { PLAYBOOKS, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, isSolo, soloAdjust, renterOppOf, renterSettings, RENTER_KINDS, toolOn, bizCandidates, BIZ_KINDS, type Purchase, type Biz, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
+import { PLAYBOOKS, playbookFor, checkWording, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, isSolo, soloAdjust, renterOppOf, renterSettings, RENTER_KINDS, toolOn, bizCandidates, BIZ_KINDS, type Purchase, type Biz, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
 
 const T = (t: string) => `tenants/${t}`;
@@ -194,7 +194,7 @@ function baseOf(c: Candidate, id: string, mode: Mode, tenant: any, staff: any[],
 }
 /** Automatic first where the business chose it (and the client can be texted); otherwise, or if that can't go, a person. */
 async function launch(ctx: Ctx, base: any, now: number): Promise<{ doc: any; extra: Array<[any, any]>; sent: boolean }> {
-  const { db, t, tenant, S, staff } = ctx; const pb = PLAYBOOKS[base.kind as OppKind]; const mode: Mode = base.mode || S.modes[base.kind] || 'person';
+  const { db, t, tenant, S, staff } = ctx; const pb = playbookFor(tenant, base.kind as OppKind); const mode: Mode = base.mode || S.modes[base.kind] || 'person';
   const cl = base.clientId ? ctx.clients.get(base.clientId) : null; const prov = staff.find((m: any) => m.id === base.providerId);
   const facts: any = { ...(base.facts || {}), business: businessName(tenant) }; const extra: Array<[any, any]> = [];
   let why = base.why;
@@ -225,7 +225,7 @@ async function launch(ctx: Ctx, base: any, now: number): Promise<{ doc: any; ext
   }
   const who = assignee(pb.who, base.providerId, staff, ctx.load, S.perPersonPerDay); if (who) ctx.load.set(who.id, (ctx.load.get(who.id) || 0) + 1);
   const used = ctx.opps.filter((e: any) => e.clientId && e.clientId === base.clientId && e.kind === base.kind && Number.isInteger(e.version)).map((e: any) => e.version);
-  const version = pickVersion(base.kind, used);
+  const version = pickVersion(base.kind, used, pb);
   return { doc: { ...base, facts, why, status: 'open', assigneeId: who?.id || null, assigneeName: who?.name || null, version, dueAt: nowIso(now),
     message: pb.versions[version] ? fill(pb.versions[version], { ...facts, me: first(who?.name) || first(businessName(tenant)) }) : '' }, extra, sent: false };
 }
@@ -414,7 +414,7 @@ export async function renterOpportunitySweep(db: any, t: string, tenant: any, no
       await ref.set({ id: ref.id, kind: c.kind, tool: 'appointments', subject: c.subject, key: `renter:${st.id}:${c.key}`, renterId: st.id, clientId: c.clientId, clientName: c.clientName, phone: cl?.phone || c.facts.phone || null,
         why: c.why, valueCents: c.valueCents, priority: PLAYBOOKS[c.kind].priority, dueAt: at, expiresAt: c.expiresAt, refs: c.refs, facts, providerId: st.id, providerName: st.name || null, mode: 'person', tries: 0, attempts: [],
         createdAt: nowIso(now), createdBy: 'rules', result: { status: 'none' }, status: 'open', assigneeId: st.id, assigneeName: st.name || null, version,
-        message: fill(PLAYBOOKS[c.kind].versions[version] || '', { ...facts, me: first(st.name) || brand.name }) });
+        message: fill(playbookFor(tenant, c.kind).versions[version % playbookFor(tenant, c.kind).versions.length] || '', { ...facts, me: first(st.name) || brand.name }) });
       created++;
     }
   }
@@ -540,7 +540,7 @@ export async function listOpportunities(db: any, t: string, actor: RequestActor,
   const pace = manager ? (((await db.doc(`${T(t)}/private/opportunities`).get()).data() || {}).pace || null) : null;
   const toolsOff = FINDER_KINDS.filter((k) => !toolOn(tenant, TOOL_OF[k]));   // parts of the app that are switched off: their finders aren't shown
   const S = oppSettingsOf(tenant); const solo = isSolo(await team(db, t), S);
-  return { ok: true as const, items: shown, people, settings: S, toolsOff, manager, pace, solo: { on: solo, hour: S.solo.hour, max: S.solo.max, mode: S.solo.mode } };
+  return { ok: true as const, items: shown, people, settings: S, toolsOff, manager, wording: manager ? (tenant?.opportunities?.wording || {}) : {}, owner: !!actor?.isOwner, pace, solo: { on: solo, hour: S.solo.hour, max: S.solo.max, mode: S.solo.mode } };
 }
 const rank = (o: any) => ({ high: 0, medium: 1, low: 2 } as any)[o.priority] ?? 1;
 
@@ -549,7 +549,7 @@ async function getOpp(db: any, t: string, id: string) { const s = await db.doc(`
 const canTouch = (o: any, a: RequestActor) => a.isManager || a.isOwner || (o.assigneeId && o.assigneeId === a.staffId);
 
 export async function textCheck(db: any, t: string, tenant: any, o: any, client: any, now: number, opts: { answering?: boolean } = {}): Promise<{ ok: true; phone: string } | { ok: false; error: string }> {
-  const pb = PLAYBOOKS[o.kind as OppKind] || PLAYBOOKS.manual;
+  const pb = playbookFor(tenant, o.kind as OppKind) || PLAYBOOKS.manual;
   const phone = String(client?.phone || client?.phoneNumber || o.phone || '').trim();
   if (!phone) return { ok: false, error: 'There is no mobile number on file. Please call or email this client instead.' };
   if (client?.smsOptOut || client?.smsConsent === false) return { ok: false, error: 'This client has opted out of texts. Please call instead.' };
@@ -577,6 +577,21 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
     // A finder for a part of the app that's switched off keeps its saved choice, ready for when it's switched back on.
     for (const k of FINDER_KINDS) if (!toolOn(tenant, TOOL_OF[k])) { const prev = tenant?.opportunities?.modes?.[k]; if (prev) s.modes[k] = prev; else delete s.modes[k]; delete s.finders[k]; }
     await db.doc(T(t)).set({ opportunities: s }, { merge: true }); return { ok: true, settings: oppSettingsOf({ ...tenant, opportunities: s }) }; }
+  // Your wording: managers write it; the owner approves it (an owner's own edit is approved as it's saved).
+  if (action === 'wording') { if (!manager) return { ok: false, error: 'Only managers can do this.' };
+    const kind = String(b.kind || '') as OppKind; if (!PLAYBOOKS[kind]) return { ok: false, error: 'Unknown message.' };
+    const cur: any = tenant?.opportunities?.wording?.[kind] || {}; const at = nowIso(now); let next: any;
+    if (b.reset === true) next = null;
+    else if (b.approve === true) { if (!actor.isOwner) return { ok: false, error: 'Only the owner can approve wording.' }; if (!cur.pending) return { ok: false, error: 'There’s nothing waiting for approval.' };
+      next = { versions: cur.pending.versions || [], ask: cur.pending.ask || [], auto: cur.pending.auto || [], approvedAt: at, approvedBy: actor.name, pending: null }; }
+    else if (b.decline === true) { if (!actor.isOwner) return { ok: false, error: 'Only the owner can decide on wording.' }; next = { ...cur, pending: null }; }
+    else { const { clean, problems } = checkWording(kind, b); if (problems.length) return { ok: false, error: problems[0], problems };
+      if (!clean.versions.length && !clean.ask.length && !clean.auto.length) return { ok: false, error: 'Write at least one message, or use ours.' };
+      next = actor.isOwner ? { ...clean, approvedAt: at, approvedBy: actor.name, pending: null } : { ...cur, pending: { ...clean, by: actor.name, at } }; }
+    const { FieldValue } = await import('firebase-admin/firestore');
+    await db.doc(T(t)).set({ opportunities: { wording: { [kind]: next === null ? FieldValue.delete() : next } } }, { merge: true });
+    if (next?.pending && !actor.isOwner && tenant?.userId) { const r = db.collection(`${T(t)}/notifications`).doc(); await r.set({ id: r.id, userId: String(tenant.userId), type: 'task', link: '/opportunities', read: false, createdAt: at, message: `${actor.name} wrote new wording for “${PLAYBOOKS[kind].label}”. Approve it before it’s used.` }); }
+    return { ok: true, wording: next, approved: !!next?.approvedAt && !next?.pending }; }
   if (action === 'run') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return opportunitySweep(db, t, tenant, now, { force: true }); }
   if (action === 'results') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; await resultsPass(db, t, tenant, now).catch(() => {}); return { ok: true, ...(await opportunityResults(db, t, now, tenant)) }; }
   if (action === 'create') { if (!manager) return { ok: false, error: 'Only managers can do this.' }; return createManual(db, t, tenant, actor, b, now); }
@@ -623,7 +638,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
     const n = (Number(o.skips) || 0) + 1; const S = oppSettingsOf(tenant); const zone = await tz(tenant);
     if (n >= 3) { await ref.update({ status: 'expired', closedAt: nowIso(now), skips: n, closedWhy: 'Skipped three times.' }); return { ok: true, closed: true }; }
     await ref.update({ skips: n, dueAt: await listAt(now + DAY, zone, S.solo.hour), attempts: [...(o.attempts || []), { ...by, channel: 'note', note: 'Skipped for today' }].slice(-20) }); return { ok: true }; }
-  if (action === 'reword') { const pb = PLAYBOOKS[o.kind as OppKind]; if (!pb || pb.versions.length < 2) return { ok: false, error: 'There is only one wording available for this message.' };
+  if (action === 'reword') { const pb = playbookFor(tenant, o.kind as OppKind); if (!pb || pb.versions.length < 2) return { ok: false, error: 'There is only one wording available for this message.' };
     const v = ((Number(o.version) || 0) + 1) % pb.versions.length; const m = staff.find((x: any) => x.id === o.assigneeId);
     const message = fill(pb.versions[v], { ...(o.facts || {}), business: o.renterId ? (o.facts?.business || businessName(tenant)) : businessName(tenant), me: first(m?.name || actor.name) }); await ref.update({ version: v, message }); return { ok: true, message, version: v }; }
   if (action === 'text') {
@@ -634,7 +649,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
     const r = await sendTenantSms(db, t, chk.phone, body, client?.email ? { email: client.email, subject: o.renterId ? String(o.facts?.business || businessName(tenant)) : businessName(tenant) } : undefined, { kind: 'opportunity', recipientType: 'client', recipientId: o.clientId || undefined, recipientName: o.clientName || undefined, renterId: o.renterId ? (staff.find((x: any) => x.id === o.renterId)?.renterId || null) : null } as any);
     if (!r.ok) return { ok: false, error: 'The text could not be sent. Please try again, or call instead.' };
     { const { spendBudget } = await import('@/lib/text-budget'); await spendBudget(db, t, chk.phone, 'opportunity', now).catch(() => {}); }
-    const pb = PLAYBOOKS[o.kind as OppKind];
+    const pb = playbookFor(tenant, o.kind as OppKind);
     if (pb?.marketing && o.clientId) await db.collection(`${T(t)}/opportunityTexts`).add({ clientId: o.clientId, at: nowIso(now), channel: 'sms', marketing: true, oppId: o.id });
     await ref.update({ attempts: [...(o.attempts || []), { ...by, channel: r.via === 'email' ? 'email' : 'text', note: 'Sent the message' }].slice(-20), firstContactAt: o.firstContactAt || nowIso(now), lastContactAt: nowIso(now) });
     return { ok: true, via: r.via || 'sms' };
@@ -671,7 +686,7 @@ export async function actOnOpportunity(db: any, t: string, actor: RequestActor, 
 }
 
 function remsg(o: any, name: string, tenant: any) {
-  const pb = PLAYBOOKS[o.kind as OppKind]; if (!pb || !pb.versions[Number(o.version) || 0]) return o.message || '';
+  const pb = playbookFor(tenant, o.kind as OppKind); if (!pb || !pb.versions[Number(o.version) || 0]) return o.message || '';
   return fill(pb.versions[Number(o.version) || 0], { ...(o.facts || {}), business: businessName(tenant), me: first(name) || first(businessName(tenant)) });
 }
 

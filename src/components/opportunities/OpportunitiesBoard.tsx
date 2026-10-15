@@ -40,6 +40,7 @@ export function OpportunitiesBoard({ tenantId }: { tenantId: string }) {
             <button type="button" onClick={() => setPanel(panel === 'add' ? '' : 'add')} className="h-10 rounded-full px-4 text-[14px] font-semibold text-white" style={{ background: INK }}>Add a task</button></div></div>
         {note && <p className="text-[13.5px] font-semibold" style={{ color: GREEN }}>{note}</p>}
         {panel === 'settings' && d && <Finders tenantId={tenantId} settings={d.settings} toolsOff={d.toolsOff || []} onSaved={() => { setPanel(''); void load(); }} />}
+        {panel === 'settings' && d && <YourWording tenantId={tenantId} wording={d.wording || {}} owner={!!d.owner} toolsOff={d.toolsOff || []} onSaved={() => void load()} />}
         {d?.solo?.on && <FiveMinuteList tenantId={tenantId} items={open} hour={d.solo.hour} reload={() => { void load(); }} />}
         {panel === 'add' && d && <AddTask tenantId={tenantId} people={d.people} onSaved={() => { setPanel(''); void load(); }} />}
         <div className="flex flex-wrap gap-2">{(['open', 'auto', 'done', 'results'] as const).map((t) => <button key={t} type="button" onClick={() => setTab(t)} className="h-9 rounded-full px-4 text-[13.5px] font-semibold" style={pill(tab === t)}>{t === 'open' ? `With a person · ${open.length}` : t === 'auto' ? `Sent automatically · ${autos.filter((o) => o.status !== 'not_sent').length}` : t === 'done' ? 'Closed' : 'Results'}</button>)}</div>
@@ -189,5 +190,38 @@ function Results({ tenantId }: { tenantId: string }) {
         <div className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-2.5 text-[12px] font-bold" style={{ color: MUTED, background: 'hsl(var(--secondary))' }}><span>Kind of task (last 30 days)</span><span>Tasks</span><span>Reached</span><span>Booked</span><span>Paid</span></div>
         {r.byKind.length === 0 && <p className="px-4 py-4 text-[14px]" style={{ color: MUTED }}>Nothing in the last 30 days yet.</p>}
         {r.byKind.map((k: any) => <div key={k.kind} className="grid grid-cols-[1.4fr_repeat(4,1fr)] gap-3 px-4 py-3 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}><b className="font-semibold">{k.label}</b><span>{k.total}</span><span>{k.reached}</span><span>{k.booked}</span><span style={{ color: GREEN, fontWeight: 600 }}>{money(k.paidCents)}</span></div>)}</div>
+    </div>);
+}
+
+/** Your wording (lib/opportunities checkWording / playbookFor): write your own versions of any message. The owner approves
+ * them before they're used; until then our approved wording keeps going out. */
+function YourWording({ tenantId, wording, owner, toolsOff, onSaved }: { tenantId: string; wording: Record<string, any>; owner: boolean; toolsOff: string[]; onSaved: () => void }) {
+  const kinds = FINDER_KINDS.filter((k) => !toolsOff.includes(k));
+  const [kind, setKind] = React.useState<OppKind>(kinds[0]); const pb = PLAYBOOKS[kind]; const w = wording[kind] || {};
+  const start = (src: any) => ({ versions: (src?.versions?.length ? src.versions : pb.versions).join('\n\n'), ask: (src?.ask?.length ? src.ask : pb.ask || []).join('\n\n'), auto: (src?.auto?.length ? src.auto : pb.auto || []).join('\n\n') });
+  const [f, setF] = React.useState(() => start(w.pending || (w.approvedAt ? w : null)));
+  const [msg, setMsg] = React.useState<{ ok: boolean; t: string } | null>(null); const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { const x = wording[kind] || {}; setF(start(x.pending || (x.approvedAt ? x : null))); setMsg(null); }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
+  const split = (v: string) => v.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+  const send = async (extra: any, ok: string) => { setBusy(true); setMsg(null); const r = await payPost('/api/opportunities', { tenantId, action: 'wording', kind, ...extra }); setBusy(false); setMsg(r.ok ? { ok: true, t: ok } : { ok: false, t: r.error || 'That didn’t save.' }); if (r.ok) onSaved(); };
+  const area = (label: string, hint: string, key: 'versions' | 'ask' | 'auto') => (
+    <label className="block space-y-1"><span className="block text-[13.5px] font-semibold">{label}</span><span className="block text-[12px]" style={{ color: MUTED }}>{hint}</span>
+      <textarea value={f[key]} onChange={(e) => setF({ ...f, [key]: e.target.value })} rows={4} className="w-full rounded-[12px] border bg-background px-3 py-2 text-[14px] leading-[1.5]" style={{ borderColor: LINE }} /></label>);
+  const status = w.pending ? `Waiting for the owner’s approval (written by ${w.pending.by}). Until then, ${w.approvedAt ? 'your last approved wording' : 'our wording'} is used.` : w.approvedAt ? `Your wording is in use (approved by ${w.approvedBy}).` : 'Our wording is in use.';
+  return (
+    <div className="space-y-3 rounded-[18px] border bg-card p-4" style={{ borderColor: LINE }}>
+      <div><p className="text-[15.5px] font-semibold">Your wording</p><p className="text-[13px]" style={{ color: MUTED }}>Write your own versions of any message. Put a blank line between versions. Use {'{first}'} for their first name, {'{me}'} for the sender, {'{business}'}, {'{service_short}'}, {'{weeks}'}, and {'{link}'} in the automatic text only.</p></div>
+      <select value={kind} onChange={(e) => setKind(e.target.value as OppKind)} className="h-11 w-full rounded-[12px] border bg-background px-3 text-[14px]" style={{ borderColor: LINE }} aria-label="Which message">{kinds.map((k) => <option key={k} value={k}>{PLAYBOOKS[k].label}{wording[k]?.pending ? ' · waiting' : wording[k]?.approvedAt ? ' · yours' : ''}</option>)}</select>
+      <p className="text-[12.5px]" style={{ color: MUTED }}>{status}</p>
+      {area('What a person sends', 'Hello and their name first. No link: the link comes once they say yes.', 'versions')}
+      {pb.ask?.length ? area('Automatic, asking first', 'Sent automatically with no link; a yes gets two real times back.', 'ask') : null}
+      {pb.auto?.length ? area('Automatic, with a booking link', 'Must include {link}.', 'auto') : null}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={() => send({ versions: split(f.versions), ask: split(f.ask), auto: split(f.auto) }, owner ? 'Saved and in use.' : 'Saved. The owner will be asked to approve it.')} className="h-10 rounded-full px-4 text-[13.5px] font-semibold text-background disabled:opacity-40" style={{ background: INK }}>{owner ? 'Save and use it' : 'Send for approval'}</button>
+        {owner && w.pending && <><button type="button" disabled={busy} onClick={() => send({ approve: true }, 'Approved. It’s in use now.')} className="h-10 rounded-full border px-4 text-[13.5px] font-semibold" style={{ borderColor: LINE }}>Approve {w.pending.by.split(' ')[0]}’s wording</button>
+          <button type="button" disabled={busy} onClick={() => send({ decline: true }, 'Not approved. Nothing changed.')} className="h-10 rounded-full px-4 text-[13.5px] font-semibold" style={{ color: MUTED }}>Don’t approve</button></>}
+        {(w.approvedAt || w.pending) && <button type="button" disabled={busy} onClick={() => { setF(start(null)); void send({ reset: true }, 'Back to our wording.'); }} className="h-10 rounded-full px-4 text-[13.5px] font-semibold" style={{ color: MUTED }}>Use ours again</button>}
+      </div>
+      {msg && <p className="text-[13.5px] font-semibold" style={{ color: msg.ok ? '#1f7a4d' : '#b42318' }}>{msg.t}</p>}
     </div>);
 }

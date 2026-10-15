@@ -315,6 +315,28 @@ export function heldForRoom(kind: OppKind, providerId: string | null, pace: Pace
   return typeof share === 'number' && share * 100 < S.paceMin;
 }
 export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'share_ask', 'renewal_failed', 'unused_visits', 'membership_fit', 'shop_reorder', 'quote', 'inquiry_waiting', 'gift_card', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting', 'overtime_risk', 'supply_overuse'];
+// ── A business's own wording (Opportunities → Finders → Your wording) ─────────────────────────────
+// Managers can write their own versions of any message. They're used only once the owner has approved them (an owner's
+// own edits are approved as they save); until then the approved wording above keeps going out. The rules that make a
+// first text feel human still apply: hello and their name first, no link in a person's or an ask-first message.
+export interface Wording { versions?: string[]; ask?: string[]; auto?: string[]; approvedAt?: string | null; approvedBy?: string | null; pending?: { versions?: string[]; ask?: string[]; auto?: string[]; by: string; at: string } | null }
+const LINK_RE = /https?:\/\/|www\.|\{link\}/i;
+/** Tidies and checks one set of wording. Returns the problems in plain words. */
+export function checkWording(kind: OppKind, w: { versions?: any; ask?: any; auto?: any }): { clean: { versions: string[]; ask: string[]; auto: string[] }; problems: string[] } {
+  const list = (a: any) => (Array.isArray(a) ? a : []).map((x) => String(x || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 4);
+  const clean = { versions: list(w.versions), ask: list(w.ask), auto: list(w.auto) }; const problems: string[] = []; const pb = PLAYBOOKS[kind];
+  for (const [set, label] of [[clean.versions, 'A person’s message'], [clean.ask, 'The ask-first text'], [clean.auto, 'The automatic text']] as [string[], string][]) for (const v of set) {
+    if (v.length > 320) problems.push(`${label} is too long for one text (keep it under 320 characters).`);
+    if (!/\{first\}/.test(v) && pb?.who !== 'owner') problems.push(`${label} should greet them by name: put {first} where their first name goes.`);
+    if (set !== clean.auto && LINK_RE.test(v)) problems.push(`${label} can’t carry a link: a link comes once they say yes.`); }
+  if (clean.auto.length && pb?.auto?.length && !clean.auto.some((v) => /\{link\}/.test(v))) problems.push('The automatic text needs {link} where the booking link goes.');
+  return { clean, problems: Array.from(new Set(problems)) };
+}
+/** The playbook with the business's approved wording in place of ours (where it has any). */
+export function playbookFor(tenant: any, kind: OppKind): Playbook {
+  const pb = PLAYBOOKS[kind]; const w: Wording | undefined = tenant?.opportunities?.wording?.[kind]; if (!pb || !w?.approvedAt) return pb;
+  return { ...pb, versions: w.versions?.length ? w.versions : pb.versions, ...(pb.ask?.length ? { ask: w.ask?.length ? w.ask : pb.ask } : {}), ...(pb.auto?.length ? { auto: w.auto?.length ? w.auto : pb.auto } : {}) };
+}
 export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
@@ -667,8 +689,8 @@ export function assignee(who: Who, providerId: string | null, team: any[], load:
 }
 
 /** The first message: the version this client hasn't had before, with their details filled in. */
-export function pickVersion(kind: OppKind, used: number[]): number {
-  const n = PLAYBOOKS[kind].versions.length; for (let i = 0; i < n; i++) if (!used.includes(i)) return i; return (Math.max(...used) + 1) % n;
+export function pickVersion(kind: OppKind, used: number[], pb: Playbook = PLAYBOOKS[kind]): number {
+  const n = Math.max(1, pb.versions.length); for (let i = 0; i < n; i++) if (!used.includes(i)) return i; return (Math.max(...used) + 1) % n;
 }
 export function fill(text: string, facts: Record<string, string | undefined>): string {
   return text.replace(/\{(\w+)\}/g, (_m, k) => String(facts[k] ?? '').trim()).replace(/\s{2,}/g, ' ').replace(/\s([,.!?])/g, '$1').trim();
