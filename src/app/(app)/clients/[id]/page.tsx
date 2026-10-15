@@ -1,5 +1,6 @@
 'use client';
 
+import { ClientRewards } from '@/components/loyalty/ClientRewards';
 import { ClientTimingCard } from '@/components/clients/ClientTimingCard';
 import { canSeeClientContact, canMessageClients, stripHiddenContact } from '@/lib/privacy';
 import { ClientTimeline, ClientMessages, ClientFormsNeeded, ClientPhotos, ClientNotes, useClientMessages } from '@/components/clients/ClientTabs';
@@ -1022,6 +1023,7 @@ export default function ClientDetailPage() {
               </TabsContent>
 
               <TabsContent value="credits" className="m-0 animate-in fade-in duration-500 text-left">
+                {tenantId && clientId ? <div className="mb-6"><ClientRewards tenantId={tenantId} clientId={String(clientId)} manager={!!isOwnerOrAdmin} /></div> : null}
                 <StoreCreditHistory client={client} isOwnerOrAdmin={isOwnerOrAdmin} />
               </TabsContent>
               {activeMembership && <TabsContent value="membership" className="m-0 space-y-6 text-left">

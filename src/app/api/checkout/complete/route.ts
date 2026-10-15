@@ -258,10 +258,26 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     giftUse.push(...plan.uses);
     return null;
   };
+  // A loyalty reward (lib/loyalty): checked against the program and worked out from this bill; the points come off in the
+  // ledger just before the money moves (below), and go back if the checkout doesn't finish.
+  let loyaltyReward: { cents: number; label: string; rewardId: string } | null = null; let loyaltyRw: any = null;
+  if (b.loyaltyRewardId && clientId) {
+    const { loyaltyOf, rewardCents } = await import('@/lib/loyalty'); const LS = loyaltyOf(tenant);
+    loyaltyRw = LS.on ? LS.rewards.find((r) => r.on && r.id === String(b.loyaltyRewardId)) || null : null;
+    if (!loyaltyRw) return json({ ok: false, error: 'That reward isn’t available any more. Remove it and try again.' }, 400);
+    const { balanceFor } = await import('@/lib/loyalty-server'); const bal = await balanceFor(db, tenantId, clientId);
+    if (bal < loyaltyRw.points) return json({ ok: false, error: `They have ${bal} points; ${loyaltyRw.name} needs ${loyaltyRw.points}.` }, 400);
+    const base: any = computeCheckout({ ...calcArgs, giftCard: 0 });
+    const lines = (base.visits || []).filter((v: any) => !v.renter).flatMap((v: any, k: number) => [{ serviceId: visits[k]?.service?.id || null, cents: Math.round(num(v.mainPrice) * 100) }, ...(v.addOns || []).map((x: any) => ({ serviceId: x.addon?.id || null, cents: Math.round(num(x.price) * 100) }))]);
+    const account = (items || []).filter((it: any) => ['rent', 'tuition', 'giftcard'].includes(it.type)).reduce((t2: number, it: any) => t2 + num(it.price) * num(it.quantity), 0);
+    const cents = rewardCents(loyaltyRw, { lines, discountableCents: Math.round(Math.max(0, num(base.subtotal) - num(base.renterSub) - account - num(base.discount)) * 100) });
+    if (cents <= 0) return json({ ok: false, error: `${loyaltyRw.name} can’t be used on this bill.` }, 400);
+    loyaltyReward = { cents, label: `Reward: ${loyaltyRw.name}`, rewardId: loyaltyRw.id }; calcArgs.loyaltyReward = loyaltyReward;
+  }
   { const sdPre = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
     const calc0 = computeCheckout({ ...calcArgs, staffDiscount: sdPre, giftCard: 0, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
     const err = await giftPlan(calc0); if (err) return json({ ok: false, error: err }, 400); }
-  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), giftCard: giftUse.reduce((s2, g) => s2 + g.cents, 0) / 100, staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
+  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, loyaltyReward, storeCredit: Math.max(0, num(b.storeCredit)), giftCard: giftUse.reduce((s2, g) => s2 + g.cents, 0) / 100, staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
   const recoveryAmount = Math.min(Math.max(0, num(b.recovery?.amount)), calc.subtotal);
   // Gift cards paying for this sale were planned above (giftPlan); the bill can't take more than it costs.
   { let over = giftUse.reduce((s2, g) => s2 + g.cents, 0) - Math.round(num((calc as any).giftCard) * 100); for (let i = giftUse.length - 1; i >= 0 && over > 0; i--) { const cut = Math.min(over, giftUse[i].cents); giftUse[i].cents -= cut; over -= cut; } }
@@ -550,17 +566,34 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   }
   // Where this sale happened (cards across locations): the desk's location, else the visit's, else its provider's only one.
   const saleLocation: string | null = (typeof b.locationId === 'string' && b.locationId.slice(0, 80)) || visits[0]?.appointment?.locationId || homeLocation(staff.find((x: any) => x.id === visits[0]?.appointment?.staffId)) || null;
+  // The loyalty reward's points come off now, checked against the ledger itself; put back if the checkout doesn't save.
+  let loyaltyRedeemed = false;
+  if (loyaltyReward && loyaltyRw && clientId) { const { redeemForSale } = await import('@/lib/loyalty-server');
+    const r: any = await redeemForSale(db, tenantId, tenant, { clientId, saleId: checkoutSessionId, reward: loyaltyRw, cents: Math.round(num((calc as any).loyaltyDiscount) * 100) || loyaltyReward.cents, by: auth.actor.name || 'Front desk' });
+    if (!r.ok) { await failPending(r.error); return json({ ok: false, error: r.error }, 409); } loyaltyRedeemed = true; }
+  const loyaltyUndo = async () => { if (loyaltyRedeemed) { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: checkoutSessionId, full: true, by: 'System' }).catch(() => {}); } };
   // Gift cards: take the money off each card now (each in its own safe step); put it all back if anything fails.
   const { spendGiftCard, adjustGiftCard } = await import('@/lib/gift-cards');
   const putBack = async () => { for (const g of giftUse.filter((x) => x.done)) await adjustGiftCard(db, tenantId, { id: g.id, kind: 'add', cents: g.cents, note: 'Checkout didn’t finish — put back', by: 'System' }).catch(() => {}); };
   for (const [gid, up] of Object.entries(giftTopUps)) if (giftUse.some((g) => g.id === gid)) await adjustGiftCard(db, tenantId, { id: gid, kind: 'add', cents: up, note: 'The service costs more now — the gift still covers it', by: 'Front desk' }).catch(() => {});
   for (const g of giftUse) { const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: g.cents, holdId: g.holdId, by: auth.actor.name || 'Front desk', transactionRef: checkoutSessionId, appointmentId: apptIds[0] || null, clientId: visits[0] ? whoHad(visits[0]).id : clientId, locationId: saleLocation });
-    if (!r.ok) { await putBack(); await failPending(r.error); return json({ ok: false, error: r.error }, 409); } g.done = true; }
+    if (!r.ok) { await putBack(); await loyaltyUndo(); await failPending(r.error); return json({ ok: false, error: r.error }, 409); } g.done = true; }
   try { await batch.commit(); if (giftUse.length) { const { notifyGiftUse } = await import('@/lib/gift-cards'); for (const g of giftUse) void notifyGiftUse(db, tenantId, g.id, g.cents, req.nextUrl.origin).catch(() => {}); } }
-  catch (e: any) { console.error('[checkout] save failed', e); await putBack(); await failPending(String(e?.message || e)); return json({ ok: false, error: 'Checkout didn’t save — nothing was recorded. Please try again.' }, 500); }
+  catch (e: any) { console.error('[checkout] save failed', e); await putBack(); await loyaltyUndo(); await failPending(String(e?.message || e)); return json({ ok: false, error: 'Checkout didn’t save — nothing was recorded. Please try again.' }, 500); }
 
   // After the sale is saved: enrol memberships / packages; confirm next-visit deposits.
   const warnings: string[] = [];
+  // Loyalty (lib/loyalty): what this paid sale earns, once. Services and products only, on what was actually paid.
+  if (clientId && (tenant as any)?.loyalty?.on === true) { try {
+    const { earnForSale } = await import('@/lib/loyalty-server'); const c2: any = calc;
+    const acct = (items || []).filter((it: any) => ['rent', 'tuition', 'giftcard'].includes(it.type)).reduce((t2: number, it: any) => t2 + num(it.price) * num(it.quantity), 0);
+    const discountable = Math.max(0.01, num(c2.subtotal) - num(c2.renterSub) - acct); const paidShare = Math.max(0, 1 - (num(c2.discount) + num(c2.memberDiscount)) / discountable);
+    const member = !!(client?.activeMembershipId || client?.subscription?.status === 'active');
+    const svcLines = (c2.visits || []).filter((v: any) => !v.renter).flatMap((v: any, k: number) => [{ serviceId: visits[k]?.service?.id || null, cents: Math.round(num(v.mainPrice) * 100 * paidShare), member: member && num(v.mainPrice) === 0 }, ...(v.addOns || []).map((x: any) => ({ serviceId: x.addon?.id || null, cents: Math.round(num(x.price) * 100 * paidShare) }))]);
+    const prodLines = (items || []).filter((it: any) => it.type === 'product').map((it: any) => ({ productId: String(it.id || ''), cents: Math.round(num(it.price) * num(it.quantity) * 100 * paidShare) }));
+    const ahead = (await db.collection(`${T}/appointments`).where('clientId', '==', clientId).get()).docs.some((d: any) => { const x: any = d.data() || {}; return Date.parse(x.startTime) > Date.now() + 3600e3 && !['cancelled', 'canceled', 'no_show', 'declined'].includes(String(x.status || '')); });
+    await earnForSale(db, tenantId, tenant, { clientId, saleId: checkoutSessionId, by: auth.actor.name || 'Checkout', sale: { services: svcLines, products: prodLines, giftSpentCents: giftUse.reduce((t2, g) => t2 + g.cents, 0), giftBoughtCents: Math.round((items || []).filter((it: any) => it.type === 'giftcard').reduce((t2: number, it: any) => t2 + num(it.price) * num(it.quantity), 0) * 100), visits: (c2.visits || []).filter((v: any) => !v.renter).length, rebooked: ahead, renter: !(c2.visits || []).some((v: any) => !v.renter) && !prodLines.length } });
+  } catch (e) { console.error('[checkout] loyalty', e); } }
   // The client's store credit, now that the sale is recorded (lib/store-credit).
   if (b.creditAtPayment === true && clientId && num((calc as any).storeCredit) > 0) {
     try { const { useCredit } = await import('@/lib/store-credit');

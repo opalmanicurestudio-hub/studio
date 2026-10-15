@@ -33,6 +33,7 @@ export async function refundSaleToCard(db: any, tenantId: string, tenant: any, t
     done.push({ pi: c.pi, cents, refundId: r.id }); left -= cents;
   }
   const refunded = done.reduce((s, d) => s + d.cents, 0);
+  if (refunded > 0 && x.checkoutSessionId) { try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: String(x.checkoutSessionId), refundCents: refunded, refundId: `c${transactionId}`, by: byName || 'Refund' }); } catch { /* best effort */ } }
   await xRef.set({ cardRefunds: done.map((d) => ({ ...d, at: new Date().toISOString(), by: byName })) }, { merge: true }).catch(() => {});
   return { ok: true, card: true, refundedCents: refunded, shortCents: Math.max(0, Math.round(want) - refunded) };
 }

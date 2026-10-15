@@ -20,6 +20,7 @@ export interface CalcInput {
   skipGroupDiscount?: boolean;   // "don't apply the team / family discount this time"
   skipMemberDiscount?: boolean;  // "don't apply their member discount this time"
   momentReward?: { pct: number; label: string; key: string } | null;   // birthday / milestone treat (lib/moments)
+  loyaltyReward?: { cents: number; label: string; rewardId: string } | null;   // a loyalty reward (lib/loyalty): money off, worked out from the bill
 }
 export interface VisitCalc { appointmentId: string; mainStaffId: string; mainPrice: number; mainRedeemed: boolean; mainList: number; addOns: { addon: any; staffId: string; price: number; redeemed: boolean; list: number }[];
   rescheduleFee: number; dayChangeFee: number; timeOverage: number; materialOverage: number; additionalCharge: number; refreshments: { name: string; qty: number; price: number }[]; waived: boolean;
@@ -76,7 +77,9 @@ export function computeCheckout(i: CalcInput) {
   // A birthday / milestone treat (% off services) never combines — it applies only if it's bigger than the code + team discount.
   let momentDiscount = i.momentReward && i.momentReward.pct > 0 ? round2(eligibleServices * (i.momentReward.pct / 100)) : 0;
   if (momentDiscount > 0) { if (momentDiscount > codeDiscount + groupDiscount) { codeDiscount = 0; groupDiscount = 0; } else momentDiscount = 0; }
-  const discount = round2(codeDiscount + staffDiscount + groupDiscount + momentDiscount);
+  // A loyalty reward (lib/loyalty) comes off what's left to discount; it combines with everything else.
+  const loyaltyDiscount = i.loyaltyReward && i.loyaltyReward.cents > 0 ? round2(Math.min(i.loyaltyReward.cents / 100, Math.max(0, discountable - (codeDiscount + staffDiscount + groupDiscount + momentDiscount)))) : 0;
+  const discount = round2(codeDiscount + staffDiscount + groupDiscount + momentDiscount + loyaltyDiscount);
   // A member's retail discount (their plan's %, on eligible items).
   let memberDiscount = 0;
   const c = i.client; const mId = c?.activeMembershipId || c?.subscription?.membershipId; let memberLabel: string | null = null;
@@ -94,6 +97,8 @@ export function computeCheckout(i: CalcInput) {
   const giftCard = round2(Math.min(giftable, Math.max(0, num(i.giftCard))));
   const total = round2(beforeGift - giftCard);
   // The share of the discountable total taken off by discounts — commission "on what the client paid" uses it.
-  const discountShare = discountable > 0 ? Math.min(1, discount / discountable) : 0;
-  return { discountShare, memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, giftCard, giftable, total };
+  // A loyalty reward is paid by the business: commission stays on the full price unless the business chose otherwise.
+  const commissionCut = i.tenant?.loyalty?.commission === 'paid' ? discount : discount - loyaltyDiscount;
+  const discountShare = discountable > 0 ? Math.min(1, commissionCut / discountable) : 0;
+  return { discountShare, memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, loyaltyDiscount, loyaltyLabel: loyaltyDiscount > 0 ? i.loyaltyReward!.label : null, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, giftCard, giftable, total };
 }

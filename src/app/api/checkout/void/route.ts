@@ -139,6 +139,8 @@ export async function POST(req: NextRequest) {
   batch.set(rRef, { voided: true, voidedAt: now, voidedBy: approvedBy, requestedBy: auth.actor.name, voidReason: reason, ...(refunded ? { voidRefunded: true } : {}), ...(cashBack ? { cashReturned: cashBack } : {}) }, { merge: true });
   try { await batch.commit(); }
   catch (e: any) { console.error('[void] save failed', e); return NextResponse.json({ ok: false, error: refunded ? 'The card was refunded, but the records didn’t update — press Void again (it won’t refund twice).' : 'The void didn’t save — nothing changed. Please try again.' }, { status: 500 }); }
+  // Loyalty: undoing the sale takes back what it earned and gives back any reward it used (lib/loyalty-server).
+  if (rc.checkoutSessionId) { try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: String(rc.checkoutSessionId), full: true, by: approvedBy || 'Void' }); } catch { /* best effort */ } }
   // Tuition: the Academy's ledger is add-only — a void ADDS a refund entry with the reason (after the rest is saved).
   for (const x of (Array.isArray(R.tuitionPayments) ? R.tuitionPayments : [])) { try { const { reverseTuitionPayment } = await import('@/lib/tuition-desk'); await reverseTuitionPayment(db, tenantId, x, reason, String(approvedBy || 'Front desk')); } catch (e) { console.error('[void] tuition', e); } }
   const warnings: string[] = [];

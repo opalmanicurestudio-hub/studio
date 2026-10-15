@@ -327,7 +327,10 @@ export function usePosEngine() {
   const scanInputRef = React.useRef<HTMLInputElement>(null);
   const [pendingRefund, setPendingRefund] = useState<any | null>(null);
   const [storeCreditApplied, setStoreCreditApplied] = useState(0);
-  useEffect(() => { setStoreCreditApplied(0); }, [selectedClientId]);   // credit belongs to one client: a new client starts fresh (their own comes off by itself)
+  useEffect(() => { setStoreCreditApplied(0); }, [selectedClientId]);
+  // A loyalty reward used on this sale (lib/loyalty): the server checks the points again and takes them off when it's paid.
+  const [loyaltyReward, setLoyaltyReward] = useState<{ rewardId: string; cents: number; label: string } | null>(null);
+  useEffect(() => { setLoyaltyReward(null); }, [selectedClientId]);   // credit belongs to one client: a new client starts fresh (their own comes off by itself)
   // Gift cards paying for this sale: each one's money is set aside on the server (a hold) until the sale finishes.
   const [giftApplied, setGiftApplied] = useState<{ id: string; code: string; cents: number; label?: string | null }[]>([]);
   const giftHoldRef = useRef(`h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
@@ -549,7 +552,9 @@ export function usePosEngine() {
   const codeAndGroup = (groupInfo && !groupInfo.stackWithCodes && groupWins ? 0 : codeDiscountRaw) + groupDiscountValue;
   const momentRaw = momentReward ? Math.round(eligibleServicesRef.current * momentReward.rewardPct) / 100 : 0;
   const momentDiscountValue = !skipMomentReward && momentRaw > codeAndGroup ? momentRaw : 0;   // never combines — the bigger applies
-  const discountValue = useMemo(() => safeNumber((momentDiscountValue ? 0 : codeAndGroup) + staffDiscountValue + momentDiscountValue), [codeAndGroup, staffDiscountValue, momentDiscountValue]);
+  const baseDiscount = safeNumber((momentDiscountValue ? 0 : codeAndGroup) + staffDiscountValue + momentDiscountValue);
+  const loyaltyValue = loyaltyReward ? Math.max(0, Math.min(loyaltyReward.cents / 100, Math.max(0, subtotalCalc - baseDiscount))) : 0;
+  const discountValue = useMemo(() => safeNumber(baseDiscount + loyaltyValue), [baseDiscount, loyaltyValue]);
 
   const membershipDiscountValue = useMemo(() => {
     if (!selectedClient || !memberships || !packages || skipMemberDiscount) return 0;
@@ -571,7 +576,7 @@ export function usePosEngine() {
       group: groupUsed, groupLabel: groupInfo?.label || 'Team discount', groupAvailable: !!groupInfo && groupDiscountRaw > 0,
       moment: momentDiscountValue, momentLabel: momentReward ? `${(momentReward as any).rewardLabel || 'Thank-you'} (${momentReward.rewardPct}%)` : null, momentAvailable: momentRaw > 0,
       member: membershipDiscountValue, memberLabel: m?.retailDiscount ? `${m.name || 'Member'} discount (${m.retailDiscount}%)` : null,
-      staff: staffDiscountValue,
+      staff: staffDiscountValue, loyalty: loyaltyValue, loyaltyLabel: loyaltyReward?.label || null,
     };
   })();
   const taxCalc = posTaxAmount(selectedTenant, taxPartsRef.current);   // Settings → Payments → Sales tax
@@ -1097,7 +1102,7 @@ export function usePosEngine() {
   // the receipt and memberships are all worked out and written there, together — never from this browser.
   const checkoutClientId = selectedClientId ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId ?? null;
   const buildCheckoutPayload = (paymentData?: any) => ({
-    tenantId, clientId: checkoutClientId, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
+    tenantId, clientId: checkoutClientId, loyaltyRewardId: loyaltyReward?.rewardId || null, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
@@ -1153,7 +1158,7 @@ export function usePosEngine() {
           serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, staffId: firstVisit?.appointment?.staffId || null, addOnIds: firstVisit?.appointment?.addOnIds || [], appointmentId: firstVisit?.appointment?.id || null,
           warnings: out.warnings || [], at: new Date().toISOString() , outcomes: Array.isArray(out.outcomes) ? out.outcomes : []}); }
       setSkipGroupDiscount(false); setSkipMomentReward(false); setSkipMemberDiscount(false);   // removals were for that sale only
-      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setGiftApplied([]); giftHoldRef.current = `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null); setSplitActive(false);   // the next sale starts fresh (the client screen goes back to your logo)
+      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setLoyaltyReward(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setGiftApplied([]); giftHoldRef.current = `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null); setSplitActive(false);   // the next sale starts fresh (the client screen goes back to your logo)
       return true;
     } catch (e: any) {
       console.error('[checkout] failed', e);
@@ -1497,6 +1502,7 @@ export function usePosEngine() {
     onStoreCreditApplied: ({ appliedAmount }: { appliedAmount: number; remainingBalance: number }) => {
       setStoreCreditApplied(appliedAmount);
     },
+    loyaltyReward, setLoyaltyReward, loyaltyBill: { subtotal: subtotalCalc, discountBase: baseDiscount, lines: readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id)).flatMap((a: any) => [{ serviceId: String(a.appointment?.serviceId || ''), cents: Math.round(safeNumber(a.service?.price ?? a.appointment?.price) * 100) }, ...((a.appointment?.addOnIds || []) as string[]).map((id: string) => ({ serviceId: String(id), cents: Math.round(safeNumber((services || []).find((v: any) => v.id === id)?.price) * 100) }))]) },
   };
 
   // Looks up the most recent COMPLETED appointment for a client + service
@@ -1552,7 +1558,7 @@ export function usePosEngine() {
     setWaivedAppointmentFees, isRecoveryOverrideOpen, setIsRecoveryOverrideOpen, pendingIdentityMatch, setPendingIdentityMatch, voidTransactionId, setVoidTransactionId, isVoidDialogOpen,
     setIsVoidDialogOpen, isQuickBookOpen, setIsQuickBookOpen, activeFloorTab, setActiveFloorTab, isScanLookupOpen, setIsScanLookupOpen, isCameraScanOpen,
     setIsCameraScanOpen, scanQuery, setScanQuery, scanResult, setScanResult, scanNotFound, setScanNotFound, isScanResolving,
-    setIsScanResolving, scanMode, setScanMode, scanInputRef, pendingRefund, setPendingRefund, storeCreditApplied, setStoreCreditApplied,
+    setIsScanResolving, scanMode, setScanMode, scanInputRef, pendingRefund, setPendingRefund, storeCreditApplied, setStoreCreditApplied, loyaltyReward, setLoyaltyReward,
     newWalkInAlert, setNewWalkInAlert, prevWalkInCountRef, waitlistRaw, waitlistEntries, waitlist, isOwnerOrAdminUser, activeTill,
     readyForCheckoutAppointments, kpiData, selectedClient, subtotalCalc, offerClientId, offerServiceIds, walletOffers, setWalletOffers,
     autoAppliedOfferRef, discountValue, membershipDiscountValue, taxCalc, totalCalc, payerOptions, handleSelectAppointment, handleAddToCart,

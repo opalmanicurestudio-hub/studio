@@ -66,6 +66,7 @@ const CLIENT_GROWTH = [
   { href: '/campaigns', icon: Megaphone, label: 'Outreach'      },
   { href: '/reviews',   icon: Star,      label: 'Reputation'    },
   { href: '/referrals', icon: HeartHandshake, label: 'Referrals'   },
+  { href: '/loyalty',   icon: Gift,      label: 'Loyalty'       },
 ];
 
 const STUDIO_ASSETS = [

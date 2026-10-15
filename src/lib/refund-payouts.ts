@@ -127,6 +127,8 @@ async function settle(db: any, tenantId: string, tenant: any, p: any, via: strin
   const T0 = T(tenantId); const at = now(); const cents = Math.round(p.amountCents);
   let sale: any = null;
   if (p.saleId) { const s = await db.doc(`${T0}/transactions/${p.saleId}`).get(); sale = s.exists ? { id: s.id, ...s.data() } : null; }
+  // Loyalty: a refund takes back the points that money earned (lib/loyalty-server).
+  if (sale?.checkoutSessionId) { try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: String(sale.checkoutSessionId), refundCents: cents, refundId: `p${p.id}`, by }); } catch { /* best effort */ } }
   if (via !== 'Store credit') {
     const rev = db.collection(`${T0}/transactions`).doc();
     await rev.set({ id: rev.id, date: at, description: `Refund for: ${sale?.description || p.serviceName || 'visit'}`, clientOrVendor: p.clientName || null, clientId: p.clientId || null, type: 'reversal', context: sale?.context || null, category: 'Refunds', amount: cents / 100, paymentMethod: via, reversalOf: sale?.id || null, appointmentId: p.appointmentId || null, hasReceipt: false, notes: `${p.number ? `Making it right ${p.number} · ` : ''}${via}${p.app?.ref ? ` · ref ${p.app.ref}` : ''}`, payoutId: p.id, caseId: p.caseId || null, by, ...(p.ledger || {}) });

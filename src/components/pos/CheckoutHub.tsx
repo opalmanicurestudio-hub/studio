@@ -39,6 +39,7 @@ import { useFirebase } from '@/firebase';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
 import { StoreCreditPanel } from '@/components/pos/StoreCreditPanel';
+import { LoyaltyPanel } from '@/components/loyalty/LoyaltyPanel';
 import { GiftCardPanel } from '@/components/pos/GiftCardPanel';
 import { brandAccent } from '@/lib/brand-accent';
 import { deskScript, shopSettings } from '@/lib/gift-designs';
@@ -428,6 +429,7 @@ export const CheckoutHub = ({
   cashierName,
   storeCreditApplied,
   onStoreCreditApplied,
+  loyaltyReward = null, setLoyaltyReward, loyaltyBill,
   giftApplied = [], setGiftApplied, giftCardValue = 0, giftHoldId = '', addGiftCardToCart,
   walletOffers = [],
   offerClientId = null,
@@ -1103,6 +1105,7 @@ export const CheckoutHub = ({
                   {recoveryAmount > 0 && <button type="button" onClick={() => { setRecoveryAmount(0); setRecoveryReason(''); setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); setIsRecoveryDialogOpen(false); }} className="h-10 rounded-full px-4 text-[14px]" style={{ background: 'var(--card)' }}>Remove</button>}</div>
               </div>}
           </section>}
+       {selectedClient && !isCartEmpty && setLoyaltyReward && loyaltyBill && <LoyaltyPanel tenantId={tenantId} clientId={String((selectedClient as any).id || '')} clientName={(selectedClient as any).name} reward={loyaltyReward} setReward={setLoyaltyReward} bill={loyaltyBill} />}
        {selectedClient && !isCartEmpty && (
          <StoreCreditPanel
            client={selectedClient}
@@ -1365,6 +1368,7 @@ export const CheckoutHub = ({
                 if (b.momentAvailable) rows.push({ key: 'moment', label: b.momentLabel || 'Thank-you treat', amount: b.moment, off: !!skipMomentReward || b.moment === 0, remove: () => setSkipMomentReward?.(true), restore: skipMomentReward ? () => setSkipMomentReward?.(false) : undefined,
                   note: !skipMomentReward && b.moment === 0 ? 'smaller than the other discounts — they don’t combine' : undefined });
                 if (b.memberLabel && (b.member > 0 || skipMemberDiscount)) rows.push({ key: 'member', label: b.memberLabel, amount: b.member, off: !!skipMemberDiscount, remove: () => setSkipMemberDiscount?.(true), restore: skipMemberDiscount ? () => setSkipMemberDiscount?.(false) : undefined });
+                if (b.loyalty > 0) rows.push({ key: 'loyalty', label: b.loyaltyLabel || 'Reward', amount: b.loyalty, remove: () => setLoyaltyReward?.(null) });
                 if (b.staff > 0) rows.push({ key: 'staff', label: `Staff discount${staffDiscount?.reason ? ` — ${staffDiscount.reason}` : ''}`, amount: b.staff, remove: () => setStaffDiscount?.(null) });
                 return (<>
                   {rows.map((r) => (
