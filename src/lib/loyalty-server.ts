@@ -18,6 +18,8 @@ export async function balanceFor(db: any, t: string, clientId: string) { return 
 async function syncClient(db: any, t: string, clientId: string, extra: any = {}) {
   const bal = await balanceFor(db, t, clientId);
   await db.doc(`tenants/${t}/clients/${clientId}`).set({ loyalty: { balance: bal, updatedAt: nowIso(), ...extra } }, { merge: true }).catch(() => {});
+  // Their wallet cards (Apple, Google) update by themselves, when they have one (lib/wallet).
+  if (process.env.APPLE_PASS_TYPE_ID || process.env.GOOGLE_WALLET_ISSUER_ID) { try { const { walletRefresh } = await import('@/lib/wallet'); await walletRefresh(db, t, clientId); } catch (e) { console.error('[loyalty] wallet', e); } }
   return bal;
 }
 

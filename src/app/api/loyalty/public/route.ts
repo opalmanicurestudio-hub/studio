@@ -14,7 +14,8 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb(); const S = loyaltyOf((await db.doc(`tenants/${tenantId}`).get()).data() || {}); if (!S.on) return NextResponse.json({ ok: true, on: false });
   const c: any = (await db.doc(`tenants/${tenantId}/clients/${clientId}`).get()).data(); if (!c) return NextResponse.json({ ok: false }, { status: 404 });
   if (b.action === 'goal') { const id = String(b.rewardId || ''); if (!S.rewards.some((x) => x.on && x.id === id)) return NextResponse.json({ ok: false }, { status: 400 });
-    await db.doc(`tenants/${tenantId}/clients/${clientId}`).set({ loyalty: { goalRewardId: id } }, { merge: true }); return NextResponse.json({ ok: true }); }
+    await db.doc(`tenants/${tenantId}/clients/${clientId}`).set({ loyalty: { goalRewardId: id, updatedAt: new Date().toISOString() } }, { merge: true });
+    try { const { walletRefresh } = await import('@/lib/wallet'); await walletRefresh(db, tenantId, clientId); } catch { /* the card catches up next time */ } return NextResponse.json({ ok: true }); }
   const balance = Math.max(0, await balanceFor(db, tenantId, clientId)); const r = rewardsFor(S, balance);
   const tierE = c.loyalty?.tier?.id ? S.tiers.find((x) => x.id === c.loyalty.tier.id && (!c.loyalty.tier.until || Date.parse(c.loyalty.tier.until) > Date.now())) : null;
   return NextResponse.json({ ok: true, on: true, earlyDays: tierE?.earlyDays || 0, tier: tierE?.name || null, first: String(c.firstName || c.name || '').trim().split(/\s+/)[0] || null, balance, unit: unitOf(S), ready: r.ready.map((x) => x.name), next: r.next ? { name: r.next.reward.name, toGo: r.next.toGo } : null }, { headers: { 'Cache-Control': 'no-store' } });

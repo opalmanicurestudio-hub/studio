@@ -6,6 +6,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { rewardsKey } from '@/lib/loyalty-link';
 import { loyaltyOf, rewardsFor, worthCents, termsOf, unitOf, tierFor, goalOf, perkWords, activeBoosts } from '@/lib/loyalty';
 import { GoalPicker } from '@/components/loyalty/GoalPicker';
+import { walletConfig } from '@/lib/wallet';
 import { ledgerFor } from '@/lib/loyalty-server';
 import { brandAccent } from '@/lib/brand-accent';
 
@@ -50,6 +51,10 @@ export default async function RewardsPage({ params, searchParams }: { params: Pr
     </div>
     <GoalPicker tenantId={tenantId} clientId={clientId} k={String(sp.k)} unit={unit} goalId={c.loyalty?.goalRewardId || null} rewards={S.rewards.filter((x) => x.on).sort((a2, b2) => a2.points - b2.points).map((x) => ({ id: x.id, name: x.name, points: x.points, ready: x.points <= bal }))} />
     {boosts.map((b2) => <div key={b2.id} style={{ borderRadius: 16, background: SOFT, padding: '12px 14px', fontSize: 13.5 }}>{b2.label}: {b2.multiplier === 2 ? 'double' : `${b2.multiplier}×`} points{b2.scope === 'products' ? ' on products' : b2.scope === 'services' ? ' on services' : ''} until {new Date(`${b2.to}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })}.</div>)}
+    {(() => { const w = walletConfig(); if (!w.apple && !w.google) return null; const q = `t=${encodeURIComponent(tenantId)}&c=${encodeURIComponent(clientId)}&k=${encodeURIComponent(String(sp.k))}`;
+      const btn = { flex: 1, height: 48, borderRadius: 12, background: '#000', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13.5, fontWeight: 600, textDecoration: 'none' } as const;
+      return <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}><div style={{ display: 'flex', gap: 8 }}>{w.apple && <a href={`/api/wallet/apple/pass?${q}`} style={btn}>Add to Apple Wallet</a>}{w.google && <a href={`/api/wallet/google/save?${q}`} style={btn}>Add to Google Wallet</a>}</div>
+        <div style={{ fontSize: 12.5, color: MUTED }}>Your card updates by itself after every visit.</div></div>; })()}
     {S.referralPoints > 0 && <div style={{ border: `1px solid ${LINE}`, borderRadius: 16, padding: '12px 14px', fontSize: 13.5 }}>Bring a friend: when they come in for their first visit, you get {S.referralPoints} {unit}.</div>}
     {(r.ready.length > 0 || r.next) && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}><div style={{ fontSize: 15, fontWeight: 600 }}>{r.ready.length ? 'Ready to use' : 'Coming up'}</div>
       {r.ready.map((x) => <div key={x.id} style={{ border: `1px solid ${LINE}`, borderRadius: 18, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600 }}>{x.name}</div><div style={{ fontSize: 13, color: MUTED }}>{x.points} {unit} · tell us at your visit</div></div><span style={{ padding: '5px 10px', borderRadius: 999, background: '#e9f5ee', color: GREEN, fontSize: 12, fontWeight: 700 }}>Ready</span></div>)}

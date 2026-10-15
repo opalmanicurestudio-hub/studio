@@ -18,8 +18,8 @@ const input = 'h-11 w-full rounded-[12px] border bg-background px-3 text-[15px]'
 
 export function LoyaltySetup({ tenantId }: { tenantId: string }) {
   const { services, inventory } = useInventory() as any;
-  const [s, setS] = React.useState<any>(null); const [stats, setStats] = React.useState<any>(null); const [msg, setMsg] = React.useState<{ ok: boolean; t: string } | null>(null); const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { payPost('/api/loyalty', { tenantId, action: 'settings' }).then((r) => r.ok && setS(r.settings)); payPost('/api/loyalty', { tenantId, action: 'stats' }).then((r) => r.ok && setStats(r)); }, [tenantId]);
+  const [s, setS] = React.useState<any>(null); const [wallet, setWallet] = React.useState<{ apple: boolean; google: boolean } | null>(null); const [stats, setStats] = React.useState<any>(null); const [msg, setMsg] = React.useState<{ ok: boolean; t: string } | null>(null); const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { payPost('/api/loyalty', { tenantId, action: 'settings' }).then((r) => { if (r.ok) { setS(r.settings); setWallet(r.wallet || null); } }); payPost('/api/loyalty', { tenantId, action: 'stats' }).then((r) => r.ok && setStats(r)); }, [tenantId]);
   if (!s) return <p className="p-8 text-[14px]" style={{ color: MUTED }}>Loading…</p>;
   const set = (patch: any) => setS((x: any) => ({ ...x, ...patch }));
   const setEarn = (patch: any) => setS((x: any) => ({ ...x, earn: { ...x.earn, ...patch } }));
@@ -163,7 +163,8 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
 
       <section className={`${card} grid gap-5 md:grid-cols-3`} style={{ borderColor: LINE }}>
         <div><p className="text-[15px] font-semibold">In plain words, for clients</p><p className="mt-1.5 text-[14px] leading-[1.55]">{terms}</p></div>
-        <div><p className="text-[15px] font-semibold">Where clients see it</p><p className="mt-1.5 text-[14px] leading-[1.55]" style={{ color: MUTED }}>At checkout (the desk sees their rewards), on their receipt, and on their client page.</p></div>
+        <div><p className="text-[15px] font-semibold">Where clients see it</p><p className="mt-1.5 text-[14px] leading-[1.55]" style={{ color: MUTED }}>At checkout (the desk sees their rewards), on their receipt, and on their client page.</p>
+          <p className="mt-1.5 text-[13px]" style={{ color: MUTED }}>Wallet cards: Apple Wallet {wallet?.apple ? 'on' : 'not set up yet'} · Google Wallet {wallet?.google ? 'on' : 'not set up yet'}.{wallet && (!wallet.apple || !wallet.google) ? ' They need the developer accounts connected before the buttons appear on clients’ rewards pages.' : ' Cards update by themselves after every visit.'}</p></div>
         <div><p className="text-[15px] font-semibold">Who’s in</p><div className="mt-1.5 space-y-1.5 text-[14px]">
           <label className="flex items-center gap-2"><input type="radio" name="join" checked={s.join !== 'opt_in'} onChange={() => set({ join: 'everyone' })} /> Everyone, from their next paid visit</label>
           <label className="flex items-center gap-2"><input type="radio" name="join" checked={s.join === 'opt_in'} onChange={() => set({ join: 'opt_in' })} /> Only clients who say yes at checkout</label></div></div>

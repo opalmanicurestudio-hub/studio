@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       const { logAuditAdmin } = await import('@/lib/audit');
       await logAuditAdmin(db, tenantId, { action: 'loyalty.settings', targetType: 'tenant', targetId: tenantId, summary: `${by} saved the loyalty program${next.version !== cur.version ? ` (rules version ${next.version})` : ''}`, actor: { type: 'user', id: g.actor?.uid || '', name: by, role: g.actor?.role || '' } } as any).catch(() => {});
       return j({ ok: true, settings: next, terms: termsOf(next) }); }
-    return j({ ok: true, settings: cur, terms: termsOf(cur) });
+    const { walletConfig } = await import('@/lib/wallet'); return j({ ok: true, settings: cur, terms: termsOf(cur), wallet: walletConfig() });
   }
   if (action === 'basics') {   // for the program builder: the business's own average visit and how often clients come
     const since = new Date(Date.now() - 365 * 864e5).toISOString();
@@ -60,7 +60,8 @@ export async function POST(req: NextRequest) {
   if (action === 'join') { await db.doc(`${T}/clients/${clientId}`).set({ loyaltyJoinedAt: new Date().toISOString(), loyaltyOptOut: false }, { merge: true });
     const { grantHeadStart } = await import('@/lib/loyalty-server'); const head = await grantHeadStart(db, tenantId, tenant, clientId).catch(() => 0); return j({ ok: true, headStart: head }); }
   if (action === 'goal') { const S = loyaltyOf(tenant); const id = String(b.rewardId || ''); if (id && !S.rewards.some((r) => r.on && r.id === id)) return j({ ok: false, error: 'That reward isn’t available.' }, 400);
-    await db.doc(`${T}/clients/${clientId}`).set({ loyalty: { goalRewardId: id || null } }, { merge: true }); return j({ ok: true }); }
+    await db.doc(`${T}/clients/${clientId}`).set({ loyalty: { goalRewardId: id || null, updatedAt: new Date().toISOString() } }, { merge: true });
+    try { const { walletRefresh } = await import('@/lib/wallet'); await walletRefresh(db, tenantId, clientId); } catch { /* the card catches up next time */ } return j({ ok: true }); }
   if (action === 'adjust') { const r = await adjustPoints(db, tenantId, { clientId, points: Number(b.points), note: String(b.note || ''), by }); return j(r, r.ok ? 200 : 400); }
   return j({ ok: false, error: 'Unknown action.' }, 400);
 }
