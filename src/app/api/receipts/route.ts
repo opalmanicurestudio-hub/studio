@@ -38,7 +38,15 @@ export async function GET(req: NextRequest) {
   if (!r || !k || r.viewKey !== k) return NextResponse.json({ ok: false, error: 'This receipt isn’t available.' }, { status: 404 });
   const t: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const addr = t.address || t.businessAddress || null;
-  return NextResponse.json({ ok: true,
+  // Rewards (lib/loyalty): what this sale earned, their balance now, and their private rewards page.
+  let loyalty: any = null;
+  if (t?.loyalty?.on === true && r.clientId && r.checkoutSessionId && !r.voided) { try {
+    const { ledgerFor } = await import('@/lib/loyalty-server'); const { rewardsPath } = await import('@/lib/loyalty-link'); const { unitOf, loyaltyOf } = await import('@/lib/loyalty');
+    const L = await ledgerFor(db, tenantId, String(r.clientId)); const earned = L.filter((e: any) => e.saleId === r.checkoutSessionId && e.type === 'earn').reduce((a: number, e: any) => a + e.points, 0);
+    const used = L.filter((e: any) => e.saleId === r.checkoutSessionId && e.type === 'redeem').reduce((a: number, e: any) => a - e.points, 0);
+    loyalty = { earned, used, balance: Math.max(0, L.reduce((a: number, e: any) => a + (Number(e.points) || 0), 0)), unit: unitOf(loyaltyOf(t)), url: rewardsPath(tenantId, String(r.clientId)) };
+  } catch { loyalty = null; } }
+  return NextResponse.json({ ok: true, loyalty,
     business: { name: t.name || t.businessName || 'Receipt', address: typeof addr === 'string' ? addr : [addr?.street, addr?.city, addr?.state, addr?.zip].filter(Boolean).join(', ') || null, phone: t.phone || t.businessPhone || null, email: t.email || t.contactEmail || null, timezone: t.timezone || null },
     receipt: { id, date: r.date, clientName: r.clientName || null, paidBy: r.paidBy || null, cashierName: r.cashierName || null, paymentMethod: r.paymentMethod, lineItems: r.lineItems || [],
       subtotal: r.subtotal, tax: r.tax, taxLabel: r.taxLabel || 'Tax', tip: r.tip, discount: r.discount, detail: r.detail ? { ...r.detail, payments: (r.detail.payments || []).map(({ pi, ...x }: any) => x) } : null, discounts: Array.isArray(r.discounts) ? r.discounts.map((d: any) => ({ label: String(d.label || 'Discount'), amount: Number(d.amount) || 0 })) : null, refunds: Array.isArray(r.refunds) ? r.refunds.map((x: any) => ({ cents: Number(x.cents) || 0, reason: x.reason || null })) : null, total: r.total, amountTendered: r.amountTendered, change: r.change,

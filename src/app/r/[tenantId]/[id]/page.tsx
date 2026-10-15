@@ -88,6 +88,12 @@ export default function ReceiptPage() {
         {row('Paid by', cash ? 'Cash' : 'Card')}
         {cash && Number(r.amountTendered) > 0 && <>{row('Cash given', money(r.amountTendered))}{row('Change', money(r.change))}</>}
         </>)}
+        {d?.loyalty && (d.loyalty.earned > 0 || d.loyalty.used > 0) && <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 14, background: '#f5f5f7' }}>
+          <div style={{ fontWeight: 700 }}>Rewards</div>
+          {d.loyalty.earned > 0 && row(`Earned this visit`, `+${d.loyalty.earned} ${d.loyalty.unit}`)}
+          {d.loyalty.used > 0 && row(`Used`, `−${d.loyalty.used} ${d.loyalty.unit}`)}
+          {row('Your balance', `${d.loyalty.balance} ${d.loyalty.unit}`, true)}
+          <a className="no-print" href={d.loyalty.url} style={{ display: 'inline-block', marginTop: 6, fontWeight: 600, color: '#16171a' }}>See your rewards</a></div>}
         {r.voided && <>
           <hr style={{ border: 0, borderTop: '2px solid #1c1917', margin: '12px 0 8px' }} />
           <div style={{ fontWeight: 700 }}>This sale was voided</div>

@@ -1,4 +1,5 @@
 'use client';
+import { PortalRewards } from '@/components/loyalty/PortalRewards';
 import { usePublicStaff } from '@/lib/use-public-staff';
 
 import { hasRealCard } from '@/lib/card-on-file';
@@ -113,6 +114,8 @@ const safeDate = (val: any): Date => {
 };
 
 export default function ClientPortalPage() {
+    const [realRewards, setRealRewards] = useState(false);
+    const portalK = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('k') || '' : '';
     const { tenantId, clientId } = useParams() as { tenantId: string; clientId: string };
     const { firestore } = useFirebase();
     const { toast } = useToast();
@@ -716,9 +719,10 @@ export default function ClientPortalPage() {
                     </TabsContent>
 
                     <TabsContent value="rewards" className="space-y-10 animate-in fade-in duration-500 text-left">
+                        <PortalRewards tenantId={String(tenantId || '')} clientId={String(client?.id || '')} k={portalK || ((appointments || []) as any[]).map((a: any) => a.checkInToken).find(Boolean) || ''} onLoaded={setRealRewards} />
                         {loyaltyHubData ? (
                             <div className="space-y-10 text-left">
-                                <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group text-left">
+                                {!realRewards && <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group text-left">
                                     <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Flame className="w-32 h-32 text-primary" /></div>
                                     <CardHeader className="p-8 pb-2 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Next Reward Protocol</CardTitle></CardHeader>
                                     <CardContent className="p-8 pt-4 space-y-6 text-left">
@@ -731,7 +735,7 @@ export default function ClientPortalPage() {
                                             <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-primary/60"><span>Active Progress</span><span>{Math.round(loyaltyHubData.progressToNextReward)}% Path</span></div>
                                         </div>
                                     </CardContent>
-                                </Card>
+                                </Card>}
                                 <Card className="border-2 rounded-[2.5rem] overflow-hidden bg-white shadow-sm text-left">
                                     <CardHeader className="p-8 pb-4 border-b bg-muted/5 flex flex-col md:flex-row md:items-center justify-between gap-6 text-left">
                                         <div className="space-y-1 text-left"><CardTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-3 text-left"><HeartHandshake className="w-5 h-5 text-primary" /> Advocacy Impact</CardTitle><CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 text-left">Revenue earned through guest referrals.</CardDescription></div>
