@@ -7,14 +7,18 @@
 //   • the person's record gets the same fields every time (active, onBreak, clockInTime, breakStartTime, status), which
 //     the desk, the planner and the portal all read;
 //   • a published shift turns into a note on the punch: late, early, or clocked in with no shift (lib/shift-check);
-//   • every punch is in the owner's audit log.
+//   • every punch is in the owner's audit log;
+//   • someone paid by the hour for some work and commission for the rest clocks in for 'hourly' work or 'services'
+//     and can switch mid-shift (switch_work), so payroll pays each kind of time its own way (lib/timeclock, lib/pay-period).
 import { teamAlertOn, teamAlertOwnerOnly } from '@/lib/team-alerts';
 import { sessionsFrom, clockPolicy, localDay, weekOf } from '@/lib/timeclock';
 import { shiftNote } from '@/lib/shift-check';
 
-export type PunchAction = 'clock_in' | 'clock_out' | 'break_start' | 'break_end';
-export type PunchState = { clockedIn: boolean; onBreak: boolean; since: string | null; breakSince: string | null; forgotten: boolean };
-const LABEL: Record<PunchAction, string> = { clock_in: 'clocked in', clock_out: 'clocked out', break_start: 'started a break', break_end: 'ended a break' };
+export type PunchAction = 'clock_in' | 'clock_out' | 'break_start' | 'break_end' | 'switch_work';
+export type WorkKind = 'hourly' | 'services';
+export type PunchState = { clockedIn: boolean; onBreak: boolean; since: string | null; breakSince: string | null; forgotten: boolean; work?: WorkKind | null };
+const LABEL: Record<PunchAction, string> = { clock_in: 'clocked in', clock_out: 'clocked out', break_start: 'started a break', break_end: 'ended a break', switch_work: 'switched work' };
+export const WORK_LABEL: Record<WorkKind, string> = { hourly: 'Hourly work', services: 'Services' };
 
 /** Where someone is right now, from their recent punches. */
 export function punchState(punches: any[], tenant: any, now = Date.now()): PunchState {
@@ -24,7 +28,7 @@ export function punchState(punches: any[], tenant: any, now = Date.now()): Punch
   // open: on a break when the last break punch in this session is a break_start
   const inT = Date.parse(last.inAt); let breakSince: string | null = null;
   for (const p of list) { const t = Date.parse(p.timestamp); if (t < inT) continue; if (p.type === 'break_start') breakSince = p.timestamp; if (p.type === 'break_end') breakSince = null; }
-  return { clockedIn: !last.missingOut, onBreak: !last.missingOut && !!breakSince, since: last.inAt, breakSince: last.missingOut ? null : breakSince, forgotten: last.missingOut };
+  return { clockedIn: !last.missingOut, onBreak: !last.missingOut && !!breakSince, since: last.inAt, breakSince: last.missingOut ? null : breakSince, forgotten: last.missingOut, work: last.work };
 }
 
 /** Can this punch happen now? null = yes, else the reason (plain words for the person at the clock). */
@@ -34,6 +38,7 @@ export function punchProblem(action: PunchAction, st: PunchState, name = 'You'):
   if (action !== 'clock_in' && !st.clockedIn) return st.forgotten ? `${name === 'You' ? 'Your' : `${name}’s`} last shift has no clock-out recorded. A manager needs to correct it in Timesheets first.` : `${name} ${name === 'You' ? 'are' : 'is'} not clocked in.`;
   if (action === 'break_start' && st.onBreak) return `${name} ${name === 'You' ? 'have' : 'has'} been on a break since ${hm(st.breakSince)}.`;
   if (action === 'break_end' && !st.onBreak) return `${name} ${name === 'You' ? 'are' : 'is'} not on a break.`;
+  if (action === 'switch_work' && st.onBreak) return `Please end the break before switching work.`;
   return null;
 }
 
@@ -41,9 +46,10 @@ export function punchProblem(action: PunchAction, st: PunchState, name = 'You'):
  * Record a punch. `db` is the admin Firestore. Returns the new state, or an error message (nothing is written then).
  * `via` says where it came from ('kiosk' | 'staff-page' | 'portal' | 'manager').
  */
-export async function recordPunch(db: any, input: { tenantId: string; staffId: string; action: PunchAction; via: string; geo?: { verified?: boolean; warnOnly?: boolean; coords?: any }; actor?: { id?: string; name?: string } ; now?: number }): Promise<{ ok: true; state: PunchState; message: string; note?: string | null } | { ok: false; error: string; state?: PunchState }> {
+export async function recordPunch(db: any, input: { tenantId: string; staffId: string; action: PunchAction; via: string; work?: string; geo?: { verified?: boolean; warnOnly?: boolean; coords?: any }; actor?: { id?: string; name?: string } ; now?: number }): Promise<{ ok: true; state: PunchState; message: string; note?: string | null } | { ok: false; error: string; state?: PunchState }> {
   const { tenantId, staffId, action } = input; const T = `tenants/${tenantId}`; const now = input.now ?? Date.now(); const iso = new Date(now).toISOString();
-  if (!['clock_in', 'clock_out', 'break_start', 'break_end'].includes(action)) return { ok: false, error: 'This time clock action is not recognized.' };
+  if (!['clock_in', 'clock_out', 'break_start', 'break_end', 'switch_work'].includes(action)) return { ok: false, error: 'This time clock action is not recognized.' };
+  const asked: WorkKind | null = input.work === 'hourly' || input.work === 'services' ? input.work : null;
   const [tSnap, sSnap] = await Promise.all([db.doc(T).get(), db.doc(`${T}/staff/${staffId}`).get()]);
   if (!sSnap.exists) return { ok: false, error: 'We could not find this team member.' };
   const tenant: any = tSnap.data() || {}; const staff: any = sSnap.data() || {}; const name = String(staff.name || 'Team member').split(' ')[0];
@@ -54,6 +60,9 @@ export async function recordPunch(db: any, input: { tenantId: string; staffId: s
     .map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((p: any) => p.staffId === staffId);
   const st = punchState(recent, tenant, now); const problem = punchProblem(action, st, name);
   if (problem) return { ok: false, error: problem, state: st };
+  // Hourly work or services: the kind to record. Switching with no kind given swaps to the other one.
+  const work: WorkKind | null = action === 'switch_work' ? (asked || (st.work === 'hourly' ? 'services' : 'hourly')) : action === 'clock_in' ? asked : null;
+  if (action === 'switch_work' && work === st.work) return { ok: false, error: `${name} ${name === 'You' ? 'are' : 'is'} already on ${WORK_LABEL[work!].toLowerCase()}.`, state: st };
   if (action === 'clock_in' && tenant.blockClockInOnExpiredLicense && staff.compliance?.licenseExpiry && Date.parse(staff.compliance.licenseExpiry) < now) return { ok: false, error: `${name}’s license has expired. Please speak with a manager.` };
   if (action === 'clock_out' && Number(tenant.minimumShiftMinutes) > 0 && st.since && (now - Date.parse(st.since)) / 60000 < Number(tenant.minimumShiftMinutes)) {
     const left = Math.ceil(Number(tenant.minimumShiftMinutes) - (now - Date.parse(st.since)) / 60000); return { ok: false, error: `${name} can clock out in ${left} more minute${left === 1 ? '' : 's'}, as the minimum shift length has not been reached.` };
@@ -94,17 +103,18 @@ export async function recordPunch(db: any, input: { tenantId: string; staffId: s
   if (action === 'clock_out' && st.onBreak) { const r = logs.doc(); batch.set(r, { ...base, id: r.id, type: 'break_end', autoEnded: true }); }   // clocking out ends the break
   if (action === 'break_end' || (action === 'clock_out' && st.onBreak)) breakMin = st.breakSince ? Math.round((now - Date.parse(st.breakSince)) / 60000) : 0;
   const ref = logs.doc();
-  const entry: any = { ...base, id: ref.id, type: action, ...(note ? { shiftNote: note } : {}), ...(lateApproval ? { needsApproval: true } : {}) };
+  const entry: any = { ...base, id: ref.id, type: action === 'switch_work' ? 'work_switch' : action, ...(work ? { work } : {}), ...(note ? { shiftNote: note } : {}), ...(lateApproval ? { needsApproval: true } : {}) };
   if (action === 'break_end') { entry.durationMinutes = breakMin; if (Number(tenant.maximumBreakMinutes) > 0 && breakMin > Number(tenant.maximumBreakMinutes)) { entry.breakOverage = true; entry.breakOverageMinutes = breakMin - Number(tenant.maximumBreakMinutes); } }
   if (action === 'clock_out' && st.since) entry.workedMinutes = Math.max(0, Math.round((now - Date.parse(st.since)) / 60000));   // elapsed, for reference — pay uses lib/timeclock
   batch.set(ref, entry);
   const staffFields: any =
-    action === 'clock_in' ? { active: true, onBreak: false, clockInTime: iso, breakStartTime: null, status: 'available', lastClockIn: iso }
-    : action === 'clock_out' ? { active: false, onBreak: false, clockInTime: null, breakStartTime: null, status: 'off', lastClockOut: iso }
+    action === 'clock_in' ? { active: true, onBreak: false, clockInTime: iso, breakStartTime: null, status: 'available', lastClockIn: iso, workKind: work }
+    : action === 'switch_work' ? { workKind: work }
+    : action === 'clock_out' ? { active: false, onBreak: false, clockInTime: null, breakStartTime: null, status: 'off', lastClockOut: iso, workKind: null }
     : action === 'break_start' ? { onBreak: true, breakStartTime: iso, status: 'on_break', lastBreakStart: iso }
     : { onBreak: false, breakStartTime: null, status: 'available', lastBreakEnd: iso };
   batch.set(db.doc(`${T}/staff/${staffId}`), staffFields, { merge: true });
-  const extra = entry.workedMinutes != null ? ` (${Math.floor(entry.workedMinutes / 60)}h ${entry.workedMinutes % 60}m)` : action === 'break_end' ? ` (${breakMin} min break)` : '';
+  const extra = action === 'switch_work' || (action === 'clock_in' && work) ? ` for ${WORK_LABEL[work!].toLowerCase()}` : entry.workedMinutes != null ? ` (${Math.floor(entry.workedMinutes / 60)}h ${entry.workedMinutes % 60}m)` : action === 'break_end' ? ` (${breakMin} min break)` : '';
   const a = db.collection(`${T}/auditLogs`).doc();
   batch.set(a, { action: `timeclock.${action}`, targetType: 'staff', targetId: staffId, at: iso,
     summary: `${staff.name || 'Team member'} ${LABEL[action]}${input.actor?.id && input.actor.id !== staffId ? ` (by ${input.actor.name || 'a manager'})` : ''} via ${input.via}${extra}${note ? ` — ${note.replace(/^\w+:\s*/, '')}` : ''}`,
@@ -117,7 +127,7 @@ export async function recordPunch(db: any, input: { tenantId: string; staffId: s
     for (const uid of to) for (const m of notices) { const nRef = db.collection(`${T}/notifications`).doc(); batch.set(nRef, { id: nRef.id, userId: uid, type: 'timeclock', priority: 'high', message: m, link: '/timesheets', createdAt: iso, read: false }); }
   }
   await batch.commit();
-  const next = punchState([...recent, ...(action === 'clock_out' && st.onBreak ? [{ staffId, type: 'break_end', timestamp: iso }] : []), { staffId, type: action, timestamp: iso }], tenant, now);
-  const msg = action === 'clock_in' ? `${name} is clocked in.` : action === 'clock_out' ? `${name} is clocked out${extra}.` : action === 'break_start' ? `${name}’s break has started.` : `${name}’s break has ended${extra}.`;
+  const next = punchState([...recent, ...(action === 'clock_out' && st.onBreak ? [{ staffId, type: 'break_end', timestamp: iso }] : []), { staffId, type: entry.type, timestamp: iso, ...(work ? { work } : {}) }], tenant, now);
+  const msg = action === 'switch_work' ? `${name} is now on ${WORK_LABEL[work!].toLowerCase()}.` : action === 'clock_in' ? `${name} is clocked in${work ? ` for ${WORK_LABEL[work].toLowerCase()}` : ''}.` : action === 'clock_out' ? `${name} is clocked out${extra}.` : action === 'break_start' ? `${name}’s break has started.` : `${name}’s break has ended${extra}.`;
   return { ok: true, state: next, message: msg, note };
 }

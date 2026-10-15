@@ -136,7 +136,7 @@ import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-port
 import { brandAccent, brandLogo } from '@/lib/brand-accent';
 import { can, isManagerRole } from '@/lib/permissions';
 import { StepEdge } from '@/components/planner/StepTimeline';
-import { Star, Languages, Forward } from 'lucide-react';
+import { Star, Languages, Forward, ArrowLeftRight } from 'lucide-react';
 import { CHAT_LANGUAGES } from '@/lib/chat-languages';
 import { PasskeySetup } from '@/components/staff-portal/Passkey';
 import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
@@ -2473,13 +2473,13 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
 
   // Recorded on the server, the same way as the kiosk (lib/punch): checks where they are first, ends a break when
   // clocking out, and notes late / early against the published shift.
-  const punch = async (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+  const punch = async (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' | 'switch_work', work?: 'hourly' | 'services') => {
     setProcessing(true);
     try {
       const { getAuth } = await import('firebase/auth');
       const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
       const r = await fetch('/api/timeclock/punch', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
-        body: JSON.stringify({ tenantId, action, via: 'portal' }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
+        body: JSON.stringify({ tenantId, action, via: 'portal', ...(work ? { work } : {}) }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
       if (r.ok) toast({ title: r.message || 'Done', description: r.note ? String(r.note).replace(/^\w+:\s*/, '') : undefined });
       else toast({ variant: 'destructive', title: 'Not recorded', description: r.error || 'Try again.' });
     } finally { setProcessing(false); }
@@ -2487,6 +2487,19 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
   const handleClockInOut = () => punch(isClockedIn ? 'clock_out' : 'clock_in');
   const handleBreak = () => punch(isOnBreak ? 'break_end' : 'break_start');
 
+  // Paid by the hour for some work and commission for the rest: clock in for one or the other, and switch during the shift.
+  const split = staffMember?.splitTime === true; const workNow: 'hourly' | 'services' | null = staffMember?.workKind || null;
+  if (!isClockedIn && split) {
+    return (
+      <div className="flex items-center gap-1.5">
+        {([['hourly', 'Hourly work'], ['services', 'Services']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => punch('clock_in', k)} disabled={processing}
+            className={cn('flex items-center gap-1.5 h-10 px-3 rounded-[14px] font-bold text-[13px] transition-all active:scale-95 disabled:opacity-50', k === 'hourly' ? 'bg-[#16171a] text-white' : 'border border-[#e6e6e8] bg-white text-[#16171a]')}>
+            {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><LogIn className="w-4 h-4" />{l}</>}
+          </button>))}
+      </div>
+    );
+  }
   if (!isClockedIn) {
     return (
       <button onClick={handleClockInOut} disabled={processing}
@@ -2498,6 +2511,12 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
 
   return (
     <div className="flex items-center gap-1.5">
+      {split && (
+        <button onClick={() => punch('switch_work', workNow === 'hourly' ? 'services' : 'hourly')} disabled={processing || isOnBreak} title={`Switch to ${workNow === 'hourly' ? 'services' : 'hourly work'}`}
+          className="flex items-center gap-1 h-10 px-3 rounded-[14px] font-semibold text-[13px] transition-all active:scale-95 disabled:opacity-50 border border-[#e6e6e8] bg-white text-[#16171a]">
+          {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><ArrowLeftRight className="w-3.5 h-3.5" />{workNow === 'hourly' ? 'Hourly' : 'Services'}</>}
+        </button>
+      )}
       <button onClick={handleBreak} disabled={processing}
         className={cn('flex items-center gap-1 h-10 px-3 rounded-[14px] font-bold text-[13px] transition-all active:scale-95 disabled:opacity-50',
           isOnBreak

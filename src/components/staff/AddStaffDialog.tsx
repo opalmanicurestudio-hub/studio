@@ -59,6 +59,7 @@ const addStaffSchema = z.object({
   serviceHourRate: z.coerce.number().min(0).optional(),   // per service pay: $ for each hour of service performed
   salaryAmount: z.coerce.number().min(0).optional(),
   nonServiceRate: z.coerce.number().min(0).optional(),   // $ an hour for training / meetings / other paid time (commission, per service)
+  splitTime: z.boolean().optional(),   // part of their time is hourly work (the front desk, say): they pick hourly work or services when they clock in
   salaryPer: z.enum(['year', 'week']).optional(),
   overtimeNonExempt: z.boolean().optional(),
   payoutFrequency: z.enum(['weekly', 'bi-weekly']).optional(),
@@ -480,12 +481,16 @@ const Step3 = () => {
 
           {(payStructure === 'commission' || payStructure === 'per_service') && (
             <div className="space-y-2">
-              <Label htmlFor="nonServiceRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly rate for non-service time ($)</Label>
+              <Label htmlFor="nonServiceRate" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Hourly rate for hourly work ($)</Label>
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
                 <Input id="nonServiceRate" type="number" step="0.01" placeholder="The business’s rate" {...register('nonServiceRate' as any)} className="h-12 pl-9 rounded-xl border-2 font-black text-lg text-primary shadow-inner" />
               </div>
-              <p className="ml-1 text-[13px] text-muted-foreground">Paid for training, team meetings and other non-service shifts on the schedule, for the time they’re clocked in. Blank = the business’s rate (Settings → Commission rules), or minimum wage.</p>
+              <p className="ml-1 text-[13px] text-muted-foreground">Paid for training, team meetings and other non-service shifts on the schedule, and for time clocked in as hourly work, for the time they’re clocked in. Blank = the business’s rate (Settings → Commission rules), or minimum wage.</p>
+              <label htmlFor="splitTime" className="mt-2 flex items-start gap-3 rounded-xl border-2 p-3 cursor-pointer">
+                <input id="splitTime" type="checkbox" {...register('splitTime' as any)} className="mt-0.5 h-5 w-5 accent-current" />
+                <span className="text-[13px] leading-snug"><span className="font-bold">Part of their time is hourly work</span><span className="block text-muted-foreground">Like the front desk. When they clock in they choose Hourly work or Services, and can switch during the shift. Hourly work is paid at the rate above; services earn commission only.</span></span>
+              </label>
             </div>
           )}
           {payStructure === 'salary' && (

@@ -59,7 +59,7 @@ export function auditOf(input: { st: Statement; member: any; tenant: any; income
   const l = st.line as any;
   const P = (key: string, title: string, detail: string, v: number) => { if (v) period.push({ ref: `p:${key}`, kind: 'period', title, detail, amount: r2(v) }); };
   P('hourly', 'Hourly pay', `${Math.round(l.regularHours * 10) / 10} h at ${money(hourly)}${l.overtimeHours ? ` + ${Math.round(l.overtimeHours * 10) / 10} h overtime` : ''} — from the shifts below`, l.hourlyPay);
-  P('training', 'Training, meetings and other paid time', `${l.nonServiceHours} h`, l.nonServicePay);
+  P('training', 'Hourly work: front desk, training, meetings and other paid time', `${l.nonServiceHours} h`, l.nonServicePay);
   P('salary', 'Salary', 'this period’s share', l.salaryPay);
   P('tier', 'Sales tier bonus', 'a higher rate on services above your level this period', l.tierBonus);
   P('ot', 'Overtime on commission / per service pay', 'hours over the weekly limit', l.overtimePremium);

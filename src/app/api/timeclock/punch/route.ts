@@ -1,5 +1,6 @@
 // src/app/api/timeclock/punch/route.ts — THE ONE PLACE A CLOCK-IN, BREAK OR CLOCK-OUT IS RECORDED (lib/punch).
-//   { tenantId, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' | 'state', pin?, staffId?, geo? }
+//   { tenantId, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' | 'switch_work' | 'state', pin?, staffId?, geo?, work? }
+// work: 'hourly' | 'services' for someone paid by the hour for some work and commission for the rest (staff.splitTime).
 // Who is punching:
 //   • a PIN (the kiosk and the staff page) — checked here, with the same lock-out after repeated wrong PINs;
 //   • a signed-in team member (Bearer token, the staff portal included) — punches for themselves;
@@ -17,7 +18,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || '').slice(0, 80); const action = String(b.action || '');
-  if (!tenantId || !['clock_in', 'clock_out', 'break_start', 'break_end', 'state'].includes(action)) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
+  if (!tenantId || !['clock_in', 'clock_out', 'break_start', 'break_end', 'switch_work', 'state'].includes(action)) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
   const db = getAdminDb();
   let staffId = ''; let actor: { id: string; name?: string } | undefined; let via = String(b.via || 'kiosk').slice(0, 20);
 
@@ -41,9 +42,9 @@ export async function POST(req: NextRequest) {
     const [tSnap, sSnap] = await Promise.all([db.doc(`tenants/${tenantId}`).get(), db.doc(`tenants/${tenantId}/staff/${staffId}`).get()]);
     const recent = (await db.collection(`tenants/${tenantId}/activityLogs`).where('timestamp', '>=', new Date(Date.now() - 2 * 86400000).toISOString()).get()).docs.map((d: any) => d.data() || {}).filter((p: any) => p.staffId === staffId);
     const s: any = sSnap.data() || {};
-    return NextResponse.json({ ok: true, staff: { id: staffId, name: s.name || '', avatarUrl: s.avatarUrl || null, role: s.role || 'staff' }, state: punchState(recent, tSnap.data() || {}) });
+    return NextResponse.json({ ok: true, staff: { id: staffId, name: s.name || '', avatarUrl: s.avatarUrl || null, role: s.role || 'staff', splitTime: s.splitTime === true }, state: punchState(recent, tSnap.data() || {}) });
   }
-  const r = await recordPunch(db, { tenantId, staffId, action: action as PunchAction, via, actor, geo: b.geo && typeof b.geo === 'object' ? { verified: !!b.geo.verified, warnOnly: !!b.geo.warnOnly, coords: b.geo.coords || null } : undefined });
+  const r = await recordPunch(db, { tenantId, staffId, action: action as PunchAction, via, actor, work: typeof b.work === 'string' ? b.work : undefined, geo: b.geo && typeof b.geo === 'object' ? { verified: !!b.geo.verified, warnOnly: !!b.geo.warnOnly, coords: b.geo.coords || null } : undefined });
   // Before they go: any client case on their visits still waiting for their side.
   let sideNeeded: string[] = [];
   if (r.ok && action === 'clock_out') { try {

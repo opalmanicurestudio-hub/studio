@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clock, Coffee, CheckCircle2, XCircle, MapPin, AlertTriangle,
-  Delete, ShieldCheck, ShieldAlert, Loader, LogOut, Calendar, Target
+  Delete, ShieldCheck, ShieldAlert, Loader, LogOut, Calendar, Target,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { format, differenceInMinutes, parseISO, isToday, startOfDay, endOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -43,7 +44,8 @@ export default function TimeClockPage() {
   const [step, setStep] = useState<KioskStep>('idle');
   const [pin, setPin] = useState('');
   const [selectedStaff, setSelectedStaff] = useState<any | null>(null);
-  const [pendingAction, setPendingAction] = useState<'clock_in' | 'clock_out' | 'break_start' | 'break_end' | null>(null);
+  const [pendingAction, setPendingAction] = useState<'clock_in' | 'clock_out' | 'break_start' | 'break_end' | 'switch_work' | null>(null);
+  const [workNow, setWorkNow] = useState<'hourly' | 'services' | null>(null);
   const [geoStatus, setGeoStatus] = useState<'checking' | 'verified' | 'failed' | 'disabled'>('disabled');
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -181,6 +183,8 @@ export default function TimeClockPage() {
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d?.ok) { setIsProcessing(false); showError(res.status === 423 ? 'Clock locked' : 'PIN Not Recognized', d?.error || 'Check your PIN and try again.'); return; }
       member = { ...((staff || []).find((s: any) => s.id === d.staff.id) || {}), ...d.staff };
+      setWorkNow(d.state?.work || null);
+      if (pendingAction === 'switch_work' && !member.splitTime) { setIsProcessing(false); showError('Nothing to switch', 'Switching work is for people paid by the hour for some work and commission for the rest. A manager can turn it on in your profile.'); return; }
       const problem = punchProblem(pendingAction as any, d.state, String(member.name || 'You').split(' ')[0]);
       if (problem) { setIsProcessing(false); showError('Can’t do that right now', problem); return; }
     } catch {
@@ -246,13 +250,13 @@ export default function TimeClockPage() {
     setStep('action_confirm');
   };
 
-  const handleConfirmAction = async () => {
+  const handleConfirmAction = async (work?: 'hourly' | 'services') => {
     if (!selectedStaff || !pendingAction) return;
     setIsProcessing(true);
     try {
       // Recorded on the server (lib/punch) — the same for the kiosk, the staff page and the portal.
       const res = await fetch('/api/timeclock/punch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, pin, staffId: selectedStaff.id, action: pendingAction, via: 'kiosk',
+        body: JSON.stringify({ tenantId, pin, staffId: selectedStaff.id, action: pendingAction, via: 'kiosk', ...(work ? { work } : {}),
           geo: tenant?.geoFenceEnabled ? { verified: geoStatus === 'verified', warnOnly: geoStatus === 'failed', coords: geoCoords || null } : undefined }) });
       const d = await res.json().catch(() => ({ ok: false, error: 'No connection — try again.' }));
       if (!d.ok) { showError('Not recorded', d.error || 'Please try again or contact a manager.'); return; }
@@ -279,7 +283,7 @@ export default function TimeClockPage() {
   // From the kiosk, an untouched time clock goes back to the welcome screen after a minute.
   useEffect(() => { if (!fromKiosk) return; const t = window.setTimeout(backToKiosk, 60000); return () => window.clearTimeout(t); }, [fromKiosk, step, pin]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const startAction = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+  const startAction = (action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' | 'switch_work') => {
     setPendingAction(action);
     setPin('');
     setErrorDetail('');
@@ -300,6 +304,7 @@ export default function TimeClockPage() {
     clock_out: 'Clock Out',
     break_start: 'Start Break',
     break_end: 'End Break',
+    switch_work: 'Switch Work',
   };
 
   const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'delete'];
@@ -347,6 +352,11 @@ export default function TimeClockPage() {
                   <span className={cn("font-black uppercase tracking-widest text-sm", btn.textColor)}>{btn.label}</span>
                 </motion.button>
               ))}
+              {(staff || []).some((x: any) => x.splitTime === true) && (
+                <motion.button whileTap={{ scale: 0.97 }} onClick={() => startAction('switch_work')} className="col-span-2 flex items-center justify-center gap-3 rounded-[2rem] border-2 border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-slate-300">
+                  <ArrowLeftRight className="h-6 w-6 text-slate-600" /><span className="text-sm font-black uppercase tracking-widest text-slate-700">Switch work</span><span className="text-[11px] font-semibold text-slate-400">hourly work ↔ services</span>
+                </motion.button>
+              )}
             </div>
 
             {activeStaff.length > 0 && (
@@ -426,9 +436,18 @@ export default function TimeClockPage() {
               )}
             </div>
             <div className="space-y-3">
-              <Button onClick={handleConfirmAction} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-xl shadow-2xl shadow-primary/30">
-                {isProcessing ? <Loader className="animate-spin" /> : `Confirm ${pendingAction ? actionLabel[pendingAction] : ''}`}
-              </Button>
+              {pendingAction === 'clock_in' && selectedStaff.splitTime ? (<>
+                <p className="text-sm font-bold text-slate-500">What are you clocking in for?</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {([['hourly', 'Hourly work', 'Front desk and other hourly work'], ['services', 'Services', 'Commission work']] as const).map(([k, l, sub]) => (
+                    <Button key={k} onClick={() => handleConfirmAction(k)} disabled={isProcessing} className="h-24 flex-col gap-1 rounded-2xl text-lg font-black uppercase tracking-wide shadow-xl" variant={k === 'hourly' ? 'default' : 'outline'}>
+                      {isProcessing ? <Loader className="animate-spin" /> : <>{l}<span className="text-[10px] font-semibold normal-case tracking-normal opacity-70">{sub}</span></>}
+                    </Button>))}
+                </div>
+              </>) : (
+              <Button onClick={() => handleConfirmAction(pendingAction === 'switch_work' ? (workNow === 'hourly' ? 'services' : 'hourly') : undefined)} disabled={isProcessing} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-xl shadow-2xl shadow-primary/30">
+                {isProcessing ? <Loader className="animate-spin" /> : pendingAction === 'switch_work' ? `Switch to ${workNow === 'hourly' ? 'Services' : 'Hourly work'}` : `Confirm ${pendingAction ? actionLabel[pendingAction] : ''}`}
+              </Button>)}
               <Button variant="ghost" onClick={reset} className="w-full text-slate-400 font-bold uppercase tracking-widest text-[10px] hover:text-slate-700">Cancel</Button>
             </div>
           </motion.div>

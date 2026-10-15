@@ -956,12 +956,12 @@ export default function StaffPage() {
       setIsPinAuthOpen(true);
   };
 
-  const handleVerifyPin = async () => {
+  const handleVerifyPin = async (work?: 'hourly' | 'services') => {
     if (!pendingStatusAction || !staff) return;
     // Recorded on the server (one place for every clock screen): the PIN must belong to this team member, and the
     // punch must make sense (no second clock-in, no break when not clocked in).
     const r = await fetch('/api/timeclock/punch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId: selectedTenant?.id, pin: authPin, staffId: pendingStatusAction.staffId, action: pendingStatusAction.action, via: 'staff-page' }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
+      body: JSON.stringify({ tenantId: selectedTenant?.id, pin: authPin, staffId: pendingStatusAction.staffId, action: pendingStatusAction.action, via: 'staff-page', ...(work ? { work } : {}) }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
     if (r.ok) {
         setIsPinAuthOpen(false);
         setAuthPin('');
@@ -1329,12 +1329,18 @@ export default function StaffPage() {
                         value={authPin} 
                         onChange={(e) => setAuthPin(e.target.value.replace(/\D/g, ''))}
                         autoFocus
-                        onKeyDown={(e) => e.key === 'Enter' && handleVerifyPin()}
+                        onKeyDown={(e) => e.key === 'Enter' && !(pendingStatusAction?.action === 'clock_in' && ((staff || []).find((x: any) => x.id === pendingStatusAction.staffId) as any)?.splitTime === true) && handleVerifyPin()}
                     />
                 </div>
             </div>
             <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-                <Button onClick={handleVerifyPin} disabled={authPin.length < 4} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Confirm</Button>
+                {pendingStatusAction?.action === 'clock_in' && ((staff || []).find((x: any) => x.id === pendingStatusAction.staffId) as any)?.splitTime === true ? (
+                  <div className="grid w-full grid-cols-2 gap-3">
+                    <Button onClick={() => handleVerifyPin('hourly')} disabled={authPin.length < 4} className="h-16 rounded-2xl text-base font-black uppercase shadow-2xl shadow-primary/20">Hourly work</Button>
+                    <Button onClick={() => handleVerifyPin('services')} disabled={authPin.length < 4} variant="outline" className="h-16 rounded-2xl text-base font-black uppercase">Services</Button>
+                  </div>
+                ) : (
+                <Button onClick={() => handleVerifyPin()} disabled={authPin.length < 4} className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-2xl shadow-primary/20">Confirm</Button>)}
                 <Button variant="ghost" onClick={() => setIsPinAuthOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
             </DialogFooter>
         </DialogContent>

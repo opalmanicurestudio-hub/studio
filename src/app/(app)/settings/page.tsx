@@ -729,6 +729,8 @@ function SettingsPageImpl() {
                       <label className="flex flex-wrap items-center gap-2"><input type="checkbox" disabled={!st || blocked} checked={tc.on === true && !blocked} onChange={(e) => set({ tipCredit: { ...tc, on: e.target.checked, cashWage: tc.cashWage || 2.13 } })} /> Let tips count toward minimum wage, above a cash wage of
                         $<input type="number" min={0} step={0.01} value={tc.cashWage ?? ''} placeholder="2.13" disabled={!st || blocked} onChange={(e) => set({ tipCredit: { ...tc, cashWage: Math.max(0, parseFloat(e.target.value) || 0) } })} aria-label="Cash wage per hour" className="h-11 w-24 rounded-xl border px-3 text-right" style={ipt} /> an hour</label>
                       {blocked && <p className="text-[13px] cf-muted">Your state doesn’t allow a tip credit: everyone gets the full minimum wage before tips.</p>}
+                      <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={pr.separateMinWage === true || (pr.separateMinWage !== false && st === 'CA')} onChange={(e) => set({ separateMinWage: e.target.checked })} />
+                        <span>Check minimum wage for each kind of time on its own<span className="block text-[13px] cf-muted">For people paid by the hour for some work and commission for the rest: the commission-only hours must reach minimum wage without averaging in the hourly pay. On for California unless you switch it off.</span></span></label>
                     </div>); })()}
                 </Row>
                 <Row label="Commission rules" help="How commission is worked out for everyone on commission. Changes apply to new sales.">

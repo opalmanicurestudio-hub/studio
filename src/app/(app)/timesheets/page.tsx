@@ -93,7 +93,7 @@ export default function TimesheetsPage() {
         const sessions = mine.filter((x) => x.localDate === key).map((x) => ({
           clockIn: new Date(x.inAt), clockOut: x.outAt ? new Date(x.outAt) : null, breakMinutes: x.breakMinutes, paidBreakMins: x.paidBreakMinutes,
           workedMinutes: x.workedMinutes, geoVerified: x.geoVerified, geoWarnOnly: x.geoWarnOnly, status: x.status, logId: x.outId || null, inId: x.inId || null,
-          missingOut: x.missingOut, isLatest: x.inAt === latestIn, localDate: x.localDate, shiftNoteIn: x.shiftNoteIn || null, shiftNoteOut: x.shiftNoteOut || null, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id,
+          missingOut: x.missingOut, isLatest: x.inAt === latestIn, localDate: x.localDate, shiftNoteIn: x.shiftNoteIn || null, shiftNoteOut: x.shiftNoteOut || null, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id, hourlyMinutes: x.hourlyMinutes || 0, splitTime: (member as any).splitTime === true,
         }));
         const totalMinutes = sessions.reduce((sum, s) => sum + s.workedMinutes, 0);
         const cmp = dayCompare(key, (weekShifts || []).filter((x: any) => x.staffId === member.id), mine, selectedTenant);
@@ -500,6 +500,9 @@ export default function TimesheetsPage() {
                               {session.paidBreakMins > 0 && `, ${session.paidBreakMins}m paid`}
                               {session.breakMinutes > 0 && ')'}
                             </p>
+                            {session.splitTime && session.workedMinutes > 0 && (
+                              <p className="text-[11px] font-semibold text-muted-foreground">Hourly work {Math.floor(session.hourlyMinutes / 60)}h {session.hourlyMinutes % 60}m · Services {Math.floor((session.workedMinutes - session.hourlyMinutes) / 60)}h {(session.workedMinutes - session.hourlyMinutes) % 60}m</p>
+                            )}
                             {(session.shiftNoteIn || session.shiftNoteOut) && (
                               <p className="text-[11px] font-semibold text-amber-700">{[session.shiftNoteIn, session.shiftNoteOut].filter(Boolean).map((n: string) => n.replace(/^(\w+):\s*/, (_m: string, k: string) => ({ late: 'Late — ', early: 'Early — ', noshift: '', left_early: 'Left early — ', stayed: 'Stayed — ' } as any)[k] ?? '')).join(' · ')}</p>
                             )}

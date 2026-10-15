@@ -8,6 +8,10 @@
 //   overtime on  for people paid commission or per service, overtime is half their "regular rate" (that week's pay ÷
 //   other pay    that week's hours) for each overtime hour — the US rule; hourly + commission adds the commission part
 //   minimum wage each workweek, pay before tips must reach minimum wage × hours worked; any shortfall is a top-up
+//   hourly work  commission / per service people can be paid by the hour for some work: time clocked in as 'hourly'
+//                work (the front desk, say) and non-service shifts on the schedule are paid at their hourly rate; the
+//                rest earns commission only. Where the state says each kind of time must reach minimum wage on its
+//                own (California, or switched on in settings), the commission-only hours are checked separately.
 //   tips         never count toward minimum wage or the overtime rate
 //
 // Not legal advice: wage rules differ by state and city (daily overtime in California, tip credits, exempt status).
@@ -41,6 +45,9 @@ export function payRules(tenant: any) {
     dailyOvertimeHours: Number(tenant?.dailyOvertimeHours) > 0 && tenant?.dailyOvertimeOn === true ? Number(tenant.dailyOvertimeHours) : 0,   // daily overtime only when switched on (e.g. California)
     doubleTimeAfterHours: Number(tenant?.doubleTimeAfterHours) > 0 && tenant?.dailyOvertimeOn === true ? Number(tenant.doubleTimeAfterHours) : 0,
     timeZone: tenant?.timezone || 'America/New_York',
+    // Each kind of time must reach minimum wage on its own (no averaging commission-only hours with hourly pay):
+    // on in California unless switched off, and wherever the business switches it on.
+    separateMinWage: tenant?.payRules?.separateMinWage === true || (tenant?.payRules?.separateMinWage !== false && String(tenant?.payRules?.state || '').toUpperCase() === 'CA'),
     weekStartsOn: Number.isInteger(tenant?.workweekStartsOn) ? tenant.workweekStartsOn : 1,
   };
 }
@@ -91,10 +98,14 @@ export function periodPay(input: {
   if (earns && Array.isArray(input.shifts)) for (const sh of input.shifts) {
     if (sh?.staffId !== m.id || !sh.kind || sh.kind === 'work' || ['draft', 'cancelled', 'denied'].includes(String(sh.status || 'published'))) continue;
     const w = shiftWindow(sh, rules.timeZone); if (!w || w.start < fromMs || w.start > toMs) continue;
-    let got = 0; for (const x of counted) { if (x.staffId !== m.id || x.missingOut || x.status === 'rejected') continue; const a = Date.parse(x.inAt), b = x.outAt ? Date.parse(x.outAt) : Date.now(); got += Math.max(0, Math.min(b, w.end) - Math.max(a, w.start)) / 60000; }
+    let got = 0; for (const x of counted) { if (x.staffId !== m.id || x.missingOut || x.status === 'rejected') continue; const a = Date.parse(x.inAt), b = x.outAt ? Date.parse(x.outAt) : Date.now(); got += Math.max(0, Math.min(b, w.end) - Math.max(a, w.start)) / 60000;
+      // time already clocked in as hourly work is counted below, not twice
+      for (const [ha, hb] of x.hourlySpans || []) got -= Math.max(0, Math.min(hb, b, w.end) - Math.max(ha, a, w.start)) / 60000; }
     const cap = Math.max(0, (w.end - w.start) / 60000 - (Number(sh.breakMinutes) || 0)); const mins = Math.min(got, cap); if (mins <= 0) continue;
     nsMinutes += mins; const wk = weekOf(localDay(w.start, rules.timeZone), rules.weekStartsOn); nsByWeek.set(wk, (nsByWeek.get(wk) || 0) + mins);
   }
+  // Time clocked in as hourly work (lib/timeclock), for people who earn commission or per service.
+  if (earns) for (const w of weeks) if (w.hourly > 0) { nsMinutes += w.hourly; nsByWeek.set(w.weekStart, (nsByWeek.get(w.weekStart) || 0) + w.hourly); }
   const nonServicePay = r2((nsMinutes / 60) * nsRate);
   const ex = payExtras(m, input.incomeTxns || [], tenant, input.apptStaff || {}); const extras = ex.saleBonus + ex.noShow;
 
@@ -125,7 +136,13 @@ export function periodPay(input: {
       else if (salaryNonExempt) premium = (ot * rules.multiplier + dt * 2) * (salaryWeekly / rules.overtimeHours);
     }
     const need = tc !== null ? Math.max(tc * h, rules.minimumWage * h - weekTips(w.weekStart, h)) : rules.minimumWage * h;
-    const topUp = ps !== 'salary' && h > 0 ? Math.max(0, need - straight) : 0;
+    let topUp = ps !== 'salary' && h > 0 ? Math.max(0, need - straight) : 0;
+    const nsH = Math.min(h, (nsByWeek.get(w.weekStart) || 0) / 60);
+    if (rules.separateMinWage && earns && tc === null && nsH > 0 && h > 0) {
+      // each kind of time on its own: commission-only hours from commission, hourly-work hours from their hourly rate
+      const svcH = h - nsH, nsPay = nsH * nsRate, svcPay = other - nsPay + (hourlyish ? h * rate : 0);
+      topUp = Math.max(0, rules.minimumWage * svcH - svcPay) + Math.max(0, rules.minimumWage * nsH - nsPay);
+    }
     overtimePremium += premium; minWageTopUp += topUp;
     weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: r2(ot), doubleTimeHours: r2(dt), earned: r2(straight), topUp: r2(topUp), premium: r2(premium) });
   }
