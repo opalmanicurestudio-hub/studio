@@ -136,7 +136,8 @@ import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-port
 import { brandAccent, brandLogo } from '@/lib/brand-accent';
 import { can, isManagerRole } from '@/lib/permissions';
 import { StepEdge } from '@/components/planner/StepTimeline';
-import { Star } from 'lucide-react';
+import { Star, Languages, Forward } from 'lucide-react';
+import { CHAT_LANGUAGES } from '@/lib/chat-languages';
 import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
 import { ForgotClockOut } from '@/components/staff-portal/ForgotClockOut';
 import { MyDetails } from '@/components/staff-portal/MyDetails';
@@ -3637,6 +3638,35 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   };
 
   const REACTIONS = ['👍','❤️','😂','🎉','🙏','🔥'];
+  // Translation (lib/chat-languages): each person picks the language they read in; others' messages show translated,
+  // with the original a tap away. Worked out once per message and language on the server, then kept.
+  const [myLang, setMyLang] = useState<string | null>((staffMember as any)?.chatLanguage || null);
+  const [showOrig, setShowOrig] = useState<Record<string, boolean>>({});
+  const [trBusy, setTrBusy] = useState<string | null>(null);
+  const [langPick, setLangPick] = useState<any>(null);
+  const triedTr = useRef<Set<string>>(new Set());
+  const translateMsg = async (m: any, lang: string | null = myLang, quiet = false) => {
+    if (!lang) { setLangPick(m); return; } if (!openId) return; setTrBusy(m.id);
+    const d: any = await portalFetch('/api/portal/chat-tools', { method: 'POST', body: JSON.stringify({ tenantId, action: 'translate', threadId: openId, messageId: m.id, to: lang }) });
+    setTrBusy(null); if (!d?.ok) { if (!quiet) toast({ variant: 'destructive', title: d?.error || 'Could not translate' }); } else setShowOrig((x) => ({ ...x, [m.id]: false }));
+  };
+  const chooseLang = async (code: string | null, m?: any) => {
+    setMyLang(code); setLangPick(null); triedTr.current = new Set();
+    await portalFetch('/api/portal/chat-tools', { method: 'POST', body: JSON.stringify({ tenantId, action: 'language', to: code }) });
+    if (m?.id && code) translateMsg(m, code);
+  };
+  useEffect(() => {
+    if (!myLang || !openId || section !== 'team' || !msgs) return;
+    const todo = (msgs || []).slice(-20).filter((m: any) => m.senderId !== staffMember.id && m.body && !m.deleted && !m.translations?.[myLang] && !triedTr.current.has(`${m.id}:${myLang}`));
+    (async () => { for (const m of todo) { triedTr.current.add(`${m.id}:${myLang}`); await translateMsg(m, myLang, true); } })();
+  }, [msgs, myLang, openId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Copy a colleague in: a copy of one message goes to someone who isn't in this conversation, in your direct thread.
+  const [ccFor, setCcFor] = useState<any>(null);
+  const ccSend = async (m: any, p: any) => {
+    setCcFor(null); setReactionForId(null);
+    const d: any = await portalFetch('/api/portal/chat-tools', { method: 'POST', body: JSON.stringify({ tenantId, action: 'cc', threadId: openId, messageId: m.id, staffId: p.id }) });
+    if (d?.ok) toast({ title: `Copied ${String(p.name || 'them').split(' ')[0]} in` }); else toast({ variant: 'destructive', title: d?.error || 'Could not copy them in' });
+  };
   const staffFirstNames = useMemo(() => new Set((allStaff||[]).map((s:any)=>(s.name||'').split(' ')[0].toLowerCase()).filter(Boolean)), [allStaff]);
   const renderBody = (body: string) => {
     const parts = body.split(/(@[A-Za-z]+)/g);
@@ -3808,7 +3838,18 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                           )}
                         </div>
                       )}
-                      {m.body && <p>{renderBody(m.body)}</p>}
+                      {m.kind === 'cc' && m.quote && (
+                        <div className={cn('my-0.5 rounded-xl border-l-4 px-3 py-2', mine ? 'border-white/50 bg-white/10' : 'border-slate-300 bg-slate-50')}>
+                          <p className="text-[11px] font-semibold opacity-80">{m.quote.from} · {m.quote.where}</p>
+                          {m.quote.imageUrl && <img src={m.quote.imageUrl} alt="" className="mt-1 max-h-40 rounded-lg" />}
+                          {m.quote.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px]">{m.quote.body}</p>}
+                          {m.quote.fileUrl && <a href={m.quote.fileUrl} target="_blank" rel="noreferrer" className="mt-1 block text-[12px] font-semibold underline">{m.quote.fileName || 'Open the file'}</a>}
+                        </div>
+                      )}
+                      {m.body && (() => { const tr = !mine && myLang ? m.translations?.[myLang] : null; const differs = !!tr && tr !== m.body; const useTr = differs && !showOrig[m.id];
+                        return (<><p>{renderBody(useTr ? tr : m.body)}</p>
+                          {differs && <button type="button" onClick={(e) => { e.stopPropagation(); setShowOrig((x) => ({ ...x, [m.id]: !x[m.id] })); }} className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold underline underline-offset-2 opacity-70"><Languages className="h-3 w-3" />{useTr ? 'Translated · see original' : 'See translation'}</button>}
+                          {trBusy === m.id && <p className="mt-0.5 text-[11px] opacity-60">Translating…</p>}</>); })()}
                     </>)}
                     <p className={cn('text-[9px] font-bold uppercase mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(biz(parseISO(m.sentAt)), 'h:mm a') : ''}</p>
                   </div>
@@ -3819,6 +3860,13 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                       ))}
                     </div>
                   )}
+                  {!isClient && reactionForId === m.id && !m.deleted && (
+                    <div className={cn('mt-1 flex w-fit gap-1.5', mine ? 'ml-auto' : '')}>
+                      {!mine && m.body && <button type="button" onClick={() => { setReactionForId(null); translateMsg(m); }} className="flex h-8 items-center gap-1.5 rounded-full border bg-white px-3 text-[12px] font-semibold"><Languages className="h-3.5 w-3.5" />{myLang ? 'Translate' : 'Translate…'}</button>}
+                      <button type="button" onClick={() => setCcFor(m)} className="flex h-8 items-center gap-1.5 rounded-full border bg-white px-3 text-[12px] font-semibold"><Forward className="h-3.5 w-3.5" />Copy someone in</button>
+                    </div>
+                  )}
+                  {Array.isArray(m.ccTo) && m.ccTo.length > 0 && <p className={cn('mt-0.5 text-[10.5px] text-slate-500', mine ? 'text-right' : '')}>Copied in: {m.ccTo.join(', ')}</p>}
                   {m.reactions && Object.keys(m.reactions).length > 0 && (
                     <div className={cn('flex flex-wrap gap-1 mt-1', mine ? 'justify-end' : 'justify-start')}>
                       {Object.entries(m.reactions as Record<string,string[]>).map(([emoji, ids]) => (
@@ -3883,6 +3931,23 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             <button onClick={cancelRec} className="text-[9px] font-black uppercase text-slate-500 px-1 shrink-0">Cancel</button>
           </div>
         )}
+        {!isClient && langPick && (
+          <div className="mx-1 mt-2 rounded-[18px] border border-[#ececee] bg-white p-3">
+            <p className="mb-2 text-[13px] font-semibold">Which language do you read team chat in?</p>
+            <div className="flex flex-wrap gap-2">{CHAT_LANGUAGES.map((l) => <button key={l.code} type="button" onClick={() => chooseLang(l.code, langPick)} className="h-9 rounded-full border border-[#e6e6e8] px-3 text-[13px] font-semibold">{l.name}</button>)}</div>
+            <p className="mt-2 text-[12px] text-[#6d7075]">Messages from others will show in this language, with the original a tap away.</p>
+            <button type="button" onClick={() => setLangPick(null)} className="mt-1 text-[12px] font-semibold underline">Not now</button>
+          </div>
+        )}
+        {!isClient && ccFor && (
+          <div className="mx-1 mt-2 rounded-[18px] border border-[#ececee] bg-white p-3">
+            <p className="mb-2 text-[13px] font-semibold">Copy who in on this message?</p>
+            <div className="flex flex-wrap gap-2">{(allStaff || []).filter((p: any) => p.id !== staffMember.id && !(openThread?.participantIds || []).includes(p.id) && p.archived !== true).map((p: any) => <button key={p.id} type="button" onClick={() => ccSend(ccFor, p)} className="h-9 rounded-full border border-[#e6e6e8] px-3 text-[13px] font-semibold">{String(p.name || 'Teammate')}</button>)}</div>
+            <p className="mt-2 text-[12px] text-[#6d7075]">They get a copy in your direct conversation with them. Everyone here can see they were copied in.</p>
+            <button type="button" onClick={() => setCcFor(null)} className="mt-1 text-[12px] font-semibold underline">Cancel</button>
+          </div>
+        )}
+        {myLang && !isClient && <div className="mx-1 mt-2 flex items-center gap-2 text-[11.5px] text-[#6d7075]"><Languages className="h-3.5 w-3.5" />Reading in {CHAT_LANGUAGES.find((l) => l.code === myLang)?.name}<button type="button" onClick={() => setLangPick({})} className="font-semibold underline">Change</button><button type="button" onClick={() => chooseLang(null)} className="font-semibold underline">Turn off</button></div>}
         {!isClient && shoutOpen && (
           <div className="mx-1 mt-2 rounded-[18px] border border-[#ececee] bg-white p-3">
             <p className="mb-2 text-[13px] font-semibold">Who’s the shout-out for? {text.trim() ? '' : 'Type why first, if you like.'}</p>
