@@ -22,10 +22,12 @@ import { useRouter } from 'next/navigation';
 import { useNotifications } from '@/context/NotificationContext';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { useMemo } from 'react';
+import { useMemo, useContext } from 'react';
+import { InHub } from '@/components/shared/HubContext';
 import { cn } from '@/lib/utils';
 
 export function AppHeader({ title }: { title?: string }) {
+  const inHub = useContext(InHub);
   const { user } = useUser();
   const auth = useAuth();
   const router = useRouter();
@@ -61,6 +63,7 @@ export function AppHeader({ title }: { title?: string }) {
     return name.substring(0, 2).toUpperCase();
   };
   const initials = getInitials(displayName);
+  if (inHub) return null;
 
   return (
     <header className="sticky top-3 z-30 mx-3 mt-3 flex h-14 items-center justify-between gap-3 rounded-[22px] bg-card/95 px-3 shadow-[0_1px_2px_rgba(28,25,23,.05),0_10px_32px_rgba(28,25,23,.07)] backdrop-blur-xl md:h-[60px] md:px-4 print:hidden">

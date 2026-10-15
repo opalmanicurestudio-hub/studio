@@ -3,6 +3,7 @@
 //   signed this version gets a reminder. Once the date has passed, managers are told who still hasn't, once.
 // Each happens once per sign-by date and version (remindedFor / overdueToldFor on the document), so changing the date
 // or publishing a new version starts over.
+import { teamAlertOn } from '@/lib/team-alerts';
 import { docIsFor } from '@/lib/my-work';
 import { reviewDue } from '@/lib/doc-collections';
 import { dayKey, hourIn, tenantTimeZone, addDays } from '@/lib/tenant-time';
@@ -27,6 +28,7 @@ export async function sopReminderSweep(db: any, tenantId: string, tenant: any) {
   const docs = all.filter((d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d.signBy || '')));
   if (!docs.length) return { reminded: 0, told: 0, reviews };
   const staff = (await db.collection(`tenants/${tenantId}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...d.data() })).filter((s: any) => s.archived !== true && s.role !== 'renter' && !s.isRenter);
+  const tenantDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   const managers = staff.filter((s: any) => ['owner', 'admin', 'manager'].includes(String(s.role))).map((s: any) => s.id);
   let reminded = 0, told = 0; const stamp = new Date().toISOString();
   for (const d of docs) {
@@ -43,7 +45,7 @@ export async function sopReminderSweep(db: any, tenantId: string, tenant: any) {
       b.set(db.doc(`tenants/${tenantId}/documents/${d.id}`), { remindedFor: key }, { merge: true });
     }
     if (late) {
-      if (missing.length) for (const m of managers) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: m, type: 'document', message: `${missing.length} ${missing.length === 1 ? 'person has not' : 'people have not'} yet signed “${title}” (due ${nice(d.signBy)}): ${missing.slice(0, 4).map((s: any) => String(s.name || '').split(' ')[0]).join(', ')}${missing.length > 4 ? '…' : ''}.`, link: '/documents', documentId: d.id, createdAt: stamp, read: false }); told++; }
+      if (missing.length && teamAlertOn(tenantDoc, 'documents')) for (const m of managers) { const r = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(r, { id: r.id, userId: m, type: 'document', message: `${missing.length} ${missing.length === 1 ? 'person has not' : 'people have not'} yet signed “${title}” (due ${nice(d.signBy)}): ${missing.slice(0, 4).map((s: any) => String(s.name || '').split(' ')[0]).join(', ')}${missing.length > 4 ? '…' : ''}.`, link: '/documents', documentId: d.id, createdAt: stamp, read: false }); told++; }
       b.set(db.doc(`tenants/${tenantId}/documents/${d.id}`), { overdueToldFor: key }, { merge: true });
     }
     await b.commit();

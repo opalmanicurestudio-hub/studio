@@ -8,6 +8,7 @@
 //     the desk, the planner and the portal all read;
 //   • a published shift turns into a note on the punch: late, early, or clocked in with no shift (lib/shift-check);
 //   • every punch is in the owner's audit log.
+import { teamAlertOn, teamAlertOwnerOnly } from '@/lib/team-alerts';
 import { sessionsFrom, clockPolicy, localDay, weekOf } from '@/lib/timeclock';
 import { shiftNote } from '@/lib/shift-check';
 
@@ -73,18 +74,18 @@ export async function recordPunch(db: any, input: { tenantId: string; staffId: s
   if (action === 'clock_out' && needBreakH > 0 && st.since) {
     const open = sessionsFrom(recent, clockPolicy(tenant, now)).find((x) => x.inAt === st.since);
     const elapsedH = (now - Date.parse(st.since)) / 3600000; const longest = open ? open.breakMinutes : 0;
-    if (elapsedH > needBreakH && longest < Math.max(1, minBreak)) { const msg = `no break: ${elapsedH.toFixed(1)}h shift without a ${minBreak || 'proper'}${minBreak ? '-minute' : ''} break`; note = note ? `${note}; ${msg}` : msg; notices.push(`Please note: ${staff.name || 'A team member'} worked a ${elapsedH.toFixed(1)}-hour shift without a recorded break.`); }
+    if (elapsedH > needBreakH && longest < Math.max(1, minBreak)) { const msg = `no break: ${elapsedH.toFixed(1)}h shift without a ${minBreak || 'proper'}${minBreak ? '-minute' : ''} break`; note = note ? `${note}; ${msg}` : msg; (teamAlertOn(tenant, 'noBreak') ? notices : []).push(`Please note: ${staff.name || 'A team member'} worked a ${elapsedH.toFixed(1)}-hour shift without a recorded break.`); }
   }
   // Late clock-in that a manager must approve
   const lateApproval = action === 'clock_in' && !!note && /^late:/.test(note) && tenant.requireManagerOverrideForLateClockIn === true;
-  if (lateApproval) notices.push(`Action needed: ${staff.name || 'A team member'} clocked in ${note!.replace(/^late:\s*/, '')}. Please review and approve it in Timesheets.`);
+  if (lateApproval && teamAlertOn(tenant, 'late')) notices.push(`Action needed: ${staff.name || 'A team member'} clocked in ${note!.replace(/^late:\s*/, '')}. Please review and approve it in Timesheets.`);
   // Close to overtime this workweek
   const alertH = Number(tenant.overtimeAlertHours) || 0;
   if (action === 'clock_in' && alertH > 0) {
     const tz = tenant.timezone || 'America/New_York'; const ws = Number.isInteger(tenant.workweekStartsOn) ? tenant.workweekStartsOn : 1;
     const thisWeek = weekOf(localDay(now, tz), ws); const limit = (Number(tenant.overtimeThresholdHours) || 40) * 60;
     const worked = sessionsFrom(recent, clockPolicy(tenant, now)).filter((x) => x.weekStart === thisWeek).reduce((a, x) => a + x.workedMinutes, 0);
-    if (worked >= limit - alertH * 60) notices.push(`Please note: ${staff.name || 'A team member'} has worked ${(worked / 60).toFixed(1)} hours this week. Overtime begins after ${limit / 60} hours.`);
+    if (worked >= limit - alertH * 60 && teamAlertOn(tenant, 'overtime')) notices.push(`Please note: ${staff.name || 'A team member'} has worked ${(worked / 60).toFixed(1)} hours this week. Overtime begins after ${limit / 60} hours.`);
   }
 
   const batch = db.batch(); const logs = db.collection(`${T}/activityLogs`);
@@ -108,11 +109,11 @@ export async function recordPunch(db: any, input: { tenantId: string; staffId: s
   batch.set(a, { action: `timeclock.${action}`, targetType: 'staff', targetId: staffId, at: iso,
     summary: `${staff.name || 'Team member'} ${LABEL[action]}${input.actor?.id && input.actor.id !== staffId ? ` (by ${input.actor.name || 'a manager'})` : ''} via ${input.via}${extra}${note ? ` — ${note.replace(/^\w+:\s*/, '')}` : ''}`,
     actor: { type: 'user', id: input.actor?.id || staffId, name: input.actor?.name || staff.name || null, via: input.via } });
-  if (entry.breakOverage) notices.push(`Please note: ${staff.name || 'A team member'} took a ${breakMin}-minute break. The break limit is ${tenant.maximumBreakMinutes} minutes.`);
+  if (entry.breakOverage && teamAlertOn(tenant, 'longBreak')) notices.push(`Please note: ${staff.name || 'A team member'} took a ${breakMin}-minute break. The break limit is ${tenant.maximumBreakMinutes} minutes.`);
   // Each manager (and the owner) gets the notice in their own notifications.
   if (notices.length) {
     const mgrs = (await db.collection(`${T}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs.filter((d: any) => d.data()?.archived !== true).map((d: any) => d.id);
-    const to = Array.from(new Set([...mgrs, ...(tenant.userId ? [String(tenant.userId)] : [])])).filter((id) => id !== staffId || mgrs.length <= 1);
+    const to = teamAlertOwnerOnly(tenant) && tenant.userId ? [String(tenant.userId)] : Array.from(new Set([...mgrs, ...(tenant.userId ? [String(tenant.userId)] : [])])).filter((id) => id !== staffId || mgrs.length <= 1);
     for (const uid of to) for (const m of notices) { const nRef = db.collection(`${T}/notifications`).doc(); batch.set(nRef, { id: nRef.id, userId: uid, type: 'timeclock', priority: 'high', message: m, link: '/timesheets', createdAt: iso, read: false }); }
   }
   await batch.commit();

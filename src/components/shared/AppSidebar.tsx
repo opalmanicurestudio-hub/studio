@@ -97,25 +97,15 @@ const COMMERCE = [
 ];
 
 const TEAM_FULL = [
-  { href: '/staff',      icon: Users,        label: 'Team'       },
-  { href: '/team-performance', icon: Gauge, label: 'Team performance' },
-  { href: '/applicants', icon: Send,         label: 'Applicants'     },
-  { href: '/documents',  icon: FileText,     label: 'Documents'      },
-  { href: '/schedule',   icon: CalendarDays, label: 'Shift schedule' },
-  { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
-  { href: '/payroll/questions', icon: ClipboardList, label: 'Pay questions' },
+  // One Team area (/team): people, schedule, time, pay, requests, hiring, documents, how it's going and alerts.
+  { href: '/team',       icon: Users,        label: 'Team'       },
   // Practice a shift: a playable salon shift that teaches the front desk and the floor (/practice).
   { href: '/practice', icon: Gamepad2, label: 'Practice a shift' },
 ];
 
 const TEAM_ADMIN = [
-  { href: '/staff',      icon: Users,        label: 'Team'       },
-  { href: '/team-performance', icon: Gauge, label: 'Team performance' },
-  { href: '/applicants', icon: Send,         label: 'Applicants'     },
-  { href: '/documents',  icon: FileText,     label: 'Documents'      },
-  { href: '/schedule',   icon: CalendarDays, label: 'Shift schedule' },
-  { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
-  { href: '/payroll/questions', icon: ClipboardList, label: 'Pay questions' },
+  // One Team area (/team): people, schedule, time, pay, requests, hiring, documents, how it's going and alerts.
+  { href: '/team',       icon: Users,        label: 'Team'       },
   // Practice a shift: a playable salon shift that teaches the front desk and the floor (/practice).
   { href: '/practice', icon: Gamepad2, label: 'Practice a shift' },
 ];
