@@ -262,7 +262,7 @@ export function NotMeLink(p: Link & { businessName?: string | null; onDone: (mes
 export function VisitNotice({ title, body, businessName, businessPhone }: { title: string; body: React.ReactNode; businessName?: string | null; businessPhone?: string | null }) {
   const call = telOf(businessPhone);
   return (
-    <div className="flex min-h-dvh items-center justify-center px-4 py-10" style={{ background: '#faf8f5', color: INK, fontFamily: FONT }}>
+    <div className="flex min-h-dvh items-center justify-center px-4 py-10" style={{ background: '#ffffff', color: INK, fontFamily: FONT }}>
       <main className="w-full max-w-md space-y-4 p-6 text-center" style={cardStyle}>
         {businessName && <p className="text-[13px] font-semibold" style={{ color: MUTED }}>{businessName}</p>}
         <h1 className="text-[22px] font-semibold">{title}</h1>

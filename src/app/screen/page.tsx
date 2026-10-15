@@ -129,7 +129,7 @@ export default function ClientScreenPage() {
   const solid = { background: accent, color: '#fff' } as React.CSSProperties;
   const stageKey = `${q?.id || 'none'}|${q?.kind || ''}|${step}|${q?.answeredAt ? 'a' : ''}|${thanksOver === q?.id ? 'o' : ''}`;
   const shell = (children: React.ReactNode, opts: { glow?: boolean; confetti?: boolean } = {}) => (   // a function, not a component — so inputs keep focus while typing
-    <main onPointerDown={() => { lastTouch.current = Date.now(); }} className={`cs-root ${motion} relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden p-8`} style={{ background: '#faf8f5', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", paddingTop: 'max(2rem, env(safe-area-inset-top))', paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
+    <main onPointerDown={() => { lastTouch.current = Date.now(); }} className={`cs-root ${motion} relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden p-8`} style={{ background: '#ffffff', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", paddingTop: 'max(2rem, env(safe-area-inset-top))', paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
       <style>{CSS}</style>
       {opts.glow && <div aria-hidden className="cs-glow pointer-events-none absolute -inset-1/4" style={{ background: `radial-gradient(40% 40% at 30% 30%, color-mix(in srgb, ${accent} 22%, transparent), transparent 70%), radial-gradient(35% 35% at 75% 70%, color-mix(in srgb, ${accent} 14%, transparent), transparent 70%)`, animation: 'cs-drift 18s ease-in-out infinite' }} />}
       {opts.confetti && confettiOn && <Confetti accent={accent} />}

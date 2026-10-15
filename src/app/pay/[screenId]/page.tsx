@@ -10,10 +10,10 @@ export default function PayOnPhonePage() {
   const r = useSearchParams().get('r') || '';
   const [done, setDone] = React.useState(false);
   return (
-    <main className="min-h-[100dvh] p-5" style={{ background: '#faf8f5', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", paddingTop: 'max(1.25rem, env(safe-area-inset-top))', paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
+    <main className="min-h-[100dvh] p-5" style={{ background: '#ffffff', color: '#16171a', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", paddingTop: 'max(1.25rem, env(safe-area-inset-top))', paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
       <div className="mx-auto max-w-md space-y-5">
         <p className="text-[24px] font-semibold">{done ? 'Paid — thank you!' : 'Pay for your visit'}</p>
-        {done ? <p className="text-[16px]" style={{ color: '#57534e' }}>You can close this page. Your receipt is at the front desk screen.</p>
+        {done ? <p className="text-[16px]" style={{ color: '#6d7075' }}>You can close this page. Your receipt is at the front desk screen.</p>
           : r ? <ClientPayForm screenId={screenId} requestId={r} onPaid={() => setDone(true)} /> : <p>This link isn’t complete — scan the code again.</p>}
       </div>
     </main>

@@ -402,7 +402,7 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
 <style>
   /* THE STUDIO LOOK — warm paper, Plus Jakarta Sans, soft rounded cards, the business's own colour.
      The QR and the barcode are never tinted or resized: that's what keeps them scanning. */
-  :root { --ink:#1c1917; --muted:#57534e; --soft:#a8a29e; --line:#e7e2dc; --wash:#f1ece6; --paper:#faf8f5; --accent:${accent}; }
+  :root { --ink:#16171a; --muted:#6d7075; --soft:#9a9ca1; --line:#ececee; --wash:#f5f5f7; --paper:#ffffff; --accent:${accent}; }
   * { box-sizing:border-box; }
   html, body { margin:0; padding:0; background:var(--paper); color:var(--ink);
     font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;

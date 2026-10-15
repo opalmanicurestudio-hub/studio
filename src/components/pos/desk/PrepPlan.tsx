@@ -33,7 +33,7 @@ export function PrepPlan({ plan, staff, staffId, perProvider = 4, title = 'Prep 
             {sid === '__walkins' ? <p className="mb-2 text-[14px] font-[700]">Kept for walk-ins <span className="font-[500] text-muted-foreground">· expected in the next 90 min</span></p> : !staffId && !solo && <div className="mb-2 flex items-center gap-2"><Initials name={nameOf(sid)} size={30} /><p className="truncate text-[14px] font-[700]">{sid === '—' ? 'Walk-ins waiting' : sid === '__rentals' ? 'Room rentals' : String(nameOf(sid)).split(' ')[0]}</p></div>}
             <ol className="space-y-2">
               {list.map((v) => (
-                <li key={v.visitId} className="rounded-2xl p-2.5" style={{ background: v.ok ? '#faf8f5' : '#fdf3f2' }}>
+                <li key={v.visitId} className="rounded-2xl p-2.5" style={{ background: v.ok ? 'var(--soft, #f5f5f7)' : '#fdf3f2' }}>
                   <p className="text-[14px]"><b className="font-[800] tabular-nums">{v.expected ? '~' : ''}{clock(v.startMs)}</b> <span className="font-[600]">{v.expected ? 'Walk-in' : v.clientName.split(' ')[0]}</span></p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {v.items.map((it, i) => { const L = LOOK[it.state]; const isOut = !!(it.refId && setOut[it.refId] === v.visitId); const canSet = !!onSetOut && it.state === 'ready' && !!it.refId && !isOut;

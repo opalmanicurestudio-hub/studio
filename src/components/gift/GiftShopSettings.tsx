@@ -63,7 +63,7 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
           <section className="space-y-3">
             <Toggle on={s.onBooking} onChange={(v) => set('onBooking', v)} label="Show gift cards on your booking page" hint="Three cards you choose, with a “Gift cards” link in the header." />
             {s.onBooking && <>
-              <div className="overflow-hidden rounded-[18px] px-3 py-8" style={{ background: '#faf8f5', border: `1px solid ${LINE}` }}>
+              <div className="overflow-hidden rounded-[18px] px-3 py-8" style={{ background: '#ffffff', border: `1px solid ${LINE}` }}>
                 <p className="mb-1 text-center text-[11px] tracking-[0.14em]" style={{ color: MUTED }}>PREVIEW · HOW IT LOOKS ON YOUR PAGE</p>
                 <GiftCardShowcase tenantId={tenantId} brand={brand} items={show} services={services} offered={s.designs} preview />
               </div>

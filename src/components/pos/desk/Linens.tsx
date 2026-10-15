@@ -136,7 +136,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
           <p className="text-[15px] font-semibold">{l.name}</p>
           <div className="mt-1.5 grid grid-cols-5 gap-1 text-center text-[12px]" aria-label={`${l.name} laundry`}>
             {([['In the bin', l.dirty], ['Washing', l.washing], ['Drying', l.drying || 0], ['To fold', l.folding || 0], ['Clean', l.clean]] as [string, number][]).map(([lab, n], i) => (
-              <div key={lab} className="rounded-xl py-1.5" style={{ background: i === 4 ? '#e3f3e7' : n ? '#f6f1ea' : '#faf8f5', color: i === 4 ? '#1f6b3a' : n ? '#17181a' : '#a39d93' }}><div className="text-[17px] font-[800] tabular-nums">{n}</div><div>{lab}</div></div>))}
+              <div key={lab} className="rounded-xl py-1.5" style={{ background: i === 4 ? '#e3f3e7' : n ? '#f5f5f7' : 'var(--soft, #f5f5f7)', color: i === 4 ? '#1f6b3a' : n ? '#17181a' : '#a39d93' }}><div className="text-[17px] font-[800] tabular-nums">{n}</div><div>{lab}</div></div>))}
           </div>
           <p className="mt-1 text-[12px] text-muted-foreground">{l.inUse ? `${l.inUse} out on the floor · ` : ''}{(() => { const d = loadDecision(l, outlook.find((x) => x.id === l.id)?.short || 0); return d.needsSetup ? (manager ? 'Set the load size and wash time below' : 'Load size and wash time not set yet') : d.reason; })()}</p>
           {l.washing > 0 && l.washStartedAt && <p className="text-[13px]">Wash: <LiveTimer since={l.washStartedAt} minutes={l.washMinutes || 0} doneLabel={Number(l.dryMinutes) > 0 ? 'Done — into the dryer' : 'Done — to fold'} /></p>}

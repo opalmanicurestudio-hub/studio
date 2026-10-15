@@ -2647,7 +2647,7 @@ export default function CheckInPage() {
         return ['completed', 'no_show', 'noshow'].includes(st) || (['cancelled', 'canceled'].includes(st) && Date.now() - Date.parse(ap.cancelledAt || '') > 30 * 60000) || (Number.isFinite(end) && Date.now() - end > 3 * 3600e3);
     })();
     const footer = linkOf && clientId ? (
-        <div style={{ background: '#faf8f5', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+        <div style={{ background: '#ffffff', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
             <div className="mx-auto max-w-md space-y-4 px-4 pb-10 pt-2">
                 {visitOver && trust === 'untrusted' && <VerifyCard {...linkOf} {...verifyShared} onNotMe={undefined}
                     onVerified={() => { followAsked.current = true; setTrust('trusted'); }}
@@ -2839,7 +2839,7 @@ export default function CheckInPage() {
         const at = appointmentData?.startTime ? safeDate(appointmentData.startTime) : null;
         const inService = appointmentData?.status === 'servicing';
         return withFooter(
-            <div className="flex min-h-dvh items-center justify-center p-6" style={{ background: '#faf8f5', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+            <div className="flex min-h-dvh items-center justify-center p-6" style={{ background: '#ffffff', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
                 <div className="w-full max-w-sm space-y-5 text-center">
                     <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-white text-3xl shadow" aria-hidden>✓</div>
                     <div className="space-y-2">
