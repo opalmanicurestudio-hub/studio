@@ -718,6 +718,7 @@ async function handleCheckout(req: NextRequest) {
         if (zeroChargeOk) {
           const paidSnap = await orderRef.get();
           const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
+          try { const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tenant, orderId, paidOrder); } catch { /* loyalty is best effort */ }
           try {
             await sendOrderConfirmation(db, tenantId, orderId, paidOrder, null);
           } catch (e: any) {
@@ -796,6 +797,7 @@ async function handleCheckout(req: NextRequest) {
             if (r.ok) void notifyGiftUse(db, tenantId, g.id, chargeable).catch(() => {});
             else console.error('[checkout] gift card spend after a paid order failed — needs a look:', r.error);
             const paidSnap = await orderRef.get(); const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
+            try { const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tenant, orderId, paidOrder); } catch { /* loyalty is best effort */ }
             try { await sendOrderConfirmation(db, tenantId, orderId, paidOrder, null); } catch (e: any) { console.error('[checkout] gift-paid receipt failed (order is paid):', e?.message); }
             const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
             return NextResponse.json({ url: `${origin}/shop/${tenantId}/order/${orderId}?paid=gift`, orderId, orderNumber: (paidOrder as any).orderNumber ?? null, isDraft: false, zeroCharge: true });

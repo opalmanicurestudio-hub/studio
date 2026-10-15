@@ -231,6 +231,9 @@ export async function handleRetailOrderPaid(
   // Re-point them at the freshly numbered document.
   order = { ...order, ...(confirmed.data() || {}) };
 
+  // Loyalty (lib/loyalty): the order's products earn, once.
+  try { const tSnap = await db.doc(`tenants/${tenantId}`).get(); const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tSnap.data() || {}, orderId, order); } catch (e) { console.error('[retail-webhook] loyalty', e); }
+
   // ── DIGITAL-ONLY: nothing to pick, pack, or post. The receipt below IS the
   // delivery, so the order is finished the moment money lands — it must never
   // appear on the board as work nobody can do. Physical orders and mixed carts

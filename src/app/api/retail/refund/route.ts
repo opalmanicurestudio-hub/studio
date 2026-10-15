@@ -136,6 +136,8 @@ export async function POST(req: NextRequest) {
     retailOrderId: orderId, tenantId,
   });
   await batch.commit();
+  // Loyalty: a refund takes back the points those products earned (lib/loyalty-server).
+  try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: `order_${orderId}`, refundCents: cents, refundId, by: 'Refund' }); } catch { /* best effort */ }
 
   /* THE REFUND-TIMELINE EMAIL — the moment money moves, the customer knows,
    * with the number and the honest window. Fired here (not the webhook) so

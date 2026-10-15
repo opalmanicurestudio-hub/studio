@@ -88,3 +88,13 @@ export async function expirySweep(db: any, t: string, tenant: any, now = Date.no
     await syncClient(db, t, d.id); n++; }
   return { expired: n };
 }
+
+/** An online shop order, once paid: its products earn like the counter (lib/loyalty), once per order. Shipping, tax and
+ *  tips never count; gift card money follows the business's "when it's spent / bought" choice. */
+export async function earnForShopOrder(db: any, t: string, tenant: any, orderId: string, order: any) {
+  if (tenant?.loyalty?.on !== true || !order?.clientId) return { ok: true, points: 0 };
+  const lines = (Array.isArray(order.lines) ? order.lines : []).map((l: any) => ({ productId: String(l.productId || l.id || ''), cents: Math.max(0, Math.round((Number(l.unitPriceCents) || 0) * (Number(l.qtyOrdered ?? l.qty) || 0))) }));
+  const sub = lines.reduce((a: number, l: any) => a + l.cents, 0); const credit = Math.max(0, Number(order.creditAppliedCents) || 0);
+  const share = sub > 0 ? Math.max(0, 1 - credit / sub) : 0;   // store credit isn't new money
+  return earnForSale(db, t, tenant, { clientId: String(order.clientId), saleId: `order_${orderId}`, by: 'Online shop', sale: { services: [], products: lines.map((l: any) => ({ ...l, cents: Math.round(l.cents * share) })), giftSpentCents: Math.max(0, Number(order.giftCardCents) || 0), giftBoughtCents: 0, visits: 0, rebooked: false, renter: false } });
+}

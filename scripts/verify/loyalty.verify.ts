@@ -46,6 +46,14 @@ import { makeDb, check, failures } from './fake-db';
   const ex = await LS.expirySweep(db, 't', tenant, Date.parse('2026-10-14T12:00:00Z'));
   check('no visit in 12 months: the balance expires, as its own entry', ex.expired === 1 && (await LS.balanceFor(db, 't', 'c1')) === 0);
 
+  // The online shop
+  { const db2 = makeDb(); await db2.doc('tenants/t/clients/c2').set({ name: 'Ana' });
+    const order = { clientId: 'c2', lines: [{ productId: 'oil', unitPriceCents: 1800, qtyOrdered: 2 }], creditAppliedCents: 600, shippingCents: 900 };
+    const o1 = await LS.earnForShopOrder(db2, 't', tenant, 'o1', order); const o2 = await LS.earnForShopOrder(db2, 't', tenant, 'o1', order);
+    check('a paid shop order earns on its products (not shipping or store credit), once', o1.points === 30 && o2.points === 0);
+    await LS.reverseSale(db2, 't', { saleId: 'order_o1', refundCents: 1800, refundId: 'rf1', by: 'Refund' });
+    check('…and a shop refund takes back its share', (await LS.balanceFor(db2, 't', 'c2')) === 30 - 18); }
+
   // Checkout maths
   const { computeCheckout } = await import('../../src/lib/checkout-calc');
   const base: any = { tenant: { loyalty: { on: true } }, visits: [{ appointment: { id: 'a1', staffId: 's' }, service: { id: 'gel', price: 55 }, addOnServices: [] }], staff: [{ id: 's' }], redeemedOffer: null, waivedIds: [], items: [], fees: [], discounts: [], client: null, memberships: [], tip: 0, storeCredit: 0 };
