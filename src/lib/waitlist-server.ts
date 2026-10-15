@@ -116,6 +116,9 @@ export async function matchesFor(db: any, t: string, op: any, now: number, d: De
     const cl = ent.clientId ? clients.get(ent.clientId) : null;
     if (cl && (Number(cl.noShowCount) || 0) >= 2) ent.reliability = 'misses';
     ent.visits = Number(cl?.visitCount || cl?.totalVisits || 0);
+    // Loyalty: a tier with "first pick of cancellations" goes ahead (lib/loyalty).
+    if (cl?.loyalty?.tier?.id && (!cl.loyalty.tier.until || ms(cl.loyalty.tier.until) > now)) { const { loyaltyOf } = await import('@/lib/loyalty'); const LS = cache.loyalty || (cache.loyalty = loyaltyOf(tenant));
+      if (LS.on && LS.tiers.some((x: any) => x.id === cl.loyalty.tier.id && x.waitlistFirst)) ent.vip = true; }
     let mine: any = null;
     if (ent.kind === 'sooner') { mine = appts.find((a: any) => a.id === ent.appointmentId); if (!mine || DEAD.includes(String(mine.status || ''))) continue; ent = { ...ent, serviceId: mine.serviceId, staffId: ent.staffId === 'any' ? null : mine.staffId }; }
     else {
@@ -585,7 +588,7 @@ export async function deskView(db: any, t: string, now = Date.now(), d: Deps = {
   const withMatches = [] as any[];
   for (const o of live.slice(0, 12)) { const m = await matchesFor(db, t, o, now, d, cache); const base = offerModeFor(ms(o.start), now);
     withMatches.push({ ...o, mode: base === 'first' && ms(o.start) - now >= WAVE_FROM_H * H ? 'wave' : base, when: whenLabel(ms(o.start), tz, now), backups: (o.backups || []).length,
-    fits: m.fits.slice(0, 6).map((f: any) => ({ id: f.e.id, name: f.e.name, kind: f.e.kind || 'new', owed: f.pri || null, autoBook: !!f.e.autoBook && !f.appt, alreadyBooked: !!(f.e as any).alreadyBooked, leftover: f.leftover, wanted: f.e.staffId && f.e.staffId !== 'any' ? 'asked for them' : 'anyone', waitedDays: Math.round((now - ms(f.e.createdAt || f.e.addedAt)) / DAY), freed: f.appt ? whenLabel(ms(f.appt.startTime), tz, now) : null })),
+    fits: m.fits.slice(0, 6).map((f: any) => ({ id: f.e.id, name: f.e.name, kind: f.e.kind || 'new', vip: !!f.e.vip, owed: f.pri || null, autoBook: !!f.e.autoBook && !f.appt, alreadyBooked: !!(f.e as any).alreadyBooked, leftover: f.leftover, wanted: f.e.staffId && f.e.staffId !== 'any' ? 'asked for them' : 'anyone', waitedDays: Math.round((now - ms(f.e.createdAt || f.e.addedAt)) / DAY), freed: f.appt ? whenLabel(ms(f.appt.startTime), tz, now) : null })),
     not: m.not.slice(0, 6).map((x: any) => ({ id: x.e.id, name: x.e.name, why: x.why })),
     offers: (o.offers || []).map((f: any) => ({ name: f.name, status: f.status === 'sent' && ms(f.holdUntil) <= now ? 'lapsed' : f.status, sentAt: f.sentAt, holdUntil: f.holdUntil, kind: f.kind, mode: f.mode, afterCall: !!f.afterCall })),
     calls: (o.calls || []).map((c: any) => ({ name: c.name, status: c.status, at: c.at })),

@@ -18,6 +18,7 @@ export function monthReview(x: { month: string; openings: any[]; ledger: any[]; 
   const led = x.ledger.filter((l) => inMonth(l.at));
   const sumP = (t: string[]) => led.filter((l) => t.includes(l.type)).reduce((s, l) => s + (Number(l.points) || 0), 0);
   const redeems = led.filter((l) => l.type === 'redeem'); const givenBack = led.filter((l) => l.type === 'reverse' && l.of === 'redeem').length;
+  const gifts = led.filter((l) => l.type === 'surprise' || l.type === 'perk');
   const res = x.results.filter((r) => String(r.startTime || '') && inMonth(r.startTime));
   const paid = res.filter((r) => r.state === 'paid'); const oppMade = x.opportunities.filter((o) => inMonth(o.createdAt) && !o.renterId);
   const contacted = oppMade.filter((o) => (o.attempts || []).length > 0 || o.status === 'auto' || o.status === 'done');
@@ -29,7 +30,7 @@ export function monthReview(x: { month: string; openings: any[]; ledger: any[]; 
   return {
     month: x.month, label: monthLabel(x.month),
     waitlist: { openings: ops.length, filled: filled.length, how, unfilled: ops.filter((o) => ['expired', 'closed'].includes(String(o.status))).length },
-    rewards: { earned: sumP(['earn', 'bonus']), used: redeems.length, usedPoints: -sumP(['redeem']), usedValueCents: redeems.reduce((s, l) => s + (Number(l.cents) || 0), 0), costCents: redeems.reduce((s, l) => s + (Number(l.costCents ?? l.cents) || 0), 0), givenBack, expired: -sumP(['expire']) },
+    rewards: { earned: sumP(['earn', 'bonus']), used: redeems.length, usedPoints: -sumP(['redeem']), usedValueCents: redeems.reduce((s, l) => s + (Number(l.cents) || 0), 0), costCents: [...redeems, ...gifts].reduce((s, l) => s + (Number(l.costCents ?? l.cents) || 0), 0), givenBack, surprises: gifts.filter((l) => l.type === 'surprise').length, perks: gifts.filter((l) => l.type === 'perk').length, expired: -sumP(['expire']) },
     opportunities: { found: oppMade.length, contacted: contacted.length, cameBack: paid.length, paidCents: paid.reduce((s, r) => s + (Number(r.paidCents) || 0), 0), stillBooked: res.filter((r) => r.state === 'booked').length },
     calls: { on: x.callsOn, used: x.callsUsed, allowed: x.callsAllowed },
     texts: { sent: msgs.length, failed: failed.length, stops },
@@ -42,7 +43,7 @@ export function reviewLines(r: MonthReview): string[] {
   const out: string[] = []; const w = r.waitlist;
   if (w.openings) { const bits = [w.how.text && `${w.how.text} by text`, w.how.call && `${w.how.call} by a call`, w.how.party && `${w.how.party} by a party`, w.how.auto && `${w.how.auto} booked automatically`, w.how.moveUp && `${w.how.moveUp} by someone coming in sooner`].filter(Boolean);
     out.push(`Waitlist: ${w.filled} of ${w.openings} cancelled time${w.openings === 1 ? '' : 's'} filled again${bits.length ? ` (${bits.join(', ')})` : ''}.`); }
-  const rw = r.rewards; if (rw.earned || rw.used) out.push(`Rewards: ${rw.earned.toLocaleString('en-US')} points earned, ${rw.used} reward${rw.used === 1 ? '' : 's'} used${rw.usedValueCents ? ` (${$(rw.usedValueCents)} off)` : ''}${rw.expired ? `, ${rw.expired.toLocaleString('en-US')} points expired` : ''}.`);
+  const rw = r.rewards; if (rw.earned || rw.used || rw.surprises || rw.perks) out.push(`Rewards: ${rw.earned.toLocaleString('en-US')} points earned, ${rw.used} reward${rw.used === 1 ? '' : 's'} used${rw.usedValueCents ? ` (${$(rw.usedValueCents)} off)` : ''}${rw.surprises ? `, ${rw.surprises} surprise${rw.surprises === 1 ? '' : 's'} given` : ''}${rw.perks ? `, ${rw.perks} tier upgrade${rw.perks === 1 ? '' : 's'}` : ''}${rw.expired ? `, ${rw.expired.toLocaleString('en-US')} points expired` : ''}.`);
   const o = r.opportunities; if (o.found) out.push(`Opportunities: ${o.found} found, ${o.contacted} contacted, ${o.cameBack} came back and paid${o.paidCents ? ` (${$(o.paidCents)})` : ''}${o.stillBooked ? `, ${o.stillBooked} more booked` : ''}.`);
   if (r.calls.on || r.calls.used) out.push(`Calls about openings: ${r.calls.used} of about ${r.calls.allowed} in the monthly limit.`);
   if (r.texts.sent) out.push(`Texts: ${r.texts.sent.toLocaleString('en-US')} sent, ${r.texts.failed} didn’t go through${r.texts.stops ? `, ${r.texts.stops} opted out` : ''}.`);

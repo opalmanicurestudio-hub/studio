@@ -385,6 +385,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // their earlier release and members-only services. The server checks the
   // same thing at confirm; this only changes what the calendar shows.
   const [studioMemberOk, setStudioMemberOk] = useState<boolean | null>(null);
+  // A loyalty tier that books early: the client's own rewards link says how many extra days (components/loyalty/BookingRewards).
+  const [earlyDays, setEarlyDays] = useState(0);
+  useEffect(() => { const on = (e: any) => setEarlyDays(Math.max(0, Number(e?.detail) || 0)); window.addEventListener('cf-early-days', on); return () => window.removeEventListener('cf-early-days', on); }, []);
   const [studioMemberInput, setStudioMemberInput] = useState('');
   const [studioMemberBusy, setStudioMemberBusy] = useState(false);
   const checkStudioMember = async () => {
@@ -683,7 +686,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             const days = prov
               ? horizonDaysFor(prov.renterBooking || null, memberOk === true, new Date(), tenant?.timezone || 'America/New_York')
               : horizonDaysFor((tenant as any)?.bookingRelease || null, studioMemberOk === true, new Date(), tenant?.timezone || 'America/New_York');
-            return days !== null && days > 0 ? { ...tenant, bookingHorizonDays: days } : tenant;
+            return days !== null && days > 0 ? { ...tenant, bookingHorizonDays: days + (prov ? 0 : earlyDays) } : tenant;
           })()}
           shifts={shifts}
           staffBlocks={staffBlocks}

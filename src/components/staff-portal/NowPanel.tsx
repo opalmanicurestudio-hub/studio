@@ -7,6 +7,7 @@ import { biz } from '@/lib/biz-clock';   // times in the business's zone
 import { StepTimeline, StepRibbon } from '@/components/planner/StepTimeline';
 import { VisitDocs } from '@/components/staff-portal/VisitDocs';
 import { VisitMoments } from '@/components/opportunities/VisitMoments';
+import { VisitCue } from '@/components/loyalty/VisitCue';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 const ms = (v: any) => { const t = v?.toDate ? v.toDate().getTime() : Date.parse(String(v || '')); return Number.isFinite(t) ? t : NaN; };
@@ -50,6 +51,7 @@ export function NowPanel({ apts, services, tenantId, tenant, accent = INK, onOpe
           {live && svcOf(focus) ? <StepTimeline service={svcOf(focus)} appointment={focus} tenantId={tenantId} next={after ? { clientName: after.clientName, startMs: ms(after.startTime) } : null} />
             : <StepRibbon service={svcOf(focus)} appointment={focus} height={10} />}
           {onOpenDoc && <VisitDocs tenantId={tenantId} tenant={tenant} visit={focus} service={svcOf(focus)} live={!!live} onOpenDoc={onOpenDoc} />}
+          {focus.clientId && <VisitCue tenantId={tenantId} clientId={focus.clientId} compact />}
           {live && focus.clientId && <VisitMoments tenantId={tenantId} appointment={focus} compact />}
           {!live && <button type="button" onClick={() => onOpen(focus)} className="h-11 w-full rounded-[14px] text-[14px] font-bold text-white" style={{ background: INK }}>Open visit</button>}
         </div>

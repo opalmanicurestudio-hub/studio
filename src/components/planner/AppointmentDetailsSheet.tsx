@@ -1,4 +1,5 @@
 'use client';
+import { VisitCue } from '@/components/loyalty/VisitCue';
 import { logHealthOpen } from '@/lib/health-view-client';
 import { PrepSummary } from '@/components/staff-portal/PrepSummary';
 import { VisitMoments } from '@/components/opportunities/VisitMoments';
@@ -2456,6 +2457,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       <div className="space-y-5 p-4 md:p-6 pb-6">
         <div hidden={visitTab !== 'now'} className="space-y-5">
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
+        {tenantId && appointment?.clientId && !['cancelled', 'no_show'].includes(String(appointment?.status || '')) && <VisitCue tenantId={tenantId} clientId={appointment.clientId} />}
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
         {tenantId && appointment?.id && !['cancelled', 'no_show', 'completed', 'checked_out', 'paid'].includes(String(appointment?.status || '')) && <div className="space-y-2">
           <PrepSummary apt={appointment} tenantId={tenantId} solo={isSoloTeam(staff || [])} />

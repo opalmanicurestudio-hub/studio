@@ -329,7 +329,7 @@ export function usePosEngine() {
   const [storeCreditApplied, setStoreCreditApplied] = useState(0);
   useEffect(() => { setStoreCreditApplied(0); }, [selectedClientId]);
   // A loyalty reward used on this sale (lib/loyalty): the server checks the points again and takes them off when it's paid.
-  const [loyaltyReward, setLoyaltyReward] = useState<{ rewardId: string; cents: number; label: string } | null>(null);
+  const [loyaltyReward, setLoyaltyReward] = useState<{ rewardId: string | null; cents: number; label: string; surpriseId?: string | null; perk?: boolean } | null>(null);
   useEffect(() => { setLoyaltyReward(null); }, [selectedClientId]);   // credit belongs to one client: a new client starts fresh (their own comes off by itself)
   // Gift cards paying for this sale: each one's money is set aside on the server (a hold) until the sale finishes.
   const [giftApplied, setGiftApplied] = useState<{ id: string; code: string; cents: number; label?: string | null }[]>([]);
@@ -1102,7 +1102,7 @@ export function usePosEngine() {
   // the receipt and memberships are all worked out and written there, together — never from this browser.
   const checkoutClientId = selectedClientId ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId ?? null;
   const buildCheckoutPayload = (paymentData?: any) => ({
-    tenantId, clientId: checkoutClientId, loyaltyRewardId: loyaltyReward?.rewardId || null, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
+    tenantId, clientId: checkoutClientId, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why

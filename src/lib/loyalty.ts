@@ -24,8 +24,16 @@ export interface LoyaltySettings {
   auto: { rewardReady: boolean; tierUp: boolean; unused: boolean; comeBack: boolean; monthlyTexts: number; holdoutPct: number };
   /** Phase 4: rewards for open time — bonus points on chosen services in quiet times (lib/loyalty quietBonus). */
   quiet: { on: boolean; windows: QuietWindow[] };
+  /** What makes it feel special: a head start, keeping their rhythm, point boosts, surprises, referral points. */
+  headStart: number; rhythm: Extras['rhythm']; boosts: Boost[]; surprises: Extras['surprises']; referralPoints: number;
 }
-export interface Tier { id: string; name: string; points: number; multiplier: number; perks: string[] }
+export interface Tier { id: string; name: string; points: number; multiplier: number; perks: string[];
+  /** Perks the app carries out: first pick of cancellations, booking N days early, and a free upgrade at checkout. */
+  waitlistFirst?: boolean; earlyDays?: number; upgrade?: { fromServiceId: string; toServiceId: string } | null }
+export interface Boost { id: string; label: string; from: string; to: string; multiplier: number; scope: 'products' | 'services' | 'all'; ids: string[] }
+export type SurpriseWhen = 'anniversary' | 'made_right' | 'team';
+export interface Surprise { id: string; name: string; when: SurpriseWhen; kind: RewardKind; cents?: number; serviceId?: string | null; costCents: number; on: boolean }
+export interface Extras { headStart: number; rhythm: { on: boolean; points: number; graceDays: number; defaultWeeks: number }; boosts: Boost[]; surprises: { on: boolean; perMonth: number; items: Surprise[] }; referralPoints: number }
 export interface Milestone { visits: number; points: number }
 export interface QuietWindow { id: string; days: number[]; from: string; to: string; serviceIds: string[]; bonus: number; label?: string }
 export const EARN_LABEL: Record<EarnMode, string> = { per_dollar: 'Points per dollar', per_visit: 'Points per visit', punch: 'Visit punch card' };
@@ -36,7 +44,7 @@ const ids = (a: any) => (Array.isArray(a) ? Array.from(new Set(a.map((x: any) =>
 const rid = () => Math.random().toString(36).slice(2, 9);
 
 export const DEFAULT_REWARDS: Reward[] = [{ id: 'r10', name: '$10 off any service', points: 300, kind: 'amount_off', cents: 1000, costCents: 1000, on: true }];
-export function loyaltyOf(tenant: any): LoyaltySettings {
+function loyaltyBase(tenant: any): Omit<LoyaltySettings, keyof Extras> {
   const l = tenant?.loyalty || {}; const e = l.earn || {}; const c = l.counts || {}; const o = l.leaveOut || {};
   const rewards: Reward[] = (Array.isArray(l.rewards) ? l.rewards : DEFAULT_REWARDS).slice(0, 12).map((r: any) => cleanReward(r)).filter(Boolean) as Reward[];
   return { on: l.on === true, version: Math.max(1, Math.round(Number(l.version) || 1)), updatedAt: l.updatedAt || null,
@@ -51,6 +59,21 @@ export function loyaltyOf(tenant: any): LoyaltySettings {
     auto: { rewardReady: l.auto?.rewardReady === true, tierUp: l.auto?.tierUp === true, unused: l.auto?.unused === true, comeBack: l.auto?.comeBack === true, monthlyTexts: Math.round(num(l.auto?.monthlyTexts, 0, 5000, 200)), holdoutPct: Math.round(num(l.auto?.holdoutPct, 0, 30, 10)) },
     quiet: { on: l.quiet?.on === true, windows: (Array.isArray(l.quiet?.windows) ? l.quiet.windows : []).slice(0, 6).map((w: any) => ({ id: String(w?.id || rid()).slice(0, 40), days: (Array.isArray(w?.days) ? w.days : []).map(Number).filter((d: number) => d >= 0 && d <= 6), from: /^\d{2}:\d{2}$/.test(String(w?.from)) ? String(w.from) : '13:00', to: /^\d{2}:\d{2}$/.test(String(w?.to)) ? String(w.to) : '16:00', serviceIds: ids(w?.serviceIds), bonus: Math.round(num(w?.bonus, 1, 1000, 25)), label: w?.label ? String(w.label).slice(0, 40) : undefined })).filter((w: QuietWindow) => w.days.length) } };
 }
+const day = (v: any) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '');
+export function loyaltyOf(tenant: any): LoyaltySettings {
+  const b = loyaltyBase(tenant); const l = tenant?.loyalty || {}; const rawTiers: any[] = Array.isArray(l.tiers) ? l.tiers : [];
+  const tiers = b.tiers.map((t) => { const x = rawTiers.find((y: any) => String(y?.id || '') === t.id) || {}; const up = x.upgrade && x.upgrade.fromServiceId && x.upgrade.toServiceId && x.upgrade.fromServiceId !== x.upgrade.toServiceId ? { fromServiceId: String(x.upgrade.fromServiceId).slice(0, 80), toServiceId: String(x.upgrade.toServiceId).slice(0, 80) } : null;
+    return { ...t, waitlistFirst: x.waitlistFirst === true, earlyDays: Math.round(num(x.earlyDays, 0, 60, 0)), upgrade: up }; });
+  const r = l.rhythm || {}; const su = l.surprises || {};
+  return { ...b, tiers,
+    headStart: Math.round(num(l.headStart, 0, 1000, 0)),
+    rhythm: { on: r.on === true, points: Math.round(num(r.points, 1, 1000, 25)), graceDays: Math.round(num(r.graceDays, 0, 21, 4)), defaultWeeks: Math.round(num(r.defaultWeeks, 1, 26, 4)) },
+    boosts: (Array.isArray(l.boosts) ? l.boosts : []).slice(0, 12).map((x: any) => ({ id: String(x?.id || rid()).slice(0, 40), label: String(x?.label || '').trim().slice(0, 60) || 'Bonus points', from: day(x?.from), to: day(x?.to) || day(x?.from), multiplier: Math.round(num(x?.multiplier, 1.25, 5, 2) * 100) / 100,
+      scope: (['products', 'services', 'all'].includes(x?.scope) ? x.scope : 'products') as Boost['scope'], ids: ids(x?.ids) })).filter((x: Boost) => x.from && x.to >= x.from),
+    surprises: { on: su.on === true, perMonth: Math.round(num(su.perMonth, 0, 100, 4)), items: (Array.isArray(su.items) ? su.items : []).slice(0, 8).map((x: any) => { const rw = cleanReward({ ...x, points: 1 }); if (!rw) return null;
+      return { id: rw.id, name: rw.name, when: (['anniversary', 'made_right', 'team'].includes(x?.when) ? x.when : 'team') as SurpriseWhen, kind: rw.kind, ...(rw.cents ? { cents: rw.cents } : {}), ...(rw.serviceId ? { serviceId: rw.serviceId } : {}), costCents: rw.costCents ?? 0, on: x?.on !== false }; }).filter(Boolean) as Surprise[] },
+    referralPoints: Math.round(num(l.referralPoints, 0, 10000, 0)) };
+}
 export function cleanReward(r: any): Reward | null {
   const points = Math.round(num(r?.points, 1, 100000, 0)); const name = String(r?.name || '').trim().slice(0, 60); if (!points || !name) return null;
   const kind: RewardKind = r?.kind === 'free_service' ? 'free_service' : 'amount_off';
@@ -61,7 +84,7 @@ export function cleanReward(r: any): Reward | null {
 /** What gets saved when the owner changes the program: a new version whenever the earning or reward rules change. */
 export function nextLoyalty(prev: LoyaltySettings, raw: any, at = new Date().toISOString()): LoyaltySettings {
   const n = loyaltyOf({ loyalty: { ...raw, version: prev.version } });
-  const sig = (s: LoyaltySettings) => JSON.stringify([s.earn, s.counts, s.leaveOut, s.rewards.map((r) => [r.id, r.points, r.kind, r.cents, r.serviceId, r.on]), s.expiryMonths, s.tiers, s.graceMonths, s.milestones, s.quiet]);
+  const sig = (s: LoyaltySettings) => JSON.stringify([s.earn, s.counts, s.leaveOut, s.rewards.map((r) => [r.id, r.points, r.kind, r.cents, r.serviceId, r.on]), s.expiryMonths, s.tiers, s.graceMonths, s.milestones, s.quiet, s.headStart, s.rhythm, s.boosts, s.referralPoints]);
   return { ...n, version: sig(n) !== sig(prev) ? prev.version + 1 : prev.version, updatedAt: at };
 }
 
@@ -110,7 +133,7 @@ export function worthCents(S: LoyaltySettings, balance: number): number {
 }
 
 // ── Balance and expiry ──────────────────────────────────────────────────────────────────────────────────────────────
-export interface LedgerEntry { id?: string; type: 'earn' | 'bonus' | 'redeem' | 'reverse' | 'adjust' | 'expire'; points: number; at: string }
+export interface LedgerEntry { id?: string; type: 'earn' | 'bonus' | 'redeem' | 'reverse' | 'adjust' | 'expire' | 'surprise' | 'perk'; points: number; at: string }
 /** The ledger's sum. It can dip below zero when a refund takes back points that were already used; nothing more can be
  *  redeemed until it's back above. */
 export const balanceOf = (ledger: LedgerEntry[]) => ledger.reduce((t, e) => t + (Number(e.points) || 0), 0);
@@ -202,4 +225,84 @@ export function suggestProgram(a: BuilderAnswers): { settings: any; notes: strin
     'Messages are only suggested: none is switched on until you choose. Nothing is saved until you press Save.',
   ];
   return { settings, notes };
+}
+
+
+// ── What makes it feel special ──────────────────────────────────────────────────────────────────────────────────────
+const DAY_MS = 864e5;
+/** Their usual gap between visits, in days: the middle of their last few gaps (two or more), else the business default. */
+export function usualGapDays(visitIsos: string[], fallbackDays: number): number {
+  const t = visitIsos.map((v) => Date.parse(v)).filter(Boolean).sort((a, b) => a - b); const gaps: number[] = [];
+  for (let i = 1; i < t.length; i++) { const g = (t[i] - t[i - 1]) / DAY_MS; if (g >= 3) gaps.push(g); }
+  const last = gaps.slice(-5).sort((a, b) => a - b); if (last.length < 2) return fallbackDays;
+  return Math.round(last.length % 2 ? last[(last.length - 1) / 2] : (last[last.length / 2 - 1] + last[last.length / 2]) / 2);
+}
+/** Kept their rhythm: back within their usual gap (plus the grace days) since their last visit. */
+export function rhythmBonus(S: LoyaltySettings, priorVisitIsos: string[], atMs: number): { points: number; label: string; days: number } | null {
+  if (!S.on || !S.rhythm.on || S.earn.mode === 'punch' || !priorVisitIsos.length) return null;
+  const last = Math.max(...priorVisitIsos.map((v) => Date.parse(v) || 0)); if (!last || atMs <= last) return null;
+  const days = Math.round((atMs - last) / DAY_MS); const usual = usualGapDays(priorVisitIsos, S.rhythm.defaultWeeks * 7);
+  return days >= 3 && days <= usual + S.rhythm.graceDays ? { points: S.rhythm.points, label: `Kept their rhythm (back in ${days} days)`, days } : null;
+}
+/** Boosts running on a day (YYYY-MM-DD, the business's own calendar). */
+export const activeBoosts = (S: LoyaltySettings, dayKey: string) => (S.on ? S.boosts.filter((b) => b.from <= dayKey && dayKey <= b.to) : []);
+/** The extra points a boost adds to a sale: the best boost for each line, on top of what the line already earns. */
+export function boostBonus(S: LoyaltySettings, sale: SaleForPoints, dayKey: string): { points: number; label: string } | null {
+  const on = activeBoosts(S, dayKey); if (!on.length || S.earn.mode === 'punch' || sale.renter) return null;
+  const fits = (b: Boost, kind: 'services' | 'products', id: string | null) => (b.scope === 'all' || b.scope === kind) && (!b.ids.length || (!!id && b.ids.includes(id)));
+  let extra = 0; const used = new Set<string>();
+  const each = (kind: 'services' | 'products', id: string | null, cents: number) => { const b = on.filter((x) => fits(x, kind, id)).sort((x, y) => y.multiplier - x.multiplier)[0]; if (!b || cents <= 0) return;
+    used.add(b.label); extra += S.earn.mode === 'per_dollar' ? (cents / 100) * S.earn.perDollar * (b.multiplier - 1) : 0; };
+  if (S.counts.services) for (const l of sale.services) if (!(l.serviceId && S.leaveOut.serviceIds.includes(l.serviceId)) && !(S.leaveOut.memberVisits && l.member)) each('services', l.serviceId, l.cents);
+  if (S.counts.products) for (const l of sale.products) if (!(l.productId && S.leaveOut.productIds.includes(l.productId))) each('products', l.productId, l.cents);
+  if (S.earn.mode === 'per_visit') { const b = on.filter((x) => x.scope !== 'products' && (!x.ids.length || sale.services.some((l) => l.serviceId && x.ids.includes(l.serviceId)))).sort((x, y) => y.multiplier - x.multiplier)[0];
+    if (b && sale.services.length) { extra = Math.max(1, sale.visits) * S.earn.perVisit * (b.multiplier - 1); used.add(b.label); } }
+  const points = Math.floor(extra); return points > 0 ? { points, label: [...used].join(', ') } : null;
+}
+/** A surprise the desk can give today, without being asked (never advertised). Budgeted per month. */
+export function surpriseFor(S: LoyaltySettings, o: { firstVisitAt?: string | null; lastSurpriseAt?: string | null; madeRightAt?: string | null; usedThisMonth: number; now: number }): { item: Surprise; why: string } | null {
+  if (!S.on || !S.surprises.on || o.usedThisMonth >= S.surprises.perMonth) return null;
+  const last = Date.parse(String(o.lastSurpriseAt || '')) || 0;
+  for (const item of S.surprises.items.filter((x) => x.on)) {
+    if (item.when === 'made_right') { const mr = Date.parse(String(o.madeRightAt || '')) || 0; if (mr && o.now - mr <= 60 * DAY_MS && last < mr) return { item, why: 'After we put something right for them' }; }
+    if (item.when === 'anniversary') { const f = Date.parse(String(o.firstVisitAt || '')); if (!f) continue; const fd = new Date(f); const years = new Date(o.now).getUTCFullYear() - fd.getUTCFullYear();
+      for (const y of [years, years - 1]) { if (y < 1) continue; const ann = Date.UTC(fd.getUTCFullYear() + y, fd.getUTCMonth(), fd.getUTCDate());
+        if (o.now >= ann - 7 * DAY_MS && o.now <= ann + 14 * DAY_MS && last < ann - 7 * DAY_MS) return { item, why: `${y} year${y === 1 ? '' : 's'} with us` }; } }
+  }
+  return null;
+}
+/** Surprises the team can choose to give anyone, while the month's budget lasts. */
+export const teamSurprises = (S: LoyaltySettings, usedThisMonth: number) => (S.on && S.surprises.on && usedThisMonth < S.surprises.perMonth ? S.surprises.items.filter((x) => x.on && x.when === 'team') : []);
+/** What a tier's free upgrade takes off this bill: the difference in price, on the upgraded service. */
+export function upgradeCents(tier: Tier | null | undefined, lines: { serviceId: string | null; cents: number }[], priceCents: (serviceId: string) => number): number {
+  const u = tier?.upgrade; if (!u) return 0; const line = lines.find((l) => l.serviceId === u.toServiceId); if (!line) return 0;
+  return Math.max(0, Math.min(line.cents, priceCents(u.toServiceId) - priceCents(u.fromServiceId)));
+}
+/** The reward they're saving for (theirs, or the next one), and how far along they are. */
+export function goalOf(S: LoyaltySettings, goalRewardId: string | null | undefined, balance: number): { reward: Reward; toGo: number; pct: number; chosen: boolean } | null {
+  const on = S.rewards.filter((r) => r.on); const chosen = on.find((r) => r.id === goalRewardId) || null;
+  const r = chosen || on.filter((x) => x.points > balance).sort((a, b) => a.points - b.points)[0] || null; if (!r) return null;
+  return { reward: r, toGo: Math.max(0, r.points - balance), pct: Math.min(100, Math.round((balance / r.points) * 100)), chosen: !!chosen };
+}
+const NOTABLE = new Set([10, 25, 50, 75, 100, 150, 200, 250, 300]);
+/** What the team says when the client sits down: a notable visit number, an anniversary, a birthday nearby. */
+export function visitCues(o: { visitNumber: number; firstVisitAt?: string | null; birthday?: string | null; at: number; tz?: string }): string[] {
+  const out: string[] = []; const n = o.visitNumber;
+  if (n === 1) out.push('First visit'); else if (NOTABLE.has(n)) out.push(`Their ${n}th visit`);
+  const f = Date.parse(String(o.firstVisitAt || ''));
+  if (f && n > 1) { const fd = new Date(f); const y = new Date(o.at).getUTCFullYear() - fd.getUTCFullYear();
+    for (const k of [y, y + 1]) { if (k < 1) continue; const ann = Date.UTC(fd.getUTCFullYear() + k, fd.getUTCMonth(), fd.getUTCDate()); const d = (ann - o.at) / DAY_MS;
+      if (d >= -3 && d <= 4) { out.push(`${k} year${k === 1 ? '' : 's'} with us this week`); break; } } }
+  const bm = String(o.birthday || '').match(/(\d{2})-(\d{2})$/);
+  if (bm) { const y = new Date(o.at).getUTCFullYear(); for (const yy of [y - 1, y, y + 1]) { const b = Date.UTC(yy, Number(bm[1]) - 1, Number(bm[2])); const d = Math.round((b - Date.UTC(new Date(o.at).getUTCFullYear(), new Date(o.at).getUTCMonth(), new Date(o.at).getUTCDate())) / DAY_MS);
+    if (d === 0) { out.push('Birthday today'); break; } if (d > 0 && d <= 7) { out.push(`Birthday ${new Date(b).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}`); break; } if (d < 0 && d >= -3) { out.push('Birthday this week'); break; } } }
+  return out;
+}
+/** A tier's perks in plain words: the ones the app carries out, then the business's own. */
+export function perkWords(t: Tier | null | undefined, serviceName: (id: string) => string | null = () => null): string[] {
+  if (!t) return []; const out: string[] = [];
+  if (t.waitlistFirst) out.push('First pick of cancellations');
+  if (t.earlyDays) out.push(`Book ${t.earlyDays} day${t.earlyDays === 1 ? '' : 's'} early`);
+  if (t.upgrade) { const to = serviceName(t.upgrade.toServiceId), from = serviceName(t.upgrade.fromServiceId); out.push(to ? `Free upgrade${from ? ` from ${from.toLowerCase()}` : ''} to ${to.toLowerCase()}` : 'A free upgrade'); }
+  return [...out, ...(t.perks || [])];
 }

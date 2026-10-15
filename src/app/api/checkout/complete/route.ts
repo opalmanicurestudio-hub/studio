@@ -260,7 +260,20 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   };
   // A loyalty reward (lib/loyalty): checked against the program and worked out from this bill; the points come off in the
   // ledger just before the money moves (below), and go back if the checkout doesn't finish.
-  let loyaltyReward: { cents: number; label: string; rewardId: string } | null = null; let loyaltyRw: any = null;
+  let loyaltyReward: { cents: number; label: string; rewardId: string } | null = null; let loyaltyRw: any = null; let loyaltyRwCents = 0;
+  // Loyalty extras on the same discount: a tier's free upgrade and a surprise (lib/loyalty), each checked again here.
+  let loyaltyGifts: { kind: 'perk' | 'surprise'; name: string; cents: number; costCents: number; surpriseId?: string | null }[] = [];
+  if ((b.loyaltyPerk === true || b.loyaltySurpriseId) && clientId && (tenant as any)?.loyalty?.on === true) {
+    const { rewardCents: rc } = await import('@/lib/loyalty'); const { clientExtras } = await import('@/lib/loyalty-server'); const X: any = await clientExtras(db, tenantId, tenant, clientId).catch(() => null);
+    const base: any = computeCheckout({ ...calcArgs, giftCard: 0 });
+    const lines = (base.visits || []).filter((v: any) => !v.renter).flatMap((v: any, k: number) => [{ serviceId: visits[k]?.service?.id || null, cents: Math.round(num(v.mainPrice) * 100) }, ...(v.addOns || []).map((x: any) => ({ serviceId: x.addon?.id || null, cents: Math.round(num(x.price) * 100) }))]);
+    const room = Math.round(Math.max(0, num(base.subtotal) - num(base.renterSub) - num(base.discount)) * 100);
+    const up = X?.tierPerks?.upgrade; const upLine = up ? lines.find((l: any) => l.serviceId === up.toServiceId) : null;
+    if (b.loyaltyPerk === true && up && upLine) { const c = Math.min(upLine.cents, up.cents); if (c > 0) loyaltyGifts.push({ kind: 'perk', name: `${X.tierPerks.name}: ${up.toName} at the ${up.fromName} price`, cents: c, costCents: c }); }
+    if (b.loyaltySurpriseId) { const sid = String(b.loyaltySurpriseId); const it = X?.surprise?.id === sid ? X.surprise : (X?.teamSurprises || []).find((x: any) => x.id === sid);
+      if (!it) return json({ ok: false, error: 'That surprise isn’t available for this client now. Remove it and try again.' }, 400);
+      const c = rc(it, { lines, discountableCents: room }); if (c > 0) loyaltyGifts.push({ kind: 'surprise', name: it.name, cents: c, costCents: Number(it.costCents ?? c) || 0, surpriseId: sid }); }
+  }
   if (b.loyaltyRewardId && clientId) {
     const { loyaltyOf, rewardCents } = await import('@/lib/loyalty'); const LS = loyaltyOf(tenant);
     loyaltyRw = LS.on ? LS.rewards.find((r) => r.on && r.id === String(b.loyaltyRewardId)) || null : null;
@@ -272,8 +285,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const account = (items || []).filter((it: any) => ['rent', 'tuition', 'giftcard'].includes(it.type)).reduce((t2: number, it: any) => t2 + num(it.price) * num(it.quantity), 0);
     const cents = rewardCents(loyaltyRw, { lines, discountableCents: Math.round(Math.max(0, num(base.subtotal) - num(base.renterSub) - account - num(base.discount)) * 100) });
     if (cents <= 0) return json({ ok: false, error: `${loyaltyRw.name} can’t be used on this bill.` }, 400);
-    loyaltyReward = { cents, label: `Reward: ${loyaltyRw.name}`, rewardId: loyaltyRw.id }; calcArgs.loyaltyReward = loyaltyReward;
+    loyaltyRwCents = cents;     loyaltyReward = { cents, label: `Reward: ${loyaltyRw.name}`, rewardId: loyaltyRw.id }; calcArgs.loyaltyReward = loyaltyReward;
   }
+  if (loyaltyGifts.length) { const extra = loyaltyGifts.reduce((t2, g) => t2 + g.cents, 0);
+    loyaltyReward = { cents: (loyaltyReward?.cents || 0) + extra, label: [loyaltyReward?.label, ...loyaltyGifts.map((g) => (g.kind === 'surprise' ? `Surprise: ${g.name}` : g.name))].filter(Boolean).join(' · '), rewardId: loyaltyReward?.rewardId || '' }; calcArgs.loyaltyReward = loyaltyReward; }
   { const sdPre = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
     const calc0 = computeCheckout({ ...calcArgs, staffDiscount: sdPre, giftCard: 0, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
     const err = await giftPlan(calc0); if (err) return json({ ok: false, error: err }, 400); }
@@ -568,8 +583,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const saleLocation: string | null = (typeof b.locationId === 'string' && b.locationId.slice(0, 80)) || visits[0]?.appointment?.locationId || homeLocation(staff.find((x: any) => x.id === visits[0]?.appointment?.staffId)) || null;
   // The loyalty reward's points come off now, checked against the ledger itself; put back if the checkout doesn't save.
   let loyaltyRedeemed = false;
-  if (loyaltyReward && loyaltyRw && clientId) { const { redeemForSale } = await import('@/lib/loyalty-server');
-    const r: any = await redeemForSale(db, tenantId, tenant, { clientId, saleId: checkoutSessionId, reward: loyaltyRw, cents: Math.round(num((calc as any).loyaltyDiscount) * 100) || loyaltyReward.cents, by: auth.actor.name || 'Front desk' });
+  if (loyaltyRw && loyaltyRwCents > 0 && clientId) { const { redeemForSale } = await import('@/lib/loyalty-server');
+    const r: any = await redeemForSale(db, tenantId, tenant, { clientId, saleId: checkoutSessionId, reward: loyaltyRw, cents: Math.min(loyaltyRwCents, Math.round(num((calc as any).loyaltyDiscount) * 100)) || loyaltyRwCents, by: auth.actor.name || 'Front desk' });
     if (!r.ok) { await failPending(r.error); return json({ ok: false, error: r.error }, 409); } loyaltyRedeemed = true; }
   const loyaltyUndo = async () => { if (loyaltyRedeemed) { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: checkoutSessionId, full: true, by: 'System' }).catch(() => {}); } };
   // Gift cards: take the money off each card now (each in its own safe step); put it all back if anything fails.
@@ -583,6 +598,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
 
   // After the sale is saved: enrol memberships / packages; confirm next-visit deposits.
   const warnings: string[] = [];
+  // Loyalty extras given on this sale: recorded at no points, with what each cost (reward first, then these, as discounted).
+  if (clientId && loyaltyGifts.length) { try { const { recordGift } = await import('@/lib/loyalty-server'); const all = Math.round(num((calc as any).loyaltyDiscount) * 100); let left = all - Math.min(all, loyaltyRw ? loyaltyRwCents : 0);
+    for (const g of loyaltyGifts) { const c = Math.max(0, Math.min(g.cents, left)); left -= c; if (c > 0) await recordGift(db, tenantId, { kind: g.kind, clientId, saleId: checkoutSessionId, name: g.name, cents: c, costCents: Math.min(g.costCents, c), by: auth.actor.name || 'Front desk', surpriseId: g.surpriseId || null }); } } catch (e) { console.error('[checkout] loyalty gifts', e); } }
   // Loyalty (lib/loyalty): what this paid sale earns, once. Services and products only, on what was actually paid.
   if (clientId && (tenant as any)?.loyalty?.on === true) { try {
     const { earnForSale } = await import('@/lib/loyalty-server'); const c2: any = calc;

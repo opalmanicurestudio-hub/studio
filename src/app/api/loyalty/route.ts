@@ -54,9 +54,13 @@ export async function POST(req: NextRequest) {
     const tr = tierFor(S, e12, c.loyalty?.tier || null);
     return j({ ok: true, on: S.on, tier: tr.tier ? { name: tr.tier.name, perks: tr.tier.perks, multiplier: tr.tier.multiplier, grace: tr.grace } : null, nextTier: tr.next ? { name: tr.next.tier.name, toGo: tr.next.toGo } : null, unit: S.earn.mode === 'punch' ? 'punches' : 'points', balance, worthCents: worthCents(S, balance), ready: r.ready, next: r.next, oneRewardPerVisit: S.oneRewardPerVisit,
       expiresAt: expiresAt(S, c.loyalty?.lastVisitAt || null), terms: termsOf(S), optedOut: c.loyaltyOptOut === true, joined: S.join !== 'opt_in' || !!c.loyaltyJoinedAt,
-      ledger: ledger.slice(0, 80).map((e: any) => ({ id: e.id, type: e.type, points: e.points, at: e.at, why: e.why || '', saleId: e.saleId || null, version: e.version || null, by: e.by || null })) });
+      ledger: ledger.slice(0, 80).map((e: any) => ({ id: e.id, type: e.type, points: e.points, at: e.at, why: e.why || '', saleId: e.saleId || null, version: e.version || null, by: e.by || null })),
+      extras: S.on ? await (await import('@/lib/loyalty-server')).clientExtras(db, tenantId, tenant, clientId).catch(() => null) : null });
   }
-  if (action === 'join') { await db.doc(`${T}/clients/${clientId}`).set({ loyaltyJoinedAt: new Date().toISOString(), loyaltyOptOut: false }, { merge: true }); return j({ ok: true }); }
+  if (action === 'join') { await db.doc(`${T}/clients/${clientId}`).set({ loyaltyJoinedAt: new Date().toISOString(), loyaltyOptOut: false }, { merge: true });
+    const { grantHeadStart } = await import('@/lib/loyalty-server'); const head = await grantHeadStart(db, tenantId, tenant, clientId).catch(() => 0); return j({ ok: true, headStart: head }); }
+  if (action === 'goal') { const S = loyaltyOf(tenant); const id = String(b.rewardId || ''); if (id && !S.rewards.some((r) => r.on && r.id === id)) return j({ ok: false, error: 'That reward isn’t available.' }, 400);
+    await db.doc(`${T}/clients/${clientId}`).set({ loyalty: { goalRewardId: id || null } }, { merge: true }); return j({ ok: true }); }
   if (action === 'adjust') { const r = await adjustPoints(db, tenantId, { clientId, points: Number(b.points), note: String(b.note || ''), by }); return j(r, r.ok ? 200 : 400); }
   return j({ ok: false, error: 'Unknown action.' }, 400);
 }

@@ -51,7 +51,7 @@ function MonthInReview() {
             <Tile title="Opportunities that came back" big={$(r.opportunities.paidCents)} sub={`${r.opportunities.cameBack} came back and paid`} tone={r.opportunities.paidCents ? GREEN : undefined}>
               <Row l="Found" v={r.opportunities.found} /><Row l="Contacted" v={r.opportunities.contacted} /><Row l="Booked, not yet in" v={r.opportunities.stillBooked} /></Tile>
             <Tile title="Rewards used" big={String(r.rewards.used)} sub={r.rewards.usedValueCents ? `${$(r.rewards.usedValueCents)} off for clients` : 'No rewards used yet'}>
-              <Row l="Points earned" v={n(r.rewards.earned)} /><Row l="Points used" v={n(r.rewards.usedPoints)} /><Row l="What rewards cost you" v={$(r.rewards.costCents)} />{r.rewards.expired > 0 && <Row l="Points expired" v={n(r.rewards.expired)} />}</Tile>
+              <Row l="Points earned" v={n(r.rewards.earned)} /><Row l="Points used" v={n(r.rewards.usedPoints)} /><Row l="What rewards cost you" v={$(r.rewards.costCents)} />{r.rewards.surprises > 0 && <Row l="Surprises given" v={r.rewards.surprises} />}{r.rewards.perks > 0 && <Row l="Tier upgrades" v={r.rewards.perks} />}{r.rewards.expired > 0 && <Row l="Points expired" v={n(r.rewards.expired)} />}</Tile>
             <Tile title="Calls about openings" big={`${r.calls.used}`} sub={r.calls.on ? `of about ${r.calls.allowed} in your monthly limit` : 'Calls are off'} tone={r.calls.allowed && r.calls.used >= r.calls.allowed ? AMBER : undefined} />
             <Tile title="Texts" big={n(r.texts.sent)} sub="sent">
               <Row l="Didn’t go through" v={<span style={{ color: r.texts.failed ? AMBER : undefined }}>{r.texts.failed}</span>} /><Row l="Replied STOP" v={r.texts.stops} /></Tile>

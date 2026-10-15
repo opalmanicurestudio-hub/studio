@@ -294,6 +294,15 @@ async function reward(db: any, t: string, tenant: any, S: ReferralSettings, r: a
   const { circleOf, rewardFor } = await import('@/lib/circle'); const { memberState, afterReward } = await import('@/lib/circle-server');
   const C = circleOf(tenant); const st = C.on ? await memberState(db, t, r.referrerId, C, now) : null;
   const pay = rewardFor(S, C, st?.tier || null, now, st?.creator || null);
+  // One balance: when the loyalty program gives points for referrals, the reward lands as points instead of store credit.
+  { const { loyaltyOf } = await import('@/lib/loyalty'); const LS = loyaltyOf(tenant);
+    if (LS.on && LS.referralPoints > 0 && !st?.creator) { const ref = db.doc(`${T(t)}/loyaltyLedger/ref_${r.id}`);
+      if (!(await ref.get()).exists) await ref.set({ clientId: r.referrerId, type: 'bonus', points: LS.referralPoints, at: iso(now), by: 'system', referralId: r.id, version: LS.version, why: `Brought a friend: ${r.friendFirst || 'a friend'}` });
+      const { balanceFor } = await import('@/lib/loyalty-server'); await db.doc(`${T(t)}/clients/${r.referrerId}`).set({ loyalty: { balance: await balanceFor(db, t, r.referrerId), updatedAt: iso(now) } }, { merge: true });
+      await db.doc(`${T(t)}/referrals/${r.id}`).set({ status: 'rewarded', rewardedAt: iso(now), rewardCents: 0, rewardPoints: LS.referralPoints, creditId: null, holdReason: null }, { merge: true });
+      const rc0: any = (await db.doc(`${T(t)}/clients/${r.referrerId}`).get()).data() || {};
+      await textTo(db, t, { id: r.referrerId, ...rc0 }, `Hi ${firstOf(rc0.name) || 'there'}, ${r.friendFirst || 'your friend'} came in today. Thank you for trusting us with your friend! ${LS.referralPoints} points have been added to your rewards.`, 'referral_update');
+      await afterReward(db, t, tenant, r.referrerId, now, (c, body) => textTo(db, t, c, body, 'referral_update')); return; } }
   const credit = pay.cents > 0 ? await issueCredit(db, t, r.referrerId, pay.cents, S.months, `Referral reward: ${r.friendFirst || 'a friend'}`, r.id, now) : null;
   await db.doc(`${T(t)}/referrals/${r.id}`).set({ status: 'rewarded', rewardedAt: iso(now), rewardCents: pay.cents, creditId: credit, holdReason: null, ...(pay.boost ? { boostId: pay.boost.id } : {}),
     ...(pay.cashCents > 0 ? { cashOwedCents: pay.cashCents } : {}), ...(st?.tier ? { tierAtReward: st.tier } : {}) }, { merge: true });
@@ -323,7 +332,8 @@ export async function referralSweep(db: any, t: string, tenant: any, now = Date.
     if (r.status === 'rewarded') {   // a refund within 60 days takes unused credit back; spent credit is for a manager to see
       if (r.clawCheckedDone || now - ms(r.rewardedAt) > 60 * DAY || !r.visitId) continue;
       if (await refundedVisit(db, t, r.visitId)) {
-        const back = r.creditId ? await voidCredit(db, t, r.referrerId, r.creditId, now) : false;
+        let back = r.creditId ? await voidCredit(db, t, r.referrerId, r.creditId, now) : false;
+        if (r.rewardPoints) { const rb = db.doc(`${T(t)}/loyaltyLedger/refback_${r.id}`); if (!(await rb.get()).exists) await rb.set({ clientId: r.referrerId, type: 'reverse', of: 'bonus', points: -Number(r.rewardPoints), at: iso(now), by: 'system', referralId: r.id, why: 'Friend’s visit was refunded' }); back = true; }
         await ref.set({ status: 'declined', reason: 'refunded', clawedBack: back, clawCheckedDone: true, decidedAt: iso(now) }, { merge: true }); clawed++;
         if (!back) { const n = db.collection(`${T(t)}/notifications`).doc(); await n.set({ id: n.id, type: 'referral', read: false, createdAt: iso(now), link: '/referrals', message: `${r.friendFirst || 'A referred friend'}’s visit was refunded, and ${firstOf(r.referrerName) || 'the client'} has already used the ${dollars(r.rewardCents)} credit. Nothing was charged to them.` }); }
       }

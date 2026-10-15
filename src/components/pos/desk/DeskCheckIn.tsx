@@ -13,6 +13,7 @@
 //   6 Arrival     check-in time + early/late recorded, optional note for the provider,
 //                 and the provider is told (notification) — then the card moves on.
 
+import { VisitCue } from '@/components/loyalty/VisitCue';
 import { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { writeBatch, doc, collection } from 'firebase/firestore';
@@ -108,6 +109,7 @@ export function DeskCheckIn({ e, accent }: { e: any; accent?: string | null }) {
           <p className="text-[15px]"><b>{c.name || 'Guest'}</b>{isWalkIn ? ' · walk-in' : item.confirmationCode ? ` · #${item.confirmationCode}` : ''}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1"><button type="button" onClick={() => { close(); e.setIsScanLookupOpen?.(true); }} className="text-[13px] underline underline-offset-2" style={{ color: 'var(--muted)' }}>Not them? Scan or search again</button>
             <button type="button" onClick={() => { e.setTicketToPrint?.(item); e.setIsPrintDialogOpen?.(true); }} className="text-[13px] underline underline-offset-2" style={{ color: 'var(--muted)' }}>Print their ticket</button></div>
+          {item.clientId && !(renter || item.renterId) && <div className="pt-2"><VisitCue tenantId={e.tenantId} clientId={item.clientId} compact /></div>}
         </Step>
 
         <Step n={2} title="The visit">

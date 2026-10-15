@@ -5,7 +5,7 @@
 //                                       version, why, note? }   — only the server writes it (database rules)
 //   earn_{saleId} / redeem_{saleId} ids make a sale earn once and redeem once, however often checkout is retried.
 //   clients/{id}.loyalty = { balance, lastVisitAt, updatedAt } — a copy for lists and the desk; the ledger decides.
-import { loyaltyOf, pointsFor, pointsBack, balanceOf, expiresAt, tierFor, milestoneAt, quietBonus, type SaleForPoints, type Reward } from '@/lib/loyalty';
+import { loyaltyOf, pointsFor, pointsBack, balanceOf, expiresAt, tierFor, milestoneAt, quietBonus, rhythmBonus, boostBonus, type SaleForPoints, type Reward } from '@/lib/loyalty';
 
 const L = (t: string) => `tenants/${t}/loyaltyLedger`;
 const nowIso = (n = Date.now()) => new Date(n).toISOString();
@@ -44,6 +44,14 @@ export async function earnForSale(db: any, t: string, tenant: any, o: { clientId
   // Quiet-time bonus: once per sale, the best one that applies.
   const qb = (o.quiet || []).map((q) => quietBonus(S, q.day, q.min, q.serviceId)).filter(Boolean).sort((a: any, b: any) => b.points - a.points)[0];
   if (qb) { await db.doc(`${L(t)}/qb_${o.saleId}`).set({ clientId: o.clientId, type: 'bonus', points: qb.points, at, by: 'system', saleId: o.saleId, version: S.version, why: qb.label }); extra += qb.points; }
+  // A head start for a brand-new member: once, with their first points.
+  if (S.headStart > 0 && !before.length) { const hRef = db.doc(`${L(t)}/head_${o.clientId}`); if (!(await hRef.get()).exists) { await hRef.set({ clientId: o.clientId, type: 'bonus', points: S.headStart, at, by: 'system', version: S.version, why: 'Welcome: a head start' }); extra += S.headStart; } }
+  // Kept their rhythm: back within their usual gap.
+  if (o.sale.visits > 0) { const prior = before.filter((e) => e.type === 'earn' && (Number(e.visits) || 0) > 0).map((e) => String(e.at)); const rb = rhythmBonus(S, prior, atMs);
+    if (rb) { await db.doc(`${L(t)}/rh_${o.saleId}`).set({ clientId: o.clientId, type: 'bonus', points: rb.points, at, by: 'system', saleId: o.saleId, version: S.version, why: rb.label }); extra += rb.points; } }
+  // A point boost running today (the business's calendar).
+  { const { dayKey, tenantTimeZone } = await import('@/lib/tenant-time'); const bb = boostBonus(S, o.sale, dayKey(new Date(atMs), tenantTimeZone(tenant)));
+    if (bb) { await db.doc(`${L(t)}/bo_${o.saleId}`).set({ clientId: o.clientId, type: 'bonus', points: bb.points, at, by: 'system', saleId: o.saleId, version: S.version, why: bb.label }); extra += bb.points; } }
   // Their tier after this visit (kept until a year after they last qualified, plus the grace period).
   const after = [...before, { type: 'earn', points: points + extra, at }];
   const t2 = tierFor(S, earned12(after), c.loyalty?.tier || null, atMs);
@@ -186,4 +194,49 @@ export async function loyaltyDashboard(db: any, t: string, tenant: any, now = Da
   const kinds = ['rewardReady', 'tierUp', 'unused', 'comeBack'].map((k) => ({ kind: k, ...liftOf(msgs.filter((m: any) => m.kind === k).map((m: any) => ({ held: !!m.held, cameBack: back(m) }))) }));
   return { ok: true, measured: { members: members.size, memberActive90: memberActive, rewardsUsed90: redeem.length, rewardCost90Cents: redeem.reduce((s: number, e: any) => s + (Number(e.costCents) || 0), 0), owedPoints: owed, owedCents: worthCents(S, owed), byReward: [...byReward.values()].sort((a, b) => b.used - a.used), tiers, messages: kinds },
     association: { memberVisits: avg(mem), otherVisits: avg(non), note: 'Members already tend to be your regulars, so this shows a difference, not what loyalty caused.' } };
+}
+
+// ── What makes it feel special: the desk's view of one client, and what checkout records ───────────────────────────────
+const rowsOf = (s: any) => s.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+/** A head start the moment someone joins (for programs where clients say yes). Once per client. */
+export async function grantHeadStart(db: any, t: string, tenant: any, clientId: string) {
+  const S = loyaltyOf(tenant); if (!S.on || S.headStart <= 0) return 0; const ref = db.doc(`${L(t)}/head_${clientId}`);
+  const made = await db.runTransaction(async (tx: any) => { if ((await tx.get(ref)).exists) return false; tx.set(ref, { clientId, type: 'bonus', points: S.headStart, at: nowIso(), by: 'system', version: S.version, why: 'Welcome: a head start' }); return true; });
+  if (made) await syncClient(db, t, clientId); return made ? S.headStart : 0;
+}
+/** Surprises given this month (the business's calendar), for the monthly budget. */
+export async function surprisesThisMonth(db: any, t: string, tenant: any, now = Date.now()) {
+  const { tenantTimeZone, dayKey, startOfDay } = await import('@/lib/tenant-time'); const tz = tenantTimeZone(tenant); const first = startOfDay(`${dayKey(new Date(now), tz).slice(0, 7)}-01`, tz).toISOString();
+  return rowsOf(await db.collection(L(t)).where('at', '>=', first).get().catch(() => ({ docs: [] }))).filter((e: any) => e.type === 'surprise').length;
+}
+/** Everything the desk and the provider need about one client today: goal, cues, a surprise, the tier's upgrade. */
+export async function clientExtras(db: any, t: string, tenant: any, clientId: string, now = Date.now()) {
+  const { goalOf, visitCues, surpriseFor, teamSurprises, activeBoosts } = await import('@/lib/loyalty');
+  const S = loyaltyOf(tenant); const c: any = (await db.doc(`tenants/${t}/clients/${clientId}`).get()).data() || {};
+  const ledger = await ledgerFor(db, t, clientId); const balance = Math.max(0, balanceOf(ledger));
+  const appts = rowsOf(await db.collection(`tenants/${t}/appointments`).where('clientId', '==', clientId).get().catch(() => ({ docs: [] })));
+  const done = appts.filter((a: any) => a.status === 'completed' || a.checkoutStatus === 'paid' || a.paymentStatus === 'paid').map((a: any) => String(a.startTime || '')).filter(Boolean).sort();
+  const firstVisitAt = c.firstVisitAt || done[0] || null;
+  const e12 = ledger.filter((e: any) => (e.type === 'earn' || e.type === 'bonus') && Date.parse(e.at) >= now - 365 * 864e5).reduce((a: number, e: any) => a + Math.max(0, Number(e.points) || 0), 0);
+  const tier = tierFor(S, e12, c.loyalty?.tier || null, now).tier;
+  const cases = rowsOf(await db.collection(`tenants/${t}/cases`).where('clientId', '==', clientId).get().catch(() => ({ docs: [] })));
+  const madeRightAt = cases.filter((x: any) => x.kind !== 'incident' && x.locked && x.closedAt).map((x: any) => String(x.closedAt)).sort().pop() || null;
+  const lastSurpriseAt = ledger.filter((e: any) => e.type === 'surprise').map((e: any) => String(e.at)).sort().pop() || null;
+  const used = await surprisesThisMonth(db, t, tenant, now);
+  const sur = surpriseFor(S, { firstVisitAt, lastSurpriseAt, madeRightAt, usedThisMonth: used, now });
+  let upgrade: any = null;
+  if (tier?.upgrade) { const [a, b] = await Promise.all([db.doc(`tenants/${t}/services/${tier.upgrade.fromServiceId}`).get(), db.doc(`tenants/${t}/services/${tier.upgrade.toServiceId}`).get()]);
+    const fa: any = a.data() || {}, fb: any = b.data() || {}; const diff = Math.max(0, Math.round((Number(fb.price) || 0) * 100) - Math.round((Number(fa.price) || 0) * 100));
+    if (diff > 0) upgrade = { fromServiceId: tier.upgrade.fromServiceId, toServiceId: tier.upgrade.toServiceId, fromName: fa.name || 'their service', toName: fb.name || 'the upgrade', cents: diff }; }
+  const goal = goalOf(S, c.loyalty?.goalRewardId || null, balance);
+  const { dayKey, tenantTimeZone } = await import('@/lib/tenant-time'); const boosts = activeBoosts(S, dayKey(new Date(now), tenantTimeZone(tenant))).map((b) => b.label);
+  return { firstVisitAt, visitNumber: done.length + 1, boosts, cues: visitCues({ visitNumber: done.length + 1, firstVisitAt, birthday: c.birthday || c.dateOfBirth || c.dob || null, at: now }),
+    goal: goal ? { rewardId: goal.reward.id, name: goal.reward.name, toGo: goal.toGo, pct: goal.pct, chosen: goal.chosen } : null,
+    surprise: sur ? { ...sur.item, why: sur.why } : null, teamSurprises: sur ? [] : teamSurprises(S, used), surpriseBudgetLeft: Math.max(0, S.surprises.perMonth - used),
+    tierPerks: tier ? { name: tier.name, waitlistFirst: !!tier.waitlistFirst, earlyDays: tier.earlyDays || 0, upgrade } : null };
+}
+/** At checkout: a surprise given, or a tier's free upgrade. Kept in the ledger at no points, with what it cost — once per sale. */
+export async function recordGift(db: any, t: string, o: { kind: 'surprise' | 'perk'; clientId: string; saleId: string; name: string; cents: number; costCents: number; by: string; surpriseId?: string | null }) {
+  const ref = db.doc(`${L(t)}/${o.kind === 'surprise' ? 'sur' : 'perk'}_${o.saleId}`);
+  await ref.set({ clientId: o.clientId, type: o.kind, points: 0, at: nowIso(), by: o.by, saleId: o.saleId, cents: o.cents, costCents: o.costCents, rewardName: o.name, ...(o.surpriseId ? { surpriseId: o.surpriseId } : {}), why: o.kind === 'surprise' ? `A surprise: ${o.name}` : `Tier perk: ${o.name}` });
 }

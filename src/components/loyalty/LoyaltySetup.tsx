@@ -6,6 +6,7 @@ import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 import { LoyaltyDashboard } from '@/components/loyalty/LoyaltyDashboard';
 import { ProgramBuilder } from '@/components/loyalty/ProgramBuilder';
+import { LoyaltyExtras } from '@/components/loyalty/LoyaltyExtras';
 import { useInventory } from '@/context/InventoryContext';
 import { EARN_LABEL, EXPIRY_CHOICES, termsOf, loyaltyOf, AUTO_TEXTS, windowWords, type EarnMode, type Reward } from '@/lib/loyalty';
 
@@ -117,6 +118,7 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
                 <button type="button" onClick={() => setS((x: any) => ({ ...x, tiers: x.tiers.filter((_: any, k: number) => k !== i) }))} className="h-10 px-2 text-[12.5px]" style={{ color: MUTED }}>Remove</button>
               </div>
               <input value={(tr.perks || []).join(', ')} onChange={(e) => setS((x: any) => ({ ...x, tiers: x.tiers.map((y: any, k: number) => (k === i ? { ...y, perks: e.target.value.split(',').map((p) => p.trim()).filter(Boolean) } : y)) }))} placeholder="Perks, separated by commas (priority booking, early access to new services)" aria-label="Perks" className="h-10 w-full rounded-[10px] border bg-background px-3 text-[13.5px]" style={{ borderColor: LINE }} />
+              <TierPerks tr={tr} services={svcList} set={(patch: any) => setS((x: any) => ({ ...x, tiers: x.tiers.map((y: any, k: number) => (k === i ? { ...y, ...patch } : y)) }))} />
             </div>))}
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => setS((x: any) => ({ ...x, tiers: [...(x.tiers || []), { id: Math.random().toString(36).slice(2, 9), name: '', points: 1000, multiplier: 1.25, perks: [] }] }))} className="h-10 rounded-full border border-dashed px-4 text-[13.5px] font-semibold" style={{ borderColor: '#c9cace' }}>+ Add a tier</button>
@@ -157,6 +159,8 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
         </section>
       </div>
 
+      <LoyaltyExtras s={s} setS={setS} unit={unit} services={svcList} products={(inventory || []).filter((p: any) => p?.type === 'retail')} />
+
       <section className={`${card} grid gap-5 md:grid-cols-3`} style={{ borderColor: LINE }}>
         <div><p className="text-[15px] font-semibold">In plain words, for clients</p><p className="mt-1.5 text-[14px] leading-[1.55]">{terms}</p></div>
         <div><p className="text-[15px] font-semibold">Where clients see it</p><p className="mt-1.5 text-[14px] leading-[1.55]" style={{ color: MUTED }}>At checkout (the desk sees their rewards), on their receipt, and on their client page.</p></div>
@@ -164,5 +168,21 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
           <label className="flex items-center gap-2"><input type="radio" name="join" checked={s.join !== 'opt_in'} onChange={() => set({ join: 'everyone' })} /> Everyone, from their next paid visit</label>
           <label className="flex items-center gap-2"><input type="radio" name="join" checked={s.join === 'opt_in'} onChange={() => set({ join: 'opt_in' })} /> Only clients who say yes at checkout</label></div></div>
       </section>
+    </div>);
+}
+
+/** The perks the app carries out for a tier: first pick of cancellations, booking early, a free upgrade at checkout. */
+function TierPerks({ tr, services, set }: { tr: any; services: any[]; set: (patch: any) => void }) {
+  const up = tr.upgrade || null; const price = (id: string) => Number(services.find((v: any) => v.id === id)?.price) || 0;
+  return (
+    <div className="space-y-1.5 text-[13.5px]">
+      <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={!!tr.waitlistFirst} onChange={(e) => set({ waitlistFirst: e.target.checked })} /><span><b className="font-semibold">First pick of cancellations.</b> They go to the front of the waitlist.</span></label>
+      <label className="flex flex-wrap items-center gap-2"><input type="checkbox" checked={(tr.earlyDays || 0) > 0} onChange={(e) => set({ earlyDays: e.target.checked ? 7 : 0 })} /><b className="font-semibold">Book early.</b>
+        {(tr.earlyDays || 0) > 0 && <><input type="number" min={1} max={60} value={tr.earlyDays} onChange={(e) => set({ earlyDays: Number(e.target.value) })} aria-label="Days early" className="h-8 w-14 rounded-[8px] border bg-background px-2" style={{ borderColor: LINE }} /> days before everyone else</>}</label>
+      {(tr.earlyDays || 0) > 0 && <p className="pl-6 text-[12.5px]" style={{ color: MUTED }}>Works when you limit how far ahead people can book (Settings, booking window). They see the extra days when they book from their rewards link.</p>}
+      <label className="flex flex-wrap items-center gap-2"><input type="checkbox" checked={!!up} onChange={(e) => set({ upgrade: e.target.checked ? { fromServiceId: '', toServiceId: '' } : null })} /><b className="font-semibold">A free upgrade.</b>
+        {up && <><select value={up.fromServiceId} onChange={(e) => set({ upgrade: { ...up, fromServiceId: e.target.value } })} aria-label="From" className="h-8 rounded-[8px] border bg-background px-2" style={{ borderColor: LINE }}><option value="">Choose…</option>{services.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
+          becomes<select value={up.toServiceId} onChange={(e) => set({ upgrade: { ...up, toServiceId: e.target.value } })} aria-label="To" className="h-8 rounded-[8px] border bg-background px-2" style={{ borderColor: LINE }}><option value="">Choose…</option>{services.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></>}</label>
+      {up?.fromServiceId && up?.toServiceId && <p className="pl-6 text-[12.5px]" style={{ color: MUTED }}>{price(up.toServiceId) > price(up.fromServiceId) ? `At checkout the upgraded service comes to the ${services.find((v: any) => v.id === up.fromServiceId)?.name || 'original'} price: $${(price(up.toServiceId) - price(up.fromServiceId)).toFixed(2)} off, as a discount.` : 'The upgrade has to cost more than the service it replaces.'}</p>}
     </div>);
 }

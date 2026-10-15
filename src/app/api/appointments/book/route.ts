@@ -551,7 +551,7 @@ export async function POST(req: NextRequest) {
         // (enroll-membership sets activeMembershipId + subscription.status),
         // matched by the booking's email or phone.
         const { horizonDaysFor } = await import('@/lib/booking-release');
-        let isMember = false;
+        let isMember = false; let tierEarlyDays = 0;
         const email = String(body?.client?.email || '').trim().toLowerCase();
         const phoneDigits = String(body?.client?.phone || '').replace(/\D/g, '').slice(-10);
         try {
@@ -564,12 +564,16 @@ export async function POST(req: NextRequest) {
             }
           }
           isMember = hits.some((d: any) => { const c = d.data() as any; return !c.ownerRenterId && !!c.activeMembershipId && c.subscription?.status === 'active'; });
+          // A loyalty tier that books early (lib/loyalty): its extra days on top of their window.
+          try { const { loyaltyOf } = await import('@/lib/loyalty'); const LS = loyaltyOf(tenant);
+            if (LS.on) for (const d of hits) { const c: any = d.data() || {}; const tt = c.loyalty?.tier; const tier = tt?.id && (!tt.until || Date.parse(tt.until) > Date.now()) ? LS.tiers.find((x) => x.id === tt.id) : null;
+              if (tier?.earlyDays) tierEarlyDays = Math.max(tierEarlyDays, tier.earlyDays); } } catch { /* no extra days */ }
         } catch { /* treated as a non-member */ }
         if (svc?.membersOnly === true && !isMember) {
           return NextResponse.json({ ok: false, error: `${svc.name || 'That service'} is for members only. Use the email or phone on your membership, or ask us about joining.` }, { status: 403 });
         }
         const h = horizonDaysFor(tenant.bookingRelease || null, isMember, new Date(), tenant.timezone || 'America/New_York');
-        if (h !== null) renterHorizonDays = h;
+        if (h !== null) renterHorizonDays = h + tierEarlyDays;
       }
 
       const engineContext = {

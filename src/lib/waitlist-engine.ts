@@ -42,7 +42,9 @@ export function windowFits(windows: Record<string, string[]> | null | undefined,
 
 export interface Entry { id: string; kind?: 'new' | 'sooner'; clientId?: string | null; name?: string; phone?: string; email?: string; serviceId?: string | null; serviceIds?: string[]; staffId?: string | null; preferredStaffId?: string | null;
   windows?: Record<string, string[]> | null; noticeHours?: number; until?: string | null; createdAt?: string; addedAt?: string; appointmentId?: string | null; status?: string; visits?: number; reliability?: 'ok' | 'misses';
-  priorityUntil?: string | null; missedCount?: number; autoBook?: boolean; ignoredInARow?: number; stillAskedAt?: string | null }
+  priorityUntil?: string | null; missedCount?: number; autoBook?: boolean; ignoredInARow?: number; stillAskedAt?: string | null;
+  /** A loyalty tier with "first pick of cancellations" (lib/loyalty). */
+  vip?: boolean }
 export interface Opening { id: string; staffId: string; start: string; end: string; minutes: number; serviceId?: string | null; chainDepth?: number; offered?: string[] }
 
 const OPEN = ['waiting', 'active', 'open', 'empty', 'notified', 'offered'];
@@ -81,7 +83,7 @@ export function moveUpOk(o: Opening, freedStartMs: number, now: number, newcomer
 export function rank<T extends { e: Entry; leftover: number; pri?: string | null }>(list: T[]): T[] {
   const w = (e: Entry) => ms(e.createdAt || e.addedAt) || 0;
   const p = (x: T) => (x.pri === 'backup' ? 0 : x.pri ? 1 : 2);
-  return [...list].sort((a, b) => p(a) - p(b) || (a.e.kind === 'sooner' ? 1 : 0) - (b.e.kind === 'sooner' ? 1 : 0)
+  return [...list].sort((a, b) => p(a) - p(b) || (b.e.vip ? 1 : 0) - (a.e.vip ? 1 : 0) || (a.e.kind === 'sooner' ? 1 : 0) - (b.e.kind === 'sooner' ? 1 : 0)
     || (staffWanted(b.e) ? 1 : 0) - (staffWanted(a.e) ? 1 : 0)
     || (a.leftover === 0 ? 0 : 1) - (b.leftover === 0 ? 0 : 1)
     || w(a.e) - w(b.e)
