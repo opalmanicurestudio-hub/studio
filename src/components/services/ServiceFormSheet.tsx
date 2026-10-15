@@ -17,7 +17,7 @@ import { rateFor, payForService } from '@/lib/commission';
 import { PayImpact } from '@/components/staff/PayImpact';
 import { costGap } from '@/lib/product-cost';
 import { SettingsStyle } from '@/components/settings/settings-style';
-import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
+import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, CARE_LABEL, type ToolCare, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -984,17 +984,21 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   </div>
                   <div className="space-y-2">
                     <p className="text-xs font-semibold tracking-tight">What it needs</p>
-                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — tools and kits, linens, amenities, an extra person. Kits and linens are picked from your own lists, so each visit gets one set aside and housekeeping knows what to prepare.</p>
+                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — kits, single tools, disposables, linens, amenities, an extra person. Kits and linens are picked from your own lists, so each visit gets one set aside. A single tool says how it’s cleaned after each client (wipe, soak or sterilise), and that shows on the turnover. A disposable linked to a stock item comes off stock when the visit is paid.</p>
                     {bpReqs.map((r, i) => (
                       <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-2">
                         <select value={r.kind} onChange={(e) => setReq(i, { kind: e.target.value as RequirementKind })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="Kind">{(Object.keys(REQ_LABEL) as RequirementKind[]).map((k) => <option key={k} value={k}>{REQ_LABEL[k]}</option>)}</select>
-                        {(() => { const opts: string[] = r.kind === 'kit' ? (kitTypeList || []).filter((t: any) => !t.archived).map((t: any) => String(t.name)) : r.kind === 'linen' ? (linenList || []).filter((l: any) => !l.archived).map((l: any) => String(l.name)) : [];
+                        {r.kind === 'disposable' && (inventory || []).length > 0 ? (
+                          <select value={r.inventoryItemId || ''} onChange={(e) => { const it: any = (inventory || []).find((x: any) => x.id === e.target.value); setReq(i, { inventoryItemId: e.target.value || undefined, ...(it ? { name: String(it.name) } : {}) }); }} className="h-10 min-w-[8rem] flex-1 rounded-xl border bg-background px-2 text-sm" aria-label="Stock item">
+                            <option value="">{r.name ? `${r.name} (not linked to stock)` : 'Choose from your stock…'}</option>{(inventory || []).map((it: any) => <option key={it.id} value={it.id}>{it.name}</option>)}</select>
+                        ) : (() => { const opts: string[] = r.kind === 'kit' ? (kitTypeList || []).filter((t: any) => !t.archived).map((t: any) => String(t.name)) : r.kind === 'linen' ? (linenList || []).filter((l: any) => !l.archived).map((l: any) => String(l.name)) : [];
                           const listed = opts.some((o) => o.toLowerCase() === String(r.name || '').trim().toLowerCase());
                           return opts.length > 0 && (listed || !r.name) ? (
                             <select value={opts.find((o) => o.toLowerCase() === String(r.name || '').trim().toLowerCase()) || ''} onChange={(e) => setReq(i, { name: e.target.value === '__other' ? ' ' : e.target.value })} className="h-10 min-w-[8rem] flex-1 rounded-xl border bg-background px-2 text-sm" aria-label={r.kind === 'kit' ? 'Kit type' : 'Linen type'}>
                               <option value="">{r.kind === 'kit' ? 'Choose a kit type…' : 'Choose a linen…'}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}<option value="__other">Something not listed…</option></select>)
-                            : <Input value={r.name} onChange={(e) => setReq(i, { name: e.target.value })} placeholder={r.kind === 'linen' ? 'e.g. Towel' : 'e.g. Pedicure kit'} className="h-10 min-w-[8rem] flex-1 rounded-xl border" aria-label="Name" />; })()}
+                            : <Input value={r.name} onChange={(e) => setReq(i, { name: e.target.value })} placeholder={r.kind === 'linen' ? 'e.g. Towel' : r.kind === 'tool' ? 'e.g. Cuticle nipper' : r.kind === 'disposable' ? 'e.g. Nail file' : 'e.g. Pedicure kit'} className="h-10 min-w-[8rem] flex-1 rounded-xl border" aria-label="Name" />; })()}
                         <Input type="number" min={1} max={99} value={r.qty} onChange={(e) => setReq(i, { qty: Number(e.target.value) })} className="h-10 w-16 rounded-xl border text-center" aria-label="Quantity" />
+                        {r.kind === 'tool' && <select value={r.care || 'wipe'} onChange={(e) => setReq(i, { care: e.target.value as ToolCare })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="After each client">{(Object.keys(CARE_LABEL) as ToolCare[]).map((k) => <option key={k} value={k}>After: {CARE_LABEL[k].toLowerCase()}</option>)}</select>}
                         <select value={r.mode} onChange={(e) => setReq(i, { mode: e.target.value as RequirementMode })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="How strictly">{(Object.keys(MODE_LABEL) as RequirementMode[]).map((k) => <option key={k} value={k}>{MODE_LABEL[k]}</option>)}</select>
                         <button type="button" onClick={() => setBpReqs((rs) => rs.filter((_, j) => j !== i))} className="h-10 rounded-xl border px-2 text-xs">Remove</button>
                       </div>))}

@@ -8,7 +8,7 @@
 // Every expense lands in exactly one of those buckets, so nothing is counted twice. Pure functions — the report and the
 // visit screen both use them.
 import { rateFor, payForService } from '@/lib/commission';
-import { deriveTimings, phasesFromService } from '@/lib/blueprint';
+import { deriveTimings, phasesFromService, disposablesUsed } from '@/lib/blueprint';
 import { linensForVisit } from '@/lib/linens';
 import { kitsNeeded } from '@/lib/kits';
 
@@ -45,6 +45,7 @@ export function actualVisitCost(input: { visit: any; service: any; addOns?: any[
   if (lines.length) { materialsBasis = 'actual'; for (const l of lines) materials += n(l.actual ?? l.deducted ?? l.expected) * unitCost(inv.find((i: any) => i.id === l.productId)); }
   else if (visit?.checkoutState?.formula?.length) { materialsBasis = 'formula'; for (const f of visit.checkoutState.formula) materials += n(f.quantity) * n(f.costPerUnit); }
   else { for (const sv of [service, ...addOns]) for (const p of sv?.products || []) { const it = inv.find((i: any) => i.id === p.id); if (!it) continue; materials += (n(p.quantityUsed) || 1) * unitCost(it); materialsBasis = 'standard'; } }
+  if (materialsBasis !== 'actual') for (const d of disposablesUsed([service, ...addOns])) { const it = d.inventoryItemId ? inv.find((i: any) => i.id === d.inventoryItemId) : null; if (it) { materials += d.qty * unitCost(it); if (materialsBasis === 'none') materialsBasis = 'standard'; } }   // recorded usage already includes them
   // Linens and kits: a handling cost per use.
   const linenN = linensForVisit(visit, [service, ...addOns].filter(Boolean)).reduce((a, x) => a + x.qty, 0);
   const kitN = [service, ...addOns].reduce((a, sv) => a + kitsNeeded(sv).reduce((b, k) => b + k.qty, 0), 0);

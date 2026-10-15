@@ -11,6 +11,7 @@
 // Records: tenants/{t}/usage/{visitId} and tenants/{t}/openContainers; every movement in the stock ledger.
 import { deductMainStock } from '@/lib/replenishment-system';
 import { buildEntry } from '@/lib/stock-ledger';
+import { disposablesUsed } from '@/lib/blueprint';
 
 export interface UsageLine { productId: string; name: string; unit: string; expected: number; actual?: number; deducted?: number; shortfall?: number }
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -25,6 +26,12 @@ export function expectedUsage(service: any, addOns: any[], inventory: any[]): Us
     const q = n(p?.quantityUsed); if (!p?.id || q <= 0) continue; const it: any = inv.get(p.id) || p;
     const cur = m.get(p.id) || { productId: p.id, name: String(it.name || p.name || 'Product'), unit: unitOf(it), expected: 0 };
     cur.expected = Math.round((cur.expected + q) * 1000) / 1000; m.set(p.id, cur);
+  }
+  // Disposables on the service's blueprint that are linked to a stock item come off stock too (one client, then thrown away).
+  for (const d of disposablesUsed([service, ...(addOns || [])])) {
+    if (!d.inventoryItemId) continue; const it: any = inv.get(d.inventoryItemId); if (!it) continue;
+    const cur = m.get(d.inventoryItemId) || { productId: d.inventoryItemId, name: String(it.name || d.name), unit: unitOf(it), expected: 0 };
+    cur.expected = Math.round((cur.expected + d.qty) * 1000) / 1000; m.set(d.inventoryItemId, cur);
   }
   return Array.from(m.values());
 }

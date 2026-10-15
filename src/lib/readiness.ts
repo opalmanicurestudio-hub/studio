@@ -5,6 +5,7 @@
 // (desk, POS, checkout, visit ticket) with nothing to keep in sync. Staff can mark a station ready early or flag it.
 import { stageOf } from '@/lib/visit';
 import { stepsForVisit, unconditionalSteps } from '@/lib/protocols';
+import { toolCare } from '@/lib/blueprint';
 
 export type Readiness = 'ready' | 'in_use' | 'turnover' | 'inspect' | 'blocked';
 export const READINESS_LABEL: Record<Readiness, string> = { ready: 'Ready', in_use: 'In use', turnover: 'Turning over', inspect: 'Needs inspection', blocked: 'Blocked' };
@@ -40,7 +41,8 @@ export function stationReadiness(resources: any[], appts: any[], services: any[]
     const fromProto = stepsForVisit(proto, a, s);
     const ph = (s?.blueprint?.phases || []).filter((p: any) => p?.kind === 'turnover');
     const named = ph.map((p: any) => String(p.label || '').trim()).filter((l: string) => l && l.toLowerCase() !== 'turnover');
-    const all = Array.from(new Set([...fromProto, ...named])).slice(0, 30);
+    const care = toolCare([s]).map((g) => `${g.label}: ${g.tools.map((t) => (t.qty > 1 ? `${t.name} ×${t.qty}` : t.name)).join(', ')}`);   // single tools, cleaned the way the service says
+    const all = Array.from(new Set([...fromProto, ...named, ...care])).slice(0, 30);
     return { steps: all.length ? all : (ph.length ? DEFAULT_TURNOVER_STEPS : []), proto };
   };
   const turnoverOf = (a: any) => { const s: any = svc.get(a?.serviceId); return Math.max(0, Number(a?.padAfter ?? s?.padAfter ?? 0) || 0); };
