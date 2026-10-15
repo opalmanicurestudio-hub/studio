@@ -23,7 +23,7 @@ const SAMPLES: Record<string, (studio: string) => string> = {
   }),
   reminder: (s) => brandedEmailHtml({
     studioName: s, title: 'Appointment reminder',
-    bodyLines: [`Reminder — your appointment is Tue, Jul 28 at 2:00 PM with Maya. Need to reschedule? Just reply or call us.`],
+    bodyLines: [`Reminder — your appointment is Tue, Jul 28 at 2:00 PM with Maya. Need to reschedule? Just reply to this message.`],
   }),
   portal: (s) => brandedEmailHtml({
     studioName: s, title: 'Your renter portal',

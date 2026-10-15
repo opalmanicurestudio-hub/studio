@@ -199,7 +199,8 @@ export async function POST(req: NextRequest) {
         noticeHours: [1, 3, 24].includes(Number(body?.noticeHours)) ? Number(body?.noticeHours) : 3,
         until: /^\d{4}-\d{2}-\d{2}$/.test(str(body?.until, 10)) ? str(body?.until, 10) : new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
         callOk: body?.callOk === true, callOkAt: body?.callOk === true ? new Date().toISOString() : null,
-        autoBook: body?.autoBook === true,   // "just book it for me" — booked the moment their fit opens (lib/waitlist-server autoBook)
+        party: (() => { const n = Math.round(Number(body?.party) || 1); return n >= 2 && n <= 6 ? n : 1; })(),
+        autoBook: body?.autoBook === true && !(Number(body?.party) > 1),   // "just book it for me" — booked the moment their fit opens (lib/waitlist-server autoBook)
         kind: 'new',
         requestedDate: str(body?.requestedDate, 40) || now.slice(0, 10),
         note,

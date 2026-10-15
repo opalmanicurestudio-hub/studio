@@ -34,7 +34,7 @@ export function PartyBuilder({ policy, services, mainServiceId, party, onChange,
           </div>))}
         {party.guests.length < policy.maxGuests
           ? <button type="button" onClick={() => set({ guests: [...party.guests, { name: '', serviceId: mainServiceId || list[0]?.id || '' }] })} className="h-10 rounded-full border px-4 text-[14px] font-semibold" style={{ borderColor: ink, color: ink }}>+ Add a guest</button>
-          : <p className="text-[13px] text-stone-500">Up to {policy.maxGuests} guest{policy.maxGuests === 1 ? '' : 's'} online — call us for a bigger group.</p>}
+          : <p className="text-[13px] text-stone-500">Up to {policy.maxGuests} guest{policy.maxGuests === 1 ? '' : 's'} online. For a bigger group, send us a message.</p>}
       </div>
       {(policy.sideBySide || policy.after) && <div className="space-y-2 border-t pt-4" style={{ borderColor: '#efebe6' }}>
         <p className="text-[15px] font-semibold">Add another service for you</p>

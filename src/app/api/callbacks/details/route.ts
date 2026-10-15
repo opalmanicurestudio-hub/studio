@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const x = await load(String(b.tenantId || ''), String(b.id || ''), String(b.k || ''));
   if (!x) return NextResponse.json({ ok: false, error: 'This link isn’t valid any more.' }, { status: 404 });
-  if (x.d.status === 'resolved') return NextResponse.json({ ok: false, error: 'We’ve already got back to you about this — if you need anything else, please call us.' }, { status: 409 });
+  if (x.d.status === 'resolved') return NextResponse.json({ ok: false, error: 'We’ve already got back to you about this — if you need anything else, please send us a message.' }, { status: 409 });
   const text = String(b.text || '').trim().slice(0, 1000);
   if (text.length < 2) return NextResponse.json({ ok: false, error: 'Write a little about what you need.' }, { status: 400 });
   const list = Array.isArray(x.d.callerAdded) ? x.d.callerAdded : [];

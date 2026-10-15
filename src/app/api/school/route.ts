@@ -169,6 +169,6 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: 'Something went wrong — please try again, or call us.' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Something went wrong — please try again, or send us a message.' }, { status: 500 });
   }
 }

@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     const r = await bookRedo(db, tenantId, c, { staffId: String(b.staffId || ''), date: String(b.date || ''), time: String(b.time || ''), by: c.clientName || 'Client', byClient: true });
     return NextResponse.json(r, { status: r.ok ? 200 : 409 });
   }
-  if (!info.open) return bad('This visit can’t take a report here any more — please call us.');
+  if (!info.open) return bad('This visit can’t take a report here any more — please send us a message.');
   if (info.case) return bad('We already have your report for this visit.');
 
   if (b.action === 'upload') {

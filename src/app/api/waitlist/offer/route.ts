@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   if (!tenantId || !token) return NextResponse.json({ ok: false, error: 'This link isn’t complete.' }, { status: 400 });
   const db = getAdminDb();
   try {
-    if (action === 'take') return NextResponse.json(await takeOffer(db, tenantId, token));
+    if (action === 'take') return NextResponse.json(await takeOffer(db, tenantId, token, Date.now(), {}, Array.isArray(b.guests) ? b.guests.slice(0, 6).map((g: any) => String(g || '').slice(0, 80)) : []));
     if (action === 'pass') return NextResponse.json(await passOffer(db, tenantId, token));
     // "Still hoping?" link (/w/{tenant}/keep/{token}): keep their place, or come off the list.
     if (action === 'keep_view') return NextResponse.json(await keepView(db, tenantId, token));

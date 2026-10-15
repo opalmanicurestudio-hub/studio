@@ -155,7 +155,7 @@ export default function SelfCancelPage() {
                                 <Button disabled={undoing} className="w-full h-14 rounded-full" onClick={async () => {
                                     setUndoing(true); setUndoErr(null);
                                     try { const r = await fetch('/api/appointments/undo-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId, k: accessKey }) }).then((x) => x.json());
-                                        if (r.ok) setResult({ ...result, undone: true }); else setUndoErr(r.error || 'That didn’t work — please call us.'); }
+                                        if (r.ok) setResult({ ...result, undone: true }); else setUndoErr(r.error || 'That didn’t work. Please send us a message and we’ll sort it out.'); }
                                     catch { setUndoErr('No connection — please try again.'); } finally { setUndoing(false); }
                                 }}>{undoing ? 'Undoing…' : 'Undo — keep my appointment'}</Button>
                             </div>

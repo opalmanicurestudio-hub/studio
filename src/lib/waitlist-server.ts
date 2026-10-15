@@ -9,6 +9,7 @@
 // that fit them, can be the backup for the one they missed, and is first — alone — for the next one. Nothing a client
 // sees ever names another client.
 import { randomBytes } from 'crypto';
+import { partyOf, partySet, partyHoldMin, partyOfferText } from '@/lib/waitlist-party';
 import { offerModeFor, fitFor, moveUpOk, rank, planRound, owed, offerText, isWaiting, serviceOf, staffWanted, windowFits, HOLD_ONE_MIN, PRIORITY_DAYS, WAVE_FROM_H, STALE_AFTER, STALE_ANSWER_H, stillText, autoBookedText, type Entry, type Opening, type Mode } from '@/lib/waitlist-engine';
 
 const T = (t: string) => `tenants/${t}`;
@@ -105,6 +106,7 @@ export async function matchesFor(db: any, t: string, op: any, now: number, d: De
   const fits: any[] = [], not: any[] = [];
   for (const en of entries) {
     if (offered.has(en.id) || !isWaiting(en)) continue;
+    { const n = partyOf(en); if (n > 1) { not.push({ e: en, why: `a party of ${n}, offered when ${n} times open together` }); continue; } }
     if (en.status === 'offered' && now - ms((en as any).lastOfferAt) < 30 * 60000) { not.push({ e: en, why: 'has another offer right now' }); continue; }
     if (en.stillAskedAt && (Number(en.ignoredInARow) || 0) >= STALE_AFTER) { not.push({ e: en, why: 'asked whether they would like to stay on the waitlist; no answer yet' }); continue; }
     if (en.phone && !(cache.noBudget ||= new Map()).has(en.id)) { const { budgetLeft } = await import('@/lib/text-budget'); cache.noBudget.set(en.id, (await budgetLeft(db, t, String(en.phone), 'waitlist_offer', now)) <= 0); }
@@ -147,8 +149,11 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
   const ops = rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get());
   let sent = 0, desk = 0; const cache: any = { tenant };
   const { inTextWindow } = await import('@/lib/campaigns'); const tz = await zoneOf(tenant); const canText = inTextWindow(tz, new Date(now));
+  // Parties first: when enough times open together, a party that fits gets them before anyone on their own.
+  try { await partyRound(db, t, ops, tenant, tz, now, d, cache, canText); } catch (e) { console.error('[waitlist] parties', e); }
   for (const op of ops) {
     const ref = db.doc(`${T(t)}/openings/${op.id}`);
+    if ((op.partyLock && ms(op.partyLock.until) > now) || (op.party?.status === 'sent' && ms(op.party.holdUntil) > now)) continue;
     if (ms(op.start) <= now) { await ref.update({ status: 'expired', closedAt: iso(now) }); await unhold(db, t, op.id); continue; }
     // A new gap: the provider may want to tidy their day instead (lib/tidy-server) — the waitlist waits for their call.
     if (!op.gapChecked && op.source !== 'moveup' && op.source !== 'fell_through') { try { const { gapDecision } = await import('@/lib/tidy-server'); if (await gapDecision(db, t, op, tenant, now, d as any)) continue; } catch (e) { console.error('[waitlist] gap decision', e); } }
@@ -227,6 +232,93 @@ async function callStep(db: any, t: string, op: any, tenant: any, tz: string, no
   return r.ok ? 'busy' : 'idle';
 }
 
+/** Parties: lapse the holds that ran out, then offer each waiting party (longest waiting first) a set of times that fits them all. */
+async function partyRound(db: any, t: string, ops: any[], tenant: any, tz: string, now: number, d: Deps, cache: any, canText: boolean) {
+  for (const op of ops) {
+    if (op.party?.status === 'sent' && ms(op.party.holdUntil) <= now) {
+      const ids: string[] = op.party.openingIds || [op.id];
+      for (const id of ids) { await unhold(db, t, id); if (id !== op.id) await db.doc(`${T(t)}/openings/${id}`).update({ partyLock: null }).catch(() => {}); const o = ops.find((x) => x.id === id); if (o) o.partyLock = null; }
+      op.party = { ...op.party, status: op.party.viewedAt ? 'lapsed' : 'unopened' }; await db.doc(`${T(t)}/openings/${op.id}`).update({ party: op.party });
+      const en = (await db.doc(`${T(t)}/waitlist/${op.party.entryId}`).get()).data() || {};
+      await db.doc(`${T(t)}/waitlist/${op.party.entryId}`).set({ status: 'waiting', partyTried: [...new Set([...(en.partyTried || []), ...ids])] }, { merge: true }).catch(() => {});
+    }
+  }
+  if (!canText) return;
+  const entries = (cache.entries ||= rows(await db.collection(`${T(t)}/waitlist`).get())).filter((e: any) => isWaiting(e) && partyOf(e) > 1)
+    .sort((a: any, b: any) => ms(a.createdAt || a.addedAt) - ms(b.createdAt || b.addedAt));
+  if (!entries.length) return;
+  const D = await deps(d); const eng = cache.engine || (cache.engine = withoutHolds(await D.engine(db, t))); if (!eng) return;
+  const svc = (id: string) => (eng.services || []).find((s: any) => s.id === id);
+  const free = (o: any) => o.status === 'open' && ms(o.start) > now && !(o.partyLock && ms(o.partyLock.until) > now) && !(o.party?.status === 'sent' && ms(o.party.holdUntil) > now)
+    && !(o.offers || []).some((f: any) => f.status === 'sent' && ms(f.holdUntil) > now) && !(o.calls || []).some((c: any) => c.status === 'calling');
+  const walls = new Map<string, any>(); for (const o of ops) walls.set(o.id, await wall(ms(o.start), tz));
+  for (const e of entries) {
+    const n = partyOf(e); const sid = serviceOf(e); const s = svc(sid); if (!s) continue; const mins = Number(s.duration || s.durationMinutes || 0) || 60;
+    const tried = new Set<string>(e.partyTried || []);
+    const fits = (o: any) => { const w = walls.get(o.id); if (!free(o) || tried.has(o.id) || !windowFits(e.windows, w.weekday, w.hour)) return false;
+      if (ms(o.start) - now < Number(e.noticeHours ?? 3) * H || (e.until && w.date > String(e.until).slice(0, 10)) || mins > Number(o.minutes || 0)) return false;
+      return D.openTimes(eng, { date: w.date, serviceId: sid, staffId: o.staffId }).some((x: any) => ms(x.startIso) === ms(o.start)); };
+    const set = partySet(ops.map((o) => ({ ...o, date: walls.get(o.id).date })), n, fits); if (!set) continue;
+    const cl = e.clientId ? ((await db.doc(`${T(t)}/clients/${e.clientId}`).get()).data() || {}) : {};
+    const phone = String(e.phone || cl.phone || '').trim(); if (!phone || cl.smsOptOut || cl.smsConsent === false) continue;
+    const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); if (!base) return;
+    const lead = set[0]; const token = `${lead.id}.p${randomBytes(12).toString('base64url')}`; const holdMin = partyHoldMin(ms(lead.start), now); const until = iso(now + holdMin * 60000);
+    const spread = set.some((o) => o.start !== lead.start);
+    const body = partyOfferText({ first: first(e.name || cl.firstName || cl.name), size: n, service: String(s.name || 'your visit').toLowerCase(), when: whenLabel(ms(lead.start), tz, now), spread, link: `${base}/w/${encodeURIComponent(t)}/${token}`, holdMin });
+    const r = await D.send(db, t, phone, body, undefined, { kind: 'waitlist_offer', recipientType: 'client', recipientId: e.clientId || undefined, recipientName: e.name || undefined }); if (!r?.ok) continue;
+    const party = { token, entryId: e.id, clientId: e.clientId || null, name: e.name || cl.name || '', phone, size: n, serviceId: sid, openingIds: set.map((o) => o.id), sentAt: iso(now), holdUntil: until, status: 'sent' };
+    for (const o of set) { await holdTime(db, t, o, until, now); if (o.id !== lead.id) { await db.doc(`${T(t)}/openings/${o.id}`).update({ partyLock: { leadId: lead.id, until } }); const x = ops.find((y) => y.id === o.id); if (x) x.partyLock = { leadId: lead.id, until }; } }
+    await db.doc(`${T(t)}/openings/${lead.id}`).update({ party }); const L = ops.find((y) => y.id === lead.id); if (L) L.party = party;
+    await db.doc(`${T(t)}/waitlist/${e.id}`).set({ status: 'offered', lastOfferAt: iso(now), offerCount: (Number(e.offerCount) || 0) + 1 }, { merge: true });
+  }
+}
+
+/** The party's link: every time on offer, who it's with, and whether it's still theirs. */
+async function partyView(db: any, t: string, op: any, now: number) {
+  const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const P = op.party;
+  if (!P.viewedAt) await db.doc(`${T(t)}/openings/${op.id}`).update({ party: { ...P, viewedAt: iso(now) } }).catch(() => {});
+  const svc = (await db.doc(`${T(t)}/services/${P.serviceId}`).get()).data() || {};
+  const times = [] as any[]; for (const id of P.openingIds) { const o: any = id === op.id ? op : (await db.doc(`${T(t)}/openings/${id}`).get()).data(); if (o) times.push({ when: whenLabel(ms(o.start), tz, now), staffName: first(o.staffName) }); }
+  const state = P.status === 'taken' ? 'yours' : P.status === 'declined' ? 'passed' : P.status !== 'sent' || ms(P.holdUntil) <= now ? 'gone' : 'open';
+  return { ok: true, party: true, state, business: String(tenant.name || ''), size: P.size, service: String(svc.name || 'Your visit'), minutes: Number(svc.duration || 60), price: money(svc.price), times, holdUntil: P.holdUntil, payUrl: P.payUrl || null, payBy: P.payBy || null, when: times[0]?.when || '', staffName: times[0]?.staffName || '' };
+}
+
+/** The organizer confirms for everyone: every time booked together (or none), and one deposit for the party. */
+async function partyTake(db: any, t: string, op0: any, token: string, guests: string[], now: number, d: Deps) {
+  const D = await deps(d); const ref = db.doc(`${T(t)}/openings/${op0.id}`);
+  const lock = await db.runTransaction(async (tx: any) => { const s = await tx.get(ref); const op: any = { id: s.id, ...(s.data() || {}) }; const P = op.party;
+    if (!P || P.token !== token) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
+    if (P.status === 'taken') return { ok: true, already: true, op };
+    if (P.status !== 'sent' || ms(P.holdUntil) <= now) return { ok: false, error: 'We’re sorry, the hold on these times has ended. You are still on our waitlist.' };
+    tx.update(ref, { party: { ...P, status: 'claiming' } }); return { ok: true, op }; });
+  if (!lock.ok || (lock as any).already) return lock.ok ? { ok: true, payUrl: lock.op.party.payUrl || null, payBy: lock.op.party.payBy || null } : lock;
+  const op = (lock as any).op; const P = op.party; const tenant = (await db.doc(T(t)).get()).data() || {};
+  const entry = (await db.doc(`${T(t)}/waitlist/${P.entryId}`).get()).data() || {};
+  const opsAll: any[] = []; for (const id of P.openingIds) opsAll.push(id === op.id ? op : { id, ...((await db.doc(`${T(t)}/openings/${id}`).get()).data() || {}) });
+  for (const o of opsAll) await unhold(db, t, o.id);
+  const payBy = iso(now + payWindowMin(ms(opsAll[0].start), now) * 60000); const made: any[] = [];
+  const back = async (why: string) => { for (const m of made) await db.doc(`${T(t)}/appointments/${m.appointmentId}`).set({ status: 'cancelled', cancelledAt: iso(now), cancelReason: 'party booking could not complete', waitlistOpeningId: 'refilled' }, { merge: true }).catch(() => {});
+    await ref.update({ party: { ...P, status: 'failed', failedWhy: why } }); for (const o of opsAll) if (o.id !== op.id) await db.doc(`${T(t)}/openings/${o.id}`).update({ partyLock: null }).catch(() => {});
+    await db.doc(`${T(t)}/waitlist/${P.entryId}`).set({ status: 'waiting' }, { merge: true }); return { ok: false, error: 'We’re sorry, one of these times has just been booked, so nothing was booked. You are still on our waitlist.' }; };
+  const groupId = `grp_${now.toString(36)}${randomBytes(3).toString('hex')}`;
+  for (let i = 0; i < opsAll.length; i++) { const o = opsAll[i]; const g = String(guests[i - 1] || '').trim().slice(0, 80);
+    const client = i === 0 ? (entry.clientId ? { id: entry.clientId } : { name: entry.name || P.name, phone: entry.phone || P.phone, email: entry.email || '' }) : { name: g || `Guest ${i} of ${first(entry.name || P.name)}` };
+    const r: any = await D.book(tenant, { tenantId: t, source: 'waitlist', serviceId: P.serviceId, staffId: o.staffId, startTime: o.start, notes: i === 0 ? `From the waitlist: a party of ${P.size}` : `Guest of ${entry.name || P.name} (waitlist party)`, holdUntil: payBy, client, quiet: i > 0 });
+    if (!r?.ok) return back(r?.error || 'not bookable');
+    made.push({ appointmentId: r.appointmentId, checkInToken: r.checkInToken, status: r.status, depositCents: Number(r.depositCents) || 0 }); }
+  // The organizer pays the whole party's deposit up front, on the first booking.
+  const total = made.reduce((s, m) => s + m.depositCents, 0); const batch = db.batch();
+  made.forEach((m, i) => batch.set(db.doc(`${T(t)}/appointments/${m.appointmentId}`), { groupId, groupRole: i === 0 ? 'organizer' : 'guest', groupSize: made.length, fromWaitlist: { openingId: opsAll[i].id, kind: 'party', at: iso(now) },
+    ...(i > 0 && m.depositCents ? { depositAmountCents: 0, depositCoveredBy: groupId, depositPaidBy: 'organizer' } : {}) }, { merge: true }));
+  if (total && made.length > 1) batch.set(db.doc(`${T(t)}/appointments/${made[0].appointmentId}`), { depositAmountCents: total, groupDepositCents: total }, { merge: true });
+  await batch.commit();
+  let payUrl: string | null = null; if (made[0].status === 'pending_payment' && made[0].checkInToken) { const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); payUrl = base ? `${base}/check-in/${made[0].checkInToken}` : null; }
+  for (let i = 0; i < opsAll.length; i++) await db.doc(`${T(t)}/openings/${opsAll[i].id}`).update({ status: 'filled', filledAt: iso(now), partyLock: null, filledBy: { token, entryId: P.entryId, kind: 'party', appointmentId: made[i].appointmentId, name: P.name, payUrl: i === 0 ? payUrl : null, payBy: i === 0 && payUrl ? payBy : null } });
+  await ref.update({ party: { ...P, status: 'taken', takenAt: iso(now), payUrl, payBy: payUrl ? payBy : null } });
+  await db.doc(`${T(t)}/waitlist/${P.entryId}`).set({ status: 'booked', bookedAt: iso(now), appointmentId: made[0].appointmentId, groupId }, { merge: true });
+  return { ok: true, payUrl, payBy: payUrl ? payBy : null, booked: made.length };
+}
+
 async function sendOffer(db: any, t: string, op: any, c: any, mode: Mode, now: number, d: Deps, m: any, holdMin?: number) {
   const D = await deps(d); const e: Entry = c.e; const tenant = m.tenant; const tz = m.tz;
   const cl = e.clientId ? ((await db.doc(`${T(t)}/clients/${e.clientId}`).get()).data() || {}) : {};
@@ -300,10 +392,12 @@ async function tellDesk(db: any, t: string, op: any, tz: string, now: number) {
 async function byToken(db: any, t: string, token: string) {
   const id = String(token || '').split('.')[0]; if (!/^op_[\w-]+$/.test(id)) return null;
   const s = await db.doc(`${T(t)}/openings/${id}`).get(); if (!s.exists) return null; const op = { id: s.id, ...(s.data() || {}) } as any;
+  if (op.party?.token === token) return { op, offer: { ...op.party, party: true } };
   const offer = (op.offers || []).find((f: any) => f.token === token); return offer ? { op, offer } : null;
 }
 export async function viewOffer(db: any, t: string, token: string, now = Date.now()) {
   const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
+  if (x.offer.party) return partyView(db, t, x.op, now);
   const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const { op, offer } = x;
   const svc = offer.serviceId ? ((await db.doc(`${T(t)}/services/${offer.serviceId}`).get()).data() || {}) : {};
   // Opened it — they're paying attention (not counted toward "still hoping?").
@@ -319,8 +413,9 @@ export async function viewOffer(db: any, t: string, token: string, now = Date.no
 }
 
 /** "Take it": first tap wins, checked inside a transaction; then booked through the engine (or their visit moved up). */
-export async function takeOffer(db: any, t: string, token: string, now = Date.now(), d: Deps = {}) {
+export async function takeOffer(db: any, t: string, token: string, now = Date.now(), d: Deps = {}, guests: string[] = []) {
   const D = await deps(d); const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
+  if (x.offer.party) return partyTake(db, t, x.op, token, guests, now, d);
   const ref = db.doc(`${T(t)}/openings/${x.op.id}`);
   const lock = await db.runTransaction(async (tx: any) => {
     const s = await tx.get(ref); const op: any = { id: s.id, ...(s.data() || {}) };
@@ -431,6 +526,11 @@ export async function bookAlternative(db: any, t: string, token: string, startIs
 
 export async function passOffer(db: any, t: string, token: string, now = Date.now()) {
   const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
+  if (x.offer.party) { const P = x.op.party; if (P.status !== 'sent') return { ok: true };
+    for (const id of P.openingIds) { await unhold(db, t, id); if (id !== x.op.id) await db.doc(`${T(t)}/openings/${id}`).update({ partyLock: null }).catch(() => {}); }
+    await db.doc(`${T(t)}/openings/${x.op.id}`).update({ party: { ...P, status: 'declined', holdUntil: iso(now) } });
+    const e = (await db.doc(`${T(t)}/waitlist/${P.entryId}`).get()).data() || {};
+    await db.doc(`${T(t)}/waitlist/${P.entryId}`).set({ status: 'waiting', lastPassAt: iso(now), partyTried: [...new Set([...(e.partyTried || []), ...P.openingIds])] }, { merge: true }); return { ok: true }; }
   await db.doc(`${T(t)}/openings/${x.op.id}`).update({ offers: (x.op.offers || []).map((f: any) => (f.token === token ? { ...f, status: 'declined', holdUntil: iso(now) } : f)) });
   await db.doc(`${T(t)}/waitlist/${x.offer.entryId}`).set({ status: 'waiting', lastPassAt: iso(now) }, { merge: true });
   return { ok: true };
@@ -485,7 +585,8 @@ export async function deskView(db: any, t: string, now = Date.now(), d: Deps = {
     fits: m.fits.slice(0, 6).map((f: any) => ({ id: f.e.id, name: f.e.name, kind: f.e.kind || 'new', owed: f.pri || null, autoBook: !!f.e.autoBook && !f.appt, alreadyBooked: !!(f.e as any).alreadyBooked, leftover: f.leftover, wanted: f.e.staffId && f.e.staffId !== 'any' ? 'asked for them' : 'anyone', waitedDays: Math.round((now - ms(f.e.createdAt || f.e.addedAt)) / DAY), freed: f.appt ? whenLabel(ms(f.appt.startTime), tz, now) : null })),
     not: m.not.slice(0, 6).map((x: any) => ({ id: x.e.id, name: x.e.name, why: x.why })),
     offers: (o.offers || []).map((f: any) => ({ name: f.name, status: f.status === 'sent' && ms(f.holdUntil) <= now ? 'lapsed' : f.status, sentAt: f.sentAt, holdUntil: f.holdUntil, kind: f.kind, mode: f.mode, afterCall: !!f.afterCall })),
-    calls: (o.calls || []).map((c: any) => ({ name: c.name, status: c.status, at: c.at })) }); }
+    calls: (o.calls || []).map((c: any) => ({ name: c.name, status: c.status, at: c.at })),
+    party: o.party ? { name: o.party.name, size: o.party.size, status: o.party.status === 'sent' && ms(o.party.holdUntil) <= now ? 'lapsed' : o.party.status, holdUntil: o.party.holdUntil } : null, partyHeld: !!(o.partyLock && ms(o.partyLock.until) > now) }); }
   const done = ops.filter((o: any) => o.status === 'filled'); const filledCents = 0;
   const entries = rows(await db.collection(`${T(t)}/waitlist`).get()).sort((a: any, b: any) => ms(b.createdAt || b.addedAt) - ms(a.createdAt || a.addedAt));
   const { demandOf } = await import('@/lib/waitlist-engine');

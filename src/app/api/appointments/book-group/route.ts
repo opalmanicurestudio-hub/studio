@@ -29,9 +29,9 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const tenant: any = (await db.doc(T).get()).data();
   if (!tenant) return NextResponse.json({ ok: false, error: 'Unknown business.' }, { status: 404 });
   const pol = groupPolicy(tenant);
-  if (!pol.enabled) return NextResponse.json({ ok: false, error: 'Group bookings aren’t taken online here — please call us.' }, { status: 400 });
+  if (!pol.enabled) return NextResponse.json({ ok: false, error: 'Group bookings aren’t taken online here. Please send us a message and we’ll set it up for you.' }, { status: 400 });
   const guests = parts.filter((p) => p.guest).length;
-  if (guests > pol.maxGuests) return NextResponse.json({ ok: false, error: `Up to ${pol.maxGuests} guest${pol.maxGuests === 1 ? '' : 's'} can be booked online — please call us for a bigger group.` }, { status: 400 });
+  if (guests > pol.maxGuests) return NextResponse.json({ ok: false, error: `Up to ${pol.maxGuests} guest${pol.maxGuests === 1 ? '' : 's'} can be booked online. For a bigger group, please send us a message and we’ll set it up for you.` }, { status: 400 });
   const organizer = { name: s(b.organizer?.name, 120), email: s(b.organizer?.email, 160), phone: s(b.organizer?.phone, 40) };
   if (!organizer.name || (!organizer.email && !organizer.phone)) return NextResponse.json({ ok: false, error: 'Your name and an email or phone number, please.' }, { status: 400 });
   // Renters' services never join a group (their money is separate), and every part is at one location.

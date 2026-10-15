@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
             ...(about ? [`We will be following up about: ${about}.`] : []),
             ...(cfg.callerId && contact === 'email' && bizPhone && (f.contactBy || d.contactBy) !== 'email' ? [`We will call you from ${bizPhone}.`] : []),
             ...(detailsLink ? ['If you would like, you can add more detail before we get back to you.'] : []),
-            bizEmail ? `If the matter becomes urgent, or the time no longer works for you, please reply to this email${bizPhone ? ` or call us at ${bizPhone}` : ''}.` : bizPhone ? `If the matter becomes urgent, please call us at ${bizPhone}.` : '', 'Kind regards,', studio].filter(Boolean);
+            bizEmail ? `If the matter becomes urgent, or the time no longer works for you, please reply to this email.` : '', 'Kind regards,', studio].filter(Boolean);
           told = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject: `We will get back to you soon | ${studio}`, kind: 'callback_confirmation',
             html: brandedEmailHtml({ studioName: studio, title: 'Thank you for calling', bodyLines: lines,
               ...(detailsLink ? { cta: { label: 'Add details', url: detailsLink } } : {}), ...(bookLink ? { secondaryCta: { label: 'Book online', url: bookLink } } : {}) } as any),

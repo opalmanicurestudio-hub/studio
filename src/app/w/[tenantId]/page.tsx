@@ -13,13 +13,13 @@ const input = 'h-12 w-full rounded-2xl border bg-white px-4 text-[15px]';
 export default function JoinWaitlist() {
   const { tenantId } = useParams() as { tenantId: string }; const q = useSearchParams();
   const [info, setInfo] = React.useState<any>(null); const [done, setDone] = React.useState(false); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
-  const [f, setF] = React.useState<any>({ serviceId: q.get('service') || '', staffId: q.get('provider') || 'any', name: q.get('name') || '', phone: q.get('phone') || '', email: '', notice: 3, until: '', callOk: false, autoBook: false });
+  const [f, setF] = React.useState<any>({ serviceId: q.get('service') || '', staffId: q.get('provider') || 'any', name: q.get('name') || '', phone: q.get('phone') || '', email: '', notice: 3, until: '', callOk: false, autoBook: false, party: 1 });
   const [win, setWin] = React.useState<Record<string, string[]>>({});
   React.useEffect(() => { fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'info' }) }).then((r) => r.json()).then(setInfo).catch(() => setInfo({ ok: false })); }, [tenantId]);
   const brand = brandOf(info?.tenant, tenantId);
   const toggle = (d: string, p: string) => setWin((w) => { const cur = new Set(w[d] || []); if (cur.has(p)) cur.delete(p); else cur.add(p); const n = { ...w, [d]: [...cur] }; if (!n[d].length) delete n[d]; return n; });
   const join = async () => { setBusy(true); setErr('');
-    const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'join', source: 'waitlist_page', name: f.name, phone: f.phone, email: f.email, serviceId: f.serviceId || null, staffId: f.staffId, windows: win, noticeHours: f.notice, until: f.until || null, callOk: f.callOk, autoBook: f.autoBook }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'We could not connect. Please check your connection and try again.' }));
+    const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'join', source: 'waitlist_page', name: f.name, phone: f.phone, email: f.email, serviceId: f.serviceId || null, staffId: f.staffId, windows: win, noticeHours: f.notice, until: f.until || null, callOk: f.callOk, autoBook: f.party > 1 ? false : f.autoBook, party: f.party }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'We could not connect. Please check your connection and try again.' }));
     setBusy(false); if (r.ok) setDone(true); else setErr(r.error || 'Something went wrong. Please try again.'); };
   if (!info) return <VisitShell brand={brand} title="Waitlist"><VisitMuted>Loading…</VisitMuted></VisitShell>;
   if (done) return <VisitShell brand={brand} title={<>You are on our <b>waitlist</b></>} subtitle="We will text you as soon as a suitable time becomes available.">
@@ -33,6 +33,9 @@ export default function JoinWaitlist() {
         <select value={f.serviceId} onChange={(e) => setF({ ...f, serviceId: e.target.value })} aria-label="Service" className={input} style={{ borderColor: '#e7e2dc' }}><option value="">Choose a service</option>{(info.services || []).map((s: any) => <option key={s.id} value={s.id}>{s.name}{s.minutes ? ` · ${s.minutes} min` : ''}{s.price ? ` · $${s.price}` : ''}</option>)}</select>
         {(info.providers || []).length > 1 && <><VisitLabel>With</VisitLabel>
           <div className="flex flex-wrap gap-2">{[{ id: 'any', name: 'Any provider' }, ...info.providers].map((p: any) => <button key={p.id} type="button" onClick={() => setF({ ...f, staffId: p.id })} className="h-11 rounded-full px-4 text-[14px]" style={f.staffId === p.id ? { background: 'var(--accent)', color: '#fff', fontWeight: 600 } : { background: '#fff', border: '1px solid #e7e2dc' }}>{p.name}</button>)}</div></>}
+        <VisitLabel>How many of you?</VisitLabel>
+        <VisitChoice value={f.party} onChange={(v) => setF({ ...f, party: v })} options={[[1, 'Just me'], [2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6']]} cols={3} />
+        {f.party > 1 && <VisitMuted>When {f.party} times open together, they are offered to your party first. You confirm for everyone with one link.</VisitMuted>}
       </VisitCard>
       <VisitCard>
         <VisitLabel>When are you available?</VisitLabel><VisitMuted>Select every time that suits you, or leave it empty for any time.</VisitMuted>
@@ -43,7 +46,7 @@ export default function JoinWaitlist() {
         <VisitChoice value={f.notice} onChange={(v) => setF({ ...f, notice: v })} options={[[1, '1 hour'], [3, '3 hours'], [24, 'A day']]} cols={3} />
         <label className="flex items-center justify-between gap-3 text-[15px]"><span>Keep looking until</span><input type="date" value={f.until} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setF({ ...f, until: e.target.value })} className="h-11 rounded-2xl border bg-white px-3 text-[15px]" style={{ borderColor: '#e7e2dc' }} aria-label="Until" /></label>
         {!f.until && <VisitMuted>If you leave this empty, we will look for 30 days.</VisitMuted>}
-        <label className="flex items-start gap-3 text-[15px] leading-snug"><input type="checkbox" checked={f.autoBook} onChange={(e) => setF({ ...f, autoBook: e.target.checked })} className="mt-1 h-4 w-4" aria-label="Book it for me automatically" /><span><b className="font-semibold">Book it for me automatically.</b> When a suitable time becomes available, we will book it for you right away. <span style={{ color: 'var(--muted)' }}>We will text you the details, along with a deposit link if one is required. You can cancel using the link in that text.</span></span></label>
+        {f.party === 1 && <label className="flex items-start gap-3 text-[15px] leading-snug"><input type="checkbox" checked={f.autoBook} onChange={(e) => setF({ ...f, autoBook: e.target.checked })} className="mt-1 h-4 w-4" aria-label="Book it for me automatically" /><span><b className="font-semibold">Book it for me automatically.</b> When a suitable time becomes available, we will book it for you right away. <span style={{ color: 'var(--muted)' }}>We will text you the details, along with a deposit link if one is required. You can cancel using the link in that text.</span></span></label>}
       </VisitCard>
       <VisitCard>
         <VisitLabel>How can we reach you?</VisitLabel>

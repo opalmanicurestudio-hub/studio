@@ -25,6 +25,7 @@ export default function WaitlistOffer() {
   if (!v) return <VisitShell brand={brand} title="One moment…" />;
   if (!v.ok) return <VisitShell brand={brand} title="This link has expired"><VisitCard><VisitMuted>{v.error}</VisitMuted></VisitCard>{brand.bookHref && <VisitButton href={brand.bookHref} quiet>See open times</VisitButton>}</VisitShell>;
 
+  if (v.party) return <PartyOffer v={v} post={post} brand={brand} />;
   const payLine = (payBy?: string | null) => { const m = minsLeft(payBy); return m === null ? null : <VisitMuted>Please pay the deposit within {m} minute{m === 1 ? '' : 's'} to keep this time. After that, it will be offered to the next person on the waitlist.</VisitMuted>; };
   // Booked another time that fit
   if (alt?.ok) return <VisitShell brand={brand} title={<>Your appointment is <b>booked</b></>} subtitle={`${alt.when} with ${alt.staffName}`}>
@@ -73,5 +74,28 @@ export default function WaitlistOffer() {
       {res && !res.ok && <p className="px-1 text-[14px] font-semibold" style={{ color: '#b42318' }}>{res.error}</p>}
       <VisitButton onClick={async () => { setBusy('take'); const r = await post('take'); setBusy(''); setRes(r); if (!r.ok && r.taken) post('view').then((n) => n?.ok && setV(n)); }} disabled={!!busy}>{busy === 'take' ? 'Booking…' : v.sooner ? 'Move my appointment to this time' : 'Book this time'}</VisitButton>
       <VisitButton quiet onClick={async () => { setBusy('pass'); const r = await post('pass'); setBusy(''); setRes(r.ok ? { passed: true } : r); }} disabled={!!busy}>Not this time, keep my place</VisitButton>
+    </VisitShell>);
+}
+
+function PartyOffer({ v, post, brand }: { v: any; post: (a: string, x?: any) => Promise<any>; brand: any }) {
+  const [names, setNames] = React.useState<string[]>(Array.from({ length: Math.max(0, v.size - 1) }, () => ''));
+  const [busy, setBusy] = React.useState(''); const [res, setRes] = React.useState<any>(null);
+  const list = <div className="flex flex-col gap-1.5">{v.times.map((x: any, i: number) => <p key={i} className="text-[15px]"><b className="font-semibold">{x.when}</b> <span style={{ color: 'var(--muted)' }}>with {x.staffName}{i === 0 ? ' · you' : ''}</span></p>)}</div>;
+  if (res?.ok || v.state === 'yours') { const payUrl = res?.payUrl || v.payUrl; const m = minsLeft(res?.payBy || v.payBy);
+    return <VisitShell brand={brand} title={<>Your party is <b>booked</b></>} subtitle={`${v.size} people · ${v.service}`}>
+      <VisitCard tone="ok">{list}<VisitMuted>Everyone is booked. You will receive a text to confirm.</VisitMuted>{payUrl && m !== null && <VisitMuted>Please pay the party’s deposit within {m} minute{m === 1 ? '' : 's'} to keep these times.</VisitMuted>}</VisitCard>
+      {payUrl && <VisitButton href={payUrl}>Pay the party’s deposit</VisitButton>}</VisitShell>; }
+  if (v.state === 'passed' || res?.passed) return <VisitShell brand={brand} title="Thank you for letting us know" subtitle="Your party keeps its place on our waitlist."><VisitCard><VisitMuted>We will text you when times open for all of you again.</VisitMuted></VisitCard></VisitShell>;
+  if (v.state === 'gone') return <VisitShell brand={brand} title="The hold on these times has ended"><VisitCard><VisitMuted>Your party is still on our waitlist, and we will text you when times open for all of you again.</VisitMuted></VisitCard>{brand.bookHref && <VisitButton href={brand.bookHref} quiet>See open times</VisitButton>}</VisitShell>;
+  const left = minsLeft(v.holdUntil);
+  return (
+    <VisitShell brand={brand} title={<>Times for <b>all {v.size} of you</b></>} subtitle={left !== null ? `Held for your party for ${left} more minute${left === 1 ? '' : 's'}.` : undefined}>
+      <VisitCard><p className="text-[17px] font-semibold">{v.service} · {v.minutes} min{v.price ? ` · ${v.price} each` : ''}</p>{list}</VisitCard>
+      <VisitCard><p className="text-[15px] font-semibold">Who is coming with you?</p><VisitMuted>Optional. Names help us greet everyone.</VisitMuted>
+        {names.map((n, i) => <input key={i} value={n} onChange={(e) => setNames(names.map((x, j) => (j === i ? e.target.value : x)))} placeholder={`Guest ${i + 1}`} aria-label={`Guest ${i + 1} name`} className="h-12 w-full rounded-2xl border bg-white px-4 text-[16px]" style={{ borderColor: '#ececee' }} />)}
+        <VisitMuted>If a deposit is needed, you pay it for the whole party when you confirm.</VisitMuted></VisitCard>
+      {res && !res.ok && <p className="px-1 text-[14px] font-semibold" style={{ color: '#b42318' }}>{res.error}</p>}
+      <VisitButton onClick={async () => { setBusy('take'); const r = await post('take', { guests: names }); setBusy(''); setRes(r); }} disabled={!!busy}>{busy === 'take' ? 'Booking everyone…' : `Book all ${v.size}`}</VisitButton>
+      <VisitButton quiet onClick={async () => { setBusy('pass'); const r = await post('pass'); setBusy(''); setRes(r.ok ? { passed: true } : r); }} disabled={!!busy}>Not these times, keep our place</VisitButton>
     </VisitShell>);
 }
