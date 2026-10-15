@@ -138,6 +138,7 @@ import { can, isManagerRole } from '@/lib/permissions';
 import { StepEdge } from '@/components/planner/StepTimeline';
 import { Star, Languages, Forward } from 'lucide-react';
 import { CHAT_LANGUAGES } from '@/lib/chat-languages';
+import { PasskeySetup } from '@/components/staff-portal/Passkey';
 import { PortalCalls, useMyCalls } from '@/components/staff-portal/PortalCalls';
 import { ForgotClockOut } from '@/components/staff-portal/ForgotClockOut';
 import { MyDetails } from '@/components/staff-portal/MyDetails';
@@ -5110,6 +5111,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               </div>
               {!isRenter && <MyTimes tenantId={tenantId} />}
               <PushPrompt tenantId={tenantId} />
+              <PasskeySetup tenantId={tenantId} staffId={staffMember.id} />
               <button type="button" onClick={onSignOut} className="h-12 w-full rounded-[16px] border border-[#e6e6e8] bg-white text-[15px] font-semibold text-[#b42318]">Sign out</button>
             </div>
           )}

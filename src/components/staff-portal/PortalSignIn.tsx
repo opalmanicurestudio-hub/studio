@@ -9,6 +9,7 @@
 import * as React from 'react';
 import { rememberBrand } from '@/components/staff-portal/PortalBoot';
 import { bizNow, setBizZone } from '@/lib/biz-clock';
+import { passkeyOnPhone, signInWithPasskey, faceLabel } from '@/components/staff-portal/Passkey';
 
 type Person = { id: string; name: string; avatarUrl?: string | null; state: 'working' | 'break' | 'off'; since?: string | null; breakSince?: string | null; shifts: { start: string; end: string; kind: string }[]; isRenter?: boolean };
 type Brand = { name: string; logoUrl?: string | null; accent: string; sharedBoard?: boolean; timeZone?: string };
@@ -86,14 +87,16 @@ export function Keypad({ who, brand, error, busy, onPin, onBack, onForgot, foote
     </div>);
 }
 
-export function WelcomeBack({ last, brand, onPin, onSwitch }: { last: Last; brand: Brand; onPin: () => void; onSwitch: () => void }) {
+export function WelcomeBack({ last, brand, onPin, onSwitch, onFace, busy, error }: { last: Last; brand: Brand; onPin: () => void; onSwitch: () => void; onFace?: (() => void) | null; busy?: boolean; error?: string }) {
   return (
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-sm flex-col items-center gap-6 px-6 pb-9 pt-14 text-center" style={{ color: INK, background: `radial-gradient(70% 38% at 50% 28%, ${brand.accent}22 0%, transparent 75%)` }}>
       <p className="text-[14px] font-semibold" style={{ color: MUTED }}>{brand.name}</p>
       <div className="mt-8"><Face p={last} size={132} ring={`conic-gradient(${brand.accent}, #d7e6e4, ${brand.accent})`} /></div>
       <div><p className="text-[30px] font-extrabold tracking-tight">Welcome back, {last.name.split(' ')[0]}</p><p className="mt-1 text-[15px]" style={{ color: MUTED }}>{greeting()} — your day is ready.</p></div>
       <div className="mt-auto flex w-full flex-col gap-2.5">
-        <button type="button" onClick={onPin} className="h-[54px] rounded-[18px] text-[16px] font-bold text-white" style={{ background: INK }}>Use my PIN</button>
+        {error ? <p className="text-[14px] font-semibold" style={{ color: '#b42318' }}>{error}</p> : null}
+        {onFace && <button type="button" disabled={busy} onClick={onFace} className="h-[54px] rounded-[18px] text-[16px] font-bold text-white disabled:opacity-60" style={{ background: INK }}>{busy ? 'One moment…' : `Sign in with ${faceLabel()}`}</button>}
+        <button type="button" onClick={onPin} className="h-[54px] rounded-[18px] text-[16px] font-bold" style={onFace ? { background: SOFT_BG, color: INK } : { background: INK, color: '#fff' }}>Use my PIN</button>
         <button type="button" onClick={onSwitch} className="h-10 text-[14px] font-semibold" style={{ color: MUTED }}>Not {last.name.split(' ')[0]}? Switch person</button>
       </div>
     </div>);
@@ -202,6 +205,13 @@ export function PortalSignIn({ tenantId, notice, onSuccess, renderForgot }: { te
     finally { setBusy(false); }
   };
 
+  const signInFace = async () => {
+    setBusy(true); setError('');
+    const r = await signInWithPasskey(tenantId); setBusy(false);
+    if (!r.ok) { if (!r.cancelled) setError(r.error); return; }
+    write(key(tenantId, 'last'), JSON.stringify({ id: r.staff.id, name: r.staff.name || '', avatarUrl: r.staff.avatarUrl || null }));
+    setView('home'); setWho(null); onSuccess(r.staff);
+  };
   const deviceToggle = (
     <button type="button" onClick={() => { const next = !shared; write(key(tenantId, 'mode'), next ? 'shared' : null); if (next) { write(key(tenantId, 'last'), null); setLast(null); } setShared(next); setView('home'); setWho(null); }}
       className="text-[12px] font-medium underline-offset-4 hover:underline" style={{ color: '#9a9ca1' }}>{shared ? 'This is my own phone' : brand.sharedBoard === false ? '' : 'Use this as a shared tablet'}</button>);
@@ -210,7 +220,7 @@ export function PortalSignIn({ tenantId, notice, onSuccess, renderForgot }: { te
   if (view === 'forgot' && renderForgot) return <div className="cf-portal min-h-[100dvh] bg-white">{renderForgot(() => setView('home'))}</div>;
   if (view === 'pin') return <div className="cf-portal min-h-[100dvh] bg-white"><Keypad who={who} brand={brand} error={error} busy={busy} onPin={signIn} onBack={() => { setView('home'); setWho(null); setError(''); }} onForgot={renderForgot ? () => setView('forgot') : undefined} /></div>;
   if (shared) return <div className="cf-portal min-h-[100dvh] bg-white"><Board brand={brand} people={people} now={now} onPick={(p) => { setWho({ id: p.id, name: p.name, avatarUrl: p.avatarUrl }); setError(''); setView('pin'); }} onPin={() => { setWho(null); setError(''); setView('pin'); }} /><div className="flex justify-center pb-4">{deviceToggle}</div></div>;
-  if (last) return <div className="cf-portal min-h-[100dvh] bg-white"><WelcomeBack last={last} brand={brand} onPin={() => { setWho(last); setError(''); setView('pin'); }} onSwitch={() => { write(key(tenantId, 'last'), null); setLast(null); setWho(null); }} /></div>;
+  if (last) return <div className="cf-portal min-h-[100dvh] bg-white"><WelcomeBack last={last} brand={brand} busy={busy} error={error} onFace={passkeyOnPhone(tenantId, last.id) ? signInFace : null} onPin={() => { setWho(last); setError(''); setView('pin'); }} onSwitch={() => { write(key(tenantId, 'last'), null); setLast(null); setWho(null); }} /></div>;
   return <div className="cf-portal min-h-[100dvh] bg-white"><Keypad who={null} brand={brand} error={error} busy={busy} onPin={signIn} onForgot={renderForgot ? () => setView('forgot') : undefined} footer={footer} /></div>;
 }
 

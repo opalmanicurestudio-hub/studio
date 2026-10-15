@@ -85,6 +85,35 @@ export async function POST(req: NextRequest) {
     }
     const db = getAdminDb();
 
+    // ── FACE ID / PASSKEYS (lib/passkeys) ─────────────────────────────
+    if (typeof action === 'string' && action.startsWith('passkey-')) {
+      const pk = await import('@/lib/passkeys'); const rp = pk.rpFrom(req as any);
+      if (action === 'passkey-options') return NextResponse.json({ ok: true, ...(await pk.authenticationOptions(db, tenantId, rp)) });
+      if (action === 'passkey-login') {
+        const v = await pk.authenticationVerify(db, tenantId, String(body.challengeId || ''), body.response, rp);
+        if (!v.ok) return NextResponse.json({ ok: false, error: v.error }, { status: 401 });
+        const sd: any = (await db.doc(`tenants/${tenantId}/staff/${v.staffId}`).get()).data();
+        if (!sd || sd.archived === true) return NextResponse.json({ ok: false, error: 'This sign-in has been turned off. Ask your manager.' }, { status: 403 });
+        const staff = safeStaff(v.staffId, (await staffWithPay(db, tenantId, v.staffId)) || sd);
+        let customToken: string | null = null;
+        try { customToken = await getAdminAuth().createCustomToken(`portal:${tenantId}:${staff.id}`, { tenantId, staffId: staff.id, role: staff.role, isRenter: staff.isRenter, portal: true }); } catch { customToken = null; }
+        await logAuditAdmin(db, tenantId, { action: 'portal.login', targetType: 'staff', targetId: staff.id, summary: `${staff.name || 'Team member'} signed in with Face ID`, actor: { type: 'user', id: staff.id, name: staff.name, role: staff.role } });
+        return NextResponse.json({ ok: true, staff, customToken });
+      }
+      // Adding, listing and removing this person's phones: they must already be signed in.
+      const { requestActor } = await import('@/lib/request-actor'); const who = await requestActor(db, req.headers.get('authorization'), tenantId);
+      if (!who.ok) return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+      const me = who.actor;
+      if (action === 'passkey-register-options') { const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+        return NextResponse.json({ ok: true, ...(await pk.registrationOptions(db, tenantId, { id: me.staffId, name: me.name }, rp, t.name || t.businessName || '')) }); }
+      if (action === 'passkey-register') { const r = await pk.registrationVerify(db, tenantId, me.staffId, String(body.challengeId || ''), body.response, rp, String(body.name || ''));
+        if (r.ok) await logAuditAdmin(db, tenantId, { action: 'portal.passkey_added', targetType: 'staff', targetId: me.staffId, summary: `${me.name} turned on Face ID sign-in on a phone`, actor: { type: 'user', id: me.staffId, name: me.name, role: me.role } });
+        return NextResponse.json(r, { status: r.ok ? 200 : 400 }); }
+      if (action === 'passkey-list') return NextResponse.json({ ok: true, passkeys: await pk.listPasskeys(db, tenantId, me.staffId) });
+      if (action === 'passkey-remove') return NextResponse.json(await pk.removePasskey(db, tenantId, me.staffId, String(body.id || '').slice(0, 300)));
+      return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+    }
+
     // ── LOGIN ──────────────────────────────────────────────────────────
     if (action === 'login') {
       // v80 — PIN-less path (floor page "tap your name"): allowed ONLY for
