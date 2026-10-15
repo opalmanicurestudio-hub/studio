@@ -214,7 +214,7 @@ interface BookingSheetProps {
   calendarEvents?:  any[];
   /** What the SERVER made of the booking. Absent = an older caller, in
    *  which case the sheet keeps its original confirmed wording. */
-  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null } | null;
+  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; prepUrl?: string | null } | null;
   /** 'page' renders the flow as an ordinary page instead of a floating panel.
    *
    * Every mobile failure this component had came from being a floating box:
@@ -1115,6 +1115,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </div>
                   </div>
                   <div className="mx-auto max-w-sm text-left"><ConfirmNumberCard verify={bookingOutcome?.verify} businessName={tenant?.name} /></div>
+                  {bookingOutcome?.prepUrl && bookingOutcome.status !== 'pending_payment' && <a href={bookingOutcome.prepUrl} className="mx-auto block max-w-sm rounded-2xl border p-4 text-left">
+                    <span className="block text-[15px] font-semibold">A few quick questions</span><span className="block text-[13px] opacity-70">Answer now so we can plan the right time for you. It takes about a minute. We’ll also remind you before your visit.</span></a>}
                   <Button style={{ borderRadius: r2 }} className="w-full h-12 text-sm font-black uppercase tracking-widest shadow-xl shadow-primary/20" variant="outline" onClick={() => onOpenChange(false)}>Finish</Button>
                 </motion.div>
 

@@ -1284,8 +1284,13 @@ export async function POST(req: NextRequest) {
     let phoneUnconfirmed = false;
     try { const cl: any = r.clientId ? (await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get()).data() : null; phoneUnconfirmed = !!cl?.phone && !cl.phoneVerifiedAt && !cl.phoneReportedWrongAt && cl.smsOptOut !== true; } catch { /* the offer is optional */ }
 
+    // Before the visit (lib/prep-check): when the service asks a few questions, the client can answer them now —
+    // the same page the reminder links to, so holds, quotes and approvals work exactly the same.
+    let prepUrl: string | null = null;
+    try { const { checkOf } = await import('@/lib/prep-check'); if (checkOf(svc) && (tenant as any)?.prep?.on !== false) { const { prepPath } = await import('@/lib/prep-check-server'); prepUrl = prepPath(tenantId, String(r.aptId)); } } catch { prepUrl = null; }
+
     return NextResponse.json({
-      ok: true,
+      ok: true, prepUrl,
       ...(packageRedeemed !== null ? { packageRedeemed } : {}),
       phoneUnconfirmed,
       appointmentId: r.aptId,
