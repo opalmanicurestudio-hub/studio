@@ -26,7 +26,7 @@ async function loadAll(db: any, t: string, now: number) {
     safe(db.collection(`${T(t)}/appointments`).where('startTime', '>=', since).get()),
     safe(db.collection(`${T(t)}/clients`).get()),
     safe(db.collection(`${T(t)}/quotes`).where('status', 'in', ['sent', 'viewed']).get()),
-    safe(db.collection(`${T(t)}/giftCards`).where('status', '==', 'active').get()),
+    safe(db.collection(`${T(t)}/giftCards`).where('status', 'in', ['active', 'used']).get()),
     safe(db.collection(`${T(t)}/cases`).get()),
     safe(db.collection(`${T(t)}/reconnectNudges`).where('sentAt', '>=', nowIso(now - 14 * DAY)).get()),
     safe(db.collection(`${T(t)}/opportunities`).where('createdAt', '>=', since).get()),
@@ -84,6 +84,7 @@ async function bookLink(tenant: any, t: string, c: { providerId?: string | null;
 /** The daily sweep (after 9 am local, so automatic texts land in texting hours): find; for each, send it automatically,
  * or hand it to a person, or both in turn (the business's choice per kind); move unanswered automatic texts to a person;
  * close what got booked; expire the rest; check who came back; one bell per person. */
+const loadServices = async (db: any, t: string) => (await db.collection(`${T(t)}/services`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
 export async function opportunitySweep(db: any, t: string, tenant: any, now = Date.now(), o: { force?: boolean; send?: Sender } = {}) {
   let S = oppSettingsOf(tenant); if (!S.on && !o.force) return { ok: true, skipped: 'off' };
   const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const today = dayKey(new Date(now), zone);
@@ -101,7 +102,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   const purchases = S.finders.shop_reorder ? await loadPurchases(db, t, tenant, x.clients, now).catch(() => []) : [];
   const biz = BIZ_KINDS.some((k) => S.finders[k]) ? await loadBiz(db, t, tenant, S, now).catch(() => ({})) : {};
   const bizKeys = new Set(bizCandidates(biz, S, now, zone).map((c) => c.key));   // still true today (closes the ones that aren't)
-  const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, purchases, biz, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
+  const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, services: await loadServices(db, t).catch(() => []), purchases, biz, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
     existing: x.opps, clients, now,
     openCaseClients: new Set(x.cases.filter((c: any) => c.clientId && !CLOSED_CASE.includes(String(c.status || ''))).map((c: any) => String(c.clientId))),
     recentAutoNudge: new Set(x.nudges.map((n: any) => String(n.clientId || ''))),

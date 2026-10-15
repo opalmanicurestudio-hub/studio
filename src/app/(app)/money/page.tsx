@@ -8,6 +8,7 @@ import { periodPay, payrollFields } from '@/lib/pay-period';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
+import { OwedToClientsCard } from '@/components/money/OwedToClientsCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -1324,6 +1325,7 @@ const LedgerTab = () => {
   return (
     <div className="w-full overflow-x-hidden">
       <div className="p-4 md:p-10 w-full max-w-7xl mx-auto">
+        <OwedToClientsCard />
 
         <div className="flex flex-row items-center justify-between gap-3 mb-5 md:mb-8">
           <div className="min-w-0">

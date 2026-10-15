@@ -201,6 +201,13 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
   const kim = [{ id: 'kim', name: 'Kim Ng', phone: '+15550200' }];
   check('a cancellation ten minutes ago waits for tomorrow’s run…', !O.findCandidates({ clients: kim, appointments: justNow, quotes: [], giftCards: [], settings: S, now: NOW }).length);
   check('…unless it comes in as it happens', O.findCandidates({ clients: kim, appointments: justNow, quotes: [], giftCards: [], settings: S, now: NOW, fresh: true })[0]?.kind === 'cancelled');
+  { const gv = [{ ...ap('g1', 'gia', ago(36)), serviceId: 'svcGel' }]; const gia = [{ id: 'gia', name: 'Gia Ross', phone: '+15550300' }];
+    const cards = [{ id: 'gc1', recipientId: 'gia', purchaserId: 'mom', status: 'used', history: [{ type: 'spend', appointmentId: 'g1', cents: -5000 }] }];
+    const svcs = [{ id: 'svcGel', rebookWeeks: 5 }];
+    const r = O.findCandidates({ clients: gia, appointments: gv, quotes: [], giftCards: cards, services: svcs, settings: S, now: NOW });
+    check('a first visit paid with a gift is nudged when that service is due again (5 weeks)', r[0]?.kind === 'due' && /gift/.test(r[0]?.why || ''));
+    check('…but not before then', !O.findCandidates({ clients: gia, appointments: [{ ...gv[0], startTime: ago(20) }], quotes: [], giftCards: cards, services: svcs, settings: S, now: NOW }).some((c: any) => c.kind === 'due'));
+    check('…and a card they bought themselves doesn’t count', !O.findCandidates({ clients: gia, appointments: gv, quotes: [], giftCards: [{ ...cards[0], purchaserId: 'gia' }], services: svcs, settings: S, now: NOW }).some((c: any) => c.kind === 'due')); }
 
   const db4 = makeDb(); const sent4: any[] = []; const send4: any = async (_d: any, _t: string, to: string, body: string) => { sent4.push({ to, body }); return { ok: true, via: 'sms' }; };
   await db4.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); for (const m of team) await db4.doc(`${T}/staff/${m.id}`).set(m);

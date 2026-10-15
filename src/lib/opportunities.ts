@@ -381,7 +381,7 @@ const whenWord = (t: number, now: number, tz?: string) => { const d = Math.round
 /** The rules. Returns everything that qualifies today; the server drops what's already open, cooling down or opted out.
  * `fresh`: called the moment something happened (a cancellation, a no-show, a checkout), so those kinds qualify the
  * same day; the server decides when the client actually hears from us. */
-export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; purchases?: Purchase[]; biz?: Biz; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean; renterOnly?: string }): Candidate[] {
+export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; services?: any[]; purchases?: Purchase[]; biz?: Biz; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean; renterOnly?: string }): Candidate[] {
   const { now, settings: S } = x; const minAge = x.fresh ? 0 : 1; const iso = (t: number) => new Date(t).toISOString();
   const renter = x.renterStaffIds || new Set<string>();
   const appts = x.renterOnly ? x.appointments.filter((a) => String(a.staffId || '') === x.renterOnly && !a.isWalkIn) : x.appointments.filter((a) => !a.isRenterBooking && !renter.has(String(a.staffId || '')) && !a.isWalkIn);
@@ -415,6 +415,9 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
       add('unused_visits', c, h, usePk ? `${left} left on a package, ${ago}` : `Member, ${ago}`, (h?.avg || 0) * 100);
       const f = out[out.length - 1].facts; f.left = left; f.plan = usePk ? String(pk[0].name || 'package') : 'membership'; taken.add(cid); }
   }
+  // Visits paid (at least partly) with a gift card someone else bought for the client.
+  const gifted = new Set<string>(); for (const g of x.giftCards || []) { if (!g || g.promo || !g.recipientId || (g.purchaserId && g.purchaserId === g.recipientId)) continue;
+    for (const e of g.history || []) if (e?.type === 'spend' && e.appointmentId) gifted.add(String(e.appointmentId)); }
   for (const [cid, h] of H) {
     const c = clients.get(cid); if (!c || c.archived || c.deleted) continue;
     const since = h.last ? (now - ms(h.last.startTime)) / DAY : null; const g = h.gapDays; const n = h.visits.length;
@@ -432,6 +435,10 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
     if (la && isNoShow(la.status) && S.finders.no_show) { const d = (now - laT) / DAY;
       if (d >= minAge && d <= 7) { add('no_show', c, h, `Missed ${la.serviceName || 'their visit'} ${day(d)} ago — nothing booked since`, money(la) * 100, { refs: { appointmentId: String(la.id) }, providerId: la.staffId ? String(la.staffId) : null }); out[out.length - 1].facts.when = whenWord(laT, now, x.tz); continue; } }
     if (since === null) continue;
+    // A first visit paid with a gift someone gave them: when that service is usually due again, ask if they'd like another
+    // (the service's own rebook weeks, else 5 weeks). Counts as "due" (same switch, same wording).
+    if (n === 1 && S.finders.due && gifted.has(String(h.last.id))) { const sv = (x.services || []).find((v: any) => v.id === h.last.serviceId); const w = Math.max(2, Math.min(26, Math.round(Number(sv?.rebookWeeks) || 5)));
+      if (since >= w * 7 && since <= w * 7 + 21) { add('due', c, h, `First visit was a gift (${h.last.serviceName || 'a service'}), ${day(since)} ago — that service is usually every ${w} weeks`, h.avg * 100); out[out.length - 1].facts.weeks = String(w); continue; } }
     if (n === 1 && since >= 3 && since <= 10 && S.finders.first_visit) { add('first_visit', c, h, `First visit ${day(since)} ago (${h.last.serviceName || 'a service'}) — nothing booked yet`, h.avg * 100); continue; }
     // They said “not now” to booking their next visit in person (client screen or checkout): no rebooking texts that week.
     const saidNo = ms(c.nudgeDeclines?.rebook) > 0 && now - ms(c.nudgeDeclines?.rebook) < 7 * DAY;
