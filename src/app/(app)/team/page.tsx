@@ -19,6 +19,7 @@ const AREAS = {
   schedule: { label: 'Schedule', C: dynamic(() => import('@/app/(app)/schedule/page'), { loading: Loading }) },
   time: { label: 'Time', C: dynamic(() => import('@/app/(app)/timesheets/page'), { loading: Loading }) },
   pay: { label: 'Pay', C: dynamic(() => import('@/app/(app)/payroll/questions/page'), { loading: Loading }) },
+  payplan: { label: 'Pay plan check', C: dynamic(() => import('@/components/pay/PlanCheck'), { loading: Loading }) },
   requests: { label: 'Requests', C: null },
   hiring: { label: 'Hiring', C: dynamic(() => import('@/app/(app)/applicants/page'), { loading: Loading }) },
   documents: { label: 'Documents', C: dynamic(() => import('@/app/(app)/documents/page'), { loading: Loading }) },

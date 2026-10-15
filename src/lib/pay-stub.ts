@@ -11,7 +11,8 @@ import { staffWithPay } from '@/lib/staff-pay-server';
 export type Stub = { staffId: string; name: string; role: string; period: PayPeriod; paid: boolean; frozen: boolean; payStructure: string;
   total: number; parts: { services: number; tips: number; retail: number; time: number; other: number; adjustments: number };
   hours: number; overtimeHours: number; visits: number; notes: string[]; audit: Audit; savedAt?: string;
-  stats?: { avgVisit: number | null; rebookPct: number | null; retailPerVisit: number | null; clients: number } };
+  stats?: { avgVisit: number | null; rebookPct: number | null; retailPerVisit: number | null; clients: number; sales?: number; retailSales?: number };
+  weeks?: { weekStart: string; hours: number; earned: number; topUp: number }[] };
 
 const r2 = (v: number) => Math.round((v || 0) * 100) / 100;
 
@@ -56,13 +57,14 @@ export async function buildStub(db: any, tenantId: string, staffId: string, peri
     const back = clientIds.filter((c) => mineAppts.some((a: any) => a.clientId === c && !OFF.includes(String(a.status)) && String(a.startTime) > lastVisit[c]));
     rebookPct = Math.round((back.length / clientIds.length) * 100);
   }
-  const stats = { avgVisit: visitIds.length ? r2(salesTotal / visitIds.length) : null, rebookPct, retailPerVisit: visitIds.length ? r2(retailTotal / visitIds.length) : null, clients: clientIds.length };
+  const stats = { avgVisit: visitIds.length ? r2(salesTotal / visitIds.length) : null, rebookPct, retailPerVisit: visitIds.length ? r2(retailTotal / visitIds.length) : null, clients: clientIds.length, sales: r2(salesTotal), retailSales: r2(retailTotal) };
   const sum = (a: { amount: number }[]) => r2(a.reduce((s, x) => s + x.amount, 0));
   const timeKeys = ['p:hourly', 'p:training', 'p:salary', 'p:ot', 'p:minwage'];
   const parts = { services: sum(audit.visits), tips: sum(audit.tips), retail: sum(audit.retail), time: sum(audit.period.filter((x) => timeKeys.includes(x.ref))),
     other: sum(audit.period.filter((x) => !timeKeys.includes(x.ref))), adjustments: sum(audit.adjustments) };
   return { staffId, name: member.name || 'Team member', role: String(member.role || 'staff'), period, paid: isPaid(tenant, period), frozen: false, payStructure: st.payStructure,
-    total: audit.check.total, parts, hours: r2(st.line.hours), overtimeHours: r2(st.line.overtimeHours), visits: visitIds.length, notes: st.notes, audit, stats };
+    total: audit.check.total, parts, hours: r2(st.line.hours), overtimeHours: r2(st.line.overtimeHours), visits: visitIds.length, notes: st.notes, audit, stats,
+    weeks: (st.line.weeks || []).map((w: any) => ({ weekStart: w.weekStart, hours: r2(w.hours), earned: r2(w.earned), topUp: r2(w.topUp) })) };
 }
 
 /** The stub to show: saved once paid (and from then on read back unchanged), live until then. */

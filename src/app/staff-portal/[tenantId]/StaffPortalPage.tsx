@@ -144,6 +144,7 @@ import { ForgotClockOut } from '@/components/staff-portal/ForgotClockOut';
 import { MyDetails } from '@/components/staff-portal/MyDetails';
 import { AlertSettings } from '@/components/staff-portal/AlertSettings';
 import { PayHome } from '@/components/pay/PayHome';
+import { PayTabs } from '@/components/pay/PayTabs';
 import { PortalSplash, shouldShowSplash } from '@/components/staff-portal/PortalSplash';
 import { PortalBoot, rememberBrand } from '@/components/staff-portal/PortalBoot';
 import { isStaleCopy, reloadOnce, reportCrash } from '@/lib/client-crash';
@@ -4975,7 +4976,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           )}
 
           {activeTab==='earnings' && (
-            <PayHome tenantId={tenantId} staffId={staffMember.id} firestore={firestore} accent={accentColor} />
+            <PayTabs tenantId={tenantId} staffId={staffMember.id} firestore={firestore} accent={accentColor} />
           )}
 
           {activeTab==='requests' && (
