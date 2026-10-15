@@ -8,9 +8,10 @@
 // when they answer; no link in the first text (except a waitlist spot they asked for); urgency only when it's real; an easy way
 // out; never the same words twice to one client. Every playbook has several approved versions for that reason.
 
+import { nudgesFor } from '@/lib/checkout-nudges';
 import { moduleEnabled, type ModuleId } from '@/lib/modules';
 
-export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'shop_reorder' | 'share_ask' | 'inquiry_waiting' | 'booth_lead' | 'booth_pass' | 'booth_lapsed' | 'academy_lead' | 'academy_stalled' | 'applicant_waiting' | 'manual' | 'follow_up';
+export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'shop_reorder' | 'share_ask' | 'inquiry_waiting' | 'booth_lead' | 'booth_pass' | 'booth_lapsed' | 'academy_lead' | 'academy_stalled' | 'applicant_waiting' | 'manual' | 'follow_up' | 'membership_fit' | 'overtime_risk' | 'supply_overuse';
 export type Who = 'provider' | 'desk' | 'owner';
 export type OutcomeId = 'booked' | 'waitlist' | 'interested' | 'not_now' | 'price' | 'no_answer' | 'voicemail' | 'bad_experience' | 'stop' | 'declined' | 'quote_accepted' | 'no_longer_applies' | 'done';
 
@@ -176,6 +177,14 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     auto: ['Hi {first}, this is {business}. You still have {left} included in your {plan}. Whenever you would like to use it, you can book a time here: {link}'],
     afterAuto: 'Hi {first}, this is {me}. I wanted to make sure you get the most from your {plan}. Would you like me to find you a time?',
     never: 'Making them feel guilty for not coming in.' },
+  membership_fit: { kind: 'membership_fit', label: 'A membership would save them money', who: 'desk', marketing: true, priority: 'low', expiresDays: 14, cooldownDays: 120, winBack: false,
+    versions: [
+      'Hi {first}, this is {me} at {business}. Looking at your last few visits, our {plan} would have saved you about {saved}. Would you like me to tell you how it works? No pressure at all.',
+      'Hi {first}, this is {me} from {business}. I noticed you come in often, and our {plan} would have cost you about {saved} less over the last three months. Happy to explain it if you are curious.',
+    ],
+    next: 'Explain what it includes and what it costs a month, with their own numbers. If they want it, sell it at their next visit or send the sign-up link.',
+    branches: COMMON([B('interested', '“Lovely. I will add it at your next visit, or send you the sign-up link now if you prefer.”')]),
+    never: 'Pressure, made-up deadlines, or suggesting it when it would not actually save them money.' },
   shop_reorder: { kind: 'shop_reorder', label: 'Time for more', who: 'desk', marketing: true, priority: 'low', expiresDays: 7, cooldownDays: 30, winBack: false,
     versions: ['Hi {first}, this is {me} at {business}. It has been about {weeks} weeks since your last {product}, so you may be running low. Would you like us to set one aside for you?'],
     next: 'Set one aside at the desk, or send them the link to order it.',
@@ -231,6 +240,16 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     next: 'Reply to them, invite them to interview, or let them know kindly.',
     branches: COMMON([B('done', 'Replied, invited, or decided. Mark it done.')]),
     never: 'Silence: everyone who applies hears back.' },
+  overtime_risk: { kind: 'overtime_risk', label: 'Scheduled into overtime', who: 'owner', marketing: false, priority: 'medium', expiresDays: 6, cooldownDays: 6, winBack: false,
+    versions: ['Hi {first}, this is {me}. You are on the schedule for {hours} hours this week, which goes past {limit}. Would you like to swap or give away a shift, or is the extra time okay with you?'],
+    next: 'Move or split a shift before the week runs over, or approve the overtime on purpose.',
+    branches: COMMON([B('done', 'Schedule changed, or the overtime is approved. Mark it done.')]),
+    never: 'Cutting someone’s hours without talking to them.' },
+  supply_overuse: { kind: 'supply_overuse', label: 'Using more product than the recipe', who: 'owner', marketing: false, priority: 'low', expiresDays: 14, cooldownDays: 30, winBack: false,
+    versions: ['Hi {first}, this is {me}. Quick one: on your last {visits} {product} services we used about {over} more {product_name} than the recipe says. Is the recipe out of date, or is something being wasted? No problem either way, I just want the numbers right.'],
+    next: 'Ask, don’t accuse. Either update the service’s standard amount, or agree a way to use less (smaller pours, closing lids).',
+    branches: COMMON([B('done', 'Recipe updated, or agreed a change. Mark it done.')]),
+    never: 'Treating it as a disciplinary matter, or raising it in front of clients.' },
   share_ask: { kind: 'share_ask', label: 'Ask to share (they loved it)', who: 'provider', marketing: true, priority: 'low', expiresDays: 5, cooldownDays: 90, winBack: false,
     versions: ['Hi {first}, it was lovely to see you. If you know someone who would love it too, here is {gift} off their first visit, from you: {link}'],
     next: 'Nothing to do: the link does the rest.',
@@ -269,14 +288,14 @@ export type Mode = 'off' | 'auto' | 'person' | 'auto_then_person';
 export const MODE_LABEL: Record<Mode, string> = { off: 'Off', auto: 'Send it automatically', person: 'Give it to a person', auto_then_person: 'Automatic, then a person' };
 /** The starting choice for each kind (canvas, section 31 follow-up): automatic where a friendly text is enough, a person
  * where the personal touch is the point, and "automatic, then a person" where a person only helps if there's no reply. */
-export const DEFAULT_MODES: Record<string, Mode> = { share_ask: 'auto', shop_reorder: 'auto', fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
+export const DEFAULT_MODES: Record<string, Mode> = { membership_fit: 'off', overtime_risk: 'person', supply_overuse: 'person', share_ask: 'auto', shop_reorder: 'auto', fill_gap: 'auto', renewal_failed: 'person', unused_visits: 'auto_then_person', due: 'auto_then_person', no_rebook: 'auto_then_person', cancelled: 'auto', gift_card: 'auto', quote: 'auto_then_person', first_visit: 'person', long_gone: 'person', no_show: 'person' };
 export const modesFor = (k: OppKind): Mode[] => (k === 'fill_gap' || k === 'share_ask' ? ['off', 'auto'] : PLAYBOOKS[k].auto?.length ? ['off', 'auto', 'auto_then_person', 'person'] : ['off', 'person']);
 export interface OppSettings { bonus: { on: boolean; cents: number; capCents: number }; linkFirst: Record<string, boolean>; on: boolean; finders: Record<string, boolean>; modes: Record<string, Mode>; afterDays: number; perPersonPerDay: number; holdoutPct: number; paceMin: number; paceDays: number; windows: Record<Tool, number>; solo: { mode: 'auto' | 'on' | 'off'; hour: number; max: number }; renters: boolean }
 
 // ── Which tool each kind belongs to ─────────────────────────────────────────────────────────
 // One engine for every tool. A kind whose tool the business doesn't have is off, whatever its setting says.
 export type Tool = 'appointments' | 'quotes' | 'gift_cards' | 'memberships' | 'shop' | 'booths' | 'academy' | 'hiring' | 'calls';
-export const TOOL_OF: Record<OppKind, Tool> = { share_ask: 'appointments', inquiry_waiting: 'quotes', booth_lead: 'booths', booth_pass: 'booths', booth_lapsed: 'booths', academy_lead: 'academy', academy_stalled: 'academy', applicant_waiting: 'hiring', shop_reorder: 'shop', fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
+export const TOOL_OF: Record<OppKind, Tool> = { share_ask: 'appointments', inquiry_waiting: 'quotes', booth_lead: 'booths', booth_pass: 'booths', booth_lapsed: 'booths', academy_lead: 'academy', academy_stalled: 'academy', applicant_waiting: 'hiring', shop_reorder: 'shop', fill_gap: 'appointments', renewal_failed: 'memberships', unused_visits: 'memberships', membership_fit: 'memberships', overtime_risk: 'hiring', supply_overuse: 'appointments', due: 'appointments', first_visit: 'appointments', long_gone: 'appointments', cancelled: 'appointments', no_show: 'appointments', no_rebook: 'appointments', quote: 'quotes', gift_card: 'gift_cards', follow_up: 'appointments', manual: 'appointments' };
 const TOOL_GATE: Partial<Record<Tool, ModuleId>> = { quotes: 'classes_events', memberships: 'memberships', shop: 'retail', booths: 'booth_rental', academy: 'academy', hiring: 'team', calls: 'voice' };
 export const toolOn = (tenant: any, tool: Tool) => { const g = TOOL_GATE[tool]; return !g || moduleEnabled(tenant, g); };
 
@@ -295,7 +314,7 @@ export function heldForRoom(kind: OppKind, providerId: string | null, pace: Pace
   const share = providerId && pace.byStaff?.[providerId] ? pace.byStaff[providerId].share : pace.business;
   return typeof share === 'number' && share * 100 < S.paceMin;
 }
-export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'share_ask', 'renewal_failed', 'unused_visits', 'shop_reorder', 'quote', 'inquiry_waiting', 'gift_card', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting'];
+export const FINDER_KINDS: OppKind[] = ['due', 'first_visit', 'no_rebook', 'cancelled', 'no_show', 'long_gone', 'fill_gap', 'share_ask', 'renewal_failed', 'unused_visits', 'membership_fit', 'shop_reorder', 'quote', 'inquiry_waiting', 'gift_card', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting', 'overtime_risk', 'supply_overuse'];
 export function oppSettingsOf(tenant: any): OppSettings {
   const o = tenant?.opportunities || {}; const f = o.finders || {};
   const n = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d; };
@@ -381,7 +400,7 @@ const whenWord = (t: number, now: number, tz?: string) => { const d = Math.round
 /** The rules. Returns everything that qualifies today; the server drops what's already open, cooling down or opted out.
  * `fresh`: called the moment something happened (a cancellation, a no-show, a checkout), so those kinds qualify the
  * same day; the server decides when the client actually hears from us. */
-export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; services?: any[]; purchases?: Purchase[]; biz?: Biz; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean; renterOnly?: string }): Candidate[] {
+export function findCandidates(x: { clients: any[]; appointments: any[]; quotes: any[]; giftCards: any[]; services?: any[]; memberships?: any[]; purchases?: Purchase[]; biz?: Biz; settings: OppSettings; now: number; tz?: string; renterStaffIds?: Set<string>; fresh?: boolean; renterOnly?: string }): Candidate[] {
   const { now, settings: S } = x; const minAge = x.fresh ? 0 : 1; const iso = (t: number) => new Date(t).toISOString();
   const renter = x.renterStaffIds || new Set<string>();
   const appts = x.renterOnly ? x.appointments.filter((a) => String(a.staffId || '') === x.renterOnly && !a.isWalkIn) : x.appointments.filter((a) => !a.isRenterBooking && !renter.has(String(a.staffId || '')) && !a.isWalkIn);
@@ -447,6 +466,19 @@ export function findCandidates(x: { clients: any[]; appointments: any[]; quotes:
     const longAfter = Math.max(g ? g * 3 : 90, 90);
     if (since >= longAfter && since <= 365 && S.finders.long_gone) { add('long_gone', c, h, `Last visit ${Math.round(since / 30)} months ago${n > 1 ? ` — came ${n} times before` : ''}`, h.avg * 100); continue; }
   }
+  // Memberships (tool: memberships): a regular whose last 3 months would have cost less on a monthly plan (the same honest
+  // maths as the checkout suggestion, lib/checkout-nudges). Off unless the business turns it on, since it's selling.
+  if (S.finders.membership_fit && (x.memberships || []).length) {
+    const have = new Set(out.map((o) => o.clientId));
+    for (const [cid, h] of H) { const c = clients.get(cid); if (!c || c.archived || c.deleted || have.has(cid) || c.activeMembershipId || c.subscription?.status === 'active') continue;
+      if (c.marketingOptOut || (!c.smsMarketingOptIn && !c.emailMarketingOptIn)) continue;
+      const visits = h.visits.map((v: any) => ({ serviceId: String(v.serviceId || ''), startTime: String(v.startTime), price: Number(v.price) || 0 })).filter((v) => v.serviceId);
+      if (visits.filter((v) => now - ms(v.startTime) <= 90 * DAY).length < 2) continue;
+      const best = nudgesFor({ client: c, visits, upcoming: 0, memberships: x.memberships || [], packages: [], services: x.services || [], settings: { membership: true, package: false, rebook: false, quietDays: 60, max: 1 }, now })[0];
+      if (!best?.item) continue;
+      add('membership_fit', c, h, best.title, Math.round(Number(best.item.price) * 100 * 6), { key: `membership_fit:${cid}`, refs: { membershipId: best.item.id }, providerId: null });
+      const f = out[out.length - 1].facts; f.plan = best.item.name; f.saved = `$${Math.round(best.value * 3)}`; have.add(cid); }
+  }
   // The shop (tool: shop): something a client buys again and again, and it's about the time they usually run out.
   if (S.finders.shop_reorder && x.purchases?.length) {
     const have = new Set(out.map((o) => o.clientId));
@@ -481,9 +513,9 @@ export const dollars = (cents: number) => { const d = (Number(cents) || 0) / 100
 
 /** Keep only what should become a task: one open task per client, cooldowns, opt-outs, open cases. */
 /** The rest of the business (step 6, round 3): records about people who aren't clients yet, or aren't clients at all. */
-export interface Biz { inquiries?: any[]; boothApps?: any[]; boothPasses?: any[]; boothBookings?: any[]; admissions?: any[]; enrollments?: any[]; applications?: any[]; invites?: any[] }
+export interface Biz { team?: any[]; shifts?: any[]; overtimeHours?: number; usage?: any[]; products?: any[]; inquiries?: any[]; boothApps?: any[]; boothPasses?: any[]; boothBookings?: any[]; admissions?: any[]; enrollments?: any[]; applications?: any[]; invites?: any[] }
 const LIVE_RES = ['confirmed', 'checked_in', 'completed', 'pending_payment'];
-export const BIZ_KINDS: OppKind[] = ['inquiry_waiting', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting'];
+export const BIZ_KINDS: OppKind[] = ['inquiry_waiting', 'booth_lead', 'booth_pass', 'booth_lapsed', 'academy_lead', 'academy_stalled', 'applicant_waiting', 'overtime_risk', 'supply_overuse'];
 export function bizCandidates(b: Biz, S: OppSettings, now: number, tz?: string): Candidate[] {
   const out: Candidate[] = []; const iso = (t: number) => new Date(t).toISOString(); const ago = (v: any) => (ms(v) ? (now - ms(v)) / DAY : null);
   const push = (kind: OppKind, id: string, p: { name?: any; phone?: any; email?: any; clientId?: any }, why: string, facts: Record<string, string> = {}, valueCents = 0, refs: Record<string, string> = {}) => {
@@ -529,6 +561,20 @@ export function bizCandidates(b: Biz, S: OppSettings, now: number, tz?: string):
     if (e.status !== 'active' || e.completedAt || e.certificateCode) continue; const d = ago(e.lastActiveAt || e.createdAt); if (d === null || d < 14 || d > 90) continue;
     push('academy_stalled', String(e.id), { name: e.studentName || e.name, phone: e.phone, email: e.email }, `No lessons in ${Math.round(d)} days on ${e.courseTitle || e.courseName || 'their course'}`, { course: String(e.courseTitle || e.courseName || 'your course') }, Number(e.paidCents) || 0, { enrollmentId: String(e.id) });
   }
+  // The team (owner's tasks; the client never hears about these). Scheduled into overtime this week:
+  if (S.finders.overtime_risk) { const lim = Number(b.overtimeHours) || 40; const mins = (t: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+    const by = new Map<string, number>(); for (const sh of b.shifts || []) { if (sh.status === 'cancelled' || (sh.kind && sh.kind !== 'work')) continue; const a = mins(sh.startTime), z = mins(sh.endTime); if (isNaN(a) || isNaN(z)) continue;
+      const span = (z > a ? z - a : z + 1440 - a) - (Number(sh.breakMinutes) || 0); by.set(String(sh.staffId), (by.get(String(sh.staffId)) || 0) + Math.max(0, span)); }
+    for (const [sid, m] of by) { if (m <= lim * 60) continue; const p = (b.team || []).find((x: any) => String(x.id) === sid); if (!p || p.archived) continue;
+      const hrs = Math.round(m / 6) / 10; push('overtime_risk', `${sid}:${String((b.shifts || [])[0]?.weekKey || '')}`, { name: p.name, phone: p.phone }, `On the schedule for ${hrs} hours this week — overtime starts after ${lim}`, { hours: String(hrs), limit: `${lim} hours` }, 0, { staffId: sid }); } }
+  // Using more product than the service's standard amounts (last 30 days of recorded use, 5+ visits, 25%+ over).
+  if (S.finders.supply_overuse) { const agg = new Map<string, { staffId: string; productId: string; name: string; unit: string; expected: number; used: number; visits: number }>();
+    for (const u of b.usage || []) { if (!u?.staffId || now - ms(u.recordedAt) > 30 * DAY) continue; for (const l of u.lines || []) { const used = Number(l.actual ?? l.deducted ?? l.expected) || 0; const exp = Number(l.expected) || 0; if (exp <= 0) continue;
+      const k = `${u.staffId}|${l.productId}`; const r = agg.get(k) || { staffId: String(u.staffId), productId: String(l.productId), name: String(l.name || 'product'), unit: String(l.unit || ''), expected: 0, used: 0, visits: 0 }; r.expected += exp; r.used += used; r.visits++; agg.set(k, r); } }
+    for (const r of agg.values()) { if (r.visits < 5 || r.used < r.expected * 1.25) continue; const p = (b.team || []).find((x: any) => String(x.id) === r.staffId); if (!p) continue;
+      const over = Math.round((r.used - r.expected) * 10) / 10; const pct = Math.round((r.used / r.expected - 1) * 100); const prod = (b.products || []).find((x: any) => x.id === r.productId);
+      const cost = Number(prod?.costPerUnit) > 0 ? (prod.costingMethod === 'size' && Number(prod.size) > 0 ? Number(prod.costPerUnit) / Number(prod.size) : prod.costingMethod === 'uses' && Number(prod.estimatedUses) > 0 ? Number(prod.costPerUnit) / Number(prod.estimatedUses) : Number(prod.costPerUnit)) : 0;
+      push('supply_overuse', `${r.staffId}:${r.productId}`, { name: p.name, phone: p.phone }, `${p.name || 'A provider'} used ${pct}% more ${r.name} than the recipe over ${r.visits} visits (${over} ${r.unit} extra)`, { visits: String(r.visits), product: '', product_name: r.name, over: `${over} ${r.unit}`.trim() }, Math.round(cost * (r.used - r.expected) * 100), { staffId: r.staffId, productId: r.productId }); } }
   if (S.finders.applicant_waiting) { const met = new Map<string, any>(); for (const i of b.invites || []) if (i.status === 'accepted' && i.applicationId) met.set(String(i.applicationId), i);
     for (const a of b.applications || []) {
       const st = String(a.status || ''); const d = ago(a.createdAt); const inv = met.get(String(a.id)); const slot = ms(inv?.chosenSlot?.startIso || inv?.chosenSlot?.start || inv?.chosenSlot);

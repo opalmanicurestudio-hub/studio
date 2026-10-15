@@ -208,6 +208,26 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
     check('a first visit paid with a gift is nudged when that service is due again (5 weeks)', r[0]?.kind === 'due' && /gift/.test(r[0]?.why || ''));
     check('…but not before then', !O.findCandidates({ clients: gia, appointments: [{ ...gv[0], startTime: ago(20) }], quotes: [], giftCards: cards, services: svcs, settings: S, now: NOW }).some((c: any) => c.kind === 'due'));
     check('…and a card they bought themselves doesn’t count', !O.findCandidates({ clients: gia, appointments: gv, quotes: [], giftCards: [{ ...cards[0], purchaserId: 'gia' }], services: svcs, settings: S, now: NOW }).some((c: any) => c.kind === 'due')); }
+  { const SM = O.oppSettingsOf({ opportunities: { modes: { membership_fit: 'person' } } });
+    check('membership fit is off unless the business turns it on', O.oppSettingsOf({}).modes.membership_fit === 'off' && SM.modes.membership_fit === 'person');
+    const lia = [{ id: 'lia', name: 'Lia Park', phone: '+15550400', smsMarketingOptIn: true }];
+    const v = [ap('l1', 'lia', ago(70), 'completed', { serviceId: 'gel', price: 60 }), ap('l2', 'lia', ago(45), 'completed', { serviceId: 'gel', price: 60 }), ap('l3', 'lia', ago(20), 'completed', { serviceId: 'gel', price: 60 }), ap('l4', 'lia', ahead(10), 'confirmed', { serviceId: 'gel', price: 60 })];
+    const plan = [{ id: 'm1', name: 'Gel Club', price: 45, interval: 'monthly', includedServices: [{ id: 'gel', quantity: 1 }] }];
+    const r = O.findCandidates({ clients: lia, appointments: v, quotes: [], giftCards: [], services: [{ id: 'gel', price: 60 }], memberships: plan, settings: SM, now: NOW });
+    const mf = r.find((c: any) => c.kind === 'membership_fit');
+    check('a regular whose visits would have cost less on a plan is found, with the saving', !!mf && mf.facts.plan === 'Gel Club' && /\$\d+/.test(mf.facts.saved || ''));
+    check('…but not without marketing consent', !O.findCandidates({ clients: [{ ...lia[0], smsMarketingOptIn: false }], appointments: v, quotes: [], giftCards: [], services: [{ id: 'gel', price: 60 }], memberships: plan, settings: SM, now: NOW }).some((c: any) => c.kind === 'membership_fit'));
+    check('…nor when it wouldn’t save them anything', !O.findCandidates({ clients: lia, appointments: v, quotes: [], giftCards: [], services: [{ id: 'gel', price: 60 }], memberships: [{ ...plan[0], price: 70 }], settings: SM, now: NOW }).some((c: any) => c.kind === 'membership_fit')); }
+  { const SB = O.oppSettingsOf({});
+    const team = [{ id: 'ana', name: 'Ana Ruiz', phone: '+15550500' }, { id: 'bo', name: 'Bo Lee' }];
+    const sh = (staffId: string, date: string, a: string, z: string) => ({ staffId, date, startTime: a, endTime: z, breakMinutes: 30, status: 'published', weekKey: '2026-10-12' });
+    const shifts = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'].map((d) => sh('ana', d, '09:00', '18:30')).concat([sh('bo', '2026-10-12', '09:00', '17:00')]);
+    const c = O.bizCandidates({ team, shifts, overtimeHours: 40 } as any, SB, NOW);
+    check('scheduled for 45 hours with overtime after 40 → an owner task, only for that person', c.filter((x: any) => x.kind === 'overtime_risk').length === 1 && c[0].facts.hours === '45');
+    const use = Array.from({ length: 6 }, (_, k) => ({ staffId: 'bo', recordedAt: ago(k + 1), lines: [{ productId: 'p1', name: 'Gel base', unit: 'ml', expected: 2, actual: 3 }] }));
+    const u = O.bizCandidates({ team, usage: use, products: [{ id: 'p1', costPerUnit: 20, costingMethod: 'size', size: 10 }] } as any, SB, NOW).filter((x: any) => x.kind === 'supply_overuse');
+    check('50% more gel base than the recipe over 6 visits → a quiet owner task, with what it cost', u.length === 1 && u[0].valueCents === 1200 && /50%/.test(u[0].why));
+    check('…but not when it’s close to the recipe', !O.bizCandidates({ team, usage: use.map((x) => ({ ...x, lines: [{ ...x.lines[0], actual: 2.2 }] })) } as any, SB, NOW).some((x: any) => x.kind === 'supply_overuse')); }
 
   const db4 = makeDb(); const sent4: any[] = []; const send4: any = async (_d: any, _t: string, to: string, body: string) => { sent4.push({ to, body }); return { ok: true, via: 'sms' }; };
   await db4.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); for (const m of team) await db4.doc(`${T}/staff/${m.id}`).set(m);

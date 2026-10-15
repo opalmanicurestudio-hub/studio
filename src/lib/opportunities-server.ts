@@ -64,7 +64,14 @@ async function loadBiz(db: any, t: string, tenant: any, S: OppSettings, now: num
     on('applicant_waiting') ? safe(db.collection(`${T(t)}/applications`).where('status', 'in', ['new', 'interview']).get()) : none,
     on('applicant_waiting') ? safe(db.collection(`${T(t)}/interviewInvites`).where('status', '==', 'accepted').get()) : none,
   ]);
-  return { inquiries, boothApps, boothPasses, boothBookings, admissions, enrollments, applications, invites };
+  // The team side (owner's tasks): this week's shifts, recent recorded product use.
+  let team: any[] = [], shifts: any[] = [], usage: any[] = [], products: any[] = [];
+  if (on('overtime_risk') || on('supply_overuse')) team = await safe(db.collection(`${T(t)}/staff`).get());
+  if (on('overtime_risk')) { const { dayKey } = await import('@/lib/tenant-time'); const zone = tenant?.timezone || 'America/New_York'; const ws = Number.isInteger(tenant?.workweekStartsOn) ? tenant.workweekStartsOn : 1;
+    const today = new Date(`${dayKey(new Date(now), zone)}T12:00:00Z`); const back = (today.getUTCDay() - ws + 7) % 7; const start = new Date(today.getTime() - back * DAY); const end = new Date(start.getTime() + 6 * DAY);
+    const k = (d: Date) => d.toISOString().slice(0, 10); shifts = (await safe(db.collection(`${T(t)}/shifts`).where('date', '>=', k(start)).where('date', '<=', k(end)).get())).map((x: any) => ({ ...x, weekKey: k(start) })); }
+  if (on('supply_overuse')) { usage = await safe(db.collection(`${T(t)}/usage`).where('recordedAt', '>=', nowIso(now - 30 * DAY)).get()); products = usage.length ? await safe(db.collection(`${T(t)}/inventory`).get()) : []; }
+  return { inquiries, boothApps, boothPasses, boothBookings, admissions, enrollments, applications, invites, team: team.filter((x: any) => x.archived !== true && x.role !== 'renter' && !x.isRenter), shifts, usage, products, overtimeHours: Number(tenant?.overtimeThresholdHours) || 40 };
 }
 async function shopLink(tenant: any, t: string, productId?: string | null) {
   const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); if (!base) return '';
@@ -102,7 +109,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   const purchases = S.finders.shop_reorder ? await loadPurchases(db, t, tenant, x.clients, now).catch(() => []) : [];
   const biz = BIZ_KINDS.some((k) => S.finders[k]) ? await loadBiz(db, t, tenant, S, now).catch(() => ({})) : {};
   const bizKeys = new Set(bizCandidates(biz, S, now, zone).map((c) => c.key));   // still true today (closes the ones that aren't)
-  const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, services: await loadServices(db, t).catch(() => []), purchases, biz, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
+  const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, services: await loadServices(db, t).catch(() => []), memberships: S.finders.membership_fit ? await db.collection(`${T(t)}/memberships`).get().then(rows).catch(() => []) : [], purchases, biz, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
     existing: x.opps, clients, now,
     openCaseClients: new Set(x.cases.filter((c: any) => c.clientId && !CLOSED_CASE.includes(String(c.status || ''))).map((c: any) => String(c.clientId))),
     recentAutoNudge: new Set(x.nudges.map((n: any) => String(n.clientId || ''))),
