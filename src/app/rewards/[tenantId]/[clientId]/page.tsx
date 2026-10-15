@@ -47,6 +47,6 @@ export default async function RewardsPage({ params, searchParams }: { params: Pr
     {ledger.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}><div style={{ fontSize: 15, fontWeight: 600 }}>History</div>
       {ledger.slice(0, 12).map((e: any) => <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 14 }}><span>{day(e.at, tz)} · {String(e.why || '').replace(/^Adjusted by [^:]+: /, '').replace(/^\d+ for /, 'Spent ').slice(0, 60) || e.type}</span><span style={{ fontWeight: 600, color: e.points > 0 ? GREEN : INK }}>{e.points > 0 ? `+${e.points}` : `−${Math.abs(e.points)}`}</span></div>)}</div>}
     <div style={{ fontSize: 12.5, lineHeight: 1.55, color: MUTED }}>{termsOf(S)}</div>
-    <a href={`/book/${encodeURIComponent(tenantId)}`} style={{ height: 52, borderRadius: 999, background: INK, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 600, textDecoration: 'none' }}>Book your next visit</a>
+    <a href={`/book/${encodeURIComponent(tenantId)}?c=${encodeURIComponent(clientId)}&rk=${encodeURIComponent(String(sp.k))}`} style={{ height: 52, borderRadius: 999, background: INK, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 600, textDecoration: 'none' }}>Book your next visit</a>
   </>);
 }

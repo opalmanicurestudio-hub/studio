@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
+import { BookingRewards } from '@/components/loyalty/BookingRewards';
 import { giftCentsFor } from '@/lib/gift-visit';
 import { GiftCoverBar } from '@/components/gift/GiftCoverBar';
 import { channelFrom, catSlug } from '@/lib/share-links';
@@ -1269,5 +1270,5 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 }
 
 export default function BookingPage({ params }: { params: { tenantId: string } }) {
-  return <BookingPageContent tenantId={params.tenantId}/>;
+  return <><BookingRewards tenantId={params.tenantId} /><BookingPageContent tenantId={params.tenantId}/></>;
 }

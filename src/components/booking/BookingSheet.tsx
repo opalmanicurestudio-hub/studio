@@ -1,5 +1,6 @@
 'use client';
 
+import { quietBonus, loyaltyOf } from '@/lib/loyalty';
 import { ConfirmNumberCard } from '@/components/visit/VerifyCard';
 import { emptyParty, partyHasMore, type Party } from '@/components/booking/PartyBuilder';
 import { groupPolicy } from '@/lib/group-policy';
@@ -1266,6 +1267,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                               >
                                 {isHotSlot && <div className="absolute top-0 right-0 p-0.5 bg-amber-500 rounded-bl-md shadow-sm"><Flame className="w-2 h-2 text-white" /></div>}
                                 {format(timeStringToDate(time, new Date()), 'h:mm a')}
+                                {!isHotSlot && (() => { const qb = quietBonus(loyaltyOf(tenant), (date || new Date()).getDay(), Number(String(time).split(':')[0]) * 60 + Number(String(time).split(':')[1] || 0), service?.id || null); return qb ? <span className="absolute right-0 top-0 rounded-bl-md px-1 text-[8px] normal-case tracking-normal" style={{ background: '#e9f5ee', color: '#1f7a4d' }}>+{qb.points} pts</span> : null; })()}
                               </Button>
                             );
                           })}

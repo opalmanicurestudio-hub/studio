@@ -24,6 +24,7 @@ import { icsHref, googleHref } from '@/lib/ics';
 import { graceHoursOf } from '@/lib/deposit-policy';
 
 const KNOWN = new Set(['heading', 'paragraph', 'short-text', 'long-text', 'multiple-choice', 'checkboxes', 'image-upload', 'signature']);
+import { quietBonus, loyaltyOf } from '@/lib/loyalty';
 const clock = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
 const answered = (v: any) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
 const card = 'rounded-3xl bg-white p-5 shadow-[0_1px_2px_rgba(28,25,23,.04),0_12px_32px_-18px_rgba(28,25,23,.25)]';
@@ -128,6 +129,7 @@ export function StudioFlow({ c }: { c: any }) {
           : <div className="grid grid-cols-3 gap-2">{c.timeSlots.map((t: string) => { const on = c.selectedTime === t; const hot = c.hotSlotMap.get(t); return (
             <button key={t} type="button" onClick={() => { c.setSelectedTime(t); setTimeout(() => c.setCurrentStepIndex(steps.indexOf('details')), 220); }} aria-pressed={on} className={`relative h-12 rounded-2xl text-[15px] font-medium transition active:scale-95 ${on ? 'text-white shadow' : 'bg-white shadow-sm'}`} style={on ? { background: accent } : undefined}>
               {clock(t)}{hot && <span className="absolute -top-1.5 right-1 rounded-full bg-amber-400 px-1.5 text-[10px] font-semibold text-amber-950">Just opened</span>}
+              {!hot && (() => { const qb = quietBonus(loyaltyOf(tenant), c.date.getDay(), Number(t.split(':')[0]) * 60 + Number(t.split(':')[1] || 0), service?.id || null); return qb ? <span className="absolute -top-1.5 right-1 rounded-full px-1.5 text-[10px] font-semibold" style={{ background: '#e9f5ee', color: '#1f7a4d' }}>+{qb.points} pts</span> : null; })()}
             </button>
           ); })}</div>}
       </section>
