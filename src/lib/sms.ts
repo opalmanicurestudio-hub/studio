@@ -183,6 +183,14 @@ export async function sendTenantSms(
     messagingServiceSid = data?.sms?.messagingServiceSid || undefined;
   } catch { /* branding is best-effort */ }
   const e164 = toE164(to);
+  // They replied STOP: no more texts to this number from this business (the carrier would block them anyway). An email
+  // fallback still goes. START or UNSTOP lifts it (/api/sms/inbound).
+  if (e164) {
+    try { const out = ((await db.doc(`tenants/${tenantId}/private/smsOptOuts`).get()).data() as any) || {};
+      if (out[e164.replace(/[^\d]/g, '')]) {
+        if (fallback?.email) { const emailed = await sendFallbackEmail(fallback.email, fallback.subject || (studioName ? `${studioName} — notification` : 'Notification'), body, studioName); if (emailed) return { ok: true, via: 'email', error: 'opted out of texts — delivered by email' } as SmsResult; }
+        return { ok: false, error: 'They replied STOP, so texts to this number are off.' } as SmsResult; } } catch { /* the carrier's own STOP still protects */ }
+  }
   let firstContact = false;
   if (e164) {
     try {

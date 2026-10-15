@@ -124,6 +124,7 @@ export async function earnForShopOrder(db: any, t: string, tenant: any, orderId:
 export async function automationSweep(db: any, t: string, tenant: any, now = Date.now(), send?: (to: string, text: string) => Promise<boolean>) {
   const { AUTO_TEXTS, rewardsFor, unitOf } = await import('@/lib/loyalty'); const S = loyaltyOf(tenant);
   if (!S.on || !(S.auto.rewardReady || S.auto.tierUp || S.auto.unused || S.auto.comeBack)) return { sent: 0 };
+  { const { pausedNow } = await import('@/lib/outreach-pause'); if (!send && pausedNow(tenant, now)) return { sent: 0, skipped: 'held today' }; }
   const { localHour } = await import('@/lib/campaigns'); const tz = tenant?.timezone || 'America/New_York'; const h = localHour(tz, new Date(now)); if (h < 10 || h >= 20) return { sent: 0, skipped: 'quiet hours' };
   const { dayKey } = await import('@/lib/tenant-time'); const today = dayKey(new Date(now), tz);
   const month = new Date(now).toISOString().slice(0, 7); const capRef = db.doc(`tenants/${t}/private/loyaltyTexts`); const cap: any = (await capRef.get()).data() || {}; let used = Number(cap[month]) || 0;

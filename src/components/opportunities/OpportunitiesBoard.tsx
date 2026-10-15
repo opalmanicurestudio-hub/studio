@@ -4,6 +4,7 @@
 // make one by hand, switch finders off, and see results — paid money kept apart from estimates, and the left-alone
 // group beside the contacted one so "came back" isn't mistaken for "caused by". lib/opportunities(-server).
 import * as React from 'react';
+import { OutreachPause } from '@/components/shared/OutreachPause';
 import { collection, type Firestore } from 'firebase/firestore';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { payPost } from '@/components/pay/pay-client';
@@ -30,6 +31,7 @@ export function OpportunitiesBoard({ tenantId }: { tenantId: string }) {
   return (
     <>
       <div className="mx-auto mt-4 max-w-[1180px] space-y-4">
+        <OutreachPause tenantId={tenantId} compact />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>opportunities</p>
             <h1 className="text-[30px] font-light tracking-[-0.02em]">{d ? `${open.length} to work on${open.length ? ` · est. ${dollars(open.reduce((s, o) => s + (o.valueCents || 0), 0))}` : ''}` : 'Opportunities'}</h1>

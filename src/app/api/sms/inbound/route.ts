@@ -105,6 +105,14 @@ export async function POST(req: NextRequest) {
     }
 
     const nowIso = new Date().toISOString();
+    // STOP / START: remembered for this business, so nothing else is sent to them (lib/sms checks it), and the evening
+    // text report lists who opted out. Their client record shows it too.
+    { const word = String(body || '').trim().toLowerCase(); const key = fromDigits.length >= 10 ? (fromDigits.length === 10 ? `1${fromDigits}` : fromDigits) : '';
+      const stop = /^(stop|stopall|unsubscribe|cancel|end|quit)$/.test(word), start = /^(start|unstop)$/.test(word);
+      if (key && (stop || start)) { try { const { FieldValue } = await import('firebase-admin/firestore');
+        await db.doc(`tenants/${tenantId}/private/smsOptOuts`).set({ [key]: stop ? nowIso : FieldValue.delete() }, { merge: true });
+        if (clientId) await db.doc(`tenants/${tenantId}/clients/${clientId}`).set({ smsOptOut: stop, ...(stop ? { smsOptOutAt: nowIso } : { smsOptInAt: nowIso }) }, { merge: true });
+      } catch (e) { console.error('[sms/inbound] opt-out', e); } } }
     const noteBody = `${body}${mediaCount > 0 ? `${body ? ' ' : ''}(${mediaCount} photo${mediaCount === 1 ? '' : 's'} sent by MMS — view in Twilio console until media forwarding is set up)` : ''}`;
 
     // ── Does this reply belong on an active ticket's thread? ─────────

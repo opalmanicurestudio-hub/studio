@@ -148,7 +148,7 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
   await detectOpenings(db, t, now);
   const ops = rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get());
   let sent = 0, desk = 0; const cache: any = { tenant };
-  const { inTextWindow } = await import('@/lib/campaigns'); const tz = await zoneOf(tenant); const canText = inTextWindow(tz, new Date(now));
+  const { inTextWindow } = await import('@/lib/campaigns'); const tz = await zoneOf(tenant); const { pausedNow } = await import('@/lib/outreach-pause'); const paused = pausedNow(tenant, now); const canText = inTextWindow(tz, new Date(now)) && !paused;
   // Parties first: when enough times open together, a party that fits gets them before anyone on their own.
   try { await partyRound(db, t, ops, tenant, tz, now, d, cache, canText); } catch (e) { console.error('[waitlist] parties', e); }
   for (const op of ops) {
@@ -164,7 +164,7 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
     // Offers that ran out without even being opened count toward "still hoping?"
     for (const f of (op.offers || []).filter((f: any) => f.status === 'sent' && ms(f.holdUntil) <= now && !f.viewedAt)) await ignored(db, t, f.entryId);
     // Under 3 hours, if the owner turned calls on: the assistant calls whoever fits (and said yes to calls), one at a time.
-    try { const c = await callStep(db, t, { ...op, offers }, tenant, tz, now, d, cache); if (c === 'busy') { if (JSON.stringify(offers) !== JSON.stringify(op.offers || [])) await ref.update({ offers }); continue; } }
+    try { const c = await callStep(db, t, { ...op, offers }, tenant, tz, now, d, cache, paused); if (c === 'busy') { if (JSON.stringify(offers) !== JSON.stringify(op.offers || [])) await ref.update({ offers }); continue; } }
     catch (e) { console.error('[waitlist] calls', e); }
     if (mode === 'desk') { if (!op.deskAt) { await tellDesk(db, t, op, tz, now); desk++; } await ref.update({ mode, offers, deskAt: op.deskAt || iso(now) }); continue; }
     const fresh = JSON.stringify(offers) !== JSON.stringify(op.offers || []);
@@ -191,7 +191,7 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
 }
 
 /** One step of the calls for an opening: settle calls that ended (no answer → the text instead), else place the next. 'busy' = a call is live. */
-async function callStep(db: any, t: string, op: any, tenant: any, tz: string, now: number, d: Deps, cache: any): Promise<'busy' | 'idle'> {
+async function callStep(db: any, t: string, op: any, tenant: any, tz: string, now: number, d: Deps, cache: any, paused = false): Promise<'busy' | 'idle'> {
   const L = await import('@/lib/waitlist-calls'); const S = L.callSettingsOf(tenant); const calls: any[] = op.calls || [];
   if (!S.on && !calls.some((c) => c.status === 'calling')) return 'idle';
   const fromNumber = String(tenant?.voiceAgent?.phoneNumber || '').trim(); if (!fromNumber) return 'idle';
@@ -212,7 +212,7 @@ async function callStep(db: any, t: string, op: any, tenant: any, tz: string, no
     await ref.update({ calls: next }); op = { ...op, calls: next };
   }
   if (step.wait) return 'busy';
-  if (!S.on || !step.room) return 'idle';
+  if (!S.on || paused || !step.room) return 'idle';
   const { localHour } = await import('@/lib/voice/voice-utils'); if (!L.callWindow(ms(op.start), now, localHour(new Date(now), tz))) return 'idle';
   const month = L.monthKey(now, tz); const usage = Number(tenant?.waitlistCallsUsed?.[month]) || 0; if (usage >= L.callsAllowed(S)) return 'idle';
   const tried = new Set((op.calls || []).map((c: any) => c.entryId));
@@ -255,11 +255,14 @@ async function partyRound(db: any, t: string, ops: any[], tenant: any, tz: strin
   for (const e of entries) {
     const n = partyOf(e); const sid = serviceOf(e); const s = svc(sid); if (!s) continue; const mins = Number(s.duration || s.durationMinutes || 0) || 60;
     const tried = new Set<string>(e.partyTried || []);
+    const cl = e.clientId ? ((await db.doc(`${T(t)}/clients/${e.clientId}`).get()).data() || {}) : {};
+    // Same rule as for one person: an organizer who has missed visits before only gets times more than a day away.
+    const misses = (Number(cl.noShowCount) || 0) >= 1;
     const fits = (o: any) => { const w = walls.get(o.id); if (!free(o) || tried.has(o.id) || !windowFits(e.windows, w.weekday, w.hour)) return false;
+      if (misses && ms(o.start) - now < 24 * H) return false;
       if (ms(o.start) - now < Number(e.noticeHours ?? 3) * H || (e.until && w.date > String(e.until).slice(0, 10)) || mins > Number(o.minutes || 0)) return false;
       return D.openTimes(eng, { date: w.date, serviceId: sid, staffId: o.staffId }).some((x: any) => ms(x.startIso) === ms(o.start)); };
     const set = partySet(ops.map((o) => ({ ...o, date: walls.get(o.id).date })), n, fits); if (!set) continue;
-    const cl = e.clientId ? ((await db.doc(`${T(t)}/clients/${e.clientId}`).get()).data() || {}) : {};
     const phone = String(e.phone || cl.phone || '').trim(); if (!phone || cl.smsOptOut || cl.smsConsent === false) continue;
     const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); if (!base) return;
     const lead = set[0]; const token = `${lead.id}.p${randomBytes(12).toString('base64url')}`; const holdMin = partyHoldMin(ms(lead.start), now); const until = iso(now + holdMin * 60000);

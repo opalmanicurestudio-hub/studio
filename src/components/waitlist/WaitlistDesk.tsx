@@ -2,6 +2,7 @@
 // src/components/waitlist/WaitlistDesk.tsx — the Waitlist page's body (app/(app)/waitlist): openings as they're filled,
 // who fits next and why, who's waiting, and the demand you're turning away. /api/waitlist (lib/waitlist-server).
 import * as React from 'react';
+import { OutreachPause } from '@/components/shared/OutreachPause';
 import { payPost } from '@/components/pay/pay-client';
 
 const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318', BLUE = '#3d5a99';
@@ -28,6 +29,7 @@ export function WaitlistDesk({ tenantId }: { tenantId: string }) {
           <button type="button" role="switch" aria-checked={d.auto} onClick={() => act({ action: 'auto', on: !d.auto }, d.auto ? 'Paused — openings wait for the desk.' : 'On — openings fill themselves.')} className="flex h-10 items-center gap-2 rounded-full border bg-card px-3 text-[14px] font-semibold" style={{ borderColor: LINE }}>
             <span className="relative h-6 w-10 rounded-full" style={{ background: d.auto ? GREEN : '#dcdde0' }}><span className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-card" style={{ left: d.auto ? 19 : 3 }} /></span>Fill automatically</button></div></div>
       {msg && <p className="text-[13.5px] font-semibold" style={{ color: msg.ok ? GREEN : RED }}>{msg.t}</p>}
+      <OutreachPause tenantId={tenantId} compact />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <div className="space-y-3">

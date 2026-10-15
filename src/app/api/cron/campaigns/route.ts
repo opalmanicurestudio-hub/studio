@@ -31,7 +31,12 @@ export async function GET(req: NextRequest) {
   const nowIso = new Date().toISOString();
   const results: any[] = [];
   const tenants = await db.collection('tenants').get();
+  const { pausedNow } = await import('@/lib/outreach-pause');
   for (const t of tenants.docs) {
+    // The evening text report (lib/text-report): from 7pm, once a day, only when something didn't go through or someone opted out.
+    try { const { textReportSweep } = await import('@/lib/text-report'); await textReportSweep(db, t.id, t.data()); } catch (e) { console.error('[campaigns] text report', t.id, e); }
+    // "Hold automatic offers today" (lib/outreach-pause): nothing goes out on its own until it ends.
+    if (pausedNow(t.data())) { results.push({ tenantId: t.id, held: true }); continue; }
     // Loyalty messages (lib/loyalty-server): once a day from 10am, only what the business switched on.
     if ((t.data() as any)?.loyalty?.on === true) { try { const { automationSweep } = await import('@/lib/loyalty-server'); await automationSweep(db, t.id, t.data()); } catch (e) { console.error('[campaigns] loyalty', t.id, e); } }
     // Automations: once a day, at 10am in the business's own time zone.

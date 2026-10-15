@@ -97,6 +97,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   const zone = await tz(tenant); const { dayKey } = await import('@/lib/tenant-time'); const today = dayKey(new Date(now), zone);
   const mark = db.doc(`${T(t)}/private/opportunities`);
   if (!o.force) {
+    { const { pausedNow } = await import('@/lib/outreach-pause'); if (pausedNow(tenant, now)) return { ok: true, skipped: 'held today' }; }
     const last = ((await mark.get()).data() || {}).lastDay; if (last === today) return { ok: true, skipped: 'done today' };
     const { localHour } = await import('@/lib/campaigns'); if (localHour(zone, new Date(now)) < 9) return { ok: true, skipped: 'too early' };
   }

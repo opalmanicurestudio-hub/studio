@@ -1,5 +1,6 @@
 'use client';
 
+import { ClientOutreach } from '@/components/clients/ClientOutreach';
 import { ClientRewards } from '@/components/loyalty/ClientRewards';
 import { ClientTimingCard } from '@/components/clients/ClientTimingCard';
 import { canSeeClientContact, canMessageClients, stripHiddenContact } from '@/lib/privacy';
@@ -1130,6 +1131,7 @@ export default function ClientDetailPage() {
                 {tenantId && <ClientNotes tenantId={tenantId} client={client} />}
               </TabsContent>
               <TabsContent value="messages" className="m-0 space-y-6 text-left">
+                {tenantId && clientId ? <ClientOutreach tenantId={tenantId} clientId={String(clientId)} /> : null}
                 {tenantId && <ClientMessages tenantId={tenantId} client={client} msgs={msgs} canSeeContact={seesContact} canMessage={mayMessage} />}
               </TabsContent>
             </Tabs>

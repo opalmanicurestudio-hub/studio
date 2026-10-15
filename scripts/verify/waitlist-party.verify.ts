@@ -46,5 +46,17 @@ ok(/all 3 of you/.test(partyOfferText({ first: 'Ana', size: 3, service: 'gel', w
   await W.waitlistSweep(db2, 't1', await ten(), NOW + 31 * 60000, d2);
   ok(sent2.some((x) => x.to === '+15550010'), 'after the party hold ends, the solo person gets an offer');
   ok(sent2.filter((x) => x.to === '+15550009').length === 1, 'the party is not offered the same times twice');
+  // An organizer with a past no-show: a time two hours away isn't offered to the party.
+  const db3 = makeDb(); await db3.doc(T).set((await ten()) as any); const sent3: any[] = [];
+  const S1 = new Date(NOW + 2 * 3600e3).toISOString(), S2 = new Date(NOW + 2 * 3600e3 + 10 * 60000).toISOString();
+  const d3 = { ...deps, send: async (_d: any, _t: string, to: string, body: string) => { sent3.push({ to, body }); return { ok: true }; }, openTimes: (_e: any, q: any) => (q.staffId === 'maya' ? [{ startIso: S1 }] : [{ startIso: S2 }]) };
+  for (const [id, st, s] of [['y1', 'maya', S1], ['y2', 'jo', S2]] as const) await db3.doc(`${T}/appointments/${id}`).set({ id, staffId: st, staffName: 'P', serviceId: 'gel', startTime: s, endTime: new Date(Date.parse(s) + 3600e3).toISOString(), status: 'cancelled', cancelledAt: new Date(NOW - 5 * 60000).toISOString() });
+  await db3.doc(`${T}/clients/bea`).set({ name: 'Bea Cole', phone: '+15550009', noShowCount: 1 });
+  await db3.doc(`${T}/waitlist/bride`).set({ id: 'bride', status: 'waiting', clientId: 'bea', name: 'Bea Cole', phone: '+15550009', serviceId: 'gel', party: 2, noticeHours: 1, createdAt: '2026-10-10T12:00:00Z' });
+  await W.waitlistSweep(db3, 't1', await ten(), NOW, d3);
+  ok(!sent3.some((x) => /all 2 of you/.test(x.body)), 'a party whose organizer missed a visit is not offered same-day times');
+  await db3.doc(`${T}/clients/bea`).set({ name: 'Bea Cole', phone: '+15550009', noShowCount: 0 });
+  await W.waitlistSweep(db3, 't1', await ten(), NOW + 60000, d3);
+  ok(sent3.some((x) => /all 2 of you/.test(x.body)), 'without the no-show, the same times are offered');
   if (bad) process.exit(1); console.log('waitlist parties ok');
 })().catch((e) => { console.error(e); process.exit(1); });
