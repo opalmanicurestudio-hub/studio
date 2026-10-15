@@ -177,3 +177,29 @@ export function liftOf(rows: { held: boolean; cameBack: boolean }[]): { sent: nu
   const sb = s.filter((r) => r.cameBack).length, hb = h.filter((r) => r.cameBack).length; const enough = s.length >= 20 && h.length >= 20;
   return { sent: s.length, sentBack: sb, held: h.length, heldBack: hb, lift: enough ? Math.round(((sb / s.length) - (hb / h.length)) * 1000) / 10 : null, enough };
 }
+
+// ── Phase 6: the program builder — a few questions → a suggested program, with what each reward costs ──────────────
+// Suggestions only: nothing is saved until the owner reviews it and presses Save. The maths, not a guess: points are set
+// so the business gives back about the share it chose of what members spend.
+export interface BuilderAnswers { encourage: ('return' | 'rebook' | 'retail' | 'quiet')[]; givebackPct: number; avgTicket: number; visitsPerYear: number; addOn?: { id: string; name: string; price: number } | null; quietDay?: number }
+export function suggestProgram(a: BuilderAnswers): { settings: any; notes: string[] } {
+  const pct = Math.max(1, Math.min(15, a.givebackPct || 5)); const ticket = Math.max(10, a.avgTicket || 60); const visits = Math.max(1, a.visitsPerYear || 6);
+  const per10 = Math.max(50, Math.round((10 / (pct / 100)) / 25) * 25);   // points for $10 off at 1 point per $1
+  const rewards: any[] = [{ id: 'off10', name: '$10 off any service', points: per10, kind: 'amount_off', cents: 1000, costCents: 1000, on: true }];
+  if (a.addOn && a.addOn.price > 0) { const p = Math.max(25, Math.round((a.addOn.price / (pct / 100)) / 25) * 25); rewards.unshift({ id: 'addon', name: `Free ${a.addOn.name.toLowerCase()}`, points: p, kind: 'free_service', serviceId: a.addOn.id, costCents: Math.round(a.addOn.price * 100 * 0.3), on: true }); }
+  const yearSpend = ticket * visits; const settings: any = { on: false, earn: { mode: 'per_dollar', perDollar: 1, rebookBonus: a.encourage.includes('rebook') ? Math.max(10, Math.round(ticket * (pct / 100) * 2 / 5) * 5) : 0 },
+    counts: { services: true, products: true, giftCards: 'spent' }, leaveOut: { memberVisits: true, serviceIds: [], productIds: [] }, rewards, expiryMonths: 12, commission: 'full', join: 'everyone', oneRewardPerVisit: true,
+    tiers: visits >= 5 ? [{ id: 'gold', name: 'Gold', points: Math.round((yearSpend * 0.6) / 50) * 50, multiplier: 1.25, perks: ['Priority booking', 'Early access to new services'] }] : [], graceMonths: 3,
+    milestones: a.encourage.includes('return') ? [{ visits: 5, points: Math.round(per10 / 4 / 5) * 5 }, { visits: 10, points: Math.round(per10 / 2 / 5) * 5 }] : [],
+    auto: { rewardReady: a.encourage.includes('return'), tierUp: false, unused: a.encourage.includes('return'), comeBack: false, monthlyTexts: 200, holdoutPct: 10 },
+    quiet: { on: a.encourage.includes('quiet'), windows: a.encourage.includes('quiet') ? [{ id: 'q1', days: [a.quietDay ?? 2], from: '13:00', to: '16:00', serviceIds: [], bonus: Math.max(10, Math.round(per10 / 10 / 5) * 5) }] : [] } };
+  const notes = [
+    `About ${pct}% of what members spend comes back as rewards: $10 off every ${per10} points, so a client spending $${Math.round(yearSpend)} a year earns about $${Math.round(yearSpend * pct / 100)} back.`,
+    ...(a.addOn ? [`${rewards[0].name} at ${rewards[0].points} points costs you roughly $${(rewards[0].costCents / 100).toFixed(2)} in product and time (an estimate; set your real cost).`] : []),
+    ...(settings.earn.rebookBonus ? [`${settings.earn.rebookBonus} bonus points for booking the next visit before leaving.`] : []),
+    ...(settings.tiers.length ? [`Gold at ${settings.tiers[0].points} points a year (about ${Math.round(visits * 0.6)} visits) earns 25% faster, with perks that aren’t discounts.`] : []),
+    ...(settings.quiet.on ? ['Bonus points in a quiet afternoon instead of a discount. Change the day and hours to your own quiet times.'] : []),
+    'Messages are only suggested: none is switched on until you choose. Nothing is saved until you press Save.',
+  ];
+  return { settings, notes };
+}

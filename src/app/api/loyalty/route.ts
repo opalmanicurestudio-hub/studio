@@ -15,7 +15,7 @@ const j = (b: any, status = 200) => NextResponse.json(b, { status, headers: { 'C
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = String(b.tenantId || '').slice(0, 80); const action = String(b.action || '');
-  const mgr = ['settings', 'stats', 'adjust', 'dashboard'].includes(action);
+  const mgr = ['settings', 'stats', 'adjust', 'dashboard', 'basics'].includes(action);
   const g: any = await requireRole(req, tenantId, mgr ? 'manager' : 'staff'); if (g.deny) return g.deny;
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const tRef = db.doc(T); const tenant: any = (await tRef.get()).data() || {};
   const by = g.actor?.name || 'Staff';
@@ -28,6 +28,13 @@ export async function POST(req: NextRequest) {
       await logAuditAdmin(db, tenantId, { action: 'loyalty.settings', targetType: 'tenant', targetId: tenantId, summary: `${by} saved the loyalty program${next.version !== cur.version ? ` (rules version ${next.version})` : ''}`, actor: { type: 'user', id: g.actor?.uid || '', name: by, role: g.actor?.role || '' } } as any).catch(() => {});
       return j({ ok: true, settings: next, terms: termsOf(next) }); }
     return j({ ok: true, settings: cur, terms: termsOf(cur) });
+  }
+  if (action === 'basics') {   // for the program builder: the business's own average visit and how often clients come
+    const since = new Date(Date.now() - 365 * 864e5).toISOString();
+    const ap = (await db.collection(`${T}/appointments`).where('startTime', '>=', since).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {}).filter((a: any) => a.status === 'completed' && a.clientId && !a.isRenterBooking);
+    const rev = ap.map((a: any) => Number(a.revenue ?? a.price) || 0).filter((n: number) => n > 0); const per = new Map<string, number>(); for (const a of ap) per.set(String(a.clientId), (per.get(String(a.clientId)) || 0) + 1);
+    const regulars = [...per.values()].filter((n) => n >= 2);
+    return j({ ok: true, avgTicket: rev.length ? Math.round(rev.reduce((a: number, n: number) => a + n, 0) / rev.length) : null, visitsPerYear: regulars.length ? Math.round((regulars.reduce((a, n) => a + n, 0) / regulars.length) * 10) / 10 : null, visits: ap.length });
   }
   if (action === 'dashboard') { const { loyaltyDashboard } = await import('@/lib/loyalty-server'); return j(await loyaltyDashboard(db, tenantId, tenant)); }
   if (action === 'stats') {

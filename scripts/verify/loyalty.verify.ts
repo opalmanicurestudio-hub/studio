@@ -83,6 +83,13 @@ import { makeDb, check, failures } from './fake-db';
     const lf = L.liftOf(rows); check('what the message changed: 40% came back vs 25% left alone → +15 points', lf.enough && lf.lift === 15);
     check('…and too few to say → it says so', !L.liftOf(rows.slice(0, 30)).enough && L.liftOf(rows.slice(0, 30)).lift === null); }
 
+  // Phase 6: the builder
+  { const sp = L.suggestProgram({ encourage: ['return', 'quiet'], givebackPct: 5, avgTicket: 60, visitsPerYear: 8 });
+    const S6 = L.loyaltyOf({ loyalty: { ...sp.settings, on: true } });
+    check('builder: 5% back → $10 off every 200 points; off until the owner saves it', !sp.settings.on && S6.rewards.find((r) => r.id === 'off10')?.points === 200);
+    check('…a client spending $480 a year earns about $24 back', /about \$24 back/.test(sp.notes[0]));
+    check('…a quiet-time bonus instead of a discount, and messages only suggested', S6.quiet.on && /Nothing is saved/.test(sp.notes[sp.notes.length - 1])); }
+
   // Checkout maths
   const { computeCheckout } = await import('../../src/lib/checkout-calc');
   const base: any = { tenant: { loyalty: { on: true } }, visits: [{ appointment: { id: 'a1', staffId: 's' }, service: { id: 'gel', price: 55 }, addOnServices: [] }], staff: [{ id: 's' }], redeemedOffer: null, waivedIds: [], items: [], fees: [], discounts: [], client: null, memberships: [], tip: 0, storeCredit: 0 };

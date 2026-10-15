@@ -5,6 +5,7 @@
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 import { LoyaltyDashboard } from '@/components/loyalty/LoyaltyDashboard';
+import { ProgramBuilder } from '@/components/loyalty/ProgramBuilder';
 import { useInventory } from '@/context/InventoryContext';
 import { EARN_LABEL, EXPIRY_CHOICES, termsOf, loyaltyOf, AUTO_TEXTS, windowWords, type EarnMode, type Reward } from '@/lib/loyalty';
 
@@ -47,6 +48,7 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
       </div>}
 
       {s.on && <LoyaltyDashboard tenantId={tenantId} unit={unit} />}
+      <ProgramBuilder tenantId={tenantId} services={services || []} onUse={(x) => { setS((cur: any) => ({ ...cur, ...x, on: cur.on, version: cur.version, updatedAt: cur.updatedAt })); setMsg({ ok: true, t: 'Filled in from the suggestion. Review it, then press Save.' }); }} />
 
       <div className="grid gap-5 md:grid-cols-2">
         <section className={`${card} space-y-4`} style={{ borderColor: LINE }}>
